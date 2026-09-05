@@ -120,7 +120,11 @@ class BasisAnalyzer:
     Caches results with configurable TTL to avoid excessive API calls.
     """
 
-    def __init__(self, exchange_factory=None, ttl_seconds: float = 60.0):
+    #: A 60s TTL against a sweep that re-reaches the same symbol every ~280s
+    #: missed EVERY pass, so the cache existed and never served anything —
+    #: the same shape as the OHLCV cap that could not hold one sweep. Sized
+    #: off the tick cap instead: basis moves on funding cadence, not ticks.
+    def __init__(self, exchange_factory=None, ttl_seconds: float = 600.0):
         self._exchange_factory = exchange_factory
         self._ttl = ttl_seconds
         self._cache: dict[str, tuple[float, BasisResult]] = {}  # symbol -> (timestamp, result)
@@ -162,10 +166,23 @@ class BasisAnalyzer:
             if exchange is None:
                 return None
 
-            spot_ticker = await exchange.fetch_ticker(symbol)
+            # BOTH LEGS ARE DERIVED, because the caller's symbol can already
+            # be either one. `swap = symbol + ":USDT" if ":USDT" not in symbol
+            # else symbol` left swap == symbol for every perp — and the scan
+            # universe is Bitget perps, so that was the ORDINARY case, not an
+            # edge. It fetched the same ticker twice and handed compute_basis
+            # a price and itself, which is a perfectly flat 0.0% basis
+            # manufactured from no comparison at all. A fabricated measurement
+            # is worse than a missing one; this module's own docstring is
+            # about a provider that "silently fails" being indistinguishable
+            # from one never called, and a confident 0.0% is that one level
+            # further on.
+            spot_symbol = symbol.split(":", 1)[0]
+            swap_symbol = f"{spot_symbol}:USDT"
+            if spot_symbol == swap_symbol:
+                return None
 
-            # Fetch perpetual swap ticker (symbol:USDT convention in ccxt)
-            swap_symbol = symbol + ":USDT" if ":USDT" not in symbol else symbol
+            spot_ticker = await exchange.fetch_ticker(spot_symbol)
             try:
                 swap_ticker = await exchange.fetch_ticker(swap_symbol)
             except Exception:

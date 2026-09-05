@@ -182,10 +182,12 @@ class TestAnthropicCostIsTracked:
         assert answer == "a" * 400
         snap = cost.snapshot()
         assert snap.llm_calls == 1
-        # "chat" isn't one of cost.py's tracked categories (scan/analyze/
-        # thesis/risk_decision/other), so it folds into "other" -- the
-        # regression this guards is llm_calls/cost being recorded AT ALL.
-        assert snap.calls_by_category.get("other", 0) == 1
+        # The regression this guards is llm_calls/cost being recorded AT ALL.
+        # It used to land in "other", because COST_CATEGORIES omitted "chat"
+        # and the tuple is a filter — so the one durable per-call record of
+        # which model served a turn could not be told from analysis spend.
+        assert snap.calls_by_category.get("chat", 0) == 1
+        assert snap.calls_by_category.get("other", 0) == 0
         # completion_tokens estimated from the real answer length (~4 chars/token)
         assert snap.completion_tokens == 100
 

@@ -45,18 +45,43 @@ def _side(v: Any) -> str:
     return ""
 
 
-def assess(positions: list[dict], *,
+def assess(positions: Optional[list[dict]], *,
            envelope: Optional[dict] = None,
            equity_usd: Optional[float] = None,
-           spent_today_usd: float = 0.0,
+           spent_today_usd: Optional[float] = 0.0,
            daily_cap: Optional[float] = None,
            concentration_pct: float = 40.0) -> dict:
     """Assess a user's standing posture. Returns
-    ``{alerts:[{level,category,symbol?,msg}], count, worst_level, gross_usd}``.
+    ``{alerts:[{level,category,symbol?,msg}], count, worst_level, gross_usd,
+    book_read}``.
 
-    ``positions``: ``[{symbol, side, notional_usd}]`` (open positions).
+    ``positions``: ``[{symbol, side, notional_usd}]`` (open positions), or
+    **None when the book could not be read**. Those are different facts and
+    they were the same value: the caller answered a failed portfolio read with
+    ``[]``, nothing flagged on an empty list, and the endpoint returned
+    "🟢 nothing flagged in your current posture" — an all-clear assembled from
+    a crash, on a risk surface. Byte-for-byte the `escape_agent.plan()` defect
+    CLAUDE.md records as fixed, and `integrity_veto.assess({})` answering
+    ``clear`` over ``checked == 0``. This is the sibling that was missed.
+
+    ``spent_today_usd`` is Optional for the same reason: the caller folded a
+    failed ledger read to ``0.0``, which cannot trip ``spent >= 0.8 * cap``,
+    so the daily-cap warning was structurally unreachable on any ledger fault.
+
     ``envelope``: the user's compiled Authority Envelope (or None).
     """
+    if positions is None:
+        # Not an empty book. NOTHING was assessed, so nothing may be reported
+        # as clear — including the checks that do not need positions, because
+        # a partial assessment printed as a whole one is the same lie.
+        return {
+            "alerts": [{"level": "unknown", "category": "book_unreadable",
+                        "msg": "Your open positions could not be read, so "
+                               "your posture was not assessed. This is a "
+                               "failed read, not an empty book."}],
+            "count": 0, "worst_level": "unknown", "gross_usd": None,
+            "book_read": False,
+        }
     alerts: list[dict] = []
     norm: list[dict] = []
     for p in (positions or []):
@@ -93,8 +118,13 @@ def assess(positions: list[dict], *,
 
     # ── 24h spend nearing the daily cap ──
     cap = _f(daily_cap) if daily_cap is not None else _f((envelope or {}).get("max_notional_daily_usd"))
-    spent = _f(spent_today_usd) or 0.0
-    if cap is not None and cap > 0 and spent >= 0.8 * cap:
+    spent = _f(spent_today_usd)
+    if cap is not None and cap > 0 and spent is None:
+        # An unread ledger cannot clear a cap. Say so rather than pass.
+        alerts.append({"level": "unknown", "category": "daily_spend",
+                       "msg": f"Today's spend could not be read, so your "
+                              f"${cap:,.0f} daily cap was not checked."})
+    elif cap is not None and cap > 0 and spent is not None and spent >= 0.8 * cap:
         pct = spent / cap * 100
         lvl = "warn" if spent >= cap else "caution"
         alerts.append({"level": lvl, "category": "daily_spend",
@@ -134,14 +164,22 @@ def assess(positions: list[dict], *,
     alerts.sort(key=lambda a: _ORDER.get(a["level"], 0), reverse=True)
     worst = alerts[0]["level"] if alerts else "clear"
     return {"alerts": alerts, "count": len(alerts), "worst_level": worst,
-            "gross_usd": gross}
+            "gross_usd": gross, "book_read": True}
 
 
 def human_readable(report: Optional[dict]) -> str:
     """Plain-text render (no markup)."""
-    if not report or not report.get("alerts"):
+    if not report:
+        # A missing report is a failed assessment, not a clean posture.
+        return ("⚪ Risk sentry: could not assess your posture. This is a "
+                "failed read, not an all-clear.")
+    if report.get("book_read") is False or not report.get("alerts"):
+        if report.get("book_read") is False:
+            return ("⚪ Risk sentry: " + report["alerts"][0]["msg"]
+                    if report.get("alerts") else
+                    "⚪ Risk sentry: your posture was not assessed.")
         return "🟢 Risk sentry: nothing flagged in your current posture."
-    icon = {"warn": "🔴", "caution": "🟠", "info": "🔵"}
+    icon = {"warn": "🔴", "caution": "🟠", "info": "🔵", "unknown": "⚪"}
     lines = [f"Risk sentry — {report['count']} flag(s):"]
     for a in report["alerts"]:
         lines.append(f"{icon.get(a['level'], '•')} {a['msg']}")

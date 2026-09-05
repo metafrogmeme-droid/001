@@ -107,7 +107,12 @@ def gate_words(gate: "str | None") -> str:
     return f"{_BAD} TRIPPED ({gate})"
 
 
-def _status(v: float) -> str:
+def _status(v: Optional[float]) -> str:
+    # _NEU is a MEASURED flat. An unread value gets _WARN, because "neither
+    # up nor down" and "nobody looked" are not the same claim and must not
+    # share a glyph.
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return _WARN
     return _OK if v > 0 else _BAD if v < 0 else _NEU
 
 def _spark(v: Optional[float]) -> str:
@@ -169,8 +174,15 @@ def _bar(val: float, mx: float = 1.0, w: int = 10) -> str:
     f = int(r * w)
     return "\u2501" * f + "\u254c" * (w - f)  # ━ filled, ╌ empty
 
-def _gauge(label: str, val: float, mx: float, unit: str = "%", w: int = 12) -> str:
-    """Visual gauge with gradient bar and inline value."""
+def _gauge(label: str, val: Optional[float], mx: float, unit: str = "%", w: int = 12) -> str:
+    """Visual gauge with gradient bar and inline value.
+
+    An unread value gets NO BAR: an empty one reads as zero, and on a
+    drawdown or exposure gauge zero is the all-clear.
+    """
+    if not isinstance(val, (int, float)) or isinstance(val, bool):
+        _empty = "\u254c" * w
+        return f"  {_WARN} {label:<10} \u2502{_empty}\u2502 not read"
     bar = _bar(val, mx, w)
     # Pick endpoint emoji based on fill level
     r = val / mx if mx > 0 else 0
@@ -265,7 +277,15 @@ def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
         return ""
     return f"<blockquote>{_esc(prose[:limit])}</blockquote>{tail}"
 
-def _money(v: float, sign: bool = False) -> str:
+def _money(v: Optional[float], sign: bool = False) -> str:
+    """Money, or an em dash when nobody could read it.
+
+    Guarded HERE rather than at each call site, the way _fmt_price(None) is:
+    a dozen callers each remembering to check is a dozen chances to forget,
+    and the one that forgets prints "$0.00" for an unread balance.
+    """
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return "--"
     if sign:
         return f"${v:+,.2f}"
     return f"${v:,.2f}"
@@ -637,21 +657,33 @@ class CheckRiskSkill(BaseSkill):
 
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
-            live_eq = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            display_equity = live_eq if live_eq > 0 else state.equity_usd
+            # `live_eq if live_eq > 0 else state.equity_usd` was the second
+            # door onto the paper book: an unreadable live balance fell
+            # through to the PAPER snapshot, so fixing the engine helper alone
+            # would have changed nothing here. None travels.
+            display_equity = await engine.get_effective_equity_async(
+                kwargs.get("user_id", ""))
             executor = engine.live_executor
             live_open = executor.open_positions
             live_closed = executor.closed_positions
             total_exp = sum(lp.cost_usd for lp in live_open)
             display_open = len(live_open)
             display_total_trades = len(live_closed)
-            display_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+            # `sum((p.pnl_usd or 0) ...)` books every unpriced close as a
+            # measured break-even and prints the partial as a whole — and the
+            # comment explaining exactly that was already sitting on the next
+            # three lines, applied to the win rate only.
+            from bot.formatters.realized_totals import realized_totals as _rt_fn
+            from bot.utils.win_rate import win_stats as _win_stats
+            display_pnl = _rt_fn(live_closed)["net"]
             # Scored over scorable: pnl_usd is Optional, and `or 0` filed
             # every unpriced close as a defeat while len() kept it in the
             # denominator.
-            from bot.utils.win_rate import win_stats as _win_stats
             _ws = _win_stats(live_closed)
-            display_win_rate = _ws["rate"] if _ws["rate"] is not None else 0.0
+            # ...and then the tri-state was folded back at the display. A live
+            # account with no scorable close read "Win Rate: 0%", a measured
+            # record of total failure built from no measurement.
+            display_win_rate = _ws["rate"]
         else:
             display_equity = state.equity_usd
             total_exp = sum(p.entry_price * p.quantity for p in portfolio.open_positions)
@@ -659,7 +691,11 @@ class CheckRiskSkill(BaseSkill):
             display_total_trades = state.total_trades
             display_pnl = state.daily_pnl
             display_win_rate = state.win_rate
-        exp_pct = (total_exp / display_equity * 100) if display_equity > 0 else 0
+        # A LIVE numerator over a PAPER denominator understated exposure and
+        # then coloured a gauge with it. Unreadable equity means the ratio is
+        # unknown, not zero.
+        exp_pct = (total_exp / display_equity * 100
+                   if display_equity else None)
 
         from bot.risk.risk_engine import _CORRELATION_GROUPS
         groups: dict[str, int] = {}
@@ -667,16 +703,33 @@ class CheckRiskSkill(BaseSkill):
             g = _CORRELATION_GROUPS.get(pos.asset, pos.asset)
             groups[g] = groups.get(g, 0) + 1
 
+        # THE DRAWDOWN THE BREAKER ENFORCES, read ONCE for both panes so they
+        # cannot disagree. Both scored off `state.max_drawdown_pct` — the
+        # PAPER snapshot — and neither called drawdown_status() at all, one
+        # step behind /status, which at least tried. risk_engine's own comment
+        # records why that is wrong: live fills never touch the paper
+        # portfolio, so in pure-live operation the number does not move. The
+        # status pane could therefore print "System Health 100%" beside its
+        # own correct "TRIPPED (drawdown)".
+        from bot.formatters.drawdown_card import resolve_display_drawdown
+        try:
+            _st = engine.risk.drawdown_status()
+        except Exception:
+            _st = None
+        dd = resolve_display_drawdown(state.max_drawdown_pct, _st,
+                                      CONFIG.risk.max_drawdown_pct)
+
         if mode == "status":
             return self._status(engine, state, cb, streak, cost, exp_pct,
                                 display_equity, display_open, display_total_trades,
-                                display_pnl, display_win_rate, gate=gate)
+                                display_pnl, display_win_rate, gate=gate, dd=dd)
         return self._risk(state, cb, streak, total_exp, exp_pct, groups,
-                          display_equity, display_open, display_pnl, gate=gate)
+                          display_equity, display_open, display_pnl, gate=gate,
+                          dd=dd)
 
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
-                display_pnl, display_win_rate, gate=None):
+                display_pnl, display_win_rate, gate=None, dd=(None, None, 0.0)):
         mode = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
         cb_s = gate_words(gate)
         macro = engine.macro_calendar.evaluate()
@@ -687,31 +740,48 @@ class CheckRiskSkill(BaseSkill):
         }
         m_icon = macro_icons.get(macro.state.value, _NEU)
         m_label = macro.state.value.replace("_", " ").title()
-        net = display_equity - cost.operating_cost_usd
+        net = (display_equity - cost.operating_cost_usd
+               if display_equity is not None else None)
         pnl_icon = _status(display_pnl)
 
-        # Health score: combine drawdown headroom + win rate + streak safety
-        dd_health = max(0, 100 - (state.max_drawdown_pct / CONFIG.risk.max_drawdown_pct * 100)) if CONFIG.risk.max_drawdown_pct > 0 else 100
+        # THE DRAWDOWN THE BREAKER ENFORCES. This scored System Health off
+        # `state.max_drawdown_pct` — the PAPER snapshot — and never called
+        # drawdown_status() at all, one step behind /status, which at least
+        # tried. risk_engine's own comment records the fact that makes it
+        # wrong: live fills never touch the paper portfolio, so in pure-live
+        # operation that number does not move. The card could therefore print
+        # "System Health 100%" beside its own correct "TRIPPED (drawdown)".
+        from bot.formatters.drawdown_card import drawdown_source_note
+        _dd_pct, _dd_src, _dd_lim = dd
+
+        # Health score: combine drawdown headroom + streak safety. Three
+        # outcomes, not two — an unread drawdown cannot be scored, and
+        # scoring it as full headroom is the all-clear this file exists to
+        # refuse.
+        dd_health = (max(0, 100 - (_dd_pct / _dd_lim * 100))
+                     if _dd_pct is not None and _dd_lim > 0 else None)
         streak_health = max(0, 100 - (streak / CONFIG.risk.max_consecutive_losses * 100)) if CONFIG.risk.max_consecutive_losses > 0 else 100
-        overall = (dd_health + streak_health) / 2
-        health_ring = _progress_ring(overall)
+        overall = (dd_health + streak_health) / 2 if dd_health is not None else None
+        health_ring = _progress_ring(overall) if overall is not None else _WARN
+        _health_txt = _pill(f"{overall:.0f}%") if overall is not None else _pill("not measured")
 
         return (
             f"\U0001f43e <b>RUNECLAW STATUS</b>\n{SEP}\n\n"
             f"  {cb_s}  \u2502  {mode}  \u2502  {m_icon} {m_label}\n"
-            f"  {health_ring} System Health {_pill(f'{overall:.0f}%')}\n\n"
+            f"  {health_ring} System Health {_health_txt}\n\n"
             # ── Capital card ──
             f"\U0001f4b0 <b>Capital</b>\n"
             f"- Equity: <code>{_money(display_equity)}</code>\n"
             f"- Net: <code>{_money(net)}</code>\n"
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
-            f"- Drawdown: <code>{state.max_drawdown_pct:.1f}%</code>\n\n"
+            f"- Drawdown: <code>{'--' if _dd_pct is None else f'{_dd_pct:.1f}%'}</code>"
+            f"{drawdown_source_note(_dd_src)}\n\n"
             # ── Positions card ──
             f"\U0001f4ca <b>Positions</b>\n"
             f"- Open: <code>{display_open} / {CONFIG.risk.max_open_positions}</code>\n"
             f"- Total: <code>{display_total_trades}</code>\n"
-            f"- Win Rate: <code>{display_win_rate:.0%}</code>\n"
-            f"- Exposure: <code>{exp_pct:.0f}%</code>\n\n"
+            f"- Win Rate: <code>{'--' if display_win_rate is None else f'{display_win_rate:.0%}'}</code>\n"
+            f"- Exposure: <code>{'--' if exp_pct is None else f'{exp_pct:.0f}%'}</code>\n\n"
             # ── Risk gate ──
             f"\U0001f6e1 <b>Risk Gate</b>\n"
             f"- Breaker: <code>{gate_words(gate)}</code>\n"
@@ -729,24 +799,37 @@ class CheckRiskSkill(BaseSkill):
         )
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
-              display_equity, display_open, display_pnl, gate=None):
+              display_equity, display_open, display_pnl, gate=None,
+              dd=(None, None, 0.0)):
         _gw = gate_words(gate)
         cb_icon, cb_label = _gw.split(" ", 1)
         grp = ", ".join(f"{g}={c}" for g, c in groups.items()) if groups else "none"
 
-        # Compute an overall risk health score
-        dd_r = state.max_drawdown_pct / CONFIG.risk.max_drawdown_pct if CONFIG.risk.max_drawdown_pct > 0 else 0
-        exp_r = exp_pct / CONFIG.risk.max_portfolio_exposure_pct if CONFIG.risk.max_portfolio_exposure_pct > 0 else 0
+        from bot.formatters.drawdown_card import drawdown_source_note
+        _dd_pct, _dd_src, _dd_lim = dd
+
+        # Compute an overall risk health score. Two of the three inputs can be
+        # unread, and an unread input scored as zero risk is the all-clear
+        # this file exists to refuse — so the score is withheld instead.
+        dd_r = (_dd_pct / _dd_lim if _dd_pct is not None and _dd_lim > 0
+                else None)
+        exp_r = (exp_pct / CONFIG.risk.max_portfolio_exposure_pct
+                 if exp_pct is not None
+                 and CONFIG.risk.max_portfolio_exposure_pct > 0 else None)
         str_r = streak / CONFIG.risk.max_consecutive_losses if CONFIG.risk.max_consecutive_losses > 0 else 0
-        risk_score = max(0, 100 - int((dd_r + exp_r + str_r) / 3 * 100))
-        health_bar = _bar(risk_score, 100, 14)
+        _known = [r for r in (dd_r, exp_r, str_r) if r is not None]
+        _scorable = dd_r is not None and exp_r is not None
+        risk_score = (max(0, 100 - int(sum(_known) / len(_known) * 100))
+                      if _scorable else None)
+        health_bar = _bar(risk_score, 100, 14) if risk_score is not None else "\u254c" * 14
+        _score_txt = _pill(f"{risk_score}%") if risk_score is not None else _pill("not measured")
 
         return (
             f"{_SHIELD} <b>RISK DASHBOARD</b>\n{SEP}\n\n"
             f"  {cb_icon} Circuit Breaker: <b>{cb_label}</b>\n"
-            f"  \u25cf Health Score \u2502{health_bar}\u2502 {_pill(f'{risk_score}%')}\n\n"
+            f"  \u25cf Health Score \u2502{health_bar}\u2502 {_score_txt}\n\n"
             # ── Visual gauges ──
-            f"{_gauge('Drawdown', state.max_drawdown_pct, CONFIG.risk.max_drawdown_pct)}\n"
+            f"{_gauge('Drawdown', _dd_pct, _dd_lim)}{drawdown_source_note(_dd_src)}\n"
             f"{_gauge('Exposure', exp_pct, CONFIG.risk.max_portfolio_exposure_pct)}\n"
             f"{_gauge('Streak', streak, CONFIG.risk.max_consecutive_losses, unit='#')}\n\n"
             # ── Capital breakdown ──
@@ -801,14 +884,14 @@ class GetPortfolioSkill(BaseSkill):
 
             # Get real equity
             user_id = kwargs.get("user_id", "")
-            display_equity = 0.0
+            # The `<= 0` fallback was the second door onto the paper book:
+            # it caught the unreadable case (now None) AND a genuinely empty
+            # live account, and answered both with the paper baseline.
+            display_equity = None
             try:
                 display_equity = await engine.get_effective_equity_async(user_id)
             except Exception:
                 pass
-            if display_equity <= 0:
-                portfolio = _get_portfolio(engine, **kwargs)
-                display_equity = portfolio.snapshot().equity_usd
 
             # NOT sum(p.pnl_usd or 0 ...): that books every unpriced close as
             # a measured break-even and prints the partial result as a whole
@@ -844,9 +927,19 @@ class GetPortfolioSkill(BaseSkill):
             if live_closed:
                 lines.extend(["", "<b>Recent:</b>"])
                 for t in live_closed[-5:]:
-                    pnl_val = t.pnl_usd or 0
-                    icon = "\U0001f7e2" if pnl_val >= 0 else "\U0001f534"
-                    lines.append(f"  {icon} {t.symbol} {t.direction} <code>${pnl_val:+,.2f}</code>")
+                    # The TOTAL above was rewritten around realized_totals();
+                    # these rows kept `or 0`, so an unpriced close renders
+                    # "$+0.00" in GREEN — a measured break-even, in the colour
+                    # that means profit, on a row nobody could price. The
+                    # comment 30 lines up says exactly this about the total.
+                    _raw = getattr(t, "pnl_usd", None)
+                    pnl_val = (float(_raw) if isinstance(_raw, (int, float))
+                               and not isinstance(_raw, bool) else None)
+                    icon = ("\u26aa" if pnl_val is None
+                            else "\U0001f7e2" if pnl_val >= 0 else "\U0001f534")
+                    _cell = ("no recorded P&amp;L" if pnl_val is None
+                             else f"<code>${pnl_val:+,.2f}</code>")
+                    lines.append(f"  {icon} {t.symbol} {t.direction} {_cell}")
 
             if not live_open and not live_closed:
                 lines.append("\nNo trades yet. Say \"scan\" to find setups.")
@@ -1420,11 +1513,13 @@ class CostBreakdownSkill(BaseSkill):
         # Use live equity in LIVE mode
         if CONFIG.is_live():
             econ_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            if econ_equity <= 0:
-                econ_equity = state.equity_usd
         else:
             econ_equity = state.equity_usd
-        net = econ_equity - cost.operating_cost_usd
+        # Unreadable equity means an unknown net, not a net computed from the
+        # paper baseline minus real operating cost — a number describing no
+        # account that exists.
+        net = (econ_equity - cost.operating_cost_usd
+               if econ_equity is not None else None)
 
         lines = [
             f"\U0001f4b0 <b>AGENT ECONOMICS</b>\n{SEP}",
@@ -2085,12 +2180,14 @@ class ProScanSkill(BaseSkill):
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
             scan_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            if scan_equity <= 0:
-                scan_equity = state.equity_usd
             executor = engine.live_executor
             scan_open = len(executor.open_positions)
             live_closed = executor.closed_positions
-            scan_pnl = sum((p.pnl_usd or 0) for p in live_closed)
+            # `or 0` books every unpriced close as a measured break-even and
+            # prints the partial as a whole. The same file gets this right
+            # 600 lines down, with pnl_stats().
+            from bot.formatters.realized_totals import realized_totals as _rt_scan
+            scan_pnl = _rt_scan(live_closed)["net"]
         else:
             scan_equity = state.equity_usd
             scan_open = state.open_positions
@@ -2755,8 +2852,6 @@ class PlaybookSkill(BaseSkill):
         # LIVE FIX: show real exchange equity in LIVE mode
         if CONFIG.is_live():
             display_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            if display_equity <= 0:
-                display_equity = state.equity_usd
             executor = engine.live_executor
             live_pos = executor.open_positions
             live_open_count = len(live_pos)
@@ -2767,7 +2862,10 @@ class PlaybookSkill(BaseSkill):
             from bot.utils.win_rate import pnl_stats as _pnl_stats
             _rp = _pnl_stats(closed_trades)
             realized_pnl = _rp["total"]
-            utilization_pct = (total_exposure / display_equity * 100) if display_equity > 0 else 0
+            # None, not 0: with the equity unread the ratio is unknown, and
+            # "0% utilised" is the reassuring end of the range.
+            utilization_pct = (total_exposure / display_equity * 100
+                               if display_equity else None)
             # Age-gated (engine.live_balance_cached): the direct cache read
             # showed an hours-old "Available" as current when venue fetches
             # kept failing. Unknown renders as "unavailable", never $0.00 —
@@ -2880,7 +2978,8 @@ class PlaybookSkill(BaseSkill):
                     leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
 
                     # Exposure % of equity
-                    exp_pct = (cost / display_equity * 100) if display_equity > 0 else 0
+                    exp_pct = (cost / display_equity * 100
+                               if display_equity else None)
 
                     # SL/TP order status
                     sl_status = "\u2705" if pos.sl_order_id else "\u26a0\ufe0f manual"

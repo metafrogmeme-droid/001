@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from bot.formatters.drawdown_card import drawdown_source_note
 from bot.utils.i18n import t
 
 log = logging.getLogger("runeclaw.formatters")
@@ -766,7 +767,7 @@ def render_multi_analysis(
 
 # ── Open positions card ──────────────────────────────────────────
 
-def render_live_portfolio_summary(equity: float, open_count: int,
+def render_live_portfolio_summary(equity: Optional[float], open_count: int,
                                   exposure: float,
                                   realized_pnl: Optional[float],
                                   total_closed: int,
@@ -814,7 +815,13 @@ def render_live_portfolio_summary(equity: float, open_count: int,
         pnl_cell = f"{pnl_icon} <code>${realized_pnl:+,.2f}</code>"
     lines = [
         "<b>Portfolio</b> (LIVE)\n",
-        f"Equity: <code>${equity:,.2f}</code>",
+        # Optional like realized_pnl and win_rate beside it: this renderer was
+        # already tri-state for the two numbers derived FROM the balance while
+        # the balance itself could still only be a float, so an unreadable one
+        # had to be folded to a number before it got here.
+        "Equity: <code>"
+        + (f"${equity:,.2f}" if equity is not None else "unavailable")
+        + "</code>",
         f"Open: <code>{open_count}</code> | Exposure: <code>${exposure:,.2f}</code>",
         f"Realized PnL (all-time): {pnl_cell}",
     ]
@@ -1266,8 +1273,8 @@ def render_status_card(
     equity: Optional[float],
     open_positions: int,
     daily_pnl: Optional[float],
-    drawdown: float,
-    max_drawdown: float,
+    drawdown: Optional[float],
+    max_drawdown: Optional[float],
     market_bias: str,
     pending_ideas: int = 0,
     lang: str = "en",
@@ -1276,6 +1283,7 @@ def render_status_card(
     next_tick_in_s: Optional[float] = None,
     phase_timeout: Optional[dict] = None,
     phase_headroom: Optional[dict] = None,
+    drawdown_source: Optional[str] = None,
     position_watch: Optional[dict] = None,
     tick_error: Optional[dict] = None,
 ) -> str:
@@ -1408,15 +1416,41 @@ def render_status_card(
         f"- {t('lbl_daily_pnl', lang)}: {pnl_icon} {_dp_str}",
         "",
         f"<b>{t('hdr_risk', lang)}</b>",
-        f"- {t('lbl_drawdown', lang)}: {_pct(drawdown)} / {_pct(max_drawdown)} {t('lbl_limit_word', lang)}",
     ]
 
-    # Drawdown gauge
-    ratio = drawdown / max_drawdown if max_drawdown > 0 else 0
-    bar_len = 12
-    filled = int(ratio * bar_len)
-    bar = "\u2501" * filled + "\u254c" * (bar_len - filled)
-    tip = "\U0001f7e2" if ratio < 0.5 else "\U0001f7e1" if ratio < 0.8 else "\U0001f534"
-    lines.append(f"  {tip} \u2502{bar}\u2502")
+    # The drawdown the BREAKER enforces, and WHERE IT CAME FROM. The caller
+    # falls back to the paper snapshot when the live read fails — a defensible
+    # fail-safe, since blanking the line on a transient fault is worse — but
+    # the paper figure never moves in pure-live operation, so printing it
+    # unlabelled beside the LIVE limit is how an operator came to read "~0%
+    # from a gate that was refusing trades at 9%". Attribution is what makes
+    # the fallback honest rather than a substitution.
+    # Narrowed into locals rather than tested through a boolean flag: a flag
+    # tells a reader the value is safe and tells the type checker nothing, so
+    # the division below stays unverified exactly where it matters.
+    _dd_val: Optional[float] = (
+        float(drawdown) if isinstance(drawdown, (int, float))
+        and not isinstance(drawdown, bool) else None)
+    _lim_val: Optional[float] = (
+        float(max_drawdown) if isinstance(max_drawdown, (int, float))
+        and not isinstance(max_drawdown, bool) and max_drawdown > 0 else None)
+    _dd_txt = _pct(_dd_val) if _dd_val is not None else t("dd_not_read", lang)
+    _lim_txt = (f"{_pct(_lim_val)} {t('lbl_limit_word', lang)}"
+                if _lim_val is not None else "—")
+    lines.append(
+        f"- {t('lbl_drawdown', lang)}: {_dd_txt} / {_lim_txt}"
+        + drawdown_source_note(drawdown_source))
+
+    # Drawdown gauge. An unread drawdown gets NO BAR: an empty one reads as a
+    # flat equity curve, which is the claim this whole block exists to avoid.
+    if _dd_val is not None and _lim_val is not None:
+        ratio = _dd_val / _lim_val
+        bar_len = 12
+        filled = int(ratio * bar_len)
+        bar = "\u2501" * filled + "\u254c" * (bar_len - filled)
+        tip = "\U0001f7e2" if ratio < 0.5 else "\U0001f7e1" if ratio < 0.8 else "\U0001f534"
+        lines.append(f"  {tip} \u2502{bar}\u2502")
+    else:
+        lines.append(f"  \u26aa <i>{t('dd_unreadable_note', lang)}</i>")
 
     return "\n".join(lines)

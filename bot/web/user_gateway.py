@@ -354,8 +354,11 @@ async def handle_chat(request: web.Request) -> web.Response:
             _san_v(_q), user_id=tg_id, user_name=name,
             is_admin=True, profile_note=profile_note, reply_lang=reply_lang,
             return_meta=True, images=images)
-        tg_handler.conversations.append(tg_id, "assistant", answer,
-                                        metadata={"surface": "web"})
+        tg_handler.conversations.append(
+            tg_id, "assistant", answer,
+            metadata={"surface": "web", **({"provider": meta["provider"],
+                                            "model": meta["model"]} if meta
+                                           else {"answered_by": "none"})})
         return web.json_response({"reply_html": answer, "intent": "vision",
                                   "model": (meta or {}).get("model", ""),
                                   "provider": (meta or {}).get("provider", "")})
@@ -525,9 +528,22 @@ async def handle_chat(request: web.Request) -> web.Response:
     try:
         _tier = "admin" if _is_admin else tg_handler.users.get_tier(tg_id)
     except Exception:
-        _tier = "admin" if _is_admin else "basic"
+        # NOT "basic". `basic` is not quota-exempt, so a store read that threw
+        # billed a pro or elite subscriber against the 5/day FREE cap and then
+        # sold them an upgrade they had already bought — unreadable resolved
+        # to the cheapest tier, on the one field that decides whether someone
+        # has paid. None means "could not classify this caller", and an
+        # unclassified caller is not metered: failing open for the length of a
+        # store outage risks some free usage, while failing closed tells a
+        # paying customer they are out of questions.
+        _tier = "admin" if _is_admin else None
     from bot.web import chat_quota
-    _q = chat_quota.consume(tg_id, _tier)
+    # `is_quota_exempt(None)` is False, so handing None to consume() would
+    # still meter the caller — the guard has to be here, not in the predicate,
+    # because making an ABSENT tier exempt would silently unmeter every caller
+    # that omits the argument.
+    _q = (chat_quota.consume(tg_id, _tier) if _tier is not None
+          else chat_quota.unmetered())
     if not _q.get("allowed"):
         _lim = _q.get("limit") or chat_quota.free_daily_limit()
         # Tell the capped user WHEN their free questions return, so the wall
@@ -562,8 +578,26 @@ async def handle_chat(request: web.Request) -> web.Response:
         sanitize_chat_input(text), user_id=tg_id, user_name=name,
         is_admin=_is_admin,
         profile_note=profile_note, reply_lang=reply_lang, return_meta=True)
-    tg_handler.conversations.append(tg_id, "assistant", answer,
-                                    metadata={"surface": "web"})
+    # `meta` is empty exactly when NO MODEL ANSWERED — `_chat_ret` builds it
+    # from `cfg`, which is None on the FAQ short-circuit and on every failure
+    # return (budget exhausted, deadline, all providers failed). Two things
+    # follow, and both were missed:
+    #
+    # 1. The quota was already spent. `consume()` increments and persists
+    #    BEFORE the call, so a free user asking "what is RUNECLAW" lost one of
+    #    five daily questions to a canned paragraph that cost no tokens, and a
+    #    user told "the AI is unavailable" was charged for the apology and
+    #    then shown "Upgrade to keep chatting".
+    # 2. Nothing recorded which model answered. The provider and model are
+    #    RIGHT HERE and were shipped to the browser and dropped on the floor,
+    #    so the durable record of a turn could not say what produced it.
+    if not meta:
+        chat_quota.refund(tg_id, _tier)
+    tg_handler.conversations.append(
+        tg_id, "assistant", answer,
+        metadata={"surface": "web", **({"provider": meta["provider"],
+                                        "model": meta["model"]} if meta else
+                                       {"answered_by": "none"})})
     # Model transparency: the web renders a small caption showing WHICH
     # model answered — the visible face of tier routing (and of a runeclaw
     # promotion via /settier). `quota` lets the UI show "N left today".
@@ -658,9 +692,22 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
     try:
         _tier = "admin" if _is_admin else tg_handler.users.get_tier(tg_id)
     except Exception:
-        _tier = "admin" if _is_admin else "basic"
+        # NOT "basic". `basic` is not quota-exempt, so a store read that threw
+        # billed a pro or elite subscriber against the 5/day FREE cap and then
+        # sold them an upgrade they had already bought — unreadable resolved
+        # to the cheapest tier, on the one field that decides whether someone
+        # has paid. None means "could not classify this caller", and an
+        # unclassified caller is not metered: failing open for the length of a
+        # store outage risks some free usage, while failing closed tells a
+        # paying customer they are out of questions.
+        _tier = "admin" if _is_admin else None
     from bot.web import chat_quota
-    _q = chat_quota.consume(tg_id, _tier)
+    # `is_quota_exempt(None)` is False, so handing None to consume() would
+    # still meter the caller — the guard has to be here, not in the predicate,
+    # because making an ABSENT tier exempt would silently unmeter every caller
+    # that omits the argument.
+    _q = (chat_quota.consume(tg_id, _tier) if _tier is not None
+          else chat_quota.unmetered())
     if not _q.get("allowed"):
         _lim = _q.get("limit") or chat_quota.free_daily_limit()
         return web.json_response({
@@ -705,6 +752,12 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
         answer, meta = await tg_handler._llm_chat(
             prompt, user_id=tg_id, user_name=name, is_admin=_is_admin,
             profile_note="", reply_lang="", return_meta=True)
+
+    # Same rule as the chat path: `meta` is empty only when neither the SC
+    # model nor the chat-tier fallback produced anything, and a question that
+    # bought no completion must not be charged.
+    if not meta:
+        chat_quota.refund(tg_id, _tier)
 
     # Heuristic security pass over the model's own output — flags to review,
     # never a verdict. Serialised for the client.
@@ -1903,21 +1956,30 @@ async def handle_sentry(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    positions: list[dict] = []
+    # None until the book is actually read. `[]` is a FLAT book and produces
+    # "nothing flagged"; a failed read must not borrow that answer.
+    positions: list[dict] | None = None
     equity = None
     try:
+        _read: list[dict] = []
         pf = engine.user_portfolios.get(tg_id)
         for t in pf.open_positions:
             price = float(getattr(t, "entry_price", 0) or 0)
             qty = float(getattr(t, "quantity", 0) or 0)
             side = getattr(getattr(t, "direction", None), "value", None) or str(getattr(t, "direction", ""))
-            positions.append({"symbol": getattr(t, "asset", ""), "side": side,
-                              "notional_usd": price * qty})
+            _read.append({"symbol": getattr(t, "asset", ""), "side": side,
+                          "notional_usd": price * qty})
         equity = float(pf.snapshot().equity_usd)
+        # Assigned only once every row is built: a partial list is not the
+        # book either.
+        positions = _read
     except Exception:
-        positions, equity = [], None
+        positions, equity = None, None
     envelope = None
-    spent = 0.0
+    # None, not 0.0: an unread ledger folded to zero can never reach
+    # `spent >= 0.8 * cap`, so the daily-cap warning was unreachable on any
+    # ledger fault — the guard silently absent rather than clear.
+    spent: float | None = None
     try:
         from bot.guardian.user_authority_store import get_user_authority_store
         envelope = get_user_authority_store().get(tg_id)
@@ -1926,7 +1988,7 @@ async def handle_sentry(request: web.Request) -> web.Response:
     try:
         spent = _web_live_ledger().spent(tg_id, _time.time())
     except Exception:
-        spent = 0.0
+        spent = None
     try:
         from bot.guardian.risk_sentry import assess
         report = assess(positions, envelope=envelope, equity_usd=equity,

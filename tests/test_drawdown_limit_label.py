@@ -46,14 +46,45 @@ def test_the_daily_loss_cap_is_no_longer_used_as_the_drawdown_limit():
 
 
 def test_the_limit_comes_from_the_gate_with_a_drawdown_shaped_fallback():
-    block = SRC[SRC.index("drawdown_limit = CONFIG.risk"):
-                SRC.index("max_drawdown=drawdown_limit,")]
-    assert "CONFIG.risk.max_drawdown_pct" in block, \
+    """DRIVEN, not sliced.
+
+    This bounded a source window with `SRC.index("drawdown_limit = CONFIG.risk")`
+    and broke the moment the resolution moved into a shared helper — while all
+    three properties it names survived intact. A window anchored on one
+    implementation's exact line is a claim about how the code is spelled, not
+    about what it does. The behaviour is the same three assertions, driven.
+    """
+    from bot.formatters.drawdown_card import resolve_display_drawdown as _r
+
+    # The preferred source is the number the breaker actually enforces...
+    assert _r(3.1, {"drawdown_pct": 3.1, "drawdown_source": "live",
+                    "effective_limit_pct": 7.0}, 99.0)[2] == 7.0
+
+    # ...and it must survive the reporter being unavailable, falling back to
+    # the DRAWDOWN cap the caller hands it.
+    assert _r(3.1, None, 7.0)[2] == 7.0
+    assert _r(3.1, {}, 7.0)[2] == 7.0
+
+    # A zero or negative "limit" is not a limit; it would make the gauge
+    # divide by zero and print a cap nothing enforces.
+    assert _r(3.1, {"effective_limit_pct": 0}, 7.0)[2] == 7.0
+    assert _r(3.1, {"effective_limit_pct": -1}, 7.0)[2] == 7.0
+
+
+def test_the_caller_hands_the_seam_a_drawdown_cap_not_a_daily_loss_one():
+    """The fallback's SHAPE is the #959 lesson and lives at the call site.
+
+    Driving cannot reach this: the seam takes whatever default it is given,
+    so which CONFIG field is passed is a wiring fact. Anchored to the call
+    itself rather than a byte window.
+    """
+    from tests.source_scan import code_only
+    code = code_only(SRC)
+    i = code.index("resolve_display_drawdown(")
+    call = code[i:i + 300]
+    assert "max_drawdown_pct" in call, \
         "the fallback must still be a DRAWDOWN cap, not a daily-loss one"
-    assert 'effective_limit_pct' in block, \
-        "the preferred source is the number the breaker actually enforces"
-    # and it must survive the reporter being unavailable
-    assert "except Exception:" in block
+    assert "max_daily_loss_pct" not in call
 
 
 def test_the_two_caps_really_are_different_numbers():
