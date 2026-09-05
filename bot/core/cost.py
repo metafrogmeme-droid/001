@@ -129,7 +129,12 @@ def resolve_llm_price(model: str) -> tuple[Optional[dict], bool]:
     return None, False
 
 # Categories for per-bucket cost tracking
-COST_CATEGORIES = ("scan", "analyze", "thesis", "risk_decision", "other")
+#: "chat" was missing, so `record_llm(category="chat")` was coerced to
+#: "other" by the line that guards this tuple — and the cost row is the ONE
+#: durable per-call record naming the model that served a turn. Chat spend
+#: was therefore indistinguishable from analysis spend in /costs, on the
+#: surface a user is actually waiting on.
+COST_CATEGORIES = ("scan", "analyze", "thesis", "risk_decision", "chat", "other")
 
 
 def _default_category_costs() -> dict[str, float]:

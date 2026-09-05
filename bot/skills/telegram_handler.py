@@ -2030,13 +2030,29 @@ class TelegramHandler:
                     + f", total trades {total_trades}"
                 )
             else:
+                # The live branch above was carefully cured of exactly this,
+                # under a comment saying a manufactured zero "does not just
+                # mislead a person, it shapes the advice that comes back".
+                # Four lines later the PAPER branch still had it — and paper
+                # is the DEFAULT mode, so the uncured arm is the one nearly
+                # every user hits.
+                #
+                # PortfolioState.win_rate is `... if total > 0 else 0.0`, so a
+                # fresh account's prompt read "win rate 0%, total trades 0":
+                # to the model, a measured record of total failure.
                 eq_display = state.equity_usd
+                _pws = _win_stats(getattr(user_portfolio, 'trade_history', []))
+                _wr_paper = ("not measurable" if _pws["rate"] is None
+                             else f"{_pws['rate']:.0%}")
                 portfolio_summary = (
                     f"{state.open_positions} open positions, "
                     f"equity ~${eq_display:,.2f}, "
                     f"total PnL ${state.total_pnl:+,.2f}, "
-                    f"win rate {state.win_rate:.0%}, "
-                    f"total trades {state.total_trades}"
+                    f"win rate {_wr_paper}"
+                    + (f" (over {_pws['scored']} of {state.total_trades} — "
+                       f"{_pws['unscored']} have no recorded P&L)"
+                       if _pws["unscored"] else "")
+                    + f", total trades {state.total_trades}"
                 )
             # This string is handed to the LLM as engine state, so a wrong mode
             # here is repeated to the user in prose. Three-valued now — it read
@@ -2609,23 +2625,33 @@ class TelegramHandler:
                           f"Chat web_search used ({len(_citations)} sources)",
                           action="chat_web_search", result="OK")
 
-                # Track cost. llm_complete() discards the provider's usage
-                # object for EVERY provider (Anthropic and OpenAI-compatible
-                # alike), so this has always been an estimate -- but the
-                # Anthropic branch used to skip recording ENTIRELY, meaning
-                # every chat reply served by Claude (whether the configured
-                # chat provider, or the hardcoded ANTHROPIC_API_KEY fallback
-                # above) was invisible to /costs AND to the budget guard just
-                # added. Estimate for every provider now (~4 chars/token,
-                # same convention analyzer.py already uses for its own
-                # Anthropic fallback cost accounting).
+                # Track cost. This is still an estimate (~4 chars/token, the
+                # convention analyzer.py uses for its own Anthropic fallback
+                # accounting), and the Anthropic branch used to skip recording
+                # ENTIRELY — so every chat reply served by Claude was
+                # invisible to /costs AND to the budget guard.
+                #
+                # The constant 500 for the system prompt was the remaining
+                # error, and it was large. `_CHAT_SYSTEM_PROMPT` alone is
+                # ~1,030 tokens BEFORE the ticker rows, positions, pending
+                # ideas, context and ingest blocks are appended, so a signed-in
+                # turn booked 500 against a real 1,500-2,500. That number is
+                # what `snap.llm_cost_usd >= daily_budget_usd` compares to, so
+                # the guard passed roughly three times the budget it was set.
+                #
+                # The prompt is RIGHT HERE and was measured a hundred lines up
+                # to send it; `analyzer._estimate_tokens(sys + prompt)` does
+                # the same thing one module over. A justification for guessing
+                # does not survive the value being in scope.
                 if hasattr(self.engine, 'cost'):
                     history_tokens = sum(len(m.get("content", "")) // 4
                                          for m in history)
+                    system_tokens = max(1, len(system_prompt or "") // 4)
                     completion_tokens = max(1, len(answer) // 4) if answer else 0
                     self.engine.cost.record_llm(
                         model=cfg.model,
-                        prompt_tokens=500 + history_tokens,
+                        prompt_tokens=system_tokens + history_tokens
+                        + max(1, len(question or "") // 4),
                         completion_tokens=completion_tokens,
                         category="chat",
                     )

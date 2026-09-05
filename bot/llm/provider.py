@@ -833,6 +833,26 @@ def _env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _env_timeout(default: float = 15.0) -> float:
+    """LLM_TIMEOUT_SEC as a float, or the default when unset or unparseable.
+
+    Junk reads as UNSET rather than raising: this is evaluated while a config
+    object is being constructed, and a bad env var must not take the whole
+    LLM stack down at import.
+    """
+    import os
+    raw = os.environ.get("LLM_TIMEOUT_SEC")
+    if raw is None:
+        return default
+    try:
+        val = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    # A zero or negative ceiling would make asyncio.wait_for fire instantly on
+    # every call — configured, and worse than unconfigured.
+    return val if val > 0 else default
+
+
 def _env_top_p() -> Optional[float]:
     """LLM_TOP_P as a float, or None when unset/malformed.
 
@@ -872,7 +892,19 @@ class LLMConfig:
     #: See CONFIG.llm.top_p — unset is not 1.0, it is "do not send one".
     top_p: Optional[float] = field(default_factory=_env_top_p)
     max_tokens: int = 1024
-    timeout_seconds: float = 15.0
+    #: Wall-clock ceiling for one call. A `default_factory` for the same
+    #: reason `top_p` above has one: EVERY `LLMConfig(...)` built inside
+    #: `resolve_tier_config` omitted this field, so only the primary branch —
+    #: which returns `replace(primary_config, ...)` and inherits the caller's
+    #: object — carried a configured value. Thesis, chat, the admin table and
+    #: anything set through `/setllm` all silently reverted to 15s, so
+    #: LLM_TIMEOUT_SEC looked configured and reached one branch of five.
+    #: Patching those branches would leave the next one somebody adds; the
+    #: field reading its own default cannot be forgotten.
+    #:
+    #: Read here rather than from CONFIG because provider.py is imported BY
+    #: config.py — the note on `_env_top_p` records the same constraint.
+    timeout_seconds: float = field(default_factory=_env_timeout)
     # Fable/Mythos-family reasoning depth (output_config.effort): "" omits the
     # parameter; "low"/"medium"/"high"/"max" only sent for that family.
     effort: str = ""

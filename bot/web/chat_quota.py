@@ -125,6 +125,50 @@ def status(uid: str, tier: Optional[str] = None) -> dict:
             "reset_in_seconds": seconds_until_reset()}
 
 
+def unmetered() -> dict:
+    """The allow-and-do-not-count result, in `consume()`'s shape.
+
+    For a caller whose tier could not be READ. `is_quota_exempt(None)` is
+    False — an absent tier is not an exempt tier — so passing None to
+    `consume()` would meter an unclassifiable caller against the free cap,
+    which is the defect this exists to avoid. Naming the case beats inventing
+    a tier string that no user actually holds.
+    """
+    return {"allowed": True, "exempt": True, "limit": None,
+            "used": 0, "remaining": None, "reset_in_seconds": None,
+            "unmetered": True}
+
+
+def refund(uid: str, tier: Optional[str] = None) -> None:
+    """Give back one free question that bought nothing.
+
+    `consume()` increments and persists BEFORE the caller knows whether a
+    model answered, and several paths return without one: the FAQ
+    short-circuit hands back a canned string with no LLM call at all, and the
+    budget-exhausted, deadline and all-providers-failed branches return an
+    apology. A free user asking "what is RUNECLAW" therefore lost one of five
+    daily questions to a static paragraph, and a user who got "the AI is
+    unavailable" was charged for it and then shown "Upgrade to keep chatting".
+
+    This module's own docstring says the quota exists to protect the prepaid
+    Grok spend. None of those paths spend any.
+
+    Floored at zero and a no-op for an exempt or unmetered caller, so a
+    double refund can never MINT questions.
+    """
+    if not quota_enabled() or is_quota_exempt(tier):
+        return
+    day = _today()
+    key = str(uid)
+    with _LOCK:
+        data = _load()
+        used = _entry_used(data, key, day)
+        if used <= 0:
+            return
+        data[key] = {"day": day, "n": used - 1}
+        _save(data)
+
+
 def consume(uid: str, tier: Optional[str] = None) -> dict:
     """Try to spend one free question. Returns
     ``{allowed, exempt, limit, used, remaining}``. When not allowed (limit hit),
