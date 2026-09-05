@@ -71,6 +71,12 @@ SURFACES = [
     "agent_card.json",
     "dashboard_static/index.html",
     "README.md",
+    # Added 2026-09-05: campaign copy that still said "18 risk checks" and
+    # "20 independent checks" a year after the count was banned from the
+    # product. A tweet draft is a surface; it is the one most likely to be
+    # pasted somewhere the ratchet cannot see.
+    "docs/SOCIAL_CAMPAIGN.md",
+    "docs/x-thread-v5.md",
 ]
 
 #: "23-check", "23 checks", "36 fail-closed gates", "runs 23 risk checks" …

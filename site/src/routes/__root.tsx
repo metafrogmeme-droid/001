@@ -29,8 +29,10 @@ import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
  * from the footer, which is where links go to be reachable in principle.
  */
 const NAV = [
+  { to: '/product', label: 'Product' },
   { to: '/proof', label: 'Proof' },
   { to: '/risk', label: 'Risk gate' },
+  { to: '/changelog', label: 'Changelog' },
   { to: '/privacy', label: 'Privacy' },
 ] as const
 
@@ -108,8 +110,10 @@ function Footer() {
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-10 gap-y-3 text-sm">
             <ul className="space-y-2">
+              <li><Link to="/product" className="text-ink-2 hover:text-ink">What ships today</Link></li>
               <li><Link to="/proof" className="text-ink-2 hover:text-ink">How the proof works</Link></li>
               <li><Link to="/risk" className="text-ink-2 hover:text-ink">The risk gate</Link></li>
+              <li><Link to="/changelog" className="text-ink-2 hover:text-ink">Changelog</Link></li>
               <li><Link to="/privacy" className="text-ink-2 hover:text-ink">Privacy</Link></li>
               <li>
                 <a href={DOCS} target="_blank" rel="noopener" className="text-ink-2 hover:text-ink">
@@ -147,7 +151,43 @@ function Footer() {
   )
 }
 
+/**
+ * The page for a path that does not exist. Prerendered to `404.html`, which
+ * both static hosts serve for an unknown path: api_bridge's StaticFiles does
+ * so on its own when the file is present, and nginx is told to in nginx.conf.
+ * Before this, an unknown path got the homepage with a 200 — a wrong page
+ * reported as the right one.
+ */
+function NotFound() {
+  return (
+    <article className="mx-auto max-w-3xl px-5 py-24 text-center">
+      <p className="data text-xs uppercase tracking-wider text-ink-3">404</p>
+      <h1
+        className="mt-3 font-[family-name:var(--font-brand)] font-bold leading-tight"
+        style={{ fontSize: 'var(--text-h1)' }}
+      >
+        There is no page here
+      </h1>
+      <p className="mx-auto mt-4 max-w-xl leading-relaxed text-ink-2">
+        The address may be old or mistyped. Nothing on this site moved silently:
+        every page it has is linked from the header, and the platform lives at
+        its own address.
+      </p>
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <Link
+          to="/"
+          className="inline-flex min-h-11 items-center justify-center rounded-md bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition-colors hover:bg-accent-bright"
+        >
+          Back to the start
+        </Link>
+        <PlatformLink>Open the platform</PlatformLink>
+      </div>
+    </article>
+  )
+}
+
 export const Route = createRootRoute({
+  notFoundComponent: NotFound,
   component: () => (
     <>
       <a className="skip-link" href="#main">Skip to content</a>

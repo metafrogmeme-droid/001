@@ -70,12 +70,39 @@ const ROUTES = [
       + 'deliberately no headline count on this page.',
   },
   {
+    path: '/product',
+    title: 'What ships today — RUNECLAW',
+    description:
+      'The chat that reads before it answers, paper-first trading with your '
+      + 'own keys, hashed calls you can verify, the Guardian surfaces, the '
+      + 'agent-facing API — and what is not here yet.',
+  },
+  {
+    path: '/changelog',
+    title: 'Changelog — RUNECLAW',
+    description:
+      'What changed, when, and where to check it — each entry points at the '
+      + 'pull requests behind it.',
+  },
+  {
     path: '/privacy',
     title: 'Privacy — RUNECLAW',
     description:
       'What RUNECLAW collects, where it is stored, and what leaves the system.',
   },
 ]
+
+/**
+ * The not-found page. NOT in ROUTES: it has no URL of its own to put in the
+ * sitemap, and it is written to `404.html` at the root, which is the filename
+ * both static hosts look for. The router renders its notFoundComponent for a
+ * path no route matches, so any unmatched path will do to render it.
+ */
+const NOT_FOUND = {
+  path: '/__not_found__',
+  title: 'Not found — RUNECLAW',
+  description: 'There is no page at this address.',
+}
 
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -194,6 +221,22 @@ async function main() {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'index.html'), html, 'utf8')
     console.log(`prerendered ${route.path} -> ${(html.length / 1024).toFixed(1)}KB`)
+  }
+
+  // The 404 page, rendered through the same shell and head as every other
+  // page so it carries the same nav, footer and disclaimer. `noindex`: a
+  // search engine must never list an error page as a destination.
+  {
+    const app = await render(NOT_FOUND.path)
+    if (!app || app.length < 200) {
+      throw new Error('the not-found page rendered blank; refusing to write a 404 that is empty.')
+    }
+    const html = shell
+      .replace('<!--HEAD-->', head({ ...NOT_FOUND, path: '/404' })
+        + '\n    <meta name="robots" content="noindex">')
+      .replace('<!--APP-->', app)
+    writeFileSync(join(OUT, '404.html'), html, 'utf8')
+    console.log(`prerendered 404.html -> ${(html.length / 1024).toFixed(1)}KB`)
   }
 
   writeSitemap()

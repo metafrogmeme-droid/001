@@ -41,6 +41,11 @@ test('the public route validates the lang token and forwards it to the gateway',
 });
 
 test('the chat.js cache-buster is bumped on both surfaces', () => {
-  assert.match(html, /chat\.js\?v=2\d/);
-  assert.match(dash, /chat\.js\?v=2\d/);
+  // Both pages must reference the SAME bumped bundle. The first draft
+  // pinned the digit shape (`v=2\d`), which is a claim about the
+  // calendar, not the code: it failed the day the bundle reached v30.
+  const vh = Number((html.match(/chat\.js\?v=(\d+)/) || [])[1]);
+  const vd = Number((dash.match(/chat\.js\?v=(\d+)/) || [])[1]);
+  assert.ok(vh >= 29, `index.html chat.js version ${vh}`);
+  assert.equal(vd, vh, 'dashboard.html must load the same chat.js build');
 });

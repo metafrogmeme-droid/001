@@ -1,230 +1,230 @@
 {
   "embed.css": {
-    "sha": "b5c4767b57d52d2c",
-    "v": 5
+    "v": 5,
+    "sha": "b5c4767b57d52d2c"
   },
   "js/agent-page.js": {
-    "sha": "d368ad38000f60e0",
-    "v": 1
+    "v": 1,
+    "sha": "d368ad38000f60e0"
   },
   "js/ambient.js": {
-    "sha": "ef071afddd5042f6",
-    "v": 3
+    "v": 3,
+    "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "sha": "4c0941f188bddaa5",
-    "v": 1
+    "v": 1,
+    "sha": "4c0941f188bddaa5"
   },
   "js/app.js": {
-    "sha": "6630b1e4b8e76fed",
-    "v": 13
+    "v": 13,
+    "sha": "6630b1e4b8e76fed"
   },
   "js/arena-risk-model.js": {
-    "sha": "77d4026436966cf1",
-    "v": 1
+    "v": 1,
+    "sha": "77d4026436966cf1"
   },
   "js/arena_engine.js": {
-    "sha": "f1fbdbc88b0fbf26",
-    "v": 1
+    "v": 1,
+    "sha": "f1fbdbc88b0fbf26"
   },
   "js/basis-note.js": {
-    "sha": "b5e9e3bec0ac5f5c",
-    "v": 1
+    "v": 1,
+    "sha": "b5e9e3bec0ac5f5c"
   },
   "js/chartread.js": {
-    "sha": "8129accecb2bbfaf",
-    "v": 5
+    "v": 5,
+    "sha": "8129accecb2bbfaf"
   },
   "js/charts2d.js": {
-    "sha": "80eb4148dded43a9",
-    "v": 1
+    "v": 1,
+    "sha": "80eb4148dded43a9"
   },
   "js/chat.js": {
-    "v": 29,
-    "sha": "ebdc333f574730fc"
+    "v": 31,
+    "sha": "5601758e69d569e2"
   },
   "js/dashboard.js": {
     "v": 165,
     "sha": "c6e1182ca62290f5"
   },
   "js/duel.js": {
-    "sha": "5dbbfd3297612824",
-    "v": 1
+    "v": 1,
+    "sha": "5dbbfd3297612824"
   },
   "js/embed-arena-view.js": {
-    "sha": "263ddbb234b5a51d",
-    "v": 2
+    "v": 2,
+    "sha": "263ddbb234b5a51d"
   },
   "js/embed-arena.js": {
-    "sha": "3f9563476b68436c",
-    "v": 2
+    "v": 2,
+    "sha": "3f9563476b68436c"
   },
   "js/embed-read.js": {
-    "sha": "3d66a71d40da7fd8",
-    "v": 2
+    "v": 2,
+    "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "sha": "747299db4fcd7754",
-    "v": 2
+    "v": 2,
+    "sha": "747299db4fcd7754"
   },
   "js/embed-signals.js": {
-    "sha": "844ddbc9fd3c723c",
-    "v": 7
+    "v": 7,
+    "sha": "844ddbc9fd3c723c"
   },
   "js/engine-card-model.js": {
-    "sha": "c233fd013d7bde98",
-    "v": 1
+    "v": 1,
+    "sha": "c233fd013d7bde98"
   },
   "js/engine-status-model.js": {
-    "sha": "d5bf6c25140efa4f",
-    "v": 1
+    "v": 1,
+    "sha": "d5bf6c25140efa4f"
   },
   "js/escape-model.js": {
-    "sha": "5de9d612a36e126a",
-    "v": 2
+    "v": 2,
+    "sha": "5de9d612a36e126a"
   },
   "js/farcaster-ready.js": {
-    "sha": "698644e78976a6da",
-    "v": 3
+    "v": 3,
+    "sha": "698644e78976a6da"
   },
   "js/firewall-model.js": {
-    "sha": "be8d68160630f13d",
-    "v": 1
+    "v": 1,
+    "sha": "be8d68160630f13d"
   },
   "js/guardian-console.js": {
-    "sha": "6df23a41831248fd",
-    "v": 4
+    "v": 4,
+    "sha": "6df23a41831248fd"
   },
   "js/guardian-orbit.js": {
-    "sha": "c2dffd9f3305eabf",
-    "v": 1
+    "v": 1,
+    "sha": "c2dffd9f3305eabf"
   },
   "js/i18n.js": {
-    "sha": "3477dda79aac5f8c",
-    "v": 135
+    "v": 135,
+    "sha": "3477dda79aac5f8c"
   },
   "js/icons.js": {
-    "sha": "45185741065c21cc",
-    "v": 5
+    "v": 5,
+    "sha": "45185741065c21cc"
   },
   "js/intent-model.js": {
-    "sha": "d288c395a7e14720",
-    "v": 2
+    "v": 2,
+    "sha": "d288c395a7e14720"
   },
   "js/keccak256.js": {
-    "sha": "2203a64242fc07d5",
-    "v": 1
+    "v": 1,
+    "sha": "2203a64242fc07d5"
   },
   "js/learn-hall.js": {
-    "sha": "35f7ba011c75fae3",
-    "v": 1
+    "v": 1,
+    "sha": "35f7ba011c75fae3"
   },
   "js/mascot3d.js": {
-    "sha": "913fea490b4eec25",
-    "v": 5
+    "v": 5,
+    "sha": "913fea490b4eec25"
   },
   "js/miniapp-arena.js": {
-    "sha": "e03fb9b5a2417f94",
-    "v": 1
+    "v": 1,
+    "sha": "e03fb9b5a2417f94"
   },
   "js/miniapp-view.js": {
-    "sha": "50ebb19d4a1813f7",
-    "v": 1
+    "v": 1,
+    "sha": "50ebb19d4a1813f7"
   },
   "js/palette.js": {
-    "sha": "09bd8620572d17f3",
-    "v": 1
+    "v": 1,
+    "sha": "09bd8620572d17f3"
   },
   "js/panel-error-model.js": {
-    "sha": "bde2f75a9947acad",
-    "v": 1
+    "v": 1,
+    "sha": "bde2f75a9947acad"
   },
   "js/radar3d.js": {
-    "sha": "bcb4a613a57ea9dc",
-    "v": 3
+    "v": 3,
+    "sha": "bcb4a613a57ea9dc"
   },
   "js/referral-tier-model.js": {
-    "sha": "6bd6bb863e2a31b5",
-    "v": 1
+    "v": 1,
+    "sha": "6bd6bb863e2a31b5"
   },
   "js/register-tool.js": {
-    "sha": "341d60f7ecaf7088",
-    "v": 1
+    "v": 1,
+    "sha": "341d60f7ecaf7088"
   },
   "js/reveal.js": {
-    "sha": "04b3822436eb04e1",
-    "v": 1
+    "v": 1,
+    "sha": "04b3822436eb04e1"
   },
   "js/rune-card.js": {
-    "sha": "a9fef181eb7c9215",
-    "v": 1
+    "v": 1,
+    "sha": "a9fef181eb7c9215"
   },
   "js/sandbox.js": {
-    "sha": "550cc931fed16e08",
-    "v": 1
+    "v": 1,
+    "sha": "550cc931fed16e08"
   },
   "js/signal-chart.js": {
-    "sha": "f8c1ee6212b09d17",
-    "v": 1
+    "v": 1,
+    "sha": "f8c1ee6212b09d17"
   },
   "js/solana_wallet.js": {
-    "sha": "e5e508f502c0b3bb",
-    "v": 2
+    "v": 2,
+    "sha": "e5e508f502c0b3bb"
   },
   "js/strengthmap.js": {
-    "sha": "bdc0a2b104d65974",
-    "v": 8
+    "v": 8,
+    "sha": "bdc0a2b104d65974"
   },
   "js/stress-model.js": {
-    "sha": "5d27a0aa000d121b",
-    "v": 2
+    "v": 2,
+    "sha": "5d27a0aa000d121b"
   },
   "js/swap-page.js": {
-    "sha": "d1f9fc46f37f2aa4",
-    "v": 1
+    "v": 1,
+    "sha": "d1f9fc46f37f2aa4"
   },
   "js/swap-sign-model.js": {
-    "sha": "549396106f911f41",
-    "v": 1
+    "v": 1,
+    "sha": "549396106f911f41"
   },
   "js/theater.js": {
-    "sha": "2d1bbf1c17554a79",
-    "v": 2
+    "v": 2,
+    "sha": "2d1bbf1c17554a79"
   },
   "js/thesis-model.js": {
-    "sha": "b9f6acd93b4feee5",
-    "v": 1
+    "v": 1,
+    "sha": "b9f6acd93b4feee5"
   },
   "js/trade-stats.js": {
-    "sha": "231f9b61328696f9",
-    "v": 1
+    "v": 1,
+    "sha": "231f9b61328696f9"
   },
   "js/txray-model.js": {
-    "sha": "b0690b36b0422b9b",
-    "v": 1
+    "v": 1,
+    "sha": "b0690b36b0422b9b"
   },
   "js/venue-picker-model.js": {
-    "sha": "2618f71df7c91cb3",
-    "v": 1
+    "v": 1,
+    "sha": "2618f71df7c91cb3"
   },
   "js/venue-rows.js": {
-    "sha": "89842fe2d768161f",
-    "v": 1
+    "v": 1,
+    "sha": "89842fe2d768161f"
   },
   "js/wallet_picker.js": {
-    "sha": "6f0104bc8dc01e88",
-    "v": 1
+    "v": 1,
+    "sha": "6f0104bc8dc01e88"
   },
   "js/winrate-bar.js": {
-    "sha": "2e1bfea3c4b402b8",
-    "v": 1
+    "v": 1,
+    "sha": "2e1bfea3c4b402b8"
   },
   "styles.css": {
-    "sha": "fca3b4d78f8c1563",
-    "v": 38
+    "v": 38,
+    "sha": "fca3b4d78f8c1563"
   },
   "vendor/lightweight-charts.standalone.production.js": {
-    "sha": "c7dda807d662a95b",
-    "v": 1
+    "v": 1,
+    "sha": "c7dda807d662a95b"
   }
 }

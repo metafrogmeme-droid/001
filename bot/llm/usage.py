@@ -49,20 +49,22 @@ def record(model: str, tokens_in: int, tokens_out: int) -> None:
         pass
 
 
-def record_from_response(model: str, response) -> None:
-    """Pull usage off a provider response object, whatever shape it has.
+def usage_pair(response) -> Optional[tuple[int, int]]:
+    """The MEASURED (input, output) token pair off a provider response, or
+    None when the response carries no usage at all.
 
     Anthropic: usage.input_tokens / usage.output_tokens
     OpenAI-compatible: usage.prompt_tokens / usage.completion_tokens
 
-    A response WITHOUT usage records nothing rather than recording zeros — a
-    zero here would read as "this call was free", which is a different and
-    false claim from "we did not measure this call".
+    None, never (0, 0): a zero would read as "this call was free", which is a
+    different and false claim from "we did not measure this call". The chat
+    cost path books the estimate it always used when this answers None, and
+    the measured pair when it does not.
     """
     try:
         u = getattr(response, "usage", None)
         if u is None:
-            return
+            return None
         ti = getattr(u, "input_tokens", None)
         if ti is None:
             ti = getattr(u, "prompt_tokens", None)
@@ -70,10 +72,24 @@ def record_from_response(model: str, response) -> None:
         if to is None:
             to = getattr(u, "completion_tokens", None)
         if ti is None and to is None:
-            return
-        record(model, ti or 0, to or 0)
+            return None
+        ti, to = int(ti or 0), int(to or 0)
+        if ti < 0 or to < 0:
+            return None
+        return ti, to
     except Exception:
-        pass
+        return None
+
+
+def record_from_response(model: str, response) -> None:
+    """Pull usage off a provider response object, whatever shape it has, and
+    accumulate it. A response WITHOUT usage records nothing rather than
+    recording zeros — see ``usage_pair`` for why.
+    """
+    pair = usage_pair(response)
+    if pair is None:
+        return
+    record(model, pair[0], pair[1])
 
 
 def _prices() -> tuple[Optional[float], Optional[float]]:

@@ -136,7 +136,7 @@ def test_refused_return_includes_reset_hint(isolated_store, monkeypatch):
 
 def test_handler_gates_free_chat_and_is_quota_aware():
     from bot.web import user_gateway
-    src = inspect.getsource(user_gateway.handle_chat)
+    src = inspect.getsource(user_gateway._chat_turn)
     assert "chat_quota" in src                    # the gate is wired in
     assert "quota_exceeded" in src                # refusal intent
     assert "get_tier" in src                      # tier drives exemption

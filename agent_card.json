@@ -1,7 +1,7 @@
 {
   "name": "RUNECLAW",
   "version": "0.1.0",
-  "description": "Simulation-first AI trading agent with a fail-closed pre-trade risk gate, explainable trade theses, and full audit logging. Built for the Bitget ecosystem.",
+  "description": "Simulation-first AI trading agent with a fail-closed pre-trade risk gate, a chat that reads your account through permission-gated read-only tools before it answers, hashed and verifiable decision records, a paper-trading Arena, and per-user live trading on the operator's say-so. Bitget-native; adapters for seven more venues.",
   "author": "Humanoid Traders",
   "license": "BUSL-1.1",
   "repository": "https://github.com/Humanoid-Traders/RUNECLAW",
@@ -10,10 +10,16 @@
   "capabilities": [
     "market_scan",
     "ai_analysis",
+    "chat_with_read_only_tools",
+    "streaming_replies",
     "risk_management",
     "paper_trading",
+    "paper_arena",
+    "per_user_live_trading",
     "backtesting",
     "audit_logging",
+    "provable_calls",
+    "guardian_suite",
     "macro_awareness",
     "solana_ecosystem",
     "red_team_stress_test",
@@ -28,6 +34,8 @@
     "runeclaw_portfolio",
     "runeclaw_explain",
     "runeclaw_macro",
+    "runeclaw_shield",
+    "runeclaw_fullscan",
     "runeclaw_backtest"
   ],
   "exchange": "bitget",
@@ -40,8 +48,10 @@
   ],
   "supported_interfaces": [
     "telegram",
+    "web",
     "cli",
-    "mcp"
+    "mcp",
+    "rest"
   ],
   "safety": {
     "fail_closed_risk_engine": true,
@@ -59,7 +69,25 @@
       "Track 1 - Trading Agent",
       "Track 2 - Trading Infra"
     ],
-    "submission_url": "https://github.com/Humanoid-Traders/RUNECLAW"
+    "submission_url": "https://github.com/Humanoid-Traders/RUNECLAW",
+    "note": "Where the project started. The card describes the product as it ships today, not the submission."
   },
-  "requires_confirmation_note": "True as shipped: .env.example sets AUTO_CONFIRM_LIVE_ENABLED=false and AUTO_CONFIRM_THRESHOLD=1.0. An operator may enable auto-confirm, and the code default with no .env file has it ON. Read this field as the shipped posture, not an unconditional guarantee."
+  "requires_confirmation_note": "True as shipped: .env.example sets AUTO_CONFIRM_LIVE_ENABLED=false and AUTO_CONFIRM_THRESHOLD=1.0. An operator may enable auto-confirm, and the code default with no .env file has it ON. Read this field as the shipped posture, not an unconditional guarantee.",
+  "exchanges": [
+    "bitget",
+    "hyperliquid",
+    "bybit",
+    "bingx",
+    "okx",
+    "gate",
+    "kucoin",
+    "paradex"
+  ],
+  "exchanges_note": "Adapters, not equals: native stop orders and the withdrawal-scope probe exist for Bitget only (bot/core/venues.py).",
+  "interfaces_note": "web: the app/ platform (dashboard, chat, Arena, Guardian) at the site origin; rest: api_bridge.py; mcp: bot/mcp/server.py and app/routes/mcp.js.",
+  "languages": {
+    "interface": 14,
+    "chat": 34,
+    "note": "Interface languages from app/public/js/i18n.js; chat languages from bot/utils/i18n.py."
+  }
 }

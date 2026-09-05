@@ -166,7 +166,7 @@ class FakeHandler:
 
     async def _llm_chat(self, q, user_id="", user_name="", is_admin=False,
                         public=False, profile_note="", reply_lang="",
-                        return_meta=False):
+                        return_meta=False, surface="telegram", on_event=None):
         self.llm_calls.append((q, user_id, is_admin, public))
         self.llm_profile_notes.append(profile_note)
         self.llm_reply_langs.append(reply_lang)

@@ -44,6 +44,10 @@ SURFACES = [
     "README.md",
     "README.zh-TW.md",
     "docs/gitbook/README.md",
+    # Campaign copy: "Every trade requires human confirmation" sat here
+    # unqualified in two drafts meant to be pasted into X and Discord.
+    "docs/SOCIAL_CAMPAIGN.md",
+    "docs/x-thread-v5.md",
 ]
 
 

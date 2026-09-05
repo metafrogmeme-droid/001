@@ -81,10 +81,91 @@ export const SITE = {
  * does not belong here, and the section that would have shown it renders
  * without it.
  */
-export const STATS: readonly Stat[] = []
+export const STATS: readonly Stat[] = [
+  // Each value is RE-DERIVED from its source file by site/test/facts_derived.test.js,
+  // which fails the build the day the code moves and the number does not. A
+  // figure typed here and checked by nobody is the $72,669 shape again.
+  {
+    value: '8',
+    label: 'venue adapters',
+    source: 'bot/core/venues.py — the _VENUES table',
+    caveat: 'Adapters, not equals: native stop orders and the withdrawal-scope probe exist for Bitget only.',
+  },
+  {
+    value: '6',
+    label: 'Guardian surfaces',
+    source: 'app/server.js — /flight /stress /sentinel /firewall /escape /intent',
+    caveat: 'Each one warns, simulates or proves. None of them moves funds.',
+  },
+  {
+    value: '14',
+    label: 'interface languages',
+    source: 'app/public/js/i18n.js — the LANGS table',
+  },
+  {
+    value: '34',
+    label: 'chat languages',
+    source: 'bot/utils/i18n.py — _CHAT_LANG_NAMES',
+    caveat: 'The model answers in them; the bot’s own card text is English and Traditional Chinese today.',
+  },
+]
 
 /** Capability claims for the bento grid. Same rule: sourced or absent. */
-export const CAPABILITIES: readonly Claim[] = []
+export const CAPABILITIES: readonly Claim[] = [
+  {
+    text:
+      'Talk to it. The chat reads your portfolio, your risk state, the macro '
+      + 'calendar and a live scan through read-only tools, gated by the same '
+      + 'permission table as the commands — it cannot reach anything a typed '
+      + 'sentence could not.',
+    source: 'bot/nlp/chat_tools.py · bot/skills/skill_permissions.py',
+  },
+  {
+    text:
+      'Answers stream as they are written, on the web and in Telegram, and '
+      + 'every streamed fragment is replaced by the checked final text.',
+    source: 'bot/web/user_gateway.py handle_chat_stream · bot/skills/telegram_handler.py TelegramStream',
+  },
+  {
+    text:
+      'Every engine call and every Arena trade is hashed at decision time. '
+      + 'Daily Merkle roots and per-call receipts you can re-derive in your own '
+      + 'browser.',
+    source: 'app/lib/callseal.js · app/routes/roots.js · /provable on the platform',
+  },
+  {
+    text:
+      'Paper first. A virtual account with live prices and liquidation '
+      + 'mechanics, competition seasons, and a public board that publishes '
+      + 'percentages and counts, never account balances.',
+    source: 'app/routes/arena.js · app/test/mcp_public_records.test.js',
+  },
+  {
+    text:
+      'Bring your own keys. Exchange credentials are validated read-only and '
+      + 'encrypted at rest, and live trading is switched on per user by the '
+      + 'operator — never by default.',
+    source: 'bot/core/exchange_credentials.py · bot/config.py PER_USER_LIVE_ENABLED',
+  },
+  {
+    text:
+      'Guardian: Flight Recorder, Stress Lab, Risk Sentinel, Transaction '
+      + 'Firewall, Escape Agent and Intent Compiler. They warn, simulate and '
+      + 'prove; none of them moves funds.',
+    source: 'app/server.js page routes · docs/ROADMAP.md §5',
+  },
+  {
+    text:
+      'Built for other agents too: an MCP server, public read-only endpoints, '
+      + 'an ERC-8257 tool manifest and an ERC-8004 identity.',
+    source: 'bot/mcp/server.py · app/routes/mcp.js · app/routes/tool8257.js',
+  },
+  {
+    text:
+      'Fourteen interface languages, and a chat that answers in thirty-four.',
+    source: 'app/public/js/i18n.js LANGS · bot/utils/i18n.py _CHAT_LANG_NAMES',
+  },
+]
 
 /**
  * Things the site must never assert.

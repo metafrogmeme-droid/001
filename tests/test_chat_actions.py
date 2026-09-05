@@ -246,7 +246,8 @@ class FakeHandler:
         return False
 
     async def _llm_chat(self, q, user_id="", user_name="", is_admin=False,
-                        public=False, profile_note="", return_meta=False):
+                        public=False, profile_note="", return_meta=False,
+                        **kw):
         self.llm_calls.append(q)
         if return_meta:
             return "llm answer", {"provider": "x", "model": "y"}

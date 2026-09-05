@@ -31,17 +31,21 @@ from __future__ import annotations
 
 import hmac
 import html as _html
+import json
 import math
 import os
 import re
 import time
 from datetime import datetime, timezone
+from typing import cast
 
 from aiohttp import web
 
 from bot.config import CONFIG
+from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
 from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
+from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
 from bot.utils.paths import env_state_path
 
@@ -50,8 +54,17 @@ from bot.utils.paths import env_state_path
 _GATEWAY_SECRET: str = os.environ.get("WEB_GATEWAY_SECRET", "")
 _MIN_SECRET_LEN = 32
 
-_MAX_TEXT_LEN = 2000
+# The same number the sanitizer cuts at (bot/nlp/sanitize.py), so a message
+# this layer accepts is a message the model sees whole. Two numbers here
+# were 2000 and 500, and the gap was dropped in silence.
+_MAX_TEXT_LEN = MAX_CHAT_INPUT_LEN
 _MAX_PROPOSERS = 500  # bound the proposer map (pending ideas expire anyway)
+
+
+# One mapping from a chat language code to the dictionary language, shared
+# with the Telegram handler — a second copy is how the two surfaces came to
+# disagree about the same person's language.
+_ui_lang = ui_lang
 
 
 def _secret() -> str:
@@ -276,7 +289,66 @@ def build_profile_note(profile) -> str:
     return _profile_store.render_note(profile)
 
 
+def _sse_frame(event: str, payload: dict) -> bytes:
+    return (f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            ).encode("utf-8")
+
+
+async def _sse_turn(request: web.Request, turn) -> web.StreamResponse:
+    """Run one chat turn as text/event-stream.
+
+    `turn(request, on_event=...)` is the SAME function the JSON route runs;
+    it answers with a web.Response like it always has, and every early
+    return it makes (a refusal, a validation error, a local intercept) comes
+    out here as the one `final` frame, status included. Between the request
+    and that frame the turn's own events flow through as they happen:
+    `delta` fragments, `tool` reads, `attempt` changes. So the browser reads
+    one protocol whatever kind of answer this turned out to be, and nothing
+    is JSON-parsed mid-stream.
+    """
+    resp = web.StreamResponse(status=200, headers={
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+    })
+    await resp.prepare(request)
+
+    async def on_event(event: dict) -> None:
+        try:
+            await resp.write(_sse_frame(str(event.get("type") or "message"), event))
+        except Exception:
+            pass  # the client went away; the turn still finishes and records
+
+    try:
+        final = await turn(request, on_event=on_event)
+        try:
+            body = json.loads(final.text) if final.text else {}
+        except (TypeError, ValueError):
+            body = {"error": "unreadable reply"}
+        await resp.write(_sse_frame("final", {"status": int(final.status), "body": body}))
+    except Exception as exc:
+        system_log.debug("streamed chat turn failed: %s", exc)
+        try:
+            await resp.write(_sse_frame("error", {"error": "chat failed"}))
+        except Exception:
+            pass
+    try:
+        await resp.write_eof()
+    except Exception:
+        pass
+    return resp
+
+
 async def handle_chat(request: web.Request) -> web.Response:
+    return await _chat_turn(request)
+
+
+async def handle_chat_stream(request: web.Request) -> web.StreamResponse:
+    """POST /chat/stream — handle_chat as an event stream."""
+    return await _sse_turn(request, _chat_turn)
+
+
+async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     engine = request.app["engine"]
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -542,30 +614,16 @@ async def handle_chat(request: web.Request) -> web.Response:
     # still meter the caller — the guard has to be here, not in the predicate,
     # because making an ABSENT tier exempt would silently unmeter every caller
     # that omits the argument.
-    _q = (chat_quota.consume(tg_id, _tier) if _tier is not None
+    _quota = (chat_quota.consume(tg_id, _tier) if _tier is not None
           else chat_quota.unmetered())
-    if not _q.get("allowed"):
-        _lim = _q.get("limit") or chat_quota.free_daily_limit()
+    if not _quota.get("allowed"):
         # Tell the capped user WHEN their free questions return, so the wall
-        # reads as a wait, not a dead end. Humanise the reset window.
-        _secs = _q.get("reset_in_seconds")
-        if isinstance(_secs, (int, float)) and _secs > 0:
-            _hrs = int(_secs) // 3600
-            if _hrs >= 2:
-                _reset = f"Your free questions reset in about {_hrs} hours"
-            elif _hrs == 1:
-                _reset = "Your free questions reset in about an hour"
-            else:
-                _reset = "Your free questions reset within the hour"
-        else:
-            _reset = "Your free questions reset tomorrow"
+        # reads as a wait, not a dead end — in their language. The card was
+        # an English literal while the model replied in thirty-four languages.
         return web.json_response({
-            "reply_html": (
-                f"🚀 <b>You've used your {_lim} free questions for today.</b><br><br>"
-                "Upgrade to keep chatting with the agent — unlimited questions plus "
-                f"priority models, live signals, and deeper research. {_reset}.<br><br>"
-                "<a href=\"/dashboard#account\">See plans →</a>"),
-            "intent": "quota_exceeded", "quota": _q}, status=200)
+            "reply_html": chat_quota.exhausted_notice(
+                _quota, lang=_ui_lang(reply_lang), surface="web"),
+            "intent": "quota_exceeded", "quota": _quota}, status=200)
 
     from bot.nlp.sanitize import sanitize_chat_input
     tg_handler.conversations.append(tg_id, "user", text,
@@ -577,7 +635,9 @@ async def handle_chat(request: web.Request) -> web.Response:
     answer, meta = await tg_handler._llm_chat(
         sanitize_chat_input(text), user_id=tg_id, user_name=name,
         is_admin=_is_admin,
-        profile_note=profile_note, reply_lang=reply_lang, return_meta=True)
+        profile_note=profile_note, reply_lang=reply_lang, return_meta=True,
+        surface="web",
+        **({"on_event": on_event} if on_event is not None else {}))
     # `meta` is empty exactly when NO MODEL ANSWERED — `_chat_ret` builds it
     # from `cfg`, which is None on the FAQ short-circuit and on every failure
     # return (budget exhausted, deadline, all providers failed). Two things
@@ -593,18 +653,77 @@ async def handle_chat(request: web.Request) -> web.Response:
     #    so the durable record of a turn could not say what produced it.
     if not meta:
         chat_quota.refund(tg_id, _tier)
+    # The tools that ran on the way to this answer ride the same record and
+    # the same response: a reader of the store can tell an answer that read
+    # the portfolio from one that recalled it, and the browser can say so.
+    _tools_used = [t.get("name", "") for t in (meta or {}).get("tools", [])]
     tg_handler.conversations.append(
         tg_id, "assistant", answer,
         metadata={"surface": "web", **({"provider": meta["provider"],
                                         "model": meta["model"]} if meta else
-                                       {"answered_by": "none"})})
+                                       {"answered_by": "none"}),
+                  **({"tools": _tools_used} if _tools_used else {})})
     # Model transparency: the web renders a small caption showing WHICH
     # model answered — the visible face of tier routing (and of a runeclaw
     # promotion via /settier). `quota` lets the UI show "N left today".
+    # Fold whatever the cap just pruned into the rolling note, off the reply
+    # path — the same call the Telegram surface makes after its reply.
+    try:
+        import asyncio as _asyncio
+        _fold = getattr(tg_handler, "_summarize_if_due", None)
+        if _fold is not None:
+            _asyncio.create_task(_fold(tg_id, _is_admin))
+    except Exception:
+        pass
     return web.json_response({"reply_html": answer, "intent": "chat",
                               "model": (meta or {}).get("model", ""),
                               "provider": (meta or {}).get("provider", ""),
-                              "quota": _q})
+                              "tools": (meta or {}).get("tools", []),
+                              "quota": _quota})
+
+
+async def handle_chat_record(request: web.Request) -> web.Response:
+    """POST /chat/record — the web answered a question ITSELF; the shared
+    memory hears about it.
+
+    app/routes/chat.js answers a dozen shapes of question without a bot
+    round-trip — alerts, replay, the weekly letter, wallet and DeFi reads, net
+    worth, research — and each of them returned to the browser and vanished.
+    The conversation store, which both surfaces read history from, never saw
+    the question or the answer. So "what's my net worth?" was answered by the
+    web, and "and how does that compare to last week?" reached a model that
+    had never seen the first question and answered as if it had.
+
+    The reply is recorded in the `[intent] result:` shape skill_memory uses
+    for tool output, because that is what it is: something the runtime
+    measured and said, not something the model wrote. Two rows, user then
+    assistant, same as a regex-dispatched skill on either surface.
+
+    Guarded like /chat/history: the caller is the trusted Express side, but
+    the identity still has to be one this store may hold a conversation for.
+    """
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+    text = str(body.get("text") or "").strip()
+    reply = str(body.get("reply") or "").strip()
+    intent = re.sub(r"[^a-z0-9_]", "",
+                    str(body.get("intent") or "web_intercept").lower())[:40]
+    if not tg_id or not text or not reply:
+        return web.json_response(
+            {"error": "telegram_id, text and reply required"}, status=400)
+    if len(text) > _MAX_TEXT_LEN:
+        return web.json_response({"error": "message too long"}, status=400)
+    err = _guard_user(tg_handler, tg_id)
+    if err is not None:
+        return cast(web.Response, err)
+    intent = intent or "web_intercept"
+    tg_handler.conversations.append(
+        tg_id, "user", text, metadata={"intent": intent, "surface": "web"})
+    tg_handler.conversations.append(
+        tg_id, "assistant", skill_result_memory(intent, reply),
+        metadata={"skill": intent, "surface": "web", "via": "web_intercept"})
+    return web.json_response({"ok": True, "recorded": 2})
 
 
 # ── Public chat (anonymous website visitors; market Q&A only) ───────────────
@@ -624,6 +743,17 @@ async def handle_chat(request: web.Request) -> web.Response:
 # IP; the LLM daily-budget guard inside _llm_chat bounds spend.
 
 async def handle_public_chat(request: web.Request) -> web.Response:
+    return await _public_chat_turn(request)
+
+
+async def handle_public_chat_stream(request: web.Request) -> web.StreamResponse:
+    """POST /chat/public/stream — handle_public_chat as an event stream. The
+    same account-free boundary: the turn is the public turn, only the wire
+    shape differs."""
+    return await _sse_turn(request, _public_chat_turn)
+
+
+async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response:
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
     text = str(body.get("text") or "").strip()
@@ -649,19 +779,17 @@ async def handle_public_chat(request: web.Request) -> web.Response:
     # would have missed while continuing to report itself as closed.
     from bot.nlp.intent_router import needs_live_market_data
     if needs_live_market_data(text):
+        # In the visitor's language: the site sends its UI locale, and a
+        # refusal in English wrapped around a Spanish drawer reads as a glitch.
         return web.json_response({
-            "reply_html": (
-                "\u2694\ufe0f A real scan needs the live data feed, and this "
-                "public chat doesn't have one \u2014 I won't invent prices or "
-                "levels.<br><br><b>Sign in (free)</b> and I'll run the actual "
-                "scanner on current market data.<br><br>"
-                "<a href=\"/dashboard\">Sign in \u2192</a>"),
+            "reply_html": t("chat_public_scan_gate", ui_lang(reply_lang)),
             "intent": "public_scan_gate"})
 
     from bot.nlp.sanitize import sanitize_chat_input
     answer = await tg_handler._llm_chat(
         sanitize_chat_input(text), user_id="", user_name="",
-        is_admin=False, public=True, reply_lang=reply_lang)
+        is_admin=False, public=True, reply_lang=reply_lang,
+        **({"on_event": on_event} if on_event is not None else {}))
     return web.json_response({"reply_html": answer, "intent": "chat"})
 
 
@@ -3899,12 +4027,15 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app["proposers"] = {}
     app.router.add_get("/health", handle_health)
     app.router.add_post("/chat", handle_chat)
+    app.router.add_post("/chat/stream", handle_chat_stream)
     app.router.add_post("/chat/public", handle_public_chat)
+    app.router.add_post("/chat/public/stream", handle_public_chat_stream)
     app.router.add_post("/contract/studio", handle_contract_studio)
     app.router.add_post("/contract/compile", handle_contract_compile)
     app.router.add_post("/contract/deploy", handle_contract_deploy)
     app.router.add_post("/cross/plan", handle_cross_plan)
     app.router.add_get("/chat/history", handle_chat_history)
+    app.router.add_post("/chat/record", handle_chat_record)
     # AI-4: admin-only cited web research enrichment for the coin dossier.
     app.router.add_post("/profile", handle_profile_sync)
     app.router.add_post("/account/purge", handle_account_purge)

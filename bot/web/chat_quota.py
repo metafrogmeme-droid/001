@@ -125,6 +125,37 @@ def status(uid: str, tier: Optional[str] = None) -> dict:
             "reset_in_seconds": seconds_until_reset()}
 
 
+def reset_phrase(reset_in_seconds, lang: str = "en") -> str:
+    """When the free questions come back, as a sentence in the user's UI
+    language. Humanised the way the web card always did, so the wall reads
+    as a wait rather than a dead end — and now in one place for both
+    surfaces instead of an English literal on each."""
+    from bot.utils.i18n import t
+    if isinstance(reset_in_seconds, (int, float)) and reset_in_seconds > 0:
+        hrs = int(reset_in_seconds) // 3600
+        if hrs >= 2:
+            return t("chat_quota_reset_hours", lang, hours=hrs)
+        if hrs == 1:
+            return t("chat_quota_reset_hour", lang)
+        return t("chat_quota_reset_soon", lang)
+    return t("chat_quota_reset_tomorrow", lang)
+
+
+def exhausted_notice(q: dict, lang: str = "en", surface: str = "telegram") -> str:
+    """The message a capped user sees, localised, for either surface.
+
+    The web version carries the upgrade link because the plans page is on
+    the web; the Telegram version points at the commands that still work,
+    because on Telegram a command is the thing right under their thumb and
+    "see plans" is a page they are not on.
+    """
+    from bot.utils.i18n import t
+    limit = q.get("limit") or free_daily_limit()
+    reset = reset_phrase(q.get("reset_in_seconds"), lang)
+    key = "chat_quota_exhausted_web" if surface == "web" else "chat_quota_exhausted"
+    return t(key, lang, limit=limit, reset=reset)
+
+
 def unmetered() -> dict:
     """The allow-and-do-not-count result, in `consume()`'s shape.
 

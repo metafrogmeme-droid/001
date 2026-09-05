@@ -44,7 +44,8 @@ const REPO = path.join(SITE, '..')
 const OUT = path.join(REPO, 'website')
 
 /** Pages this build owns. The archive is deliberately NOT one of them. */
-const PAGES = ['index.html', path.join('privacy', 'index.html')]
+const PAGES = ['index.html', path.join('privacy', 'index.html'),
+  path.join('product', 'index.html'), path.join('changelog', 'index.html')]
 
 function built(rel) {
   const p = path.join(OUT, rel)

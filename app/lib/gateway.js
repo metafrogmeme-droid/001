@@ -179,10 +179,107 @@ function relay(res, r) {
   return res.status(502).json({ error: 'Bot gateway error' });
 }
 
+// ── Streaming (SSE) relay ─────────────────────────────────────────────────
+//
+// The bot gateway's /chat/stream answers as text/event-stream: `delta` frames
+// as the model produces text, `tool` frames while it reads something, and one
+// `final` frame carrying exactly the JSON the non-streaming route would have
+// returned. This relays the frames byte-for-byte, so the browser reads one
+// protocol whether the answer came from the model, an intercept, or a
+// refusal — and never JSON.parses a stream mid-way.
+//
+// Same armTimers as requestJSON: connect fast-fail and an ABSOLUTE deadline.
+// The deadline matters more here, not less — a stream that keeps trickling
+// is precisely the shape the inactivity timeout cannot end.
+
+function sseFrame(event, obj) {
+  return `event: ${event}\ndata: ${JSON.stringify(obj)}\n\n`;
+}
+
+function sseHead(res) {
+  if (res.headersSent) return;
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+}
+
+// One `final` frame and done — for an answer decided locally (an intercept
+// hit, a refusal) on the streaming route, so the client's reader needs no
+// second code path.
+function sseFinal(res, status, body) {
+  sseHead(res);
+  res.write(sseFrame('final', { status, body }));
+  res.end();
+}
+
+function relayStream(method, gwPath, body, res, timeoutMs = 60000) {
+  return new Promise((resolve) => {
+    const url = `${BOT_GATEWAY_URL}/gateway${gwPath}`;
+    const mod = url.startsWith('https:') ? https : http;
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const headers = { 'X-Gateway-Secret': GATEWAY_SECRET, Accept: 'text/event-stream' };
+    if (payload) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(payload);
+    }
+    let finished = false;
+    const finish = (fn) => {
+      if (finished) return;
+      finished = true;
+      try { fn(); } catch (e) { /* the browser may already be gone */ }
+      resolve();
+    };
+    const req = mod.request(url, { method, timeout: timeoutMs, headers }, (up) => {
+      const ct = String(up.headers['content-type'] || '');
+      const streaming = up.statusCode >= 200 && up.statusCode < 300 && ct.includes('text/event-stream');
+      if (!streaming) {
+        // A plain JSON answer (a 4xx, or a gateway without the stream route
+        // yet): collect it and hand it over as the one `final` frame.
+        let data = '';
+        up.on('data', (d) => data += d);
+        up.on('end', () => finish(() => {
+          timers.done();
+          let parsed;
+          try { parsed = JSON.parse(data || '{}'); } catch (e) { parsed = { error: 'Bot gateway error' }; }
+          const status = up.statusCode >= 500 ? 502 : up.statusCode;
+          sseFinal(res, status, status === 502 ? { error: 'Bot gateway error' } : parsed);
+        }));
+        return;
+      }
+      sseHead(res);
+      up.on('data', (chunk) => { try { res.write(chunk); } catch (e) { /* closed */ } });
+      up.on('end', () => finish(() => { timers.done(); res.end(); }));
+      up.on('error', () => finish(() => {
+        res.write(sseFrame('error', { error: 'Bot gateway error' }));
+        res.end();
+      }));
+    });
+    const timers = armTimers(req, timeoutMs, (err) => finish(() => {
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Chat unavailable' });
+      } else {
+        res.write(sseFrame('error', { error: err && err.code === 'GATEWAY_DEADLINE'
+          ? 'Timed out waiting for the bot' : 'Chat unavailable' }));
+        res.end();
+      }
+    }));
+    // The browser went away: stop the upstream turn rather than finishing it
+    // for nobody.
+    res.on('close', () => { if (!finished) { finished = true; timers.done(); req.destroy(); resolve(); } });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 module.exports = {
   isConfigured,
   relay,
+  sseFinal,
+  sseFrame,
   postGateway: (p, b, t) => requestJSON('POST', p, b, t),
   getGateway: (p, t) => requestJSON('GET', p, undefined, t),
   getGatewayBinary: (p, t) => requestBinary(p, t),
+  postGatewayStream: (p, b, res, t) => relayStream('POST', p, b, res, t),
 };
