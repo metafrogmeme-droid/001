@@ -91,7 +91,7 @@ test('/explore is mounted and reachable from the landing page', () => {
 
 test('it carries the shared shell', () => {
   for (const part of ['<nav class="topbar"', 'site-footer', 'skip-link',
-    '/js/i18n.js', '/js/app.js', '/js/icons.js']) {
+    '/js/i18n-core.js', '/js/app.js', '/js/icons.js']) {
     assert.ok(explore.includes(part), `/explore is missing ${part}`);
   }
   assert.match(explore, /<link rel="canonical" href="[^"]*\/explore"/);
@@ -102,7 +102,7 @@ test('it carries the shared shell', () => {
 test('its bundles ship at the same versions as the landing page', () => {
   // The head was copied from index.html so they cannot drift — this is what
   // says so if somebody bumps one page and forgets the other.
-  for (const b of ['i18n.js', 'app.js', 'icons.js', 'styles.css']) {
+  for (const b of ['i18n-core.js', 'app.js', 'icons.js', 'styles.css']) {
     const re = new RegExp(b.replace('.', '\\.') + '\\?v=(\\d+)');
     const a = explore.match(re); const c = landing.match(re);
     assert.ok(a && c, `${b} is not versioned on both pages`);

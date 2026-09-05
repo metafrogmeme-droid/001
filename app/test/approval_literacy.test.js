@@ -45,6 +45,6 @@ test('fw.x_approvals ships all 14 locales', () => {
     'nl:', 'ja:', 'ko:', 'ru:', 'tr:', 'ar:']) {
     assert.ok(line.includes(loc), `fw.x_approvals has ${loc}`);
   }
-  const m = read('public', 'firewall.html').match(/i18n\.js\?v=(\d+)/);
+  const m = read('public', 'firewall.html').match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 90, 'buster >= 90');
 });

@@ -44,6 +44,6 @@ test('dd.w_xray ships all 14 locales', () => {
     'nl:', 'ja:', 'ko:', 'ru:', 'tr:', 'ar:']) {
     assert.ok(line.includes(loc), `dd.w_xray has ${loc}`);
   }
-  const m = read('approvals.html').match(/i18n\.js\?v=(\d+)/);
+  const m = read('approvals.html').match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 88, 'i18n buster >= 88');
 });

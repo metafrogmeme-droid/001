@@ -56,6 +56,6 @@ test('every arena key ships all six locales + cache-buster bumped', () => {
       assert.ok(line.includes(loc), `${key} has ${loc}`);
     }
   }
-  const m = index.match(/i18n\.js\?v=(\d+)/);
+  const m = index.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 12, 'i18n cache-buster >= 12');
 });

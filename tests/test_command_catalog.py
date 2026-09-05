@@ -16,7 +16,13 @@ from pathlib import Path
 from bot.skills.command_catalog import GROUPS, all_entries, help_sections, render_help
 
 _SRC = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
-_REGISTERED = {c for c, _ in re.findall(r'\(\s*"(\w+)",\s*self\.(_cmd_\w+)\)', _SRC)}
+# `self.` is OPTIONAL. The multi-user commands (/link, /unlink, /me, /sync)
+# are registered as module-level functions imported from user_middleware —
+# `("link", _cmd_link)` — and a pattern that required `self.` did not see
+# them, so four working commands sat outside "exact, forever" for as long as
+# this file existed: registered, undocumented, and invisible to the check
+# whose whole job is that pair.
+_REGISTERED = {c for c, _ in re.findall(r'\(\s*"(\w+)",\s*(?:self\.)?(_cmd_\w+)\)', _SRC)}
 
 
 def test_catalogue_and_registration_match_exactly():

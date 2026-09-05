@@ -131,7 +131,7 @@ test('arena.html mounts the tape, polls it, and animates only fresh prints', () 
   // reduced-motion neutralizes the entrance animation
   assert.match(html, /prefers-reduced-motion: reduce\) \{ \.tape-row\.tape-new \{ animation: none/);
   // i18n cache-buster floor (never assert an exact version)
-  const m = html.match(/i18n\.js\?v=(\d+)/);
+  const m = html.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 15, `i18n version floor (got ${m && m[1]})`);
 });
 

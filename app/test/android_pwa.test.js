@@ -68,7 +68,7 @@ test('the landing hero offers a one-tap PWA install CTA (i18n, 6 locales)', () =
   const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
   const line = i18n.split('\n').find(l => l.includes("'hero.install'"));
   for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(line.includes(loc), `hero.install has ${loc}`);
-  const m = index.match(/i18n\.js\?v=(\d+)/);
+  const m = index.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 13, 'i18n cache-buster >= 13');
 });
 

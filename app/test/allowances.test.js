@@ -123,6 +123,6 @@ test('the page is wired everywhere and carries the honesty copy', () => {
   assert.match(page, /never signs, never sends, never holds a key/);
   assert.match(page, /reveal-on-scroll/);
   assert.match(page, /rc-constellation/);
-  const m = page.match(/i18n\.js\?v=(\d+)/);
+  const m = page.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 86);
 });

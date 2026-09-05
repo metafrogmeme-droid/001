@@ -197,7 +197,7 @@ test('launching a season announces it — push broadcast + agent-feed event (§4
 test('the Arena speaks six languages — localizer wired, keys complete', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
   const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
-  assert.match(html, /js\/i18n\.js\?v=\d+/);
+  assert.match(html, /js\/i18n(?:-core)?\.js\?v=\d+/);
   assert.match(html, /data-i18n="arena\.h1"/);
   assert.match(html, /data-i18n-html="arena\.lede"/);
   for (const key of ['arena.h1', 'arena.lede', 'arena.p_account', 'arena.p_ticket', 'arena.p_positions',

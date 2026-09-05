@@ -202,7 +202,7 @@ test('i18n.js loads BEFORE the page script that renders at parse time', () => {
   // IIFE — before DOMContentLoaded. An i18n.js tag placed after it (which is
   // where it was) arrives too late: every T() has already fallen back to
   // English, and this page never re-renders on its own.
-  const i18nAt = escPage.indexOf('/js/i18n.js');
+  const i18nAt = escPage.indexOf('/js/i18n-core.js');
   const modelAt = escPage.indexOf('/js/escape-model.js');
   assert.ok(i18nAt > -1 && modelAt > -1);
   assert.ok(i18nAt < modelAt,

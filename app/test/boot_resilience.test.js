@@ -76,6 +76,42 @@ test('the readiness body never carries driver text, host or credentials', () => 
   assert.equal(readiness.snapshot().reason, 'db_unreachable');
 });
 
+// ── which store is behind "ready" ─────────────────────────────────────────
+
+test('/readyz names the store, so a deliberate in-memory mode cannot pass for the database', () => {
+  readiness.markReady();
+  const mem = readiness.readyzBody(readiness.snapshot(), 'memory');
+  assert.equal(mem.ready, true);
+  assert.equal(mem.backend, 'memory');
+  assert.equal(mem.persistent, false, 'ready on memory persists nothing, and the body says so');
+  const db = readiness.readyzBody(readiness.snapshot(), 'mysql');
+  assert.equal(db.backend, 'mysql');
+  assert.equal(db.persistent, true);
+  // The snapshot fields survive untouched beside the new ones.
+  for (const k of ['ready', 'reason', 'attempts', 'ready_since']) assert.ok(k in mem, k);
+});
+
+test('a backend outside the vocabulary is unknown, not guessed in either direction', () => {
+  const odd = readiness.readyzBody(readiness.snapshot(), 'postgres-someday');
+  assert.equal(odd.backend, 'unknown');
+  assert.equal(odd.persistent, null);
+  assert.deepEqual(readiness.BACKENDS, ['mysql', 'memory']);
+});
+
+test('the route serves readyzBody with the live backend, and still carries no internals', () => {
+  const i = SERVER_SRC.indexOf("app.get('/readyz'");
+  const body = SERVER_SRC.slice(i, i + 700);
+  assert.match(body, /readiness\.readyzBody\(snap, backend\(\)\)/,
+    '/readyz answers with the bare snapshot again — an in-memory deployment reads as the database');
+  assert.match(SERVER_SRC, /const \{[^}]*\bbackend\b[^}]*\} = require\('\.\/db'\)/,
+    'backend() is not imported from ./db');
+  const err = new Error("connect ECONNREFUSED 10.1.2.3:3306 for user 'root'");
+  err.code = 'ECONNREFUSED';
+  readiness.markAttemptFailed(err);
+  const text = JSON.stringify(readiness.readyzBody(readiness.snapshot(), 'memory'));
+  for (const leak of ['10.1.2.3', '3306', 'root', 'ECONNREFUSED']) assert.ok(!text.includes(leak), leak);
+});
+
 test('classify reads only the error code, never the message', () => {
   // A message mentioning a known code must NOT be promoted to that code —
   // otherwise arbitrary driver prose could steer the public reason field. It

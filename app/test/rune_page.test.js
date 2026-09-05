@@ -89,7 +89,7 @@ test('every rn key ships all 14 locales, with the count slot everywhere', () => 
   }
   const countLine = i18n.split('\n').find((l) => l.includes("'rn.s_count':"));
   assert.ok((countLine.split('{n}').length - 1) >= 14, '{n} slot in every locale');
-  const m = page.match(/i18n\.js\?v=(\d+)/);
+  const m = page.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 81, 'i18n cache-buster >= 81');
 });
 

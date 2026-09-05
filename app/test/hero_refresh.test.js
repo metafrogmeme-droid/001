@@ -101,5 +101,5 @@ test('hero.h1 and hero.body stay translated across all locales', () => {
       assert.ok(block.includes(loc), `${key} lost ${loc}`);
     }
   }
-  assert.match(index, /i18n\.js\?v=\d+/);
+  assert.match(index, /i18n(?:-core)?\.js\?v=\d+/);
 });

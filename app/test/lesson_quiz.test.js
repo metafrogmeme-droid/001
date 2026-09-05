@@ -54,7 +54,7 @@ test('the page grades by arithmetic and reveals the truth on a miss', () => {
   assert.match(page, /qz\.options\[qz\.answer\]/, 'a wrong pick shows the right answer');
   assert.match(page, /ln\.quiz_score/);
   assert.match(page, /not a certification/i, 'the self-check framing is stated in code comment');
-  const m = page.match(/i18n\.js\?v=(\d+)/);
+  const m = page.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 93, 'buster >= 93');
 });
 

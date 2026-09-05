@@ -32,5 +32,5 @@ test('the Strength Map copy is translated across all six locales + cache-buster 
   }
   const line = i18n.split('\n').find(l => l.includes("'sec.strength_p'"));
   for (const loc of ['en:', 'es:', 'zh:', 'pt:', 'fr:', 'ar:']) assert.ok(line.includes(loc), `strength_p has ${loc}`);
-  assert.match(index, /i18n\.js\?v=\d+/);
+  assert.match(index, /i18n(?:-core)?\.js\?v=\d+/);
 });

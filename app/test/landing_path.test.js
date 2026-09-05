@@ -80,7 +80,7 @@ test('every path key ships all 14 locales', () => {
 });
 
 test('cache-busters are bumped for the new copy and the new parallax', () => {
-  const m = index.match(/i18n\.js\?v=(\d+)/);
+  const m = index.match(/i18n(?:-core)?\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 79, 'i18n cache-buster >= 79');
   const a = index.match(/ambient\.js\?v=(\d+)/);
   assert.ok(a && Number(a[1]) >= 2, 'ambient cache-buster >= 2');
