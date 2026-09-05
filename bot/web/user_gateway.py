@@ -344,8 +344,21 @@ async def handle_chat(request: web.Request) -> web.Response:
 
 
 async def handle_chat_stream(request: web.Request) -> web.StreamResponse:
-    """POST /chat/stream — handle_chat as an event stream."""
-    return await _sse_turn(request, _chat_turn)
+    """POST /chat/stream — handle_chat as an event stream.
+
+    The turn is `_chat_turn`, guard and all: `_guard_user` runs inside it
+    before any model does, and a refusal comes out as the one `final` frame
+    with its 4xx status. The delegation is written as a closure that RETURNS
+    the turn rather than as the function passed through by value, so it is
+    visible to scripts/guard_lint.py — which follows `return f(...)` edges
+    and nothing else, by design: a transitive walk once called a route
+    guarded whose guard had been deleted. The first draft passed
+    `_chat_turn` as an argument, and the lint reported, correctly, that it
+    could not see the guard being reached.
+    """
+    async def _turn(req: web.Request, on_event=None) -> web.Response:
+        return await _chat_turn(req, on_event=on_event)
+    return await _sse_turn(request, _turn)
 
 
 async def _chat_turn(request: web.Request, on_event=None) -> web.Response:

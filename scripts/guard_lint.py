@@ -315,6 +315,10 @@ RULES: list[Rule] = [
         # low-risk: no account, no user store, no dollar figure in scope.
         exclude_functions=[
             "handle_public_chat",         # LLM chat with is_admin=False, public=True
+            # The same turn as handle_public_chat (`_public_chat_turn`, which
+            # calls _llm_chat with is_admin=False, public=True and never reads
+            # a user), as text/event-stream. Only the wire shape differs.
+            "handle_public_chat_stream",
             "handle_proofofpnl_public",   # the sealed statement; open verification is the point
             "handle_leaderboard_public",  # anonymous, independently re-verifiable rows
             "handle_strategies_public",   # preset catalogue: design + regime, no numbers
