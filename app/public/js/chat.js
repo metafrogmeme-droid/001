@@ -7,7 +7,16 @@
  */
 (function () {
   'use strict';
-  const { LOGGED_IN, fetchJSON, postWithStepUp, esc, fmt, fmtMoney, signed, sanitizeBotHtml, toast, modalA11y } = window.RC;
+  const { LOGGED_IN, fetchJSON, postWithStepUp, esc, fmt, fmtMoney, signed, sanitizeBotHtml, toast, modalA11y, authHeaders } = window.RC;
+
+  // Real streaming: the model's text arrives as it is produced, over a POST
+  // whose response is text/event-stream, read frame by frame. The word-batch
+  // "reveal" below is what the drawer did before — a complete answer paced
+  // out to look live — and it stays as the path for browsers without a
+  // readable fetch body, and for a deploy whose gateway has no stream route
+  // yet (the reader falls back to the JSON route on a non-stream answer).
+  const STREAMING = !!(window.ReadableStream && window.TextDecoder
+    && window.fetch && window.AbortController);
 
   // Resolved per call, above every use — the language switcher changes the
   // answer after boot, and the inline English is the never-blank fallback.
@@ -513,6 +522,101 @@
     requestAnimationFrame(step);
   }
 
+  /**
+   * POST the turn to the streaming route and consume the event stream.
+   *
+   * Resolves to the SAME `{ ok, status, data }` shape fetchJSON returns, built
+   * from the one `final` frame, so the caller's result handling is one code
+   * path. Resolves null when the streaming route is not usable at all (no
+   * readable body), in which case the caller sends the plain JSON request.
+   * A non-stream reply (an older deploy's 404, a 429, a 503) is handed back
+   * as a plain result rather than retried, so a refusal is never sent twice.
+   */
+  async function sendStreaming(body, signal, onEvent) {
+    let resp;
+    try {
+      resp = await fetch(ENDPOINT + '/stream', {
+        method: 'POST', signal, credentials: 'same-origin',
+        headers: { ...(PUBLIC ? {} : authHeaders()), 'Content-Type': 'application/json',
+          Accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if (signal && signal.aborted) throw e;
+      return null;
+    }
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('text/event-stream')) {
+      let data = null;
+      try { data = await resp.json(); } catch (e) { /* non-JSON body */ }
+      return { ok: resp.ok, status: resp.status, data };
+    }
+    if (!resp.body || typeof resp.body.getReader !== 'function') return null;
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let final = null;
+    const handle = (raw) => {
+      let event = 'message';
+      const dataLines = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (!dataLines.length) return;
+      let data = null;
+      try { data = JSON.parse(dataLines.join('\n')); } catch (e) { return; }
+      if (event === 'final') final = data;
+      else onEvent({ type: event, ...(data || {}) });
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 2); }
+    }
+    if (buf.trim()) handle(buf);
+    if (!final) return { ok: false, status: 502, data: { error: 'The stream ended before an answer arrived.' } };
+    const status = Number(final.status) || 200;
+    return { ok: status >= 200 && status < 300, status, data: final.body || {} };
+  }
+
+  // What the drawer shows WHILE a streamed answer is arriving: a live bubble
+  // the deltas append to, and a status line on the typing indicator while a
+  // tool is being read. A provider change mid-chain ("attempt") clears the
+  // partial text — it came from a model that did not finish.
+  function onStreamEvent(live, ev, typing) {
+    if (ev.type === 'delta') {
+      if (!live) {
+        const bubble = appendMsg('bot', '');
+        const span = document.createElement('span');
+        span.className = 'chat-live';
+        bubble.appendChild(span);
+        live = { bubble, span, text: '' };
+      }
+      live.text += String(ev.text || '');
+      live.span.textContent = live.text;
+      body.scrollTop = body.scrollHeight;
+    } else if (ev.type === 'attempt') {
+      if (live) { live.text = ''; live.span.textContent = ''; }
+    } else if (ev.type === 'tool') {
+      let st = typing.querySelector('.chat-tool-status');
+      if (ev.phase === 'start') {
+        if (!st) {
+          st = document.createElement('span');
+          st.className = 'chat-tool-status muted small';
+          st.style.marginLeft = '8px';
+          typing.appendChild(st);
+        }
+        st.textContent = '🔧 ' + T('dd.ct_reading', 'reading') + ' ' + String(ev.name || '') + '…';
+      } else if (st) {
+        st.remove();
+      }
+    }
+    return live;
+  }
+
   async function send(retryText) {
     const isRetry = retryText != null;
     const text = isRetry ? retryText : input.value.trim();
@@ -570,8 +674,16 @@
         const lang = (window.RCI18N && window.RCI18N.getLang) ? window.RCI18N.getLang() : '';
         if (lang && lang !== 'en') body.lang = lang;
       }
-      const r = await fetchJSON(ENDPOINT, { method: 'POST', body, timeoutMs: 50000, signal: ac.signal });
+      let live = null;
+      let r = null;
+      if (STREAMING) {
+        r = await sendStreaming(body, ac.signal, (ev) => { live = onStreamEvent(live, ev, typing); });
+      }
+      if (!r) r = await fetchJSON(ENDPOINT, { method: 'POST', body, timeoutMs: 50000, signal: ac.signal });
       typing.remove();
+      // Partial text from a turn that did not end in an answer is not an
+      // answer: take it down before the failure line, never leave it standing.
+      if (!(r.ok && r.data && !r.data.pending_trade) && live) { live.bubble.remove(); live = null; }
       if (r.status === 429) appendFailure('Rate limit hit — give it a few seconds.', text, 5000);
       else if (r.status === 503) {
         appendMsg('bot', 'Chat isn\'t available on this deployment right now — please try again shortly.');
@@ -591,8 +703,12 @@
         // Analysis / answer bubble, plus (when the skill surfaced a concrete
         // setup) a one-tap "Trade this" card underneath it.
         const safeHtml = sanitizeBotHtml(r.data.reply_html || '…');
-        const bubble = appendMsg('bot', '');
-        revealInto(bubble, safeHtml);   // progressive "streaming" reveal
+        // A streamed turn already showed the text as it arrived: swap the
+        // live plain text for the final, post-processed markup in place. A
+        // plain JSON turn keeps the paced reveal it always had.
+        const bubble = live ? live.bubble : appendMsg('bot', '');
+        if (live) { bubble.innerHTML = safeHtml; body.scrollTop = body.scrollHeight; }
+        else revealInto(bubble, safeHtml);   // progressive "streaming" reveal
         speakReply(safeHtml);
         // Model transparency: show WHICH model answered (the visible face of
         // tier routing — and of a runeclaw promotion). LLM replies only;
@@ -602,6 +718,16 @@
           cap.className = 'muted small';
           cap.style.cssText = 'margin-top:4px;opacity:.7;font-size:11px';
           cap.textContent = '🤖 ' + r.data.model;
+          // What the model READ before answering. An answer that called
+          // get_portfolio is a different kind of answer from one that recalled
+          // the portfolio, and the reader should be able to tell which they
+          // got. A tool that failed is marked, not hidden.
+          const tools = Array.isArray(r.data.tools) ? r.data.tools : [];
+          if (tools.length) {
+            const names = tools.map((t) => (t && t.name ? String(t.name) : '') + (t && t.ok === false ? '✗' : ''))
+              .filter(Boolean).join(', ');
+            if (names) cap.textContent += ' · ' + T('dd.ct_read', 'read') + ': ' + names;
+          }
           bubble.appendChild(cap);
         }
         // Free-tier meter: show how many free questions remain so the limit is

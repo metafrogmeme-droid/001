@@ -35,9 +35,118 @@ const chatLimit = rateLimit({ windowMs: 60000, max: 15, key: userKey });
 const MAX_TEXT_LEN = 2000;
 // LLM replies can take a while — give chat a longer budget than the default.
 const CHAT_TIMEOUT_MS = 45000;
+// Recording a local answer into the bot's memory is fire-and-forget; it
+// must never hold the reply, so it gets a short budget of its own.
+const RECORD_TIMEOUT_MS = 5000;
+// A streamed turn may read a tool between two model calls, so its absolute
+// deadline sits above the plain chat budget. Still a deadline: a stream
+// that trickles is the one shape an inactivity timeout can never end.
+const STREAM_TIMEOUT_MS = 75000;
 
-// POST /api/chat  body: { text }
-router.post('/', chatLimit, async (req, res) => {
+/**
+ * The local text intercepts, IN ORDER. Each is `(userId, text, ident) ->
+ * reply | null`, where `ident()` lazily resolves the bot identity for the
+ * two that need it. The first non-null reply is the answer.
+ *
+ * Why a table and not a column of `if`s: the order IS the routing — "idle"
+ * is answered by the yield intercept only because nothing above it claimed
+ * the sentence — and a table can be read by a test, which fourteen
+ * consecutive early returns could not. None of the fourteen had one.
+ *
+ * WHAT A HIT DOES NOW. Answer here, AND record the exchange into the bot's
+ * shared conversation memory (POST /gateway/chat/record). These used to
+ * answer and vanish: "what's my net worth?" was answered by the web, and
+ * "and how does that compare to last week?" reached a model that had never
+ * seen the first question. The store is what both surfaces read history
+ * from, so an answer it never hears about is an answer the next turn cannot
+ * build on.
+ */
+const INTERCEPTS = [
+  // "tell me when BTC drops below 100k" — alerts live in the WEB app (the
+  // push channel is here), so handle them before the bot proxy. Evaluated
+  // against public tickers; works even while the bot process is down.
+  ['alerts', (uid, text) => maybeHandleAlertChat(uid, text)],
+  // "what if I'd taken every signal with $1k?" — replayed from the web's
+  // own recorded trade history, no bot round-trip needed.
+  ['replay', (uid, text) => maybeHandleReplayChat(uid, text)],
+  // "show me this week's letter" — the weekly fund-style letter, composed
+  // from recorded data in the web DB.
+  ['letter', (uid, text) => maybeHandleLetterChat(uid, text)],
+  // "rwa radar" — read-only tokenized-asset sector snapshot from live tickers.
+  ['rwa', (uid, text) => maybeHandleRwaChat(uid, text)],
+  // "airdrops" / "testnets" — curated guided-only radar; the reply itself
+  // restates the anti-sybil line so chat can never be read as offering
+  // automated farming.
+  ['airdrops', (uid, text) => require('../lib/airdrops').maybeHandleAirdropChat(uid, text)],
+  // "best venue for BTC" — funding-cost venue read; recommendations only.
+  ['venues', (uid, text) => require('../lib/venue_router').maybeHandleVenueRouterChat(uid, text)],
+  // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot
+  // with an explicit safety read. Never trades or launches.
+  ['meme', (uid, text) => require('../lib/meme').maybeHandleMemeChat(uid, text)],
+  // "nft radar" / "opensea" — read-only collection floor/volume snapshot.
+  // Never lists, bids, mints or trades.
+  ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text)],
+  // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
+  ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text)],
+  // "my wallet" — read-only mirror of the caller's SIWE-linked wallet.
+  ['wallet', (uid, text) => maybeHandleWalletChat(uid, text)],
+  // "my defi positions" / "health factor" — Aave/Lido/Uniswap read straight
+  // from protocol contracts, with liquidation-risk warnings.
+  ['defi', (uid, text) => maybeHandleDefiChat(uid, text)],
+  // "what's my total exposure?" — perp positions netted against wallet spot.
+  ['exposure', (uid, text) => maybeHandleExposureChat(uid, text)],
+  // "research PENDLE" — evidence dossier from trusted local + live sources.
+  ['research', (uid, text) => maybeHandleResearchChat(uid, text)],
+  // "net worth" — everything the user holds, everywhere, read-only. Needs
+  // the resolved bot identity, so its own cheap pattern decides first and
+  // the DB lookup only happens on a match.
+  ['networth', async (uid, text, ident) => (
+    /net ?worth|total (balance|holdings|equity)|balance across|everything i (own|hold)/i.test(text)
+      ? maybeHandleNetWorthChat(await ident(), uid, text) : null)],
+  // "idle" / "best rate" / "earn more" — idle-asset yield optimizer.
+  ['idleyield', async (uid, text, ident) => (
+    /\bidle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn\b/i.test(text)
+      ? maybeHandleIdleYieldChat(await ident(), uid, text) : null)],
+];
+
+/**
+ * Tell the bot's conversation memory about an answer the web gave itself.
+ * Fire-and-forget: the reply has already been decided, and a memory write
+ * that could delay or fail it would be a worse trade than a memory gap.
+ * A gateway that is not configured simply has no memory to tell.
+ */
+function rememberIntercept(ident, text, reply, intent) {
+  if (!gateway.isConfigured()) return;
+  const html = reply && typeof reply.reply_html === 'string' ? reply.reply_html : '';
+  if (!html) return;
+  Promise.resolve()
+    .then(() => ident())
+    .then((who) => gateway.postGateway('/chat/record',
+      { telegram_id: who.id, text, reply: html, intent }, RECORD_TIMEOUT_MS))
+    .then((r) => {
+      if (!(r && r.status >= 200 && r.status < 300)) {
+        console.warn(`[chat] memory record for '${intent}' refused (${r && r.status})`);
+      }
+    })
+    .catch((e) => console.warn('[chat] memory record failed:', e && e.message));
+}
+
+/**
+ * One chat turn, on either wire shape.
+ *
+ * `stream: false` answers with JSON exactly as it always has. `stream: true`
+ * answers as text/event-stream: `delta` frames as the model produces text,
+ * `tool` frames while it reads something, and ONE `final` frame carrying the
+ * same JSON the non-streaming route would have returned — so the browser
+ * renders an intercept hit, a refusal and a model answer through the same
+ * reader, and the fallback to the JSON route is a matter of which URL.
+ * Everything before the gateway call (validation, images, intercepts) is
+ * shared: a streaming route with its own copy of the intercept table is how
+ * one of the two copies stops being consulted.
+ */
+async function chatTurn(req, res, { stream = false } = {}) {
+  const answer = (status, body) => (stream ? gateway.sseFinal(res, status, body)
+    : res.status(status).json(body));
   try {
     const text = typeof (req.body || {}).text === 'string' ? req.body.text.trim() : '';
     // WEB-VISION: optional image attachments. Validate shape + size here; the
@@ -62,78 +171,28 @@ router.post('/', chatLimit, async (req, res) => {
     // goes straight to the bot's vision-capable chat path.
     if (images) {
       const ident = await resolveBotIdentity(req);
-      const r = await gateway.postGateway('/chat', {
+      const payload = {
         telegram_id: ident.id, name: String(ident.email || '').split('@')[0], text, images,
-      }, CHAT_TIMEOUT_MS);
+      };
+      if (stream) return gateway.postGatewayStream('/chat/stream', payload, res, STREAM_TIMEOUT_MS);
+      const r = await gateway.postGateway('/chat', payload, CHAT_TIMEOUT_MS);
       return gateway.relay(res, r);
     }
-    // "tell me when BTC drops below 100k" — alerts live in the WEB app (the
-    // push channel is here), so handle them before the bot proxy. Evaluated
-    // against public tickers; works even while the bot process is down.
-    const alertReply = await maybeHandleAlertChat(req.user.user_id, text);
-    if (alertReply) return res.json(alertReply);
-    // "what if I'd taken every signal with $1k?" — replayed from the web's
-    // own recorded trade history, no bot round-trip needed.
-    const replayReply = await maybeHandleReplayChat(req.user.user_id, text);
-    if (replayReply) return res.json(replayReply);
-    // "show me this week's letter" — the weekly fund-style letter, composed
-    // from recorded data in the web DB.
-    const letterReply = await maybeHandleLetterChat(req.user.user_id, text);
-    if (letterReply) return res.json(letterReply);
-    // "rwa radar" — read-only tokenized-asset sector snapshot from live tickers.
-    const rwaReply = await maybeHandleRwaChat(req.user.user_id, text);
-    if (rwaReply) return res.json(rwaReply);
-    // "airdrops" / "testnets" — curated guided-only radar; the reply itself
-    // restates the anti-sybil line so chat can never be read as offering
-    // automated farming.
-    const airdropReply = await require('../lib/airdrops').maybeHandleAirdropChat(req.user.user_id, text);
-    if (airdropReply) return res.json(airdropReply);
-    // "best venue for BTC" — funding-cost venue read; recommendations only.
-    const venueReply = await require('../lib/venue_router').maybeHandleVenueRouterChat(req.user.user_id, text);
-    if (venueReply) return res.json(venueReply);
-    // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot
-    // with an explicit safety read. Never trades or launches.
-    const memeReply = await require('../lib/meme').maybeHandleMemeChat(req.user.user_id, text);
-    if (memeReply) return res.json(memeReply);
-    // "nft radar" / "opensea" — read-only collection floor/volume snapshot.
-    // Never lists, bids, mints or trades.
-    const nftReply = await require('../lib/opensea').maybeHandleNftChat(req.user.user_id, text);
-    if (nftReply) return res.json(nftReply);
-    // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
-    const spotReply = await require('../lib/spot').maybeHandleSpotChat(req.user.user_id, text);
-    if (spotReply) return res.json(spotReply);
-    // "my wallet" — read-only mirror of the caller's SIWE-linked wallet.
-    const walletReply = await maybeHandleWalletChat(req.user.user_id, text);
-    if (walletReply) return res.json(walletReply);
-    // "my defi positions" / "health factor" — Aave/Lido/Uniswap read straight
-    // from protocol contracts, with liquidation-risk warnings.
-    const defiReply = await maybeHandleDefiChat(req.user.user_id, text);
-    if (defiReply) return res.json(defiReply);
-    // "what's my total exposure?" — perp positions netted against wallet spot.
-    const exposureReply = await maybeHandleExposureChat(req.user.user_id, text);
-    if (exposureReply) return res.json(exposureReply);
-    // "research PENDLE" — evidence dossier from trusted local + live sources.
-    const researchReply = await maybeHandleResearchChat(req.user.user_id, text);
-    if (researchReply) return res.json(researchReply);
-    // "net worth" — everything the user holds, everywhere, read-only.
-    // Needs the resolved bot identity, so it runs after resolveBotIdentity…
-    // except the identity is resolved below; resolve it here for this
-    // intercept only when the pattern matches (cheap guard inside).
-    if (/net ?worth|total (balance|holdings|equity)|balance across|everything i (own|hold)/i.test(text)) {
-      const identNW = await resolveBotIdentity(req);
-      const nwReply = await maybeHandleNetWorthChat(identNW, req.user.user_id, text);
-      if (nwReply) return res.json(nwReply);
-    }
-    // "idle" / "best rate" / "earn more" — idle-asset yield optimizer.
-    if (/\bidle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn\b/i.test(text)) {
-      const identIY = await resolveBotIdentity(req);
-      const iyReply = await maybeHandleIdleYieldChat(identIY, req.user.user_id, text);
-      if (iyReply) return res.json(iyReply);
+    // The local intercepts, in table order; the identity is resolved at most
+    // once and only when something actually needs it.
+    let identP = null;
+    const identLazy = () => (identP || (identP = resolveBotIdentity(req)));
+    for (const [name, fn] of INTERCEPTS) {
+      const reply = await fn(req.user.user_id, text, identLazy);
+      if (reply) {
+        rememberIntercept(identLazy, text, reply, name);
+        return answer(200, reply);
+      }
     }
     if (!gateway.isConfigured()) {
       return res.status(503).json({ error: 'Chat not configured' });
     }
-    const ident = await resolveBotIdentity(req);
+    const ident = await identLazy();
     const name = String(ident.email || '').split('@')[0];
     // The user's saved agent profile rides along so the bot's chat prompt
     // knows who it's talking to (risk preference, watchlist). Best-effort —
@@ -148,17 +207,25 @@ router.post('/', chatLimit, async (req, res) => {
       // Preferred chat language (the bot LLM replies in it). Best-effort.
       if (p.prefs && typeof p.prefs.lang === 'string') lang = p.prefs.lang;
     } catch (e) { /* chat works without a profile */ }
-    const r = await gateway.postGateway('/chat', {
+    const payload = {
       telegram_id: ident.id, name, text,
       ...(profile ? { profile } : {}),
       ...(lang ? { lang } : {}),
-    }, CHAT_TIMEOUT_MS);
+    };
+    if (stream) return gateway.postGatewayStream('/chat/stream', payload, res, STREAM_TIMEOUT_MS);
+    const r = await gateway.postGateway('/chat', payload, CHAT_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
     console.error('Chat proxy error:', err.stack || err.message);
+    if (res.headersSent) { try { res.end(); } catch (e) { /* gone */ } return; }
     return res.status(502).json({ error: 'Chat unavailable' });
   }
-});
+}
+
+// POST /api/chat  body: { text }
+router.post('/', chatLimit, (req, res) => chatTurn(req, res, { stream: false }));
+// POST /api/chat/stream  body: { text } — the same turn as text/event-stream.
+router.post('/stream', chatLimit, (req, res) => chatTurn(req, res, { stream: true }));
 
 // GET /api/chat/history?limit=30
 router.get('/history', async (req, res) => {
@@ -178,3 +245,6 @@ router.get('/history', async (req, res) => {
 });
 
 module.exports = router;
+// The routing table, readable by tests — see the note on INTERCEPTS.
+module.exports.INTERCEPTS = INTERCEPTS;
+module.exports.rememberIntercept = rememberIntercept;

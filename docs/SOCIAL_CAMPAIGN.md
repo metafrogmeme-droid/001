@@ -6,7 +6,7 @@ Target: Community Impact Award
 
 ## One-Liner Pitch
 
-RUNECLAW is a simulation-first AI trading agent with 18 risk risk checks, regime-aware analysis, and human confirmation on every trade.
+RUNECLAW is a simulation-first AI trading agent with a fail-closed pre-trade risk gate, regime-aware analysis, and human confirmation on every trade unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED`).
 
 ---
 
@@ -18,13 +18,13 @@ Introducing RUNECLAW -- an AI trading agent built for the Bitget ecosystem.
 
 Track 1 (Trading Agent) | Track 2 (Trading Infra)
 
-20 independent risk checks. Fail-closed architecture. Every trade requires human confirmation. Paper trading by default.
+A fail-closed pre-trade risk gate. Every trade requires human confirmation unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED`). Paper trading by default.
 
 Thread below.
 
 ### Tweet 2 -- Risk Engine
 
-RUNECLAW enforces 18 pre-trade risk checks. Every single one must pass, or the trade is rejected. There is no override.
+RUNECLAW enforces a fail-closed pre-trade risk gate. A check that cannot be evaluated rejects the trade rather than passing it, and the checks that ran are named on the decision record.
 
 Position limits. Drawdown caps. Correlation blocking. Per-symbol exposure. Volatility guard. Cooldown timers. Circuit breaker.
 
@@ -48,7 +48,7 @@ Every decision RUNECLAW makes is logged and auditable.
 
 State transitions. Risk gate evaluations. Indicator scores. Confluence model weights. LLM reasoning. Execution outcomes.
 
-If the system rejects a trade, you can trace exactly which of the 20 checks failed and why. No black boxes.
+If the system rejects a trade, you can trace exactly which check failed and why — the checks that ran are named on the decision record. No black boxes.
 
 ### Tweet 5 -- Regime Detection
 
@@ -64,7 +64,7 @@ Strategy adapts stop-loss and take-profit multipliers to current volatility. Not
 
 RUNECLAW ships in paper-trading mode. $10,000 virtual balance. Full position lifecycle with PnL tracking.
 
-Two independent safety flags must be toggled before any real capital is at risk. Every trade requires human confirmation via Telegram.
+Two independent safety flags must be toggled before any real capital is at risk. Every trade requires human confirmation via Telegram unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED`).
 
 AI proposes. Humans decide.
 
@@ -78,7 +78,7 @@ Docs: https://humanoid-traders-1.gitbook.io/humanoid-traders-ai
 Telegram: https://t.me/+VRNgsmkR5pszZTdk
 X: https://x.com/BaurPatric70363
 
-Built by Humanoid Traders. 180 tests. 18 risk checks. Read the code.
+Built by Humanoid Traders. A fail-closed risk gate. Read the code.
 
 ---
 
@@ -89,11 +89,11 @@ Built by Humanoid Traders. 180 tests. 18 risk checks. Read the code.
 We are submitting RUNECLAW, a simulation-first AI trading agent built for the Bitget ecosystem.
 
 **What it does:**
-RUNECLAW scans markets for volume anomalies and momentum shifts, generates explainable trade ideas using a 10-voter confluence model (RSI, MACD, BB, Volume Spike, ADX, VWAP, OBV trend, candlestick pattern detection, Fibonacci retracement zone) blended with LLM reasoning, and enforces 20 independent pre-trade risk checks before proposing any trade to the operator.
+RUNECLAW scans markets for volume anomalies and momentum shifts, generates explainable trade ideas using a 10-voter confluence model (RSI, MACD, BB, Volume Spike, ADX, VWAP, OBV trend, candlestick pattern detection, Fibonacci retracement zone) blended with LLM reasoning, and enforces a fail-closed pre-trade risk gate before proposing any trade to the operator.
 
 **Architecture:**
 - 9-state finite state machine (IDLE through HALTED)
-- 18 risk risk checks -- any failure blocks the trade
+- A fail-closed risk gate -- any failure blocks the trade, and a check that cannot be evaluated counts as a failure
 - ADX-14 regime detection adapts strategy to trend/range/chop conditions
 - Adaptive ATR-based stop-loss and take-profit scaling
 - Trailing stops accounted for 48.7% of all exits with net-positive aggregate PnL
@@ -104,13 +104,13 @@ RUNECLAW scans markets for volume anomalies and momentum shifts, generates expla
 
 **Safety design:**
 - Paper trading by default, live requires dual flag opt-in
-- Human confirmation via Telegram for every trade
+- Human confirmation via Telegram for every trade, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED`)
 - Circuit breaker halts system on 5% daily loss or 10% drawdown
 - Cooldown timer after losses prevents revenge trading
 - Per-symbol and portfolio-level exposure limits
 
 **Test coverage:**
-180 unit tests covering risk engine (all 20 checks), portfolio lifecycle, analyzer indicators (including candlestick pattern detection, Fibonacci retracement, OBV, rolling VWAP), backtest replay, macro calendar states, integration scenarios, edge cases, and negative inputs.
+180 unit tests covering the risk engine (every check in the manifest), portfolio lifecycle, analyzer indicators (including candlestick pattern detection, Fibonacci retracement, OBV, rolling VWAP), backtest replay, macro calendar states, integration scenarios, edge cases, and negative inputs.
 
 **Links:**
 - GitHub: https://github.com/Humanoid-Traders/RUNECLAW

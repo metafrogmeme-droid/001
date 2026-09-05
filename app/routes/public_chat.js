@@ -31,8 +31,9 @@ const MAX_TEXT_LEN = 2000;
 // LLM replies can take a while — give chat a longer budget than the default.
 const CHAT_TIMEOUT_MS = 45000;
 
-// POST /api/public/chat  body: { text }
-router.post('/', publicChatLimit, async (req, res) => {
+// The same turn on either wire shape — see routes/chat.js for why the two
+// share one function rather than two copies of the validation.
+async function publicTurn(req, res, { stream = false } = {}) {
   try {
     if (!gateway.isConfigured()) {
       return res.status(503).json({ error: 'Chat not configured' });
@@ -46,12 +47,19 @@ router.post('/', publicChatLimit, async (req, res) => {
     const rawLang = typeof (req.body || {}).lang === 'string' ? req.body.lang.trim() : '';
     const lang = /^[a-zA-Z-]{2,12}$/.test(rawLang) ? rawLang : '';
     const payload = lang ? { text, lang } : { text };
+    if (stream) return gateway.postGatewayStream('/chat/public/stream', payload, res, CHAT_TIMEOUT_MS + 15000);
     const r = await gateway.postGateway('/chat/public', payload, CHAT_TIMEOUT_MS);
     return gateway.relay(res, r);
   } catch (err) {
     console.error('Public chat proxy error:', err.stack || err.message);
+    if (res.headersSent) { try { res.end(); } catch (e) { /* gone */ } return; }
     return res.status(502).json({ error: 'Chat unavailable' });
   }
-});
+}
+
+// POST /api/public/chat  body: { text }
+router.post('/', publicChatLimit, (req, res) => publicTurn(req, res, { stream: false }));
+// POST /api/public/chat/stream — the same turn as text/event-stream.
+router.post('/stream', publicChatLimit, (req, res) => publicTurn(req, res, { stream: true }));
 
 module.exports = router;

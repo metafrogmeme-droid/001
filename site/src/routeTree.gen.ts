@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as ProductRouteImport } from './routes/product'
 import { Route as ProofRouteImport } from './routes/proof'
 import { Route as RiskRouteImport } from './routes/risk'
 
@@ -19,9 +21,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChangelogRoute = ChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProductRoute = ProductRouteImport.update({
+  id: '/product',
+  path: '/product',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProofRoute = ProofRouteImport.update({
@@ -37,34 +49,49 @@ const RiskRoute = RiskRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/changelog': typeof ChangelogRoute
   '/privacy': typeof PrivacyRoute
+  '/product': typeof ProductRoute
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/changelog': typeof ChangelogRoute
   '/privacy': typeof PrivacyRoute
+  '/product': typeof ProductRoute
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/changelog': typeof ChangelogRoute
   '/privacy': typeof PrivacyRoute
+  '/product': typeof ProductRoute
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/privacy' | '/proof' | '/risk'
+  fullPaths: '/' | '/changelog' | '/privacy' | '/product' | '/proof' | '/risk'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/privacy' | '/proof' | '/risk'
-  id: '__root__' | '/' | '/privacy' | '/proof' | '/risk'
+  to: '/' | '/changelog' | '/privacy' | '/product' | '/proof' | '/risk'
+  id:
+    | '__root__'
+    | '/'
+    | '/changelog'
+    | '/privacy'
+    | '/product'
+    | '/proof'
+    | '/risk'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ChangelogRoute: typeof ChangelogRoute
   PrivacyRoute: typeof PrivacyRoute
+  ProductRoute: typeof ProductRoute
   ProofRoute: typeof ProofRoute
   RiskRoute: typeof RiskRoute
 }
@@ -78,11 +105,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/changelog': {
+      id: '/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof ChangelogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy': {
       id: '/privacy'
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/product': {
+      id: '/product'
+      path: '/product'
+      fullPath: '/product'
+      preLoaderRoute: typeof ProductRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/proof': {
@@ -104,7 +145,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ChangelogRoute: ChangelogRoute,
   PrivacyRoute: PrivacyRoute,
+  ProductRoute: ProductRoute,
   ProofRoute: ProofRoute,
   RiskRoute: RiskRoute,
 }

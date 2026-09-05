@@ -116,12 +116,26 @@ class TestDollarsOnlyWhenSupplied:
 
 class TestItIsActuallyWired:
     def test_both_provider_branches_record(self):
+        """Both SDK branches record, in BOTH completion functions.
+
+        `llm_complete_with_tools` carries the same two branches as
+        `llm_complete` — a tool loop that recorded on one provider and not the
+        other would make the total depend on which provider answered, exactly
+        the defect this test was written against. So the count is per
+        function, not per file: two in each.
+        """
         from tests.source_scan import code_only
         src = code_only(open("bot/llm/provider.py", encoding="utf-8").read())
-        assert src.count("_usage.record_from_response(config.model, response)") == 2, (
-            "Anthropic and OpenAI-compatible branches must BOTH record — one "
-            "wired branch means the total silently depends on which provider "
-            "answered"
+        plain, _, tools = src.partition("async def llm_complete_with_tools(")
+        assert tools, "llm_complete_with_tools is gone"
+        needle = "_usage.record_from_response(config.model, response)"
+        assert plain.count(needle) == 2, (
+            "llm_complete: Anthropic and OpenAI-compatible branches must BOTH "
+            "record — one wired branch means the total silently depends on "
+            "which provider answered"
+        )
+        assert tools.count(needle) == 2, (
+            "llm_complete_with_tools: both SDK loops must record every round"
         )
 
     def test_health_reports_it(self):

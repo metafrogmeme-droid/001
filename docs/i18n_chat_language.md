@@ -47,8 +47,25 @@ Where `reply_lang` comes from:
 - `tests/test_web_gateway.py` — `lang` in the chat request reaches `_llm_chat`
   as `reply_lang`, on both the authed and public paths.
 
+## Shipped since
+
+- **Web language switcher + `navigator.language` auto-detect** — landed with
+  the web-UI i18n foundation (`app/public/js/i18n.js`). The switcher is built
+  into every page's nav (`buildSwitcher`), the language resolves at parse time
+  from the saved choice, then the browser language, then English, and choosing
+  one writes the signed-in user's `prefs.lang` (`persistServer`), which
+  `routes/chat.js` forwards as `lang` on every chat turn. The Account view
+  needs no second control: the nav one is on the Account view too.
+- **The chat's own chrome follows the language** — the thinking phrase, the
+  four no-model messages, the free-chat quota wall and the public scan gate
+  come from the `bot/utils/i18n.py` table (`chat_*` keys) in the user's
+  dictionary language (`ui_lang` maps a chat code onto en/zh), instead of
+  English literals around a localized answer. `tests/test_chat_chrome_i18n.py`
+  pins it on both surfaces.
+
 ## Next
 
-A web language switcher (Account view) + browser `navigator.language`
-auto-detect writes `prefs.lang`, activating web chat localization end-to-end;
-that lands with the web-UI i18n foundation (the follow-up slice).
+The dictionary is en/zh. The model already answers in thirty-four languages;
+the chrome follows only where the table has the words. Adding a dictionary
+language is a `SUPPORTED_LANGS` entry plus the strings — `ui_lang` and the
+web's fourteen-language switcher then meet in the middle.

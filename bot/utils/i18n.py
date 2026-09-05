@@ -154,6 +154,108 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
     },
     "reg_admin_approve_button": {"en": "✅ Approve as trader", "zh": "✅ 放行為交易者"},
+    # ── the chat's own chrome around a model answer ──
+    # The model replies in the user's language; these are what the CHAT says
+    # when there is no model answer, and the phrase it shows while thinking.
+    # The English texts are byte-identical to the literals the handler's
+    # source scans pin (tests/test_llm_failures_reach_the_operator.py,
+    # tests/test_audit_compliance_fixes.py), because the handler passes them
+    # as the English default — one wording, read from either place.
+    "chat_no_model_admin": {
+        "en": ("The live AI model isn't connected yet — run /setllm to add "
+               "a provider. Meanwhile I can still answer the basics: what "
+               "RUNECLAW is, how it manages risk, leverage, liquidity "
+               "sweeps, and which exchanges are supported."),
+        "zh": ("即時 AI 模型尚未連接 — 執行 /setllm 加入供應商。在此之前我仍能回答"
+               "基本問題：RUNECLAW 是什麼、它如何管理風險、槓桿、流動性掃蕩，以及"
+               "支援哪些交易所。"),
+    },
+    "chat_budget_exhausted": {
+        "en": ("I've used up today's AI budget — try again tomorrow, "
+               "or use a specific command like /scan or /positions."),
+        "zh": "今天的 AI 預算已用完 — 明天再試，或使用 /scan、/positions 等指令。",
+    },
+    "chat_deadline": {
+        "en": ("I stopped waiting before any model answered — that's a "
+               "timeout on my side, not an answer, and nothing was analyzed. "
+               "Try again in a moment, or use a specific command like /scan "
+               "or /positions."),
+        "zh": ("我在任何模型回答之前就停止等待了 — 這是我這邊的逾時，不是答案，"
+               "也沒有任何東西被分析。請稍後再試，或使用 /scan、/positions 等指令。"),
+    },
+    "chat_empty_completions": {
+        "en": ("The model answered but returned nothing — every provider "
+               "came back empty, which is a model or prompt problem rather "
+               "than a connection one. Your key and endpoint are fine. "
+               "Try /llmstatus for the last error, or a specific command "
+               "like /scan or /positions."),
+        "zh": ("模型有回應但沒有內容 — 每個供應商都回傳空白，這是模型或提示的問題，"
+               "而非連線問題。你的金鑰與端點沒有問題。用 /llmstatus 查看最近的錯誤，"
+               "或使用 /scan、/positions 等指令。"),
+    },
+    "chat_unavailable": {
+        "en": ("I'm having trouble thinking right now — the AI is temporarily "
+               "unavailable. Try again in a minute."),
+        "zh": "我現在有點想不清楚 — AI 暫時無法使用。請一分鐘後再試。",
+    },
+    "chat_public_scan_gate": {
+        "en": ("⚔️ A real scan needs the live data feed, and this "
+               "public chat doesn't have one — I won't invent prices or "
+               "levels.<br><br><b>Sign in (free)</b> and I'll run the actual "
+               "scanner on current market data.<br><br>"
+               "<a href=\"/dashboard\">Sign in →</a>"),
+        "zh": ("⚔️ 真正的掃描需要即時資料，而這個公開聊天沒有 — "
+               "我不會捏造價格或關卡。<br><br><b>免費登入</b>，我就會用目前的市場"
+               "資料執行真正的掃描器。<br><br>"
+               "<a href=\"/dashboard\">登入 →</a>"),
+    },
+    "chat_thinking_0": {"en": "<i>Looking at the chart...</i>", "zh": "<i>正在看圖表...</i>"},
+    "chat_thinking_1": {"en": "<i>Checking the setup...</i>", "zh": "<i>正在檢查這個設定...</i>"},
+    "chat_thinking_2": {"en": "<i>Pulling up the data...</i>", "zh": "<i>正在調出資料...</i>"},
+    "chat_thinking_3": {"en": "<i>Reading the orderflow...</i>", "zh": "<i>正在讀取訂單流...</i>"},
+    "chat_thinking_4": {"en": "<i>Let me check that...</i>", "zh": "<i>讓我確認一下...</i>"},
+    "chat_thinking_5": {"en": "<i>Analyzing the structure...</i>", "zh": "<i>正在分析結構...</i>"},
+    "chat_thinking_6": {"en": "<i>Running the numbers...</i>", "zh": "<i>正在計算數字...</i>"},
+    "chat_thinking_7": {"en": "<i>Checking risk levels...</i>", "zh": "<i>正在檢查風險水位...</i>"},
+    "chat_thinking_8": {
+        "en": "⚔️ <i>Analyzing momentum and zones...</i>",
+        "zh": "⚔️ <i>正在分析動能與區間...</i>",
+    },
+    # ── free-chat quota (bot/web/chat_quota.py), both surfaces ──
+    "chat_quota_exhausted": {
+        "en": ("🚀 <b>You've used your {limit} free AI questions for today.</b>\n"
+               "{reset}.\n\n"
+               "Commands still work — try /scan, /positions or /risk."),
+        "zh": ("🚀 <b>你今天的 {limit} 個免費 AI 提問已用完。</b>\n"
+               "{reset}。\n\n"
+               "指令仍可使用 — 試試 /scan、/positions 或 /risk。"),
+    },
+    "chat_quota_exhausted_web": {
+        "en": ("🚀 <b>You've used your {limit} free questions for today.</b><br><br>"
+               "Upgrade to keep chatting with the agent — unlimited questions plus "
+               "priority models, live signals, and deeper research. {reset}.<br><br>"
+               "<a href=\"/dashboard#account\">See plans →</a>"),
+        "zh": ("🚀 <b>你今天的 {limit} 個免費提問已用完。</b><br><br>"
+               "升級即可繼續與代理對話 — 無限提問、優先模型、即時訊號與更深入的"
+               "研究。{reset}。<br><br>"
+               "<a href=\"/dashboard#account\">查看方案 →</a>"),
+    },
+    "chat_quota_reset_hours": {
+        "en": "Your free questions reset in about {hours} hours",
+        "zh": "免費提問約 {hours} 小時後重置",
+    },
+    "chat_quota_reset_hour": {
+        "en": "Your free questions reset in about an hour",
+        "zh": "免費提問約一小時後重置",
+    },
+    "chat_quota_reset_soon": {
+        "en": "Your free questions reset within the hour",
+        "zh": "免費提問將在一小時內重置",
+    },
+    "chat_quota_reset_tomorrow": {
+        "en": "Your free questions reset tomorrow",
+        "zh": "免費提問明天重置",
+    },
     "help_pending_available": {
         "en": ("<b>What works right now</b>\n"
                "/start — check whether you're through yet\n"
@@ -1114,6 +1216,24 @@ def t(key: str, lang: str = DEFAULT_LANG, **kwargs) -> str:
             pass  # return template with unfilled placeholders
 
     return text
+
+
+def ui_lang(code) -> str:
+    """The dictionary language for a chat language code.
+
+    The model answers in any language `chat_language_name` knows; the bot's
+    own card text exists in the languages `SUPPORTED_LANGS` names. So "es"
+    reads the English chrome around a Spanish answer, "zh-TW" reads the
+    Traditional Chinese chrome, and an empty or unknown code reads English —
+    never a bare key. One mapping, used by the gateway and the handler alike.
+    """
+    s = str(code or "").strip().lower().replace("_", "-")
+    if not s:
+        return DEFAULT_LANG
+    if s in SUPPORTED_LANGS:
+        return s
+    base = s.split("-", 1)[0]
+    return base if base in SUPPORTED_LANGS else DEFAULT_LANG
 
 
 def get_user_lang(users_db, tg_id: str) -> str:

@@ -184,7 +184,7 @@ class TestPublicLiveDataGate:
         # Ordering is the whole property: after the LLM call it is decoration.
         import inspect
         from bot.web import user_gateway
-        src = inspect.getsource(user_gateway.handle_public_chat)
+        src = inspect.getsource(user_gateway._public_chat_turn)
         assert "needs_live_market_data" in src, (
             "handle_public_chat lost its structural gate — the public path is "
             "back to trusting the model's instructions about prices")

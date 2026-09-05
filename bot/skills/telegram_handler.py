@@ -708,7 +708,9 @@ from bot.core.signal_tracker import SignalTracker
 from bot.nlp.skill_memory import (skill_failure_memory, skill_result_memory,
                                   skill_unavailable_memory)
 from bot.formatters.thesis_text import thesis_prose
-from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG, create_llm_client, llm_complete, resolve_tier_config
+from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG,
+                              create_llm_client, llm_complete, llm_complete_with_tools,
+                              resolve_tier_config)
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_confirm_reject as _scan_callback
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
@@ -717,7 +719,7 @@ from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore, is_vouchable)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
-                            chat_language_name, SUPPORTED_LANGS)
+                            chat_language_name, ui_lang, SUPPORTED_LANGS)
 from bot.nlp.intent_router import IntentRouter
 from bot.nlp.conversation_store import ConversationStore
 from bot.core.proactive_monitor import ProactiveMonitor
@@ -838,8 +840,189 @@ def _dashboard_url() -> str:
 # that never tries anything.
 CHAT_MIN_ATTEMPT_SEC = 6.0
 
+# A tool-calling attempt is one model call, then a tool, then another model
+# call — so it is allowed more wall-clock than the per-attempt LLM timeout, up
+# to this, and never more than what is LEFT of the chain's deadline. A constant
+# for the same reason CHAT_MIN_ATTEMPT_SEC is one: a second knob that can be
+# raised past the deadline is a way to configure an attempt that never ends.
+CHAT_TOOL_ATTEMPT_SEC = 30.0
 
-def _chat_ret(text: str, cfg, return_meta: bool):
+#: The thinking phrases, as dictionary keys: the chat's first words to a user
+#: were an English literal while the answer that followed was in their
+#: language. `thinking_phrase()` draws one in the caller's dictionary language.
+THINKING_PHRASE_KEYS: tuple[str, ...] = tuple(f"chat_thinking_{i}" for i in range(9))
+
+
+def thinking_phrase(lang: str = "en") -> str:
+    """A varied "working on it" line, in the user's dictionary language."""
+    import random
+    return t(random.choice(THINKING_PHRASE_KEYS), lang)
+
+
+def _say(lang: str, key: str, en: str) -> str:
+    """The chat's own words in the user's dictionary language.
+
+    The ENGLISH text stays here, at the call site, as the default — two
+    source-scan suites pin these sentences to the branches that produce them
+    (a reply that blames availability for an empty completion sent an
+    operator to check a tunnel), and a key would hide the words from them.
+    The dictionary's English entry is the same wording; a test pins that.
+    """
+    if lang and lang != "en":
+        out = t(key, lang)
+        if out and out != key:
+            return out
+    return en
+
+
+# The tool rule in the chat system prompt, in its two states. Exactly one of
+# them is in the prompt on any turn — `_llm_chat` substitutes the second for
+# the first when it attaches tools — so the model is never told both that it
+# cannot run a tool and that it should.
+_CHAT_NO_TOOLS_RULE = (
+    "- Earlier assistant turns may contain blocks like '[analyze_asset] "
+    "result: ...'. Those are outputs from tools that ALREADY RAN, kept so "
+    "you can refer back to them. NEVER write such a block yourself. You "
+    "cannot run a tool from this chat, so a '[scan_symbol] result:' or a "
+    "'[PENDING] scanning...' written by you is a claim that something "
+    "executed when nothing did. If a fresh scan is needed, say so in your "
+    "own words.\n\n"
+)
+_CHAT_TOOLS_RULE = (
+    "- You have TOOLS in this conversation (they are listed in the API tool "
+    "definitions). When the answer depends on the user's account, positions, "
+    "PnL, risk state, costs, the macro calendar, what is moving, or why a "
+    "trade was rejected, CALL the tool and answer from what it returns. A "
+    "tool's output is a measurement; your memory of an earlier turn is not — "
+    "positions close and prices move. Earlier assistant turns may contain "
+    "blocks like '[get_portfolio] result: ...': those were written by the "
+    "runtime after a tool really ran. NEVER write such a block yourself, and "
+    "never claim a tool ran unless you called it in this turn. If a tool "
+    "answers UNAVAILABLE, FAILED, TIMED OUT or NOT RUN, say so plainly and "
+    "do not fill the gap with a guess. Deeper work — a full analysis, a "
+    "backtest, a deep scan — is not a tool here; tell the user to ask for "
+    "it directly, e.g. 'analyze BTC'.\n\n"
+)
+
+
+async def _emit_event(on_event, event: dict) -> None:
+    """Deliver one streaming event to a listener that may be sync or async.
+    A listener observes a reply; it is never allowed to break one."""
+    if on_event is None:
+        return
+    try:
+        import inspect
+        result = on_event(event)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.debug("chat stream listener failed: %s", exc)
+
+
+class TelegramStream:
+    """Turn one Telegram message into the streamed reply, edit by edit.
+
+    Telegram has no stream; it has `edit_message_text`, rate-limited to about
+    one edit a second per chat. So the thinking message is edited with the
+    provisional text as fragments arrive — at most every MIN_INTERVAL seconds
+    and only once at least MIN_GROWTH new characters exist — and edited one
+    last time with the FINAL, checked answer. The provisional text is shown
+    plain (tags stripped) because a fragment can end inside a tag; the final
+    edit carries the HTML.
+
+    An edit that fails (rate limit, message deleted) turns editing off for
+    the rest of the turn rather than retrying into the same limit; the final
+    answer then goes out as a fresh message, as it always did.
+    """
+    MIN_INTERVAL = 1.5
+    MIN_GROWTH = 40
+    CARET = " ▍"
+
+    def __init__(self, message, clock=time.monotonic):
+        self.message = message
+        self.text = ""
+        self.edits = 0
+        self.dead = message is None
+        self._last_edit = 0.0
+        self._last_len = 0
+        self._clock = clock
+
+    async def on_event(self, event: dict) -> None:
+        kind = event.get("type")
+        if kind == "delta":
+            self.text += str(event.get("text") or "")
+            await self._maybe_edit()
+        elif kind == "attempt":
+            # A new candidate: whatever the last one streamed did not finish.
+            self.text = ""
+            self._last_len = 0
+
+    def _plain(self, limit: int = 3900) -> str:
+        return re.sub(r"<[^>]+>", "", self.text)[:limit]
+
+    async def _maybe_edit(self) -> None:
+        if self.dead:
+            return
+        now = self._clock()
+        if (now - self._last_edit < self.MIN_INTERVAL
+                or len(self.text) - self._last_len < self.MIN_GROWTH):
+            return
+        plain = self._plain()
+        if not plain.strip():
+            return
+        try:
+            await self.message.edit_text(plain + self.CARET, parse_mode=None)
+            self.edits += 1
+            self._last_edit = now
+            self._last_len = len(self.text)
+        except Exception as exc:
+            self.dead = True
+            logger.debug("telegram stream edit stopped: %s", exc)
+
+    async def finish(self, final_html: str) -> bool:
+        """Replace the provisional message with the final answer. True when
+        the edit landed; False means the caller must send it the usual way."""
+        if self.dead or not final_html or len(final_html) > 4000:
+            return False
+        try:
+            await self.message.edit_text(final_html, parse_mode="HTML")
+            return True
+        except Exception:
+            try:
+                await self.message.edit_text(
+                    re.sub(r"<[^>]+>", "", final_html), parse_mode=None)
+                return True
+            except Exception as exc:
+                logger.debug("telegram stream final edit failed: %s", exc)
+                return False
+
+
+def _chat_tools_for(handler, user_id: str, surface: str, public: bool):
+    """The tools `_llm_chat` may offer on this turn, or [] — and [] is the
+    answer to every doubt: the flag off, an anonymous caller, or a `self`
+    that is a stand-in without the registry and user store a tool needs.
+    Module-level for the same reason `_chat_ret` is: several suites call
+    `_llm_chat` with a SimpleNamespace for self."""
+    try:
+        if public or not user_id:
+            return []
+        if not getattr(CONFIG.llm, "chat_tools_enabled", False):
+            return []
+        registry = getattr(handler, "registry", None)
+        users = getattr(handler, "users", None)
+        if registry is None or users is None:
+            return []
+        from bot.nlp import chat_tools as _chat_tools
+        return [t for t in _chat_tools.tools_for(users, user_id, surface=surface)
+                if registry.get(t.name) is not None]
+    except Exception as exc:
+        # A gate that cannot be evaluated offers nothing; it never raises
+        # into the reply.
+        system_log.debug("chat tools withheld: %s", exc)
+        return []
+
+
+def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
@@ -905,6 +1088,14 @@ def _chat_ret(text: str, cfg, return_meta: bool):
         return text
     meta = ({"provider": cfg.provider.value, "model": cfg.model}
             if cfg is not None else {})
+    # What ran on the way to this answer, for the surface to show and the
+    # store to keep. Name and outcome only — the arguments are already in
+    # the audit log and the result is already in the conversation memory.
+    if meta and tool_events:
+        meta["tools"] = [{"name": str(e.get("name", "")),
+                          "ok": bool(e.get("ok")),
+                          "ms": int(e.get("ms", 0) or 0)}
+                         for e in tool_events]
     return text, meta
 
 
@@ -1715,13 +1906,13 @@ class TelegramHandler:
         # The prompt half of the Doji fix. `_chat_ret` enforces it structurally
         # for the replies that ignore this anyway; asking first costs one
         # bullet and lowers how often the guard has to fire.
-        "- Earlier assistant turns may contain blocks like '[analyze_asset] "
-        "result: ...'. Those are outputs from tools that ALREADY RAN, kept so "
-        "you can refer back to them. NEVER write such a block yourself. You "
-        "cannot run a tool from this chat, so a '[scan_symbol] result:' or a "
-        "'[PENDING] scanning...' written by you is a claim that something "
-        "executed when nothing did. If a fresh scan is needed, say so in your "
-        "own words.\n\n"
+        #
+        # A MODULE CONSTANT, not a literal, because `_llm_chat` swaps it for
+        # `_CHAT_TOOLS_RULE` on turns where tools ARE attached. One document
+        # carries one rule about tools: this prompt once told the model in the
+        # same breath that it had no prices and that it had these prices, and
+        # the note on the LIVE MARKET rule above records how that reads.
+        + _CHAT_NO_TOOLS_RULE +
 
         "PERSONALITY:\n"
         "- Friendly and direct. Like texting a trading buddy.\n"
@@ -1831,17 +2022,9 @@ class TelegramHandler:
     )
 
     # Varied thinking indicators instead of same one every time
-    _THINKING_PHRASES = [
-        "<i>Looking at the chart...</i>",
-        "<i>Checking the setup...</i>",
-        "<i>Pulling up the data...</i>",
-        "<i>Reading the orderflow...</i>",
-        "<i>Let me check that...</i>",
-        "<i>Analyzing the structure...</i>",
-        "<i>Running the numbers...</i>",
-        "<i>Checking risk levels...</i>",
-        "\u2694\ufe0f <i>Analyzing momentum and zones...</i>",
-    ]
+    # Derived from the dictionary so the English list and the localized one
+    # cannot drift; see thinking_phrase().
+    _THINKING_PHRASES = [t(k, "en") for k in THINKING_PHRASE_KEYS]
 
     #: How old a tick may be and still be quoted in chat. Looser than the
     #: stop-logic freshness (ws_max_tick_age_sec) on purpose — a conversation
@@ -2332,8 +2515,18 @@ class TelegramHandler:
                         profile_note: str = "",
                         reply_lang: str = "",
                         return_meta: bool = False,
-                        images: list = None):
+                        images: list = None,
+                        surface: str = "telegram",
+                        on_event=None):
         """Send a free-text question to the LLM with multi-turn context.
+
+        ``on_event(dict)`` — optional, sync or async — receives the turn as it
+        happens: ``{"type": "attempt", "n", "provider", "model"}`` before each
+        candidate, ``{"type": "delta", "text"}`` for each fragment the model
+        produces (when streaming is enabled), and ``{"type": "tool", "name",
+        "phase", "ok"}`` around each tool read. Every fragment is PROVISIONAL:
+        the returned text is the one that went through `_chat_ret`'s checks,
+        and a surface must replace what it streamed with what is returned.
 
         Uses CHAT tier routing with automatic fallback chain:
         Groq → Gemini → Anthropic → primary .env provider.
@@ -2342,6 +2535,11 @@ class TelegramHandler:
         ``public=True`` serves an anonymous website visitor: a STATIC
         market-only system prompt with NO portfolio/position context and NO
         conversation history, and it can never reach the admin-only provider.
+
+        ``surface`` names the transport ("telegram" or "web") and decides
+        which read-only TOOLS the model is offered — the web's reachable set
+        is narrower (bot/skills/skill_permissions.py). Tools ride the
+        signed-in path only; public chat gets none, by construction.
         """
         import asyncio
 
@@ -2358,6 +2556,10 @@ class TelegramHandler:
             _canned = None
         if _canned is not None:
             return _chat_ret(_canned, None, return_meta)
+
+        # The dictionary language for everything the CHAT says around the
+        # answer. The model follows `reply_lang` itself, further below.
+        _ui = ui_lang(reply_lang)
 
         # Resolve active LLM config (BYOK runtime > .env)
         env_config = LLMConfig(
@@ -2433,6 +2635,19 @@ class TelegramHandler:
                 # sanitization of the live question. Defense-in-depth only — the
                 # real boundary is the execution gate.
                 history = _sanitize_history_for_llm(history)
+
+        # TOOLS. The read-only skills this caller's role already holds,
+        # offered to the model so an account question is answered from a
+        # reading rather than from memory. Derived entirely from the
+        # permission table (bot/nlp/chat_tools.py), so nothing here can reach
+        # a skill a typed sentence could not, and `halt` is never in the set.
+        # Public chat gets none; a stand-in `self` with no user store or
+        # registry gets none — an unreadable role holds nothing.
+        _tool_specs = _chat_tools_for(self, user_id, surface, public)
+        _tool_names = {t.name for t in _tool_specs}
+        if _tool_specs:
+            system_prompt = system_prompt.replace(_CHAT_NO_TOOLS_RULE,
+                                                  _CHAT_TOOLS_RULE)
 
         # AI-WEBSEARCH: real-time web search is admin/ULTRA-only (it bills per
         # search against the operator's Anthropic key, and only the admin path
@@ -2531,11 +2746,12 @@ class TelegramHandler:
             # (non-leaky) hint on their own bot.
             from bot.core.faq_kb import public_fallback
             if is_admin and not public:
-                return _chat_ret(
+                return _chat_ret(_say(
+                    _ui, "chat_no_model_admin",
                     "The live AI model isn't connected yet — run /setllm to add "
                     "a provider. Meanwhile I can still answer the basics: what "
                     "RUNECLAW is, how it manages risk, leverage, liquidity "
-                    "sweeps, and which exchanges are supported.",
+                    "sweeps, and which exchanges are supported."),
                     None, return_meta)
             return _chat_ret(public_fallback(), None, return_meta)
 
@@ -2554,9 +2770,10 @@ class TelegramHandler:
                       f"Chat LLM budget exhausted (calls={snap.llm_calls}, "
                       f"cost=${snap.llm_cost_usd:.4f})",
                       action="chat_llm_budget", result="EXHAUSTED")
-                return _chat_ret(
+                return _chat_ret(_say(
+                    _ui, "chat_budget_exhausted",
                     "I've used up today's AI budget — try again tomorrow, "
-                    "or use a specific command like /scan or /positions.",
+                    "or use a specific command like /scan or /positions."),
                     None, return_meta)
 
         # Try each config in order, under ONE wall-clock deadline.
@@ -2588,8 +2805,14 @@ class TelegramHandler:
             _left = _deadline - time.monotonic()
             if _left < CHAT_MIN_ATTEMPT_SEC:
                 break
-            cfg = _dc_replace(
-                cfg, timeout_seconds=min(float(cfg.timeout_seconds), _left))
+            # A tool turn is model -> tool -> model, so it may run past the
+            # per-call timeout, up to CHAT_TOOL_ATTEMPT_SEC — and never past
+            # what is left of the deadline, which is the property the chain
+            # is built on.
+            _attempt = float(cfg.timeout_seconds)
+            if _tool_specs:
+                _attempt = max(_attempt, CHAT_TOOL_ATTEMPT_SEC)
+            cfg = _dc_replace(cfg, timeout_seconds=min(_attempt, _left))
             _tried += 1
             try:
                 client = create_llm_client(cfg)
@@ -2609,12 +2832,71 @@ class TelegramHandler:
                 _vision_ok = (bool(images) and is_admin and not public
                               and cfg.provider == LLMProvider.ANTHROPIC)
                 _citations: list = []
-                answer = await llm_complete(
-                    client, cfg, system_prompt, question,
-                    history=history,
-                    web_search=_cfor_search,
-                    citations_out=_citations if _cfor_search else None,
-                    images=images if _vision_ok else None)
+                # MEASURED tokens, handed back by the provider when the
+                # response reported them. Empty means "not measured", and the
+                # estimate below stands in — never a zero.
+                _usage: dict = {}
+                _tool_events: list = []
+                # Streaming listeners, when a surface is listening. The
+                # "attempt" event lets it clear text from a candidate that
+                # did not finish — a provider that streamed half a sentence
+                # and then failed is not the provider that answers.
+                await _emit_event(on_event, {
+                    "type": "attempt", "n": _tried,
+                    "provider": cfg.provider.value, "model": cfg.model})
+                _stream_ok = (on_event is not None and getattr(
+                    CONFIG.llm, "chat_streaming_enabled", False))
+
+                async def _on_delta(t, _oe=on_event):
+                    await _emit_event(_oe, {"type": "delta", "text": t})
+
+                async def _on_tool(name, phase, ok=None, _oe=on_event):
+                    await _emit_event(_oe, {
+                        "type": "tool", "name": name, "phase": phase,
+                        **({"ok": ok} if ok is not None else {})})
+
+                if _tool_specs and not _vision_ok:
+                    _tool_left = max(
+                        3.0, min(float(CONFIG.llm.chat_tool_timeout_seconds),
+                                 cfg.timeout_seconds - 3.0))
+
+                    async def _run_tool(name, args, _uid=user_id,
+                                        _names=_tool_names, _tl=_tool_left):
+                        from bot.nlp import chat_tools as _chat_tools
+                        return await _chat_tools.run_tool(
+                            self, _uid, name, args, offered=_names,
+                            surface=surface, timeout=_tl)
+
+                    answer = await llm_complete_with_tools(
+                        client, cfg, system_prompt, question,
+                        tools=[t.spec() for t in _tool_specs],
+                        tool_executor=_run_tool,
+                        history=history,
+                        max_rounds=int(CONFIG.llm.chat_tool_rounds),
+                        web_search=_cfor_search,
+                        citations_out=_citations if _cfor_search else None,
+                        usage_out=_usage,
+                        events_out=_tool_events,
+                        on_delta=_on_delta if _stream_ok else None,
+                        on_tool=_on_tool if on_event is not None else None)
+                else:
+                    answer = await llm_complete(
+                        client, cfg, system_prompt, question,
+                        history=history,
+                        web_search=_cfor_search,
+                        citations_out=_citations if _cfor_search else None,
+                        images=images if _vision_ok else None,
+                        usage_out=_usage,
+                        on_delta=_on_delta if _stream_ok else None)
+                if _tool_events:
+                    audit(system_log,
+                          "Chat tools ran: " + ", ".join(
+                              f"{e['name']}{'' if e['ok'] else '!'}"
+                              for e in _tool_events),
+                          action="chat_tools", result="OK",
+                          data={"count": len(_tool_events),
+                                "failed": sum(1 for e in _tool_events
+                                              if not e["ok"])})
                 if _citations:
                     _lines = "\n".join(
                         f"• {c.get('title') or c.get('url')} — {c.get('url')}"
@@ -2643,15 +2925,27 @@ class TelegramHandler:
                 # to send it; `analyzer._estimate_tokens(sys + prompt)` does
                 # the same thing one module over. A justification for guessing
                 # does not survive the value being in scope.
+                #
+                # And now the value IS in scope: the provider hands back the
+                # measured pair when the response reported one, and that is
+                # what gets booked. The estimate is the fallback for a
+                # response that carried no usage — an estimate labelled as
+                # such, not a zero.
                 if hasattr(self.engine, 'cost'):
-                    history_tokens = sum(len(m.get("content", "")) // 4
-                                         for m in history)
-                    system_tokens = max(1, len(system_prompt or "") // 4)
-                    completion_tokens = max(1, len(answer) // 4) if answer else 0
+                    if _usage.get("in") is not None or _usage.get("out") is not None:
+                        prompt_tokens = int(_usage.get("in", 0))
+                        completion_tokens = int(_usage.get("out", 0))
+                    else:
+                        history_tokens = sum(len(m.get("content", "")) // 4
+                                             for m in history)
+                        system_tokens = max(1, len(system_prompt or "") // 4)
+                        prompt_tokens = (system_tokens + history_tokens
+                                         + max(1, len(question or "") // 4))
+                        completion_tokens = (max(1, len(answer) // 4)
+                                             if answer else 0)
                     self.engine.cost.record_llm(
                         model=cfg.model,
-                        prompt_tokens=system_tokens + history_tokens
-                        + max(1, len(question or "") // 4),
+                        prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         category="chat",
                     )
@@ -2681,7 +2975,8 @@ class TelegramHandler:
                           f"Chat used fallback: {cfg.provider.value}/{cfg.model}",
                           action="chat_fallback", result="OK")
 
-                return _chat_ret(answer.strip(), cfg, return_meta)
+                return _chat_ret(answer.strip(), cfg, return_meta,
+                                 tool_events=_tool_events)
 
             except asyncio.TimeoutError:
                 last_error = f"timeout ({cfg.provider.value})"
@@ -2718,11 +3013,12 @@ class TelegramHandler:
                   action="chat_deadline", result="EXHAUSTED")
             self._note_chat_llm_failure(
                 f"deadline after {_tried}/{len(configs_to_try)} providers")
-            return _chat_ret(
+            return _chat_ret(_say(
+                _ui, "chat_deadline",
                 "I stopped waiting before any model answered — that's a "
                 "timeout on my side, not an answer, and nothing was analyzed. "
                 "Try again in a moment, or use a specific command like /scan "
-                "or /positions.",
+                "or /positions."),
                 None, return_meta)
         audit(system_log, f"All chat LLM providers failed. Last: {last_error}",
               action="chat_error", result="ALL_FAILED")
@@ -2740,17 +3036,91 @@ class TelegramHandler:
         # them together. Different faults, different next step: unreachable is
         # infrastructure, empty is the model or its prompt.
         if _empty_completions and _empty_completions >= _tried:
-            return _chat_ret(
+            return _chat_ret(_say(
+                _ui, "chat_empty_completions",
                 "The model answered but returned nothing — every provider "
                 "came back empty, which is a model or prompt problem rather "
                 "than a connection one. Your key and endpoint are fine. "
                 "Try /llmstatus for the last error, or a specific command "
-                "like /scan or /positions.",
+                "like /scan or /positions."),
                 None, return_meta)
-        return _chat_ret(
+        return _chat_ret(_say(
+            _ui, "chat_unavailable",
             "I'm having trouble thinking right now — the AI is temporarily "
-            "unavailable. Try again in a minute.",
+            "unavailable. Try again in a minute."),
             None, return_meta)
+
+    # The instruction to the note-writer. Facts only, nothing current: a
+    # price in the note would be recited weeks later as if it were live,
+    # which is the exact rule the chat prompt spends a paragraph on.
+    _SUMMARY_SYSTEM_PROMPT = (
+        "You compress older turns of a chat between a trading assistant and "
+        "one user into a short factual memory note for the assistant's own "
+        "later use. Keep only what would still be true and useful next week: "
+        "facts the user stated about themselves (risk appetite, experience, "
+        "what they hold, preferences), the assets and questions they brought "
+        "up, decisions made and threads left open. Never invent anything, "
+        "never keep a price or a market call as if it were current, never "
+        "keep insults or private data beyond what the user chose to share. "
+        "Merge with the existing note, drop what it makes redundant. Plain "
+        "text, third person ('the user'), at most 120 words.")
+
+    async def _summarize_if_due(self, user_id: str, is_admin: bool = False) -> bool:
+        """Fold the turns the store pruned into its rolling note. True when a
+        note was written.
+
+        Runs AFTER a reply, off the request path (the callers create a task),
+        on the cheapest chat-tier model with the caller's own role — never
+        the operator's admin-only key for a non-admin's memory. When no model
+        is configured or the call fails, the pruned turns go back on the
+        queue, bounded, so nothing is lost to a transient outage and nothing
+        grows without bound in a permanent one.
+        """
+        store = getattr(self, "conversations", None)
+        take = getattr(store, "take_pending_summary", None)
+        if store is None or take is None or not user_id:
+            return False
+        pending = take(user_id)
+        if not pending:
+            return False
+        try:
+            env_config = LLMConfig(
+                provider=LLMProvider(CONFIG.llm.provider) if CONFIG.llm.provider
+                else LLMProvider.OPENAI,
+                api_key=CONFIG.llm.api_key,
+                model=CONFIG.llm.model,
+                base_url=CONFIG.llm.base_url,
+                timeout_seconds=CONFIG.llm.timeout_seconds,
+            )
+            cfg = resolve_tier_config(LLMTier.CHAT, BYOK.get_active_config(env_config),
+                                      is_admin=is_admin)
+            client = create_llm_client(cfg) if cfg.is_configured() else None
+            if client is None:
+                store.push_back_pending(user_id, pending)
+                return False
+            ctx = store.get_context(user_id)
+            prior = (getattr(ctx, "summary", "") or "").strip()
+            turns = "\n".join(
+                f"{m.get('role', '?')}: {_sanitize_chat_input(str(m.get('content', '')))[:400]}"
+                for m in pending if m.get("content"))
+            user_prompt = ((f"Existing note:\n{prior}\n\n" if prior else
+                            "Existing note: (none)\n\n")
+                           + f"Older turns to fold in:\n{turns}")
+            note = await llm_complete(client, cfg, self._SUMMARY_SYSTEM_PROMPT,
+                                      user_prompt)
+            note = (note or "").strip()
+            if not note:
+                store.push_back_pending(user_id, pending)
+                return False
+            store.set_summary(user_id, note)
+            audit(system_log, "Conversation summary updated",
+                  action="chat_summary", result="OK",
+                  data={"turns": len(pending), "chars": len(note)})
+            return True
+        except Exception as exc:
+            store.push_back_pending(user_id, pending)
+            system_log.debug("conversation summary skipped: %s", exc)
+            return False
 
     def _note_chat_llm_failure(self, reason: object = "") -> None:
         """Tell the brain-health signal that a chat call failed.
@@ -3261,14 +3631,51 @@ class TelegramHandler:
             return
 
         # ── Fallback: AI chat ─────────────────────────────────────
+        # THE SAME SPEND FENCE THE WEB HAS. bot/web/chat_quota bounds the
+        # operator-funded free-chat model per user per day, and it was applied
+        # on the web path only — so any allowlisted Telegram user could spend
+        # the whole shared daily budget from the surface most of them actually
+        # use, and the fence protected the door nobody was walking through.
+        # Same store, same exemptions (paid tiers, admin), same refund when no
+        # model answered. Dormant unless the quota is enabled at all (a funded
+        # Grok key, or FREE_CHAT_QUOTA_ENABLED): see chat_quota.quota_enabled.
+        from bot.web import chat_quota
+        _is_admin_caller = self._is_admin(update)
+        _tier: Optional[str]
+        try:
+            _tier = "admin" if _is_admin_caller else self.users.get_tier(tg_id)
+        except Exception:
+            # Unreadable is not "basic": an unclassifiable caller is not
+            # metered, for the reason the web path gives at its own except.
+            _tier = "admin" if _is_admin_caller else None
+        _q = (chat_quota.consume(tg_id, _tier) if _tier is not None
+              else chat_quota.unmetered())
+        if not _q.get("allowed"):
+            audit(system_log, "Telegram free-chat quota exhausted",
+                  action="chat_quota", result="REFUSED",
+                  data={"tier": _tier, "limit": _q.get("limit")})
+            await self._send(update, chat_quota.exhausted_notice(
+                _q, lang=self._lang(update), surface="telegram"))
+            return
+
         # Store user message in conversation memory
         self.conversations.append(tg_id, "user", text,
                                    metadata={"intent": intent.skill or "chat"})
 
-        # Pick a varied thinking indicator
-        import random
-        thinking = random.choice(self._THINKING_PHRASES)
-        await self._send(update, thinking)
+        # Pick a varied thinking indicator — and, when streaming is on, keep
+        # the message it goes out as: that message becomes the answer, edited
+        # as the model writes it (see TelegramStream).
+        thinking = thinking_phrase(self._lang(update))
+        _prov = None
+        if (getattr(CONFIG.llm, "chat_streaming_enabled", False)
+                and getattr(update, "message", None) is not None):
+            try:
+                _prov = await update.message.reply_text(thinking, parse_mode="HTML")
+            except Exception:
+                _prov = None
+        if _prov is None:
+            await self._send(update, thinking)
+        _stream = TelegramStream(_prov) if _prov is not None else None
 
         # Reply language: an explicit /lang choice wins; otherwise auto-detect
         # from the Telegram client's language_code (never read before now).
@@ -3281,12 +3688,33 @@ class TelegramHandler:
         # Ordinary messages come back byte-identical (see defang_if_flagged).
         from bot.guardian.firewall import defang_if_flagged
         _prompt_text, _ = defang_if_flagged(text, fw_verdict)
-        answer = await self._llm_chat(
+        answer, _meta = await self._llm_chat(
             _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
-            is_admin=self._is_admin(update), reply_lang=_reply_lang)
+            is_admin=_is_admin_caller, reply_lang=_reply_lang, return_meta=True,
+            on_event=_stream.on_event if _stream is not None else None)
+        # `_meta` is empty exactly when NO MODEL ANSWERED (the FAQ short-
+        # circuit and every failure return). The web path refunds on that;
+        # this one charged for the apology until it did the same.
+        if not _meta:
+            chat_quota.refund(tg_id, _tier)
 
-        # Store assistant response in conversation memory
-        self.conversations.append(tg_id, "assistant", answer)
+        # Store assistant response in conversation memory — with WHICH model
+        # produced it and which tools it read, the way the web turn records
+        # it. Telegram passed return_meta=False and so stored a reply nobody
+        # could attribute.
+        _tools_used = [t.get("name", "") for t in (_meta or {}).get("tools", [])]
+        self.conversations.append(
+            tg_id, "assistant", answer,
+            metadata={**({"provider": _meta["provider"], "model": _meta["model"]}
+                         if _meta else {"answered_by": "none"}),
+                      **({"tools": _tools_used} if _tools_used else {})})
+        # Fold whatever the cap just pruned into the rolling note, off the
+        # reply path. A memory that summarises only when somebody remembers
+        # to ask is the empty `summary` field this replaces.
+        try:
+            asyncio.create_task(self._summarize_if_due(tg_id, _is_admin_caller))
+        except Exception:
+            pass
 
         # Don't wrap in rigid header for short/social responses
         is_social = intent.is_social if hasattr(intent, 'is_social') else False
@@ -3297,11 +3725,16 @@ class TelegramHandler:
             formatted = html.escape(answer)
 
         if len(answer) < 80 or is_social:
-            await self._send(update, formatted)
+            _final = formatted
         else:
             # Premium tactical header for substantive responses
-            await self._send(update,
-                f"\u2694\ufe0f <b>RUNECLAW</b>\n{'─' * 16}\n\n{formatted}")
+            _final = f"\u2694\ufe0f <b>RUNECLAW</b>\n{'─' * 16}\n\n{formatted}"
+        # The streamed message becomes the answer in place; if that edit
+        # cannot land (too long, rate-limited, deleted) the answer goes out
+        # as a fresh message, as it always did.
+        if _stream is not None and await _stream.finish(_final):
+            return
+        await self._send(update, _final)
 
     # ── Auth helpers ──────────────────────────────────────────
 

@@ -19,4 +19,6 @@
 - [RUNECLAW — the AI trading engine you can talk to](https://www.humanoid-traders.com/): Simulation-first: paper is the default and live trading stays off until you switch it on. Every call is hashed before the market moves, so the record can be checked by someone who does not trust the operator.
 - [How the proof works — RUNECLAW](https://www.humanoid-traders.com/proof): Every call is hashed before the market moves and folded into a daily Merkle root. The construction, the two cases it refuses to answer, and the three things it does not prove.
 - [The gate that fails closed — RUNECLAW](https://www.humanoid-traders.com/risk): Every entry passes a pre-trade risk gate. A check that cannot be evaluated rejects the trade rather than passing it — and there is deliberately no headline count on this page.
+- [What ships today — RUNECLAW](https://www.humanoid-traders.com/product): The chat that reads before it answers, paper-first trading with your own keys, hashed calls you can verify, the Guardian surfaces, the agent-facing API — and what is not here yet.
+- [Changelog — RUNECLAW](https://www.humanoid-traders.com/changelog): What changed, when, and where to check it — each entry points at the pull requests behind it.
 - [Privacy — RUNECLAW](https://www.humanoid-traders.com/privacy): What RUNECLAW collects, where it is stored, and what leaves the system.

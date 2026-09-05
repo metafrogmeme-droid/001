@@ -11,7 +11,7 @@ We built an AI trading agent that says NO to 95% of trades.
 
 Not because it can't trade. Because the risk engine won't let it.
 
-Meet RUNECLAW — 18 fail-closed risk checks, live on Telegram right now.
+Meet RUNECLAW — a fail-closed risk gate, live on Telegram right now.
 
 Try it: t.me/HTRUNECLAW_bot
 
@@ -24,7 +24,7 @@ Most AI trading bots optimize for one thing: more trades.
 
 RUNECLAW optimizes for survival.
 
-Every trade must pass 20 independent checks. If ANY check fails — or even errors out — the trade is rejected. No overrides. No force-execute.
+Every trade must pass the fail-closed risk gate. If a check fails — or cannot be evaluated — the trade is rejected. No overrides. No force-execute.
 
 Miss a trade? Recoverable.
 Take a bad trade? Not recoverable.
@@ -92,7 +92,7 @@ This is institutional-grade architecture in a hackathon bot.
 Meme coins (BONK, WIF) get tighter 4% ATR volatility guard.
 SOLANA_ECO correlation group prevents concentrated bets.
 
-Same 18 risk checks. Same human confirmation. Just focused.
+Same fail-closed risk gate. Same human confirmation unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED`). Just focused.
 
 
 8/10 — AGENT ECONOMICS
@@ -135,7 +135,7 @@ github.com/Humanoid-Traders/RUNECLAW
 pmvc58g2.mule.page
 humanoid-traders-1.gitbook.io/humanoid-traders-ai
 
-75+ commits. 626 tests. 18 risk checks.
+75+ commits. 626 tests. A fail-closed risk gate.
 8 AI learning modules. 5-agent swarm. 28 red team attacks blocked.
 
 BUSL-1.1 (source-available). Fork it. Audit it. Break it.

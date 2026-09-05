@@ -51,6 +51,13 @@ class UserContext:
     first_seen: float = 0.0
     last_active: float = 0.0
     summary: str = ""  # Compressed summary of older conversations
+    #: Turns the per-user cap pruned since `summary` was last written, in LLM
+    #: message shape, waiting to be folded in. This field is what made
+    #: `summary` writable at all: the docstring above promised summarization
+    #: for a long time while nothing anywhere assigned it, so the prompt
+    #: builder read an empty string on every turn and the fifty-first message
+    #: silently erased the first.
+    pending_summary: list[dict] = field(default_factory=list)
     mood_hints: list[str] = field(default_factory=list)  # Recent mood signals
     user_name: str = ""  # Display name
 
@@ -162,20 +169,28 @@ class ConversationStore:
 
             self._conversations[user_id].append(msg)
 
-            # Prune oldest messages if over limit
-            if len(self._conversations[user_id]) > self._max_messages:
-                self._conversations[user_id] = \
-                    self._conversations[user_id][-self._max_messages:]
-
-            # LRU eviction of oldest users
-            while len(self._conversations) > self._max_users:
-                self._conversations.popitem(last=False)
-
             # Update user context
             if user_id not in self._user_contexts:
                 self._user_contexts[user_id] = UserContext()
             if role == "user":
                 self._user_contexts[user_id].update_from_message(content)
+
+            # Prune oldest messages if over limit — and KEEP what was pruned,
+            # in message shape, until a summary has folded it in. Pruned is
+            # not forgotten: it is the queue the summary is written from.
+            if len(self._conversations[user_id]) > self._max_messages:
+                overflow = self._conversations[user_id][:-self._max_messages]
+                self._conversations[user_id] = \
+                    self._conversations[user_id][-self._max_messages:]
+                ctx = self._user_contexts[user_id]
+                ctx.pending_summary.extend(m.to_llm_message() for m in overflow)
+                if len(ctx.pending_summary) > self.PENDING_SUMMARY_MAX:
+                    ctx.pending_summary = \
+                        ctx.pending_summary[-self.PENDING_SUMMARY_MAX:]
+
+            # LRU eviction of oldest users
+            while len(self._conversations) > self._max_users:
+                self._conversations.popitem(last=False)
 
         if self._persist_path:
             self._persist_message(user_id, msg)
@@ -222,6 +237,59 @@ class ConversationStore:
         """Get accumulated user context."""
         with self._lock:
             return self._user_contexts.get(user_id)
+
+    # ── Summary of what the cap pruned ───────────────────────────
+    #
+    # `UserContext.summary` is read by build_context_prompt and was assigned
+    # by nothing. The queue below is filled by append() as it prunes, drained
+    # by the chat handler, which asks the cheapest chat-tier model to fold
+    # the pruned turns into the existing note, and written back with
+    # set_summary(). The note is persisted as its own JSONL row (role
+    # "summary") so a restart keeps it, and it is never a message: get_recent
+    # cannot return it and the model never sees it as a turn.
+
+    #: How many pruned turns wait for a summary at most. Beyond this the
+    #: oldest are dropped — a queue that grows without bound while the model
+    #: is unreachable is a memory leak dressed as memory.
+    PENDING_SUMMARY_MAX = 60
+    #: Bound on the note itself. The prompt carries it on every turn.
+    SUMMARY_MAX_CHARS = 900
+
+    def take_pending_summary(self, user_id: str) -> list[dict]:
+        """The pruned turns not yet folded into the summary, and clear them.
+
+        The caller owns them from here: if it cannot summarise (no model
+        configured, the call failed) it hands them back with
+        `push_back_pending`, so a transient failure loses nothing and a
+        permanent one is bounded by PENDING_SUMMARY_MAX rather than infinite."""
+        with self._lock:
+            ctx = self._user_contexts.get(user_id)
+            if ctx is None or not ctx.pending_summary:
+                return []
+            pending = list(ctx.pending_summary)
+            ctx.pending_summary = []
+            return pending
+
+    def push_back_pending(self, user_id: str, turns: list[dict]) -> None:
+        """Return turns `take_pending_summary` handed out but nobody folded."""
+        if not turns:
+            return
+        with self._lock:
+            ctx = self._user_contexts.setdefault(user_id, UserContext())
+            ctx.pending_summary = (list(turns) + ctx.pending_summary)[
+                -self.PENDING_SUMMARY_MAX:]
+
+    def set_summary(self, user_id: str, text: str) -> None:
+        """Write the rolling note for `user_id` and persist it.
+
+        An empty text clears the note — deliberately possible, so a summary
+        that turned out wrong can be removed rather than only overwritten."""
+        note = (text or "").strip()[:self.SUMMARY_MAX_CHARS]
+        with self._lock:
+            ctx = self._user_contexts.setdefault(user_id, UserContext())
+            ctx.summary = note
+        if self._persist_path:
+            self._persist_summary(user_id, note)
 
     def clear_user(self, user_id: str) -> None:
         """Clear all conversation history for a user."""
@@ -317,6 +385,26 @@ class ConversationStore:
         except OSError:
             pass  # Non-critical — memory store is primary
 
+    def _persist_summary(self, user_id: str, note: str) -> None:
+        """Append the rolling note as a `summary` row. The LAST such row for a
+        user wins on load, so an update is an append, like everything else in
+        this file, and compaction keeps only the current one."""
+        if not self._persist_path:
+            return
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "user_id": user_id,
+                "role": "summary",
+                "content": note[:self.SUMMARY_MAX_CHARS],
+                "timestamp": time.time(),
+                "metadata": {},
+            }
+            with open(self._persist_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+
     def _load(self) -> None:
         """Load conversation history from JSONL file."""
         if not self._persist_path or not self._persist_path.exists():
@@ -330,6 +418,14 @@ class ConversationStore:
                     try:
                         entry = json.loads(line)
                         uid = entry["user_id"]
+                        if entry["role"] == "summary":
+                            # A note, not a turn: it must never come back
+                            # from get_recent as something somebody said.
+                            ctx = self._user_contexts.setdefault(
+                                uid, UserContext())
+                            ctx.summary = str(entry.get("content") or "")[
+                                :self.SUMMARY_MAX_CHARS]
+                            continue
                         msg = Message(
                             role=entry["role"],
                             content=entry["content"],
@@ -370,7 +466,7 @@ class ConversationStore:
             retained = sum(len(v) for v in self._conversations.values())
             if raw_lines <= max(self.COMPACT_THRESHOLD_LINES, retained):
                 return
-            atomic_write_text(self._persist_path, "".join(
+            rows = [
                 json.dumps({
                     "user_id": uid,
                     "role": msg.role,
@@ -379,7 +475,20 @@ class ConversationStore:
                     "metadata": msg.metadata,
                 }) + "\n"
                 for uid, msgs in self._conversations.items()
-                for msg in msgs))
+                for msg in msgs]
+            # The current note per user survives compaction; the superseded
+            # ones it was appended over do not — that is the compaction.
+            rows.extend(
+                json.dumps({
+                    "user_id": uid,
+                    "role": "summary",
+                    "content": ctx.summary[:self.SUMMARY_MAX_CHARS],
+                    "timestamp": ctx.last_active or time.time(),
+                    "metadata": {},
+                }) + "\n"
+                for uid, ctx in self._user_contexts.items()
+                if ctx.summary)
+            atomic_write_text(self._persist_path, "".join(rows))
         except OSError:
             pass  # compaction is an optimization, never a requirement
 

@@ -1199,11 +1199,27 @@ async def llm_complete(
     web_search_max_uses: int = 4,
     citations_out: list | None = None,
     images: list | None = None,
+    usage_out: dict | None = None,
+    on_delta=None,
 ) -> str:
     """
     Unified completion call — handles OpenAI-format and Anthropic-format.
     Returns the text response string.
     Raises on failure so caller can catch and use rule-based fallback.
+
+    ``usage_out``: an opt-in dict the call fills with the MEASURED token pair
+    the provider reported — ``{"in": N, "out": M}`` — and leaves untouched when
+    the response carried no usage. The chat cost path used to book
+    ``len(text) // 4`` while this exact number sat on the response it had just
+    parsed; the daily budget guard then compared spend against the estimate.
+
+    ``on_delta``: an opt-in listener, ``on_delta(text)`` (sync or async),
+    called with each fragment of the reply AS THE MODEL PRODUCES IT. With a
+    listener the call is made in streaming mode on both SDKs; the return
+    value is the same complete text either way, and usage is still measured
+    (the OpenAI-compatible stream asks for it with ``stream_options``, and
+    drops that field on a provider that rejects it). A listener that raises
+    is ignored — it can observe a reply, never break one.
 
     Args:
         client: LLM client (AsyncOpenAI or AsyncAnthropic)
@@ -1268,15 +1284,10 @@ async def llm_complete(
             ]
 
             model_l = (config.model or "").strip().lower()
-            extra: dict = {}
-            if _THINKING_ALWAYS_ON_RE.match(model_l):
-                # Fable/Mythos: `thinking` param is rejected (always-on);
-                # output_config.effort is the depth dial.
-                if config.effort:
-                    extra["output_config"] = {"effort": config.effort}
-            elif "opus" in model_l:
-                # Enable adaptive thinking for Opus 4.8+ models
-                extra["thinking"] = {"type": "adaptive"}
+            # Fable/Mythos: `thinking` is rejected (always-on) and
+            # output_config.effort is the depth dial; Opus 4.8+ takes adaptive
+            # thinking. One helper, shared with the tool-calling loop.
+            extra: dict = _anthropic_reasoning_extras(config)
 
             # AI-2: schema-constrained JSON on models that support it. Rides
             # in the SAME output_config dict as the Fable effort dial — merge,
@@ -1300,9 +1311,8 @@ async def llm_complete(
                 }]
 
             async def _create(**kw):
-                return await client.messages.create(
-                    model=config.model, max_tokens=config.max_tokens,
-                    system=system_content, messages=messages, **kw)
+                return await _anthropic_create(
+                    client, config, system_content, messages, kw, on_delta)
 
             try:
                 response = await _create(**extra)
@@ -1367,6 +1377,7 @@ async def llm_complete(
             try:
                 from bot.llm import usage as _usage
                 _usage.record_from_response(config.model, response)
+                _hand_back_usage(usage_out, response)
             except Exception:
                 pass
             return raw_text or ""
@@ -1386,25 +1397,421 @@ async def llm_complete(
                 # which every schema-passing caller's prompt does). The
                 # tolerant parser remains the validation layer.
                 _oai_kwargs["response_format"] = {"type": "json_object"}
-            response = await client.chat.completions.create(
-                model=config.model,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                messages=messages,
-                **_oai_kwargs,
-            )
+            response = await _openai_create(
+                client, config, messages, _oai_kwargs, on_delta)
             # content can be None (content-filter finish, tool-call-only, or
             # empty completion); normalize to "" so callers that .strip() it
             # don't hit AttributeError — mirrors the Anthropic branch above.
             try:
                 from bot.llm import usage as _usage
                 _usage.record_from_response(config.model, response)
+                _hand_back_usage(usage_out, response)
             except Exception:
                 pass
             return response.choices[0].message.content or ""
 
     # Apply timeout — prevents hanging scan cycle
     return await asyncio.wait_for(_call(), timeout=config.timeout_seconds)
+
+
+def _hand_back_usage(usage_out: dict | None, response) -> None:
+    """Add a response's MEASURED usage into ``usage_out`` (accumulating, so a
+    multi-round tool loop sums its rounds). Never writes zeros for a response
+    that reported nothing: an absent key means "not measured", and the caller
+    falls back to its estimate."""
+    if usage_out is None:
+        return
+    try:
+        from bot.llm.usage import usage_pair
+        pair = usage_pair(response)
+    except Exception:
+        pair = None
+    if pair is None:
+        return
+    usage_out["in"] = int(usage_out.get("in", 0)) + pair[0]
+    usage_out["out"] = int(usage_out.get("out", 0)) + pair[1]
+    usage_out["calls"] = int(usage_out.get("calls", 0)) + 1
+
+
+async def _emit(listener, *args) -> None:
+    """Deliver one event to an optional listener, sync or async. A listener
+    observes a call; it is never allowed to break one."""
+    if listener is None:
+        return
+    try:
+        import inspect
+        result = listener(*args)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        pass
+
+
+async def _openai_create(client, config: LLMConfig, messages: list,
+                         kwargs: dict, on_delta):
+    """One chat.completions call, plain or streamed, answering the SAME shape
+    either way: ``.choices[0].message`` with ``content`` and ``tool_calls``,
+    and ``.usage`` when the provider reported it.
+
+    Streamed, the text fragments go to ``on_delta`` as they arrive and the
+    tool calls are reassembled from their argument fragments (the API sends
+    a call's JSON arguments across many chunks, keyed by index). Usage rides
+    the final chunk when ``stream_options.include_usage`` is honoured; a
+    provider that rejects that field gets the request again without it,
+    and then simply reports no usage — the caller's estimate stands in, as
+    it does for any response without one.
+    """
+    base = dict(model=config.model, temperature=config.temperature,
+                max_tokens=config.max_tokens, messages=messages, **kwargs)
+    if on_delta is None:
+        return await client.chat.completions.create(**base)
+
+    async def _open(with_usage: bool):
+        kw = dict(base, stream=True)
+        if with_usage:
+            kw["stream_options"] = {"include_usage": True}
+        return await client.chat.completions.create(**kw)
+
+    try:
+        stream = await _open(True)
+    except Exception as exc:
+        msg_l = str(exc).lower()
+        if "stream_options" in msg_l or "include_usage" in msg_l:
+            stream = await _open(False)
+        else:
+            raise
+    from types import SimpleNamespace
+    parts: list[str] = []
+    calls: dict[int, dict] = {}
+    finish = None
+    usage = None
+    async for chunk in stream:
+        u = getattr(chunk, "usage", None)
+        if u is not None:
+            usage = u
+        choices = getattr(chunk, "choices", None) or []
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = getattr(choice, "delta", None)
+        if delta is not None:
+            text = getattr(delta, "content", None)
+            if text:
+                parts.append(text)
+                await _emit(on_delta, text)
+            for tc in (getattr(delta, "tool_calls", None) or []):
+                idx = getattr(tc, "index", None)
+                acc = calls.setdefault(0 if idx is None else int(idx),
+                                       {"id": "", "name": "", "arguments": ""})
+                if getattr(tc, "id", None):
+                    acc["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    name = getattr(fn, "name", None)
+                    if name and not acc["name"]:
+                        acc["name"] = name
+                    args = getattr(fn, "arguments", None)
+                    if args:
+                        acc["arguments"] += args
+        if getattr(choice, "finish_reason", None):
+            finish = choice.finish_reason
+    tool_calls = [
+        SimpleNamespace(id=c["id"] or f"call_{i}", type="function",
+                        function=SimpleNamespace(name=c["name"],
+                                                 arguments=c["arguments"]))
+        for i, c in sorted(calls.items())
+    ] or None
+    message = SimpleNamespace(content="".join(parts) or None, tool_calls=tool_calls)
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason=finish)],
+        usage=usage)
+
+
+async def _anthropic_create(client, config: LLMConfig, system_content: list,
+                            messages: list, kw: dict, on_delta):
+    """One messages call, plain or streamed, answering the final Message
+    either way. Streamed, each text fragment goes to ``on_delta`` as it
+    arrives; ``get_final_message()`` then carries the content blocks (tool
+    use included), the stop reason and the measured usage exactly as the
+    plain call would."""
+    base = dict(model=config.model, max_tokens=config.max_tokens,
+                system=system_content, messages=messages, **kw)
+    if on_delta is None:
+        return await client.messages.create(**base)
+    async with client.messages.stream(**base) as stream:
+        async for text in stream.text_stream:
+            if text:
+                await _emit(on_delta, text)
+        return await stream.get_final_message()
+
+
+def _anthropic_reasoning_extras(config: LLMConfig) -> dict:
+    """The thinking / effort request fields for an Anthropic model, in one
+    place so the plain and tool-calling paths cannot disagree about which
+    family takes which parameter (see the notes on the two regexes above)."""
+    model_l = (config.model or "").strip().lower()
+    extra: dict = {}
+    if _THINKING_ALWAYS_ON_RE.match(model_l):
+        if config.effort:
+            extra["output_config"] = {"effort": config.effort}
+    elif "opus" in model_l:
+        extra["thinking"] = {"type": "adaptive"}
+    return extra
+
+
+# ════════════════════════════════════════════════════════════
+#  TOOL CALLING — the model asks, the runtime runs, the model reads
+# ════════════════════════════════════════════════════════════
+
+#: Cap on the characters of ONE tool result handed back to the model. The cut
+#: is ANNOUNCED in the text rather than silent, for the reason
+#: bot/nlp/skill_memory.py gives: seven rows presented as twelve is a partial
+#: printed as a whole, and the model will describe the twelve.
+TOOL_RESULT_MAX_CHARS = 3000
+
+#: What the model reads when it names a tool that was never offered. Nothing
+#: runs on a name the runtime did not put in front of it — fail-closed, the
+#: same direction as permission_for().
+_TOOL_NOT_OFFERED = ("UNAVAILABLE — no tool by that name is offered in this "
+                     "conversation, so nothing ran and nothing was measured.")
+_TOOL_BAD_ARGS = ("ERROR — the arguments were not a JSON object, so the tool "
+                  "was not run and nothing was measured.")
+_TOOL_RAISED = ("FAILED — the tool raised an error and returned no result. "
+                "Nothing was measured.")
+_TOOL_NO_OUTPUT = "NO OUTPUT — the tool returned nothing."
+
+
+def _parse_tool_args(raw) -> dict | None:
+    """A tool call's arguments as a dict, or None when they are not one."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        if not raw.strip():
+            return {}
+        try:
+            import json as _json
+            parsed = _json.loads(raw)
+        except ValueError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _bound_tool_result(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return _TOOL_NO_OUTPUT
+    if len(text) > TOOL_RESULT_MAX_CHARS:
+        return (f"[TRUNCATED — first {TOOL_RESULT_MAX_CHARS} of {len(text)} "
+                f"characters; the rest is not shown]\n"
+                + text[:TOOL_RESULT_MAX_CHARS])
+    return text
+
+
+async def llm_complete_with_tools(
+    client,
+    config: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[dict],
+    tool_executor,
+    history: list[dict] | None = None,
+    max_rounds: int = 3,
+    web_search: bool = False,
+    web_search_max_uses: int = 4,
+    citations_out: list | None = None,
+    usage_out: dict | None = None,
+    events_out: list | None = None,
+    on_delta=None,
+    on_tool=None,
+) -> str:
+    """One chat turn in which the model may CALL TOOLS before it answers.
+
+    ``on_delta(text)`` receives the model's text as it is produced, on every
+    round (see ``llm_complete``); ``on_tool(name, phase, ok)`` is told when a
+    tool starts (``phase="start"``) and when it is done, so a surface can
+    say "reading portfolio…" while the user waits. Both are optional and
+    both are observers: neither can break the turn.
+
+    ``tools`` are provider-neutral: ``{"name", "description", "parameters"}``
+    with ``parameters`` a JSON-schema object. This function renders them into
+    the OpenAI ``function`` shape or the Anthropic ``input_schema`` shape,
+    runs the request/execute/append loop for up to ``max_rounds`` tool rounds,
+    and returns the model's final text. The final round is always made WITHOUT
+    tools on offer, so a model that keeps asking is made to answer with what it
+    has rather than looping until the deadline.
+
+    ``tool_executor(name, args) -> str`` is the caller's — this module knows
+    nothing about skills, permissions or memory. It decides WHICH names exist;
+    a name the model invents is answered with an UNAVAILABLE line and never
+    reaches the executor. Executor exceptions become a FAILED line, so one
+    broken tool cannot take the whole reply down, and the model is told
+    plainly that nothing was measured rather than handed a blank to fill.
+
+    ``events_out`` collects ``{"name", "args", "ok", "ms"}`` per call so the
+    caller can show, and record, what actually ran. ``usage_out`` sums the
+    measured tokens across every round (see ``llm_complete``).
+
+    The whole loop runs under ``config.timeout_seconds``, the same ceiling
+    ``llm_complete`` applies to one call — a tool turn is one attempt in the
+    caller's chain, not several.
+    """
+    import asyncio
+    import time as _time
+
+    sdk = config.sdk_type()
+    history = list(history or [])
+    offered = {t["name"]: t for t in tools}
+    max_rounds = max(0, int(max_rounds))
+
+    async def _run(name: str, raw_args) -> str:
+        ev = {"name": str(name), "args": {}, "ok": False, "ms": 0}
+        t0 = _time.monotonic()
+        try:
+            if name not in offered:
+                return _TOOL_NOT_OFFERED
+            args = _parse_tool_args(raw_args)
+            if args is None:
+                return _TOOL_BAD_ARGS
+            ev["args"] = args
+            await _emit(on_tool, str(name), "start", None)
+            try:
+                out = await tool_executor(name, args)
+            except Exception:
+                return _TOOL_RAISED
+            ev["ok"] = True
+            return _bound_tool_result(str(out) if out is not None else "")
+        finally:
+            ev["ms"] = int((_time.monotonic() - t0) * 1000)
+            if events_out is not None:
+                events_out.append(ev)
+            if name in offered and ev["args"] is not None:
+                await _emit(on_tool, str(name), "done", bool(ev["ok"]))
+
+    async def _openai_loop() -> str:
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": user_prompt})
+        oai_tools = [{
+            "type": "function",
+            "function": {"name": t["name"], "description": t["description"],
+                         "parameters": t["parameters"]},
+        } for t in tools]
+        kwargs: dict = {}
+        if config.top_p is not None:
+            kwargs["top_p"] = config.top_p
+        rounds = 0
+        while True:
+            offer = rounds < max_rounds and bool(oai_tools)
+            kw = dict(kwargs)
+            if offer:
+                kw["tools"] = oai_tools
+                kw["tool_choice"] = "auto"
+            response = await _openai_create(client, config, messages, kw, on_delta)
+            try:
+                from bot.llm import usage as _usage
+                _usage.record_from_response(config.model, response)
+                _hand_back_usage(usage_out, response)
+            except Exception:
+                pass
+            msg = response.choices[0].message
+            calls = list(getattr(msg, "tool_calls", None) or []) if offer else []
+            if not calls:
+                content = getattr(msg, "content", None)
+                return str(content) if content else ""
+            rounds += 1
+            messages.append({
+                "role": "assistant",
+                "content": getattr(msg, "content", None) or "",
+                "tool_calls": [{
+                    "id": c.id, "type": "function",
+                    "function": {"name": c.function.name,
+                                 "arguments": c.function.arguments or "{}"},
+                } for c in calls],
+            })
+            for c in calls:
+                result = await _run(c.function.name, c.function.arguments)
+                messages.append({"role": "tool", "tool_call_id": c.id,
+                                 "content": result})
+
+    async def _anthropic_loop() -> str:
+        messages: list = list(history)
+        messages.append({"role": "user", "content": user_prompt})
+        system_content = [{"type": "text", "text": system_prompt,
+                           "cache_control": {"type": "ephemeral"}}]
+        anth_tools = [{"name": t["name"], "description": t["description"],
+                       "input_schema": t["parameters"]} for t in tools]
+        model_l = (config.model or "").strip().lower()
+        search_tool = None
+        if web_search and _WEB_SEARCH_RE.match(model_l):
+            search_tool = {"type": WEB_SEARCH_TOOL_TYPE, "name": "web_search",
+                           "max_uses": max(1, int(web_search_max_uses))}
+        extra = _anthropic_reasoning_extras(config)
+
+        async def _create(tool_list):
+            kw = dict(extra)
+            if tool_list:
+                kw["tools"] = tool_list
+            return await _anthropic_create(
+                client, config, system_content, messages, kw, on_delta)
+
+        rounds = 0
+        while True:
+            offer = rounds < max_rounds and bool(anth_tools)
+            tool_list = list(anth_tools) if offer else []
+            if search_tool is not None:
+                tool_list.append(search_tool)
+            try:
+                response = await _create(tool_list)
+            except Exception as exc:
+                # Mirror llm_complete's strip-and-retry: a model that rejects
+                # the tools parameter still answers plainly rather than
+                # failing every chat turn until a code change ships.
+                msg_l = str(exc).lower()
+                if tool_list and ("tool" in msg_l or "unsupported" in msg_l):
+                    response = await _create([])
+                    offer = False
+                else:
+                    raise
+            try:
+                from bot.llm import usage as _usage
+                _usage.record_from_response(config.model, response)
+                _hand_back_usage(usage_out, response)
+            except Exception:
+                pass
+            if getattr(response, "stop_reason", "") == "refusal":
+                raise RuntimeError("LLM declined to answer (stop_reason=refusal)")
+            content = list(getattr(response, "content", None) or [])
+            uses = ([b for b in content if getattr(b, "type", "") == "tool_use"]
+                    if offer else [])
+            if not uses:
+                parts = [b.text for b in content
+                         if getattr(b, "type", "") == "text"
+                         and getattr(b, "text", "")]
+                if citations_out is not None and search_tool is not None:
+                    try:
+                        citations_out.extend(_collect_web_citations(response))
+                    except Exception:
+                        pass
+                return "\n\n".join(parts).strip()
+            rounds += 1
+            # The SDK accepts the response's own content blocks as the
+            # assistant turn, server-tool blocks included, which is what keeps
+            # a web_search round intact across the loop.
+            messages.append({"role": "assistant", "content": content})
+            results = []
+            for b in uses:
+                result = await _run(getattr(b, "name", ""),
+                                    dict(getattr(b, "input", None) or {}))
+                results.append({"type": "tool_result",
+                                "tool_use_id": getattr(b, "id", ""),
+                                "content": result})
+            messages.append({"role": "user", "content": results})
+
+    loop = _anthropic_loop if sdk == "anthropic" else _openai_loop
+    return await asyncio.wait_for(loop(), timeout=config.timeout_seconds)
 
 
 # ════════════════════════════════════════════════════════════

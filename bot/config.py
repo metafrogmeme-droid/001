@@ -1159,6 +1159,27 @@ class LLMConfig:
     # route to a thinking-enabled model, which must not be truncated.
     chat_deadline_seconds: float = _env_float_bounded(
         "LLM_CHAT_DEADLINE_SEC", 45.0, 20.0, 180.0)
+    # Chat TOOL CALLING. When ON, the chat model is offered the read-only
+    # skills the caller's role already holds (bot/nlp/chat_tools.py) and can
+    # run them mid-turn — read the portfolio, the risk state, the macro
+    # calendar, a scan — instead of answering account questions from memory.
+    # Every tool is derived from bot/skills/skill_permissions.py, so the model
+    # can reach nothing a typed sentence could not, and `halt` is never
+    # offered. OFF restores the tool-less chat exactly.
+    chat_tools_enabled: bool = _env_bool("LLM_CHAT_TOOLS_ENABLED", True)
+    # How many tool ROUNDS one reply may take before the model is made to
+    # answer with what it has. Each round is one more model call.
+    chat_tool_rounds: int = int(_env_float_bounded("LLM_CHAT_TOOL_ROUNDS", 3, 1, 6))
+    # Ceiling on ONE tool's execution inside a chat turn. A scan that takes
+    # longer is reported to the model as TIMED OUT, never as empty.
+    chat_tool_timeout_seconds: float = _env_float_bounded(
+        "LLM_CHAT_TOOL_TIMEOUT_SEC", 12.0, 3.0, 60.0)
+    # Chat STREAMING: the reply reaches the web drawer and the Telegram
+    # message as the model produces it (a provisional text, replaced by the
+    # final checked answer). OFF makes every surface wait for the whole reply,
+    # exactly as before. The honesty post-processors run on the complete
+    # text either way — a streamed fragment is provisional by construction.
+    chat_streaming_enabled: bool = _env_bool("LLM_CHAT_STREAMING_ENABLED", True)
     daily_call_limit: int = int(_env_float("LLM_DAILY_LIMIT", 500))
     # Async request-rate cap (requests/minute) for the LLM client. Dedicated
     # per-provider RPM bound — independent of the DAILY budget (deep-audit #43).

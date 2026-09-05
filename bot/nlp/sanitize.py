@@ -32,14 +32,23 @@ INJECTION_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-MAX_CHAT_INPUT_LEN = 500
+#: The most of one message that reaches the model. ONE number for every
+#: surface: the Express chat route and the bot gateway both refuse a message
+#: longer than this with a visible "too long", so nothing is cut in silence.
+#: It was 500 while both HTTP layers accepted 2,000, so the tail of every long
+#: question — the part that usually holds the actual ask — was dropped before
+#: the model saw it, with no sign to the user that it had been. A cap that is
+#: enforced where the user can see it is a limit; one enforced after is a
+#: silent edit of what they said.
+MAX_CHAT_INPUT_LEN = 2000
 
 
 def sanitize_chat_input(text: str) -> str:
     """Sanitize free-form user text before sending to LLM.
 
     - Strips prompt-injection patterns FIRST
-    - Then truncates to 500 characters
+    - Then truncates to MAX_CHAT_INPUT_LEN characters (the same bound the
+      HTTP layers refuse above, so this cut is a backstop, not a policy)
     """
     sanitized = INJECTION_PATTERNS.sub("[filtered]", text)
     truncated = sanitized[:MAX_CHAT_INPUT_LEN]
