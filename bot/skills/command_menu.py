@@ -169,11 +169,29 @@ MENU_ZH: Dict[str, str] = {
     "closeall": "⛔ 平掉所有持倉",
     "livebalance": "💰 交易所實際餘額",
     "livepositions": "📌 交易所實盤持倉",
+    "resume": "▶️ 恢復交易（解除熔斷）",
+    "pause": "⏸ 立即暫停交易",
+    "drawdownlimit": "📉 調整實盤回撤上限",
+    "venue": "🏦 查看或切換交易場所",
+    "classpf": "📊 各資產類別的實盤損益",
+    "funding": "📡 各交易所的資金費率",
+    "parity": "📏 實盤與回測一致性報告",
+    "golive": "🔥 啟用實盤交易",
 }
 
 
 def localized(pairs: List[Tuple[str, str]], lang: str = "en") -> List[Tuple[str, str]]:
-    """Menu entries in `lang`, falling back to the English text per item."""
-    if lang != "zh":
+    """Menu entries in `lang`, falling back to the English text per item.
+
+    Traditional Chinese lives in MENU_ZH above; the other dictionary
+    languages come from the catalogue's locale files, which carry /help and
+    this menu together so the two cannot drift apart. English, or a language
+    with no menu text, is the English list unchanged — the caller compares
+    against it to avoid registering a copy of English under another code.
+    """
+    if not lang or lang == "en":
         return pairs
-    return [(name, MENU_ZH.get(name, desc)) for name, desc in pairs]
+    if lang == "zh":
+        return [(name, MENU_ZH.get(name, desc)) for name, desc in pairs]
+    from bot.skills.command_catalog import menu_desc
+    return [(name, menu_desc(name, lang) or desc) for name, desc in pairs]

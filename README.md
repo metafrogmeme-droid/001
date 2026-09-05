@@ -182,11 +182,11 @@ Talk to RUNECLAW in plain English instead of memorizing commands:
 - **LLM fallback**: when rule-based patterns don't match, optional LLM classification routes to the right skill
 - **AI chat**: unmatched messages get a contextual response from the LLM (never invents trades)
 
-### Bilingual Interface — English / 繁體中文 (NEW)
-The entire Telegram interface is **localized in English and Traditional Chinese (繁體中文)**:
-- **Per-user language preference** -- each user picks their language with `/lang`; the choice is stored per user, so messages, menus, alerts, and risk explanations all render in the selected language.
-- **Full coverage** -- commands, confirmations, risk-check verdicts, trade notifications, and error messages are all translated (see `bot/utils/i18n.py`, `SUPPORTED_LANGS = {en, zh}`).
-- **Safe fallback** -- any untranslated key falls back to English rather than failing.
+### Fourteen-language Interface (NEW)
+The entire Telegram interface is **localized in the same fourteen languages as the website** — English, Español, 繁體中文, Português, Français, Deutsch, Nederlands, 日本語, 한국어, Русский, Türkçe, Italiano, हिन्दी and العربية:
+- **Per-user language preference** -- each user picks their language with `/lang` (a keyboard, or `/lang fr`, `/lang français`, `/lang french`); a new user's Telegram client language seeds it automatically. The choice is stored per user, so messages, `/help`, the "/" command menu, alerts, and risk explanations all render in the selected language.
+- **Full coverage** -- every key exists in every language: English and Traditional Chinese inline in `bot/utils/i18n.py`, the other twelve one file each under `bot/utils/locales/`, and `/help` plus the command menu under `bot/skills/command_catalog_locales/`. `tests/test_i18n_locales.py` pins the bot's language list to the website's, every key in every language, and placeholder/HTML parity with English.
+- **Safe fallback** -- any untranslated key falls back to English rather than failing; a language the model can answer in but the dictionary does not carry reads English chrome around a localized answer.
 
 ### Proactive Alert Monitor (NEW)
 Background coroutine that pushes unsolicited alerts without waiting for commands:
@@ -955,7 +955,7 @@ RUNECLAW is open for collaboration. If you're building for the Bitget AI Base Ca
 | **Multi-Exchange Connectors** | Add OKX, Bybit, Binance adapters -- same risk engine, more markets | Medium |
 | **Web Dashboard** | Real-time charts, portfolio tracker, risk heatmap in browser | Medium |
 | **New Analysis Strategies** | Custom indicator combinations, ML-based pattern detection, orderbook imbalance | Easy-Hard |
-| **More Languages** | English + Traditional Chinese (繁體中文) ship today via `/lang`; add ES/RU/AR/etc. on the same i18n layer | Easy |
+| **More Languages** | Fourteen ship today via `/lang` (the website's list); a fifteenth is a `SUPPORTED_LANGS` entry, a web `LANGS` entry and two locale files — the suite names every missing key | Easy |
 | **On-Chain Data Feeds** | Integrate whale wallet tracking, DEX flows, funding rates from on-chain sources | Medium |
 | **Sentiment Feeds** | Twitter/X sentiment, Fear & Greed index, news NLP scoring | Medium |
 | **Portfolio Optimization** | Kelly criterion sizing, correlation-aware allocation, Markowitz frontier | Hard |

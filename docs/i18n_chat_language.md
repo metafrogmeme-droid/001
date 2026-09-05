@@ -1,11 +1,12 @@
 # Multilingual AI chat — reply in the user's language
 
-The RUNECLAW UI dictionary (`bot/utils/i18n.py`) is English + Traditional
-Chinese. The **conversational** surface, however, is the largest volume of
-user-facing text and the hardest to key by hand — so it's localized a
-different way: the LLM is simply told which language to answer in, and it
-translates its own reply. One directive covers **both** the Telegram bot and
-the website chat, because both funnel through `_llm_chat`.
+The RUNECLAW UI dictionary (`bot/utils/i18n.py` plus `bot/utils/locales/`)
+carries the fourteen languages the website offers. The **conversational**
+surface, however, is the largest volume of user-facing text and the hardest
+to key by hand — so it's localized a different way: the LLM is simply told
+which language to answer in, and it translates its own reply. One directive
+covers **both** the Telegram bot and the website chat, because both funnel
+through `_llm_chat`.
 
 ## The wiring
 
@@ -30,9 +31,10 @@ Where `reply_lang` comes from:
 ## Discipline
 
 - **Broader than the UI dictionary on purpose.** The LLM can reply in any of
-  the named languages (`_CHAT_LANG_NAMES`); the `t()` dictionary stays en/zh.
-  `t()` already falls back to English for an unknown language, so storing a
-  broader code never breaks UI strings.
+  the thirty-four named languages (`_CHAT_LANG_NAMES`); the `t()` dictionary
+  carries the fourteen web languages (`SUPPORTED_LANGS`). `t()` falls back to
+  English for a language it lacks, so storing a broader code never breaks UI
+  strings.
 - **Unset ≠ English.** `get_user_lang_raw` / `UserStore.get_lang` preserve the
   "never chose" signal so auto-detection can kick in; `get_user_lang` still
   flattens to `en` for the UI.
@@ -59,13 +61,22 @@ Where `reply_lang` comes from:
 - **The chat's own chrome follows the language** — the thinking phrase, the
   four no-model messages, the free-chat quota wall and the public scan gate
   come from the `bot/utils/i18n.py` table (`chat_*` keys) in the user's
-  dictionary language (`ui_lang` maps a chat code onto en/zh), instead of
-  English literals around a localized answer. `tests/test_chat_chrome_i18n.py`
-  pins it on both surfaces.
+  dictionary language (`ui_lang` maps a chat code onto a dictionary
+  language), instead of English literals around a localized answer.
+  `tests/test_chat_chrome_i18n.py` pins it on both surfaces.
+- **Telegram speaks every website language** — `SUPPORTED_LANGS` is the
+  web's fourteen, in the web's order, and `tests/test_i18n_locales.py` pins
+  the two lists to each other. English and Traditional Chinese stay inline;
+  the other twelve live one file each under `bot/utils/locales/` (the bot's
+  words) and `bot/skills/command_catalog_locales/` (`/help` and the "/"
+  menu). `/lang` shows all fourteen and accepts a code, a native name or an
+  English name (`resolve_lang_choice`); a new user's Telegram
+  `language_code` seeds any dictionary language, not only Chinese; and the
+  "/" menu is registered once per language, for the default scope and the
+  operator chats alike.
 
 ## Next
 
-The dictionary is en/zh. The model already answers in thirty-four languages;
-the chrome follows only where the table has the words. Adding a dictionary
-language is a `SUPPORTED_LANGS` entry plus the strings — `ui_lang` and the
-web's fourteen-language switcher then meet in the middle.
+The model answers in thirty-four languages; the chrome follows in fourteen.
+Adding a fifteenth dictionary language is a `SUPPORTED_LANGS` entry, a web
+`LANGS` entry, and the two locale files — the suite names every missing key.

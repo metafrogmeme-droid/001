@@ -72,6 +72,10 @@ def test_set_user_lang_uses_store_and_validates():
     s.register("7", name="T")
     assert i18n.set_user_lang(s, "7", "zh") is True
     assert s.get_lang("7") == "zh"
-    # Unsupported UI language is rejected (dictionary is en/zh only).
-    assert i18n.set_user_lang(s, "7", "es") is False
+    # A language the model can answer in but the dictionary does not carry
+    # is rejected — the UI preference only ever names a dictionary language.
+    assert i18n.set_user_lang(s, "7", "sw") is False
     assert s.get_lang("7") == "zh"
+    # Every dictionary language is accepted, not only the two inline ones.
+    assert i18n.set_user_lang(s, "7", "es") is True
+    assert s.get_lang("7") == "es"

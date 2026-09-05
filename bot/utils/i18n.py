@@ -1,18 +1,42 @@
 """
-Bilingual support: English + Traditional Chinese (繁體中文)
+The bot's own words, in the languages the website offers.
 
 Usage:
     from bot.utils.i18n import t
 
     # Get translated string
-    msg = t("welcome", lang)          # returns EN or 繁中 version
+    msg = t("welcome", lang)          # the user's language, English if unknown
     msg = t("welcome", lang, name="Trader")  # with placeholders
+
+English and Traditional Chinese live inline below, as they always have (the
+zh table carries a Simplified-character guard in tests). The other twelve
+languages live one file each under ``locales/<code>.json`` — the same
+fourteen the web interface offers, in the same order, and
+``tests/test_i18n_locales.py`` pins the two lists to each other so a
+language cannot exist on one surface and not the other. Every key exists in
+every language; a locale file that cannot be read falls back to English per
+item at runtime and fails the suite, never renders a blank.
 """
 
+import json
+import logging
+from pathlib import Path
+from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 # Default language
 DEFAULT_LANG = "en"
-SUPPORTED_LANGS = {"en": "English", "zh": "繁體中文"}
+# Code -> native name, in the order the web switcher lists them
+# (app/public/js/i18n.js LANGS). Telegram's `/lang` keyboard is built from it.
+SUPPORTED_LANGS = {
+    "en": "English", "es": "Español", "zh": "繁體中文", "pt": "Português",
+    "fr": "Français", "de": "Deutsch", "nl": "Nederlands", "ja": "日本語",
+    "ko": "한국어", "ru": "Русский", "tr": "Türkçe", "it": "Italiano",
+    "hi": "हिन्दी", "ar": "العربية",
+}
+# Languages whose strings are inline in this file rather than in locales/.
+_INLINE_LANGS = ("en", "zh")
 
 # ═══════════════════════════════════════════════════════════
 #  TRANSLATIONS
@@ -259,13 +283,13 @@ _STRINGS: dict[str, dict[str, str]] = {
     "help_pending_available": {
         "en": ("<b>What works right now</b>\n"
                "/start — check whether you're through yet\n"
-               "/lang — English / 繁體中文\n"
+               "/lang — choose your language\n"
                "/help — this\n\n"
                "<i>The full command list unlocks when you're approved. Showing "
                "it now would just be 120 commands that answer 'no'.</i>"),
         "zh": ("<b>你現在可以用的</b>\n"
                "/start — 查看你是否已被放行\n"
-               "/lang — English / 繁體中文\n"
+               "/lang — 選擇語言\n"
                "/help — 本說明\n\n"
                "<i>通過審核後就會解鎖完整指令列表。現在顯示的話，"
                "只會是 120 個都回答「不行」的指令。</i>"),
@@ -1190,13 +1214,46 @@ _STRINGS: dict[str, dict[str, str]] = {
 }
 
 
+# ── The other twelve languages: locales/<code>.json ──────────────────────────
+LOCALES_DIR = Path(__file__).with_name("locales")
+
+
+def _load_locales() -> None:
+    """Merge ``locales/<code>.json`` into ``_STRINGS`` for every supported
+    language that is not inline.
+
+    Only keys the English table defines are taken — a locale cannot invent a
+    key — and a file that is missing or unreadable is logged and skipped, so
+    that language reads English per item rather than taking the bot down at
+    import. The suite, not the runtime, is where a missing translation fails.
+    """
+    for code in SUPPORTED_LANGS:
+        if code in _INLINE_LANGS:
+            continue
+        path = LOCALES_DIR / f"{code}.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            _log.error("i18n: locale %s unreadable (%s) — falling back to English", code, exc)
+            continue
+        if not isinstance(data, dict):
+            _log.error("i18n: locale %s is not an object — falling back to English", code)
+            continue
+        for key, text in data.items():
+            if key in _STRINGS and isinstance(text, str) and text.strip():
+                _STRINGS[key][code] = text
+
+
+_load_locales()
+
+
 def t(key: str, lang: str = DEFAULT_LANG, **kwargs) -> str:
     """
     Get translated string.
 
     Args:
         key: Translation key (e.g. "welcome_pending")
-        lang: Language code ("en" or "zh")
+        lang: Language code — one of SUPPORTED_LANGS
         **kwargs: Placeholder values for {name}, {asset}, etc.
 
     Returns:
@@ -1223,9 +1280,10 @@ def ui_lang(code) -> str:
 
     The model answers in any language `chat_language_name` knows; the bot's
     own card text exists in the languages `SUPPORTED_LANGS` names. So "es"
-    reads the English chrome around a Spanish answer, "zh-TW" reads the
-    Traditional Chinese chrome, and an empty or unknown code reads English —
-    never a bare key. One mapping, used by the gateway and the handler alike.
+    reads the Spanish chrome around a Spanish answer, "zh-TW" reads the
+    Traditional Chinese chrome, "sw" reads the English chrome around a
+    Swahili answer, and an empty or unknown code reads English — never a bare
+    key. One mapping, used by the gateway and the handler alike.
     """
     s = str(code or "").strip().lower().replace("_", "-")
     if not s:
@@ -1282,8 +1340,8 @@ def set_user_lang(users_db, tg_id: str, lang: str) -> bool:
 
 # ── Chat reply-language (LLM-localized, broader than the UI dictionary) ───────
 #
-# The UI dictionary above is en/zh only, but the chat LLM can reply in ANY
-# language. We map a BCP-47/ISO code (as Telegram sends in `language_code`, or
+# The UI dictionary covers the fourteen web languages; the chat LLM can reply
+# in more. We map a BCP-47/ISO code (as Telegram sends in `language_code`, or
 # as the web pref carries) to an English language NAME to instruct the model.
 # Region subtags are stripped (pt-BR -> pt). English / empty / unknown -> "",
 # meaning "no directive, default English" — so this never forces a language we
@@ -1315,3 +1373,45 @@ def chat_language_name(code) -> str:
     if not base or base == "en":
         return ""
     return _CHAT_LANG_NAMES.get(base, "")
+
+
+# What a person might type after `/lang` besides a code or a name: the usual
+# abbreviations, the names without their accents, and the Chinese ways of
+# saying "Chinese". Nothing here guesses — a word that is not listed answers
+# None and the caller shows the keyboard instead.
+_LANG_ALIASES = {
+    "eng": "en", "jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh",
+    "中文": "zh", "繁體": "zh", "繁中": "zh", "繁体中文": "zh",
+    "traditional chinese": "zh", "mandarin": "zh",
+    "espanol": "es", "castellano": "es", "portugues": "pt", "brazilian": "pt",
+    "francais": "fr", "turkce": "tr", "nihongo": "ja", "hangul": "ko",
+    "hangugeo": "ko", "russkiy": "ru", "русский язык": "ru",
+    "arabic": "ar", "arabe": "ar", "عربي": "ar", "hindi": "hi", "हिंदी": "hi",
+}
+
+
+def resolve_lang_choice(text) -> Optional[str]:
+    """``/lang <what the user typed>`` → a dictionary language code, or None.
+
+    Accepts a code ("fr", "pt-BR", "zh_TW"), the language's own name
+    ("Français", "日本語"), its English name ("French") or an alias above.
+    Anything else — including a language the model can answer in but the
+    dictionary does not carry — is None, so the caller shows the keyboard
+    rather than silently keeping, or guessing, a language.
+    """
+    s = " ".join(str(text or "").split()).lower()
+    if not s:
+        return None
+    code = s.replace("_", "-")
+    if code in SUPPORTED_LANGS:
+        return code
+    base = code.split("-", 1)[0]
+    if "-" in code and base in SUPPORTED_LANGS:
+        return base
+    for lang, native in SUPPORTED_LANGS.items():
+        if s == native.lower():
+            return lang
+    for lang, name in _CHAT_LANG_NAMES.items():
+        if lang in SUPPORTED_LANGS and s == name.lower():
+            return lang
+    return _LANG_ALIASES.get(s)

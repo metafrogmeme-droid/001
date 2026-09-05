@@ -27,7 +27,10 @@ class TestTranslate:
         assert t("nope_not_a_key", "en") == "nope_not_a_key"
 
     def test_missing_lang_falls_back_to_english(self):
-        assert t("confirm", "fr") == "Confirm"
+        # Swahili is a language the model can answer in but the dictionary
+        # does not carry; French is carried now, so it is no longer the case.
+        assert t("confirm", "sw") == "Confirm"
+        assert t("confirm", "fr") == "Confirmer"
 
     def test_default_lang_is_english(self):
         assert t("confirm") == t("confirm", DEFAULT_LANG) == "Confirm"

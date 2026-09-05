@@ -719,7 +719,8 @@ from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore, is_vouchable)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
-                            chat_language_name, ui_lang, SUPPORTED_LANGS)
+                            chat_language_name, ui_lang, resolve_lang_choice,
+                            SUPPORTED_LANGS, DEFAULT_LANG)
 from bot.nlp.intent_router import IntentRouter
 from bot.nlp.conversation_store import ConversationStore
 from bot.core.proactive_monitor import ProactiveMonitor
@@ -1451,22 +1452,47 @@ class TelegramHandler:
                 scope=BotCommandScopeDefault())
         except Exception as exc:
             system_log.warning("Default command menu registration failed: %s", exc)
-        # Telegram keeps a menu PER LANGUAGE, so a Chinese client can get a
-        # Chinese "/" popup rather than the English default. Best-effort:
-        # failing here just leaves those users on the English menu.
-        try:
-            await app.bot.set_my_commands(
-                [BotCommand(n, d) for n, d in localized(default_commands(), "zh")],
-                scope=BotCommandScopeDefault(), language_code="zh")
-        except Exception as exc:
-            system_log.debug("zh command menu registration failed: %s", exc)
-        admin_menu = [BotCommand(n, d) for n, d in admin_commands()]
+        # Telegram keeps a menu PER LANGUAGE, so a client set to any language
+        # the dictionary speaks gets a "/" popup in it rather than the English
+        # default. One registration per language, best-effort each: failing
+        # one leaves those users on the English menu. A language with no menu
+        # text yet is skipped rather than registered as a copy of English.
+        english = default_commands()
+        for code in SUPPORTED_LANGS:
+            if code == DEFAULT_LANG:
+                continue
+            entries = localized(english, code)
+            if entries == english:
+                continue
+            try:
+                await app.bot.set_my_commands(
+                    [BotCommand(n, d) for n, d in entries],
+                    scope=BotCommandScopeDefault(), language_code=code)
+            except Exception as exc:
+                system_log.debug("%s command menu registration failed: %s", code, exc)
+        admin_english = admin_commands()
+        admin_menu = [BotCommand(n, d) for n, d in admin_english]
         for cid in self._operator_chat_ids():
             try:
                 await app.bot.set_my_commands(
                     admin_menu, scope=BotCommandScopeChat(chat_id=int(cid)))
             except Exception as exc:
                 system_log.debug("Admin command menu for %s failed: %s", cid, exc)
+                continue
+            # The operator's client language picks the menu here too, so the
+            # fuller list is registered once per language that has it.
+            for code in SUPPORTED_LANGS:
+                if code == DEFAULT_LANG:
+                    continue
+                entries = localized(admin_english, code)
+                if entries == admin_english:
+                    continue
+                try:
+                    await app.bot.set_my_commands(
+                        [BotCommand(n, d) for n, d in entries],
+                        scope=BotCommandScopeChat(chat_id=int(cid)), language_code=code)
+                except Exception as exc:
+                    system_log.debug("%s admin menu for %s failed: %s", code, cid, exc)
 
     # ── Centralized send ──────────────────────────────────────
 
@@ -2667,10 +2693,11 @@ class TelegramHandler:
                 "the question doesn't need fresh data, just answer directly.")
 
         # i18n: instruct the model to answer in the user's language. The UI
-        # dictionary is en/zh only, but the LLM localizes freeform replies into
-        # any named language — so a Spanish/French/… user gets native chat for
-        # the cost of one directive. English/empty/unknown → no directive (the
-        # default English persona stands). Applies to both authed and public.
+        # dictionary carries the fourteen web languages; the LLM localizes
+        # freeform replies into any of thirty-four named ones — so a Swahili
+        # or Polish user still gets native chat for the cost of one directive.
+        # English/empty/unknown → no directive (the default English persona
+        # stands). Applies to both authed and public.
         _reply_lang_name = chat_language_name(reply_lang)
         if _reply_lang_name:
             system_prompt += (
@@ -3767,24 +3794,31 @@ class TelegramHandler:
     def _seed_lang_from_telegram(self, update: Update, tg_id: str) -> bool:
         """On FIRST registration, adopt the client's own language. True if set.
 
-        The bot ships a complete 繁體中文 translation that a new user only ever
-        saw by knowing /lang existed and running it — so a Chinese-language
-        Telegram client was greeted, and onboarded, in English. Telegram already
-        tells us: ``effective_user.language_code``.
+        The bot ships a complete translation in each of the languages the
+        website offers, and a new user only ever saw theirs by knowing /lang
+        existed and running it — so a Chinese-, Spanish- or German-language
+        Telegram client was greeted, and onboarded, in English. Telegram
+        already tells us: ``effective_user.language_code``.
 
         Only ever seeds an UNSET preference (``get_user_lang_raw`` returns None),
         so it can never overwrite a deliberate /lang choice with a client locale.
-        Anything that is not a recognised Chinese locale is left alone rather
-        than guessed at: English is the store's default, and an unset value is
-        the signal /lang and this function both read.
+        A locale the dictionary does not speak is left alone rather than
+        guessed at: English is the store's default, and an unset value is the
+        signal /lang and this function both read.
         """
         if get_user_lang_raw(self.users, tg_id) is not None:
             return False
         code = (getattr(getattr(update, "effective_user", None),
                         "language_code", "") or "").lower()
-        if not code.startswith("zh"):
+        # Any language the dictionary speaks ("zh-Hans" -> zh, "de-AT" -> de,
+        # "pt-BR" -> pt). A locale it does not speak is left UNSET rather than
+        # written as English: unset is the signal /lang and this function
+        # both read, and a guessed 'en' would make a never-chosen preference
+        # look chosen.
+        lang = ui_lang(code)
+        if not code or lang == DEFAULT_LANG:
             return False
-        return bool(set_user_lang(self.users, tg_id, "zh"))
+        return bool(set_user_lang(self.users, tg_id, lang))
 
     def _lang(self, update: Update) -> str:
         """Resolve the caller's UI language ('en'/'zh') for i18n t() calls.
@@ -4593,10 +4627,10 @@ class TelegramHandler:
             from bot.skills.command_catalog import render_group, render_help
             _admin = self._is_admin(update)
             _arg = (ctx.args or [None])[0]
-            # The bot speaks en/zh — an English-only reference would hand a
-            # Chinese user a wall of 125 English lines. Untranslated entries
-            # fall back to English per item, so coverage gaps stay readable.
-            _hl = lang if lang in ("en", "zh") else "en"
+            # The catalogue localizes per item in every dictionary language
+            # and falls back to English per item, so a coverage gap shows as
+            # one English line rather than an English wall.
+            _hl = lang
             if _arg:
                 # "/help trading" — one section instead of the whole wall.
                 await self._send(update, render_group(_arg, is_admin=_admin, lang=_hl))
@@ -4610,33 +4644,34 @@ class TelegramHandler:
 
     @guard("lang")
     async def _cmd_lang(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Switch between English and Traditional Chinese."""
+        """Choose the bot's language — any of the fourteen the website offers.
+
+        ``/lang`` shows a keyboard built from SUPPORTED_LANGS; ``/lang es``,
+        ``/lang español`` and ``/lang spanish`` all work. The dictionary
+        behind it (bot/utils/i18n.py) carries every key in every language, so
+        the choice changes the bot's own words, not only the model's reply.
+        """
         tg_id = self._get_tg_id(update)
         current_lang = get_user_lang(self.users, tg_id)
 
         args = ctx.args or []
         if args:
-            new_lang = args[0].lower().strip()
-            # Accept various inputs
-            lang_map = {
-                "en": "en", "english": "en", "eng": "en",
-                "zh": "zh", "zh-tw": "zh", "chinese": "zh",
-                "中文": "zh", "繁體": "zh", "繁中": "zh", "繁體中文": "zh",
-            }
-            new_lang = lang_map.get(new_lang, new_lang)
-            if new_lang in SUPPORTED_LANGS:
+            new_lang = resolve_lang_choice(" ".join(args))
+            if new_lang is not None:
                 set_user_lang(self.users, tg_id, new_lang)
                 await self._send(update, t("lang_switched", new_lang))
                 return
 
-        # No args or invalid — show buttons
+        # No args or invalid — show buttons, two per row, in the web's order.
+        codes = list(SUPPORTED_LANGS)
         buttons = [
-            [InlineKeyboardButton("English", callback_data="lang:en"),
-             InlineKeyboardButton("繁體中文", callback_data="lang:zh")],
+            [InlineKeyboardButton(SUPPORTED_LANGS[c], callback_data=f"lang:{c}")
+             for c in codes[i:i + 2]]
+            for i in range(0, len(codes), 2)
         ]
         await self._send(update,
             f"🌐 {t('lang_prompt', current_lang)}\n\n"
-            f"Current / 目前: <b>{SUPPORTED_LANGS.get(current_lang, 'English')}</b>",
+            f"<b>{SUPPORTED_LANGS.get(current_lang, 'English')}</b>",
             reply_markup=InlineKeyboardMarkup(buttons))
 
     # ── Admin commands ────────────────────────────────────────
