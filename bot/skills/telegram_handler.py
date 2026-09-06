@@ -17,7 +17,6 @@ bot/skills/guardian_commands.py that this class inherits;
 from __future__ import annotations
 
 import asyncio
-import functools
 import html
 import logging
 import os
@@ -56,6 +55,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
 # because twenty-five call sites and two test suites reach it through it.
+from bot.skills.command_guard import guard
 from bot.skills.guardian_commands import GuardianCommands
 from bot.utils.exc_text import _TG_TOKEN_RE, _safe_exc_text
 
@@ -823,28 +823,9 @@ def _chat_tools_for(handler, user_id: str, surface: str, public: bool):
 # block is refused — lives in bot/skills/chat_runtime.py (imported above).
 
 
-def guard(command: str = ""):
-    """Decorator for command handlers: run the auth / rate-limit / role-permission
-    gate (``self._guard``) before the body, returning early if it fails.
-
-    Replaces the copy-pasted ``if not await self._guard(update, "..."): return``
-    prelude. Equivalent in every way — the gate still runs first and still
-    short-circuits — but the permission string now lives in one visible place per
-    command instead of two boilerplate lines inside each body. Handlers that must
-    run logic BEFORE the gate (e.g. a ``update.message`` null-check) keep the
-    inline call instead.
-    """
-    def _decorate(func):
-        @functools.wraps(func)
-        async def _wrapped(self, update, ctx, *args, **kwargs):
-            # ctx is forwarded so a refusal can reach the operator: a person the
-            # allowlist turns away otherwise gets a dead end, and nobody learns
-            # they showed up.
-            if not await self._guard(update, command, ctx):
-                return
-            return await func(self, update, ctx, *args, **kwargs)
-        return _wrapped
-    return _decorate
+# `guard(...)` — the auth gate as a decorator — lives in
+# bot/skills/command_guard.py (imported above), so a command group in a
+# mixin can carry the same decorator the commands in this file do.
 
 
 #: Prompt budget for each half of the user-context line. Bounded separately so

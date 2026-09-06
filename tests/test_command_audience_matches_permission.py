@@ -113,6 +113,26 @@ def _gates_on_admin(body: str) -> bool:
     return bool(_ADMIN_GATE.search(body))
 
 
+#: The body reads the caller's role SOMEHOW. Weaker than `_gates_on_admin` on
+#: purpose: /broadcast and /channel bind `_is_admin` to a local and let a
+#: Telegram group admin through as well, which the early-return regex cannot
+#: see. This exists only to tell "gated in a shape this file does not parse"
+#: from "gated by nothing", and the latter is the leak.
+_ROLE_READ = re.compile(r"self\._(?:is_admin|is_operator|control_scope|guard)\(")
+
+
+def _consults_the_role(body: str) -> bool:
+    return bool(_ROLE_READ.search(body))
+
+
+def _gated_by_nothing(perm, body: str) -> bool:
+    """No decorator or inline permission, no early-return admin gate, and no
+    role read of any kind: the shape /approvals and /xray shipped in. The
+    permission comes from the decorator, which sits ABOVE the function
+    segment, so it is passed in rather than searched for in `body`."""
+    return perm is None and not _gates_on_admin(body) and not _consults_the_role(body)
+
+
 def _permission_string(funcs, handler: str):
     """The permission `_guard` is called with, from the decorator or inline."""
     src, node = funcs[handler]
@@ -163,9 +183,17 @@ def test_operator_only_commands_are_actually_operator_only():
         handler = registry.get(cmd)
         assert handler, f"/{cmd} is in the catalog but bound to no handler"
         assert handler in funcs, f"{handler} not found in the handler module or its mixins"
-        if _gates_on_admin(_body(funcs, handler)):
+        body = _body(funcs, handler)
+        if _gates_on_admin(body):
             continue  # explicitly operator-gated in the body
         perm = _permission_string(funcs, handler)
+        if _gated_by_nothing(perm, body):
+            # The first version of this test passed such a command as
+            # "unreachable by any non-admin role", because no role held a
+            # permission it never asked for — an acquittal manufactured from
+            # an absence. /approvals and /xray shipped that way.
+            leaks.append(f"/{cmd} is documented operator-only and gated by nothing at all")
+            continue
         reachable = sorted(r for r, p in non_admin.items() if perm in p)
         if reachable:
             leaks.append(f"/{cmd} (@guard({perm!r})) is documented operator-only "
@@ -223,6 +251,54 @@ def test_no_NEW_user_facing_command_becomes_unreachable():
         f"{fixed} no longer mismatch — remove them from "
         "tests/fixtures/command_audience_backlog.json so the ratchet keeps tightening"
     )
+
+
+def test_the_x_ray_commands_are_documented_for_users_and_gated_for_them():
+    """/approvals and /xray, pinned by name.
+
+    Both sat in the "Guardian (operator)" group with no gate of any kind —
+    not the allowlist, not the rate limiter, not a permission — so the
+    catalogue hid them from every user while any stranger could run them. The
+    split's index found it. They read public chain data for an address the
+    caller supplies and touch no account, so the CATALOGUE was wrong (they
+    are user tools) and the CODE was wrong (they were gated by nothing); this
+    fixes both halves and holds them together: `token` is the contract
+    detective's permission, held by every admitted role and by nobody pending.
+    """
+    funcs, registry = _handler_index()
+    audience = {c: aud for _t, aud, entries in GROUPS for c, _d in entries}
+    for cmd in ("approvals", "xray"):
+        assert audience[cmd] == "user", f"/{cmd} is hidden from the users it is for"
+        assert _permission_string(funcs, registry[cmd]) == "token", (
+            f"/{cmd} must reuse the contract detective's permission, not invent one")
+    for role, perms in ROLE_PERMISSIONS.items():
+        if role == "pending":
+            assert "token" not in perms, "an unadmitted user must not relay lookups"
+        else:
+            assert "*" in perms or "token" in perms, f"{role} cannot run the X-ray tools"
+
+
+def test_an_ungated_operator_command_is_a_leak_not_an_acquittal():
+    """The leak rule must be able to fail, and must not fail on the two
+    gate shapes it is meant to leave alone.
+
+    /approvals' body reads no role — its whole gate is the decorator — so
+    the body with the decorator's permission taken away is exactly the shape
+    it shipped in, and the rule must fire on it. /broadcast reads the role in
+    a shape the early-return regex cannot parse (a local, then a Telegram
+    group-admin fallback), and the rule must not.
+    """
+    funcs, _ = _handler_index()
+    approvals = _body(funcs, "_cmd_approvals")
+    assert _permission_string(funcs, "_cmd_approvals") == "token"
+    assert not _consults_the_role(approvals), "the gate is the decorator alone"
+    assert _gated_by_nothing(None, approvals), "the rule cannot see the shape it exists for"
+    assert not _gated_by_nothing("token", approvals)
+
+    broadcast = _body(funcs, "_cmd_broadcast")
+    assert _permission_string(funcs, "_cmd_broadcast") is None
+    assert not _gates_on_admin(broadcast), "the premise moved: /broadcast now gates early"
+    assert not _gated_by_nothing(None, broadcast)
 
 
 def test_llm_config_commands_require_admin():

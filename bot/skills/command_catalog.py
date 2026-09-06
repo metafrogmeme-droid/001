@@ -75,6 +75,11 @@ GROUPS: List[Group] = [
         ("alpha", "daily alpha insight card"),
         ("research", "cited research dossier for a symbol"),
         ("token", "contract detective — /token 0x… [chain]"),
+        # The two X-ray tools sat under "Guardian (operator)" while nothing at
+        # all gated them; they read public chain data for any address and are
+        # @guard("token") now, the contract detective's audience.
+        ("approvals", "allowance X-ray — what can spend your tokens"),
+        ("xray", "decode calldata before signing (read-only)"),
         ("memeplan", "meme-buy preflight (never trades) — /memeplan <mint> [usd]"),
         ("whynot", "why a trade was rejected"),
         ("patterns", "chart patterns the engine sees"),
@@ -141,8 +146,6 @@ GROUPS: List[Group] = [
         ("twin", "portfolio digital twin — stress tests"),
         ("sentinel", "systemic risk sentinel"),
         ("escape", "emergency exit PLAN (read-only)"),
-        ("approvals", "allowance X-ray — what can spend your tokens"),
-        ("xray", "decode calldata before signing (read-only)"),
         ("policy", "intent compiler — authority envelope"),
         ("anchor", "ERC-8004 identity anchoring"),
         ("vault", "secret-protection status (names only)"),

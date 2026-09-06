@@ -18,10 +18,16 @@ reads it and nothing else does. That block must never grow a body: a mixin
 that defines `_send` would be a second chokepoint, which is the shape the
 redaction test exists to forbid.
 
-Nothing here is `@guard`-decorated, on purpose. Each command is admin-only
-by an inline `_is_admin` check, which is how `tests/test_operator_controls_are_derived.py`
-already classifies them, and it is why the group could move without touching
-the decorator-derived permission tables.
+The five console commands are operator-only by an inline `_is_admin` check,
+which is how `tests/test_operator_controls_are_derived.py` already classifies
+them. The two X-ray commands are `@guard("token")`: the move is what showed
+they had NO gate at all — not the allowlist, not the rate limiter, not a
+permission — while the catalogue filed them under "operator". They read
+public chain data through the website's public API and touch no account, so
+they belong to every admitted role, and `token` is the permission
+ROLE_PERMISSIONS already argues that case for: the contract detective, "a
+safety check for the users most likely to be handed a scam address".
+Reused rather than invented, the way /eventrisk reused `macro`.
 """
 from __future__ import annotations
 
@@ -32,6 +38,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
@@ -359,11 +366,18 @@ class GuardianCommands:
         except Exception:
             return None
 
+    @guard("token")
     async def _cmd_approvals(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/approvals <address-or-name.eth> [chain] — the Allowance X-ray in
         chat: which contracts can spend the tokens of ANY address, read-only
         via the website's public API (the same bounded, honest check the
         /approvals page runs). Public chain data; nothing is signed or stored.
+
+        `@guard("token")`, the contract detective's permission: same class of
+        tool (public chain data, decides nothing, writes nothing), same
+        audience. Shipped without any gate at all, so a stranger who was not
+        even allowlisted could make the bot relay lookups to the site with no
+        rate limit; the split's own tests found it.
         """
         import asyncio as _aio
         import re as _re
@@ -413,11 +427,13 @@ class GuardianCommands:
                      "\n<i>A clean result is never a guarantee. Read-only \u2014 nothing was signed.</i>")
         await self._send(update, "\n".join(lines))
 
+    @guard("token")
     async def _cmd_xray(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/xray <calldata> — decode what a transaction actually DOES before
         signing it, through the website's public tool dispatcher (the same
         xray_transaction tool any MCP agent calls). Pure decode: nothing sent
-        here is stored, no account is seen, amounts are RAW token units."""
+        here is stored, no account is seen, amounts are RAW token units.
+        `@guard("token")` for the reason given on /approvals."""
         import asyncio as _aio
         base = site_url()
         data = (ctx.args[0].strip() if ctx.args else "")
