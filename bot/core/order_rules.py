@@ -14,6 +14,7 @@ Uses the existing _classify_symbol() from market_scanner.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from bot.compat import UTC
 
@@ -167,29 +168,84 @@ def adjust_sl_for_gap_risk(
 
     GetClaw rule: widen SL by ~25-50% for weekend-queued metals/stocks.
     - Normal SL: 2% → Weekend SL: 2.5-3%
+
+    IT REFUSES RATHER THAN INVENTS, and that is the whole of the change here.
+
+    The guard used to be ``if entry_price > 0 else 0``, which set the stop
+    DISTANCE to zero for an unreadable entry and then computed
+    ``new_sl = entry_price * (1 - 0)`` — ``0.0``. The caller assigns on
+    ``new_sl != old_sl``, so a long position's stop was set to zero (no stop at
+    all) and audited as ``SL widened: $98.0000 → $0.0000, result="WIDENED"``:
+    the removal of a stop, recorded as an improvement to it. An unreadable
+    stop was worse still — ``abs(entry - 0)/entry`` is ``1.0``, widened to
+    ``1.4``, giving a NEGATIVE stop.
+
+    Every refusal returns ``stop_loss`` unchanged, which the caller sees as
+    "no adjustment" and leaves the submitted stop in place for the risk engine
+    to judge. That is the only safe direction: this function may make a stop
+    wider, and must never be able to make one disappear.
     """
     if not is_weekend:
         return stop_loss
     if asset_class in _ALWAYS_OPEN or asset_class in _PRE_IPO:
         return stop_loss
 
-    sl_dist_pct = abs(entry_price - stop_loss) / entry_price if entry_price > 0 else 0
+    def _decline(why: str) -> float:
+        # Loud, and at WARNING: silently returning the input would make a
+        # refusal indistinguishable from "nothing needed widening".
+        logger.warning(
+            "Gap-risk SL widening DECLINED for %s (%s): entry=%r stop=%r dir=%r — "
+            "the submitted stop is left exactly as it was",
+            asset_class, why, entry_price, stop_loss, direction,
+        )
+        return stop_loss
+
+    try:
+        entry = float(entry_price)
+        sl = float(stop_loss)
+    except (TypeError, ValueError):
+        return _decline("not numeric")
+    if not (math.isfinite(entry) and math.isfinite(sl)):
+        return _decline("not finite")
+    if entry <= 0 or sl <= 0:
+        return _decline("a price is not positive")
+
+    # EXPLICIT, not "anything that is not LONG is a short". `direction` arrives
+    # here as `Direction(str, Enum).value`, so today it is LONG or SHORT and
+    # nothing else — but the fallthrough meant any other spelling ("BUY",
+    # "long", "") moved a long's stop UP, through entry, to the wrong side.
+    side = str(direction or "").strip().upper()
+    if side not in ("LONG", "SHORT"):
+        return _decline("direction is neither LONG nor SHORT")
+
+    # A stop on the wrong side of entry is not a stop, and widening one would
+    # silently move it ACROSS entry and call that a repair — inventing a
+    # thesis the caller did not submit. Let the risk engine reject it instead.
+    if (side == "LONG" and sl >= entry) or (side == "SHORT" and sl <= entry):
+        return _decline("the stop is on the wrong side of entry")
+
+    sl_dist_pct = abs(entry - sl) / entry
 
     # Widen by 40% (midpoint of GetClaw's 25-50% range)
     widen_factor = 1.40
+    new_sl_dist = sl_dist_pct * widen_factor
 
-    if direction.upper() == "LONG":
+    if side == "LONG":
         # SL is below entry — move it further down
-        new_sl_dist = sl_dist_pct * widen_factor
-        new_sl = entry_price * (1 - new_sl_dist)
+        new_sl = entry * (1 - new_sl_dist)
     else:
         # SHORT: SL is above entry — move it further up
-        new_sl_dist = sl_dist_pct * widen_factor
-        new_sl = entry_price * (1 + new_sl_dist)
+        new_sl = entry * (1 + new_sl_dist)
+
+    # The widened stop must still BE a stop. A distance over 100% takes a long
+    # through zero and out the other side, which is not a wider stop, it is
+    # the absence of one wearing its name.
+    if not math.isfinite(new_sl) or new_sl <= 0:
+        return _decline("widening would put the stop at or below zero")
 
     logger.info(
         "Gap-risk SL widened for %s: %.4f → %.4f (%.1f%% → %.1f%%)",
-        asset_class, stop_loss, new_sl, sl_dist_pct * 100, new_sl_dist * 100,
+        asset_class, sl, new_sl, sl_dist_pct * 100, new_sl_dist * 100,
     )
     return round(new_sl, 8)
 
@@ -202,15 +258,31 @@ def adjust_size_for_weekend(
     """Reduce position size for weekend-queued metals (30-40% reduction).
 
     GetClaw rule: size down 30-40% for weekend gold limits.
+
+    Same refusal rule as ``adjust_sl_for_gap_risk``: an unreadable size cannot
+    be reduced by 35%, and returning ``nan`` or a negative would be handed
+    straight to an order. This one is less dangerous than its sibling — the
+    caller only shrinks — but a NaN size propagates into the order payload,
+    so it is guarded on the same terms rather than on the same day it bites.
     """
     if not is_weekend:
         return size_usd
     if asset_class not in _WEEKDAY_ONLY:
         return size_usd
 
+    try:
+        size = float(size_usd)
+    except (TypeError, ValueError):
+        size = float("nan")
+    if not math.isfinite(size) or size <= 0:
+        logger.warning(
+            "Weekend size reduction DECLINED for %s: size=%r is not a readable "
+            "positive amount — left exactly as submitted", asset_class, size_usd)
+        return size_usd
+
     # 35% reduction (midpoint)
     reduction = 0.35
-    new_size = size_usd * (1 - reduction)
+    new_size = size * (1 - reduction)
     logger.info(
         "Weekend %s size reduced: $%.2f → $%.2f (%.0f%% reduction)",
         asset_class, size_usd, new_size, reduction * 100,
