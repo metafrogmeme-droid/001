@@ -172,14 +172,58 @@ if [ "$CHECK_BOX" -eq 1 ]; then
     *)    fail "bridge returned HTTP $code at $BRIDGE_URL" ;;
   esac
 
-  # Which code the box is actually on. Compared against the local checkout,
-  # because a deploy that pulled the wrong commit passes every other check —
-  # 2026-08-20, 255 commits stale, everything green.
-  if head="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"; then
-    ok "checkout at $head"
+  # ── which code the box is actually RUNNING ────────────────────────────────
+  #
+  # THIS ASKS THE BOX. The previous version read `git rev-parse HEAD` in
+  # "$REPO" — the local checkout, which is the very thing it was supposed to
+  # be comparing against — and printed OK whenever that directory was a git
+  # repo. Nothing was compared. Run from a laptop it reported the laptop's
+  # commit as the bot's, under a comment promising the 2026-08-20 check: a
+  # deploy that landed 255 commits stale while every other check agreed it was
+  # fine. The gap the file's own header exists to close was open in the file.
+  #
+  # The answer was already published and unread: bot/web/dashboard_server.py's
+  # unauthenticated /health carries `build` (bot/utils/build_info.short()) for
+  # exactly this purpose, on the port this script already probes.
+  # THE SPACE AFTER THE COLON IS NOT OPTIONAL HERE, AND THAT COST A ROUND.
+  # The web half's sed is `"build":"..."` because Express's res.json emits
+  # JSON.stringify output with no spaces. The bot is aiohttp, whose
+  # json_response uses Python's json.dumps default separators — so it emits
+  # `"build": "abc1234"`. Copying the web sed verbatim matched nothing and
+  # reported an answering box as "sent no build". Tolerate both.
+  box_health="$(curl -fsS --max-time 10 "$GATEWAY_URL/health" 2>/dev/null)"
+  live_build="$(printf '%s' "$box_health" \
+                | sed -n 's/.*"build"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  want_build="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"
+
+  # A FIELD NOBODY SENT IS NOT A FIELD THAT DIFFERED — the same rule the web
+  # half above states at length. An older bot omits `build`, and "" must never
+  # be compared against a real hash and reported as serving different code.
+  if [ -z "$want_build" ]; then
+    unk "not a git checkout here, so there is nothing to compare the box against."
+  elif [ -z "$live_build" ]; then
+    unk "$GATEWAY_URL/health sent no 'build' — an older bot, or the dashboard is down."
+  elif [ "$live_build" = "unknown" ]; then
+    unk "the box reports build=unknown — it could not resolve its own commit."
+  elif [ "$live_build" = "$want_build" ]; then
+    ok "box is running this checkout ($live_build)"
   else
-    unk "not a git checkout here, so the running commit could not be confirmed."
+    fail "box is running $live_build, this checkout is $want_build — WRONG CODE"
+    note "The deploy did not land here. Check the remote it reset to:"
+    note "  git fetch https://github.com/metafrogmeme-droid/001 main && git reset --hard FETCH_HEAD"
   fi
+
+  # Did /gateway/* actually mount? A 403 above proves something is serving
+  # :8080; it does not prove the gateway sub-app exists, and dashboard_server
+  # publishes that separately for precisely that reason.
+  gw_state="$(printf '%s' "$box_health" \
+              | sed -n 's/.*"gateway"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  case "$gw_state" in
+    mounted)       ok "gateway sub-app mounted" ;;
+    failed)        fail "gateway did NOT mount — /gateway/* will 404 while :8080 answers 200" ;;
+    not_requested) unk "gateway was not requested on this box (no Telegram handler)." ;;
+    *)             unk "the box did not report a gateway state." ;;
+  esac
   echo
 fi
 

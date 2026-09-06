@@ -66,6 +66,9 @@ CANONICAL_URL="https://github.com/metafrogmeme-droid/001"
 URL="${DEPLOY_SOURCE_URL:-$CANONICAL_URL}"
 BRANCH="main"
 ALLOW_AHEAD=0
+# Default 0: a dirty tree is a real difference between the commit id this
+# script reports and the code that will run. Opt out deliberately on a dev box.
+ALLOW_DIRTY=0
 
 # `shift 2` with only one token left fails and shifts nothing, so the loop
 # spins forever — the hang that bit verify_bot_alive.sh. Check the count first.
@@ -80,6 +83,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --allow-ahead) ALLOW_AHEAD=1; shift ;;
+    --allow-dirty) ALLOW_DIRTY=1; shift ;;
     -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
     *) echo "SOURCE USAGE: unknown argument '$1'. Nothing was checked." >&2; exit 2 ;;
   esac
@@ -132,6 +136,39 @@ fi
 REMOTE_SHA="$(printf '%s\n' "$REMOTE_LINE" | awk 'NR==1{print $1}')"
 
 if [ "$HEAD_SHA" = "$REMOTE_SHA" ]; then
+  # A COMMIT ID IS NOT THE WORKING TREE.
+  #
+  # This asks "is the checkout the code you think it is?" and answered it
+  # purely from commit ids — which uncommitted edits do not move. A box
+  # patched by hand therefore reported SOURCE OK while running code that is in
+  # no commit anywhere, which is the same false provenance the sha was added
+  # to prevent, one layer down.
+  #
+  # bot/utils/build_info.py already knows this and says so: it made `dirty`
+  # tri-state because "patching a box by hand is a thing that happens on this
+  # project, and a bot reporting 0449bc7 with three hand-edited files is false
+  # provenance dressed as precision." The pre-launch gate had not learned it.
+  #
+  # Tracked modifications AND untracked .py under bot/ both count: a stray
+  # module shadowing an import changes what runs without touching any tracked
+  # file. `--allow-dirty` exists for a dev box that means it.
+  dirty=""
+  if ! git -C "$REPO_DIR" diff-index --quiet HEAD -- 2>/dev/null; then
+    dirty="$(git -C "$REPO_DIR" diff-index --name-only HEAD -- 2>/dev/null | head -20)"
+  fi
+  untracked="$(git -C "$REPO_DIR" ls-files --others --exclude-standard -- 'bot/*.py' 'bot/**/*.py' 2>/dev/null | head -20)"
+  if [ -n "$dirty$untracked" ] && [ "$ALLOW_DIRTY" -eq 0 ]; then
+    echo "SOURCE DIRTY: HEAD matches $BRANCH, but the working tree does not match HEAD." >&2
+    echo "  The commit id is right and the CODE IS NOT. What differs:" >&2
+    printf '    %s\n' $dirty $untracked >&2
+    echo "  Commit or discard these, or pass --allow-dirty if you mean it." >&2
+    exit 1
+  fi
+  if [ -n "$dirty$untracked" ]; then
+    echo "SOURCE OK (DIRTY, allowed): HEAD is ${HEAD_SHA%${HEAD_SHA#???????}} — the tip of $BRANCH at $URL"
+    echo "  Uncommitted changes are present and were allowed by --allow-dirty."
+    exit 0
+  fi
   echo "SOURCE OK: HEAD is ${HEAD_SHA%${HEAD_SHA#???????}} — the tip of $BRANCH at $URL"
   exit 0
 fi

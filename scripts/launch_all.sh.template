@@ -108,13 +108,22 @@ WAIT_SECONDS="${BRIDGE_WAIT:-20}" scripts/verify_bot_alive.sh --pid "$BRIDGE_PID
 # A process can be alive and not serving: bound to the wrong interface, stuck
 # importing, or listening on a port nobody configured. `kill -0` cannot tell.
 # The ports are what the web app talks to, so the ports are what get checked.
+# ANY HTTP STATUS IS AN ANSWER — see scripts/systemd/wait_for_port.sh for the
+# full account. In short: `curl -f` fails on 4xx, and `/gateway/health` returns
+# 403 to every unauthenticated caller by design, so this loop could never
+# succeed and `die` fired on every deploy of a healthy bot — with a message
+# blaming the gateway, which was fine. DEPLOY_DONE below was unreachable.
 check_port() {
-  local name="$1" url="$2"
+  local name="$1" url="$2" code=""
   for _ in $(seq 1 15); do
-    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
-      log "  $name answering"
-      return 0
-    fi
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$url" 2>/dev/null)" || code=""
+    case "$code" in
+      ''|000) : ;;
+      *)
+        log "  $name answering (HTTP $code)"
+        return 0
+        ;;
+    esac
     sleep 2
   done
   # Not fatal for the bridge — see below — so the caller decides.
