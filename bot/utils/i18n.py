@@ -1211,6 +1211,33 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Sync failed. Please try again in a moment.",
         "zh": "同步失敗，請稍後再試。",
     },
+    # ── /scan <venue> (bot/core/venue_scan.py) — three outcomes, not two ──
+    "venue_scan_ack": {
+        "en": "🔍 <b>Scanning {venue}…</b> reading its own market list — the card follows in a few seconds.",
+        "zh": "🔍 <b>正在掃描 {venue}…</b> 讀取該交易所自己的市場清單 — 結果卡片幾秒後送達。",
+    },
+    "venue_scan_unreachable": {
+        "en": ("🔴 <b>{venue} did not answer</b> — nothing was scanned. That is a failed read, "
+               "not an empty market.\n<code>{detail}</code>"),
+        "zh": ("🔴 <b>{venue} 沒有回應</b> — 沒有掃描任何東西。這是讀取失敗，不是空的市場。\n"
+               "<code>{detail}</code>"),
+    },
+    "venue_scan_empty": {
+        "en": ("⚪ <b>{venue}</b> answered with {markets} markets and none cleared the volume "
+               "floor — nothing to show, and that is a measurement."),
+        "zh": ("⚪ <b>{venue}</b> 回應了 {markets} 個市場，但沒有一個超過成交量門檻 — "
+               "無可顯示，這是實際量測的結果。"),
+    },
+    "venue_scan_header": {
+        "en": "🔎 <b>{venue} scan</b> — top {n} of {markets} markets by 24h move",
+        "zh": "🔎 <b>{venue} 掃描</b> — 依 24 小時漲跌排序，{markets} 個市場中的前 {n} 名",
+    },
+    "venue_scan_list": {
+        "en": ("🏦 <b>Venues you can scan</b> — <code>/scan &lt;venue&gt;</code> reads a venue's "
+               "own market list, whether or not you trade there:"),
+        "zh": ("🏦 <b>可掃描的交易所</b> — <code>/scan &lt;venue&gt;</code> "
+               "會讀取該交易所自己的市場清單，不論你是否在那裡交易："),
+    },
 }
 
 
@@ -1300,7 +1327,9 @@ def get_user_lang(users_db, tg_id: str) -> str:
         return DEFAULT_LANG
     user = users_db.get(tg_id)
     if user and isinstance(user, dict):
-        return user.get("lang", DEFAULT_LANG)
+        lang = user.get("lang", DEFAULT_LANG)
+        # A record can carry anything; only a string is a language code.
+        return lang if isinstance(lang, str) else DEFAULT_LANG
     return DEFAULT_LANG
 
 

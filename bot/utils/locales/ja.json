@@ -260,5 +260,10 @@
   "unlink_success": "{email} との連携を解除しました。\nデータは保持されます。再連携は /link で。",
   "me_account": "<b>あなたのRUNECLAWアカウント</b>\n\nメール:   <code>{email}</code>\nプラン:   <code>{plan}</code>\n資産:     <code>${equity}</code>\n未実現P&amp;L: <code>${pnl}</code>\n取引数:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 通知: <code>{notif}</code>",
   "sync_success": "ダッシュボードを同期しました。\n資産: ${equity}\n保有ポジション: {positions}\n決済済み取引: {trades}\n\n表示: {url}/dashboard",
-  "sync_failed": "同期に失敗しました。少ししてからもう一度お試しください。"
+  "sync_failed": "同期に失敗しました。少ししてからもう一度お試しください。",
+  "venue_scan_ack": "🔍 <b>{venue} をスキャン中…</b> その取引所自身の銘柄リストを読んでいます — カードは数秒後に届きます。",
+  "venue_scan_unreachable": "🔴 <b>{venue} が応答しませんでした</b> — 何もスキャンされていません。これは読み取りの失敗であり、空の市場ではありません。\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> は {markets} 銘柄を返しましたが、出来高の下限を超えたものはありません — 表示するものはなく、これは計測結果です。",
+  "venue_scan_header": "🔎 <b>{venue} スキャン</b> — 24時間変動順、{markets} 銘柄中の上位 {n}",
+  "venue_scan_list": "🏦 <b>スキャンできる取引所</b> — <code>/scan &lt;venue&gt;</code> は、そこで取引しているかどうかに関係なく、取引所自身の銘柄リストを読みます:"
 }

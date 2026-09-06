@@ -49,7 +49,7 @@
     "reset": "die Notbremse zurücksetzen",
     "buy": "veraltet — nutze /trade buy",
     "sell": "veraltet — nutze /trade sell",
-    "scan": "den Markt nach Setups scannen",
+    "scan": "den Markt nach Setups scannen — /scan hyperliquid liest die eigene Liste eines Handelsplatzes",
     "fullscan": "vollständiger Scan des ganzen Universums",
     "deepscan": "tiefer Scan mit Chart + Kerzenmustern",
     "analyze": "einen Coin im Detail analysieren — /analyze SOL",

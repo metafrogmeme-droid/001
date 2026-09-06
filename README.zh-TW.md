@@ -465,7 +465,7 @@ python -m bot.main --mode scan
 
 | 指令 | 說明 |
 |---|---|
-| `/scan` | 掃描市場尋找機會 |
+| `/scan` | 掃描市場尋找機會 — /scan hyperliquid 讀取單一交易所自己的清單 |
 | `/fullscan` | 完整掃描整個交易宇宙 |
 | `/deepscan` | 含形態的深度掃描 |
 | `/analyze` | 深入分析單一幣種 — /analyze SOL |

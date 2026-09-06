@@ -119,8 +119,9 @@ def test_the_scanner_clients_read_the_configured_cap():
     assert '"timeout": 30000' not in SCANNER, (
         "the hardcoded 30s outlier is what made a timing-out symbol able to "
         "eat most of the phase budget")
-    assert SCANNER.count('"timeout": CONFIG.market_data_timeout_ms,') == 3, (
-        "spot, futures and venue-data clients must all use it")
+    assert SCANNER.count('"timeout": CONFIG.market_data_timeout_ms,') == 4, (
+        "spot, futures, the active-venue client and the per-venue /scan "
+        "client must all use it")
 
 
 def test_the_default_matches_every_other_client_in_the_codebase():

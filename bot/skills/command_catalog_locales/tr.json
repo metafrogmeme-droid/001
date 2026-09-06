@@ -49,7 +49,7 @@
     "reset": "devre kesiciyi sıfırlayın",
     "buy": "eski — /trade buy kullanın",
     "sell": "eski — /trade sell kullanın",
-    "scan": "piyasayı kurulumlar için tarayın",
+    "scan": "piyasayı kurulumlar için tarayın — /scan hyperliquid tek bir borsanın kendi listesini okur",
     "fullscan": "tüm evrenin tam taraması",
     "deepscan": "grafik + mum formasyonlarıyla derin tarama",
     "analyze": "tek bir coini derinlemesine inceleyin — /analyze SOL",

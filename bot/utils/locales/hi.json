@@ -260,5 +260,10 @@
   "unlink_success": "{email} से अलग किया गया।\nआपका डेटा सुरक्षित है। फिर से जोड़ने के लिए /link इस्तेमाल करें।",
   "me_account": "<b>आपका RUNECLAW खाता</b>\n\nईमेल:    <code>{email}</code>\nप्लान:    <code>{plan}</code>\nइक्विटी:  <code>${equity}</code>\nखुला P&amp;L: <code>${pnl}</code>\nट्रेड:    <code>{trades}</code>\n\nLLM: <code>{llm}</code> | सूचनाएँ: <code>{notif}</code>",
   "sync_success": "डैशबोर्ड सिंक हुआ।\nइक्विटी: ${equity}\nखुली पोज़िशन: {positions}\nबंद ट्रेड: {trades}\n\nयहाँ देखें: {url}/dashboard",
-  "sync_failed": "सिंक विफल। थोड़ी देर में फिर कोशिश करें।"
+  "sync_failed": "सिंक विफल। थोड़ी देर में फिर कोशिश करें।",
+  "venue_scan_ack": "🔍 <b>{venue} स्कैन हो रहा है…</b> उसकी अपनी बाज़ार सूची पढ़ी जा रही है — कार्ड कुछ सेकंड में आएगा।",
+  "venue_scan_unreachable": "🔴 <b>{venue} ने जवाब नहीं दिया</b> — कुछ भी स्कैन नहीं हुआ। यह पढ़ने की विफलता है, खाली बाज़ार नहीं।\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> ने {markets} बाज़ारों के साथ जवाब दिया और कोई भी वॉल्यूम सीमा पार नहीं कर सका — दिखाने को कुछ नहीं, और यह एक माप है।",
+  "venue_scan_header": "🔎 <b>{venue} स्कैन</b> — 24 घंटे की चाल के अनुसार {markets} बाज़ारों में से शीर्ष {n}",
+  "venue_scan_list": "🏦 <b>जिन वेन्यू को आप स्कैन कर सकते हैं</b> — <code>/scan &lt;venue&gt;</code> किसी वेन्यू की अपनी बाज़ार सूची पढ़ता है, चाहे आप वहाँ ट्रेड करें या नहीं:"
 }

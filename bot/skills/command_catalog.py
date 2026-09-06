@@ -68,7 +68,7 @@ GROUPS: List[Group] = [
         ("sell", "legacy — use /trade sell"),
     ]),
     ("🔎 Scan & analyse", "user", [
-        ("scan", "scan the market for setups"),
+        ("scan", "scan the market for setups — /scan hyperliquid reads one venue's own list"),
         ("fullscan", "full scan of the whole universe"),
         ("deepscan", "deep scan with chart + candle patterns"),
         ("analyze", "deep-dive one coin — /analyze SOL"),
@@ -390,7 +390,8 @@ DESC_ZH: Dict[str, str] = {
     "autoconfirm": "查看或設定自動確認門檻", "emergency_stop": "緊急停止（會先確認）",
     "pause": "暫停交易（啟動熔斷）", "resume": "恢復交易", "halt": "停止引擎",
     "reset": "重設熔斷器", "buy": "舊指令 — 請用 /trade buy", "sell": "舊指令 — 請用 /trade sell",
-    "scan": "掃描市場尋找機會", "fullscan": "完整掃描整個交易宇宙", "deepscan": "含形態的深度掃描",
+    "scan": "掃描市場尋找機會 — /scan hyperliquid 讀取單一交易所自己的清單",
+    "fullscan": "完整掃描整個交易宇宙", "deepscan": "含形態的深度掃描",
     "forcescan": "立即掃描，略過冷卻", "analyze": "深入分析單一幣種 — /analyze SOL",
     "alpha": "每日 alpha 洞察卡", "research": "附出處的研究報告", "whynot": "為何某筆交易被拒",
     "token": "合約偵查 — /token 0x… [鏈]",

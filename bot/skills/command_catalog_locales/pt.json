@@ -49,7 +49,7 @@
     "reset": "repor o disjuntor",
     "buy": "legado — use /trade buy",
     "sell": "legado — use /trade sell",
-    "scan": "analisar o mercado à procura de oportunidades",
+    "scan": "analisar o mercado à procura de oportunidades — /scan hyperliquid lê a lista própria de uma venue",
     "fullscan": "análise completa de todo o universo",
     "deepscan": "análise profunda com gráfico + padrões de velas",
     "analyze": "análise aprofundada de uma moeda — /analyze SOL",
