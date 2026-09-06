@@ -133,8 +133,13 @@ def test_menu_localisation_falls_back_per_item():
     assert dict(zh)["start"] != dict(en)["start"], "zh menu text should differ"
     for name, desc in zh:
         assert desc.strip(), f"/{name} rendered an empty menu row"
-    # An unknown language is left exactly as English.
-    assert localized(en, "fr") == en
+    # An unknown language is left exactly as English; a file-backed one is
+    # translated per item, just like zh.
+    assert localized(en, "sw") == en
+    assert localized(en, "en") == en
+    fr = localized(en, "fr")
+    assert len(fr) == len(en) and all(d.strip() for _, d in fr)
+    assert dict(fr)["start"] != dict(en)["start"]
     # No zh entry names a command that is not in a menu.
     menu_names = {n for n, _ in default_commands()} | {
         n for n, _ in __import__("bot.skills.command_menu", fromlist=["x"]).admin_commands()}
@@ -153,10 +158,13 @@ def test_unknown_command_reply_is_bilingual():
     assert "I don't have a" in en and "operator-only" in en
 
 
-def test_the_zh_menu_is_actually_registered_with_telegram():
+def test_every_dictionary_language_menu_is_actually_registered_with_telegram():
     from pathlib import Path
     src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
-    assert 'language_code="zh"' in src, "Telegram needs a per-language menu registration"
-    assert 'localized(default_commands(), "zh")' in src
+    body = src.split("async def _register_command_menu", 1)[1].split("\n    async def ", 1)[0]
+    assert "language_code=code" in body, "Telegram needs a per-language menu registration"
+    assert "for code in SUPPORTED_LANGS" in body, "one registration per dictionary language"
+    assert "localized(english, code)" in body and "localized(admin_english, code)" in body
+    assert "if entries == english" in body, "a language with no menu text is not a copy of English"
     # And the unknown-command reply uses the caller's language.
     assert "lang=get_user_lang(self.users, self._get_tg_id(update))" in src

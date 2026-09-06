@@ -17,7 +17,10 @@ Each entry is (command, description). Groups carry an audience:
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+import functools
+import json
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 Group = Tuple[str, str, List[Tuple[str, str]]]   # (title, audience, entries)
 
@@ -232,6 +235,30 @@ def help_sections(is_admin: bool = False) -> List[Tuple[str, List[Tuple[str, str
             if is_admin or audience == "user"]
 
 
+# The other twelve dictionary languages: one file each, {"groups": {title:
+# text}, "desc": {command: text}, "menu": {command: text}}. Traditional
+# Chinese stays inline above, where its tests read it.
+LOCALES_DIR = Path(__file__).with_name("command_catalog_locales")
+
+
+@functools.lru_cache(maxsize=32)
+def _locale(lang: str) -> dict:
+    """The catalogue's strings in `lang`, or {} — a missing or unreadable
+    file means English per item, never a blank line or an import error."""
+    try:
+        data = json.loads((LOCALES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def menu_desc(name: str, lang: str) -> Optional[str]:
+    """The "/" menu line for a command in `lang`, or None when the locale has
+    none — the caller keeps its English line rather than blanking the row."""
+    text = _locale(lang).get("menu", {}).get(name)
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def _localize(title: str, name: str, desc: str, lang: str) -> Tuple[str, str]:
     """(title, description) in `lang`, falling back to English per-item.
 
@@ -240,6 +267,10 @@ def _localize(title: str, name: str, desc: str, lang: str) -> Tuple[str, str]:
     """
     if lang == "zh":
         return GROUP_TITLES_ZH.get(title, title), DESC_ZH.get(name, desc)
+    if lang and lang != "en":
+        loc = _locale(lang)
+        return (loc.get("groups", {}).get(title, title),
+                loc.get("desc", {}).get(name, desc))
     return title, desc
 
 
@@ -316,10 +347,12 @@ def render_group(keyword: str, is_admin: bool = False, lang: str = "en") -> str:
 
 
 # ── Traditional Chinese ───────────────────────────────────────────────────
-# The bot speaks en/zh, so an English-only /help would have handed Chinese
-# users a wall of 125 English lines — a regression dressed as a feature.
-# Group titles and descriptions are translated here; anything missing falls
-# back to English rather than rendering blank, so partial coverage is safe.
+# The bot spoke en/zh first, so an English-only /help would have handed
+# Chinese users a wall of 125 English lines — a regression dressed as a
+# feature. Group titles and descriptions are translated here; the twelve
+# languages added later live in command_catalog_locales/ and are pinned
+# complete by tests/test_i18n_locales.py. Anything missing falls back to
+# English rather than rendering blank, so partial coverage is safe.
 GROUP_TITLES_ZH: Dict[str, str] = {
     "🚀 Start here": "🚀 從這裡開始",
     "📈 Trading": "📈 交易",

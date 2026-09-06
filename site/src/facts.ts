@@ -106,7 +106,7 @@ export const STATS: readonly Stat[] = [
     value: '34',
     label: 'chat languages',
     source: 'bot/utils/i18n.py — _CHAT_LANG_NAMES',
-    caveat: 'The model answers in them; the bot’s own card text is English and Traditional Chinese today.',
+    caveat: 'The model answers in them; the bot’s own card text follows in the fourteen interface languages.',
   },
 ]
 

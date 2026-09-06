@@ -7,9 +7,10 @@ messages when no model answered, the quota wall, and the public scan gate. A
 Chinese user got a Chinese answer wrapped in English chrome — and on the day
 the model was down, an English apology with no answer at all.
 
-The dictionary is en/zh (`SUPPORTED_LANGS`), so that is the parity the chrome
-can offer today; the helper that maps a chat language to a dictionary language
-(`ui_lang`) is where a third dictionary language would plug in.
+The dictionary carries the fourteen web languages (`SUPPORTED_LANGS`), so
+that is the parity the chrome offers; the helper that maps a chat language to
+a dictionary language (`ui_lang`) is where a code the dictionary lacks — the
+model answers in thirty-four — falls back to English chrome.
 """
 from __future__ import annotations
 
@@ -54,7 +55,9 @@ def test_every_chrome_key_exists_in_every_dictionary_language():
 
 def test_ui_lang_maps_chat_codes_onto_the_dictionary():
     assert ui_lang("") == "en"
-    assert ui_lang("es") == "en"
+    assert ui_lang("es") == "es", "Spanish is a dictionary language now"
+    assert ui_lang("pt-BR") == "pt"
+    assert ui_lang("sw") == "en", "a language the dictionary lacks reads English chrome"
     assert ui_lang("zh") == "zh"
     assert ui_lang("zh-TW") == "zh"
     assert ui_lang("ZH_HK") == "zh"
@@ -132,8 +135,14 @@ def test_empty_completions_speak_the_users_language(chat_tier, monkeypatch):
 
 
 def test_a_language_the_dictionary_lacks_falls_back_to_english(chat_tier):
-    assert _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="es")) == t(
+    assert _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="sw")) == t(
         "chat_budget_exhausted", "en")
+
+
+def test_a_file_backed_dictionary_language_gets_its_own_chrome(chat_tier):
+    es = _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="es"))
+    assert es == t("chat_budget_exhausted", "es")
+    assert es != t("chat_budget_exhausted", "en") and "/scan" in es
 
 
 def test_the_english_texts_are_the_ones_the_source_scans_pin():

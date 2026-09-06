@@ -256,7 +256,8 @@ def test_both_surfaces_render_the_same_wall_from_one_place():
 def test_the_web_wall_language_maps_chat_codes_to_the_dictionary():
     from bot.web.user_gateway import _ui_lang
     assert _ui_lang("") == "en"
-    assert _ui_lang("es") == "en"
+    assert _ui_lang("es") == "es"
+    assert _ui_lang("sw") == "en", "a language the dictionary lacks reads the English wall"
     assert _ui_lang("zh") == "zh"
     assert _ui_lang("zh-TW") == "zh"
     assert _ui_lang("ZH_HK") == "zh"

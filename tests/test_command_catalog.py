@@ -117,8 +117,9 @@ def test_help_accepts_an_argument():
 
 
 # ── Chinese coverage ──────────────────────────────────────────────────────
-# The bot speaks en/zh. Shipping an English-only reference for 125 commands
-# would have handed Chinese users a bigger wall than the one being fixed.
+# The bot spoke en/zh first. Shipping an English-only reference for 125
+# commands would have handed Chinese users a bigger wall than the one being
+# fixed. The twelve file-backed languages are pinned in test_i18n_locales.py.
 
 def test_every_command_has_a_chinese_description():
     from bot.skills.command_catalog import DESC_ZH, GROUPS, GROUP_TITLES_ZH, all_entries
@@ -142,9 +143,16 @@ def test_rendering_localises_and_falls_back_per_item():
     # Section deep-dives localise too, including the group title.
     assert "📈 交易" in render_group("trading", lang="zh")
     # An unknown language degrades to English rather than blanking.
-    assert "Start here" in render_help(lang="fr")[0]
+    assert "Start here" in render_help(lang="sw")[0]
+    # A file-backed dictionary language renders in that language.
+    fr = render_help(lang="fr")[0]
+    assert "Start here" not in fr and "Commencer ici" in fr
 
 
 def test_help_passes_the_callers_language():
     assert 'lang=_hl' in _SRC
-    assert '_hl = lang if lang in ("en", "zh") else "en"' in _SRC
+    # Every dictionary language reaches the renderer — the old
+    # `lang if lang in ("en", "zh") else "en"` clamp would hand a Spanish user
+    # the English reference while the rest of the bot spoke Spanish.
+    assert "_hl = lang\n" in _SRC
+    assert 'else "en"' not in _SRC.split("_hl = lang", 1)[0][-400:]

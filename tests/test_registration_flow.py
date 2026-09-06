@@ -175,10 +175,24 @@ class TestFirstContactByFreeText:
         assert h._seed_lang_from_telegram(update, "999") is False
         assert h.users.get("999")["lang"] == "en"
 
+    async def test_a_german_client_is_onboarded_in_german(self, tmp_path):
+        """Every dictionary language seeds, not only Chinese: the bot carries
+        the same fourteen languages the website does, and Telegram sends the
+        client locale for all of them."""
+        h = _handler(tmp_path)
+        update, ctx = _update(lang_code="de-AT")
+        p = _open_bot()
+        try:
+            await h._handle_message(update, ctx)
+        finally:
+            p.stop()
+        assert h.users.get("999")["lang"] == "de"
+        assert "Willkommen" in h.sent[-1]
+
     async def test_an_unknown_locale_is_left_unset_not_guessed(self, tmp_path):
         h = _handler(tmp_path)
         h.users.register("999", name="Ann")
-        update, _ctx = _update(lang_code="de")
+        update, _ctx = _update(lang_code="sw")
         assert h._seed_lang_from_telegram(update, "999") is False
         assert "lang" not in h.users.get("999"), (
             "unset is the signal /lang and the seeder both read; writing a "
