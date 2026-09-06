@@ -25,7 +25,54 @@ from __future__ import annotations
 import io
 import tokenize
 
-__all__ = ["code_only", "handler_sources", "segment_reader"]
+__all__ = ["code_only", "handler_sources", "js_code_only", "segment_reader"]
+
+
+def js_code_only(src: str) -> str:
+    """The same rule for JavaScript: drop `//` and `/* */`, keep strings intact.
+
+    Python tests read `app/` source for cross-language claims — that the
+    website refuses a submission it cannot protect, that a route selects the
+    columns the bot indexes by name — and those routes describe themselves in
+    prose above the code (`Body: { acks: [{ user_id, action, ok }] }`), so an
+    unstripped scan finds the description and calls it the implementation.
+
+    Offsets are NOT preserved here, unlike `code_only`: a `//` comment is
+    removed rather than blanked. Index comparisons must therefore be computed
+    on the RESULT, never against the original source.
+    """
+    out = []
+    i, n = 0, len(src)
+    quote = None
+    while i < n:
+        c = src[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(src[i + 1])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "'\"`":
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            out.append(" ")
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def handler_sources() -> list:

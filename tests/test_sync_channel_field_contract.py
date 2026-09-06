@@ -57,39 +57,14 @@ def _strip_js_comments(src: str) -> str:
     describes is indistinguishable from the code doing it. The route docstrings
     here list field names in prose (`Body: { acks: [{ user_id, action, ok }] }`),
     so a scan that kept them would find columns the SQL never selects.
+
+    It lives in `tests/source_scan.py` now, beside the Python one, because a
+    second Python test needed it — for the credential route's gate, whose own
+    comments name `sealJSON` and `encryptJSON` in prose. Two copies of a
+    stripper is two things to keep agreeing.
     """
-    out = []
-    i, n = 0, len(src)
-    quote = None
-    while i < n:
-        c = src[i]
-        if quote:
-            out.append(c)
-            if c == "\\" and i + 1 < n:
-                out.append(src[i + 1])
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-        if c in "'\"`":
-            quote = c
-            out.append(c)
-            i += 1
-            continue
-        if c == "/" and i + 1 < n and src[i + 1] == "/":
-            j = src.find("\n", i)
-            i = n if j < 0 else j
-            continue
-        if c == "/" and i + 1 < n and src[i + 1] == "*":
-            j = src.find("*/", i + 2)
-            i = n if j < 0 else j + 2
-            out.append(" ")
-            continue
-        out.append(c)
-        i += 1
-    return "".join(out)
+    from tests.source_scan import js_code_only
+    return js_code_only(src)
 
 
 def js_selected_columns(route: str) -> set[str]:

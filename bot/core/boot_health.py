@@ -45,20 +45,21 @@ from typing import Iterable, Mapping
 CRITICAL_ENV: tuple[str, ...] = ("TELEGRAM_BOT_TOKEN",)
 
 # The bot still trades without these, but a whole surface silently breaks.
-# The effect is stated per variable and PRINTED beside the name, because the
-# bare name invited the wrong conclusion: "WEB_CREDS_KEY missing" — described
-# here, until 2026-09-06, as "decrypting stored per-user exchange keys" — was
-# read as "the exchange keys users linked are sitting unencrypted". They are
-# not. Every key linked with /connect or the website is Fernet-encrypted under
-# the MASTER key (RUNECLAW_SECRETS_KEY / data/.exchange_secret.key), a different
-# secret. WEB_CREDS_KEY only opens the AES-GCM envelope the WEBSITE wraps a
-# submission in for the bot to pull; without it the site refuses the form, so
-# nothing is queued and nothing is left in the clear either.
+# The effect is stated per variable and PRINTED beside the name, because a
+# bare name invites the wrong conclusion. WEB_CREDS_KEY was listed here until
+# 2026-09-06, and its line was read as "the exchange keys users linked are
+# sitting unencrypted". They never were: every key linked with /connect or
+# the website is Fernet-encrypted under the MASTER key (RUNECLAW_SECRETS_KEY /
+# data/.exchange_secret.key). And since then the website seals each submission
+# to the bot's OWN key (bot/utils/creds_sealing.py), published to the site over
+# the sync channel, so the shared key is not needed for the connect form at
+# all. It is no longer listed: an unset legacy variable is not a broken
+# surface, and a warning that names one teaches the operator to ignore the
+# next warning.
 IMPORTANT_ENV_EFFECT: dict[str, str] = {
-    "BOT_SYNC_SECRET": "the website's dashboard sync is rejected",
+    "BOT_SYNC_SECRET": ("the website's dashboard sync is rejected, and its exchange-key "
+                        "connect form never receives the bot's sealing key"),
     "WEB_GATEWAY_SECRET": "web chat and web trade answer 503",
-    "WEB_CREDS_KEY": ("the website's exchange-key connect form is off; keys already "
-                      "linked stay encrypted under the master key"),
     "DASHBOARD_TOKEN": "the aggregate /api/* dashboard gate is fail-closed (403)",
 }
 IMPORTANT_ENV: tuple[str, ...] = tuple(IMPORTANT_ENV_EFFECT)

@@ -1,18 +1,26 @@
 """
 Pull pending exchange-credential requests from the website and apply them.
 
-Stage 2b of web wallet management. The website (Stage 2a) encrypts a user's
-submitted Bitget keys at rest and queues a `pending_credentials` row; this module
-PULLS those rows over the shared-secret channel, decrypts them with WEB_CREDS_KEY
-(AES-256-GCM, the envelope written by app/lib/creds_crypto.js), optionally
-validates them against Bitget, imports them into the bot's own Fernet-encrypted
-ExchangeCredentialStore (keyed by telegram_id), and ACKs so the website clears the
-row and flips the user's connection status.
+Stage 2b of web wallet management. The website (Stage 2a) seals a user's
+submitted exchange keys at rest and queues a `pending_credentials` row; this
+module PULLS those rows over the shared-secret channel, opens them, optionally
+validates them against the venue, imports them into the bot's own
+Fernet-encrypted ExchangeCredentialStore (keyed by telegram_id), and ACKs so
+the website clears the row and flips the user's connection status.
+
+Two envelopes are accepted. ``v: 2`` is sealed to the bot's OWN key
+(bot/utils/creds_sealing.py) — the default since 2026-09, and the reason the
+connect form needs nothing configured by hand: this module publishes the
+public half to the website over the same channel on the first pull after boot
+and hourly after. ``v: 1`` is the legacy AES-256-GCM envelope under the shared
+WEB_CREDS_KEY, still opened when that key is set, for rows an older website
+wrote.
 
 Security: the website never holds the long-term keys (the bot's Fernet store is
-the single owner); raw keys are never logged here; a corrupt/undecryptable row is
-ACKed as failed (not retried forever); a transient validation failure is left
-un-ACKed so it retries next poll.
+the single owner) and, on the sealed path, cannot read what it stored either;
+raw keys are never logged here; a corrupt/undecryptable row is ACKed as failed
+(not retried forever); a transient validation failure is left un-ACKed so it
+retries next poll.
 """
 
 from __future__ import annotations
@@ -21,9 +29,11 @@ import base64
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Callable, Optional
+from bot.utils.creds_sealing import SealingKeyUnavailable
 from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
@@ -31,9 +41,34 @@ log = logging.getLogger(__name__)
 WEBSITE_URL = site_url()
 SYNC_SECRET = os.getenv("BOT_SYNC_SECRET", "")
 
+#: How often the public sealing key is re-published to the website when it
+#: has not changed — a website whose database was reset would otherwise wait
+#: for the bot's next restart before its connect form worked again.
+PUBLISH_EVERY_S = 3600.0
+
+#: How long to wait after a REFUSED publish before trying again, and how often
+#: to say so. The pull runs every 30s, and the realistic failure here is a
+#: website that has not been redeployed yet — its 404 would otherwise produce
+#: 2,880 identical warnings a day, which is how an operator learns to skip
+#: warnings. Short enough that a site coming up is picked up in two minutes.
+PUBLISH_RETRY_S = 120.0
+
+
+def _fresh_publish_state() -> dict:
+    """The publisher's whole memory, in one place.
+
+    A function rather than a literal because tests reset it, and a test that
+    hand-built a dict with one key missing would fail on a KeyError three
+    releases later instead of the day the field was added.
+    """
+    return {"kid": None, "at": 0.0, "tried_kid": None, "tried": 0.0, "warned": 0.0}
+
+
+_published: dict = _fresh_publish_state()
+
 
 def _load_key() -> Optional[bytes]:
-    """The shared AES key (WEB_CREDS_KEY): base64 (standard or url-safe) 32 bytes."""
+    """The legacy shared AES key (WEB_CREDS_KEY): base64 (standard or url-safe) 32 bytes."""
     raw = (os.getenv("WEB_CREDS_KEY", "") or "").strip()
     if not raw:
         return None
@@ -46,20 +81,27 @@ def _load_key() -> Optional[bytes]:
 
 
 def is_configured() -> bool:
-    return _load_key() is not None and bool(SYNC_SECRET)
+    """The pull needs only the sync channel: the sealed envelope needs no
+    shared key, and the bot's sealing key is created on first use."""
+    return bool(SYNC_SECRET)
 
 
 def decrypt_payload(envelope) -> dict:
-    """Decrypt a {v,iv,tag,ct} AES-256-GCM envelope from the website.
+    """Open a website envelope.
 
-    Mirrors app/lib/creds_crypto.js: Node splits the GCM tag out, so Python's
-    AESGCM (which expects ciphertext||tag) gets ``ct + tag``.
+    ``v: 2`` is sealed to the bot's own key and handed to
+    ``creds_sealing.unseal``. ``v: 1`` is the shared-key envelope; it mirrors
+    app/lib/creds_crypto.js — Node splits the GCM tag out, so Python's AESGCM
+    (which expects ciphertext||tag) gets ``ct + tag``.
     """
+    e = json.loads(envelope) if isinstance(envelope, str) else envelope
+    if isinstance(e, dict) and int(e.get("v", 1) or 1) == 2:
+        from bot.utils.creds_sealing import unseal
+        return unseal(e)
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     key = _load_key()
     if not key:
         raise ValueError("WEB_CREDS_KEY missing or not a 32-byte base64 key")
-    e = json.loads(envelope) if isinstance(envelope, str) else envelope
     iv = base64.b64decode(e["iv"])
     tag = base64.b64decode(e["tag"])
     ct = base64.b64decode(e["ct"])
@@ -77,6 +119,11 @@ def process_pending(rows, store, validator: Optional[Callable[[dict], Optional[b
 
     ``on_change(telegram_id)`` is called after a successful connect/disconnect so
     the caller can invalidate any cached per-user executor.
+
+    THREE OUTCOMES PER ROW, not two. Acking clears the row on the website, so
+    the difference between "this can never be opened" and "this could not be
+    opened right now" is the difference between a user resubmitting once and a
+    user's keys being thrown away with "connection failed".
     """
     acks: list[dict] = []
     for r in rows:
@@ -129,6 +176,15 @@ def process_pending(rows, store, validator: Optional[Callable[[dict], Optional[b
             acks.append({"user_id": uid, "action": "connect", "ok": True})
             if on_change:
                 on_change(tg)
+        except SealingKeyUnavailable as exc:
+            # NOT acked, so the website keeps the row and the next poll opens
+            # it. Acking would clear a submission that is perfectly openable
+            # once this bot can read its own key file again — and tell the
+            # user their connection failed. A row sealed to a key we no longer
+            # HOLD is a different exception and is acked below, correctly.
+            log.error("credential pull: this bot cannot read its own sealing key (%s) — "
+                      "leaving user=%s queued for the next poll", exc, uid)
+            continue
         except Exception as exc:
             # A corrupt/undecryptable row would otherwise retry forever — ack it
             # as failed so the website clears it. Never logs the payload.
@@ -159,14 +215,74 @@ def _request(path: str, data: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
+def publish_sealing_key(force: bool = False) -> bool:
+    """Hand the website the PUBLIC half of the bot's sealing key.
+
+    This is what turns the website's connect form on: until the site holds
+    the key it refuses submissions (it has nothing safe to seal to). Sent on
+    the first pull after boot, again whenever the key changed (a regenerated
+    key after a wiped data/), and hourly otherwise — a website whose database
+    was reset gets it back without a bot restart. Fail-open: a site that is
+    down leaves the form as it was and a later pull tries again. Returns
+    True when the website acknowledged the key.
+
+    FAIL-OPEN ON THE CALL, FAIL-CLOSED ON THE RECORD. A refused publish never
+    stamps ``_published``, so nothing here can report a key the website does
+    not hold; it only backs the RETRY off, because the pull ticks every 30s
+    and the realistic refusal is a website still running the build that has no
+    such endpoint.
+    """
+    if not SYNC_SECRET:
+        return False
+    try:
+        from bot.utils.creds_sealing import public_key_record
+        rec = public_key_record()
+    except Exception as exc:
+        log.warning("sealing key unavailable; the website's connect form stays off: %s", exc)
+        return False
+    now = time.monotonic()
+    # Already published, and not yet due for the hourly refresh.
+    if (not force and _published["kid"] == rec["kid"]
+            and now - _published["at"] < PUBLISH_EVERY_S):
+        return True
+    # A refusal for THIS key backs off; a NEW key always goes out at once. The
+    # regenerated key after a wiped data/ is the case that most needs to reach
+    # the website promptly — every queued row is sealed to a key the bot no
+    # longer holds until it does — and a plain timer would delay exactly that.
+    if (not force and _published["tried_kid"] == rec["kid"]
+            and now - _published["tried"] < PUBLISH_RETRY_S):
+        return False
+    _published["tried_kid"], _published["tried"] = rec["kid"], now
+    resp = _request("/api/bot/sync/credentials/sealing-key", rec)
+    ok = bool(resp and resp.get("ok"))
+    if ok:
+        if _published["kid"] != rec["kid"]:
+            log.info("Published the website sealing key (kid %s)", rec["kid"])
+        _published["kid"], _published["at"] = rec["kid"], now
+        # Reset, so the NEXT time it starts refusing says so immediately
+        # rather than sitting inside an hour-old quiet period.
+        _published["warned"] = 0.0
+    elif _published["warned"] == 0.0 or now - _published["warned"] >= PUBLISH_EVERY_S:
+        # Once an hour, not every 30 seconds. The line an operator needs is
+        # that the form is off and why; repeating it 2,880 times a day is how
+        # they learn to scroll past it.
+        _published["warned"] = now
+        log.warning("the website did not accept the sealing key (kid %s) — its exchange-key "
+                    "connect form stays off until it does; retrying every %.0fs",
+                    rec["kid"], PUBLISH_RETRY_S)
+    return ok
+
+
 def pull_and_apply(store=None, validator=None, on_change=None) -> int:
     """Fetch pending credential requests, apply them, ack. Returns #acked.
 
-    No-op (returns 0) when not configured (WEB_CREDS_KEY / BOT_SYNC_SECRET unset),
-    so the default deployment is unaffected until the operator opts in.
+    No-op (returns 0) when BOT_SYNC_SECRET is unset, so the default deployment
+    is unaffected until the operator pairs the website. Publishes the sealing
+    key first, so the form is live before anyone has a chance to submit.
     """
     if not is_configured():
         return 0
+    publish_sealing_key()
     resp = _request("/api/bot/sync/credentials/pending")
     rows = (resp or {}).get("pending", []) if resp else []
     if not rows:

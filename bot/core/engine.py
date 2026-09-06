@@ -3056,7 +3056,9 @@ class RuneClawEngine:
                     self._maybe_check_monitor_liveness(), "monitor liveness")
                 # Web wallet (2b): pull any pending exchange-credential requests
                 # the website queued and import them into the credential store.
-                # Throttled, fail-open, no-op unless WEB_CREDS_KEY is configured.
+                # Throttled, fail-open, no-op unless BOT_SYNC_SECRET is set; the
+                # first pull after boot also hands the website the bot's sealing
+                # key, which is what turns its connect form on.
                 await self._with_maintenance_cap(
                     self._maybe_pull_web_credentials(), "web credential pull")
                 # Web wallet (3b): process any emergency-stop flatten requests
@@ -4284,9 +4286,12 @@ class RuneClawEngine:
     async def _maybe_pull_web_credentials(self) -> None:
         """Throttled, fail-open pull of website-queued exchange credentials.
 
-        No-op unless the operator has configured WEB_CREDS_KEY (and the website
-        sync secret). On a successful connect/disconnect it invalidates the
-        affected per-user executor so the next trade rebuilds with the new keys.
+        No-op unless the website sync secret is configured. The first pull
+        after boot publishes the bot's sealing key (bot/utils/creds_sealing.py)
+        so the website's connect form can seal submissions to it; nothing has
+        to be shared by hand. On a successful connect/disconnect it invalidates
+        the affected per-user executor so the next trade rebuilds with the new
+        keys.
 
         ASYNC ON PURPOSE. This was a plain `def` called straight from the tick
         coroutine, which is the same stall as an async method doing sync work
