@@ -235,9 +235,11 @@ class TestTheCallersWereFixedAndNotOnlyTheBackstop:
 
     @staticmethod
     def _handler_src():
-        from tests.source_scan import code_only
-        with open("bot/skills/telegram_handler.py", encoding="utf-8") as fh:
-            return code_only(fh.read())
+        # Every file the handler class is made of: /daily_report lives in the
+        # portfolio mixin since the handler split, and a scan of one file
+        # reads the move as the forward block vanishing.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     @classmethod
     def _daily_forward_block(cls):

@@ -132,7 +132,13 @@ class TestEverySurfaceUsesTheSharedRule:
     """Six sites shared the mistake; they must share the fix."""
 
     def _src(self, path):
-        from tests.source_scan import code_only
+        from tests.source_scan import code_only, handler_sources
+        if path == "bot/skills/telegram_handler.py":
+            # Every file the handler class is made of: the portfolio,
+            # performance and daily-report sites live in a mixin since the
+            # handler split, and a count over one file read the move as
+            # three of the five sites vanishing.
+            return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         return code_only(open(path, encoding="utf-8").read())
 
     def test_no_surface_still_coerces_pnl_to_decide_a_win(self):
@@ -188,7 +194,13 @@ class TestTheScopeIsStatedNotImplied:
     """What was fixed, and what was checked and deliberately left alone."""
 
     def _src(self, path):
-        from tests.source_scan import code_only
+        from tests.source_scan import code_only, handler_sources
+        if path == "bot/skills/telegram_handler.py":
+            # Every file the handler class is made of: the portfolio,
+            # performance and daily-report sites live in a mixin since the
+            # handler split, and a count over one file read the move as
+            # three of the five sites vanishing.
+            return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         return code_only(open(path, encoding="utf-8").read())
 
     def test_the_live_shape_is_converted_everywhere(self):

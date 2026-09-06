@@ -131,9 +131,19 @@ class TestBlockedOutranksUnknown:
 
 # ── the read stops substituting a different book ────────────────────────────
 
+def _handler_src() -> str:
+    """Every file the handler class is made of, comments stripped.
+
+    /risk lives in the portfolio mixin since the handler split; a scan of
+    telegram_handler.py alone passes the `not in` half of these checks for
+    the wrong reason and fails the `in` half for no reason.
+    """
+    from tests.source_scan import code_only, handler_sources
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
+
+
 def test_the_caller_no_longer_seeds_from_the_paper_snapshot():
-    from tests.source_scan import code_only
-    src = code_only(open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    src = _handler_src()
     assert "_dd_now = round(state.max_drawdown_pct, 2)" not in src, (
         "a failed read of the enforced drawdown falls back to the paper "
         "snapshot again, which is what drawdown_status() was changed to stop")
@@ -162,7 +172,6 @@ class TestThePngTileDoesNotPaintAnUnreadDrawdownGreen:
         assert drawdown_tile(3.2) == ("3.2%", "red")
 
     def test_the_handler_routes_through_it(self):
-        from tests.source_scan import code_only
-        src = code_only(open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        src = _handler_src()
         assert "drawdown_tile(dd)" in src
         assert '"color": "red" if dd > 0 else "green"' not in src
