@@ -110,8 +110,11 @@ def test_missing_keys_still_default_to_zero_for_every_other_field():
 # ── the caller ────────────────────────────────────────────────────────────
 
 def _handler_src() -> str:
-    from pathlib import Path
-    return Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    # Every file the handler class is made of: the position cards live in
+    # the trading mixin since the handler split, and a scan of one file
+    # reads the move as the three-valued price read vanishing.
+    from tests.source_scan import handler_sources
+    return "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 
 
 def test_a_failed_ticker_returns_none_not_zero():

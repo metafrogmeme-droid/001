@@ -181,9 +181,11 @@ class TestTheHandlerCarriesTheGapRatherThanPapering:
     """The renderer can only be honest about what it is handed."""
 
     def _src(self):
-        from tests.source_scan import code_only
-        return code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # Every file the handler class is made of: the position rows are
+        # built in the trading mixin since the handler split, and a scan of
+        # one file passes the `not in` checks here for the wrong reason.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_the_entry_price_is_no_longer_a_silent_default(self):
         assert "prices.get(pos.symbol, pos.entry_price)" not in self._src(), (

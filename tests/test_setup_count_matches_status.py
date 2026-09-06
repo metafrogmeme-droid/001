@@ -15,14 +15,14 @@ all, and reads as "the engine found one idea" when it found two.
 The header is built inline in a 14k-line handler, so this locks the wiring;
 the arithmetic it protects is `len(all) - len(shown)`.
 """
-import io
-
-from tests.source_scan import code_only
+from tests.source_scan import code_only, handler_sources
 
 
 def _code():
-    return code_only(
-        io.open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    # Every file the handler class is made of: /latest_signal lives in the
+    # trading mixin since the handler split, and a scan of one file reads
+    # the move as the header losing its count.
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _header_block():

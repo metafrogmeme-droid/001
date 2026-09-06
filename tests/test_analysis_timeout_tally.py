@@ -165,7 +165,9 @@ class TestItIsWiredIntoTheEngine:
         assert "except Exception:" in window
 
     def test_the_operator_hint_shows_the_distribution(self):
-        src = self._src("bot/skills/telegram_handler.py")
+        # The hint is `_scan_timeout_hint`, which lives in the scan-hints
+        # leaf since the handler split.
+        src = self._src("bot/skills/scan_hints.py")
         assert "_analysis_timeout_tally" in src, (
             "a tally nothing reads is a tally that answers nothing"
         )

@@ -87,8 +87,10 @@ class TestTheLadderRecordsProvenance:
         assert 'setattr(lp, "sl_tp_source", "default")' in block
 
     def test_the_positions_payload_carries_both_fields(self):
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # Every file the handler class is made of: /open_positions lives in
+        # the trading mixin since the handler split.
+        from tests.source_scan import handler_sources
+        src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         assert '"origin": getattr(pos, "origin", "")' in src
         assert '"sl_tp_source": getattr(pos, "sl_tp_source", "")' in src
 
