@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import inspect
 
+from bot.skills import scan_commands as sc
 from bot.skills import telegram_handler as th
 
 
 def test_chataction_is_imported():
-    src = inspect.getsource(th)
+    # /scan lives in the scan mixin since the handler split; the import it
+    # relies on has to be in THAT module, not the handler's.
+    src = inspect.getsource(sc)
     assert "from telegram.constants import ChatAction" in src
 
 

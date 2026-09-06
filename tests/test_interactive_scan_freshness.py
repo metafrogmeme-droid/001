@@ -12,7 +12,7 @@ or Telegram.
 
 from __future__ import annotations
 
-from bot.skills.telegram_handler import _background_scan_is_fresh
+from bot.skills.scan_hints import _background_scan_is_fresh
 from bot.config import CONFIG
 
 
