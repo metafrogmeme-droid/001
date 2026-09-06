@@ -44,6 +44,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_bytes
+
 log = logging.getLogger(__name__)
 
 class SealingKeyUnavailable(Exception):
@@ -83,23 +85,18 @@ def private_key_path() -> Path:
 
 
 def _write_private(path: Path, pem: bytes) -> None:
-    """0600 from the first byte: created with the mode, written, then renamed
-    into place, so the private key is never briefly world-readable."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(pem)
-            fh.flush()
-            os.fsync(fh.fileno())
-    except Exception:
-        try:
-            os.unlink(str(tmp))
-        except OSError:
-            pass
-        raise
-    os.replace(str(tmp), str(path))
+    """0600 from the first byte, published by a rename.
+
+    Through ``atomic_write_bytes`` rather than a hand-rolled temp-and-rename:
+    the first draft here was a 28th independent copy of the idiom that helper
+    exists to replace, and ``tests/test_atomic_write.py`` failed on it the
+    same day. Its scratch name came from the destination, so two writers
+    would have shared one file — and this one is a private key.
+
+    ``mkstemp`` creates the scratch file 0600 and the mode is re-applied
+    before the rename, so the key is never briefly world-readable either way.
+    """
+    atomic_write_bytes(path, pem, mode=0o600)
 
 
 def _spki_der(public_key) -> bytes:
