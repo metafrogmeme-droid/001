@@ -437,20 +437,24 @@ class TestTheCommandReachesTheRenderer:
 
 class TestTheCommandIsRegisteredAndGuarded:
     def test_leaderboard_is_registered(self):
-        import pathlib
-        src = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+        from tests.source_scan import handler_sources
+        # Every file the handler class is made of: /leaderboard is leaving
+        # for the start-here mixin; the registration stays in build_app.
+        src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
         assert '("leaderboard", self._cmd_leaderboard)' in src
 
     def test_it_carries_a_permission_a_role_actually_holds(self):
         """An invented permission string grants the command to no role but
         admin — what silently happened to exposure/networth/research/rwa."""
         import ast
-        import pathlib
+
         from bot.utils.user_store import ROLE_PERMISSIONS
-        src = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
-        tree = ast.parse(src)
+        from tests.source_scan import handler_sources
+        # Parsed per file, not over a joined string: each mixin opens with a
+        # __future__ import, which is a SyntaxError anywhere but the top.
+        srcs = [p.read_text(encoding="utf-8") for p in handler_sources()]
         decs = next(([ast.unparse(d) for d in n.decorator_list]
-                     for n in ast.walk(tree)
+                     for src in srcs for n in ast.walk(ast.parse(src))
                      if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                      and n.name == "_cmd_leaderboard"), [])
         assert any("guard" in d for d in decs), f"ungated: {decs}"

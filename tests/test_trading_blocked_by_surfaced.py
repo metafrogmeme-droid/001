@@ -23,7 +23,14 @@ from bot.config import CONFIG
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 
-from tests.source_scan import code_only
+from tests.source_scan import code_only, handler_sources
+
+
+def _handler_src() -> str:
+    """Every file the handler class is made of, comments stripped: /status
+    is leaving for the start-here mixin, and a scan of telegram_handler.py
+    alone reads the move as the headline losing its reason."""
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _engine() -> RiskEngine:
@@ -174,8 +181,7 @@ class TestItReachesTheOperator:
     # entry_gate is asserted to be a STRICT SUPERSET, not merely different.
 
     def test_status_card_headline_is_not_driven_by_the_narrow_field(self):
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        src = _handler_src()
         assert "active=not cb" in src
         i = src.index("active=not cb")
         # STOP PICKING A NUMBER. The previous version sliced a fixed 4200-char
@@ -239,8 +245,7 @@ class TestItReachesTheOperator:
         assert not entry_gate(engine, live=True)["blocked"]
 
     def test_a_blocked_status_card_names_the_reason(self):
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        src = _handler_src()
         assert "Trading blocked" in src, (
             "a red headline with no reason sends the operator hunting"
         )

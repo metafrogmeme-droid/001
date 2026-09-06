@@ -60,7 +60,11 @@ def _code_only(path: Path) -> str:
 
 
 def test_status_reads_the_bias_through_the_seam():
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /status is leaving for the
+    # start-here mixin, and a scan of one file reads the move as the seam
+    # no longer being read.
+    code = "\n".join(_code_only(p) for p in handler_sources())
     i = code.find("async def _cmd_status")
     body = code[i:code.find("async def ", i + 10)]
     assert "self . _status_market_bias ( )" in body, "/status must read the bias through the seam"
