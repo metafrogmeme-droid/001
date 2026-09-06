@@ -432,7 +432,8 @@ class TestTheUserStoreCannotStartEmptyQuietly:
         for the incident it was written for."""
         from tests.source_scan import code_only
 
-        src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
+        # /users lives in the access mixin since the handler split.
+        src = code_only((ROOT / "bot" / "skills" / "access_commands.py")
                         .read_text(encoding="utf-8"))
         i = src.index("fresh_db = \"\"")
         block = src[i:i + 700]
