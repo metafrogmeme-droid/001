@@ -112,11 +112,11 @@ class TestTheFormatterGuardsAtTheBoundary:
 
 class TestTheConsumerWiring:
     def _block(self):
-        import io
-
-        from tests.source_scan import code_only
-        code = code_only(io.open("bot/skills/telegram_handler.py",
-                                 encoding="utf-8").read())
+        # Every file the handler class is made of: /open_positions is leaving
+        # for the trading mixin, and a scan of one file reads the move as the
+        # consumer wiring vanishing.
+        from tests.source_scan import code_only, handler_sources
+        code = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         i = code.index('sl_order = pos.get("sl_order", "")')
         return code[i - 900:i + 2000]
 

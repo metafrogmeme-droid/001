@@ -160,7 +160,11 @@ def _code_only(path: Path) -> str:
 
 
 def test_the_gate_is_read_after_the_reset_not_before():
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /resume is leaving for the
+    # trading mixin, and a scan of one file reads the move as the gate no
+    # longer being read at all.
+    code = "\n".join(_code_only(p) for p in handler_sources())
     i = code.find("async def _cmd_resume")
     body = code[i:code.find("async def ", i + 10)]
     reset = body.find("reset_circuit_breaker ( )")
