@@ -512,7 +512,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 
 | Command | Description |
 |---|---|
-| `/scan` | scan the market for setups |
+| `/scan` | scan the market for setups — /scan hyperliquid reads one venue's own list |
 | `/fullscan` | full scan of the whole universe |
 | `/deepscan` | deep scan with chart + candle patterns |
 | `/analyze` | deep-dive one coin — /analyze SOL |

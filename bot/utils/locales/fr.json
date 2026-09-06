@@ -260,5 +260,10 @@
   "unlink_success": "Délié de {email}.\nVos données sont conservées. Utilisez /link pour reconnecter.",
   "me_account": "<b>Votre compte RUNECLAW</b>\n\nE-mail :  <code>{email}</code>\nForfait : <code>{plan}</code>\nCapital : <code>${equity}</code>\nP&amp;L latent : <code>${pnl}</code>\nTrades :  <code>{trades}</code>\n\nLLM : <code>{llm}</code> | Notifications : <code>{notif}</code>",
   "sync_success": "Tableau de bord synchronisé.\nCapital : ${equity}\nPositions ouvertes : {positions}\nTrades clôturés : {trades}\n\nVoir sur : {url}/dashboard",
-  "sync_failed": "Échec de la synchronisation. Réessayez dans un instant."
+  "sync_failed": "Échec de la synchronisation. Réessayez dans un instant.",
+  "venue_scan_ack": "🔍 <b>Scan de {venue}…</b> lecture de sa propre liste de marchés — la carte arrive dans quelques secondes.",
+  "venue_scan_unreachable": "🔴 <b>{venue} n'a pas répondu</b> — rien n'a été scanné. C'est une lecture échouée, pas un marché vide.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> a répondu avec {markets} marchés et aucun n'a franchi le seuil de volume — rien à afficher, et c'est une mesure.",
+  "venue_scan_header": "🔎 <b>Scan {venue}</b> — les {n} premiers sur {markets} marchés par variation 24h",
+  "venue_scan_list": "🏦 <b>Plateformes que vous pouvez scanner</b> — <code>/scan &lt;venue&gt;</code> lit la liste propre des marchés d'une plateforme, que vous y tradiez ou non :"
 }

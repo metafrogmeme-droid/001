@@ -260,5 +260,10 @@
   "unlink_success": "Desvinculado de {email}.\nTus datos se conservan. Usa /link para volver a conectar.",
   "me_account": "<b>Tu cuenta de RUNECLAW</b>\n\nCorreo:   <code>{email}</code>\nPlan:     <code>{plan}</code>\nCapital:  <code>${equity}</code>\nP&amp;L abierto: <code>${pnl}</code>\nOperaciones: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Notificaciones: <code>{notif}</code>",
   "sync_success": "Panel sincronizado.\nCapital: ${equity}\nPosiciones abiertas: {positions}\nOperaciones cerradas: {trades}\n\nVer en: {url}/dashboard",
-  "sync_failed": "La sincronización falló. Inténtalo de nuevo en un momento."
+  "sync_failed": "La sincronización falló. Inténtalo de nuevo en un momento.",
+  "venue_scan_ack": "🔍 <b>Escaneando {venue}…</b> leyendo su propia lista de mercados — la tarjeta llega en unos segundos.",
+  "venue_scan_unreachable": "🔴 <b>{venue} no respondió</b> — no se escaneó nada. Es una lectura fallida, no un mercado vacío.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> respondió con {markets} mercados y ninguno superó el umbral de volumen — nada que mostrar, y eso sí es una medición.",
+  "venue_scan_header": "🔎 <b>Escaneo de {venue}</b> — los {n} primeros de {markets} mercados por variación en 24h",
+  "venue_scan_list": "🏦 <b>Venues que puedes escanear</b> — <code>/scan &lt;venue&gt;</code> lee la lista propia de mercados de un venue, operes allí o no:"
 }

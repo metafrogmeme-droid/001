@@ -49,7 +49,7 @@
     "reset": "resetta l'interruttore di sicurezza",
     "buy": "obsoleto — usa /trade buy",
     "sell": "obsoleto — usa /trade sell",
-    "scan": "scansiona il mercato in cerca di setup",
+    "scan": "scansiona il mercato in cerca di setup — /scan hyperliquid legge la lista propria di un venue",
     "fullscan": "scansione completa dell'intero universo",
     "deepscan": "scansione profonda con grafico + pattern di candele",
     "analyze": "analisi approfondita di una moneta — /analyze SOL",

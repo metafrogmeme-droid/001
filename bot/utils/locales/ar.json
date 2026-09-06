@@ -260,5 +260,10 @@
   "unlink_success": "تم فصل {email}.\nبياناتك محفوظة. استخدم /link لإعادة الربط.",
   "me_account": "<b>حساب RUNECLAW الخاص بك</b>\n\nالبريد:   <code>{email}</code>\nالخطة:    <code>{plan}</code>\nرأس المال: <code>${equity}</code>\nP&amp;L المفتوح: <code>${pnl}</code>\nالصفقات: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | الإشعارات: <code>{notif}</code>",
   "sync_success": "تمت مزامنة لوحة التحكم.\nرأس المال: ${equity}\nالمراكز المفتوحة: {positions}\nالصفقات المغلقة: {trades}\n\nاعرضها على: {url}/dashboard",
-  "sync_failed": "فشلت المزامنة. حاول مجدداً بعد قليل."
+  "sync_failed": "فشلت المزامنة. حاول مجدداً بعد قليل.",
+  "venue_scan_ack": "🔍 <b>جارٍ مسح {venue}…</b> قراءة قائمة أسواقها الخاصة — تصل البطاقة خلال ثوانٍ.",
+  "venue_scan_unreachable": "🔴 <b>{venue} لم تجب</b> — لم يُمسح شيء. هذه قراءة فاشلة وليست سوقاً فارغة.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> أجابت بـ {markets} سوقاً ولم يتجاوز أي منها حد الحجم — لا شيء لعرضه، وهذا قياس.",
+  "venue_scan_header": "🔎 <b>مسح {venue}</b> — أعلى {n} من أصل {markets} سوقاً بحسب حركة 24 ساعة",
+  "venue_scan_list": "🏦 <b>المنصات التي يمكنك مسحها</b> — <code>/scan &lt;venue&gt;</code> يقرأ قائمة أسواق المنصة نفسها، سواء كنت تتداول هناك أم لا:"
 }

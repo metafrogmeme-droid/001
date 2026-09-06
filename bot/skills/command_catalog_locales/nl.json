@@ -49,7 +49,7 @@
     "reset": "de stroomonderbreker resetten",
     "buy": "verouderd — gebruik /trade buy",
     "sell": "verouderd — gebruik /trade sell",
-    "scan": "scan de markt op setups",
+    "scan": "scan de markt op setups — /scan hyperliquid leest de eigen lijst van één venue",
     "fullscan": "volledige scan van het hele universum",
     "deepscan": "diepe scan met grafiek + candlepatronen",
     "analyze": "diepgaande analyse van één coin — /analyze SOL",

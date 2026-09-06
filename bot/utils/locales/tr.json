@@ -260,5 +260,10 @@
   "unlink_success": "{email} bağlantısı kesildi.\nVerileriniz korunuyor. Yeniden bağlanmak için /link kullanın.",
   "me_account": "<b>RUNECLAW Hesabınız</b>\n\nE-posta:  <code>{email}</code>\nPlan:     <code>{plan}</code>\nSermaye:  <code>${equity}</code>\nAçık P&amp;L: <code>${pnl}</code>\nİşlemler: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Bildirimler: <code>{notif}</code>",
   "sync_success": "Panel eşitlendi.\nSermaye: ${equity}\nAçık pozisyonlar: {positions}\nKapanan işlemler: {trades}\n\nGörüntüle: {url}/dashboard",
-  "sync_failed": "Eşitleme başarısız. Lütfen birazdan tekrar deneyin."
+  "sync_failed": "Eşitleme başarısız. Lütfen birazdan tekrar deneyin.",
+  "venue_scan_ack": "🔍 <b>{venue} taranıyor…</b> kendi piyasa listesi okunuyor — kart birkaç saniye içinde gelir.",
+  "venue_scan_unreachable": "🔴 <b>{venue} yanıt vermedi</b> — hiçbir şey taranmadı. Bu başarısız bir okuma, boş bir piyasa değil.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> {markets} piyasayla yanıt verdi ve hiçbiri hacim eşiğini geçemedi — gösterilecek bir şey yok ve bu bir ölçüm.",
+  "venue_scan_header": "🔎 <b>{venue} taraması</b> — 24 saatlik harekete göre {markets} piyasadan ilk {n}",
+  "venue_scan_list": "🏦 <b>Tarayabileceğiniz borsalar</b> — <code>/scan &lt;venue&gt;</code>, orada işlem yapsanız da yapmasanız da bir borsanın kendi piyasa listesini okur:"
 }

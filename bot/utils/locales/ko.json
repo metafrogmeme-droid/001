@@ -260,5 +260,10 @@
   "unlink_success": "{email} 연결을 해제했습니다.\n데이터는 보존됩니다. 다시 연결하려면 /link를 사용하세요.",
   "me_account": "<b>내 RUNECLAW 계정</b>\n\n이메일:   <code>{email}</code>\n요금제:   <code>{plan}</code>\n자산:     <code>${equity}</code>\n미실현 P&amp;L: <code>${pnl}</code>\n거래 수:  <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 알림: <code>{notif}</code>",
   "sync_success": "대시보드가 동기화되었습니다.\n자산: ${equity}\n보유 포지션: {positions}\n청산된 거래: {trades}\n\n보기: {url}/dashboard",
-  "sync_failed": "동기화에 실패했습니다. 잠시 후 다시 시도하세요."
+  "sync_failed": "동기화에 실패했습니다. 잠시 후 다시 시도하세요.",
+  "venue_scan_ack": "🔍 <b>{venue} 스캔 중…</b> 해당 거래소의 자체 시장 목록을 읽는 중 — 카드는 몇 초 후 도착합니다.",
+  "venue_scan_unreachable": "🔴 <b>{venue}이(가) 응답하지 않았습니다</b> — 아무것도 스캔되지 않았습니다. 이는 읽기 실패이지 빈 시장이 아닙니다.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b>이(가) {markets}개 시장으로 응답했지만 거래량 기준을 넘은 것이 없습니다 — 보여줄 것이 없으며, 이것은 측정 결과입니다.",
+  "venue_scan_header": "🔎 <b>{venue} 스캔</b> — 24시간 변동 기준 {markets}개 시장 중 상위 {n}개",
+  "venue_scan_list": "🏦 <b>스캔할 수 있는 거래소</b> — <code>/scan &lt;venue&gt;</code>는 거기서 거래하든 안 하든 거래소의 자체 시장 목록을 읽습니다:"
 }

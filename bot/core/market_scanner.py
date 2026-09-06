@@ -19,7 +19,7 @@ import asyncio
 import threading
 from datetime import datetime
 from bot.compat import UTC
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import ccxt.async_support as ccxt
 
@@ -31,6 +31,9 @@ from bot.config import (
 )
 from bot.utils.logger import audit, system_log
 from bot.utils.models import MarketSignal
+
+if TYPE_CHECKING:  # annotation only; the module is imported lazily in scan_venue
+    from bot.core.venue_scan import VenueScan
 
 
 # ── Symbol → Category classification ────────────────────────────
@@ -170,6 +173,9 @@ class MarketScanner:
         # Venue-native data client (non-Bitget active venue only)
         self._venue_data_exchange: Optional[ccxt.Exchange] = None
         self._venue_data_exchange_id: Optional[str] = None
+        # Keyless clients for `/scan <venue>`, one per venue id — separate
+        # from the active-venue client above on purpose (see venue_data_exchange).
+        self._venue_clients: dict[str, ccxt.Exchange] = {}
         # New-listing detection (bot/core/catalog_watch.py) — diffs the
         # futures catalog each scan against a persisted seen-set; the
         # proactive monitor drains and alerts.
@@ -235,6 +241,87 @@ class MarketScanner:
             })
             self._venue_data_exchange_id = venue.id
         return self._venue_data_exchange
+
+    async def venue_data_exchange(self, venue_id: str) -> ccxt.Exchange:
+        """Public (keyless) market-data client for ANY venue, cached per id.
+
+        The data path for `/scan <venue>`, which looks at a venue whether or
+        not anyone trades there. Bitget is the futures client the engine
+        already holds. `_get_venue_data_exchange` — the ACTIVE venue's
+        client, rebuilt on a /venue switch and routed to by the engine for
+        :USDC symbols — is a separate cache on purpose: an on-demand look at
+        Bybit must not evict the client the engine is analysing with.
+        """
+        from bot.core.venues import get_venue
+        venue = get_venue(venue_id)
+        if venue.id == "bitget":
+            return await self._get_futures_exchange()
+        client = self._venue_clients.get(venue.id)
+        if client is None:
+            factory = getattr(ccxt, getattr(venue, "ccxt_id", "") or venue.id)
+            client = factory({
+                "aiohttp_trust_env": True,
+                "timeout": CONFIG.market_data_timeout_ms,
+                "enableRateLimit": True,
+                "options": {"defaultType": "swap"},
+            })
+            self._venue_clients[venue.id] = client
+        return client
+
+    async def scan_venue(self, venue_id: str) -> VenueScan:
+        """`/scan <venue>`: one venue's own market list, ranked by 24h move.
+
+        Three outcomes, kept apart on purpose (see bot/core/venue_scan.py):
+        the venue answered with movers, answered with none above the volume
+        floor, or did not answer — `error` set, and `signals`/`markets` say
+        nothing. The overlay this grew from returns [] for the last two
+        alike, which an overlay can afford and a command cannot.
+
+        A ticker that reports no 24h move keeps `change_pct_24h = None` and
+        sorts last: `_process_ticker` writes 0.0 for a missing percentage,
+        and 0.0 is also a real, measured, flat market.
+        """
+        from bot.core.venue_scan import VenueScan
+        from bot.core.venues import get_venue, valid_venue_ids
+
+        vid = (venue_id or "").strip().lower()
+        if vid not in valid_venue_ids():
+            raise ValueError(f"unknown venue '{venue_id}' "
+                             f"(valid: {', '.join(valid_venue_ids())})")
+        venue = get_venue(vid)
+        out = VenueScan(venue_id=venue.id, display_name=venue.display_name)
+        try:
+            exchange = await self.venue_data_exchange(venue.id)
+            tickers = await exchange.fetch_tickers()
+        except Exception as exc:
+            out.error = f"{type(exc).__name__}: {str(exc)[:160]}"
+            audit(system_log, f"Venue scan {venue.id} failed: {exc}",
+                  action="scan", result="PARTIAL")
+            return out
+        tickers = tickers or {}
+        out.markets = len(tickers)
+        for symbol, tick in tickers.items():
+            if not isinstance(tick, dict):
+                continue
+            category = _classify_symbol(symbol)
+            min_vol = (CONFIG.min_crypto_volume_usd if category == "Crypto"
+                       else CONFIG.min_tradfi_volume_usd)
+            sig = self._process_ticker(symbol, tick, min_vol=min_vol)
+            if sig is None:
+                continue
+            if tick.get("percentage") is None:
+                sig.change_pct_24h = None
+            out.signals.append(sig)
+        out.signals.sort(key=lambda s: (s.change_pct_24h is None,
+                                        -abs(s.change_pct_24h or 0.0)))
+        top_n = max(1, int(getattr(CONFIG, "top_movers_count", 20) or 20))
+        out.signals = out.signals[:top_n]
+        audit(system_log,
+              f"Venue scan {venue.id}: {len(out.signals)} of {out.markets} markets",
+              action="scan", result="OK" if out.signals else "EMPTY",
+              data={"venue": venue.id, "markets": out.markets,
+                    "count": len(out.signals)})
+        return out
 
     # ── Main scan entry point ────────────────────────────────────
 
@@ -754,3 +841,9 @@ class MarketScanner:
         if self._futures_exchange:
             await self._futures_exchange.close()
             self._futures_exchange = None
+        for client in list(self._venue_clients.values()):
+            try:
+                await client.close()
+            except Exception:
+                pass
+        self._venue_clients = {}

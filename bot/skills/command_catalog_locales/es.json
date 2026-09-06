@@ -49,7 +49,7 @@
     "reset": "reinicia el cortacircuitos",
     "buy": "heredado — usa /trade buy",
     "sell": "heredado — usa /trade sell",
-    "scan": "escanea el mercado en busca de oportunidades",
+    "scan": "escanea el mercado en busca de oportunidades — /scan hyperliquid lee la lista propia de un venue",
     "fullscan": "escaneo completo de todo el universo",
     "deepscan": "escaneo profundo con gráfico + patrones de velas",
     "analyze": "análisis a fondo de una moneda — /analyze SOL",

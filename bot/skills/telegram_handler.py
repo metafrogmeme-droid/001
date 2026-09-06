@@ -10477,6 +10477,19 @@ class TelegramHandler:
     @guard("scan")
     async def _cmd_scan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._get_tg_id(update)
+        # `/scan <venue>` looks at ONE venue's own market list — Hyperliquid's
+        # builder perps, a Bybit-only listing — whether or not anyone trades
+        # there; `/scan venues` lists them. Anything else (`/scan BTC`,
+        # `/scan deep`) is the market sweep below, as before.
+        args = [a.strip().lower() for a in (ctx.args or []) if a and a.strip()]
+        if args and args[0] in ("venues", "venue"):
+            await self._send(update, self._scan_venues_text(self._lang(update)))
+            return
+        if args:
+            from bot.core.venues import valid_venue_ids
+            if args[0] in valid_venue_ids():
+                await self._scan_one_venue(update, args[0])
+                return
         # Immediate feedback: a full market scan sweeps ~200 pairs and can take
         # several seconds. Without an ack /scan reads as total silence (audit
         # TG-2) — show the typing indicator AND a lightweight status line, then
@@ -10498,9 +10511,55 @@ class TelegramHandler:
             return
         await self._send(update, result)
 
-    async def _render_scan_signals_card(self, update, signals, title: str) -> bool:
+    def _scan_venues_text(self, lang: str) -> str:
+        """The `/scan venues` list: every venue the table knows, as a command."""
+        from bot.core.venues import get_venue, valid_venue_ids
+        lines = [t("venue_scan_list", lang)]
+        for vid in valid_venue_ids():
+            lines.append(f"• <code>/scan {vid}</code> — "
+                         f"{html.escape(get_venue(vid).display_name)}")
+        return "\n".join(lines)
+
+    async def _scan_one_venue(self, update: Update, venue_id: str) -> None:
+        """`/scan <venue>`: one venue's own catalogue through a keyless client.
+
+        Three outcomes reach the person (bot/core/venue_scan.py): movers, as
+        the grid card — sparklines fetched from the venue itself, because the
+        active executor's exchange does not know a Hyperliquid symbol — or
+        the text list; none above the floor; or the venue did not answer,
+        which is a failed read and says so rather than reading as quiet.
+        """
+        from bot.core.venue_scan import render_venue_scan
+        from bot.core.venues import get_venue
+        lang = self._lang(update)
+        venue = get_venue(venue_id)
+        try:
+            if update.effective_chat:
+                await update.effective_chat.send_chat_action(ChatAction.TYPING)
+        except Exception:
+            pass
+        await self._send(update, t("venue_scan_ack", lang,
+                                   venue=html.escape(venue.display_name)))
+        vs = await self.engine.scanner.scan_venue(venue_id)
+        if vs.signals:
+            exchange = None
+            try:
+                exchange = await self.engine.scanner.venue_data_exchange(venue_id)
+            except Exception:
+                exchange = None
+            if await self._render_scan_signals_card(
+                    update, vs.signals, f"{venue.display_name.upper()} SCAN",
+                    exchange=exchange):
+                return
+        await self._send(update, render_venue_scan(vs, lang))
+
+    async def _render_scan_signals_card(self, update, signals, title: str,
+                                        exchange=None) -> bool:
         """Render a list of MarketSignal objects as the breadth grid card
-        (with sparklines + RSI). Best-effort; returns True if a card was sent."""
+        (with sparklines + RSI). Best-effort; returns True if a card was sent.
+        `exchange` names where the sparkline candles come from; the default is
+        the active executor's exchange, which is right for the market sweep
+        and wrong for a venue scan."""
         try:
             import asyncio as _asyncio
 
@@ -10510,14 +10569,14 @@ class TelegramHandler:
             from bot.formatters.signal_card import render_scan_grid_card
 
             top = list(signals)[:18]
-            exchange = None
-            try:
-                exchange = await self.engine.live_executor._get_exchange()
-            except Exception:
+            if exchange is None:
                 try:
-                    exchange = await self.engine.get_exchange()
+                    exchange = await self.engine.live_executor._get_exchange()
                 except Exception:
-                    exchange = None
+                    try:
+                        exchange = await self.engine.get_exchange()
+                    except Exception:
+                        exchange = None
 
             async def _spark_rsi(sym):
                 if not exchange:

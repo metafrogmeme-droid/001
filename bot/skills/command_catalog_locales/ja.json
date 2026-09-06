@@ -49,7 +49,7 @@
     "reset": "サーキットブレーカーをリセット",
     "buy": "旧コマンド — /trade buy を使用",
     "sell": "旧コマンド — /trade sell を使用",
-    "scan": "市場をスキャンしてセットアップを探す",
+    "scan": "市場をスキャンしてセットアップを探す — /scan hyperliquid は単一取引所の自前リストを読む",
     "fullscan": "ユニバース全体のフルスキャン",
     "deepscan": "チャート＋ローソク足パターンの詳細スキャン",
     "analyze": "コインを詳細分析 — /analyze SOL",

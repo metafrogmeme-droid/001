@@ -260,5 +260,10 @@
   "unlink_success": "Von {email} getrennt.\nDeine Daten bleiben erhalten. Mit /link kannst du neu verknüpfen.",
   "me_account": "<b>Dein RUNECLAW-Konto</b>\n\nE-Mail:   <code>{email}</code>\nTarif:    <code>{plan}</code>\nKapital:  <code>${equity}</code>\nOffener P&amp;L: <code>${pnl}</code>\nTrades:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Benachrichtigungen: <code>{notif}</code>",
   "sync_success": "Dashboard synchronisiert.\nKapital: ${equity}\nOffene Positionen: {positions}\nGeschlossene Trades: {trades}\n\nAnsehen unter: {url}/dashboard",
-  "sync_failed": "Synchronisierung fehlgeschlagen. Bitte versuch es gleich noch einmal."
+  "sync_failed": "Synchronisierung fehlgeschlagen. Bitte versuch es gleich noch einmal.",
+  "venue_scan_ack": "🔍 <b>Scanne {venue}…</b> lese die eigene Marktliste — die Karte folgt in ein paar Sekunden.",
+  "venue_scan_unreachable": "🔴 <b>{venue} hat nicht geantwortet</b> — nichts wurde gescannt. Das ist ein fehlgeschlagenes Lesen, kein leerer Markt.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> hat mit {markets} Märkten geantwortet, und keiner hat die Volumenschwelle erreicht — nichts anzuzeigen, und das ist eine Messung.",
+  "venue_scan_header": "🔎 <b>{venue}-Scan</b> — Top {n} von {markets} Märkten nach 24h-Bewegung",
+  "venue_scan_list": "🏦 <b>Handelsplätze, die du scannen kannst</b> — <code>/scan &lt;venue&gt;</code> liest die eigene Marktliste eines Handelsplatzes, ob du dort handelst oder nicht:"
 }

@@ -49,7 +49,7 @@
     "reset": "서킷 브레이커 초기화",
     "buy": "구형 — /trade buy 사용",
     "sell": "구형 — /trade sell 사용",
-    "scan": "시장에서 셋업 스캔",
+    "scan": "시장에서 셋업 스캔 — /scan hyperliquid는 한 거래소의 자체 목록을 읽음",
     "fullscan": "전체 유니버스 풀 스캔",
     "deepscan": "차트 + 캔들 패턴 심층 스캔",
     "analyze": "코인 하나를 심층 분석 — /analyze SOL",

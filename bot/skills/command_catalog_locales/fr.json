@@ -49,7 +49,7 @@
     "reset": "réinitialiser le coupe-circuit",
     "buy": "hérité — utilisez /trade buy",
     "sell": "hérité — utilisez /trade sell",
-    "scan": "scanner le marché à la recherche de configurations",
+    "scan": "scanner le marché à la recherche de configurations — /scan hyperliquid lit la liste propre d'une plateforme",
     "fullscan": "scan complet de tout l'univers",
     "deepscan": "scan approfondi avec graphique + figures de chandeliers",
     "analyze": "analyse approfondie d'une crypto — /analyze SOL",

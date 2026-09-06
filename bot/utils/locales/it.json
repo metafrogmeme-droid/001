@@ -260,5 +260,10 @@
   "unlink_success": "Scollegato da {email}.\nI tuoi dati sono conservati. Usa /link per ricollegarti.",
   "me_account": "<b>Il tuo account RUNECLAW</b>\n\nEmail:    <code>{email}</code>\nPiano:    <code>{plan}</code>\nCapitale: <code>${equity}</code>\nP&amp;L aperto: <code>${pnl}</code>\nTrade:    <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Notifiche: <code>{notif}</code>",
   "sync_success": "Dashboard sincronizzata.\nCapitale: ${equity}\nPosizioni aperte: {positions}\nTrade chiusi: {trades}\n\nVedi su: {url}/dashboard",
-  "sync_failed": "Sincronizzazione fallita. Riprova tra un attimo."
+  "sync_failed": "Sincronizzazione fallita. Riprova tra un attimo.",
+  "venue_scan_ack": "🔍 <b>Scansione di {venue}…</b> lettura della sua lista di mercati — la scheda arriva tra pochi secondi.",
+  "venue_scan_unreachable": "🔴 <b>{venue} non ha risposto</b> — non è stato scansionato nulla. È una lettura fallita, non un mercato vuoto.\n<code>{detail}</code>",
+  "venue_scan_empty": "⚪ <b>{venue}</b> ha risposto con {markets} mercati e nessuno ha superato la soglia di volume — niente da mostrare, e questa è una misurazione.",
+  "venue_scan_header": "🔎 <b>Scansione {venue}</b> — i primi {n} di {markets} mercati per variazione 24h",
+  "venue_scan_list": "🏦 <b>Venue che puoi scansionare</b> — <code>/scan &lt;venue&gt;</code> legge la lista dei mercati propria di un venue, che tu ci operi o no:"
 }
