@@ -1327,7 +1327,9 @@ def get_user_lang(users_db, tg_id: str) -> str:
         return DEFAULT_LANG
     user = users_db.get(tg_id)
     if user and isinstance(user, dict):
-        return user.get("lang", DEFAULT_LANG)
+        lang = user.get("lang", DEFAULT_LANG)
+        # A record can carry anything; only a string is a language code.
+        return lang if isinstance(lang, str) else DEFAULT_LANG
     return DEFAULT_LANG
 
 
