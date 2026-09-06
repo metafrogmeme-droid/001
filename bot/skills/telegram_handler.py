@@ -10985,7 +10985,21 @@ class TelegramHandler(GuardianCommands):
 
     @guard("macro")
     async def _cmd_macro(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        result = await self.registry.dispatch("macro_calendar", self.engine)
+        """/macro — the calendar; /macro brief — the macro gate's posture.
+
+        Two cards, one command, on purpose. `macro_brief` advertised `/macro`
+        while the calendar already answered to it, and two commands under one
+        name is what kept the brief dark. It answers a different question —
+        the gate's risk state, the size multiplier on new entries, whether the
+        calendar is stale or blind — so it is a sub-mode of the same command
+        rather than a second name for the same subject. Same permission,
+        because it is the same read-only macro data: `macro`, like /eventrisk.
+        """
+        args = [str(a).lower() for a in (ctx.args or [])]
+        if args and args[0] == "brief":
+            result = await self.registry.dispatch("macro_brief", self.engine)
+        else:
+            result = await self.registry.dispatch("macro_calendar", self.engine)
         await self._send(update, result)
 
     @guard("macro")

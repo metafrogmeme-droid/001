@@ -24,11 +24,12 @@
 # Being unrunnable is why nobody noticed that all seven of the module's
 # attribute probes named fields that do not exist on the real objects. Those
 # are fixed (tests/test_macro_skills_read_real_state.py). Three are reachable
-# now — /eventrisk and /compliance as commands, macro_brief as a chat tool and
-# free-text skill under `macro` (it advertised `/macro`, which the calendar
-# already answers to, so it took no slash command at all). WIRING THE LAST
-# TWO IS A PRODUCT DECISION, NOT A BUG FIX, and each argues against it on its
-# own merits:
+# now — /eventrisk and /compliance as commands, macro_brief as `/macro brief`
+# plus a chat tool and free-text skill under `macro` (it advertised `/macro`,
+# which the calendar already answers to, so it became a sub-mode of that
+# command rather than a second name for one subject). WIRING THE LAST TWO IS
+# A PRODUCT DECISION, NOT A BUG FIX, and each argues against it on its own
+# merits:
 #
 #   kill_switch  — /halt already works and is the complete stop (it cancels
 #                  pending ideas, halts per-user risk engines and transitions

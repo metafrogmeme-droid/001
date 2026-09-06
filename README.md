@@ -540,7 +540,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 
 | Command | Description |
 |---|---|
-| `/macro` | macro backdrop and the next big event |
+| `/macro` | macro backdrop and the next big event — /macro brief for the gate's posture |
 | `/eventrisk` | macro-event risk for one symbol — /eventrisk BTC |
 | `/news` | headline radar + alerts on your positions |
 | `/funding` | live funding rates across venues |

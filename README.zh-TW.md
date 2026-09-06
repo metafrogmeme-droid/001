@@ -493,7 +493,7 @@ python -m bot.main --mode scan
 
 | 指令 | 說明 |
 |---|---|
-| `/macro` | 宏觀背景與下一個重大事件 |
+| `/macro` | 宏觀背景與下一個重大事件 — /macro brief 看宏觀閘門的姿態 |
 | `/eventrisk` | 單一標的的宏觀事件風險 — /eventrisk BTC |
 | `/news` | 頭條雷達與持倉提醒 |
 | `/funding` | 跨交易所即時資金費率 |

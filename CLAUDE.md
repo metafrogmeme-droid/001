@@ -438,8 +438,9 @@ trader and paper already hold;
 `/compliance` summarises the GLOBAL consent ledger, so it took a permission no
 role but admin holds. `macro_brief` is the third, and the question for it was
 *which surface*: it advertised `/macro`, which the calendar already answers
-to, so it is a chat tool and a free-text skill under `macro` and no slash
-command at all. The six left are each triaged in the baseline with a reason,
+to, so it is a sub-mode of that command — `/macro brief` — plus a chat tool
+and a free-text skill under `macro`, rather than a second name for one
+subject. The six left are each triaged in the baseline with a reason,
 and the two macro ones are arguments against themselves — `kill_switch` would
 be a SECOND emergency halt beside `/halt`, which is a hazard in an emergency,
 and `request_live_approval` needs an `approval_manager` that does not exist.

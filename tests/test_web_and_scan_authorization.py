@@ -205,20 +205,31 @@ def _telegram_skill_permissions() -> dict[str, set[str]]:
     quietly drops them from the comparison. Two skills silently excluded from
     an authorisation check is precisely the failure this file exists for, so
     the walk follows `self.x(...)` calls.
+
+    Read from every file that contributes methods to the handler class, for
+    the same reason: the handler is being split into mixins, and a guarded
+    dispatch that moved into one would otherwise vanish from this map — which
+    fails loudly below (a web skill with nothing to compare against), but
+    fails, on a surface that had not changed.
     """
-    src = HANDLER.read_text()
-    lines = src.splitlines(keepends=True)
+    from tests.source_scan import handler_sources
+
     fns = {}
-    for node in ast.walk(ast.parse(src)):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        perms = {ast.literal_eval(d.args[0]) for d in node.decorator_list
-                 if isinstance(d, ast.Call) and getattr(d.func, "id", "") == "guard" and d.args}
-        body = "".join(lines[node.lineno - 1:node.end_lineno])
-        callees = {c.func.attr for c in ast.walk(node)
-                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
-                   and isinstance(c.func.value, ast.Name) and c.func.value.id == "self"}
-        fns[node.name] = (perms, set(re.findall(r'dispatch\(\s*"(\w+)"', body)), callees)
+    for path in handler_sources():
+        src = path.read_text()
+        lines = src.splitlines(keepends=True)
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            perms = {ast.literal_eval(d.args[0]) for d in node.decorator_list
+                     if isinstance(d, ast.Call) and getattr(d.func, "id", "") == "guard"
+                     and d.args}
+            body = "".join(lines[node.lineno - 1:node.end_lineno])
+            callees = {c.func.attr for c in ast.walk(node)
+                       if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                       and isinstance(c.func.value, ast.Name) and c.func.value.id == "self"}
+            fns.setdefault(node.name, (perms, set(re.findall(r'dispatch\(\s*"(\w+)"', body)),
+                                       callees))
 
     def reachable(name, depth=3, seen=None):
         seen = set() if seen is None else seen
