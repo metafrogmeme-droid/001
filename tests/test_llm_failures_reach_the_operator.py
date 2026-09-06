@@ -30,7 +30,18 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HANDLER = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+
+
+def _handler_text() -> str:
+    """Every file the handler class is made of, handler first: the chat brain
+    stays in telegram_handler.py and /llmstatus lives in the LLM mixin since
+    the handler split. Joined in MRO order, so `index()` still finds the
+    handler's own text first and the counts below can only grow."""
+    from tests.source_scan import handler_sources
+    return "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
+
+
+HANDLER = _handler_text()
 
 
 def _code(src: str) -> str:
