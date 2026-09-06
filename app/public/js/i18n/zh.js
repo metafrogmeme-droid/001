@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "鏈上永續合約 DEX（StarkEx L2）。請建立一個 API（代理）錢包並使用「該錢包」的私鑰 — 絕不要用你的主錢包私鑰。"],
   ["venue.connected", "已連接"],
   ["venue.not_connected", "未連接"],
+  ["venue.rejected", "已拒絕"],
   ["venue.applying", "正在套用 {venue}…"],
   ["venue.disconnect", "中斷連接"],
   ["venue.connect_x", "連接 {venue}"],

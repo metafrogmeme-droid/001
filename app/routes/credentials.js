@@ -32,6 +32,9 @@ const creds = require('../lib/creds_crypto');
 const sealing = require('../lib/sealing_key');
 const { isVenue, venueFields } = require('../lib/venues');
 const { rateLimit, userKey } = require('../lib/rate_limit');
+const { stepUpBlock } = require('../lib/stepup');
+const { uidKey } = require('../lib/second_factor_lockout');
+const { foreignIdentityBlock } = require('../lib/identity');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -51,8 +54,12 @@ function secLog(event, req, extra) {
 }
 
 async function _userRow(uid) {
+  // totp_* ride along because the mutating routes below step up on them — see
+  // the comment at POST / for why connecting a key is at least as sensitive as
+  // the actions that already required a code.
   const [rows] = await pool.execute(
-    'SELECT telegram_linked, telegram_id FROM users WHERE id = ?', [uid]);
+    'SELECT telegram_linked, telegram_id, totp_enabled, totp_secret '
+    + 'FROM users WHERE id = ?', [uid]);
   return rows[0] || null;
 }
 
@@ -123,15 +130,18 @@ router.get('/status', async (req, res) => {
     const uid = req.user.user_id;
     const u = await _userRow(uid);
     const [st] = await pool.execute(
-      'SELECT connected, exchange FROM exchange_status WHERE user_id = ?', [uid]);
+      'SELECT connected, exchange, last_error FROM exchange_status WHERE user_id = ?', [uid]);
     const [pend] = await pool.execute(
       'SELECT action, exchange FROM pending_credentials WHERE user_id = ?', [uid]);
     const connectedRows = st.filter(r => !!r.connected);
     const prot = await protection();
     res.json({
       linked: !!(u && u.telegram_linked),
-      // Multi-venue: every exchange's own state, side by side.
-      venues: st.map(r => ({ venue: r.exchange || 'bitget', connected: !!r.connected })),
+      // Multi-venue: every exchange's own state, side by side. `last_error`
+      // rides along so a REJECTED key reads as rejected-and-why rather than
+      // as "not connected", which is what an untried key also looks like.
+      venues: st.map(r => ({ venue: r.exchange || 'bitget', connected: !!r.connected,
+                             last_error: r.last_error || null })),
       // Legacy single-venue fields (older clients): the first connected one.
       connected: connectedRows.length > 0,
       venue: connectedRows.length > 0 ? (connectedRows[0].exchange || 'bitget') : null,
@@ -178,6 +188,26 @@ router.post('/', credLimit, async (req, res) => {
     if (!u || !u.telegram_linked || !u.telegram_id) {
       return res.status(409).json({ error: 'telegram_required', detail: 'Live trading and exchange keys require a linked Telegram account. Paper trading works without it.' });
     }
+    // ── 2FA STEP-UP, and the asymmetry that made it necessary ──────────────
+    //
+    // /api/controls requires a fresh code to ENABLE live trading or RAISE a
+    // margin cap, and /api/trade/confirm requires one to place an order.
+    // Connecting the exchange credential those actions ultimately SPEND
+    // required nothing at all — so a stolen session (the threat lib/stepup.js
+    // names in its header) could POST its own venue keys here and the
+    // victim's engine would place their live orders on the attacker's
+    // account, while the account they had connected stopped being reconciled.
+    // DELETE below is the same door pointed at availability.
+    const blk = stepUpBlock(u.totp_enabled, u.totp_secret, (req.body || {}).totp_code,
+      'Enter your 6-digit authenticator code to connect exchange keys.',
+      uidKey(uid));
+    if (blk) { secLog('creds_connect_2fa', req); return res.status(blk.status).json(blk.body); }
+
+    // Same subject or refuse: the keys are filed under this row's telegram_id,
+    // so the session and that identity must agree — see lib/identity.
+    const mism = await foreignIdentityBlock(u.telegram_id, uid);
+    if (mism) { secLog('creds_identity_mismatch', req); return res.status(mism.status).json(mism.body); }
+
     const body = req.body || {};
     const venue = String(body.venue || 'bitget').toLowerCase();
     if (!isVenue(venue)) {
@@ -219,6 +249,13 @@ router.post('/', credLimit, async (req, res) => {
 });
 
 // DELETE /api/credentials -> queue a disconnect (bot removes them from its store)
+//
+// NO STEP-UP HERE, DELIBERATELY, and it is the same rule routes/controls.js
+// states for /stop: de-risking is never gated. Disconnecting keys is how a
+// user stops the bot trading their account, and a 403 on that path — because
+// they lost their authenticator, or because the lockout window is open —
+// would hold a live account hostage to close a hole that costs an attacker
+// nothing but availability. The connect direction is gated; the retreat is not.
 router.delete('/', credLimit, async (req, res) => {
   try {
     const uid = req.user.user_id;

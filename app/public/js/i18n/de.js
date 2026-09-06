@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "On-chain-Perps-DEX (StarkEx L2). Erstelle ein API-(Agenten-)Wallet und nutze DESSEN privaten Schlüssel — niemals den deines Haupt-Wallets."],
   ["venue.connected", "verbunden"],
   ["venue.not_connected", "nicht verbunden"],
+  ["venue.rejected", "abgelehnt"],
   ["venue.applying", "{venue} wird angewendet…"],
   ["venue.disconnect", "Trennen"],
   ["venue.connect_x", "{venue} verbinden"],

@@ -47,7 +47,26 @@ PYTEST_CMD = [
 # Coverage is collected on the gate's first full-suite run (pytest-cov), and the
 # threshold is enforced separately via `coverage report` so the per-node flake
 # re-runs (which use --no-cov) don't disturb the data.
-COV_TARGETS = ["bot/risk", "bot/core/live_executor.py", "bot/compliance"]
+#
+# THE MIDDLE ENTRY WAS A FILE PATH AND MEASURED NOTHING.
+#
+# `--cov=bot/risk` and `--cov=bot/compliance` are DIRECTORIES, which coverage
+# resolves. `--cov=bot/core/live_executor.py` is a file path, which it does
+# not: every full run printed
+#
+#     CoverageWarning: Module bot/core/live_executor.py was never imported.
+#
+# directly above `TOTAL ... 86%`. So the 86% was `bot/risk` + `bot/compliance`
+# over 2,721 statements, and live_executor.py — 4,262 statements, more than
+# both measured targets combined, and the one module here that places real
+# orders — contributed nothing at all. The failure message below names all
+# three targets, so even the gate's refusal overstated what it had read.
+#
+# Reproduced in isolation before changing it: 20 passing executor tests give
+# "No data to report" under the file-path form and a real percentage under the
+# dotted one. Running a subset and reporting it as the whole is the defect this
+# repo spends most of its guard tests preventing, and it was in the gate.
+COV_TARGETS = ["bot.risk", "bot.core.live_executor", "bot.compliance"]
 COV_FAIL_UNDER = 60
 COV_FLAGS = [f"--cov={t}" for t in COV_TARGETS] + ["--cov-report="]
 

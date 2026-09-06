@@ -33,6 +33,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Callable, Optional
+
 from bot.utils.creds_sealing import SealingKeyUnavailable
 from bot.utils.site_url import site_url
 
@@ -109,6 +110,69 @@ def decrypt_payload(envelope) -> dict:
     return json.loads(pt.decode())
 
 
+def default_validator(creds: dict):
+    """Read-only-check submitted keys against the venue. Runs on a WORKER THREAD.
+
+    Returns ``(True, "")`` / ``(False, reason)`` / ``(None, reason)`` — the
+    three-outcome contract ``process_pending`` documents, with the venue's own
+    words for the rejection so the website can tell the user what to fix
+    instead of leaving the card at "applying…" forever.
+
+    THE TRAP THIS EXISTS TO AVOID, stated because it is invisible once made.
+    ``validate_venue_credentials`` is ``async def``, and ``process_pending`` is
+    synchronous code that ``engine._maybe_pull_web_credentials`` runs inside
+    ``asyncio.to_thread``. Passing the coroutine FUNCTION as the validator
+    would make ``verdict`` a coroutine OBJECT — which is truthy, so
+    ``verdict is False`` and ``verdict is None`` are both False and EVERY
+    submitted key would be imported as valid. The only trace would be a
+    "coroutine was never awaited" warning in a log nobody greps. That is
+    `bot/core/basis.py`'s documented failure (a sync call to an async factory,
+    swallowed by a broad except, dead forever while looking wired) one door
+    along, on the path that decides whose keys trade.
+
+    ``asyncio.run`` is correct HERE and only here: this thread has no running
+    loop of its own. Called from the event loop it would raise, which is why
+    that case returns ``None`` (retry) rather than a verdict.
+    """
+    import asyncio as _asyncio
+
+    try:
+        from bot.config import CONFIG
+        from bot.core.exchange_credentials import _VENUE_FIELDS, validate_venue_credentials
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("credential validation unavailable (%s) — leaving the row queued", exc)
+        return None, "validation unavailable"
+
+    venue = str(creds.get("venue") or "bitget").lower()
+    required = _VENUE_FIELDS.get(venue)
+    if not required:
+        # A venue the bot does not know is not a transient fault; it will
+        # never become valid, so it is a verdict and the row must clear.
+        return False, f"this bot does not support {venue}"
+    fields = {k: creds.get(k) for k in required}
+
+    try:
+        ok, detail = _asyncio.run(
+            validate_venue_credentials(venue, fields,
+                                       sandbox=CONFIG.exchange.sandbox))
+    except RuntimeError as exc:
+        # "asyncio.run() cannot be called from a running event loop" — the
+        # caller offloaded wrongly. NOT a verdict about the keys.
+        log.error("credential validation ran on the event loop (%s) — row left queued", exc)
+        return None, "validation could not run"
+    except Exception as exc:                       # noqa: BLE001
+        # Network, venue outage, timeout: the keys may be perfect. Leaving it
+        # un-acked retries next poll rather than destroying the submission.
+        log.warning("credential validation for %s could not complete: %s", venue, exc)
+        return None, "could not reach the exchange"
+
+    if ok:
+        return True, ""
+    # The venue's own words, bounded. Never the key material — `detail` comes
+    # from the venue's error body, and the probes never echo the credential.
+    return False, str(detail or "the exchange rejected these keys")[:180]
+
+
 def process_pending(rows, store, validator: Optional[Callable[[dict], Optional[bool]]] = None,
                     on_change: Optional[Callable[[str], None]] = None) -> list[dict]:
     """Apply each pending row to ``store``; return the ack list for the website.
@@ -160,10 +224,18 @@ def process_pending(rows, store, validator: Optional[Callable[[dict], Optional[b
                              "error": "incomplete credentials"})
                 continue
             if validator is not None:
+                # A validator may answer with a bare verdict or with
+                # (verdict, reason). The pair is preferred: "the exchange
+                # rejected these keys" and "IP not whitelisted" are different
+                # instructions to the person who typed them, and the website
+                # can only show what the ack carries.
                 verdict = validator(creds)
+                reason = ""
+                if isinstance(verdict, tuple):
+                    verdict, reason = (list(verdict) + [""])[:2]
                 if verdict is False:
                     acks.append({"user_id": uid, "action": "connect", "ok": False,
-                                 "error": "key validation failed"})
+                                 "error": str(reason or "key validation failed")[:180]})
                     continue
                 if verdict is None:
                     # Transient — leave un-acked so the row is retried next poll.

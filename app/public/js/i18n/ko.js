@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "온체인 무기한 DEX(StarkEx L2). API(에이전트) 지갑을 만들고 「그 지갑의」 개인 키를 사용하세요 — 메인 지갑 키는 절대 사용하지 마세요."],
   ["venue.connected", "연결됨"],
   ["venue.not_connected", "연결 안 됨"],
+  ["venue.rejected", "거부됨"],
   ["venue.applying", "{venue} 적용 중…"],
   ["venue.disconnect", "연결 해제"],
   ["venue.connect_x", "{venue} 연결"],

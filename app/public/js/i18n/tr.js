@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "Zincir üstü süresiz işlem DEX’i (StarkEx L2). Bir API (ajan) cüzdanı oluşturun ve ONUN özel anahtarını kullanın — asla ana cüzdanınızın anahtarını değil."],
   ["venue.connected", "bağlı"],
   ["venue.not_connected", "bağlı değil"],
+  ["venue.rejected", "reddedildi"],
   ["venue.applying", "{venue} uygulanıyor…"],
   ["venue.disconnect", "Bağlantıyı kes"],
   ["venue.connect_x", "{venue} bağla"],

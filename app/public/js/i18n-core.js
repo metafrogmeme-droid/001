@@ -1248,6 +1248,7 @@
     "venue.help.paradex": { en: "On-chain perps DEX (StarkEx L2). Create an API (agent) wallet and use ITS private key — never your main wallet key." },
     "venue.connected": { en: "connected" },
     "venue.not_connected": { en: "not connected" },
+    "venue.rejected": { en: "rejected" },
     "venue.applying": { en: "applying {venue}…" },
     "venue.disconnect": { en: "Disconnect" },
     "venue.connect_x": { en: "Connect {venue}" },
@@ -1836,7 +1837,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"afc025d4","zh":"504100ef","pt":"d080e169","fr":"6603e609","de":"33691b97","nl":"b62e1d3c","ja":"2c6c5d17","ko":"87b62257","ru":"34525cb0","tr":"a641080d","it":"5e12fe2e","hi":"a42e4eba","ar":"54a93d60"};
+  var CHUNKS = {"es":"0331c883","zh":"9848ee10","pt":"a5bbb8d2","fr":"f8105ddb","de":"ad4d6b53","nl":"0f8b2c3b","ja":"207ad028","ko":"539ff795","ru":"98709bbc","tr":"fdb7be33","it":"96898208","hi":"b6ecd6ba","ar":"49b09e33"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "ऑन-चेन perps DEX (StarkEx L2)। एक API (एजेंट) वॉलेट बनाएँ और उसी की private key इस्तेमाल करें — कभी भी अपने मुख्य वॉलेट की key नहीं।"],
   ["venue.connected", "कनेक्टेड"],
   ["venue.not_connected", "कनेक्ट नहीं"],
+  ["venue.rejected", "अस्वीकृत"],
   ["venue.applying", "{venue} लागू हो रहा है…"],
   ["venue.disconnect", "डिस्कनेक्ट"],
   ["venue.connect_x", "{venue} कनेक्ट करें"],

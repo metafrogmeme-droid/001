@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "منصة لامركزية للعقود الدائمة على السلسلة (StarkEx L2). أنشئ محفظة API (وكيل) واستخدم مفتاحها الخاص — لا تستخدم مطلقًا مفتاح محفظتك الرئيسية."],
   ["venue.connected", "متصل"],
   ["venue.not_connected", "غير متصل"],
+  ["venue.rejected", "مرفوض"],
   ["venue.applying", "جارٍ تطبيق {venue}…"],
   ["venue.disconnect", "قطع الاتصال"],
   ["venue.connect_x", "اتصل بـ {venue}"],

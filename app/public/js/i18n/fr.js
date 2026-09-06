@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "DEX de perpétuels on-chain (StarkEx L2). Créez un portefeuille d’API (agent) et utilisez SA clé privée — jamais celle de votre portefeuille principal."],
   ["venue.connected", "connecté"],
   ["venue.not_connected", "non connecté"],
+  ["venue.rejected", "refusé"],
   ["venue.applying", "application de {venue}…"],
   ["venue.disconnect", "Déconnecter"],
   ["venue.connect_x", "Connecter {venue}"],

@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "オンチェーン無期限 DEX（StarkEx L2）。API（エージェント）ウォレットを作成し、「その」秘密鍵を使ってください — メインウォレットの鍵は絶対に使わないでください。"],
   ["venue.connected", "接続済み"],
   ["venue.not_connected", "未接続"],
+  ["venue.rejected", "拒否されました"],
   ["venue.applying", "{venue} を適用中…"],
   ["venue.disconnect", "切断"],
   ["venue.connect_x", "{venue} を接続"],

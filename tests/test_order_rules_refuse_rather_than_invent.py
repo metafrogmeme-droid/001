@@ -43,8 +43,7 @@ import math
 
 import pytest
 
-from bot.core.order_rules import (adjust_size_for_weekend,
-                                  adjust_sl_for_gap_risk, should_defer_tp_sl)
+from bot.core.order_rules import adjust_size_for_weekend, adjust_sl_for_gap_risk, should_defer_tp_sl
 
 # The caller's shape: `new_sl = f(...)` then `if new_sl != old_sl: assign`.
 SUBMITTED_SL = 98.0

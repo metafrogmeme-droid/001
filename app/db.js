@@ -1438,22 +1438,31 @@ class MemoryDB {
       return [[...this.pendingCreds].sort((a, b) => a.created_at - b.created_at), []];
     }
     if (cmd.includes('INSERT INTO EXCHANGE_STATUS')) {
-      // params: user_id, exchange(venue), connected — upsert per (user, venue)
-      // so multiple connected exchanges coexist.
+      // params: user_id, exchange(venue), connected, [last_error] — upsert per
+      // (user, venue) so multiple connected exchanges coexist. The success
+      // path writes a literal NULL in the SQL and passes 3 params; the
+      // rejection path passes the reason as a 4th.
       const key = String(params[0]);
       if (!this.exchangeStatus[key] || !Array.isArray(this.exchangeStatus[key])) {
         this.exchangeStatus[key] = [];
       }
       const venue = params[1] || 'bitget';
+      const lastError = params.length > 3 ? (params[3] ?? null) : null;
       const row = this.exchangeStatus[key].find(r => r.exchange === venue);
-      if (row) row.connected = !!params[2];
-      else this.exchangeStatus[key].push({ exchange: venue, connected: !!params[2] });
+      if (row) {
+        row.connected = !!params[2];
+        row.last_error = lastError;
+      } else {
+        this.exchangeStatus[key].push(
+          { exchange: venue, connected: !!params[2], last_error: lastError });
+      }
       return [{ affectedRows: 1 }, []];
     }
     if (cmd.includes('FROM EXCHANGE_STATUS')) {
       const rows = this.exchangeStatus[String(params[0])];
       return [Array.isArray(rows)
-        ? rows.map(r => ({ connected: r.connected, exchange: r.exchange || 'bitget' }))
+        ? rows.map(r => ({ connected: r.connected, exchange: r.exchange || 'bitget',
+                           last_error: r.last_error ?? null }))
         : [], []];
     }
 
@@ -2782,10 +2791,23 @@ async function migrate() {
         user_id INT NOT NULL,
         exchange VARCHAR(16) NOT NULL DEFAULT 'bitget',
         connected BOOLEAN DEFAULT FALSE,
+        -- Why the last attempt failed, in the VENUE's own words, or NULL when
+        -- the last attempt succeeded. Without it a rejected key had nowhere to
+        -- land: the ack was discarded, the pending row was never cleared, and
+        -- the card sat on "applying…" forever while the bot re-failed the same
+        -- row every 30s. A user cannot fix "applying"; they can fix "IP not
+        -- whitelisted".
+        last_error VARCHAR(200) DEFAULT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, exchange)
       )
     `);
+    // Back-fill on pre-existing deployments — CREATE TABLE IF NOT EXISTS will
+    // not add it. NULL default, so a row written before this column existed
+    // reads as "no recorded failure", which is what it means.
+    try {
+      await pool.execute('ALTER TABLE exchange_status ADD COLUMN last_error VARCHAR(200) DEFAULT NULL');
+    } catch (e) { /* column already exists — fine */ }
     // Pending per-user live-control changes (flags/numbers, not secrets — no
     // encryption). The web queues a change; the bot pulls + applies it via the
     // UserStore (live on/off, per-trade margin cap, pause-to-paper), then acks.
