@@ -44,14 +44,24 @@ from typing import Iterable, Mapping
 # Without this the bot cannot start at all — Telegram never connects.
 CRITICAL_ENV: tuple[str, ...] = ("TELEGRAM_BOT_TOKEN",)
 
-# The bot still trades without these, but a whole surface silently breaks:
-#   BOT_SYNC_SECRET     — the website's bot⇄web bridge (dashboard sync rejected)
-#   WEB_GATEWAY_SECRET  — web chat + web trade (routes 503)
-#   WEB_CREDS_KEY       — decrypting stored per-user exchange keys
-#   DASHBOARD_TOKEN     — the aggregate /api/* dashboard gate (fail-closed 403)
-IMPORTANT_ENV: tuple[str, ...] = (
-    "BOT_SYNC_SECRET", "WEB_GATEWAY_SECRET", "WEB_CREDS_KEY", "DASHBOARD_TOKEN",
-)
+# The bot still trades without these, but a whole surface silently breaks.
+# The effect is stated per variable and PRINTED beside the name, because the
+# bare name invited the wrong conclusion: "WEB_CREDS_KEY missing" — described
+# here, until 2026-09-06, as "decrypting stored per-user exchange keys" — was
+# read as "the exchange keys users linked are sitting unencrypted". They are
+# not. Every key linked with /connect or the website is Fernet-encrypted under
+# the MASTER key (RUNECLAW_SECRETS_KEY / data/.exchange_secret.key), a different
+# secret. WEB_CREDS_KEY only opens the AES-GCM envelope the WEBSITE wraps a
+# submission in for the bot to pull; without it the site refuses the form, so
+# nothing is queued and nothing is left in the clear either.
+IMPORTANT_ENV_EFFECT: dict[str, str] = {
+    "BOT_SYNC_SECRET": "the website's dashboard sync is rejected",
+    "WEB_GATEWAY_SECRET": "web chat and web trade answer 503",
+    "WEB_CREDS_KEY": ("the website's exchange-key connect form is off; keys already "
+                      "linked stay encrypted under the master key"),
+    "DASHBOARD_TOKEN": "the aggregate /api/* dashboard gate is fail-closed (403)",
+}
+IMPORTANT_ENV: tuple[str, ...] = tuple(IMPORTANT_ENV_EFFECT)
 
 
 def missing_env(names: Iterable[str], env: Mapping[str, str]) -> list[str]:
@@ -81,8 +91,10 @@ def format_preflight(report: Mapping[str, list[str]]) -> str:
     if crit:
         parts.append("MISSING CRITICAL (bot cannot run): " + ", ".join(crit))
     if imp:
+        # Name AND effect: the name alone was misread once (see IMPORTANT_ENV).
         parts.append("missing important (a web surface will be degraded): "
-                     + ", ".join(imp))
+                     + "; ".join(f"{n} — {IMPORTANT_ENV_EFFECT.get(n, 'a web surface breaks')}"
+                                 for n in imp))
     return "env preflight — " + " | ".join(parts)
 
 

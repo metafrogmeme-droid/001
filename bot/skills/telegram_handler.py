@@ -7055,15 +7055,26 @@ class TelegramHandler(GuardianCommands, LLMCommands):
             "<code>/exchange</code> to review or <code>/disconnect</code> to remove.")
 
     async def _cmd_setexchange(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/setexchange <api_key> <api_secret> <passphrase> — ADMIN ONLY.
+        """/setexchange [venue] <credentials…> — ADMIN ONLY.
 
-        Repairs the OPERATOR (engine) Bitget credentials that the bot trades on.
-        This is the recovery path for a wiped .env that lost BITGET_PASSPHRASE —
-        the engine account then can't authenticate ("bitget requires password"),
-        leaving live positions unprotected. The keys are validated read-only,
-        stored ENCRYPTED in the secrets vault (survives future .env wipes), and
-        the operator exchange client is rebuilt live — no restart needed. The
-        message carrying the keys is deleted immediately. Places no orders."""
+        Bitget (default): /setexchange <api_key> <api_secret> <passphrase>
+        Bybit / BingX:    /setexchange bybit <api_key> <api_secret>
+
+        Sets — or repairs — the OPERATOR credentials the engine trades on.
+        This began as the recovery path for a wiped .env that lost
+        BITGET_PASSPHRASE — the engine account then can't authenticate ("bitget
+        requires password"), leaving live positions unprotected. The keys are
+        validated read-only, stored ENCRYPTED in the secrets vault (survives
+        future .env wipes), and the operator exchange client is rebuilt live —
+        no restart needed. The message carrying the keys is deleted
+        immediately. Places no orders.
+
+        Bybit and BingX joined because .env was the ONLY place their operator
+        keys could live. The vault MIRRORS .env; it never replaces it, so a key
+        that only ever arrived through .env stays in the clear there for as
+        long as the file exists. A key set here is vault-only: delete the
+        lines from .env and it is restored from the vault on every boot.
+        """
         # Delete the secret-bearing message FIRST, before any gate can return.
         try:
             if update.message:
@@ -7081,37 +7092,59 @@ class TelegramHandler(GuardianCommands, LLMCommands):
                 "⚠️ Send <code>/setexchange</code> in a <b>private chat</b> only.")
             return
 
-        args = ctx.args or []
-        if len(args) != 3:
+        # venue -> (the env names the vault stores, the CONFIG.exchange fields
+        # the running engine reads). Kept HERE, next to the store call, so the
+        # names the vault gets and the names the engine reads cannot drift.
+        OPERATOR_VENUES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+            "bitget": (("BITGET_API_KEY", "BITGET_API_SECRET", "BITGET_PASSPHRASE"),
+                       ("api_key", "api_secret", "passphrase")),
+            "bybit": (("BYBIT_API_KEY", "BYBIT_API_SECRET"),
+                      ("bybit_api_key", "bybit_api_secret")),
+            "bingx": (("BINGX_API_KEY", "BINGX_API_SECRET"),
+                      ("bingx_api_key", "bingx_api_secret")),
+        }
+        from bot.core.exchange_credentials import (
+            _VENUE_FIELDS, basic_venue_format_ok, validate_venue_credentials,
+        )
+        args = [a.strip() for a in (ctx.args or [])]
+        venue = "bitget"
+        if args and args[0].lower() in OPERATOR_VENUES:
+            venue = args[0].lower()
+            args = args[1:]
+        env_names, cfg_fields = OPERATOR_VENUES[venue]
+        required = _VENUE_FIELDS[venue]
+        label = venue.title() if venue != "bingx" else "BingX"
+
+        if len(args) != len(required):
+            def _usage(v: str) -> str:
+                fields = " ".join(f"&lt;{f}&gt;" for f in _VENUE_FIELDS[v])
+                cmd = "/setexchange" if v == "bitget" else f"/setexchange {v}"
+                return f"• <code>{cmd} {fields}</code>"
             await self._send(update,
-                "<b>Set the operator (engine) Bitget credentials</b>\n\n"
-                "Recovers the account the bot trades on after a wiped .env.\n"
-                "<code>/setexchange &lt;api_key&gt; &lt;api_secret&gt; &lt;passphrase&gt;</code>\n\n"
+                "<b>Set the operator (engine) exchange credentials</b>\n\n"
+                "The account the bot itself trades on — recovers it after a "
+                "wiped .env, or takes it out of .env for good.\n"
+                + "\n".join(_usage(v) for v in OPERATOR_VENUES) + "\n\n"
                 "• Validated read-only, then <b>encrypted in the vault</b> "
                 "(survives future .env wipes).\n"
                 "• The engine client is rebuilt live — no restart.\n"
                 "• This message is deleted immediately.")
             return
 
-        api_key, api_secret, passphrase = (
-            args[0].strip(), args[1].strip(), args[2].strip())
-
-        from bot.core.exchange_credentials import (
-            validate_bitget_credentials, basic_key_format_ok,
-        )
-        if not basic_key_format_ok(api_key, api_secret, passphrase):
+        fields = {k: args[i] for i, k in enumerate(required)}
+        if not basic_venue_format_ok(venue, fields):
             await self._send(update,
-                "🔴 Those don't look like valid Bitget keys "
+                f"🔴 Those don't look like valid {label} keys "
                 "(empty, contain spaces, or too short). Nothing was stored.")
             return
 
         await self._send(update,
-            "⏳ Validating the operator Bitget keys (read-only balance check)…")
-        ok, detail = await validate_bitget_credentials(
-            api_key, api_secret, passphrase, sandbox=CONFIG.exchange.sandbox)
+            f"⏳ Validating the operator {label} keys (read-only balance check)…")
+        ok, detail = await validate_venue_credentials(
+            venue, fields, sandbox=CONFIG.exchange.sandbox)
         if not ok:
             await self._send(update,
-                "🔴 Could not authenticate with Bitget. Nothing was changed.\n"
+                f"🔴 Could not authenticate with {label}. Nothing was changed.\n"
                 f"<code>{html.escape(detail)}</code>")
             return
 
@@ -7119,11 +7152,7 @@ class TelegramHandler(GuardianCommands, LLMCommands):
         #    redeploy restores them before CONFIG reads the environment).
         try:
             from bot.core.secrets_vault import store_secrets
-            store_secrets({
-                "BITGET_API_KEY": api_key,
-                "BITGET_API_SECRET": api_secret,
-                "BITGET_PASSPHRASE": passphrase,
-            })
+            store_secrets({env: fields[f] for env, f in zip(env_names, required)})
         except Exception as exc:
             system_log.error("setexchange: vault store failed: %s", exc)
 
@@ -7132,9 +7161,8 @@ class TelegramHandler(GuardianCommands, LLMCommands):
         #    cached operator exchange client so it rebuilds authenticated.
         try:
             _ex_cfg = CONFIG.exchange
-            object.__setattr__(_ex_cfg, "api_key", api_key)
-            object.__setattr__(_ex_cfg, "api_secret", api_secret)
-            object.__setattr__(_ex_cfg, "passphrase", passphrase)
+            for attr, f in zip(cfg_fields, required):
+                object.__setattr__(_ex_cfg, attr, fields[f])
         except Exception as exc:
             system_log.error("setexchange: CONFIG hot-patch failed: %s", exc)
         try:
@@ -7143,14 +7171,15 @@ class TelegramHandler(GuardianCommands, LLMCommands):
         except Exception as exc:
             system_log.warning("setexchange: executor rebuild hint failed: %s", exc)
 
-        audit(system_log, "Admin set operator Bitget credentials via /setexchange",
-              action="setexchange", result="OK")
+        audit(system_log, f"Admin set operator {label} credentials via /setexchange",
+              action="setexchange", result="OK", data={"venue": venue})
         await self._send(update,
-            "🟢 <b>Operator Bitget credentials updated</b>\n\n"
+            f"🟢 <b>Operator {label} credentials updated</b>\n\n"
             f"Balance: {html.escape(detail)}\n\n"
             "Stored <b>encrypted</b> in the vault (survives .env wipes) and the "
-            "engine client was rebuilt. Run <code>/start</code> — equity should "
-            "read live now, and open positions are protected again.")
+            "engine client was rebuilt. If these keys are also in .env you can "
+            "delete those lines now — the vault restores them on every boot. "
+            "Run <code>/start</code> — equity should read live now.")
 
     async def _cmd_setgateway(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/setgateway <secret> — ADMIN ONLY.
@@ -7234,9 +7263,11 @@ class TelegramHandler(GuardianCommands, LLMCommands):
                 "will NOT survive a redeploy.")
             return
         FIX = {
-            "BITGET": "/setexchange", "WEB_GATEWAY_SECRET": "/setgateway",
+            "BITGET": "/setexchange", "BYBIT": "/setexchange bybit",
+            "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
             "TELEGRAM_BOT_TOKEN": ".env only",
             "BOT_SYNC_SECRET": ".env (auto-vaults from env)",
+            "WEB_CREDS_KEY": ".env on BOTH the bot box and the website",
         }
         def _fix_for(key: str) -> str:
             for prefix, cmd in FIX.items():
@@ -7256,8 +7287,12 @@ class TelegramHandler(GuardianCommands, LLMCommands):
         lines.append(f"🟢 <b>Protected</b> (encrypted, survive redeploys): "
                      f"<code>{len(protected)}</code>")
         if env_only:
-            lines.append("🟡 <b>Env-only</b> (will auto-vault on next boot):\n"
-                         + "\n".join(f"- <code>{k}</code>" for k in env_only))
+            # Present in .env and not yet in the vault: mirrored on the next
+            # boot, but the .env copy is the one that stays in the clear —
+            # so each line names the command that makes it vault-only.
+            lines.append("🟡 <b>Env-only</b> (mirrored to the vault on next boot; "
+                         "the .env copy stays until set via the command):\n"
+                         + "\n".join(f"- <code>{k}</code> → {_fix_for(k)}" for k in env_only))
         used_absent = [k for k in absent
                        if not k.startswith(("HYPERLIQUID", "BYBIT", "BINGX",
                                             "ONCHAIN", "RUNECLAW"))]
@@ -7268,6 +7303,28 @@ class TelegramHandler(GuardianCommands, LLMCommands):
         lines.append(f"{SEP}\n<i>Anything set via /setexchange, /setgateway, "
                      "or /setllm is stored encrypted and restored on every "
                      "boot — you never re-enter it.</i>")
+        # WHICH KEY PROTECTS WHAT. This card listed names, and a name alone
+        # was misread: "WEB_CREDS_KEY missing" was taken to mean the exchange
+        # keys users had linked were sitting in the clear. Three stores,
+        # three answers, stated where the operator looks for them.
+        web_key = status.get("WEB_CREDS_KEY", {})
+        web_line = ("🟢 <code>WEB_CREDS_KEY</code> is set — the website's connect form "
+                    "encrypts submissions for the bot to pull."
+                    if web_key.get("env") or web_key.get("vault") else
+                    "⚪ <code>WEB_CREDS_KEY</code> is unset — the website's connect form "
+                    "is OFF (it refuses rather than queue anything unencrypted). "
+                    "Keys already linked are unaffected.")
+        lines.append(
+            f"{SEP}\n<b>What encrypts what</b>\n"
+            "• Keys users link (/connect, the website): Fernet under the "
+            "master key (<code>RUNECLAW_SECRETS_KEY</code> / "
+            "<code>data/.exchange_secret.key</code>) — always, whatever else is set.\n"
+            "• Website submissions in transit to the bot: AES-GCM under "
+            "<code>WEB_CREDS_KEY</code>. " + web_line + "\n"
+            "• The operator's own keys: this vault mirrors .env, it does not "
+            "replace it — a key that only ever came from .env stays in the clear "
+            "there. Set it with /setexchange and delete the .env lines to make "
+            "it vault-only.")
         await self._send(update, "\n".join(lines))
 
     async def _cmd_yield(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

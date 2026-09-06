@@ -208,7 +208,7 @@ GROUPS: List[Group] = [
         ("setllm", "switch LLM provider at runtime"),
         ("settier", "per-tier LLM routing"),
         ("ultra", "ULTRA admin routing"),
-        ("setexchange", "repair exchange credentials"),
+        ("setexchange", "set the operator's exchange keys, vault-only — bitget, bybit, bingx"),
         ("setgateway", "repair the web gateway secret"),
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
@@ -439,7 +439,8 @@ DESC_ZH: Dict[str, str] = {
     "llmstatus": "目前 LLM 供應商與金鑰指紋", "llmtiers": "多層路由設定",
     "llmab": "LLM 影子 A/B 報告", "llmreset": "還原為 .env 的 LLM 設定",
     "setllm": "執行時切換 LLM 供應商", "settier": "各層級 LLM 路由", "ultra": "ULTRA 管理路由",
-    "setexchange": "修復交易所憑證", "setgateway": "修復網頁閘道密鑰",
+    "setexchange": "設定營運者交易所金鑰，只存保險庫——bitget、bybit、bingx",
+    "setgateway": "修復網頁閘道密鑰",
     "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
     "stake": "將閒置穩定幣投入活期 Earn", "unstake": "將 Earn 贖回為交易保證金",
 }

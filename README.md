@@ -659,7 +659,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/setllm` | switch LLM provider at runtime |
 | `/settier` | per-tier LLM routing |
 | `/ultra` | ULTRA admin routing |
-| `/setexchange` | repair exchange credentials |
+| `/setexchange` | set the operator's exchange keys, vault-only — bitget, bybit, bingx |
 | `/setgateway` | repair the web gateway secret |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
