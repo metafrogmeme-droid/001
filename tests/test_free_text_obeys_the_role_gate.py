@@ -68,7 +68,6 @@ from bot.skills.skill_permissions import (DANGEROUS_SKILLS, SKILL_PERMISSION,
 from bot.utils.user_store import SELF_ADMISSION_BY, SELF_ADMISSION_ROLE, UserStore
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-HANDLER = REPO / "bot" / "skills" / "telegram_handler.py"
 ROUTER = REPO / "bot" / "nlp" / "intent_router.py"
 
 OPERATOR = "111"
@@ -411,10 +410,14 @@ class TestTheTableDoesNotDrift:
         """`SKILL_PERMISSION` claims to be derived from the `@guard` decorators.
         Checked, not asserted in a docstring: for every skill some @guard-ed
         handler dispatches, the permission here must be that handler's."""
-        src = HANDLER.read_text(encoding="utf-8")
-        tree = ast.parse(src)
+        # Every file that contributes methods to the handler class, not just
+        # telegram_handler.py: a guarded command that moved into a mixin
+        # still dispatches a skill, and the pairing derived here must see it.
+        from tests.source_scan import handler_sources
+        nodes = [node for path in handler_sources()
+                 for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))]
         from_guard: dict[str, set[str]] = {}
-        for node in ast.walk(tree):
+        for node in nodes:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             perm = next((d.args[0].value for d in node.decorator_list

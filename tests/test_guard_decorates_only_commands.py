@@ -26,22 +26,25 @@ from types import SimpleNamespace
 import pytest
 
 from bot.skills.telegram_handler import TelegramHandler
-
-SRC = Path(__file__).resolve().parent.parent / "bot" / "skills" / "telegram_handler.py"
+from tests.source_scan import handler_sources
 
 
 def _guarded_defs():
-    """(name, params) for every method decorated with @guard(...) in the handler class."""
-    tree = ast.parse(SRC.read_text(encoding="utf-8"))
+    """(name, params) for every method decorated with @guard(...) in the
+    handler class — across every file that contributes methods to it, so a
+    guard on a command that moved into a mixin is still counted and a guard
+    that vanished there is still missed."""
     out = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for d in node.decorator_list:
-                call = d if isinstance(d, ast.Call) else None
-                name = (call.func.id if call and isinstance(call.func, ast.Name)
-                        else d.id if isinstance(d, ast.Name) else None)
-                if name == "guard":
-                    out.append((node.name, [a.arg for a in node.args.args]))
+    for path in handler_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in node.decorator_list:
+                    call = d if isinstance(d, ast.Call) else None
+                    name = (call.func.id if call and isinstance(call.func, ast.Name)
+                            else d.id if isinstance(d, ast.Name) else None)
+                    if name == "guard":
+                        out.append((node.name, [a.arg for a in node.args.args]))
     return out
 
 

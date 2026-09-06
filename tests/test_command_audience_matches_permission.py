@@ -48,10 +48,9 @@ import json
 import pathlib
 import re
 
-
 from bot.skills.command_catalog import GROUPS
 from bot.utils.user_store import ROLE_PERMISSIONS
-from tests.source_scan import segment_reader
+from tests.source_scan import handler_sources, segment_reader
 
 
 @functools.lru_cache(maxsize=4)
@@ -72,12 +71,35 @@ HANDLER = pathlib.Path(__file__).resolve().parent.parent / "bot" / "skills" / "t
 
 
 def _handler_index():
-    src = HANDLER.read_text()
-    tree = ast.parse(src)
-    funcs = {n.name: n for n in ast.walk(tree)
-             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    registry = dict(re.findall(r'\(\s*["\'](\w+)["\']\s*,\s*self\.(_\w+)\s*\)', src))
-    return src, funcs, registry
+    """(funcs, registry): `funcs` maps a method name to (its file's source,
+    its AST node) across every file that contributes methods to the handler
+    class — the handler's own definition wins over a mixin's, which is what
+    the MRO does at runtime — and `registry` maps a command name to the
+    method registered for it.
+
+    Every contributing file, because the handler is being split into mixins
+    one command group at a time, and a scan that read only
+    telegram_handler.py would treat a moved command as "bound to no handler"
+    — or, in the ratchet below, silently drop it from the check. A checker
+    whose file list is a snapshot manufactures the blind spot it exists to
+    close.
+    """
+    funcs: dict = {}
+    registry: dict = {}
+    for path in handler_sources():
+        src = path.read_text()
+        for n in ast.walk(ast.parse(src)):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funcs.setdefault(n.name, (src, n))
+        for cmd, handler in re.findall(
+                r'\(\s*["\'](\w+)["\']\s*,\s*self\.(_\w+)\s*\)', src):
+            registry.setdefault(cmd, handler)
+    return funcs, registry
+
+
+def _body(funcs, handler: str) -> str:
+    src, node = funcs[handler]
+    return _seg_for(src)(node) or ""
 
 
 # An early-return admin gate, not a mere mention. `/analyze` does
@@ -91,8 +113,9 @@ def _gates_on_admin(body: str) -> bool:
     return bool(_ADMIN_GATE.search(body))
 
 
-def _permission_string(src, node):
+def _permission_string(funcs, handler: str):
     """The permission `_guard` is called with, from the decorator or inline."""
+    src, node = funcs[handler]
     for d in node.decorator_list:
         m = re.match(r"guard\('([^']*)'\)", ast.unparse(d))
         if m:
@@ -101,11 +124,34 @@ def _permission_string(src, node):
     return m.group(1) if m else None
 
 
+def test_the_index_follows_the_class_not_the_file():
+    """The scan must see a command wherever its method lives.
+
+    The Guardian group was the first command group to leave the handler file,
+    and every one of its seven commands is documented operator-only — exactly
+    the set the test below exists to check. Read from one file, that test
+    would have asserted "bound to no handler" for all seven; the ratchet after
+    it would have dropped them without a word.
+    """
+    sources = handler_sources()
+    assert sources[0] == HANDLER.resolve(), "the handler's own file must come first"
+    assert len(sources) >= 2, "no mixin found — the split's slices are not being scanned"
+    funcs, registry = _handler_index()
+    for cmd in ("policy", "twin", "sentinel", "escape", "guardian", "approvals", "xray"):
+        handler = registry.get(cmd)
+        assert handler and handler in funcs, f"/{cmd} not found across {len(sources)} files"
+    # The five console commands are operator-gated inline, and the gate must
+    # have moved with them: a body the index now finds in the mixin is the
+    # body the tests below classify.
+    for cmd in ("policy", "twin", "sentinel", "escape", "guardian"):
+        assert _gates_on_admin(_body(funcs, registry[cmd])), f"/{cmd} lost its _is_admin gate"
+
+
 def test_operator_only_commands_are_actually_operator_only():
     """A command the catalog calls "operator" must be unreachable by any
     non-admin role — either by checking _is_admin, or by gating on a permission
     no non-admin role holds."""
-    src, funcs, registry = _handler_index()
+    funcs, registry = _handler_index()
     admin_cmds = sorted({c for _t, aud, entries in GROUPS if aud == "admin" for c, _d in entries})
     assert len(admin_cmds) > 20, f"only {len(admin_cmds)} admin commands found — did the catalog move?"
 
@@ -116,12 +162,10 @@ def test_operator_only_commands_are_actually_operator_only():
     for cmd in admin_cmds:
         handler = registry.get(cmd)
         assert handler, f"/{cmd} is in the catalog but bound to no handler"
-        node = funcs.get(handler)
-        assert node, f"{handler} not found in the handler module"
-        body = _seg_for(src)(node) or ""
-        if _gates_on_admin(body):
+        assert handler in funcs, f"{handler} not found in the handler module or its mixins"
+        if _gates_on_admin(_body(funcs, handler)):
             continue  # explicitly operator-gated in the body
-        perm = _permission_string(src, node)
+        perm = _permission_string(funcs, handler)
         reachable = sorted(r for r, p in non_admin.items() if perm in p)
         if reachable:
             leaks.append(f"/{cmd} (@guard({perm!r})) is documented operator-only "
@@ -156,15 +200,15 @@ def test_no_NEW_user_facing_command_becomes_unreachable():
                            / "command_audience_backlog.json").read_text())
     known = set(baseline["known"])
 
-    src, funcs, registry = _handler_index()
+    funcs, registry = _handler_index()
     non_admin = {r: p for r, p in ROLE_PERMISSIONS.items() if "*" not in p}
     unreachable = set()
     for cmd in sorted({c for _t, aud, e in GROUPS if aud == "user" for c, _d in e}):
         handler = registry.get(cmd)
         if not handler or handler not in funcs:
             continue
-        body = _seg_for(src)(funcs[handler]) or ""
-        perm = _permission_string(src, funcs[handler])
+        body = _body(funcs, handler)
+        perm = _permission_string(funcs, handler)
         if _gates_on_admin(body) or (perm and not any(perm in p for p in non_admin.values())):
             unreachable.add(cmd)
 
@@ -184,10 +228,9 @@ def test_no_NEW_user_facing_command_becomes_unreachable():
 def test_llm_config_commands_require_admin():
     """Pinned specifically: these print provider, model, base_url and per-tier
     key fingerprints. `@guard('status')` alone put that in the viewer role's set."""
-    src, funcs, _ = _handler_index()
+    funcs, _ = _handler_index()
     for handler in ("_cmd_llmstatus", "_cmd_llmtiers"):
-        body = _seg_for(src)(funcs[handler]) or ""
-        assert "_is_admin" in body, f"{handler} no longer checks _is_admin"
+        assert "_is_admin" in _body(funcs, handler), f"{handler} no longer checks _is_admin"
 
 
 def test_the_permission_extractor_actually_finds_permissions():
@@ -195,9 +238,9 @@ def test_the_permission_extractor_actually_finds_permissions():
     everything, both tests above would pass while checking nothing — the same
     vacuous-pass shape this audit keeps finding.
     """
-    src, funcs, registry = _handler_index()
+    funcs, registry = _handler_index()
     found = sum(1 for h in registry.values()
-                if h in funcs and _permission_string(src, funcs[h]))
+                if h in funcs and _permission_string(funcs, h))
     assert found > 50, f"only {found} handlers yielded a permission string — the extractor is broken"
 
 

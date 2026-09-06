@@ -23,8 +23,13 @@ from tests.source_scan import code_only
 
 
 def _branch():
-    """The `/policy mode` arm of `_cmd_policy`, comments stripped."""
-    code = code_only(io.open("bot/skills/telegram_handler.py",
+    """The `/policy mode` arm of `_cmd_policy`, comments stripped.
+
+    `_cmd_policy` lives in bot/skills/guardian_commands.py since the second
+    slice of the handler split; `tests/test_guardian_commands_split.py` pins
+    that the handler still reaches it there.
+    """
+    code = code_only(io.open("bot/skills/guardian_commands.py",
                              encoding="utf-8").read())
     i = code.index("bound = self.engine.set_intent_policy_mode(m)")
     # Sliced to the END of the arm (its `return`), not by a character count:

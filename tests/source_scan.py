@@ -25,7 +25,34 @@ from __future__ import annotations
 import io
 import tokenize
 
-__all__ = ["code_only", "segment_reader"]
+__all__ = ["code_only", "handler_sources", "segment_reader"]
+
+
+def handler_sources() -> list:
+    """Every file that contributes methods to TelegramHandler, handler first.
+
+    The handler is being split into mixins one command group at a time, and
+    the derivation tests — which permission each `@guard` names, which
+    commands gate on `_is_admin`, whether every `self.` call resolves — read
+    SOURCE FILES. A scan pointed at telegram_handler.py alone stops seeing a
+    command the moment it moves, and it stops silently: no decorator found
+    means no permission derived means nothing to check. Derived from the
+    class's MRO rather than listed, so the next slice is covered before
+    anyone remembers to add it. Paths, not text: each caller keeps its own
+    parse and its own cache.
+    """
+    import inspect
+    from pathlib import Path
+
+    from bot.skills.telegram_handler import TelegramHandler
+    out: list = []
+    for cls in TelegramHandler.__mro__:
+        if cls is object:
+            continue
+        path = Path(inspect.getsourcefile(cls) or "").resolve()
+        if path not in out:
+            out.append(path)
+    return out
 
 
 def segment_reader(source: str):

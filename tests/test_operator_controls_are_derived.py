@@ -51,10 +51,21 @@ import pytest
 
 from bot.utils.user_store import (OPERATOR_CONTROL_PERMISSIONS, ROLE_PERMISSIONS,
                                   SELF_ADMISSION_ROLE)
+from tests.source_scan import handler_sources
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-HANDLER = REPO / "bot" / "skills" / "telegram_handler.py"
 SKILLS = REPO / "bot" / "skills" / "skill_registry.py"
+
+
+def _handler_trees() -> list[ast.Module]:
+    """One parsed tree per file that contributes methods to the handler class.
+
+    The handler is being split into mixins, and this derivation reads
+    decorators. Read from one file it would stop seeing a guarded command
+    the moment the command moved — and a permission that reaches shared
+    state from inside a mixin is exactly the one this file exists to find.
+    """
+    return [ast.parse(p.read_text(encoding="utf-8")) for p in handler_sources()]
 
 # Method names that mutate state shared by every account.
 _MUTATORS = {"emergency_halt", "reset_circuit_breaker", "reset_circuit_breaker_all"}
@@ -123,11 +134,10 @@ def _gates_on_admin(node: ast.AST) -> bool:
 
 def _derived_operator_permissions() -> dict[str, set[str]]:
     """{permission: {handler names that give it away}}."""
-    src = HANDLER.read_text(encoding="utf-8")
-    tree = ast.parse(src)
     globals_ = _global_skills()
     found: dict[str, set[str]] = {}
-    for node in ast.walk(tree):
+    trees = _handler_trees()
+    for node in (n for tree in trees for n in ast.walk(tree)):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         perm = _guard_permission(node)
@@ -140,7 +150,7 @@ def _derived_operator_permissions() -> dict[str, set[str]]:
     # the F-11 fix: these permissions gate inline buttons that pause,
     # emergency-stop or close everything. Reading it keeps the two in step
     # instead of asking a maintainer to remember both.
-    for node in ast.walk(tree):
+    for node in (n for tree in trees for n in ast.walk(tree)):
         if (isinstance(node, ast.Assign)
                 and any(getattr(t, "id", "") == "_DESTRUCTIVE_CB_PERM"
                         for t in node.targets)
@@ -164,11 +174,21 @@ def test_the_scanner_finds_the_global_skills():
 
 
 def test_the_scanner_finds_guarded_handlers():
-    src = HANDLER.read_text(encoding="utf-8")
-    n = sum(1 for node in ast.walk(ast.parse(src))
+    n = sum(1 for tree in _handler_trees() for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and _guard_permission(node))
     assert n > 50, f"only {n} @guard-decorated handlers found — extractor broken"
+
+
+def test_the_scanner_reads_every_file_the_handler_is_made_of():
+    """Vacuous-pass check for the split: the Guardian group moved into a
+    mixin, and a derivation that read one file would still report the three
+    known controls and pass — while seeing nothing of the moved commands."""
+    trees = _handler_trees()
+    assert len(trees) >= 2, "no mixin file found — the split's slices are not being read"
+    defs = {node.name for tree in trees for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert {"_cmd_policy", "_cmd_guardian", "_cmd_halt"} <= defs
 
 
 def test_the_derivation_finds_the_three_known_controls():

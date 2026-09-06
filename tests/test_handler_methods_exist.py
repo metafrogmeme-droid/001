@@ -30,7 +30,10 @@ def test_reply_exists_and_delegates_to_the_redacting_send():
 
 
 def test_every_self_method_call_is_defined():
-    src = inspect.getsource(TelegramHandler)
+    # The class and every mixin it inherits: a `self.` call inside a command
+    # group that moved out of the file is a live AttributeError just the same.
+    src = "\n".join(inspect.getsource(cls) for cls in TelegramHandler.__mro__
+                    if cls is not object)
     called = set(re.findall(r"self\.(\w+)\(", src))
     # Names assigned anywhere in the class body (self.x = ..., including
     # callables stored as attributes in __init__) count as defined.
