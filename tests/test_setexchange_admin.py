@@ -99,10 +99,15 @@ def _update(chat_type="private"):
 
 @pytest.fixture
 def plumbing(monkeypatch):
-    """Stub the venue probe, the vault and CONFIG; record what each was given."""
+    """Stub the venue probe, the vault and CONFIG; record what each was given.
+
+    CONFIG is patched on the account mixin's module: since the handler split
+    that is where /setexchange reads it, and a patch on the handler's copy of
+    the name would leave the command reading the real config.
+    """
     import bot.core.exchange_credentials as xc
     import bot.core.secrets_vault as sv
-    import bot.skills.telegram_handler as th
+    import bot.skills.account_commands as th
 
     seen = {"validated": None, "stored": None}
 

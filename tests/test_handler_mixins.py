@@ -101,8 +101,12 @@ def test_the_host_contract_is_true(cls):
     init = inspect.getsource(TelegramHandler.__init__)
     for name, params in stubs.items():
         if params is None:
-            assert re.search(rf"self\.{re.escape(name)}\s*=", init), (
-                f"{cls.__name__} declares {name} as provided by the host; __init__ never sets it")
+            # An attribute: set on the instance by the handler's __init__, or
+            # a class attribute the handler itself defines (a constant such as
+            # _WEB_LINK_HINT that more than one group reads).
+            assert re.search(rf"self\.{re.escape(name)}\s*=", init) or name in vars(TelegramHandler), (
+                f"{cls.__name__} declares {name} as provided by the host; "
+                "__init__ never sets it and the handler does not define it")
             continue
         assert name in vars(TelegramHandler), (
             f"{cls.__name__} declares {name} as provided by the host; the handler does not define it")

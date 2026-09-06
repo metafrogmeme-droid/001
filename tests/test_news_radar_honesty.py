@@ -83,9 +83,10 @@ class TestCachedItemsAreLabelledStaleNotCurrent:
 
 class TestTheHandlerActuallyPassesTheFlag:
     def test_the_refresh_failure_reaches_the_renderer(self):
-        from tests.source_scan import code_only
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        from tests.source_scan import code_only, handler_sources
+        # `_news_digest_text` lives in the market-context mixin since the
+        # handler split; read every file the handler class is made of.
+        src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         assert "_refresh_failed = True" in src, (
             "the except block must record the failure, not only log it"
         )

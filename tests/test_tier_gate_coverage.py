@@ -47,22 +47,28 @@ GATE_CALLS = ("_token_gate_blocks", "_pane_gate_blocks")
 
 
 def _functions_dispatching_gated_skills():
-    src = HANDLER.read_text()
+    """Every file the handler class is made of, not HANDLER alone: the
+    handler is being split into mixins, and a gated dispatch that moved into
+    one would otherwise drop out of this check without a word."""
+    from tests.source_scan import handler_sources
+
     mapping = {**{k: k for k in tg.FEATURE_MIN_TIER}, **SKILL_TO_FEATURE}
     out = []
-    # `ast.get_source_segment` re-splits the WHOLE source on every call, so
-    # this loop was quadratic: 260 function nodes x 13,575 lines = 29.6s, and
-    # under full-suite load it crossed the 60s pytest-timeout and was filed by
-    # the CI gate as "passes alone (flaky/order-dependent)". `segment_reader`
-    # splits once and is byte-identical; 0.004s here.
-    seg_of = segment_reader(src)
-    for node in ast.walk(ast.parse(src)):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        seg = seg_of(node) or ""
-        hit = sorted({mapping[n] for n in mapping if f'dispatch("{n}"' in seg})
-        if hit:
-            out.append((node.name, hit, seg))
+    for path in handler_sources():
+        src = path.read_text()
+        # `ast.get_source_segment` re-splits the WHOLE source on every call, so
+        # this loop was quadratic: 260 function nodes x 13,575 lines = 29.6s,
+        # and under full-suite load it crossed the 60s pytest-timeout and was
+        # filed by the CI gate as "passes alone (flaky/order-dependent)".
+        # `segment_reader` splits once and is byte-identical; 0.004s here.
+        seg_of = segment_reader(src)
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            seg = seg_of(node) or ""
+            hit = sorted({mapping[n] for n in mapping if f'dispatch("{n}"' in seg})
+            if hit:
+                out.append((node.name, hit, seg))
     return out
 
 
