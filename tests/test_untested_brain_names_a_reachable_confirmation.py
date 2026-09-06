@@ -120,11 +120,15 @@ def test_an_unreadable_snapshot_is_not_reported_as_llm():
 # --------------------------------------------------------------------------
 
 def _handler_src() -> str:
-    """Every file the handler class is made of, joined: /llmstatus lives in
-    the LLM mixin since the handler split and the scan-timeout hint stays a
-    handler helper, and the count below spans both."""
+    """Every file the handler class is made of, plus the scan-hints leaf:
+    /llmstatus lives in the LLM mixin since the handler split and the
+    scan-timeout hint in `bot/skills/scan_hints.py`, and the count below
+    spans both."""
+    from pathlib import Path
+
     from tests.source_scan import handler_sources
-    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
+    files = (*handler_sources(), Path("bot/skills/scan_hints.py"))
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in files)
 
 
 def test_sweep_note_has_a_production_caller():

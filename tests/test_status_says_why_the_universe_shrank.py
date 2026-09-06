@@ -64,7 +64,11 @@ def _code_only(path: Path) -> str:
 def test_status_calls_the_renderer_with_the_scanners_record():
     """Wiring: the seam is only worth anything if /status reaches it, and it
     must be fed the scanner's own record, not a copy that could go stale."""
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /status is leaving for the
+    # start-here mixin, and a scan of one file reads the move as the
+    # renderer losing its caller.
+    code = "\n".join(_code_only(p) for p in handler_sources())
     i = code.find("def _cmd_status")
     assert i > 0
     body = code[i:i + 40_000]

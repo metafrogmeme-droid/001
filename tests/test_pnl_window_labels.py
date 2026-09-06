@@ -31,9 +31,13 @@ from __future__ import annotations
 import pathlib
 
 from bot.utils.i18n import t
+from tests.source_scan import handler_sources
 
 REG = pathlib.Path("bot/skills/skill_registry.py").read_text(encoding="utf-8")
-HANDLER = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+# Every file the handler class is made of: the two readers of the session
+# label live in the portfolio mixin since the handler split, and a count
+# over telegram_handler.py alone read the move as both of them vanishing.
+HANDLER = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 
 
 class TestTheWindowIsStated:

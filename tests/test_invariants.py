@@ -35,6 +35,15 @@ PROVIDER = REPO_ROOT / "bot" / "llm" / "provider.py"
 
 
 def _read(path: Path) -> str:
+    if path == TELEGRAM_HANDLER:
+        # Every file the handler class is made of: the callback dispatcher,
+        # the trading commands and the alert loop live in mixins since the
+        # handler split, and the invariants below are about the whole class
+        # — a scan of telegram_handler.py alone reads a move as the canonical
+        # function losing its caller, and passes the `not in` checks for the
+        # wrong reason.
+        from tests.source_scan import handler_sources
+        return "\n".join(p.read_text() for p in handler_sources())
     return path.read_text()
 
 

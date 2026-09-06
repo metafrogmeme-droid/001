@@ -42,7 +42,7 @@ import types
 
 from bot.core.engine import AgentState, RuneClawEngine
 from bot.core.system_health import SystemHealthMonitor
-from bot.skills.telegram_handler import (
+from bot.skills.scan_hints import (
     _background_scan_is_fresh,
     _skipped_symbols_note,
     ANALYSIS_TIMEOUT_HINT_WINDOW_S,

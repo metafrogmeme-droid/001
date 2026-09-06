@@ -39,7 +39,7 @@ import pytest
 from bot.formatters.brain_state import (BRAIN_TEXT, DEGRADED, HEALTHY, UNKNOWN,
                                         UNTESTED, brain_state, brain_state_of,
                                         may_rule_out_llm)
-from bot.skills.telegram_handler import _scan_timeout_hint
+from bot.skills.scan_hints import _scan_timeout_hint
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -156,10 +156,13 @@ def test_no_surface_claims_a_healthy_brain_without_asking():
     not, for as long as each spelled the check out for itself."""
     from tests.source_scan import code_only, handler_sources
 
-    # Every file the handler class is made of: /llmstatus lives in a mixin
-    # now, and a count over telegram_handler.py alone would miss a second
-    # copy of the claim written there.
-    sources = {p: code_only(p.read_text(encoding="utf-8")) for p in handler_sources()}
+    # Every file the handler class is made of, plus the scan-hints leaf the
+    # timeout hint moved to: /llmstatus lives in a mixin now, and a count over
+    # telegram_handler.py alone would miss a second copy of the claim written
+    # there — or, since the hint left for `scan_hints.py`, the one copy that
+    # is entitled to exist.
+    sources = {p: code_only(p.read_text(encoding="utf-8"))
+               for p in (*handler_sources(), ROOT / "bot" / "skills" / "scan_hints.py")}
     src = "\n".join(sources.values())
     # ONE occurrence is correct: the `_may_exclude` arm of the shared
     # expression, which is the only place entitled to say it. Forbidding it
@@ -180,10 +183,11 @@ def test_no_surface_claims_a_healthy_brain_without_asking():
 def test_both_surfaces_resolve_through_the_shared_function():
     from tests.source_scan import code_only, handler_sources
 
-    # The timeout hint is a handler module-level helper; /llmstatus is in the
+    # The timeout hint lives in the scan-hints leaf; /llmstatus is in the
     # LLM mixin. Each marker is looked up in whichever contributing file
     # defines it, so a further move does not turn this into a scan of nothing.
-    sources = [code_only(p.read_text(encoding="utf-8")) for p in handler_sources()]
+    sources = [code_only(p.read_text(encoding="utf-8"))
+               for p in (*handler_sources(), ROOT / "bot" / "skills" / "scan_hints.py")]
     for marker, end in (("def _scan_timeout_hint", "def _inflight_analysis_progress"),
                         ("def _cmd_llmstatus", "def _cmd_llmreset")):
         src = next((s for s in sources if marker in s), None)

@@ -196,6 +196,9 @@ def test_command_is_catalogued_bilingually():
     from bot.skills.command_catalog import DESC_ZH, all_entries
     assert "mystrategy" in set(all_entries())
     assert "mystrategy" in DESC_ZH
-    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: the registration is in
+    # build_app and the command body is leaving for the trading mixin.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     assert '("mystrategy", self._cmd_mystrategy)' in src
     assert "tighten-only" in src.lower() or "TIGHTEN-ONLY" in src

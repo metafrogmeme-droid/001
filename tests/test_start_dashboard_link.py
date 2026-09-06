@@ -20,7 +20,7 @@ def test_welcome_template_carries_the_dashboard_link():
 
 
 def test_dashboard_url_uses_website_env_and_deeplinks_home(monkeypatch):
-    from bot.skills.telegram_handler import _dashboard_url
+    from bot.skills.menu_keyboards import _dashboard_url
     monkeypatch.setenv("WEBSITE_URL", "https://my.site/")   # trailing slash tolerated
     assert _dashboard_url() == "https://my.site/dashboard#home"
     monkeypatch.delenv("WEBSITE_URL", raising=False)

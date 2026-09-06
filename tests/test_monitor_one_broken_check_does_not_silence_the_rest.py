@@ -282,11 +282,16 @@ def test_status_reaches_the_line_through_the_monitor():
     print the line -- source-scanned because the whole card needs an engine."""
     import io
     import tokenize
-    from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "bot" / "skills"
-           / "telegram_handler.py").read_text(encoding="utf-8")
-    code = " ".join(tok.string for tok in tokenize.generate_tokens(
-        io.StringIO(src).readline) if tok.type != tokenize.COMMENT)
+
+    from tests.source_scan import handler_sources
+
+    # Every file the handler class is made of: /status is leaving for the
+    # start-here mixin, and a scan of one file reads the move as the line
+    # vanishing from the card.
+    def _tokens(src: str) -> str:
+        return " ".join(tok.string for tok in tokenize.generate_tokens(
+            io.StringIO(src).readline) if tok.type != tokenize.COMMENT)
+    code = " ".join(_tokens(p.read_text(encoding="utf-8")) for p in handler_sources())
     i = code.find("async def _cmd_status")
     body = code[i:code.find("async def ", i + 10)]
     assert "monitor_checks_line (" in body

@@ -285,7 +285,10 @@ RULES: list[Rule] = [
     ),
     Rule(
         name="tier-gate",
-        files=["bot/skills/telegram_handler.py"],
+        # The handler and every command-group mixin split out of it: a gated
+        # dispatch that moves into bot/skills/<group>_commands.py must stay
+        # under this rule, and `min_sites` is what would say so if it did not.
+        files=["bot/skills/telegram_handler.py", "bot/skills/*_commands.py"],
         language="python",
         trigger=(r'dispatch\("(?:pro_scan|deepscan|patterns|analyze_asset|run_backtest'
                  r'|walk_forward|optimize|learning)"'),

@@ -36,6 +36,7 @@ from unittest.mock import patch
 import pytest
 
 from bot.utils.user_store import UserStore
+from tests.source_scan import handler_sources
 
 
 def _store(tmp_path) -> UserStore:
@@ -379,7 +380,11 @@ _ENV_ONLY_BY_DESIGN = {
 }
 
 
-@pytest.mark.parametrize("path", ["bot/skills/telegram_handler.py",
+# Every file the handler class is made of, one parametrised case each: a
+# gate that moves into a mixin must not drop out of this check without a
+# word, and the files are parsed separately because each mixin opens with
+# a __future__ import.
+@pytest.mark.parametrize("path", [*(str(p) for p in handler_sources()),
                                   "bot/web/user_gateway.py"])
 def test_every_bot_access_gate_consults_admission(path):
     """Ask which OTHER surface makes the same claim.

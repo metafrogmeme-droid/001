@@ -126,11 +126,12 @@ class TestTheHandlerWiring:
         lines under test, and BOTH failed in the direction that looks like a
         code bug.
         """
-        import io
+        from tests.source_scan import code_only, handler_sources
 
-        from tests.source_scan import code_only
-        code = code_only(
-            io.open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # /daily_report lives in the portfolio mixin since the handler split;
+        # read every file the handler class is made of, so the next move
+        # cannot turn this slice into a search of the wrong file.
+        code = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         i = code.index("async def _cmd_daily_report")
         j = code.index("async def ", i + 20)
         return code[i:j]

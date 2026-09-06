@@ -167,10 +167,10 @@ def test_the_grounding_rules_name_the_distinction():
     state the user has an open position if it appears in ACTIVE POSITIONS",
     and a new section listing symbols invites exactly the reading it forbids
     unless the rule names it."""
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, handler_sources
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                    .read_text(encoding="utf-8"))
+    # Every file the handler class is made of, not telegram_handler.py alone.
+    src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     assert "UNFILLED LIMIT ORDERS ARE NOT POSITIONS" in src
     assert "'ACTIVE POSITIONS: none' means none even when unfilled orders are" in src
 
@@ -178,10 +178,10 @@ def test_the_grounding_rules_name_the_distinction():
 def test_the_block_is_reached_from_the_prompt():
     """Every test above calls the seam directly and none prove the prompt uses
     it. #999 shipped a card that rendered zero times."""
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, handler_sources
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                    .read_text(encoding="utf-8"))
+    # Every file the handler class is made of, not telegram_handler.py alone.
+    src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     i = src.index("def _build_chat_system_prompt")
     body = src[i:src.index("async def _llm_chat", i)]
     # The call now passes a marks map as a second argument, so this anchors on
@@ -208,10 +208,10 @@ def test_the_section_can_never_be_silence():
     So `positions_detail` starts as a statement rather than "". A failure now
     degrades to "could not be confirmed" instead of to silence.
     """
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, handler_sources
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                    .read_text(encoding="utf-8"))
+    # Every file the handler class is made of, not telegram_handler.py alone.
+    src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     assert 'positions_detail = ""' not in src, (
         "the positions section defaults to empty again — an exception "
         "anywhere in that block now produces a prompt that says nothing "

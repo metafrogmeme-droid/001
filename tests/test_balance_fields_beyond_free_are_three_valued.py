@@ -142,7 +142,7 @@ def test_total_stays_a_number_on_purpose():
 
 def test_the_venue_switch_banner_does_not_print_an_unread_balance():
     """The venue answered, but with no entry for the margin coin."""
-    from bot.skills.telegram_handler import venue_balance_line
+    from bot.skills.engine_ops_commands import venue_balance_line
     line = venue_balance_line({}, "USDC")
     assert "could not be read" in line
     assert "0.00" not in line, (
@@ -152,14 +152,14 @@ def test_the_venue_switch_banner_does_not_print_an_unread_balance():
 
 
 def test_the_venue_switch_banner_states_each_half_separately():
-    from bot.skills.telegram_handler import venue_balance_line
+    from bot.skills.engine_ops_commands import venue_balance_line
     line = venue_balance_line({"total": 1481.844}, "USDC")
     assert "1,481.84 USDC" in line
     assert "free unknown" in line
 
 
 def test_a_real_venue_switch_balance_still_renders():
-    from bot.skills.telegram_handler import venue_balance_line
+    from bot.skills.engine_ops_commands import venue_balance_line
     line = venue_balance_line({"total": 1481.844, "free": 1181.844}, "USDC")
     assert "1,481.84 USDC" in line and "1,181.84" in line
     assert "unknown" not in line and "could not be read" not in line
@@ -167,7 +167,7 @@ def test_a_real_venue_switch_balance_still_renders():
 
 def test_a_genuinely_empty_account_is_not_reported_as_unreadable():
     """The other direction: 0.0 is a reading and must still print as one."""
-    from bot.skills.telegram_handler import venue_balance_line
+    from bot.skills.engine_ops_commands import venue_balance_line
     line = venue_balance_line({"total": 0.0, "free": 0.0}, "USDC")
     assert "0.00 USDC" in line
     assert "could not be read" not in line and "unknown" not in line
@@ -326,7 +326,7 @@ def test_a_non_dict_venue_entry_is_unreadable_not_empty():
     or None is not a balance, and reading it as one is how `or 0` produced a
     zero in the first place.
     """
-    from bot.skills.telegram_handler import venue_balance_line
+    from bot.skills.engine_ops_commands import venue_balance_line
     for entry in ("nonsense", None, [], 0):
         line = venue_balance_line(entry, "USDC")
         assert "could not be read" in line, f"{entry!r} rendered as a balance"

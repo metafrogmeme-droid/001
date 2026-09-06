@@ -264,7 +264,8 @@ def test_every_display_site_goes_through_the_seam():
         ("bot/skills/skill_registry.py",
          ("_thesis_bq(idea.reasoning, 250", "_thesis_bq(idea.reasoning, 200",
           "provenance_tag(idea.reasoning)", "thesis_prose(idea.reasoning) or \"\"")),
-        ("bot/skills/telegram_handler.py", ("thesis_prose(idea.reasoning)",)),
+        # /latest_signal's card: in the trading mixin since the handler split.
+        ("bot/skills/trading_commands.py", ("thesis_prose(idea.reasoning)",)),
         ("bot/guardian/explain_fill.py", ('thesis_prose(idea.get("reasoning"))',)),
     ):
         src = code_only((ROOT / rel).read_text(encoding="utf-8"))

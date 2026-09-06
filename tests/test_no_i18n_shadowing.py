@@ -125,9 +125,15 @@ class TestNoFunctionShadowsAModuleLevelCallableItCalls:
 
     def test_cmd_portfolio_specifically_is_clean(self):
         """The one that actually broke, pinned by name so a revert is loud."""
-        offenders = _offenders(REPO / "bot/skills/telegram_handler.py")
-        names = [fn for fn, _, _ in offenders]
+        # Every file the handler class is made of: /portfolio lives in the
+        # portfolio mixin since the handler split, and a scan of one file
+        # would pass here for the wrong reason — the name absent because the
+        # function is, not because it is clean.
+        from tests.source_scan import handler_sources
+        names = [fn for path in handler_sources() for fn, _, _ in _offenders(path)]
         assert "_cmd_portfolio" not in names
+        assert any("def _cmd_portfolio(" in path.read_text(encoding="utf-8")
+                   for path in handler_sources()), "the pinned command is gone"
 
 
 class TestTheScanCanSeeTheRealShape:

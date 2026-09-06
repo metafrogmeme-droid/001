@@ -100,8 +100,12 @@ def _code_only(path: Path) -> str:
 
 
 def test_the_position_details_card_reads_through_the_seam():
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: _handle_callback lives in the
+    # callback mixin since the handler split.
+    code = "\n".join(_code_only(p) for p in handler_sources())
     i = code.find("async def _handle_callback")
+    assert i >= 0, "the dispatcher is defined in no file of the handler class"
     body = code[i:]
     assert "market_context_line ( adata )" in body, "the inline RSI line is back"
     assert "rsi_label ( adata . get ( \"rsi\" ) )" in body

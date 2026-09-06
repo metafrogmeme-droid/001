@@ -101,10 +101,22 @@ def test_the_host_contract_is_true(cls):
     init = inspect.getsource(TelegramHandler.__init__)
     for name, params in stubs.items():
         if params is None:
-            assert re.search(rf"self\.{re.escape(name)}\s*=", init), (
-                f"{cls.__name__} declares {name} as provided by the host; __init__ never sets it")
+            # An attribute: set on the instance by the handler's __init__
+            # (a plain or an annotated assignment — `self.x: list = []` is
+            # still the handler providing x), or a class attribute the handler
+            # itself defines (a constant such as _WEB_LINK_HINT that more than
+            # one group reads).
+            assert re.search(rf"self\.{re.escape(name)}\s*(:[^=\n]+)?=", init) or name in vars(TelegramHandler), (
+                f"{cls.__name__} declares {name} as provided by the host; "
+                "__init__ never sets it and the handler does not define it")
             continue
-        assert name in vars(TelegramHandler), (
+        # A method: defined by the handler itself, or by another mixin the
+        # handler is composed of. The callback dispatcher reaches commands
+        # and helpers that live in five other groups, and what the contract
+        # promises is that the COMPOSED handler answers to the name with the
+        # parameters declared — which is what the signature check below
+        # holds it to, wherever the definition lives.
+        assert hasattr(TelegramHandler, name), (
             f"{cls.__name__} declares {name} as provided by the host; the handler does not define it")
         assert params == list(inspect.signature(getattr(TelegramHandler, name)).parameters), name
 

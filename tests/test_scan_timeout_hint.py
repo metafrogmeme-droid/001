@@ -28,7 +28,7 @@ negative nobody had measured — the same error as 2026-07-29, one step earlier.
 import time
 from types import SimpleNamespace
 
-from bot.skills.telegram_handler import (
+from bot.skills.scan_hints import (
     ANALYSIS_TIMEOUT_HINT_WINDOW_S, _recent_analysis_timeout,
     _scan_timeout_hint,
 )
@@ -199,7 +199,7 @@ def test_the_engine_record_carries_the_symbols():
 
 # ── in-flight progress branch ────────────────────────────────────────────
 
-from bot.skills.telegram_handler import _inflight_analysis_progress
+from bot.skills.scan_hints import _inflight_analysis_progress
 
 
 def _prog_engine(done, of, age_s=20.0, with_timeout_record=False):

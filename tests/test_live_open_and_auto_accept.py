@@ -32,6 +32,7 @@ import types
 import bot.config as cfg_mod
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
+from tests.source_scan import handler_sources
 
 
 def _cfg(monkeypatch, *, per_user=True, open_live=True):
@@ -365,11 +366,14 @@ class TestTheRefusalNamesTheStepThatActuallyWorks:
         """Three call sites, one rule. A hardcoded string at any of them is a
         second policy that stops agreeing the moment the switch moves."""
         import pathlib
-        for path in ("bot/skills/telegram_handler.py", "bot/skills/scan_skill.py"):
+        # Every file the handler class is made of, plus the scan skill: a
+        # hardcoded refusal in a command group that moved into a mixin would
+        # be the second policy this test exists to forbid.
+        for path in (*handler_sources(), pathlib.Path("bot/skills/scan_skill.py")):
             src = pathlib.Path(path).read_text(encoding="utf-8")
             assert "An admin must grant it with /grant_live" not in src, (
                 f"{path} hardcodes the staged-rollout refusal")
-        h = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+        h = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
         assert h.count("self._live_refusal_key()") >= 2
 
 

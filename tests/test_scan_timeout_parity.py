@@ -17,12 +17,18 @@ symptom, or the surface it misses is the one the operator is looking at.
 """
 from __future__ import annotations
 
-from tests.source_scan import code_only
+from pathlib import Path
+
+from tests.source_scan import code_only, handler_sources
 
 
 def _src() -> str:
-    return code_only(
-        open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    # Every file the handler class is made of, plus the scan-hints leaf the
+    # hint is defined in: the definition left for `scan_hints.py` and the
+    # scan commands are leaving for a mixin, and a scan of one file reads
+    # either move as the hint reaching one command fewer.
+    files = (*handler_sources(), Path("bot/skills/scan_hints.py"))
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in files)
 
 
 class TestEverySlowScanExplainsItself:

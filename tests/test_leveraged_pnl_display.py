@@ -6,7 +6,8 @@ on the same basis: dollars = ROE × margin = price-move × notional.
 """
 import inspect
 
-from bot.skills.telegram_handler import _leveraged_pnl_usd
+from bot.utils.leveraged_return import _leveraged_pnl_usd
+from tests.source_scan import handler_sources
 
 
 def test_matches_real_loss_not_unleveraged_fraction():
@@ -53,9 +54,13 @@ def test_all_live_card_paths_use_the_helper():
     # The three live-position card data paths must route dollar P&L through the
     # helper — no path may reintroduce the unleveraged (price-move × quantity /
     # price-move × margin) formula.
-    src = inspect.getfile(_leveraged_pnl_usd)
-    text = open(src).read()
-    assert text.count("_leveraged_pnl_usd(") >= 4  # def + 3 call sites
+    # The helper is defined in its leaf; the three card paths live on the
+    # handler class — two in the trading mixin, one in the detail callback —
+    # so the call sites are counted across every file the class is made of.
+    leaf = open(inspect.getfile(_leveraged_pnl_usd), encoding="utf-8").read()
+    assert leaf.count("def _leveraged_pnl_usd(") == 1
+    text = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
+    assert text.count("_leveraged_pnl_usd(") >= 3  # 3 call sites
     # The buggy patterns are gone.
     assert "(last_price - pos.entry_price) * pos.quantity" not in text
     assert "_qty * (last_px - _entry)" not in text

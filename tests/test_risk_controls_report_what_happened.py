@@ -142,7 +142,7 @@ def test_the_endpoint_no_longer_claims_to_close_positions():
 # ── Safe Mode ─────────────────────────────────────────────────────────────
 
 def test_safe_mode_does_not_claim_to_be_on():
-    from bot.skills.telegram_handler import safe_mode_notice
+    from bot.skills.callback_handler import safe_mode_notice
     out = safe_mode_notice()
     assert "not wired" in out.lower()
     for lie in ("Safe mode is on", "high-confidence setups from here"):
@@ -151,7 +151,7 @@ def test_safe_mode_does_not_claim_to_be_on():
 
 def test_safe_mode_points_at_the_controls_that_do_act():
     """A decoy between two working buttons is worse than a missing button."""
-    from bot.skills.telegram_handler import safe_mode_notice
+    from bot.skills.callback_handler import safe_mode_notice
     out = safe_mode_notice()
     assert "Pause" in out and "Stop Bot" in out
 

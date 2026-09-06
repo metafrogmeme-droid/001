@@ -102,7 +102,10 @@ def test_the_handler_still_registers_every_command_and_the_callback():
     for cmd in COMMANDS:
         assert f'("{cmd}", self._cmd_{cmd})' in build, (
             f"/{cmd} moved out of the file and out of build_app — present, unreached")
-    flat = " ".join(HANDLER_SRC.split())
+    # The bind is in _handle_callback, which lives in the callback mixin since
+    # the handler split: read every file the handler class is made of.
+    from tests.source_scan import handler_sources
+    flat = " ".join("\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources()).split())
     assert "self._apply_policy_callback(update, data)" in flat, (
         "the policy confirm/cancel buttons no longer reach the bind")
 

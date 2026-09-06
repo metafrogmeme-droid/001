@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace as NS
 
 from bot.compat import UTC
-from bot.skills.telegram_handler import _each_executor, _journal_gap_closes
+from bot.skills.engine_ops_commands import _each_executor, _journal_gap_closes
 
 _NOW = datetime.now(UTC)
 
@@ -115,9 +115,11 @@ class TestItNeverBreaksTheCommand:
 
 class TestTheMessageDistinguishesTheTwoCases:
     def _src(self):
-        from tests.source_scan import code_only
-        return code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # /journal lives in the engine-ops mixin since the handler split;
+        # read every file the handler class is made of, so the next move
+        # cannot turn these scans into a search of the wrong file.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_a_genuine_quiet_week_still_says_so(self):
         # The fix must not cost the command its normal answer.

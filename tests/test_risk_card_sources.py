@@ -31,13 +31,16 @@ other refuses.
 """
 
 import re
-from pathlib import Path
 
 from bot.config import CONFIG
 from bot.warroom.warroom_bot import render_risk
+from tests.source_scan import handler_sources
 
 
-SRC = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+# Every file the handler class is made of: /risk lives in the portfolio
+# mixin since the handler split, and a scan of telegram_handler.py alone
+# reads the move as the card no longer being fed from the gate.
+SRC = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 
 
 def _text(**kw):

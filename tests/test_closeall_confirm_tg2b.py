@@ -31,7 +31,10 @@ def test_the_actual_flatten_lives_behind_the_confirm():
 
 
 def test_confirm_callback_is_permission_gated_and_admin_rechecked():
-    src = inspect.getsource(th.TelegramHandler)
+    # The dispatcher, not the class body: _handle_callback lives in the
+    # callback mixin since the handler split, and the class source stops at
+    # the handler's own file. Reading the method follows it.
+    src = inspect.getsource(th.TelegramHandler._handle_callback)
     # Registered as a destructive callback requiring the halt permission.
     assert '"closeall_confirm": "halt"' in src
     # The confirm branch re-checks admin before flattening, and cancel is inert.

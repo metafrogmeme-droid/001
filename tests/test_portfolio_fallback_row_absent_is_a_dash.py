@@ -79,7 +79,11 @@ def _code_only(path: Path) -> str:
 def test_the_fallback_card_is_built_from_the_pure_row():
     """Wiring, with comments stripped: the handler's fallback block must call
     the row builder and must no longer coerce the fields itself."""
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /open_positions is leaving
+    # for the trading mixin, and a scan of one file reads the move as the
+    # fallback block vanishing.
+    code = "\n".join(_code_only(p) for p in handler_sources())
     i = code.find("if not filled_pos and not pending_pos :")
     assert i > 0, "fallback block not found"
     block = code[i:i + 3000]

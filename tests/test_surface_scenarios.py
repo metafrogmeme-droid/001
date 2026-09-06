@@ -31,7 +31,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from bot.formatters.rich_cards import render_adoption_card, render_open_positions
-from bot.skills.telegram_handler import _scan_timeout_hint
+from bot.skills.scan_hints import _scan_timeout_hint
 
 
 def _pos(**over):

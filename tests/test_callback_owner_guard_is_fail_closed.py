@@ -34,13 +34,15 @@ conditions, because the defect was drift between copies of the same rule.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
 from bot.skills.telegram_handler import TelegramHandler
+from tests.source_scan import handler_sources
 
-SRC = Path(__file__).resolve().parent.parent / "bot" / "skills" / "telegram_handler.py"
+# The three branches live in _handle_callback, in the callback mixin since
+# the handler split; the scans below read every file the handler class is
+# made of rather than telegram_handler.py by path.
 
 
 class TestTheOwnerPredicate:
@@ -116,7 +118,7 @@ def test_no_trade_callback_branch_reintroduces_the_fail_open_shape():
     a shape no unit test can see. The predicate above is tested by behaviour;
     this asserts nobody hand-rolls the condition again next to it.
     """
-    code = _code_only(SRC.read_text(encoding="utf-8"))
+    code = "\n".join(_code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     offenders = [
         (i + 1, ln.strip())
         for i, ln in enumerate(code.splitlines())
@@ -132,7 +134,7 @@ def test_no_trade_callback_branch_reintroduces_the_fail_open_shape():
 @pytest.mark.parametrize("action", ["setlimit", "confirm", "reject"])
 def test_each_trade_callback_branch_consults_the_shared_predicate(action):
     """All three must decide the same way, since they drifted once already."""
-    code = _code_only(SRC.read_text(encoding="utf-8"))
+    code = "\n".join(_code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     start = code.index(f'data.startswith("{action}:")')
     window = code[start:start + 2000]
     assert "_callback_owner_ok(" in window, (

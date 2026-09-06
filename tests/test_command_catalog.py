@@ -11,11 +11,14 @@ undocumented and a retired one cannot linger in the docs.
 """
 
 import re
-from pathlib import Path
 
 from bot.skills.command_catalog import GROUPS, all_entries, help_sections, render_help
+from tests.source_scan import handler_sources
 
-_SRC = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+# Every file the handler class is made of, the handler first: the
+# registrations are in build_app, and /help lives in the start-here mixin
+# since the handler split.
+_SRC = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 # `self.` is OPTIONAL. The multi-user commands (/link, /unlink, /me, /sync)
 # are registered as module-level functions imported from user_middleware —
 # `("link", _cmd_link)` — and a pattern that required `self.` did not see

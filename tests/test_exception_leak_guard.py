@@ -119,9 +119,12 @@ class TestNoHandlerBypassesIt:
     """The half-fixed surface, on a hard line, is the defect this closes."""
 
     def _src(self):
-        from tests.source_scan import code_only
-        return code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # Every file the handler class is made of: the scrubber's call sites
+        # are spread across the mixins since the handler split, and a count
+        # over telegram_handler.py alone read the move as eight of them
+        # dropping the helper.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_no_user_reply_renders_a_raw_exception(self):
         r"""Parsed, not grepped — the regex version had a blind spot.

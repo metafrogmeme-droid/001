@@ -206,8 +206,11 @@ def test_gate_words_splits_into_an_icon_and_a_label_for_every_state():
 # ── the wiring a unit test cannot reach ─────────────────────────────────
 
 def _handler_code() -> str:
-    from bot.skills import telegram_handler
-    return code_only(open(telegram_handler.__file__, encoding="utf-8").read())
+    # Every file the handler class is made of: the trade paths live in the
+    # trading mixin since the handler split, and a scan of one file reads
+    # the move as the offer block vanishing.
+    from tests.source_scan import handler_sources
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def test_the_drift_retry_offers_and_never_confirms():

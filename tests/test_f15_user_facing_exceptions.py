@@ -32,9 +32,7 @@ from __future__ import annotations
 
 import re
 
-from tests.source_scan import code_only
-
-HANDLER = "bot/skills/telegram_handler.py"
+from tests.source_scan import code_only, handler_sources
 
 #: An exception interpolated into an f-string. `{exc}`, `{e}`, `{str(exc)}`,
 #: and the escape-only form the docstring calls out by name.
@@ -45,7 +43,13 @@ RAW_EXC = re.compile(
 
 
 def _src() -> str:
-    return code_only(open(HANDLER, encoding="utf-8").read())
+    """Every file the handler class is made of, not telegram_handler.py alone.
+
+    The handler is being split into mixins, and a `_send` that moved into
+    one would otherwise drop out of this scan without a word — the same
+    "guard scoped to one file" shape the class below was written to close.
+    """
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _send_calls(src: str) -> list[tuple[int, str]]:

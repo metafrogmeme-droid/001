@@ -234,19 +234,24 @@ def test_every_settings_write_site_handles_the_collision():
     """
     import inspect
 
-    import bot.skills.telegram_handler as th
     import bot.web.user_gateway as gw
+    from tests.source_scan import handler_sources
 
-    for mod, expected in ((gw, 4), (th, 1)):
-        src = inspect.getsource(mod)
+    # The Telegram half is counted across every file the handler class is
+    # made of: its one site lives in a mixin since the handler split, and a
+    # count scoped to telegram_handler.py alone read the move as the site
+    # vanishing (0 of 1) — and would read a copy left behind as a sixth.
+    telegram_src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
+    for name, src, expected in (("bot.web.user_gateway", inspect.getsource(gw), 4),
+                                ("the Telegram handler and its mixins", telegram_src, 1)):
         calls = src.count("ensure_settings_parent(uid)")
         catches = src.count("except IdentityCollision:")
         assert calls == expected, (
-            f"{mod.__name__}: {calls} call sites, expected {expected} — a new "
+            f"{name}: {calls} call sites, expected {expected} — a new "
             "one was added without a collision branch"
         )
         assert catches == expected, (
-            f"{mod.__name__}: {calls} call sites but {catches} handlers"
+            f"{name}: {calls} call sites but {catches} handlers"
         )
 
 

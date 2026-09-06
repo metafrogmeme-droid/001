@@ -167,9 +167,11 @@ class TestTheHandlerStillPassesTheDistinctionIn:
     """
 
     def _src(self) -> str:
-        from tests.source_scan import code_only
-        return code_only(open("bot/skills/telegram_handler.py",
-                              encoding="utf-8").read())
+        # Every file the handler class is made of: /open_positions is leaving
+        # for the trading mixin, and a scan of one file reads the move as the
+        # three-valued read vanishing.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_the_orders_fetch_failure_is_recorded(self):
         assert "_orders_read = False" in self._src(), (

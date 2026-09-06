@@ -18,7 +18,8 @@ from datetime import datetime, timedelta, timezone
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.core.live_executor import LiveExecutor
-from bot.skills.telegram_handler import TelegramHandler, _closed_on_utc_date
+from bot.skills.start_commands import _closed_on_utc_date
+from bot.skills.telegram_handler import TelegramHandler
 
 UTC = timezone.utc
 

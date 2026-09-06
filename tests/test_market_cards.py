@@ -273,14 +273,20 @@ class TestTheCommandsAreGuardedNow:
 
     def _decorators(self):
         import ast
-        import pathlib
         import re as _re
-        src = pathlib.Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
-        tree = ast.parse(src)
-        reg = dict(_re.findall(r'\("([a-z_]+)",\s*(?:self\.)?(_cmd_[a-z_]+)\)', src))
-        decs = {n.name: [ast.unparse(d) for d in n.decorator_list]
-                for n in ast.walk(tree)
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+        from tests.source_scan import handler_sources
+        # Every file the handler class is made of: /holdtime lives in the
+        # portfolio mixin since the handler split (the registration is still
+        # in build_app), and a decorator map built from telegram_handler.py
+        # alone reported a moved command as carrying no guard at all.
+        srcs = [p.read_text(encoding="utf-8") for p in handler_sources()]
+        reg = dict(_re.findall(r'\("([a-z_]+)",\s*(?:self\.)?(_cmd_[a-z_]+)\)', "\n".join(srcs)))
+        decs = {}
+        for src in srcs:
+            for n in ast.walk(ast.parse(src)):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    decs[n.name] = [ast.unparse(d) for d in n.decorator_list]
         return {c: decs.get(h, []) for c, h in reg.items()}
 
     @pytest.mark.parametrize("command", sorted(EXPECTED))

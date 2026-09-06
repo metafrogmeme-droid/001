@@ -28,12 +28,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace as NS
 
-from tests.source_scan import code_only
+from tests.source_scan import code_only, handler_sources
 
 
 def _src() -> str:
-    return code_only(
-        open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    # Every file the handler class is made of: /portfolio lives in the
+    # portfolio mixin since the handler split, and a scan of one file reads
+    # the move as the unrealized block vanishing.
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _portfolio_block() -> str:

@@ -72,6 +72,14 @@ class TestTheHelpersAreActuallyRead:
         from tests.source_scan import code_only
         return code_only(open(path, encoding="utf-8").read())
 
+    def _handler_src(self):
+        # Every file the handler class is made of: /portfolio and
+        # /performance live in the portfolio mixin since the handler split,
+        # and a scan of telegram_handler.py alone reads the move as the tag
+        # losing its caller.
+        from tests.source_scan import code_only, handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
+
     def test_coverage_note_has_a_caller(self):
         src = self._src("bot/formatters/rich_cards.py")
         assert "coverage_note as _wr_note" in src, (
@@ -85,7 +93,7 @@ class TestTheHelpersAreActuallyRead:
         )
 
     def test_the_wl_lines_carry_the_unpriced_tag(self):
-        src = self._src("bot/skills/telegram_handler.py")
+        src = self._handler_src()
         assert "def _unpriced_tag(" in src
         assert "_unpriced_tag(_ws)" in src, (
             "a W/L pair reads as the whole set unless the remainder is named"
@@ -101,7 +109,7 @@ class TestTheHelpersAreActuallyRead:
         # and look at the tile, so the string is gone and the behaviour is
         # not. Exercising the property is what the scan was standing in for,
         # and it holds wherever the code lives.
-        src = self._src("bot/skills/telegram_handler.py")
+        src = self._handler_src()
         assert '"win_rate_scored"' in src, (
             "the handler no longer passes the scored count to the card"
         )
@@ -120,16 +128,16 @@ class TestTheHelpersAreActuallyRead:
 
 class TestTheTagItself:
     def test_it_is_silent_on_a_clean_set(self):
-        from bot.skills.telegram_handler import _unpriced_tag
+        from bot.skills.portfolio_commands import _unpriced_tag
         assert _unpriced_tag(win_stats([])) == ""
         assert _unpriced_tag({"unscored": 0}) == ""
 
     def test_it_names_the_remainder(self):
-        from bot.skills.telegram_handler import _unpriced_tag
+        from bot.skills.portfolio_commands import _unpriced_tag
         assert "+2 unpriced" in _unpriced_tag({"unscored": 2})
 
     def test_it_never_raises(self):
-        from bot.skills.telegram_handler import _unpriced_tag
+        from bot.skills.portfolio_commands import _unpriced_tag
         for bad in (None, {}, {"unscored": "x"}, {"unscored": None}, 7):
             assert _unpriced_tag(bad) == ""      # type: ignore[arg-type]
 

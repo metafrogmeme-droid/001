@@ -109,8 +109,11 @@ def test_the_catcher_is_registered_after_every_real_command():
     """Ordering is the whole trick: python-telegram-bot dispatches to the
     first matching handler, so the catch-all must come after the real ones
     or it would swallow every command in the bot."""
-    from pathlib import Path
-    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of, the handler first: the
+    # registration order is read within build_app, and the unknown-command
+    # reply lives in the start-here mixin since the handler split.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     reg_at = src.index("app.add_handler(CommandHandler(cmd, handler))")
     catch_at = src.index("filters.COMMAND, self._handle_unknown_command")
     text_at = src.index("filters.TEXT & ~filters.COMMAND")
@@ -159,8 +162,11 @@ def test_unknown_command_reply_is_bilingual():
 
 
 def test_every_dictionary_language_menu_is_actually_registered_with_telegram():
-    from pathlib import Path
-    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of, the handler first: the
+    # registration order is read within build_app, and the unknown-command
+    # reply lives in the start-here mixin since the handler split.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     body = src.split("async def _register_command_menu", 1)[1].split("\n    async def ", 1)[0]
     assert "language_code=code" in body, "Telegram needs a per-language menu registration"
     assert "for code in SUPPORTED_LANGS" in body, "one registration per dictionary language"
