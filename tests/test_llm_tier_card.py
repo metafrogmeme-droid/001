@@ -466,7 +466,8 @@ def test_both_operator_cards_resolve_for_the_same_audience():
     routing to the same admin; they must not disagree about whose route it is."""
     from tests.source_scan import code_only
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
+    # Both cards live in the LLM mixin since the handler split.
+    src = code_only((ROOT / "bot" / "skills" / "llm_commands.py")
                     .read_text(encoding="utf-8"))
     # Sliced to the NEXT definition, not to a fixed character count — a count
     # that stops short of the call passes for the wrong reason.
@@ -480,11 +481,13 @@ def test_both_operator_cards_resolve_for_the_same_audience():
     # "Anthropic key slots" heading — so a keyless self-hosted tier read as
     # "NOT SET" beside a valid key. It is on the collector now, which is what
     # this test was really guarding: one collector, one answer.
+    # `_llm_tier_card` is the mixin's last method, so its slice runs to the
+    # end of the file (and the mixin test would notice a method added after).
     for marker, end, call in (
             ("_cmd_llmstatus", "def _cmd_llmreset", "tier_report"),
-            ("_llm_tier_card", "def _cmd_dashboard", "tier_report")):
+            ("_llm_tier_card", None, "tier_report")):
         i = src.index(f"def {marker}")
-        body = src[i:src.index(end, i)]
+        body = src[i:src.index(end, i)] if end else src[i:]
         assert call in body, f"{marker} no longer resolves via {call}"
         assert "is_admin=True" in body, (
             f"{marker} resolves tier routing without is_admin=True, so it "

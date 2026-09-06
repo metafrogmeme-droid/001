@@ -138,14 +138,18 @@ def test_the_payload_and_the_card_cannot_drift():
     appears."""
     from tests.source_scan import code_only
 
-    for rel in ("bot/web/dashboard_server.py", "bot/skills/telegram_handler.py"):
+    # The Telegram card lives in the LLM mixin since the handler split; the
+    # collector must still be the one both surfaces share.
+    for rel in ("bot/web/dashboard_server.py", "bot/skills/llm_commands.py"):
         src = code_only((ROOT / rel).read_text(encoding="utf-8"))
         assert "tier_report(" in src, f"{rel} stopped using the shared collector"
 
-    handler = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                        .read_text(encoding="utf-8"))
-    i = handler.index("def _llm_tier_card")
-    body = handler[i:handler.index("def _cmd_dashboard", i)]
+    mixin = code_only((ROOT / "bot" / "skills" / "llm_commands.py")
+                      .read_text(encoding="utf-8"))
+    i = mixin.index("def _llm_tier_card")
+    body = mixin[i:]
+    assert "\n    def " not in body[20:] and "\n    async def " not in body[20:], (
+        "_llm_tier_card is no longer the mixin's last method — slice to the next def")
     assert "resolve_tier_config" not in body, (
         "the Telegram card resolves tiers itself again — a second collector "
         "that has to be kept in step with tier_report is how these three "

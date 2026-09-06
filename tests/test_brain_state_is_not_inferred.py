@@ -154,10 +154,13 @@ def test_a_broken_health_call_produces_no_line_rather_than_a_wrong_one():
 def test_no_surface_claims_a_healthy_brain_without_asking():
     """The guard. `/llmstatus` had the distinction and the timeout hint did
     not, for as long as each spelled the check out for itself."""
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, handler_sources
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                    .read_text(encoding="utf-8"))
+    # Every file the handler class is made of: /llmstatus lives in a mixin
+    # now, and a count over telegram_handler.py alone would miss a second
+    # copy of the claim written there.
+    sources = {p: code_only(p.read_text(encoding="utf-8")) for p in handler_sources()}
+    src = "\n".join(sources.values())
     # ONE occurrence is correct: the `_may_exclude` arm of the shared
     # expression, which is the only place entitled to say it. Forbidding it
     # outright would forbid the fix; the property is that it never appears
@@ -175,12 +178,16 @@ def test_no_surface_claims_a_healthy_brain_without_asking():
 
 
 def test_both_surfaces_resolve_through_the_shared_function():
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, handler_sources
 
-    src = code_only((ROOT / "bot" / "skills" / "telegram_handler.py")
-                    .read_text(encoding="utf-8"))
+    # The timeout hint is a handler module-level helper; /llmstatus is in the
+    # LLM mixin. Each marker is looked up in whichever contributing file
+    # defines it, so a further move does not turn this into a scan of nothing.
+    sources = [code_only(p.read_text(encoding="utf-8")) for p in handler_sources()]
     for marker, end in (("def _scan_timeout_hint", "def _inflight_analysis_progress"),
                         ("def _cmd_llmstatus", "def _cmd_llmreset")):
+        src = next((s for s in sources if marker in s), None)
+        assert src is not None, f"{marker} is defined in no file of the handler class"
         i = src.index(marker)
         body = src[i:src.index(end, i)]
         assert "_brain_state(" in body, f"{marker} no longer uses brain_state()"

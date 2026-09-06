@@ -120,8 +120,11 @@ def test_an_unreadable_snapshot_is_not_reported_as_llm():
 # --------------------------------------------------------------------------
 
 def _handler_src() -> str:
-    return code_only((REPO / "bot" / "skills" / "telegram_handler.py")
-                     .read_text(encoding="utf-8"))
+    """Every file the handler class is made of, joined: /llmstatus lives in
+    the LLM mixin since the handler split and the scan-timeout hint stays a
+    handler helper, and the count below spans both."""
+    from tests.source_scan import handler_sources
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def test_sweep_note_has_a_production_caller():

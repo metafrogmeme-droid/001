@@ -165,7 +165,8 @@ def test_llmstatus_routes_through_the_shared_collector():
     """`tier_report` was written because these surfaces drift. A private loop
     here is how the third rendering gets a different answer again."""
     from tests.source_scan import code_only
-    src = code_only(open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    # /llmstatus lives in the LLM mixin since the handler split.
+    src = code_only(open("bot/skills/llm_commands.py", encoding="utf-8").read())
     assert "render_engine_uses(" in src, "the block is not built"
     assert "{engine_block}" in src, (
         "the block is built and never rendered — present is not reached")
@@ -178,7 +179,7 @@ def test_llmstatus_routes_through_the_shared_collector():
 
 def test_the_slots_block_no_longer_claims_the_engine_uses_one_of_them():
     from tests.source_scan import code_only
-    src = code_only(open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    src = code_only(open("bot/skills/llm_commands.py", encoding="utf-8").read())
     assert "— engine uses → " not in src, (
         "a non-Anthropic resolution is being printed under an Anthropic heading")
 

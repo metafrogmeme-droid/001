@@ -145,7 +145,8 @@ class TestItIsActuallyWired:
 
     def test_llmstatus_says_when_no_price_is_configured(self):
         from tests.source_scan import code_only
+        # /llmstatus lives in the LLM mixin since the handler split.
         src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+            open("bot/skills/llm_commands.py", encoding="utf-8").read())
         assert "LLM_PRICE_PER_1M_IN" in src
         assert "no price is invented" in src

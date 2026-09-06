@@ -612,7 +612,7 @@ python -m bot.main --mode scan
 | `/setllm` | 執行時切換 LLM 供應商 |
 | `/settier` | 各層級 LLM 路由 |
 | `/ultra` | ULTRA 管理路由 |
-| `/setexchange` | 修復交易所憑證 |
+| `/setexchange` | 設定營運者交易所金鑰，只存保險庫——bitget、bybit、bingx |
 | `/setgateway` | 修復網頁閘道密鑰 |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
