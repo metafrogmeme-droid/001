@@ -9,9 +9,11 @@ chain timing, thinking phrases, tool rules, the Telegram edit-stream and the
 `_chat_ret` funnel — are in bot/skills/chat_runtime.py and re-exported here;
 `tests/test_chat_runtime_split.py` says what moved, what stayed, and why.
 The command groups leave as MIXINS this class inherits — the Guardian group
-(bot/skills/guardian_commands.py) and the LLM routing group
-(bot/skills/llm_commands.py) so far. `tests/test_handler_mixins.py` holds
-every mixin to the split's rules, derived from this class's MRO.
+(bot/skills/guardian_commands.py), the LLM routing group
+(bot/skills/llm_commands.py), users and access (bot/skills/access_commands.py)
+and yield and staking (bot/skills/yield_commands.py) so far.
+`tests/test_handler_mixins.py` holds every mixin to the split's rules,
+derived from this class's MRO.
 """
 
 from __future__ import annotations
@@ -53,9 +55,11 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
 # because twenty-five call sites and two test suites reach it through it.
+from bot.skills.access_commands import AccessCommands
 from bot.skills.command_guard import guard
 from bot.skills.guardian_commands import GuardianCommands
 from bot.skills.llm_commands import LLMCommands
+from bot.skills.yield_commands import YieldCommands
 from bot.utils.exc_text import _TG_TOKEN_RE, _safe_exc_text
 
 # Module logger. Several exception/admin paths referenced bare `os`/`logger`
@@ -195,7 +199,6 @@ def _skipped_symbols_note(record: dict | None, now: float) -> str:
     return f" <i>({skipped} of {of} symbols were skipped)</i>"
 
 
-
 def _unpriced_tag(stats: dict) -> str:
     """" (+N unpriced)" for a W/L line, or "" when everything scored.
 
@@ -210,7 +213,6 @@ def _unpriced_tag(stats: dict) -> str:
     except (AttributeError, TypeError, ValueError):
         return ""
     return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
-
 
 
 def safe_mode_notice() -> str:
@@ -693,7 +695,7 @@ from bot.skills.scan_skill import cmd_scan as _scan_skill_handler, callback_conf
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
 from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
-from bot.utils.user_store import (ROLES, SELF_ADMISSION_BY,
+from bot.utils.user_store import (SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore, is_vouchable)
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
                             chat_language_name, ui_lang, resolve_lang_choice,
@@ -715,7 +717,6 @@ from bot.formatters.rich_cards import (
     render_open_positions,
     render_status_card,
 )
-from bot.formatters.user_roster import render_table
 from bot.warroom.warroom_bot import (
     render_start as wr_start,
     render_risk as wr_risk,
@@ -895,7 +896,7 @@ def resolve_profile_note(profile_note: str, user_id) -> str:
     return " ".join(p for p in parts if p)
 
 
-class TelegramHandler(GuardianCommands, LLMCommands):
+class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands):
     def __init__(self, engine: RuneClawEngine, registry: Optional[SkillRegistry] = None) -> None:
         self.engine = engine
         self.registry = registry or build_default_registry()
@@ -4378,377 +4379,9 @@ class TelegramHandler(GuardianCommands, LLMCommands):
             reply_markup=InlineKeyboardMarkup(buttons))
 
     # ── Admin commands ────────────────────────────────────────
-
-    async def _cmd_approve(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /approve <telegram_id> [role]"""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-
-        args = ctx.args or []
-        if not args:
-            await self._send(update,
-                f"\U0001f4cb {t('approve_usage', self._lang(update))}")
-            return
-
-        target_id = args[0].strip()
-
-        # Input validation: Telegram IDs are numeric only. Shared with the
-        # `admit:` callback and read by migrate_self_admitted_roles, which
-        # depends on this refusal to know a web-only account cannot have been
-        # vouched for — see user_store.is_vouchable.
-        if not is_vouchable(target_id):
-            await self._send(update,
-                f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}")
-            return
-
-        role = args[1].strip().lower() if len(args) > 1 else "trader"
-
-        # `paper` is grantable here on purpose: it is where a self-admitted user
-        # already sits, so an admin who wants to keep someone at that level —
-        # or move a "trader" back down to it without revoking access outright —
-        # can, instead of having only /revoke as the next step down.
-        if role not in ("trader", SELF_ADMISSION_ROLE, "viewer", "admin"):
-            await self._send(update,
-                f"\U0001f534 {t('invalid_role', self._lang(update), role=html.escape(role))}")
-            return
-
-        # `by=` is what makes this stick. Without it the store records an
-        # authorization the allowlist does not read, and /approve announces
-        # "USER APPROVED" to the admin and "Access Granted" to the user while
-        # the very next command still answers "not approved yet".
-        ok = self.users.authorize(target_id, role=role,
-                                  by=self._get_tg_id(update))
-        if ok:
-            target = self.users.get(target_id)
-            name = target.get("name", "Unknown") if target else "Unknown"
-            can_live = self._can_trade_live(target_id)
-            trade_mode = "\U0001f525 Live" if can_live else "\U0001f4dd Paper"
-            SEP = "\u2500" * 16
-            await self._send(update,
-                f"\u2705 {t('approve_result', self._lang(update), sep=SEP, name=html.escape(name), id=target_id, role=role, trade_mode=trade_mode)}")
-            # Notify the approved user
-            try:
-                await ctx.bot.send_message(
-                    chat_id=int(target_id),
-                    text=(
-                        f"🟢 {t('access_granted', get_user_lang(self.users, target_id), sep=SEP, role=role)}"
-                    ),
-                    parse_mode="HTML")
-            except Exception:
-                pass  # User may not have started the bot yet
-        else:
-            await self._send(update,
-                f"🔴 {t('approve_failed', self._lang(update), id=html.escape(target_id))}")
-
-    async def _cmd_revoke(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /revoke <telegram_id>"""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-
-        args = ctx.args or []
-        if not args:
-            await self._send(update,
-                f"{t('revoke_usage', self._lang(update))}")
-            return
-
-        target_id = args[0].strip()
-
-        # L-13 FIX: validate Telegram ID format
-        if not target_id.isdigit():
-            await self._send(update, f"{t('invalid_tg_id_format', self._lang(update))}")
-            return
-
-        # Don't let admin revoke themselves
-        if target_id == self._get_tg_id(update):
-            await self._send(update, f"\U0001f534 {t('cannot_revoke_self', self._lang(update))}")
-            return
-
-        ok = self.users.revoke(target_id)
-        if ok:
-            SEP = "─" * 16
-            await self._send(update,
-                f"⚠️ {t('revoke_result', self._lang(update), sep=SEP, id=target_id)}")
-        else:
-            await self._send(update,
-                f"\U0001f534 {t('user_not_found_id', self._lang(update), id=html.escape(target_id))}")
-
-    async def _cmd_grant_live(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /grant_live <telegram_id> — allow user to trade live."""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-        args = ctx.args or []
-        if not args:
-            await self._send(update,
-                f"\U0001f4cb {t('grant_live_usage', self._lang(update))}")
-            return
-        target_id = args[0].strip()
-        if not target_id.isdigit():
-            await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
-            return
-        user = self.users.get(target_id)
-        if not user or not user.get("authorized"):
-            await self._send(update,
-                f"\U0001f534 {t('grant_live_not_approved', self._lang(update), id=target_id)}")
-            return
-        ok = self.users.set_live_trading(target_id, True)
-        if ok:
-            name = user.get("name", "Unknown")
-            await self._send(update,
-                f"\U0001f525 {t('grant_live_result', self._lang(update), name=html.escape(name), id=target_id, role=user.get('role', 'trader'))}")
-        else:
-            await self._send(update, f"\U0001f534 {t('grant_live_failed', self._lang(update))}")
-
-    async def _cmd_revoke_live(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /revoke_live <telegram_id> — restrict user to paper only."""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-        args = ctx.args or []
-        if not args:
-            await self._send(update,
-                f"{t('revoke_live_usage', self._lang(update))}")
-            return
-        target_id = args[0].strip()
-        if not target_id.isdigit():
-            await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
-            return
-        ok = self.users.set_live_trading(target_id, False)
-        if ok:
-            user = self.users.get(target_id)
-            name = user.get("name", "Unknown") if user else "Unknown"
-            await self._send(update,
-                f"\U0001f4dd {t('revoke_live_result', self._lang(update), name=html.escape(name), id=target_id)}")
-        else:
-            await self._send(update, f"\U0001f534 {t('user_not_found', self._lang(update))}")
-
-    async def _cmd_set_tier(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /set_tier <telegram_id> <tier> — change user tier."""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-        args = ctx.args or []
-        if len(args) < 2:
-            from bot.utils.user_store import TIERS
-            tiers_str = " / ".join(f"<code>{_tier}</code>" for _tier in TIERS)
-            await self._send(update,
-                f"\U0001f4cb {t('set_tier_usage', self._lang(update), tiers=tiers_str)}")
-            return
-        target_id = args[0].strip()
-        tier = args[1].strip().lower()
-        if not target_id.isdigit():
-            await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
-            return
-        from bot.utils.user_store import TIERS
-        if tier not in TIERS:
-            await self._send(update,
-                f"\U0001f534 {t('invalid_tier', self._lang(update), tier=html.escape(tier), valid=', '.join(f'<code>{_t}</code>' for _t in TIERS))}")
-            return
-        user = self.users.get(target_id)
-        if not user:
-            await self._send(update, f"\U0001f534 {t('user_not_found_id_period', self._lang(update), id=target_id)}")
-            return
-        ok = self.users.set_tier(target_id, tier)
-        if ok:
-            # Mirror the change to the website so users.plan follows the
-            # bot's tier authority (best-effort, background).
-            try:
-                from bot.utils.website_sync import sync_tiers_in_background
-                sync_tiers_in_background(self.users.all_tiers())
-            except Exception:
-                pass
-            name = user.get("name", "Unknown")
-            tier_label = self.users.tier_label(target_id)
-            await self._send(update,
-                f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(name), id=target_id, tier_label=tier_label, role=user.get('role', 'trader'))}")
-            # Notify the user
-            try:
-                await ctx.bot.send_message(
-                    chat_id=int(target_id),
-                    text=(f"\U0001f3af {t('account_upgraded', get_user_lang(self.users, target_id), tier_label=tier_label)}"),
-                    parse_mode="HTML")
-            except Exception:
-                pass
-        else:
-            await self._send(update, f"\U0001f534 {t('set_tier_failed', self._lang(update))}")
-
-    # ── Marketing / Channel commands ──────────────────────────
-
-    async def _cmd_channel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/channel — manage marketing channel auto-posting."""
-        # Allow bot admins OR Telegram group admins
-        is_bot_admin = self._is_admin(update)
-        is_group_admin = False
-        if not is_bot_admin and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            try:
-                member = await ctx.bot.get_chat_member(
-                    update.effective_chat.id, update.effective_user.id)
-                is_group_admin = member.status in ("creator", "administrator")
-            except Exception:
-                pass
-        if not is_bot_admin and not is_group_admin:
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-
-        # Auto-detect this group if command is run in one
-        chat = update.effective_chat
-        if chat and chat.type in ("group", "supergroup"):
-            self.forwarder.detect_group(chat.id, chat.type, chat.title or "")
-
-        args = ctx.args or []
-        if not args:
-            groups = self.forwarder.group_ids
-            status = "\U0001f7e2 ON" if self.forwarder.is_enabled else "\U0001f534 OFF"
-            _sep = "\u2500" * 18
-            msg = (
-                f"\U0001f4e1 <b>Channel Forwarder</b>\n"
-                f"{_sep}\n\n"
-                f"Status: {status}\n"
-                f"Groups: <code>{len(groups)}</code>\n"
-            )
-            if groups:
-                for gid in groups:
-                    msg += f"\u2022 <code>{gid}</code>\n"
-            msg += (
-                "\n<b>Commands:</b>\n"
-                "<code>/channel on</code> \u2014 enable auto-posting\n"
-                "<code>/channel off</code> \u2014 disable auto-posting\n"
-                "<code>/channel add &lt;chat_id&gt;</code> \u2014 add group\n"
-                "<code>/channel remove &lt;chat_id&gt;</code> \u2014 remove group\n"
-                "<code>/channel test</code> \u2014 send test message\n\n"
-                "<i>Groups are also auto-detected when the bot receives a message in them.</i>"
-            )
-            await self._send(update, msg)
-            return
-
-        sub = args[0].lower()
-        if sub == "on":
-            self.forwarder.set_enabled(True)
-            await self._send(update, "\U0001f7e2 Channel auto-posting <b>enabled</b>.")
-        elif sub == "off":
-            self.forwarder.set_enabled(False)
-            await self._send(update, "\U0001f534 Channel auto-posting <b>disabled</b>.")
-        elif sub == "add" and len(args) >= 2:
-            try:
-                gid = int(args[1])
-                self.forwarder.add_group(gid)
-                await self._send(update, f"\u2705 Group <code>{gid}</code> added.")
-            except ValueError:
-                await self._send(update, "\u274c Invalid chat ID. Must be a number.")
-        elif sub == "remove" and len(args) >= 2:
-            try:
-                gid = int(args[1])
-                self.forwarder.remove_group(gid)
-                await self._send(update, f"\u2705 Group <code>{gid}</code> removed.")
-            except ValueError:
-                await self._send(update, "\u274c Invalid chat ID.")
-        elif sub == "test":
-            now = datetime.now(UTC).strftime("%H:%M UTC")
-            await self.forwarder.post_custom(
-                f"\U0001f916 <b>RUNECLAW Test</b>\n\n"
-                f"Channel forwarder is working.\n"
-                f"Signals, trade results, and daily reports will auto-post here.\n\n"
-                f"<i>{now}</i>")
-            await self._send(update, "\u2705 Test message sent to all groups.")
-        else:
-            await self._send(update,
-                "\u274c Unknown subcommand. Use <code>/channel</code> for help.")
-
-    async def _cmd_broadcast(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/broadcast <message> — send a custom message to all marketing channels."""
-        is_bot_admin = self._is_admin(update)
-        is_group_admin = False
-        if not is_bot_admin and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            try:
-                member = await ctx.bot.get_chat_member(
-                    update.effective_chat.id, update.effective_user.id)
-                is_group_admin = member.status in ("creator", "administrator")
-            except Exception:
-                pass
-        if not is_bot_admin and not is_group_admin:
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-        args = ctx.args or []
-        if not args:
-            await self._send(update,
-                "\U0001f4e2 <b>Broadcast</b>\n\n"
-                "<code>/broadcast Your message here</code>\n\n"
-                "Sends a custom message to all registered groups.")
-            return
-        text = " ".join(args)
-        await self.forwarder.post_custom(f"\U0001f4e2 {html.escape(text)}")
-        await self._send(update, f"\u2705 Broadcast sent to {self.forwarder.group_count} group(s).")
-
-    async def _cmd_users(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: list all registered users."""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-
-        # A ROSTER FROM A STORE THAT STARTED EMPTY is not a roster of who is
-        # registered — it is a roster of who has messaged since. Both render as
-        # a confident count, which is how "the users are gone" looked identical
-        # to "nobody ever signed up".
-        #
-        # READ FROM THE STORE THIS COMMAND ACTUALLY USES. The first version of
-        # this caveat asked `bot.db.models.database_is_new()` — the SQLite
-        # database, which /users never touches: the roster comes from
-        # UserStore and data/users.json. It could not have fired for the
-        # incident it was written for, and would have stayed silent while
-        # reporting two accounts out of eighteen.
-        fresh_db = ""
-        try:
-            if getattr(self.users, "started_empty", False):
-                fresh_db = (
-                    "\n\n⚠️ <b>This user store started empty on this run.</b>\n"
-                    "There was no readable <code>users.json</code> when the "
-                    "bot started, so this list is everyone who has messaged "
-                    "SINCE — not necessarily everyone who was registered "
-                    "before. Check the <code>data/</code> symlink and any "
-                    "recent restore.")
-        except Exception:
-            fresh_db = ""
-
-        all_users = self.users.list_users()
-        if not all_users:
-            await self._send(
-                update,
-                f"\U0001f4cb {t('no_registered_users', self._lang(update))}"
-                + fresh_db)
-            return
-
-        counts = self.users.count()
-        SEP = "─" * 16
-        lines = [
-            f"👥 {t('users_header', self._lang(update), n=len(all_users))}\n"
-            f"{SEP}\n",
-        ]
-
-        # Summary with role icons. Iterate ROLES, not a second hardcoded tuple:
-        # this list is the operator's headcount, and a role missing from the
-        # loop is a group of real users rendering as absent — a stranger who
-        # let themselves in would simply not appear in the count.
-        role_icons = {"admin": "🔒", "trader": "⚔️", "paper": "📝",
-                      "viewer": "👁", "pending": "⏳"}
-        for role in ROLES:
-            c = counts.get(role, 0)
-            if c > 0:
-                icon = role_icons.get(role, "")
-                lines.append(f"- {icon} {role}: <code>{c}</code>")
-        lines.append("")
-
-        # User list. The table is a pure renderer (bot/formatters/user_roster)
-        # because this is the card an operator reads BEFORE typing /approve
-        # <id> \u2014 it used to print the last 8 characters of the id, which is not
-        # a key in the store and gave no sign it had been shortened.
-        lines.extend(render_table(all_users, self._can_trade_live, limit=15))
-
-        if len(all_users) > 15:
-            lines.append(f"\n<i>{t('users_more', self._lang(update), n=len(all_users))}</i>")
-
-        await self._send(update, "\n".join(lines) + fresh_db)
+    # (admission, roles, grants, caps and the marketing channel commands are
+    #  in bot/skills/access_commands.py; yield and staking in
+    #  bot/skills/yield_commands.py)
 
     async def _cmd_accounts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /accounts — live risk snapshot per trading account.
@@ -4832,49 +4465,6 @@ class TelegramHandler(GuardianCommands, LLMCommands):
             lines.append("\n🎚 <b>Per-trade caps:</b> " + " · ".join(
                 f"<code>{a[:10]}</code> ${c:,.0f}" for a, c in capped))
         await self._send(update, "\n".join(lines))
-
-    async def _cmd_setcap(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /setcap <telegram_id> <max_margin_usd | off> — cap how much
-        margin a regular user may commit to a single live trade (tighten-only,
-        never above the global micro cap). 'off' clears the cap."""
-        if not self._is_admin(update):
-            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
-            return
-        args = ctx.args or []
-        if len(args) != 2:
-            await self._send(update,
-                "📋 <b>Usage:</b> <code>/setcap &lt;telegram_id&gt; &lt;max_margin_usd | off&gt;</code>\n\n"
-                "Caps a user's per-trade margin (only reduces; never exceeds the "
-                "global live cap). Example: <code>/setcap 12345678 50</code> or "
-                "<code>/setcap 12345678 off</code>.")
-            return
-        target_id, raw = args[0].strip(), args[1].strip().lower()
-        if not target_id.isdigit():
-            await self._send(update,
-                f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}")
-            return
-        if not self.users.get(target_id):
-            await self._send(update, "🔴 No such user. They must /start first.")
-            return
-        if raw in ("off", "none", "clear", "0"):
-            self.users.set_max_margin(target_id, None)
-            await self._send(update,
-                f"🟢 Margin cap <b>cleared</b> for <code>{target_id}</code> — "
-                "back to the global live cap.")
-            return
-        try:
-            usd = float(raw)
-        except ValueError:
-            await self._send(update,
-                "🔴 Amount must be a number (USD) or <code>off</code>.")
-            return
-        if usd <= 0:
-            await self._send(update, "🔴 Cap must be greater than 0 (or <code>off</code>).")
-            return
-        self.users.set_max_margin(target_id, usd)
-        await self._send(update,
-            f"🟢 Margin cap set: <code>{target_id}</code> may commit at most "
-            f"<b>${usd:,.2f}</b> margin per live trade (still bounded by the global cap).")
 
     def _persist_drawdown_override(self) -> None:
         """Flush the risk state so the admin live-drawdown override survives a
@@ -7327,332 +6917,6 @@ class TelegramHandler(GuardianCommands, LLMCommands):
             "it vault-only.")
         await self._send(update, "\n".join(lines))
 
-    async def _cmd_yield(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/yield — READ-ONLY idle-asset yield radar (admin).
-
-        Scans the operator account's idle balances (free futures margin +
-        available spot coins), pulls Bitget Earn's current savings catalog,
-        and reports what the idle money could earn on the best FLEXIBLE
-        products (instantly redeemable, so margin stays recallable). Places
-        no orders, subscribes to nothing — the auto-staking phase ships
-        separately behind an explicit admin confirmation."""
-        if not self._is_admin(update):
-            await self._send(update,
-                "🔒 /yield reads the operator account — admin only.")
-            return
-        await self._send(update, "⏳ Scanning idle assets and Earn rates…")
-        try:
-            from bot.core.bitget_v3_client import BitgetV3Client
-            from bot.core.yield_radar import build_report, format_report_html
-
-            client = BitgetV3Client.from_config()
-            if not client.has_credentials:
-                await self._send(update,
-                    "🔴 No operator Bitget keys configured — "
-                    "<code>/setexchange</code> first.")
-                return
-            # Through the helper that already tells 0.0 (paper: nothing to
-            # read) from None (live: could not read). This used to coerce the
-            # cache's None to 0.0 itself, so build_report took the "nothing
-            # idle on futures" path and the card presented spot-only idle
-            # capital as the whole picture -- the same defect the web yield
-            # panel had, one surface over.
-            free_usdt = self._engine_free_usdt()
-            report = await asyncio.to_thread(build_report, client,
-                                             futures_free_usdt=free_usdt)
-            # Cross-venue info: when Bybit Earn pays more on a coin, say so
-            # (info only — /stake still executes where the funds are).
-            try:
-                from bot.core.yield_radar import (annotate_cross_venue,
-                                                  fetch_bybit_savings_catalog)
-                bybit_cat = await asyncio.to_thread(fetch_bybit_savings_catalog)
-                if bybit_cat:
-                    annotate_cross_venue(report, {"Bybit": bybit_cat})
-            except Exception:
-                pass
-            await self._send(update, format_report_html(report))
-        except Exception as exc:
-            system_log.warning("/yield failed: %s", exc)
-            await self._send(update,
-                "🔴 Yield radar failed — check the logs. The account was "
-                "not touched (the radar is read-only).")
-
-    def _yield_client(self):
-        """Signed operator Bitget client for Earn calls, or None if no keys."""
-        from bot.core.bitget_v3_client import BitgetV3Client
-        client = BitgetV3Client.from_config()
-        return client if client.has_credentials else None
-
-    def _engine_free_usdt(self) -> Optional[float]:
-        """Free futures margin from the engine's venue-aware balance cache.
-
-        Three outcomes, and the middle one used to be indistinguishable from
-        the first:
-
-          0.0   PAPER mode — there is no live futures margin, and a report
-                that omits the row is complete and correct.
-          None  LIVE mode with an empty or unreadable cache — we do not know.
-                The Earn report then drops what is usually the LARGEST idle
-                row and would otherwise present the remainder as the whole
-                picture of the operator's idle capital.
-          float the real number.
-        """
-        try:
-            if not CONFIG.is_live():
-                return 0.0
-            # Age-gated: a stale cache is the SAME "we do not know" as an
-            # empty one, and returning its old number here would present a
-            # dead venue connection as a live margin figure.
-            cache = self.engine.live_balance_cached()
-            if not cache:
-                return None
-            free = cache.get("free")
-            return None if free is None else float(free or 0)
-        except Exception:
-            return None
-
-    async def _cmd_weblive(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/weblive <web:id> [on|off] — web live-trading readiness + enablement.
-
-        Operator-only. With no action it prints the five-precondition readiness
-        card for that web user; ``on``/``off`` flips their dedicated
-        web_live_enabled opt-in (one of the five gates). The GLOBAL switch stays
-        the deployment env var WEB_LIVE_TRADING_ENABLED — this never turns the
-        whole capability on, only a single user's opt-in, and moves no funds."""
-        if not self._is_admin(update):
-            await self._send(update, "🔒 /weblive is operator-only.")
-            return
-        args = (ctx.args or []) if hasattr(ctx, "args") else []
-        if not args:
-            await self._send(update,
-                "Usage: <code>/weblive web:&lt;id&gt; [on|off]</code>\n"
-                "Shows a web user's live-trading readiness; on/off flips their opt-in.")
-            return
-        target = str(args[0]).strip()
-        if not target.startswith("web:"):
-            await self._send(update, "🔴 Target must be a web id, e.g. <code>web:5</code>.")
-            return
-        try:
-            from bot.web import web_live_admin as adm
-            action = str(args[1]).lower() if len(args) > 1 else ""
-            if action in ("on", "off"):
-                ok = adm.set_user_enabled(self.users, target, action == "on")
-                if not ok:
-                    await self._send(update, f"🔴 Could not update {html.escape(target)} "
-                                     "(unknown user?).")
-                    return
-                audit(system_log, f"Operator set web_live_enabled={action} for {target}",
-                      action="op_weblive_toggle", result=action)
-            card = adm.human_readable(target, adm.user_readiness(self.users, target))
-            await self._send(update, f"<pre>{html.escape(card)}</pre>")
-        except Exception as exc:
-            system_log.warning("/weblive failed: %s", exc)
-            await self._send(update, "🔴 Readiness check failed — see logs.")
-
-    async def _cmd_idleyield(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/idleyield — cross-SOURCE best-rate scan for idle assets (admin only).
-
-        Where /yield matches idle balances to ONE venue's Earn catalog, this
-        matches them to the best rate across sources — CEX Earn (custodial) AND
-        on-chain Lido/Aave (non-custodial, live from DefiLlama) — and prefers a
-        marginally-lower non-custodial rate so you keep custody, stating the
-        tradeoff. Read-only: it recommends, it never moves a cent (the money
-        path stays the confirm-gated /stake)."""
-        if not self._is_admin(update):
-            await self._send(update,
-                "🔒 /idleyield reads the operator account — admin only.")
-            return
-        await self._send(update, "⏳ Scanning idle assets across CEX + on-chain rates…")
-        try:
-            from bot.core.bitget_v3_client import BitgetV3Client
-            from bot.core.yield_radar import (build_report, fetch_savings_catalog,
-                                              fetch_bybit_savings_catalog)
-            from bot.core.idle_yield_feeds import build_idle_options
-            from bot.core import idle_yield as iy
-
-            client = BitgetV3Client.from_config()
-            if not client.has_credentials:
-                await self._send(update,
-                    "🔴 No operator Bitget keys — <code>/setexchange</code> first.")
-                return
-            # Reuse the radar's idle discovery (it values free margin + spot).
-            report = await asyncio.to_thread(build_report, client, self._engine_free_usdt())
-            if report.error:
-                await self._send(update, f"🔴 {report.error}")
-                return
-            _incomplete = getattr(report, "incomplete", "")
-            holdings = [{"asset": r.coin, "usd_value": r.idle_usd, "location": r.source}
-                        for r in report.rows if r.idle_usd > 0]
-            if not holdings:
-                # "No idle assets" is a claim about the whole balance, and the
-                # leg we could not read is usually the largest one.
-                await self._send(update,
-                    "🟡 No idle assets above the dust floor right now."
-                    + (f"\n\n⚠️ {html.escape(_incomplete)}" if _incomplete else ""))
-                return
-            # Options: Bitget Earn (custodial) + Bybit Earn + non-custodial feeds.
-            bitget_cat = await asyncio.to_thread(fetch_savings_catalog, client)
-            extra = {}
-            try:
-                bybit_cat = await asyncio.to_thread(fetch_bybit_savings_catalog)
-                if bybit_cat:
-                    extra["Bybit Earn"] = bybit_cat
-            except Exception:
-                pass
-            options = await asyncio.to_thread(
-                build_idle_options, bitget_cat, extra_catalogs=extra)
-            result = iy.optimize(holdings, options, prefer_noncustodial=True)
-            body = iy.human_readable(result)
-            nc = sum(1 for o in options if not o.get("custodial"))
-            await self._send(update,
-                "<b>💤→💸 Idle-Yield Optimizer</b>\n"
-                + (f"⚠️ <i>{html.escape(_incomplete)}</i>\n" if _incomplete else "")
-                + f"<pre>{html.escape(body)}</pre>\n"
-                f"<i>{nc} non-custodial rate(s) live · recommendation only — "
-                f"nothing moved. /stake executes flexible CEX Earn on confirm.</i>")
-        except Exception as exc:
-            system_log.warning("/idleyield failed: %s", exc)
-            await self._send(update,
-                "🔴 Idle-yield scan failed — the account was not touched (read-only).")
-
-    async def _cmd_stake(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/stake — put idle stables into flexible Bitget Earn (admin only).
-        /stake fixed [COIN] — fixed-term LOCK options (double-confirm).
-
-        Two-step by design: this command only SHOWS the plan; money moves
-        exclusively on the explicit confirm button, and even then the amount
-        is recomputed and re-clamped from live balances at press time — the
-        button carries the coin, never a number. Flexible products redeem
-        instantly; fixed terms LOCK funds until the term ends and therefore
-        require a second confirmation that shows the lock END date (SPOT-2
-        hard line). The margin reserve always stays free."""
-        if not self._is_admin(update):
-            await self._send(update,
-                "🔒 /stake moves operator funds — admin only.")
-            return
-        args = [a.lower() for a in (ctx.args or [])]
-        if args and args[0] == "fixed":
-            await self._stake_fixed_plan(
-                update, args[1].upper() if len(args) > 1 else "")
-            return
-        await self._send(update, "⏳ Computing the stake plan…")
-        try:
-            from bot.core.yield_radar import (
-                MARGIN_RESERVE_PCT, MIN_IDLE_USD, STAKEABLE_COINS, build_report)
-            client = self._yield_client()
-            if client is None:
-                await self._send(update,
-                    "🔴 No operator Bitget keys configured — "
-                    "<code>/setexchange</code> first.")
-                return
-            report = await asyncio.to_thread(
-                build_report, client, self._engine_free_usdt())
-            if report.error:
-                await self._send(update, f"🔴 {html.escape(report.error)}")
-                return
-            # A partial report is not an error — it produced rows — but acting
-            # on it as if it were the whole picture is the risk. Say it first,
-            # before the plan it is missing a leg of.
-            _incomplete = getattr(report, "incomplete", "")
-            plans = [r for r in report.rows
-                     if r.coin in STAKEABLE_COINS and r.apy_flexible
-                     and r.product_id and r.stakeable_usd >= MIN_IDLE_USD]
-            if not plans:
-                # "Nothing stakeable" is a claim about the balance. Only make
-                # it when the balance was fully read.
-                _why = (f"\n\n⚠️ {html.escape(_incomplete)}" if _incomplete else "")
-                await self._send(update,
-                    "🟡 Nothing stakeable right now — no stable balance above "
-                    f"${MIN_IDLE_USD:.0f} after the {MARGIN_RESERVE_PCT:.0%} "
-                    "margin reserve, or no flexible Earn product available."
-                    + _why)
-                return
-            lines = ["⚡ <b>Stake plan — flexible Earn, instantly redeemable</b>"]
-            if _incomplete:
-                lines.append(f"⚠️ <i>{html.escape(_incomplete)}</i>")
-            buttons = []
-            for r in plans:
-                lines.append(
-                    f"<b>{r.coin}</b>: stake ≈<code>${r.stakeable_usd:,.2f}</code> "
-                    f"@ <code>{r.apy_flexible:.2f}%</code> APY "
-                    f"(≈${r.est_year_usd:,.2f}/yr) — {r.source}")
-                buttons.append([InlineKeyboardButton(
-                    f"✅ Stake {r.coin} (~${r.stakeable_usd:,.0f})",
-                    callback_data=f"yld:s:{r.coin}")])
-            buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="yld:x")])
-            lines.append(
-                f"<i>The exact amount is recomputed from live balances when "
-                f"you press the button; the {MARGIN_RESERVE_PCT:.0%} margin "
-                "reserve always stays free for the engine. Redeem any time "
-                "with /unstake. Fixed-term locks (higher APY, funds locked "
-                "until the term ends): <code>/stake fixed</code></i>")
-            await self._send(update, "\n\n".join(lines),
-                             reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception as exc:
-            system_log.warning("/stake failed: %s", exc)
-            await self._send(update,
-                "🔴 Could not build the stake plan — nothing was moved.")
-
-    async def _stake_fixed_plan(self, update: Update, coin_filter: str) -> None:
-        """/stake fixed — step 1 of the LOCKED-staking double-confirm.
-
-        Lists every live fixed-term option per stakeable coin with its lock
-        duration and projected unlock date. Choosing one does NOT move money:
-        it opens the final-confirm screen (step 2) which re-shows the lock
-        END date; only that second press executes."""
-        await self._send(update, "⏳ Fetching fixed-term lock options…")
-        try:
-            from bot.core.yield_radar import (
-                MIN_IDLE_USD, STAKEABLE_COINS, build_report, lock_end_date)
-            client = self._yield_client()
-            if client is None:
-                await self._send(update,
-                    "🔴 No operator Bitget keys configured — "
-                    "<code>/setexchange</code> first.")
-                return
-            report = await asyncio.to_thread(
-                build_report, client, self._engine_free_usdt())
-            if report.error:
-                await self._send(update, f"🔴 {html.escape(report.error)}")
-                return
-            rows = [r for r in report.rows
-                    if r.coin in STAKEABLE_COINS and r.fixed_terms
-                    and r.stakeable_usd >= MIN_IDLE_USD
-                    and (not coin_filter or r.coin == coin_filter)]
-            if not rows:
-                await self._send(update,
-                    "🟡 No fixed-term lock available right now — no stable "
-                    "balance above the minimum after the margin reserve, or "
-                    "no fixed Earn products offered"
-                    + (f" for {html.escape(coin_filter)}" if coin_filter else "")
-                    + ". Flexible staking: /stake")
-                return
-            lines = ["🔒 <b>Fixed-term Earn — funds LOCK until the term ends</b>"]
-            buttons = []
-            for r in rows:
-                lines.append(
-                    f"<b>{r.coin}</b>: ≈<code>${r.stakeable_usd:,.2f}</code> "
-                    f"stakeable after the margin reserve")
-                for t_ in r.fixed_terms[:6]:
-                    buttons.append([InlineKeyboardButton(
-                        f"🔒 {r.coin} {t_['days']}d @ {t_['apy']:.2f}% — "
-                        f"locked until {lock_end_date(t_['days'])}",
-                        callback_data=(f"yldf:1:{r.coin}:{t_['product_id']}:"
-                                       f"{t_['days']}"))])
-            buttons.append([InlineKeyboardButton("❌ Cancel",
-                                                 callback_data="yld:x")])
-            lines.append(
-                "<i>Step 1 of 2 — choosing a term opens a FINAL confirmation "
-                "showing the exact lock END date. Locked funds are NOT "
-                "redeemable, tradeable, or usable as margin until that date. "
-                "Instant-redeem alternative: /stake</i>")
-            await self._send(update, "\n\n".join(lines),
-                             reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception as exc:
-            system_log.warning("/stake fixed failed: %s", exc)
-            await self._send(update,
-                "🔴 Could not build the fixed-term plan — nothing was moved.")
-
     # ── Talk-to-your-agent: stance proposal + /agent status ─────────
 
     _STANCE_BLURB = {
@@ -7820,45 +7084,6 @@ class TelegramHandler(GuardianCommands, LLMCommands):
             system_log.warning("/funding failed: %s", exc)
             await self._send(update,
                 "🔴 Funding comparison failed — venues unreachable?")
-
-    async def _cmd_unstake(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/unstake — redeem flexible Earn holdings back to trading margin
-        (admin only, button-confirmed)."""
-        if not self._is_admin(update):
-            await self._send(update,
-                "🔒 /unstake moves operator funds — admin only.")
-            return
-        await self._send(update, "⏳ Loading Earn holdings…")
-        try:
-            from bot.core.yield_radar import fetch_savings_assets
-            client = self._yield_client()
-            if client is None:
-                await self._send(update,
-                    "🔴 No operator Bitget keys configured — "
-                    "<code>/setexchange</code> first.")
-                return
-            holdings = await asyncio.to_thread(fetch_savings_assets, client)
-            if not holdings:
-                await self._send(update,
-                    "🟡 No flexible Earn holdings found — nothing to redeem.")
-                return
-            lines = ["🏦 <b>Flexible Earn holdings</b>"]
-            buttons = []
-            for h in holdings:
-                apy = f" @ {h['apy']:.2f}%" if h.get("apy") else ""
-                lines.append(f"<b>{h['coin']}</b>: <code>{h['amount']:g}</code>{apy}")
-                buttons.append([InlineKeyboardButton(
-                    f"↩️ Redeem {h['amount']:g} {h['coin']} → margin",
-                    callback_data=f"yld:r:{h['product_id']}")])
-            buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="yld:x")])
-            lines.append("<i>Redeems in full; stables are moved back to "
-                         "futures margin automatically.</i>")
-            await self._send(update, "\n\n".join(lines),
-                             reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception as exc:
-            system_log.warning("/unstake failed: %s", exc)
-            await self._send(update,
-                "🔴 Could not load Earn holdings — nothing was moved.")
 
     async def _cmd_disconnect(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/disconnect — remove YOUR linked Bitget account credentials."""

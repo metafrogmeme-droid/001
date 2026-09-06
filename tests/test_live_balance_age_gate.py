@@ -119,8 +119,13 @@ class TestTheReadersUseIt:
     def test_telegram_handler_reads_through_the_gate(self):
         # The handler also WRITES the cache after /balance — writes are the
         # refresh path and stay direct; the filter above excludes them.
-        reads = self._direct_reads("bot/skills/telegram_handler.py")
-        assert reads == [], f"direct stale-blind reads remain: {reads}"
+        # Every file the handler class is made of: `_engine_free_usdt` moved
+        # into the yield mixin with the handler split, and a direct read that
+        # moved with it would be invisible to a scan of one file.
+        from tests.source_scan import handler_sources
+        for path in handler_sources():
+            reads = self._direct_reads(str(path))
+            assert reads == [], f"{path.name}: direct stale-blind reads remain: {reads}"
 
     def test_admin_card_renders_unknown_as_unavailable_not_zero(self):
         src = code_only(open("bot/skills/skill_registry.py", encoding="utf-8").read())

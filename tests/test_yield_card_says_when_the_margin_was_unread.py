@@ -64,7 +64,8 @@ def _code_only(path: Path) -> str:
 
 
 def test_yield_reads_the_margin_through_the_helper():
-    code = _code_only(ROOT / "bot" / "skills" / "telegram_handler.py")
+    # /yield and the helper live in the yield mixin since the handler split.
+    code = _code_only(ROOT / "bot" / "skills" / "yield_commands.py")
     i = code.find("async def _cmd_yield")
     assert i > 0
     body = code[i:code.find("def _yield_client", i)]
