@@ -112,10 +112,12 @@ def test_the_card_escapes_what_it_prints():
 def test_the_handler_registers_and_uses_it():
     """#999: a card that is built and never reached renders zero times in
     production while every test here passes."""
-    import inspect
-
-    from bot.skills import telegram_handler
-    src = inspect.getsource(telegram_handler)
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: the registration is in
+    # build_app and /venues lives in the trading mixin since the handler
+    # split, and a scan of one file reads the move as the card losing its
+    # caller.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     assert '("venues", self._cmd_venues)' in src, (
         "/venues is not registered, so the selection cannot be made by a user "
         "and the store can only be populated by editing JSON by hand")

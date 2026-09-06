@@ -40,8 +40,26 @@ separate, larger change and is recorded rather than half-done.
 
 from __future__ import annotations
 
-from bot.skills.telegram_handler import _leveraged_pnl_usd as pnl_usd
-from bot.skills.telegram_handler import _leveraged_return_pct as ret_pct
+from bot.utils.leveraged_return import _leveraged_pnl_usd as pnl_usd
+from bot.utils.leveraged_return import _leveraged_return_pct as ret_pct
+
+
+def _leaf_src() -> str:
+    """The pair's own module, comments stripped: `bot/utils/leveraged_return.py`
+    since the handler split (the position cards left for the trading mixin
+    while the detail callback stayed, and both read the pair from the leaf)."""
+    import inspect
+
+    import bot.utils.leveraged_return as lr
+    from tests.source_scan import code_only
+    return code_only(inspect.getsource(lr))
+
+
+def _handler_src() -> str:
+    """Every file the handler class is made of, comments stripped."""
+    from tests.source_scan import code_only, handler_sources
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
+
 
 # The live position from the screenshots.
 ENTRY, MARK, DIRECTION, LEV, MARGIN = 0.51754, 0.51820, "SHORT", 20.0, 24.97
@@ -108,12 +126,7 @@ def test_the_helpers_are_neighbours_so_they_cannot_drift_apart():
     Keeping the two definitions adjacent is what makes the next person editing
     one see the other.
     """
-    import inspect
-
-    import bot.skills.telegram_handler as th
-    from tests.source_scan import code_only
-
-    src = code_only(inspect.getsource(th))
+    src = _leaf_src()
     pct_at = src.index("def _leveraged_return_pct(")
     usd_at = src.index("def _leveraged_pnl_usd(")
     between = src[min(pct_at, usd_at):max(pct_at, usd_at)]
@@ -125,14 +138,10 @@ def test_the_helpers_are_neighbours_so_they_cannot_drift_apart():
 
 def test_the_detail_card_routes_through_the_helper():
     """Reachability: the helper is only a fix if the card calls it."""
-    import inspect
-
-    import bot.skills.telegram_handler as th
-    from tests.source_scan import code_only
-
-    src = code_only(inspect.getsource(th))
-    assert src.count("_leveraged_return_pct(") >= 2, (
-        "expected the definition plus at least one call site — a helper "
+    assert "def _leveraged_return_pct(" in _leaf_src()
+    src = _handler_src()
+    assert src.count("_leveraged_return_pct(") >= 1, (
+        "expected at least one call site on the handler class — a helper "
         "nothing calls leaves the card exactly as broken as it was")
     # The rescale must come AFTER the dollar is computed, because that is where
     # leverage is finally known; before it, leverage is not yet resolved.
@@ -146,12 +155,7 @@ def test_the_detail_card_routes_through_the_helper():
 def test_the_price_based_readouts_are_not_leveraged():
     """Distance-to-stop and R:R are genuinely price facts. Multiplying THOSE by
     leverage would be the same mistake pointed the other way."""
-    import inspect
-
-    import bot.skills.telegram_handler as th
-    from tests.source_scan import code_only
-
-    src = code_only(inspect.getsource(th))
+    src = _handler_src()
     block = src[src.index("pnl_pct = _leveraged_return_pct(_entry, last_px, _dir, leverage)"):]
     block = block[:2000]
     assert "sl_dist = abs(last_px - _sl) / last_px * 100 * leverage" not in block
