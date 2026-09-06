@@ -102,6 +102,13 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "Macro-event risk for ONE symbol over the next window.",
         _schema({"symbol": _SYMBOL_PARAM}, ("symbol",))),
     ChatTool(
+        "macro_brief",
+        "The macro gate's posture right now: its risk state, the size "
+        "multiplier it is applying to new entries, whether the calendar is "
+        "stale or blind, the active event window, and the next events over "
+        "the coming week. Use it for 'is macro cutting size' or 'are we in a "
+        "blackout'; macro_calendar is the events list itself."),
+    ChatTool(
         "costs",
         "Today's LLM/API spend against the daily budget, by category."),
     ChatTool(

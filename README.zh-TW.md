@@ -472,6 +472,8 @@ python -m bot.main --mode scan
 | `/alpha` | 每日 alpha 洞察卡 |
 | `/research` | 附出處的研究報告 |
 | `/token` | 合約偵查 — /token 0x… [鏈] |
+| `/approvals` | 授權額度 X 光——誰能動用你的代幣 |
+| `/xray` | 簽名前解讀 calldata（唯讀） |
 | `/memeplan` | 迷因幣買入預檢（絕不下單）— /memeplan <mint> [usd] |
 | `/whynot` | 為何某筆交易被拒 |
 | `/patterns` | 引擎看到的圖表形態 |
@@ -491,7 +493,7 @@ python -m bot.main --mode scan
 
 | 指令 | 說明 |
 |---|---|
-| `/macro` | 宏觀背景與下一個重大事件 |
+| `/macro` | 宏觀背景與下一個重大事件 — /macro brief 看宏觀閘門的姿態 |
 | `/eventrisk` | 單一標的的宏觀事件風險 — /eventrisk BTC |
 | `/news` | 頭條雷達與持倉提醒 |
 | `/funding` | 跨交易所即時資金費率 |
@@ -552,8 +554,6 @@ python -m bot.main --mode scan
 | `/twin` | 投資組合數位孿生 — 壓力測試 |
 | `/sentinel` | 系統性風險哨兵 |
 | `/escape` | 緊急退場計畫（唯讀） |
-| `/approvals` | 授權額度 X 光——誰能動用你的代幣 |
-| `/xray` | 簽名前解讀 calldata（唯讀） |
 | `/policy` | 意圖編譯器 — 授權範圍 |
 | `/anchor` | ERC-8004 身分錨定 |
 | `/vault` | 機密保護狀態（僅名稱） |

@@ -519,6 +519,8 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/alpha` | daily alpha insight card |
 | `/research` | cited research dossier for a symbol |
 | `/token` | contract detective — /token 0x… [chain] |
+| `/approvals` | allowance X-ray — what can spend your tokens |
+| `/xray` | decode calldata before signing (read-only) |
 | `/memeplan` | meme-buy preflight (never trades) — /memeplan <mint> [usd] |
 | `/whynot` | why a trade was rejected |
 | `/patterns` | chart patterns the engine sees |
@@ -538,7 +540,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 
 | Command | Description |
 |---|---|
-| `/macro` | macro backdrop and the next big event |
+| `/macro` | macro backdrop and the next big event — /macro brief for the gate's posture |
 | `/eventrisk` | macro-event risk for one symbol — /eventrisk BTC |
 | `/news` | headline radar + alerts on your positions |
 | `/funding` | live funding rates across venues |
@@ -599,8 +601,6 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/twin` | portfolio digital twin — stress tests |
 | `/sentinel` | systemic risk sentinel |
 | `/escape` | emergency exit PLAN (read-only) |
-| `/approvals` | allowance X-ray — what can spend your tokens |
-| `/xray` | decode calldata before signing (read-only) |
 | `/policy` | intent compiler — authority envelope |
 | `/anchor` | ERC-8004 identity anchoring |
 | `/vault` | secret-protection status (names only) |

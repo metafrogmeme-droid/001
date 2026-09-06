@@ -75,6 +75,11 @@ GROUPS: List[Group] = [
         ("alpha", "daily alpha insight card"),
         ("research", "cited research dossier for a symbol"),
         ("token", "contract detective — /token 0x… [chain]"),
+        # The two X-ray tools sat under "Guardian (operator)" while nothing at
+        # all gated them; they read public chain data for any address and are
+        # @guard("token") now, the contract detective's audience.
+        ("approvals", "allowance X-ray — what can spend your tokens"),
+        ("xray", "decode calldata before signing (read-only)"),
         ("memeplan", "meme-buy preflight (never trades) — /memeplan <mint> [usd]"),
         ("whynot", "why a trade was rejected"),
         ("patterns", "chart patterns the engine sees"),
@@ -91,7 +96,7 @@ GROUPS: List[Group] = [
         ("session", "current trading session and its risk settings"),
     ]),
     ("🌍 Market context", "user", [
-        ("macro", "macro backdrop and the next big event"),
+        ("macro", "macro backdrop and the next big event — /macro brief for the gate's posture"),
         ("eventrisk", "macro-event risk for one symbol — /eventrisk BTC"),
         ("news", "headline radar + alerts on your positions"),
         ("funding", "live funding rates across venues"),
@@ -141,8 +146,6 @@ GROUPS: List[Group] = [
         ("twin", "portfolio digital twin — stress tests"),
         ("sentinel", "systemic risk sentinel"),
         ("escape", "emergency exit PLAN (read-only)"),
-        ("approvals", "allowance X-ray — what can spend your tokens"),
-        ("xray", "decode calldata before signing (read-only)"),
         ("policy", "intent compiler — authority envelope"),
         ("anchor", "ERC-8004 identity anchoring"),
         ("vault", "secret-protection status (names only)"),
@@ -400,7 +403,7 @@ DESC_ZH: Dict[str, str] = {
     "zones": "供需區", "momentum": "動能掃描", "dip": "回調掃描", "scalp": "5 分鐘短打掃描",
     "intraday": "15 分鐘日內掃描", "swing": "4 小時波段掃描", "stockscan": "美股代幣化永續",
     "mode": "切換範圍 — solana / all / stocks", "session": "目前交易時段與風險設定",
-    "macro": "宏觀背景與下一個重大事件", "news": "頭條雷達與持倉提醒",
+    "macro": "宏觀背景與下一個重大事件 — /macro brief 看宏觀閘門的姿態", "news": "頭條雷達與持倉提醒",
     "eventrisk": "單一標的的宏觀事件風險 — /eventrisk BTC",
     "funding": "跨交易所即時資金費率", "fundingscan": "年化資金費率，多交易所",
     "arb": "資金費率套利模擬追蹤", "rwa": "代幣化實體資產雷達", "crossasset": "跨資產相關性背景",

@@ -144,23 +144,95 @@ class TestTheCatalogueTellsTheTruthAboutWhoCanRunThem:
             "the reader, which is what makes commands feel broken")
 
 
+def _baseline_entries() -> set[str]:
+    from pathlib import Path
+    text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
+    return {ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")}
+
+
 class TestTheBaselineMovedWithTheWiring:
-    def test_neither_is_still_recorded_as_dark(self):
-        from pathlib import Path
-        text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
-        entries = {ln.strip() for ln in text.splitlines()
-                   if ln.strip() and not ln.startswith("#")}
+    def test_none_of_the_three_is_still_recorded_as_dark(self):
+        entries = _baseline_entries()
         assert "check_event_risk" not in entries
         assert "compliance_status" not in entries
+        assert "macro_brief" not in entries
 
-    def test_the_three_left_behind_are_still_there(self):
-        # Not a tidy-up: macro_brief COLLIDES with a working /macro, and the
-        # other two argue against themselves. Leaving them recorded is the
-        # honest state, and the ratchet is what keeps that a decision rather
-        # than an oversight.
-        from pathlib import Path
-        text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
-        for still_dark in ("macro_brief", "kill_switch", "request_live_approval"):
-            assert still_dark in text, (
+    def test_the_two_left_behind_are_still_there(self):
+        # Not a tidy-up: both argue against themselves (a second emergency
+        # halt beside /halt; an approval manager that does not exist).
+        # Leaving them recorded is the honest state, and the ratchet is what
+        # keeps that a decision rather than an oversight.
+        entries = _baseline_entries()
+        for still_dark in ("kill_switch", "request_live_approval"):
+            assert still_dark in entries, (
                 f"{still_dark} left the baseline without this file being "
                 "updated — if it was wired, say here why it was safe to")
+
+
+class TestMacroBriefIsASubModeOfMacro:
+    """The third macro card, wired the one way that does not collide.
+
+    `macro_brief` advertised `/macro`, and `/macro` already dispatches
+    `macro_calendar` — the events list. Two commands under one name kept the
+    brief parked. It answers a different question (the macro GATE's posture:
+    risk state, the size multiplier on new entries, stale/blind), so it is a
+    sub-mode of the same command — `/macro brief` — behind the same
+    `@guard("macro")`, and a chat tool on both surfaces. The Telegram half is
+    not optional: `test_web_and_scan_authorization` holds web ⊆ Telegram per
+    skill, and a skill reachable from web chat with no guarded Telegram
+    dispatch has nothing to be compared against.
+    """
+
+    def test_it_reuses_the_macro_permission(self):
+        assert SKILL_PERMISSION.get("macro_brief") == "macro"
+        assert "macro" in ROLE_PERMISSIONS["trader"] and "macro" in ROLE_PERMISSIONS["paper"]
+        src = _handler_src("macro")
+        assert '@guard("macro")' in src, "the table and the decorator disagree"
+
+    def test_it_is_offered_as_a_chat_tool_on_both_surfaces(self):
+        from bot.nlp.chat_tools import CHAT_TOOLS
+        tool = next((t for t in CHAT_TOOLS if t.name == "macro_brief"), None)
+        assert tool is not None, "permissioned but not in the tool catalogue — chat cannot call it"
+        assert "macro_calendar" in tool.description, (
+            "the description must tell the model which of the two macro tools is which")
+        assert "macro_brief" in WEB_CHAT_SKILLS
+
+    def test_macro_dispatches_both_cards_and_advertises_the_sub_mode(self):
+        from bot.skills.macro_skills import MacroBriefSkill
+        assert MacroBriefSkill.command == "/macro brief", (
+            "a command of its own collides with /macro or advertises one that "
+            "does not run — both are the defect this module records")
+        src = _flat(_handler_src("macro"))
+        for skill in ("macro_calendar", "macro_brief"):
+            assert f'dispatch("{skill}"' in src or f'dispatch( "{skill}"' in src, skill
+
+    @pytest.mark.asyncio
+    async def test_the_argument_picks_the_card(self):
+        """Driven, not scanned: the bare command is still the calendar, and
+        the word selects the brief whatever its case."""
+        from types import SimpleNamespace
+
+        from bot.skills.telegram_handler import TelegramHandler
+
+        dispatched, sent = [], []
+        h = TelegramHandler.__new__(TelegramHandler)
+
+        async def _guard(update, command="", ctx=None):
+            return True
+
+        async def _send(update, text, *a, **k):
+            sent.append(text)
+
+        async def _dispatch(name, engine, **kw):
+            dispatched.append(name)
+            return name
+
+        h._guard, h._send = _guard, _send
+        h.registry = SimpleNamespace(dispatch=_dispatch)
+        h.engine = SimpleNamespace()
+        update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
+                                 effective_chat=SimpleNamespace(id=1))
+        for args in ([], ["BRIEF"], ["brief", "extra"], ["calendar"]):
+            await h._cmd_macro(update, SimpleNamespace(args=args))
+        assert dispatched == ["macro_calendar", "macro_brief", "macro_brief", "macro_calendar"]
+        assert sent == dispatched

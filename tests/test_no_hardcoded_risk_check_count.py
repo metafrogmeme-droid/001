@@ -184,10 +184,16 @@ def test_the_gate_is_still_promised_without_the_number(rel, phrase):
 
 
 def test_the_gate_is_still_promised_on_telegram():
-    tg = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
-    assert tg.count("fail-closed risk gate") >= 2
-    tg = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
-    assert tg.count("fail-closed risk gate") >= 2
+    """Counted over every file the handler class is made of, not one file:
+    the handler is being split into mixins, and the two cards that state the
+    promise most plainly (/policy and its confirm callback) moved with the
+    Guardian group. A count over telegram_handler.py alone dropped to one
+    the moment they left, on a surface that had not changed a word."""
+    from tests.source_scan import handler_sources
+
+    n = sum(p.read_text(encoding="utf-8").count("fail-closed risk gate")
+            for p in handler_sources())
+    assert n >= 2, "the Telegram surface no longer promises the fail-closed risk gate"
 
 
 def test_the_risk_card_reports_the_breaker_not_a_row_of_invented_dots():

@@ -5,6 +5,7 @@
 # here in the same commit, same rule as known_failures.txt.
 _cmd_analyze
 _cmd_anchor
+_cmd_approvals
 _cmd_arena
 _cmd_autoconfirm
 _cmd_backtest
@@ -80,4 +81,5 @@ _cmd_venues
 _cmd_walkforward
 _cmd_watch
 _cmd_whynot
+_cmd_xray
 _cmd_zones
