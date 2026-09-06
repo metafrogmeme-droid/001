@@ -16,10 +16,13 @@ the raw error in the user-facing branch.
 """
 
 import re
-from pathlib import Path
 
-SRC = (Path(__file__).resolve().parent.parent
-       / "bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+from tests.source_scan import handler_sources
+
+# Every file the handler class is made of: /classpf lives in the portfolio
+# mixin since the handler split, and a scan of telegram_handler.py alone
+# would report the guard missing from a command that no longer lives there.
+SRC = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 
 
 def test_classpf_is_auth_guarded():

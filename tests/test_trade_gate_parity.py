@@ -33,7 +33,6 @@ from bot.core.trade_gate import (UNREADABLE, entry_gate, gate_label,
                                  gate_sentence)
 from tests.source_scan import code_only
 
-HANDLER = "bot/skills/telegram_handler.py"
 
 
 def _risk(blocked: str = "", cb: bool = False):
@@ -246,7 +245,11 @@ class TestEverySurfaceReadsTheOneHelper:
     """The property that stops this recurring a fourth time."""
 
     def _src(self) -> str:
-        return code_only(open(HANDLER, encoding="utf-8").read())
+        # Every file the handler class is made of, not the handler's alone: /risk
+        # lives in the portfolio mixin since the handler split, and a scan of
+        # one file reads a move as the surface no longer calling the helper.
+        from tests.source_scan import handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_start_no_longer_reads_one_breaker(self):
         src = self._src()
@@ -316,7 +319,11 @@ class TestTheChatPromptStillReportsTheHalt:
     """#1030's fix, now sourced from the helper rather than hand-rolled."""
 
     def _src(self) -> str:
-        return code_only(open(HANDLER, encoding="utf-8").read())
+        # Every file the handler class is made of, not the handler's alone: /risk
+        # lives in the portfolio mixin since the handler split, and a scan of
+        # one file reads a move as the surface no longer calling the helper.
+        from tests.source_scan import handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
     def test_the_prompt_names_the_halt(self):
         assert "NEW ENTRIES HALTED" in self._src()
