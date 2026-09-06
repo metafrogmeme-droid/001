@@ -6,6 +6,15 @@
  * invokes onFatal (→ process.exit in real boot) while dev never does; a
  * fully-configured env is clean.
  *
+ * WEB_CREDS_KEY no longer gates the connect form — submissions are sealed to
+ * the bot's published key (lib/sealing_key.js) with nothing to configure — so
+ * what its findings are ABOUT changed even though their levels did not. Unset
+ * now means new 2FA secrets are stored unencrypted (lib/totp.js), which is
+ * still worth a warning; set-but-malformed is still fatal in production
+ * because it looks configured and throws at use time. These tests check the
+ * key and the level, deliberately, and not the wording — the wording is
+ * checked where it is claimed.
+ *
  * Run: npm test  (node --test test/)
  */
 
@@ -41,7 +50,7 @@ test('a bare dev env warns about every degraded flow but is never fatal', () => 
   assert.strictEqual(abu.level, 'warn');
 });
 
-test('a set-but-malformed WEB_CREDS_KEY is fatal (dead connect form)', () => {
+test('a set-but-malformed WEB_CREDS_KEY is fatal (configured, and throws at use)', () => {
   const f = run({ WEB_CREDS_KEY: 'c2hvcnQ=' });
   const cf = fatals(f).find((x) => x.key === 'WEB_CREDS_KEY');
   assert.ok(cf, 'malformed creds key must be fatal');

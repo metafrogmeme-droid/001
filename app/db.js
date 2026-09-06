@@ -324,6 +324,7 @@ class MemoryDB {
     this._nextPushSubId = 1;
     this.pendingStance = null; // { mode, requested_by, telegram_id, created_at } (single row)
     this.pendingCreds = [];   // pending_credentials (UPSERT by user_id)
+    this.sealingKey = null;   // bot_sealing_key: { kid, pem, alg, updated_at }
     this.exchangeStatus = {}; // user_id -> { connected }
     this.pendingControls = []; // pending_controls (UPSERT by user_id)
     this.userControls = {};   // user_id -> { live_enabled, max_margin, paused, allowlisted }
@@ -1399,6 +1400,17 @@ class MemoryDB {
       return [rows, []];
     }
 
+    // -- BOT SEALING KEY (single row; public half only) --
+    if (cmd.includes('INTO BOT_SEALING_KEY')) {
+      // params: kid, pem, alg — id is the literal 1 in the SQL.
+      this.sealingKey = { kid: params[0], pem: params[1], alg: params[2],
+        updated_at: new Date() };
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM BOT_SEALING_KEY')) {
+      return [this.sealingKey ? [{ ...this.sealingKey }] : [], []];
+    }
+
     // -- PENDING CREDENTIALS / EXCHANGE STATUS --
     if (cmd.includes('INSERT INTO PENDING_CREDENTIALS')) {
       // params: user_id, telegram_id, exchange(venue), [encrypted_payload] —
@@ -2243,6 +2255,7 @@ const EXPECTED_TABLES = Object.freeze([
   'flight_cache',
   'pending_stance',
   'agent_events',
+  'bot_sealing_key',
   'pending_credentials',
   'exchange_status',
   'pending_controls',
@@ -2729,11 +2742,28 @@ async function migrate() {
         INDEX idx_agent_events_created (created_at)
       )
     `);
-    // Pending exchange-credential submissions. The website encrypts the keys
-    // (AES-256-GCM, WEB_CREDS_KEY) into encrypted_payload; the bot PULLS pending
-    // rows over the shared-secret channel, imports them into its own Fernet store
-    // keyed by telegram_id, then the row is deleted. One in-flight request per
-    // user (UPSERT). Raw keys are NEVER stored in plaintext.
+    // The bot's PUBLIC sealing key, published over the bot-secret sync channel
+    // (lib/sealing_key.js). Single row. Nothing secret lives here — the private
+    // half never leaves the bot — but it is persisted rather than kept in
+    // memory because the web app restarts on every deploy, and a key that died
+    // with the process would leave the connect form off until the bot's next
+    // hourly publish.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bot_sealing_key (
+        id TINYINT PRIMARY KEY,
+        kid VARCHAR(32) NOT NULL,
+        pem TEXT NOT NULL,
+        alg VARCHAR(64) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    // Pending exchange-credential submissions. The website seals the keys to
+    // the bot's published key (RSA-OAEP + AES-256-GCM, above) — or, on a
+    // deployment still running the legacy shared-key path, encrypts them under
+    // WEB_CREDS_KEY — into encrypted_payload; the bot PULLS pending rows over
+    // the shared-secret channel, imports them into its own Fernet store keyed
+    // by telegram_id, then the row is deleted. One in-flight request per user
+    // (UPSERT). Raw keys are NEVER stored in plaintext.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS pending_credentials (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,

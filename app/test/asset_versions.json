@@ -43,9 +43,13 @@
     "v": 31,
     "sha": "5601758e69d569e2"
   },
+  "js/creds-gate-model.js": {
+    "v": 1,
+    "sha": "9d3e40a3a57aa5fd"
+  },
   "js/dashboard.js": {
-    "v": 166,
-    "sha": "8ff790f0d543ee89"
+    "v": 167,
+    "sha": "d0cb737b489658cc"
   },
   "js/duel.js": {
     "v": 1,

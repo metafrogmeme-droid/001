@@ -17,6 +17,7 @@ store is the mixin's own state, created on first use.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import time
 from typing import TYPE_CHECKING
@@ -395,7 +396,7 @@ class AccountCommands:
             "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
             "TELEGRAM_BOT_TOKEN": ".env only",
             "BOT_SYNC_SECRET": ".env (auto-vaults from env)",
-            "WEB_CREDS_KEY": ".env on BOTH the bot box and the website",
+            "WEB_CREDS_KEY": "not needed — website submissions are sealed to this bot's own key",
         }
         def _fix_for(key: str) -> str:
             for prefix, cmd in FIX.items():
@@ -421,9 +422,12 @@ class AccountCommands:
             lines.append("🟡 <b>Env-only</b> (mirrored to the vault on next boot; "
                          "the .env copy stays until set via the command):\n"
                          + "\n".join(f"- <code>{k}</code> → {_fix_for(k)}" for k in env_only))
+        # WEB_CREDS_KEY is the legacy shared-key path for website submissions;
+        # unset is the normal state now that they are sealed to the bot's own
+        # key, so it is not reported as missing.
         used_absent = [k for k in absent
                        if not k.startswith(("HYPERLIQUID", "BYBIT", "BINGX",
-                                            "ONCHAIN", "RUNECLAW"))]
+                                            "ONCHAIN", "RUNECLAW", "WEB_CREDS_KEY"))]
         if used_absent:
             lines.append("🔴 <b>Missing</b> (set once, protected forever):\n"
                          + "\n".join(f"- <code>{k}</code> → {_fix_for(k)}"
@@ -435,20 +439,35 @@ class AccountCommands:
         # was misread: "WEB_CREDS_KEY missing" was taken to mean the exchange
         # keys users had linked were sitting in the clear. Three stores,
         # three answers, stated where the operator looks for them.
+        #
+        # Website submissions are sealed to the bot's OWN key since 2026-09
+        # (bot/utils/creds_sealing.py; the website holds only the public
+        # half), so WEB_CREDS_KEY is the legacy shared-key path: accepted if
+        # set, not needed if unset. Reading the key file can generate it on a
+        # first boot, which is RSA keygen — off the loop.
+        try:
+            from bot.utils import creds_sealing as _sealing
+            _kid = await asyncio.to_thread(_sealing.kid)
+            seal_line = (f"🟢 sealed to this bot's own key "
+                         f"(<code>{html.escape(str(_sealing.private_key_path()))}</code>, "
+                         f"kid <code>{_kid}</code>), published to the website over the sync "
+                         "channel — the website cannot read what it stores.")
+        except Exception as exc:
+            seal_line = (f"🔴 this bot's sealing key could not be read "
+                         f"({_safe_exc_text(exc)}) — the website's connect form refuses "
+                         "until it can.")
         web_key = status.get("WEB_CREDS_KEY", {})
-        web_line = ("🟢 <code>WEB_CREDS_KEY</code> is set — the website's connect form "
-                    "encrypts submissions for the bot to pull."
+        web_line = ("<code>WEB_CREDS_KEY</code> is set — the legacy shared-key envelope "
+                    "is still accepted."
                     if web_key.get("env") or web_key.get("vault") else
-                    "⚪ <code>WEB_CREDS_KEY</code> is unset — the website's connect form "
-                    "is OFF (it refuses rather than queue anything unencrypted). "
-                    "Keys already linked are unaffected.")
+                    "<code>WEB_CREDS_KEY</code> is unset — not needed; it was the legacy "
+                    "shared-key path. Keys already linked are unaffected.")
         lines.append(
             f"{SEP}\n<b>What encrypts what</b>\n"
             "• Keys users link (/connect, the website): Fernet under the "
             "master key (<code>RUNECLAW_SECRETS_KEY</code> / "
             "<code>data/.exchange_secret.key</code>) — always, whatever else is set.\n"
-            "• Website submissions in transit to the bot: AES-GCM under "
-            "<code>WEB_CREDS_KEY</code>. " + web_line + "\n"
+            "• Website submissions in transit to the bot: " + seal_line + " " + web_line + "\n"
             "• The operator's own keys: this vault mirrors .env, it does not "
             "replace it — a key that only ever came from .env stays in the clear "
             "there. Set it with /setexchange and delete the .env lines to make "

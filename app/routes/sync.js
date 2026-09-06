@@ -1007,10 +1007,55 @@ router.post('/signals', async (req, res) => {
 });
 
 /**
+ * POST /api/bot/sync/credentials/sealing-key
+ * Body: { kid, pem, alg }
+ *
+ * THIS IS WHAT TURNS THE CONNECT FORM ON. The bot publishes the PUBLIC half of
+ * its credential-sealing keypair here (first pull after boot, again on change,
+ * hourly otherwise); routes/credentials.js seals each submission to it, so the
+ * website stores exchange keys it cannot itself read.
+ *
+ * It replaces a two-deployment key ceremony: WEB_CREDS_KEY had to be generated
+ * by hand and set IDENTICALLY in the bot's env and this app's, and until both
+ * were set the connect form answered 503 — which is what "I entered my API
+ * keys on the website and nothing saved" was.
+ *
+ * Nothing secret crosses this endpoint, so a rejection here is about the key
+ * being unusable, never about it being sensitive. The record is VETTED before
+ * it is stored (lib/sealing_key.js): the alternative is finding out it is
+ * malformed at submit time, on a user's screen, with their keys already typed
+ * in. Bot-secret authed by the middleware above.
+ */
+router.post('/credentials/sealing-key', async (req, res) => {
+  try {
+    const rec = await require('../lib/sealing_key').storeSealingKey(req.body || {});
+    res.json({ ok: true, kid: rec.kid });
+  } catch (err) {
+    // Two different faults, and answering both the same would send the
+    // operator to the wrong side: a key we refuse is the BOT's to fix and
+    // republishing cannot help, a write we could not do is ours and the next
+    // publish retries into it.
+    const bad = !!err.unusableSealingKey;
+    console.error('Sealing key publish %s:', bad ? 'rejected' : 'failed',
+                  err.stack || err.message);
+    // Through safeErrorText even though the caller is the authenticated bot:
+    // the reason IS worth returning — it is what a bot operator needs to fix
+    // the key — and F-15 is a rule about the shape of a response, not about
+    // who is reading it. An OpenSSL error carrying a path is still a path.
+    if (bad) {
+      return res.status(400).json({ error: 'unusable_sealing_key',
+                                    detail: require('../lib/safe_error').safeErrorText(err) });
+    }
+    res.status(500).json({ error: 'Failed to store the sealing key' });
+  }
+});
+
+/**
  * GET /api/bot/sync/credentials/pending
- * Bot pulls pending exchange-credential requests (encrypted). The bot decrypts
- * (WEB_CREDS_KEY), imports into its Fernet store keyed by telegram_id (connect)
- * or removes them (disconnect), then ACKs so the row is cleared. Bot-secret authed.
+ * Bot pulls pending exchange-credential requests (sealed to its own key, or
+ * encrypted under the legacy shared WEB_CREDS_KEY). The bot opens them, imports
+ * into its Fernet store keyed by telegram_id (connect) or removes them
+ * (disconnect), then ACKs so the row is cleared. Bot-secret authed.
  */
 router.get('/credentials/pending', async (req, res) => {
   try {

@@ -1,20 +1,35 @@
 /**
  * Exchange-credential management (user-facing, JWT-authed).
  *
- * The user submits Bitget API keys here. They are encrypted at rest immediately
- * (AES-256-GCM, WEB_CREDS_KEY) into a short-lived `pending_credentials` row; the
- * bot PULLS pending rows over the shared-secret channel, imports them into its
- * own Fernet store keyed by telegram_id, and the row is deleted. Raw keys are
+ * The user submits exchange API keys here. They are protected at rest
+ * immediately into a short-lived `pending_credentials` row; the bot PULLS
+ * pending rows over the shared-secret channel, imports them into its own
+ * Fernet store keyed by telegram_id, and the row is deleted. Raw keys are
  * NEVER stored in plaintext and NEVER logged.
  *
+ * WHAT PROTECTS THEM, and why there are two answers. The submission is SEALED
+ * to the bot's own published key (lib/sealing_key.js — RSA-OAEP over a fresh
+ * AES-256-GCM content key), which means this app cannot read back what it just
+ * stored, and means an operator configures NOTHING: the bot generates the key
+ * on first use and publishes the public half over the sync channel it already
+ * authenticates on. Failing that, a deployment still carrying the legacy
+ * shared WEB_CREDS_KEY encrypts under it, so rows keep flowing while a bot is
+ * upgraded.
+ *
+ * Failing BOTH, this refuses. That is the one thing that must not change:
+ * nothing is queued that nobody can open, and nothing is queued in the clear.
+ * The 503 says which of the two is missing, in a fixed vocabulary — a user
+ * whose keys will not save deserves to know it is not something they typed.
+ *
  * Prerequisite: the account must have linked Telegram (so we know which bot
- * account the keys belong to). Keys should be withdrawal-disabled on Bitget.
+ * account the keys belong to). Keys should be withdrawal-disabled on the venue.
  */
 
 const express = require('express');
 const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const creds = require('../lib/creds_crypto');
+const sealing = require('../lib/sealing_key');
 const { isVenue, venueFields } = require('../lib/venues');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 
@@ -41,6 +56,67 @@ async function _userRow(uid) {
   return rows[0] || null;
 }
 
+/**
+ * How a submission can be protected right now — the one place that decides.
+ *
+ * `{ mode: 'sealed', rec }`   the bot's published key (preferred: this app
+ *                             cannot reopen what it stores)
+ * `{ mode: 'legacy' }`        the shared WEB_CREDS_KEY is set
+ * `{ mode: 'off', reason }`   neither; submissions are refused
+ *
+ * THE REASON VOCABULARY IS FIXED and the three values are distinct on purpose:
+ *
+ *   awaiting_bot_key        the bot has not published one yet — it will, on
+ *                           its next credential pull; this is the ordinary
+ *                           state of a deployment whose bot is starting up
+ *   sealing_key_unusable    it published something this build refuses (wrong
+ *                           algorithm, non-RSA, undersized) — republishing the
+ *                           same record cannot fix it
+ *   sealing_key_unreadable  the read itself failed; we do not know whether a
+ *                           key exists
+ *
+ * The third is why this returns a reason at all rather than a boolean. A
+ * database that will not answer is not a bot that never called, and rendering
+ * it as one sends the operator to restart the wrong process. Unreadable is
+ * never absent — the same rule the rest of this app is built on.
+ *
+ * The legacy key is only consulted when the sealed path is unavailable, so a
+ * deployment that still sets WEB_CREDS_KEY (lib/totp.js needs it for 2FA
+ * secrets at rest) upgrades to sealing by itself the moment the bot publishes.
+ */
+async function protection() {
+  let rec = null;
+  let keyErr = null;
+  try {
+    rec = await sealing.readSealingKey();
+  } catch (err) {
+    keyErr = err;
+    console.error('Sealing key read failed:', err.stack || err.message);
+  }
+  if (rec) return { mode: 'sealed', rec };
+  if (creds.isConfigured()) return { mode: 'legacy' };
+  if (keyErr) {
+    return { mode: 'off',
+      reason: keyErr.unusableSealingKey ? 'sealing_key_unusable' : 'sealing_key_unreadable' };
+  }
+  return { mode: 'off', reason: 'awaiting_bot_key' };
+}
+
+// What a refusal SAYS. Authored here, never an exception message — a driver
+// string on a money form is how internal detail reaches a user's screen.
+const OFF_DETAIL = {
+  awaiting_bot_key:
+    'The bot has not published its key yet, so there is nothing to seal your '
+    + 'keys to. It publishes on its next check-in — try again shortly. Nothing '
+    + 'you typed was stored.',
+  sealing_key_unusable:
+    'The bot published a key this site cannot use, so your keys were not '
+    + 'stored. This needs an operator; retrying will not help.',
+  sealing_key_unreadable:
+    'We could not check how to protect your keys, so we did not store them. '
+    + 'This is a fault on our side — please try again shortly.',
+};
+
 // GET /api/credentials/status -> { linked, connected, pending }
 router.get('/status', async (req, res) => {
   try {
@@ -51,6 +127,7 @@ router.get('/status', async (req, res) => {
     const [pend] = await pool.execute(
       'SELECT action, exchange FROM pending_credentials WHERE user_id = ?', [uid]);
     const connectedRows = st.filter(r => !!r.connected);
+    const prot = await protection();
     res.json({
       linked: !!(u && u.telegram_linked),
       // Multi-venue: every exchange's own state, side by side.
@@ -60,7 +137,20 @@ router.get('/status', async (req, res) => {
       venue: connectedRows.length > 0 ? (connectedRows[0].exchange || 'bitget') : null,
       pending: pend.length > 0 ? pend[0].action : null,
       pending_venue: pend.length > 0 ? (pend[0].exchange || 'bitget') : null,
-      crypto_ready: creds.isConfigured(),
+      // THREE-VALUED. `false` is a claim — "this form is off" — and an
+      // unreadable key store has not earned it, so that case reads null and
+      // says why in crypto_reason. `crypto_ready` was `creds.isConfigured()`,
+      // which answered about the legacy shared key alone and so reported a
+      // perfectly working sealed deployment as not ready.
+      crypto_ready: prot.mode === 'off'
+        ? (prot.reason === 'sealing_key_unreadable' ? null : false)
+        : true,
+      crypto_mode: prot.mode,
+      crypto_reason: prot.mode === 'off' ? prot.reason : null,
+      // The same sentence the 503 carries, so the panel can say it BEFORE the
+      // user types their API keys instead of after. A form that cannot
+      // succeed must not invite secrets into it.
+      crypto_detail: prot.mode === 'off' ? OFF_DETAIL[prot.reason] : null,
     });
   } catch (err) {
     console.error('Cred status error:', err.stack || err.message);
@@ -73,8 +163,15 @@ router.get('/status', async (req, res) => {
 //   hyperliquid: { wallet_address, agent_private_key }
 router.post('/', credLimit, async (req, res) => {
   try {
-    if (!creds.isConfigured()) {
-      return res.status(503).json({ error: 'Credential encryption not configured (WEB_CREDS_KEY)' });
+    // FIRST, before anything is read from the body. Refusing after collecting
+    // the fields would be the same refusal with the keys sitting in memory.
+    const prot = await protection();
+    if (prot.mode === 'off') {
+      return res.status(503).json({
+        error: 'connect_unavailable',
+        reason: prot.reason,
+        detail: OFF_DETAIL[prot.reason],
+      });
     }
     const uid = req.user.user_id;
     const u = await _userRow(uid);
@@ -96,9 +193,14 @@ router.post('/', credLimit, async (req, res) => {
       }
       plain[f] = String(v);
     }
-    // Encrypt the secret material at rest immediately (venue rides along so the
-    // bot's pull imports it into the right venue). Never logged.
-    const payload = creds.encryptJSON(plain);
+    // Protect the secret material immediately (venue rides along so the bot's
+    // pull imports it into the right venue). Never logged. `sealJSON` throws
+    // rather than degrading to the shared key, and the catch below answers 500
+    // — a submission must never be stored under weaker protection than the
+    // gate above just promised.
+    const payload = prot.mode === 'sealed'
+      ? creds.sealJSON(plain, { pem: prot.rec.pem, kid: prot.rec.kid })
+      : creds.encryptJSON(plain);
     await pool.execute(
       `INSERT INTO pending_credentials (user_id, telegram_id, exchange, action, encrypted_payload)
        VALUES (?, ?, ?, 'connect', ?)
@@ -108,7 +210,7 @@ router.post('/', credLimit, async (req, res) => {
          created_at = CURRENT_TIMESTAMP`,
       [uid, String(u.telegram_id), venue, payload]
     );
-    secLog('exchange_connect_submitted', req, `venue=${venue}`);
+    secLog('exchange_connect_submitted', req, `venue=${venue} protection=${prot.mode}`);
     res.json({ ok: true, pending: 'connect', venue });
   } catch (err) {
     console.error('Cred submit error:', err.stack || err.message); // never logs the body

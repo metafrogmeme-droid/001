@@ -5229,6 +5229,23 @@
       }
       const c = r.data || {};
       if (!venuesCatalog.length) return null;
+      // SAY IT BEFORE THE KEYS ARE TYPED, not after. When nothing can protect
+      // a submission the POST answers 503 — and it did so under a form that
+      // looked perfectly live, so a user pasted real exchange API keys into it
+      // and got a failure they could only read as their own mistake.
+      //
+      // The DECISION lives in CredsGateModel so a test can plant a status and
+      // read it back; this only turns it into markup. Same split, and same
+      // reason, as VenuePickerModel below.
+      const gate = window.CredsGateModel
+        ? window.CredsGateModel.gateState(c)
+        // Script missing: claim nothing and change nothing. Hiding the form on
+        // a failed script load would break a working page over an asset.
+        : { showForms: true, detail: null };
+      const offNotice = gate.showForms ? '' : `
+        <div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg>
+          ${esc(T('venue.unavailable', 'Credential connect is unavailable right now.'))}
+          ${gate.detail ? `<span class="small muted"> ${esc(gate.detail)}</span>` : ''}</div>`;
       // Multi-venue: EVERY exchange side by side with its own field form,
       // status, and independent disconnect — connecting one never touches
       // another (the bot's store merges per venue).
@@ -5243,7 +5260,10 @@
           : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
         const disc = connected
           ? `<button class="btn btn--danger btn--sm" data-discvenue="${esc(v.id)}" type="button">${esc(T('venue.disconnect', 'Disconnect'))}</button>` : '';
-        const form = connected ? '' : `
+        // Disconnect stays available while connect is off: removing keys is
+        // queued as a plain row and needs no encryption at all, and taking it
+        // away would strand a user's live keys behind an outage.
+        const form = (connected || !gate.showForms) ? '' : `
           <form class="credForm stack mt-2" data-venue="${esc(v.id)}">
             <p class="muted small">${esc(T('venue.help.' + v.id, v.help || ''))}</p>
             <div class="form-row">${fieldsHtml(v)}</div>
@@ -5255,7 +5275,7 @@
             <b>${esc(v.label)}</b><span class="row" style="gap:var(--s2)">${chip}${disc}</span></div>
           ${form}</div>`;
       }).join('');
-      return cards
+      return offNotice + cards
         + `<p class="muted small">${esc(T('venue.encrypt_note',
              'Keys are AES-256-GCM encrypted at rest and pulled by the bot over an '
              + 'authenticated channel. Withdrawal permissions are never required. Connect as many '

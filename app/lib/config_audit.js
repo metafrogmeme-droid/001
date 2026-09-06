@@ -55,15 +55,31 @@ function auditConfig(opts = {}) {
   const warn = (key, msg) => findings.push({ level: 'warn', key, msg });
   const fatal = (key, msg) => findings.push({ level: 'fatal', key, msg });
 
-  // Exchange-key encryption. Unset → the website connect form is simply off
-  // (a warning). Set-but-malformed → it looks on but every submit throws, so in
-  // production that is fatal: a user typing real API keys into a dead form is a
-  // trust failure, not a graceful degrade.
+  // WEB_CREDS_KEY. THE EFFECT OF LEAVING IT UNSET CHANGED, and the warning had
+  // to change with it or it would be teaching the operator something false.
+  //
+  // It used to be the only thing that could protect an exchange-key
+  // submission, so unset meant the connect form was off. Submissions are now
+  // SEALED to the bot's own published key (lib/sealing_key.js) with nothing to
+  // configure, so the form works without this. What still depends on it is
+  // lib/totp.js: without a key, a newly enrolled 2FA secret is stored in the
+  // clear, and a TOTP seed does not expire and cannot be rotated by the user.
+  //
+  // So the warning names THAT, and only that. A warning that describes a
+  // surface which is actually working is how an operator learns to skip the
+  // next one — which is the same misreading this key already caused once, on
+  // the bot's boot line.
   const credsKey = credsKeyState(env.WEB_CREDS_KEY);
   if (credsKey === 'unset') {
-    warn('WEB_CREDS_KEY', 'unset — website exchange-key connect is disabled (submissions cannot be encrypted).');
+    warn('WEB_CREDS_KEY', 'unset — new 2FA secrets are stored unencrypted (a TOTP seed is '
+      + 'permanent). Website exchange-key connect is unaffected: submissions are sealed to '
+      + "the bot's published key.");
   } else if (credsKey === 'invalid') {
-    fatal('WEB_CREDS_KEY', 'set but not a 32-byte base64 key — every credential submission will fail at encrypt time.');
+    // Set-but-malformed is still fatal in production. It looks configured and
+    // throws at use time, and the two things it is used for are a credential
+    // submission and a second factor.
+    fatal('WEB_CREDS_KEY', 'set but not a 32-byte base64 key — 2FA secrets cannot be sealed and '
+      + 'legacy credential submissions fail at encrypt time.');
   }
 
   // Web gateway secret — the shared secret the chat/trade proxies present to the
