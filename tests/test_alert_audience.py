@@ -277,10 +277,12 @@ def test_the_handler_actually_injects_the_admin_predicate():
     work. `set_admin_fn` existing proves nothing — every test above passes with
     it never called in production, which is precisely the state that shipped
     the docstring's claim."""
-    import inspect
-
-    from bot.skills import telegram_handler
-    src = inspect.getsource(telegram_handler)
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: the wiring lives in
+    # start_monitor, in the alert-loop mixin since the handler split, and a
+    # scan of telegram_handler.py alone reads the move as the predicate
+    # never being injected.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     assert "set_admin_fn(self._is_admin_id)" in src, (
         "the monitor is never told who is an admin, so every admin-only alert "
         "falls back to the configured operator chats alone")

@@ -204,7 +204,11 @@ def test_tick_stall_in_check_all():
 def test_handler_wires_death_callback_restart_and_reference():
     import inspect
     from bot.skills.telegram_handler import TelegramHandler
-    src = inspect.getsource(TelegramHandler)
+    # The method, not the class: `inspect.getsource(TelegramHandler)` is the
+    # handler's own file and stops at its class body, and start_monitor lives
+    # in the alert-loop mixin since the handler split. Reading the method
+    # follows it wherever it is defined.
+    src = inspect.getsource(TelegramHandler.start_monitor)
     assert "add_done_callback(_monitor_task_died)" in src
     assert "task.cancelled()" in src, "shutdown cancellation must not audit DIED"
     assert "self.engine._proactive_monitor = self.monitor" in src
