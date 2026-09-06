@@ -90,10 +90,14 @@ test('the client translates help and field labels by key, not by markup', () => 
 test('the connection chrome is translated too', () => {
   for (const k of ['venue.connected', 'venue.not_connected', 'venue.applying',
     'venue.disconnect', 'venue.connect_x', 'venue.encrypt_note', 'venue.unavailable',
-    'venue.encrypting', 'venue.queued', 'venue.failed']) full(k);
-  // The two states a user reads to know whether their key took effect.
+    'venue.encrypting', 'venue.queued', 'venue.failed', 'venue.rejected']) full(k);
+  // The states a user reads to know whether their key took effect. `rejected`
+  // is the third one and it used to be missing: a key the exchange refused
+  // rendered as the same neutral "not connected" chip as a key nobody had
+  // typed yet, so there was nothing to act on.
   assert.match(dash, /T\('venue\.connected'/);
   assert.match(dash, /T\('venue\.not_connected'/);
+  assert.match(dash, /T\('venue\.rejected'/);
   assert.match(dash, /T\('venue\.queued'/);
 });
 

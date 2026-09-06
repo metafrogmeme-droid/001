@@ -106,12 +106,26 @@ for unit in $UNITS; do
       # Only downgrade a clean run to "incomplete". An existing failure (1) is
       # a verdict and must not be softened into "could not tell".
       [ "$worst" -eq 0 ] && worst=3
-    elif curl -fsS --max-time 5 "$probe" >/dev/null 2>&1; then
-      line="${line}  port: answering"
     else
-      line="${line}  port: NOT ANSWERING"
-      status="NOT SERVING"
-      worst=1
+      # ANY HTTP STATUS IS AN ANSWER. This was `curl -fsS`, and `-f` fails on
+      # 4xx — but the bot's probe is /gateway/health, which answers 403 to
+      # every request without the shared secret. So this tool, the one the
+      # unit file tells operators to run INSTEAD of `systemctl status`,
+      # reported a healthy bot as NOT SERVING on every invocation and exited 1
+      # forever. Its crashloop detection above is the thing that would have
+      # revealed the restart loop; it was buried under a permanent false
+      # failure on the same line. See scripts/systemd/wait_for_port.sh.
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$probe" 2>/dev/null)" || code=""
+      case "$code" in
+        ''|000)
+          line="${line}  port: NOT ANSWERING"
+          status="NOT SERVING"
+          worst=1
+          ;;
+        *)
+          line="${line}  port: answering (HTTP $code)"
+          ;;
+      esac
     fi
   fi
 

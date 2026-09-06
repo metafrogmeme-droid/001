@@ -4331,8 +4331,23 @@ class RuneClawEngine:
             # so the worst case was six × 15s. `telegram_handler.py` already
             # offloads every one of these; the engine's own pumps were the
             # outlier.
+            # VALIDATED, not imported on trust. This was called with no
+            # validator at all, so web-submitted keys were stored unchecked
+            # and acked ok — and the dashboard printed "✓ connected" over
+            # credentials that could be typo'd, revoked, read-only or
+            # IP-restricted. Telegram's /connect has validated since it was
+            # written; the two doors to the same store disagreed about whether
+            # bad keys are acceptable.
+            #
+            # default_validator is SYNCHRONOUS on purpose and its docstring
+            # says why: the real probe is `async def`, and handing a coroutine
+            # function to process_pending would make every verdict a truthy
+            # coroutine object — every key "valid", with a never-awaited
+            # warning as the only trace.
+            from bot.utils.credential_pull import default_validator
             n = await asyncio.to_thread(
-                pull_and_apply, on_change=self.invalidate_user_executor)
+                pull_and_apply, validator=default_validator,
+                on_change=self.invalidate_user_executor)
             if n:
                 audit(system_log, f"Applied {n} web credential request(s)",
                       action="web_credentials_pull", result="OK")

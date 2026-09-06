@@ -1080,8 +1080,20 @@ router.post('/credentials/ack', async (req, res) => {
   try {
     const acks = Array.isArray(req.body && req.body.acks) ? req.body.acks.slice(0, 200) : [];
     let applied = 0;
+    let rejected = 0;
     for (const a of acks) {
-      if (!a || a.user_id == null || !a.ok) continue;
+      // A FAILED ACK IS AN ANSWER AND IT WAS BEING THROWN AWAY.
+      //
+      // This read `if (!a || a.user_id == null || !a.ok) continue;` — so every
+      // `ok: false` was dropped: the error string went nowhere, the
+      // pending_credentials row was never deleted, and /status therefore kept
+      // returning `pending: 'connect'` forever. The card showed "⏳ applying
+      // bitget…" with no timeout while the bot re-pulled and re-failed the
+      // same row every 30 seconds. The bot's own contract distinguishes three
+      // outcomes precisely so this endpoint can act on them, and it acted on
+      // one; a row it deliberately leaves UN-acked (transient) never arrives
+      // here at all, so clearing on a received failure cannot lose a retry.
+      if (!a || a.user_id == null) continue;
       const uid = parseInt(a.user_id);
       if (!Number.isInteger(uid)) continue;
       // Carry the venue from the pending row (or the bot's ack) so the status
@@ -1090,17 +1102,36 @@ router.post('/credentials/ack', async (req, res) => {
         'SELECT exchange FROM pending_credentials WHERE user_id = ?', [uid]);
       const venue = String(a.venue || (prow[0] && prow[0].exchange) || 'bitget').toLowerCase();
       await pool.execute('DELETE FROM pending_credentials WHERE user_id = ?', [uid]);
+
+      if (!a.ok) {
+        // Not connected, and SAY WHY. The reason is the venue's own words as
+        // relayed by the bot, bounded here as well as bot-side because this is
+        // the boundary that writes it to a column and serves it to a browser.
+        const why = String(a.error || 'the exchange rejected these keys').slice(0, 200);
+        await pool.execute(
+          `INSERT INTO exchange_status (user_id, exchange, connected, last_error)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE exchange = VALUES(exchange),
+             connected = VALUES(connected), last_error = VALUES(last_error),
+             updated_at = CURRENT_TIMESTAMP`,
+          [uid, venue, false, why]
+        );
+        rejected++;
+        continue;
+      }
+
       const connected = a.action === 'disconnect' ? false : true;
       await pool.execute(
-        `INSERT INTO exchange_status (user_id, exchange, connected)
-         VALUES (?, ?, ?)
+        `INSERT INTO exchange_status (user_id, exchange, connected, last_error)
+         VALUES (?, ?, ?, NULL)
          ON DUPLICATE KEY UPDATE exchange = VALUES(exchange),
-           connected = VALUES(connected), updated_at = CURRENT_TIMESTAMP`,
+           connected = VALUES(connected), last_error = NULL,
+           updated_at = CURRENT_TIMESTAMP`,
         [uid, venue, connected]
       );
       applied++;
     }
-    res.json({ ok: true, applied });
+    res.json({ ok: true, applied, rejected });
   } catch (err) {
     console.error('Cred ack error:', err.stack || err.message);
     res.status(500).json({ error: 'Failed to ack credentials' });

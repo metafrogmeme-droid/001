@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "Ончейн-DEX бессрочных контрактов (StarkEx L2). Создайте API-кошелёк (агент) и используйте ЕГО приватный ключ — никогда ключ основного кошелька."],
   ["venue.connected", "подключено"],
   ["venue.not_connected", "не подключено"],
+  ["venue.rejected", "отклонено"],
   ["venue.applying", "применяется {venue}…"],
   ["venue.disconnect", "Отключить"],
   ["venue.connect_x", "Подключить {venue}"],

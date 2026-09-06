@@ -5255,9 +5255,19 @@
         const st = statusOf(v.id);
         const connected = !!(st && st.connected);
         const pending = pendingFor === v.id ? c.pending : null;
+        // REJECTED IS NOT "NOT CONNECTED". A key the exchange refused and a
+        // key nobody has typed yet rendered identically, so a user whose
+        // credentials were declined saw the same neutral chip as a fresh
+        // account and had nothing to act on. The reason is the venue's own
+        // words, carried through the bot's ack.
+        const rejected = (!connected && !pending && st && st.last_error) ? st.last_error : null;
         const chip = connected ? `<span class="chip chip--up">✓ ${esc(T('venue.connected', 'connected'))}</span>`
           : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: pending }))}</span>`
+          : rejected ? `<span class="chip chip--down">✕ ${esc(T('venue.rejected', 'rejected'))}</span>`
           : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
+        const why = rejected
+          ? `<p class="small" style="color:var(--down,#f05252);margin:var(--s2) 0 0">${esc(rejected)}</p>`
+          : '';
         const disc = connected
           ? `<button class="btn btn--danger btn--sm" data-discvenue="${esc(v.id)}" type="button">${esc(T('venue.disconnect', 'Disconnect'))}</button>` : '';
         // Disconnect stays available while connect is off: removing keys is
@@ -5273,7 +5283,7 @@
         return `<div style="border:1px solid var(--line);border-radius:var(--radius);padding:var(--s3) var(--s4);margin-bottom:var(--s3)">
           <div class="row" style="justify-content:space-between;align-items:center">
             <b>${esc(v.label)}</b><span class="row" style="gap:var(--s2)">${chip}${disc}</span></div>
-          ${form}</div>`;
+          ${why}${form}</div>`;
       }).join('');
       return offNotice + cards
         + `<p class="muted small">${esc(T('venue.encrypt_note',

@@ -1206,6 +1206,7 @@
   ["venue.help.paradex", "DEX di perpetui on-chain (StarkEx L2). Crea un wallet API (agente) e usa LA SUA chiave privata — mai quella del tuo wallet principale."],
   ["venue.connected", "collegato"],
   ["venue.not_connected", "non collegato"],
+  ["venue.rejected", "rifiutato"],
   ["venue.applying", "applicazione di {venue}…"],
   ["venue.disconnect", "Scollega"],
   ["venue.connect_x", "Collega {venue}"],
