@@ -11,11 +11,22 @@ import re
 import pytest
 
 from bot.warroom.warroom_bot import render_performance
-from tests.source_scan import code_only
+from tests.source_scan import code_only, handler_sources
 
 
 def _code(path):
     return code_only(io.open(path, encoding="utf-8").read())
+
+
+def _handler_code():
+    """Every file the Telegram handler class is made of, comments stripped.
+
+    The handler is being split into mixins; `/equitycurve` lives in the
+    engine-ops one and `/performance` is next to move. A scan of
+    telegram_handler.py alone reads a move as the guarded line vanishing —
+    and, for the `not in` assertions below, as a fold that was never there.
+    """
+    return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _js_code(path):
@@ -69,13 +80,13 @@ class TestPerformanceTotals:
         assert "$+0.00" in out
 
     def test_the_caller_no_longer_folds_the_total(self):
-        code = _code("bot/skills/telegram_handler.py")
+        code = _handler_code()
         assert '_tot["net"] if _tot["net"] is not None else 0.0' not in code
         # ...and the flag that recorded the fold is gone with it.
         assert "_total_known" not in code
 
     def test_an_unpriced_window_is_not_a_flat_window(self):
-        code = _code("bot/skills/telegram_handler.py")
+        code = _handler_code()
         assert "if _today_priced == 0 and _today_unpriced > 0:" in code
         assert "if _week_priced == 0 and _week_unpriced > 0:" in code
 
@@ -138,13 +149,13 @@ class TestChatHeaderColour:
 
 class TestEquityCurveVerdict:
     def test_it_does_not_claim_a_comparison_it_could_not_make(self):
-        code = _code("bot/skills/telegram_handler.py")
+        code = _handler_code()
         assert "if _snaps < _ma_period:" in code
         assert "NOT YET MEASURED" in code
 
     def test_the_healthy_wording_survives_for_a_real_window(self):
         # The fix must not delete the true verdict, only gate it.
-        assert "HEALTHY — equity above MA" in _code("bot/skills/telegram_handler.py")
+        assert "HEALTHY — equity above MA" in _handler_code()
 
 
 class TestNoDeadExchangeCall:

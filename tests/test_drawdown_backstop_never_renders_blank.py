@@ -176,8 +176,11 @@ class TestAPartialPayloadDoesNotManufactureAWarning:
 def test_the_command_routes_through_the_renderer():
     """A renderer nothing calls is indistinguishable from one that does not
     work, and the three print sites are why this block matters at all."""
-    from tests.source_scan import code_only
-    src = code_only(open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+    from tests.source_scan import code_only, handler_sources
+    # /drawdownlimit lives in the engine-ops mixin since the handler split;
+    # read every file the handler class is made of, so a move cannot read
+    # as the renderer losing its caller.
+    src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     assert "render_drawdown_status(st)" in src
     assert 'lines = ["📉 <b>Live drawdown backstop</b>"]' not in src, (
         "the inline block is back")
