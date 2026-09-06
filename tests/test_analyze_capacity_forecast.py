@@ -173,8 +173,10 @@ class TestItReachesTheOperator:
     def test_status_still_reaches_the_shared_renderer(self):
         # The wiring half: behaviour is covered above, this pins that /status
         # did not stop calling it during the extraction.
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
+        # Every file the handler class is made of: /status lives in the
+        # start-here mixin since the handler split.
+        from tests.source_scan import handler_sources
+        src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
         assert "analyze_budget_line(" in src
 
     def test_no_prose_symbol_count_in_the_scanner_docstring(self):

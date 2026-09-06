@@ -183,7 +183,10 @@ def test_status_uses_the_shared_renderer_and_keeps_no_private_copy():
     WIRING — that /status reaches the shared function and that the inline
     copy it was extracted from is gone. Two renderings of one fact drift,
     and the drifted one is always the surface nobody re-read."""
-    src = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /status lives in the
+    # start-here mixin since the handler split.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     code = "\n".join(ln for ln in src.split("\n") if not ln.lstrip().startswith("#"))
     assert "analyze_budget_line(" in code, "/status no longer calls the renderer"
     assert "Analyze budget short" not in code, (

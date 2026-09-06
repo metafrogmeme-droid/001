@@ -116,7 +116,10 @@ def test_engine_remembers_the_phase_and_counts_repeats():
 
 
 def test_status_handler_passes_the_engine_record_through():
-    src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    from tests.source_scan import handler_sources
+    # Every file the handler class is made of: /status lives in the
+    # start-here mixin since the handler split.
+    src = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
     assert re.search(r'phase_timeout=getattr\(self\.engine,\s*"_last_phase_timeout",\s*None\)', src)
 
 

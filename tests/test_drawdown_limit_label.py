@@ -22,13 +22,15 @@ accounting for live-vs-paper and any runtime operator override.
 """
 
 import re
-from pathlib import Path
 
 from bot.config import CONFIG
 from bot.formatters.rich_cards import render_status_card
+from tests.source_scan import handler_sources
 
-
-SRC = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+# Every file the handler class is made of: /status lives in the start-here
+# mixin since the handler split, and a scan of one file reads the move as
+# the seam no longer being handed a drawdown cap.
+SRC = "\n".join(p.read_text(encoding="utf-8") for p in handler_sources())
 
 
 def _card(drawdown, limit):

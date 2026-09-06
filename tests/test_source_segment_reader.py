@@ -162,10 +162,21 @@ class TestItIsActuallyFasterOnThePathologicalFile:
     fail on a slow CI box for reasons that have nothing to do with the code."""
 
     def test_it_beats_the_quadratic_form_by_orders_of_magnitude(self):
-        src = _existing("bot/skills/telegram_handler.py").read_text()
+        # The handler was the pathological file (13,575 lines, 260 nodes)
+        # until it was split into mixins. Whichever file under bot/ carries
+        # the most function nodes now stands in for it, so the ratio is
+        # still measured on the worst case rather than on a file that shrank.
+        def _nodes(text: str) -> int:
+            try:
+                return sum(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                           for n in ast.walk(ast.parse(text)))
+            except SyntaxError:
+                return 0
+        src = max((p.read_text(encoding="utf-8") for p in REPO.joinpath("bot").rglob("*.py")
+                   if "__pycache__" not in p.parts), key=_nodes)
         funcs = [n for n in ast.walk(ast.parse(src))
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        assert len(funcs) > 100, f"only {len(funcs)} functions — file shrank?"
+        assert len(funcs) > 100, f"only {len(funcs)} functions — no large file left to measure on?"
 
         # Sample the stdlib rather than running all 260 — this test must not
         # itself take 30 seconds to prove that something took 30 seconds.

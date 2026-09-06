@@ -143,6 +143,11 @@ def test_the_html_is_escaped():
 # --------------------------------------------------------------------------
 
 def _src(rel: str) -> str:
+    if rel == "bot/skills/telegram_handler.py":
+        # Every file the handler class is made of: /status lives in the
+        # start-here mixin since the handler split.
+        from tests.source_scan import handler_sources
+        return "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     return code_only((REPO / rel).read_text(encoding="utf-8"))
 
 
