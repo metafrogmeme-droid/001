@@ -283,7 +283,10 @@ async def test_approve_routes_through_the_shared_predicate(tmp_path):
     ctx.args = [WEB_ID, "trader"]
     p = _configured()
     try:
-        with patch("bot.skills.telegram_handler.is_vouchable", return_value=True), \
+        # /approve reads `is_vouchable` from the access mixin's module since
+        # the handler split; a patch on the handler's copy would land on a
+        # name the gate no longer reads.
+        with patch("bot.skills.access_commands.is_vouchable", return_value=True), \
              patch("bot.utils.user_store.is_vouchable", return_value=True):
             await h._cmd_approve(update, ctx)
     finally:

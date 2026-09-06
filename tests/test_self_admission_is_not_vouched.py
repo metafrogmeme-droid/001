@@ -430,8 +430,9 @@ class TestTheOperatorSeesThem:
     def test_every_role_is_rendered(self):
         import pathlib
         import re
+        # /users and /approve live in the access mixin since the handler split.
         src = (pathlib.Path(__file__).resolve().parent.parent
-               / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+               / "bot" / "skills" / "access_commands.py").read_text(encoding="utf-8")
         code = "\n".join(ln.split("#", 1)[0] for ln in src.split("\n"))
         m = re.search(r"role_icons\s*=\s*\{([^}]*)\}", code)
         assert m, "the /users role icon map moved — re-point this check"
@@ -456,8 +457,9 @@ class TestTheOperatorSeesThem:
         import pathlib
         import re
         from bot.utils.i18n import SUPPORTED_LANGS, t
+        # /users and /approve live in the access mixin since the handler split.
         src = (pathlib.Path(__file__).resolve().parent.parent
-               / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+               / "bot" / "skills" / "access_commands.py").read_text(encoding="utf-8")
         code = "\n".join(ln.split("#", 1)[0] for ln in src.split("\n"))
         m = re.search(r'if role not in \(([^)]*)\)', code)
         assert m, "the /approve role validator moved — re-point this check"

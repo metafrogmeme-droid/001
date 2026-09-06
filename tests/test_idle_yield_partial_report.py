@@ -95,32 +95,37 @@ def test_the_spot_legs_are_unaffected():
 # ── the source of the value ───────────────────────────────────────────────
 
 def _handler_src() -> str:
+    """The yield mixin: `_engine_free_usdt`, /stake and /yield live there since
+    the handler split (bot/skills/yield_commands.py)."""
     from pathlib import Path
-    return Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
+    return Path("bot/skills/yield_commands.py").read_text(encoding="utf-8")
+
+
+def _free_usdt_block() -> str:
+    """`_engine_free_usdt` up to the next method, whichever it is."""
+    import re
+    src = _handler_src()
+    block = src[src.index("def _engine_free_usdt"):]
+    nxt = re.search(r"\n    (?:async )?def ", block[10:])
+    return block[:nxt.start() + 10] if nxt else block
 
 
 def test_paper_mode_reports_zero_not_unknown():
-    src = _handler_src()
-    block = src[src.index("def _engine_free_usdt"):]
-    block = block[:block.index("async def _cmd_weblive")]
+    block = _free_usdt_block()
     assert "if not CONFIG.is_live():" in block and "return 0.0" in block, (
         "paper mode genuinely has no live futures margin; calling that "
         "unknown would cry wolf on every paper report")
 
 
 def test_a_live_empty_cache_is_unknown_not_zero():
-    src = _handler_src()
-    block = src[src.index("def _engine_free_usdt"):]
-    block = block[:block.index("async def _cmd_weblive")]
+    block = _free_usdt_block()
     assert "if not cache:" in block and "return None" in block
     assert "except Exception:\n            return None" in block, (
         "an exception reading the cache is also 'we do not know'")
 
 
 def test_a_missing_free_key_is_unknown_too():
-    src = _handler_src()
-    block = src[src.index("def _engine_free_usdt"):]
-    block = block[:block.index("async def _cmd_weblive")]
+    block = _free_usdt_block()
     assert 'free = cache.get("free")' in block
     assert "return None if free is None else float(free or 0)" in block, (
         "a cache present but without a 'free' key is not a balance of zero")
