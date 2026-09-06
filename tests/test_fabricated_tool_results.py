@@ -174,11 +174,16 @@ def test_no_risk_reward_correction_is_LOGGED_for_a_discarded_block(monkeypatch):
     account of what happened, and it is the only observable the ordering
     moves. So this asserts on the audit stream, which is where the claim lives.
     """
+    from bot.skills import chat_runtime as rt
     from bot.skills import telegram_handler as th
 
+    # `_chat_ret` lives in chat_runtime now (the handler re-exports it), so
+    # the audit call it makes is chat_runtime's — a patch on the handler's
+    # `audit` would land on a name the funnel no longer reads and this test
+    # would pass against a record it never saw.
     events = []
     monkeypatch.setattr(
-        th, "audit",
+        rt, "audit",
         lambda _log, msg, **kw: events.append((kw.get("action"), msg)))
 
     out = th._chat_ret(_FABRICATED_WITH_A_RATIO, None, False)
