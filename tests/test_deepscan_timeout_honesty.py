@@ -22,9 +22,12 @@ from pathlib import Path
 import pytest
 
 from bot.config import CONFIG
-from tests.source_scan import code_only
+from tests.source_scan import code_only, handler_sources
 
-HANDLER = code_only(Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8"))
+# Every file the handler class is made of: /deepscan lives in the scan mixin
+# since the handler split, and a scan of telegram_handler.py alone reads the
+# move as the timeout block vanishing.
+HANDLER = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
 
 
 def _timeout_block() -> str:
