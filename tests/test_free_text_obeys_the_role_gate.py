@@ -374,6 +374,12 @@ class TestTheTableDoesNotDrift:
             # admin holds, because the card renders the global consent ledger.
             "check_event_risk": "macro",
             "compliance_status": "compliance",
+            # The third macro card. The macro GATE's posture (risk state, the
+            # size multiplier on new entries, stale/blind) — the same
+            # read-only data as the calendar, so the same permission. It is
+            # a chat tool and a free-text skill and no slash command, because
+            # the one it advertised, /macro, is the calendar's.
+            "macro_brief": "macro",
         }
 
     def test_halt_reaches_no_chat_transport(self):

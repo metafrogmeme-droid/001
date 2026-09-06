@@ -50,6 +50,15 @@ SKILL_PERMISSION: dict[str, str] = {
     # grant/deny outcomes — so free text reaching it is fine and the role gate
     # is what refuses. Present here because this table is the FACT.
     "compliance_status": "compliance",
+    # `macro_brief` is the macro gate's POSTURE — risk state, the size
+    # multiplier being applied to new entries, whether the calendar is stale
+    # or blind — where /macro (`macro_calendar`) is the calendar itself. The
+    # same read-only macro data, so the permission /eventrisk reuses. It has
+    # NO slash command: the one it advertised, `/macro`, is the calendar's,
+    # and a second command under one name is the collision that kept it
+    # parked. Chat reaches it instead — free text through this table, tool
+    # calling through bot/nlp/chat_tools.py.
+    "macro_brief": "macro",
     # Reachable from Telegram free text ("my journal", "trade log") and not
     # from web chat. Present here because this table is the FACT — /journal and
     # /daily_report are both @guard("journal") — and absent from

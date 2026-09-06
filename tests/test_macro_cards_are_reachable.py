@@ -144,23 +144,59 @@ class TestTheCatalogueTellsTheTruthAboutWhoCanRunThem:
             "the reader, which is what makes commands feel broken")
 
 
+def _baseline_entries() -> set[str]:
+    from pathlib import Path
+    text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
+    return {ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")}
+
+
 class TestTheBaselineMovedWithTheWiring:
-    def test_neither_is_still_recorded_as_dark(self):
-        from pathlib import Path
-        text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
-        entries = {ln.strip() for ln in text.splitlines()
-                   if ln.strip() and not ln.startswith("#")}
+    def test_none_of_the_three_is_still_recorded_as_dark(self):
+        entries = _baseline_entries()
         assert "check_event_risk" not in entries
         assert "compliance_status" not in entries
+        assert "macro_brief" not in entries
 
-    def test_the_three_left_behind_are_still_there(self):
-        # Not a tidy-up: macro_brief COLLIDES with a working /macro, and the
-        # other two argue against themselves. Leaving them recorded is the
-        # honest state, and the ratchet is what keeps that a decision rather
-        # than an oversight.
-        from pathlib import Path
-        text = Path("tests/unreachable_skills_baseline.txt").read_text(encoding="utf-8")
-        for still_dark in ("macro_brief", "kill_switch", "request_live_approval"):
-            assert still_dark in text, (
+    def test_the_two_left_behind_are_still_there(self):
+        # Not a tidy-up: both argue against themselves (a second emergency
+        # halt beside /halt; an approval manager that does not exist).
+        # Leaving them recorded is the honest state, and the ratchet is what
+        # keeps that a decision rather than an oversight.
+        entries = _baseline_entries()
+        for still_dark in ("kill_switch", "request_live_approval"):
+            assert still_dark in entries, (
                 f"{still_dark} left the baseline without this file being "
                 "updated — if it was wired, say here why it was safe to")
+
+
+class TestMacroBriefIsAChatToolNotACommand:
+    """The third macro card, wired the one way that does not collide.
+
+    `macro_brief` advertised `/macro`, and `/macro` already dispatches
+    `macro_calendar` — the events list. Two commands under one name kept the
+    brief parked. It answers a different question (the macro GATE's posture:
+    risk state, the size multiplier on new entries, stale/blind), which is
+    what a chat asks — so it reaches chat through the permission table and
+    the tool catalogue, under `macro` like /eventrisk, and takes no slash
+    command at all. Three things have to hold, and each is checked:
+    """
+
+    def test_it_reuses_the_macro_permission(self):
+        assert SKILL_PERMISSION.get("macro_brief") == "macro"
+        assert "macro" in ROLE_PERMISSIONS["trader"] and "macro" in ROLE_PERMISSIONS["paper"]
+
+    def test_it_is_offered_as_a_chat_tool_on_both_surfaces(self):
+        from bot.nlp.chat_tools import CHAT_TOOLS
+        tool = next((t for t in CHAT_TOOLS if t.name == "macro_brief"), None)
+        assert tool is not None, "permissioned but not in the tool catalogue — chat cannot call it"
+        assert "macro_calendar" in tool.description, (
+            "the description must tell the model which of the two macro tools is which")
+        assert "macro_brief" in WEB_CHAT_SKILLS
+
+    def test_it_advertises_no_slash_command_and_macro_is_still_the_calendar(self):
+        from bot.skills.macro_skills import MacroBriefSkill
+        assert MacroBriefSkill.command == "", (
+            "a slash command here collides with /macro or advertises one that "
+            "does not run — both are the defect this module records")
+        src = _flat(_handler_src("macro"))
+        assert 'dispatch("macro_calendar"' in src or 'dispatch( "macro_calendar"' in src

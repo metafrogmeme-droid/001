@@ -62,8 +62,10 @@ def _safe_getattr(obj, attr, fallback=None):
 # which is the one condition an operator is told to treat as a reason to stop —
 # so the card manufactured the alarm it exists to report, out of a typo.
 #
-# Nothing caught it because nothing could run it: all five skills are registered
-# and dispatched by no transport (see tests/unreachable_skills_baseline.txt).
+# Nothing caught it because nothing could run it: when this was found, all five
+# skills were registered and dispatched by no transport. Three are reachable
+# now — /eventrisk, /compliance, and macro_brief as a chat tool — and
+# tests/unreachable_skills_baseline.txt records the two that are not, and why.
 _UNREADABLE = object()
 
 
@@ -192,7 +194,12 @@ def _decision_line(entry) -> str:
 class MacroBriefSkill(BaseSkill):
     name = "macro_brief"
     description = "Current macro window status, next events, and risk state."
-    command = "/macro"
+    # No slash command. This advertised `/macro`, which the calendar skill
+    # already answers to, and two commands under one name was the collision
+    # that kept the card dark. It is a chat tool and a free-text skill
+    # instead (permission `macro`, bot/skills/skill_permissions.py), which
+    # is where "is macro cutting size right now" gets asked anyway.
+    command = ""
 
     async def execute(self, engine, **kwargs) -> str:
         provider = _safe_getattr(engine, "macro_provider")

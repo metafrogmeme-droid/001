@@ -10,21 +10,25 @@
 # reachable must be deleted in the same commit. Same rule as
 # known_failures.txt, for the same reason.
 #
-# Seven entries today.
+# Six entries today, every one triaged: each line below is a decision with
+# its reason, not a backlog.
 
 # ── TRIAGED: bot/skills/macro_skills.py ────────────────────────────────────
-# Five skills that each advertise a slash command — /macro, /eventrisk,
-# /compliance, /approve, /kill — dispatched by NOTHING. Confirmed dark on
-# every transport: no @guard command handler exists for any of them, they are
-# absent from SKILL_PERMISSION (so Telegram free text refuses and web chat's
-# derived set excludes them), and bot/mcp/server.py uses an explicit tool
-# allow-list that omits all five.
+# Five skills that each advertised a slash command — /macro, /eventrisk,
+# /compliance, /approve, /kill — dispatched by NOTHING when this was found:
+# no @guard command handler existed for any of them, they were absent from
+# SKILL_PERMISSION (so Telegram free text refused and web chat's derived set
+# excluded them), and bot/mcp/server.py uses an explicit tool allow-list that
+# omits all five.
 #
 # Being unrunnable is why nobody noticed that all seven of the module's
 # attribute probes named fields that do not exist on the real objects. Those
-# are fixed (tests/test_macro_skills_read_real_state.py), so these are now
-# correct-if-wired. WIRING THEM IS A PRODUCT DECISION, NOT A BUG FIX, and two
-# of the five argue against it on their own merits:
+# are fixed (tests/test_macro_skills_read_real_state.py). Three are reachable
+# now — /eventrisk and /compliance as commands, macro_brief as a chat tool and
+# free-text skill under `macro` (it advertised `/macro`, which the calendar
+# already answers to, so it took no slash command at all). WIRING THE LAST
+# TWO IS A PRODUCT DECISION, NOT A BUG FIX, and each argues against it on its
+# own merits:
 #
 #   kill_switch  — /halt already works and is the complete stop (it cancels
 #                  pending ideas, halts per-user risk engines and transitions
@@ -34,18 +38,35 @@
 #                — needs an `engine.approval_manager` that does not exist.
 #                  ComplianceEngine.issue_approval_token() is close but takes
 #                  a subject_id this skill has no way to supply.
-#
-# The other three (macro_brief, check_event_risk, compliance_status) are
-# read-only cards and would be reachable the moment somebody adds a permission.
 kill_switch
-macro_brief
 request_live_approval
 
-# ── RECORDED, NOT TRIAGED ──────────────────────────────────────────────────
-# Registered, dispatched by nothing in bot/. Each needs someone to decide
-# whether it wants a permission or should stop being registered. Listed here
-# so the decision is visible rather than silent — which is the entire point of
-# this file.
+# ── TRIAGED: the rest of the registry ──────────────────────────────────────
+# Each of these was read before being left here, and the reason is the entry.
+#
+#   execute_paper_trade
+#                — `engine.confirm_trade(trade_id)` with NO user id. The two
+#                  real confirm surfaces (the inline button and the web
+#                  confirm) both pass `user_id=caller_uid`, which is what
+#                  scopes a confirmation to the account that owns the idea;
+#                  reached from chat this would confirm any pending idea as
+#                  the operator. It is the confirm button without its
+#                  ownership check. If it is ever wanted from chat it goes
+#                  through DANGEROUS_SKILLS to the guarded path, like `halt`.
+#   feedback     — writes to the shared learning store keyed by a decision
+#                  audit id, and no user-facing card prints one, so a
+#                  permission would offer a form nobody can fill in. Wire it
+#                  when a card carries the id.
+#   getclaw      — an SDK bridge probe that answers "adapter ready" and a
+#                  boolean. Not a user feature; kept registered so the
+#                  registry describes what the adapter package installs.
+#   quant_analyze
+#                — read-only, but a full OHLCV fetch plus regime, volatility
+#                  and Hurst modelling: heavier than `deepscan`, which the
+#                  $RCLAW tier gate charges for, and not in that gate's
+#                  feature table at all. A permission alone would give away
+#                  more than deepscan for free; it needs a tier decision
+#                  first, then a permission and a card.
 execute_paper_trade
 feedback
 getclaw
