@@ -136,7 +136,23 @@ class TestPushScanSummaryToWebsite:
 
 class TestTickWiresScanSummaryPush:
     def test_tick_calls_push_scan_summary_in_a_fail_open_try_except(self):
+        """The push is wired, and it is fail-open.
+
+        THE LITERAL MOVED BECAUSE THE CALL GOT SAFER. This asserted the inline
+        ``self._push_scan_summary_to_website(signals)``, and the call is now
+        ``await asyncio.to_thread(...)`` — the push reaches SYNCHRONOUS ccxt in
+        live mode through ``_build_scan_payload`` -> ``_fetch_live_exchange_data``,
+        so running it on the event loop froze every other coroutine for as long
+        as the venue took to answer. Updated rather than loosened: a pin that
+        fails when its subject changes is a pin doing its job.
+
+        The stronger form of this claim — that the call is awaited THROUGH a
+        thread, asserted over the AST rather than over text — lives in
+        ``tests/test_tick_loop_and_rehydrate_report_honestly.py``, along with
+        the check that no direct call was left beside it. What stays here is
+        the fail-open half, which is this file's subject.
+        """
         import inspect
         src = inspect.getsource(RuneClawEngine._tick)
-        assert "self._push_scan_summary_to_website(signals)" in src
+        assert "self._push_scan_summary_to_website" in src
         assert 'logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)' in src
