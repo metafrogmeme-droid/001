@@ -77,8 +77,62 @@ def test_a_4x_overshoot_on_a_filled_position_is_closed(tmp_path):
     ex = _executor(tmp_path, actual_leverage=20)
     msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
     assert msg is not None, "a 5x target filled at 20x must not be kept"
-    assert "20x" in msg and "5x" in msg
+    assert "20x" in msg and "5x" in msg and "POSITION CLOSED" in msg
+    assert "could not be set" not in msg, "the cooldown armed; the card must not say otherwise"
     ex.close_position.assert_awaited_once()
+
+
+# ── the close's answer is READ, not assumed ──────────────────────────────────
+
+def test_a_close_that_answers_close_failed_is_reported_open_and_possibly_unprotected(tmp_path):
+    """close_position signals a venue-side failure by RETURN VALUE, with the
+    position restored to open — and by then it has already cancelled the stop
+    and take-profit, which is the first thing it does. This answer used to be
+    announced as 'POSITION CLOSED … Its stop and take-profit were cancelled
+    and the position closed': the cancel half true, the close half false, and
+    the operator told nothing needed doing."""
+    ex = _executor(tmp_path, actual_leverage=20)
+    ex.close_position = AsyncMock(return_value="CLOSE FAILED for t1: venue rejected")
+    msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
+    assert msg is not None
+    assert "AUTOMATIC CLOSE FAILED" in msg and "still OPEN" in msg
+    assert "UNPROTECTED" in msg and "MANUALLY" in msg
+    assert "POSITION CLOSED" not in msg
+    assert "still in place" not in msg, (
+        "the close had already cancelled the stops before the venue rejected it")
+    assert "venue rejected" not in msg, "driver text belongs in the log, not on the card"
+    assert ex._preflight_check(10.0, symbol="APT/USDT") is None, (
+        "a failed close is not a flatten; there is nothing to cool down")
+
+
+def test_a_close_kept_open_is_not_announced_as_closed(tmp_path):
+    """The other returned non-close: close_position kept the position, or its
+    remainder, tracked and re-protected. The card must not say closed."""
+    ex = _executor(tmp_path, actual_leverage=20)
+    kept = ("⚠️ CLOSE NOT CONFIRMED: SHORT APT/USDT:USDT\n"
+            "The position is kept OPEN and re-protected.")
+    ex.close_position = AsyncMock(return_value=kept)
+    msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
+    assert msg is not None
+    assert "DID NOT COMPLETE" in msg and kept in msg
+    assert "POSITION CLOSED" not in msg
+    assert ex._preflight_check(10.0, symbol="APT/USDT") is not None, (
+        "the sticky leverage is on the symbol either way")
+
+
+def test_a_cooldown_failure_after_the_close_still_reports_the_close(tmp_path):
+    """The rest used to share the close's handler here too, so a failure to
+    arm the cooldown after a successful close read as a failed close."""
+    ex = _executor(tmp_path, actual_leverage=20)
+
+    def _rest_bookkeeping_dies(symbol):
+        raise RuntimeError("rest store unavailable")
+    ex._rest_symbol = _rest_bookkeeping_dies
+    msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
+    assert msg is not None
+    assert "POSITION CLOSED" in msg and "could not be set" in msg
+    assert "AUTOMATIC CLOSE FAILED" not in msg
+    assert "rest store unavailable" not in msg
 
 
 def test_venue_rounding_is_kept(tmp_path):

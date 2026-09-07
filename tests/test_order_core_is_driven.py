@@ -360,18 +360,59 @@ async def test_an_adverse_over_slipped_fill_is_flattened(ex, audits, monkeypatch
     close = AsyncMock(return_value="closed at 101")
     monkeypatch.setattr(ex, "close_position", close)
     # 2% stop distance; a LONG fill 1% above entry consumes 50% of it (> 30%).
-    msg = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
+    msg, warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
     assert msg and "CLOSED for safety" in msg and "closed at 101" in msg
+    assert "did NOT complete" not in msg
+    assert warn == "", "a completed flatten leaves nothing for the card — the run ends here"
     close.assert_awaited_once_with("t1", reason="slippage_guard")
     assert _by(audits, "slippage_guard")[0]["result"] == "FLATTEN"
 
 
 @pytest.mark.asyncio
-async def test_a_failed_flatten_says_urgent(ex, audits, monkeypatch):
+async def test_a_flatten_that_raises_falls_through_with_an_urgent_note(ex, audits, monkeypatch):
+    """It used to ABORT here: the run ended with the position open, no stop
+    placed, and a card telling the operator to close it by hand. The stop is
+    the only protection left on that position, so the failed arm now hands
+    the fill card its warning and lets execute() carry on into placement."""
     monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=True, max_slip_ratio=0.3))
     monkeypatch.setattr(ex, "close_position", AsyncMock(side_effect=RuntimeError("venue down")))
-    msg = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
-    assert msg and "URGENT" in msg and "MANUALLY" in msg
+    msg, warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
+    assert msg is None, "an abort here is a position left with no stop"
+    assert "AUTOMATIC CLOSE FAILED" in warn and "MANUALLY" in warn
+    assert "venue down" not in warn, "driver text belongs in the log, not on the card"
+    assert [a["result"] for a in _by(audits, "slippage_guard")] == ["FLATTEN", "CLOSE_FAILED"]
+
+
+@pytest.mark.asyncio
+async def test_a_close_that_answers_close_failed_is_a_failed_flatten(ex, audits, monkeypatch):
+    """close_position signals a venue-side failure by RETURN VALUE, with the
+    position restored to open. This answer used to be announced as 'CLOSED
+    for safety', and the run aborted with no stop."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=True, max_slip_ratio=0.3))
+    monkeypatch.setattr(ex, "close_position",
+                        AsyncMock(return_value="CLOSE FAILED for t1: venue rejected"))
+    msg, warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
+    assert msg is None
+    assert "AUTOMATIC CLOSE FAILED" in warn and "CLOSED for safety" not in warn
+    assert "venue rejected" not in warn
+    failed = _by(audits, "slippage_guard")[1]
+    assert failed["result"] == "CLOSE_FAILED"
+    assert "venue rejected" in failed["data"]["close_msg"], "the audit keeps the venue's reason"
+
+
+@pytest.mark.asyncio
+async def test_a_close_kept_open_is_not_announced_as_closed_by_the_slippage_guard(ex, audits, monkeypatch):
+    """close_position's other non-close: it kept the position, or its
+    remainder, tracked and re-protected. No second set of stops from
+    execute(), and no card that says 'closed'."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=True, max_slip_ratio=0.3))
+    kept = "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nThe position is kept OPEN and re-protected."
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value=kept))
+    msg, warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
+    assert msg and "did NOT complete" in msg and kept in msg, msg
+    assert "CLOSED for safety" not in msg
+    assert warn == ""
+    assert [a["result"] for a in _by(audits, "slippage_guard")] == ["FLATTEN", "NOT_CLOSED"]
 
 
 @pytest.mark.asyncio
@@ -379,9 +420,10 @@ async def test_a_small_or_favourable_slip_is_kept(ex, audits, monkeypatch):
     monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=True, max_slip_ratio=0.3))
     close = AsyncMock()
     monkeypatch.setattr(ex, "close_position", close)
-    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 100.1) is None
-    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 99.0) is None, "a better fill is not adverse"
-    assert await ex._post_fill_slippage_guard(_idea(Direction.SHORT, entry=100.0, sl=102.0), 101.0) is None
+    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 100.1) == (None, "")
+    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 99.0) == (None, ""), \
+        "a better fill is not adverse"
+    assert await ex._post_fill_slippage_guard(_idea(Direction.SHORT, entry=100.0, sl=102.0), 101.0) == (None, "")
     close.assert_not_awaited()
     assert audits == []
 
@@ -389,7 +431,7 @@ async def test_a_small_or_favourable_slip_is_kept(ex, audits, monkeypatch):
 @pytest.mark.asyncio
 async def test_the_guard_disabled_is_silent(ex, audits, monkeypatch):
     monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=False))
-    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 110.0) is None
+    assert await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 110.0) == (None, "")
 
 
 # ── 5. leverage overshoot guard ──────────────────────────────────────────
@@ -409,11 +451,13 @@ async def test_an_overshoot_past_the_ratio_is_flattened_and_the_symbol_rested(ex
     monkeypatch.setattr(ex, "close_position", close)
     monkeypatch.setattr(ex, "_rest_symbol", lambda s: rested.append(s))
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
-    assert msg and "20x" in msg and "5x" in msg and "CLOSED" in msg
+    assert msg and "20x" in msg and "5x" in msg and "was CLOSED" in msg
+    assert "could not be set" not in msg, "the cooldown armed; the card must not say otherwise"
+    assert "did NOT complete" not in msg
     assert close_failed is False
     close.assert_awaited_once_with("t1", reason="leverage_overshoot")
     assert rested == [SYM], "without the rest the engine re-signals the symbol and the venue fills at 20x again"
-    assert _by(audits, "leverage_overshoot_guard")[0]["result"] == "FLATTEN"
+    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN"]
 
 
 @pytest.mark.asyncio
@@ -443,6 +487,64 @@ async def test_a_failed_flatten_reports_close_failed_and_falls_through(ex, audit
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
     assert msg is None and close_failed is True
     assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "CLOSE_FAILED"]
+
+
+@pytest.mark.asyncio
+async def test_a_close_that_answers_close_failed_is_a_failed_flatten_too(ex, audits, monkeypatch):
+    """THE ARM THAT WAS UNREACHABLE.
+
+    close_position signals a venue-side failure by RETURN VALUE — 'CLOSE
+    FAILED for …', with the position restored to open — and never raises for
+    it. The handler above was written for a raise, so on the real failure the
+    guard took the success arm: rested the symbol, headed the card CLOSED, and
+    returned before the stop was placed. Same arm as the raise now.
+    """
+    monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
+    monkeypatch.setattr(ex, "close_position",
+                        AsyncMock(return_value="CLOSE FAILED for t1: venue rejected"))
+    rested = []
+    monkeypatch.setattr(ex, "_rest_symbol", lambda s: rested.append(s))
+    msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
+    assert msg is None and close_failed is True
+    assert rested == [], "a failed close is not a flatten; there is nothing to cool down"
+    failed = _by(audits, "leverage_overshoot_guard")
+    assert [a["result"] for a in failed] == ["FLATTEN", "CLOSE_FAILED"]
+    assert "venue rejected" in failed[1]["data"]["close_msg"], "the audit keeps the venue's reason"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_close_answer_is_not_a_close(ex, audits, monkeypatch):
+    """close_position is typed -> str. Anything else is a reading nobody made,
+    and absent is never a close."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value=None))
+    msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
+    assert msg is None and close_failed is True
+    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "CLOSE_FAILED"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [
+    "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nThe position is kept OPEN and re-protected.",
+    "⚠️ PARTIAL CLOSE — RESIDUAL REMAINS: LONG BTC/USDT\nPosition kept OPEN (tracking the remainder).",
+    "Position t1 not found or already closed/closing.",
+])
+async def test_a_close_kept_open_is_neither_announced_closed_nor_given_a_second_stop(
+        ex, audits, monkeypatch, answer):
+    """close_position's other non-closes. The position is still there — in
+    whole, in part, or under another path's close — and close_position already
+    re-protected what it could. So the guard must not claim a close, and must
+    not let execute() put a second set of stops on it: it aborts, honestly."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value=answer))
+    rested = []
+    monkeypatch.setattr(ex, "_rest_symbol", lambda s: rested.append(s))
+    msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
+    assert msg and "did NOT complete" in msg and answer in msg, msg
+    assert "was CLOSED" not in msg
+    assert close_failed is True
+    assert rested == [SYM], "the sticky leverage is on the symbol either way"
+    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "NOT_CLOSED"]
 
 
 @pytest.mark.asyncio
@@ -479,7 +581,7 @@ async def test_an_error_after_a_successful_flatten_does_not_fail_open(ex, audits
 
 
 @pytest.mark.asyncio
-async def test_a_post_close_bookkeeping_failure_still_reports_the_close(ex, audits, monkeypatch):
+async def test_a_post_close_bookkeeping_failure_still_reports_the_close(ex, audits, monkeypatch, caplog):
     """The edge #299 pinned and did not fix.
 
     `_rest_symbol` used to run inside the close's own try, so a failure there
@@ -497,11 +599,15 @@ async def test_a_post_close_bookkeeping_failure_still_reports_the_close(ex, audi
         raise RuntimeError("rest bookkeeping failed")
     monkeypatch.setattr(ex, "_rest_symbol", _boom)
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
-    assert msg and "was CLOSED" in msg and "cooldown" in msg, msg
+    assert msg and "was CLOSED" in msg and "could not be set" in msg, msg
     assert close_failed is False
     assert "rest bookkeeping failed" not in msg, "driver text belongs in the log, not on the card"
-    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "REST_FAILED"]
-    assert _by(audits, "leverage_overshoot_guard")[1]["data"]["error"] == "RuntimeError"
+    assert "rest bookkeeping failed" in caplog.text, "…and the log is where it must be"
+    rest = _by(audits, "leverage_overshoot_guard")
+    assert [a["result"] for a in rest] == ["FLATTEN", "REST_FAILED"]
+    assert rest[1]["data"]["error"] == "RuntimeError"
+    assert (rest[1]["data"]["requested"], rest[1]["data"]["actual"]) == (5, 20), (
+        "the rows on this action are shaped alike, so a reader can join them")
 
 
 # ── 6. SL/TP placement and the flatten-on-failure ────────────────────────
@@ -600,6 +706,17 @@ def test_a_mismatch_whose_close_failed_is_not_reported_as_informational(ex, monk
     c = _card(ex, leverage=20, _lev_mismatch=(5, 20), _lev_close_failed=True)
     assert "AUTOMATIC CLOSE FAILED" in c and "close it MANUALLY" in c
     assert "the position was kept" not in c
+
+
+def test_a_slippage_flatten_that_failed_reaches_the_card(ex, monkeypatch):
+    """The slippage guard hands the card its warning instead of aborting, so
+    the run can place the stop; the card must then carry it, or the operator
+    reads a clean fill about a position the guard tried to close."""
+    monkeypatch.setattr(le, "CONFIG", _cfg())
+    warn = "\n🚨 <b>SLIPPAGE 1.20% — AUTOMATIC CLOSE FAILED</b>\nclose it MANUALLY on the venue."
+    c = _card(ex, _slip_warn=warn)
+    assert "SLIPPAGE 1.20% — AUTOMATIC CLOSE FAILED" in c and "SL order: sl1" in c
+    assert "SLIPPAGE" not in _card(ex), "no warning, no line"
 
 
 def test_an_unconfirmed_fill_names_the_failure_stage(ex, monkeypatch):

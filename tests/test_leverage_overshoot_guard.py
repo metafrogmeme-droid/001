@@ -355,9 +355,115 @@ async def test_a_cooldown_failure_after_the_flatten_places_no_stop(tmp_path):
     ex.close_position.assert_awaited_once_with("TI-OVERSHOOT-002", reason="leverage_overshoot")
     ex._place_sl_tp.assert_not_awaited()
     assert "EXECUTION ABORTED" in result and "was CLOSED" in result, result
-    assert "cooldown" in result, "the operator must hear that the symbol is not resting"
-    assert "AUTOMATIC CLOSE FAILED" not in result, "a closed position must not be reported as open"
+    assert "could not be set" in result, "the operator must hear that the symbol is not resting"
+    # The abort path never reaches the fill card, so this cannot fail on its
+    # own; it pins the old behaviour's visible symptom beside the await count.
+    assert "AUTOMATIC CLOSE FAILED" not in result
     assert "rest store unavailable" not in result, "driver text belongs in the log, not on the card"
+
+
+def _venue_that_rejects_the_close(venue):
+    """The entry order fills; every order after it — the guard's reduce-only
+    close — is refused. Returns the list of orders the venue was asked for."""
+    entry_fill = {"id": "ORD-001", "average": 100_000.0, "filled": 0.0001,
+                  "cost": 10.0, "status": "filled"}
+    orders = []
+
+    async def _create_order(*args, **kwargs):
+        orders.append((args, kwargs))
+        if len(orders) == 1:
+            return entry_fill
+        raise RuntimeError("venue rejected the close")
+
+    venue.create_order = AsyncMock(side_effect=_create_order)
+    return orders
+
+
+async def test_a_venue_that_rejects_the_flatten_still_gets_a_stop(tmp_path):
+    """THE FAILURE THE GUARD WAS WRITTEN FOR, THROUGH THE REAL close_position.
+
+    close_position answers a venue-side rejection by RETURN VALUE — 'CLOSE
+    FAILED for …', status restored to open — and never raises for it. The
+    guard's failed-close arm waited for a raise, so on this exact run it took
+    the success arm instead: rested the symbol, headed the card CLOSED, and
+    returned before any stop was placed. An open, over-levered position with
+    nothing protecting it, announced as closed.
+
+    Here the venue accepts the entry and refuses the close, nothing about
+    close_position is mocked, and the run must carry on into stop placement
+    with the card saying the close FAILED.
+    """
+    from bot.core.live_executor import LiveExecutor
+    from bot.utils.models import Direction, TradeIdea
+
+    venue = _venue()
+    orders = _venue_that_rejects_the_close(venue)
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._exchange = venue
+    venue_lev = 4 * int(CONFIG.exchange.max_leverage)
+    ex._verify_position_exists = AsyncMock(return_value={
+        "confirmed": True, "leverage": venue_lev,
+        "exchange_entry": 100_000.0, "exchange_qty": 0.0001})
+    ex._place_sl_tp = AsyncMock(return_value=("SL-1", "TP-1"))
+    idea = TradeIdea(
+        id="TI-OVERSHOOT-003", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100_000.0, stop_loss=98_000.0, take_profit=105_000.0,
+        confidence=0.85, reasoning="overshoot fixture, venue refusing the close")
+
+    with patch.object(type(CONFIG), "is_live", return_value=True):
+        result = await ex.execute(idea, size_usd=10.0)
+
+    assert len(orders) == 2, "the entry, then the attempted close"
+    ex._place_sl_tp.assert_awaited_once()
+    assert "AUTOMATIC CLOSE FAILED" in result and f"{venue_lev}x" in result, result
+    assert "was CLOSED" not in result and "EXECUTION ABORTED" not in result
+    assert "venue rejected the close" not in result, "driver text belongs in the log, not on the card"
+    assert ex._positions["TI-OVERSHOOT-003"].status == "open"
+    assert ex._positions["TI-OVERSHOOT-003"].sl_order_id == "SL-1"
+    # Read the rest map itself: _preflight_check refuses this symbol anyway,
+    # because the position is (correctly) still open and tracked.
+    assert not ex._leverage_blocked_until, (
+        "a failed close is not a flatten; there is nothing to cool down")
+
+
+async def test_an_over_slipped_fill_whose_flatten_fails_still_gets_a_stop(tmp_path):
+    """The sibling guard one block above, same contract, and a stricter old
+    behaviour: it ABORTED on a failed close, so the position never reached
+    stop placement at all. Now the failed arm hands the card its warning and
+    the run carries on.
+    """
+    from bot.core.live_executor import LiveExecutor
+    from bot.utils.models import Direction, TradeIdea
+
+    assert CONFIG.execution.slippage_guard_enabled, (
+        "the shipped default is ON; if it moved, this test is not driving the guard")
+    ratio = float(CONFIG.execution.max_slippage_edge_ratio)
+    # A 2% stop; the venue reports a fill well past `ratio` of it, still
+    # inside the stop.
+    venue_entry = 100_000.0 * (1 + min(0.019, 2 * ratio * 0.02))
+
+    venue = _venue()
+    orders = _venue_that_rejects_the_close(venue)
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._exchange = venue
+    ex._verify_position_exists = AsyncMock(return_value={
+        "confirmed": True, "leverage": 0,          # no read-back: only the slip trips
+        "exchange_entry": venue_entry, "exchange_qty": 0.0001})
+    ex._place_sl_tp = AsyncMock(return_value=("SL-1", "TP-1"))
+    idea = TradeIdea(
+        id="TI-SLIP-001", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100_000.0, stop_loss=98_000.0, take_profit=105_000.0,
+        confidence=0.85, reasoning="slippage fixture, venue refusing the close")
+
+    with patch.object(type(CONFIG), "is_live", return_value=True):
+        result = await ex.execute(idea, size_usd=10.0)
+
+    assert len(orders) == 2, "the entry, then the attempted close"
+    ex._place_sl_tp.assert_awaited_once()
+    assert "SLIPPAGE" in result and "AUTOMATIC CLOSE FAILED" in result, result
+    assert "CLOSED for safety" not in result and "EXECUTION ABORTED" not in result
+    assert "venue rejected the close" not in result
+    assert ex._positions["TI-SLIP-001"].sl_order_id == "SL-1"
 
 
 def test_the_pre_order_fail_open_path_is_untouched():
