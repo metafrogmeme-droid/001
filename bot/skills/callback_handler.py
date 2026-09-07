@@ -1054,13 +1054,29 @@ class CallbackHandler:
                             # (position reverted to open) still rendered a card
                             # from _last_close_data, which held ANOTHER symbol's
                             # close ("VETUSDT CLOSED" caption over a BTC card).
-                            # 1) honor close_position's failure result;
-                            if isinstance(result, str) and "CLOSE FAILED" in result:
+                            # 1) honor close_position's answer. It signals
+                            #    failure by RETURN VALUE, and it also answers
+                            #    "kept OPEN" for a close it could not complete;
+                            #    the old check knew only "CLOSE FAILED", so a
+                            #    kept-open answer rendered a "closed" card with
+                            #    a $0.00 PnL nobody measured.
+                            from bot.core.order_state import flatten_outcome
+                            _outcome = flatten_outcome(result)
+                            if _outcome == "failed":
                                 await self._send(
                                     update,
                                     f"\u274c Close failed for <b>{html.escape(pair)}</b> "
                                     f"\u2014 the position is still open.\n"
-                                    f"<code>{html.escape(result[:300])}</code>",
+                                    f"<code>{html.escape(str(result)[:300])}</code>",
+                                    edit=True)
+                                break
+                            if _outcome == "kept_open":
+                                await self._send(
+                                    update,
+                                    f"\u26a0\ufe0f <b>{html.escape(pair)}</b> was NOT closed "
+                                    f"\u2014 close_position kept it open. Review it on "
+                                    f"the venue.\n"
+                                    f"<code>{html.escape(str(result)[:300])}</code>",
                                     edit=True)
                                 break
                             # 2) only trust _last_close_data if it is THIS
