@@ -265,7 +265,12 @@ class AlertsMonitor:
                 # holds an EARLIER close of possibly the same symbol — the guard
                 # above passes and a stale "normal close" card would swallow the
                 # only warning that a position is live and unprotected.
-                if any(k in msg for k in ("CLOSE FAILED", "URGENT", "ENTRY ABORTED")):
+                # "KEPT OPEN" / "DID NOT COMPLETE" are the post-fill guards'
+                # answers to a flatten close_position did not complete: the
+                # position is still there, so a close card is the wrong
+                # picture and the text is the only warning.
+                if any(k in msg for k in ("CLOSE FAILED", "URGENT", "ENTRY ABORTED",
+                                          "KEPT OPEN", "DID NOT COMPLETE")):
                     close_data = None      # always deliver the failure text itself
                 close_png = None
                 if close_data:

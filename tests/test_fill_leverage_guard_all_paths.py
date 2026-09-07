@@ -116,8 +116,19 @@ def test_a_close_kept_open_is_not_announced_as_closed(tmp_path):
     assert msg is not None
     assert "DID NOT COMPLETE" in msg and kept in msg
     assert "POSITION CLOSED" not in msg
+    assert "nothing more has been placed" not in msg, (
+        "close_position re-places a stop on the remainder; the card must not deny it")
     assert ex._preflight_check(10.0, symbol="APT/USDT") is not None, (
         "the sticky leverage is on the symbol either way")
+
+
+def test_an_unreadable_close_answer_is_not_a_close_on_the_fill_paths(tmp_path):
+    """close_position is typed -> str; anything else is a reading nobody made."""
+    ex = _executor(tmp_path, actual_leverage=20)
+    ex.close_position = AsyncMock(return_value=None)
+    msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
+    assert msg is not None and "AUTOMATIC CLOSE FAILED" in msg
+    assert "POSITION CLOSED" not in msg
 
 
 def test_a_cooldown_failure_after_the_close_still_reports_the_close(tmp_path):
@@ -179,10 +190,14 @@ def test_the_flatten_goes_through_close_position(tmp_path):
         "first — a direct order here reintroduces the trigger race")
 
 
-def test_a_failed_close_says_the_position_is_still_open_and_still_protected(tmp_path):
-    """The honest failure. The close is what would have cancelled SL/TP, so a
-    failed close leaves them in place: over-levered, but not naked. Saying
-    'unprotected' would send the operator to the wrong emergency."""
+def test_a_close_that_raises_says_the_position_is_still_open_and_still_protected(tmp_path):
+    """The honest failure for a close that RAISES. close_position's own venue
+    work is inside a handler that returns rather than raises, so a raise can
+    only come from before it reached the venue — before the cancel pass — and
+    the SL/TP are still in place: over-levered, but not naked. Saying
+    'unprotected' would send the operator to the wrong emergency. A close that
+    RETURNS its failure is the opposite case, tested below: by then the cancel
+    pass has run."""
     ex = _executor(tmp_path, actual_leverage=20, close_ok=False)
     msg = _run(ex._guard_fill_leverage(object(), "t1", _pos(), 5, "limit fill"))
     assert msg is not None
@@ -191,6 +206,7 @@ def test_a_failed_close_says_the_position_is_still_open_and_still_protected(tmp_
         "the operator must be told the stop survived, or they will assume the "
         "position is naked")
     assert "MANUALLY" in msg
+    assert not ex._leverage_blocked_until, "a failed close is not a flatten; no cooldown"
 
 
 def test_a_flatten_rests_the_symbol(tmp_path):

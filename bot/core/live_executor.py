@@ -41,7 +41,9 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
-from bot.core.order_state import pending_cancel_verdict, position_presence
+from bot.core.order_state import (
+    CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, pending_cancel_verdict, position_presence,
+)
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
 from bot.utils.atomic_write import atomic_write_json
@@ -500,50 +502,11 @@ def leverage_overshoot_verdict(requested: Any, actual: Any,
                     f"({ratio:.2f}x), within the {max_ratio:.2f}x limit")}
 
 
-#: close_position's "the position is still there" answers. Each is returned,
-#: not raised, with the position kept tracked and — where the close could —
-#: re-protected inside close_position itself.
-_CLOSE_KEPT_OPEN_MARKERS = (
-    "CLOSE NOT CONFIRMED",
-    "RESIDUAL REMAINS",
-    "not found or already closed",
-)
-
-
-def flatten_outcome(close_msg: Any) -> str:
-    """Read close_position's verdict off its return value.
-
-    close_position signals failure by RETURN VALUE, not by raising: a venue
-    error comes back as ``"CLOSE FAILED for …"`` with the position's status
-    restored to open, and an unconfirmed or partial close comes back as a
-    "kept OPEN" message with whatever remains re-protected inside
-    close_position. The file says so beside ``_reattempt_post_fill_sl`` and
-    honours it there. The post-fill guards did not: each read "the coroutine
-    returned" as "the position is closed", so a rejected flatten rested the
-    symbol, skipped the stop and headed its card CLOSED over an open,
-    over-levered position — and the handler each had written for a failed
-    close was reachable only by a raise the real close never makes.
-
-    Three values, because the three states need three different answers:
-
-    ``"closed"``     the position is gone; the caller may stand down.
-    ``"failed"``     open and NOT re-protected by the close; treat it exactly
-                     like a close that raised.
-    ``"kept_open"``  open in whole or in part, or not this caller's to close
-                     (already closed, or closing under another path), and
-                     already handled by close_position: the caller must not
-                     claim a close and must not place a second set of stops.
-
-    Unreadable — ``None``, or not a string — is ``"failed"``: absent is never
-    a close.
-    """
-    if not isinstance(close_msg, str) or not close_msg:
-        return "failed"
-    if "CLOSE FAILED" in close_msg:
-        return "failed"
-    if any(marker in close_msg for marker in _CLOSE_KEPT_OPEN_MARKERS):
-        return "kept_open"
-    return "closed"
+#: close_position's answer, read one way. The reading lives in order_state
+#: (pure, I/O-free) because the emergency-flatten rollup reads the same
+#: strings and must not drift from the post-fill guards; re-exported here so
+#: the guards and their tests keep one import.
+_CLOSE_KEPT_OPEN_MARKERS = CLOSE_KEPT_OPEN_MARKERS
 
 
 def _parse_leverage_readback(payload: Any) -> Optional[int]:
@@ -2148,10 +2111,11 @@ class LiveExecutor:
                             "close_msg": close_msg})
                 return (
                     f"🚨 <b>{pos.symbol} IS OVER-LEVERED — CLOSE DID NOT COMPLETE</b>\n"
-                    f"Venue filled at {got}x against a {want}x target. The flatten "
-                    f"did NOT complete: close_position did not close it — still open "
+                    f"Venue filled at {got}x against a {want}x target. The guard tried "
+                    f"to flatten it and close_position did not close it — still open "
                     f"in whole or in part, or already closed or closing under another "
-                    f"path — and nothing more has been placed on it. Review it on the "
+                    f"path. This guard placed nothing further; close_position's own "
+                    f"line below says what it kept and re-placed. Review it on the "
                     f"venue NOW.\n{close_msg}{rest_note}")
             return (
                 f"⚠️ <b>POSITION CLOSED — {pos.symbol}</b>\n"
@@ -4302,15 +4266,18 @@ class LiveExecutor:
                               level=logging.ERROR,
                               data={"trade_id": idea.id, "symbol": idea.asset,
                                     "close_msg": close_msg})
+                        # No EXECUTION ABORTED token here: the engine reads it
+                        # as "no position remains" and this one is still there.
                         return (
-                            f"🚨 <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                            f"🚨 <b>{idea.asset} KEPT OPEN — flatten did not complete</b>\n"
                             f"Fill slipped {_slip:.2%} from the planned entry "
                             f"(> {_exec_cfg.max_slippage_edge_ratio:.0%} of the stop "
-                            f"buffer). The flatten did NOT complete: close_position did "
-                            f"not close it — still open in whole or in part, or already "
-                            f"closed or closing under another path — and nothing more "
-                            f"has been placed on it. Review it on the venue NOW.\n"
-                            f"{close_msg}"
+                            f"buffer). The guard tried to flatten it and close_position "
+                            f"did not close it — still open in whole or in part, or "
+                            f"already closed or closing under another path. This guard "
+                            f"placed nothing further; close_position's own line below "
+                            f"says what it kept and re-placed. Review it on the venue "
+                            f"NOW.\n{close_msg}"
                         ), ""
                     return (
                         f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
@@ -4329,10 +4296,16 @@ class LiveExecutor:
                                         ) -> tuple[Optional[str], bool]:
         """Flatten a fill the venue over-levered past the approved ratio.
 
-        Extracted from execute() verbatim (slice 2). Returns
-        ``(abort, _lev_close_failed)``: the abort message when the position was
-        closed, else None; and whether a flatten was attempted and FAILED, which
-        the card must say in those words rather than as an informational note.
+        Extracted from execute() (slice 2); the close's answer is READ now
+        (flatten_outcome) rather than assumed. Returns ``(abort,
+        _lev_close_failed)``. ``abort`` is the card execute() returns with —
+        the position was closed, or close_position did not complete the close
+        and kept it tracked and re-protected, so nothing more may be placed on
+        it; else None. ``_lev_close_failed`` is True when the flatten did not
+        close the position: on the failed arm (raised or "CLOSE FAILED") the
+        run carries on into stop placement — the only protection left — and
+        the card must say AUTOMATIC CLOSE FAILED in those words rather than as
+        an informational note.
         """
         # ── Leverage overshoot guard ──
         # Same argument as the slippage guard directly above, and it sits
@@ -4373,10 +4346,13 @@ class LiveExecutor:
         # OVERSHOOT ONLY. Filling UNDER the target (3x on a 5x request) is
         # less risk than approved, not more, so it must never close.
         _lev_close_failed = False
-        # Set the instant a flatten SUCCEEDS. Read by the guard's outer
-        # except, which must not fail open once there is no longer a
-        # position to protect.
+        # Set the instant the close answers anything but a failure. Read by
+        # the guard's outer except, which must not fail open once there is no
+        # longer a position to protect — or once close_position has taken
+        # over protecting what it kept.
         _lev_flattened = False
+        # What close_position answered, for the outer handler's wording.
+        _outcome = ""
         try:
             if _lev_mismatch is not None:
                 _lev_want, _lev_got = _lev_mismatch
@@ -4502,7 +4478,11 @@ class LiveExecutor:
                             # close_position kept it tracked and re-placed
                             # what it could. Returning here is what keeps
                             # execute() from putting a SECOND set of stops on
-                            # it; the card must not say "closed" about it.
+                            # it; the card must not say "closed" about it —
+                            # and must not carry the EXECUTION ABORTED token
+                            # either, which the engine reads as "no position
+                            # remains" (execution_indicates_failure) and
+                            # would stop tracking a position that is there.
                             audit(trade_log,
                                   f"Leverage overshoot flatten did NOT complete for "
                                   f"{idea.asset} — position kept OPEN by close_position",
@@ -4512,15 +4492,17 @@ class LiveExecutor:
                                         "requested": _lev_want, "actual": _lev_got,
                                         "close_msg": close_msg})
                             return (
-                                f"🚨 <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                                f"🚨 <b>{idea.asset} KEPT OPEN — flatten did not "
+                                f"complete</b>\n"
                                 f"The venue filled at <b>{_lev_got}x</b> against a "
                                 f"{_lev_want}x target (sticky per-symbol setting), "
                                 f"which is {_lev_ratio:.1f}× the approved leverage. "
-                                f"The flatten did NOT complete: close_position did not "
-                                f"close it — still open in whole or in part, or already "
-                                f"closed or closing under another path — and nothing "
-                                f"more has been placed on it. Review it on the venue "
-                                f"NOW.\n{close_msg}{_rest_note}",
+                                f"The guard tried to flatten it and close_position did "
+                                f"not close it — still open in whole or in part, or "
+                                f"already closed or closing under another path. This "
+                                f"guard placed nothing further; close_position's own "
+                                f"line below says what it kept and re-placed. Review it "
+                                f"on the venue NOW.\n{close_msg}{_rest_note}",
                                 True,
                             )
                         return (
@@ -4547,9 +4529,21 @@ class LiveExecutor:
             # already acted.
             if _lev_flattened:
                 logger.error(
-                    "Leverage overshoot guard raised AFTER flattening %s: %s "
-                    "— position is closed; skipping SL/TP placement",
-                    idea.asset, _lev_guard_exc)
+                    "Leverage overshoot guard raised AFTER the close answered %s "
+                    "for %s: %s — skipping SL/TP placement",
+                    _outcome, idea.asset, _lev_guard_exc)
+                if _outcome == "kept_open":
+                    # The flag is armed for a kept-open answer too (no second
+                    # set of stops), so this card is worded from the answer,
+                    # not from the flag: it must not say CLOSED about a
+                    # position close_position kept.
+                    return (
+                        (f"🚨 <b>{idea.asset} KEPT OPEN — flatten did not complete</b>\n"
+                         f"The venue over-levered this fill and close_position kept "
+                         f"the position OPEN. (Reporting the details afterwards "
+                         f"failed: {type(_lev_guard_exc).__name__}.) Review it on the "
+                         f"venue NOW.", True)
+                    )
                 return (
                     (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
                     f"The venue over-levered this fill and the position was "
@@ -4613,22 +4607,58 @@ class LiveExecutor:
                           action="sl_tp_failed", result="FLATTEN",
                           data={"trade_id": idea.id, "symbol": idea.asset,
                                 "stop_loss": idea.stop_loss})
+                    close_msg: Optional[str] = None
                     try:
                         close_msg = await self.close_position(
                             idea.id, reason="sl_placement_failed")
-                        return (
-                            (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
-                            f"Position opened but the stop-loss could not be placed, "
-                            f"so it was CLOSED for safety.\n{close_msg}", None, None)
-                        )
                     except Exception as _close_exc:
-                        logger.error("Emergency flatten FAILED for %s: %s",
+                        logger.error("Emergency flatten RAISED for %s: %s",
                                      idea.asset, _close_exc)
+                    # close_position signals failure by RETURN VALUE (see
+                    # flatten_outcome). This is the flatten that runs when the
+                    # stop could NOT be placed, and a returned "CLOSE FAILED"
+                    # used to be announced as "CLOSED for safety" — open, no
+                    # stop, told it was closed. There is no stop left to fall
+                    # through to here, so the failed arm is the URGENT card.
+                    _outcome = flatten_outcome(close_msg)
+                    if _outcome == "failed":
+                        logger.error("Emergency flatten FAILED for %s: %s",
+                                     idea.asset, close_msg)
+                        audit(trade_log,
+                              f"URGENT: safety flatten FAILED for {idea.asset} — "
+                              f"position LIVE with NO stop-loss",
+                              action="sl_tp_failed", result="FLATTEN_FAILED",
+                              level=logging.ERROR,
+                              data={"trade_id": idea.id, "symbol": idea.asset,
+                                    "close_msg": close_msg})
                         return (
                             (f"🚨 <b>URGENT — {idea.asset} is LIVE with NO stop-loss</b>\n"
-                            f"Automatic close also FAILED ({_close_exc}). "
-                            f"Close this position MANUALLY on Bitget immediately.", None, None)
+                             f"Automatic close also FAILED. Close this position "
+                             f"MANUALLY on the venue immediately.", None, None)
                         )
+                    if _outcome == "kept_open":
+                        audit(trade_log,
+                              f"Safety flatten did NOT complete for {idea.asset} — "
+                              f"position kept OPEN by close_position",
+                              action="sl_tp_failed", result="NOT_CLOSED",
+                              level=logging.ERROR,
+                              data={"trade_id": idea.id, "symbol": idea.asset,
+                                    "close_msg": close_msg})
+                        return (
+                            (f"🚨 <b>{idea.asset} KEPT OPEN — stop-loss not placed, "
+                             f"flatten did not complete</b>\n"
+                             f"The stop-loss could not be placed, and close_position did "
+                             f"not close the position — still open in whole or in part, "
+                             f"or already closed or closing under another path. This path "
+                             f"placed nothing further; close_position's own line below "
+                             f"says what it kept and re-placed. Review it on the venue "
+                             f"NOW.\n{close_msg}", None, None)
+                        )
+                    return (
+                        (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                        f"Position opened but the stop-loss could not be placed, "
+                        f"so it was CLOSED for safety.\n{close_msg}", None, None)
+                    )
         return None, sl_id, tp_id
 
     def _entry_filled_card(self, idea: TradeIdea, side: str, leverage: Any, is_futures: bool,
@@ -7164,7 +7194,8 @@ class LiveExecutor:
             except Exception as exc:
                 logger.error("Post-fill flatten RAISED for %s: %s", pos.symbol, exc)
                 close_msg = f"CLOSE FAILED for {pos.trade_id}: {exc}"
-            if close_msg is None or "CLOSE FAILED" in close_msg:
+            _outcome = flatten_outcome(close_msg)
+            if _outcome == "failed":
                 # The safety close itself failed (returned failure or raised):
                 # the position is LIVE with no stop — never claim it was closed.
                 audit(trade_log,
@@ -7177,6 +7208,22 @@ class LiveExecutor:
                     f"🚨 URGENT: {pos.symbol} is LIVE with NO stop-loss and the "
                     f"safety close FAILED. Close this position MANUALLY on the "
                     f"exchange NOW.\n{close_msg or ''}")
+            if _outcome == "kept_open":
+                # close_position did not complete the close and kept the
+                # position (or its remainder) tracked and re-protected. Not a
+                # close, so not "CLOSED for safety" — the words the old check,
+                # which only knew "CLOSE FAILED", printed for these answers.
+                audit(trade_log,
+                      f"Safety flatten did NOT complete for {pos.symbol} — position "
+                      f"kept OPEN by close_position",
+                      action="sl_tp_failed", result="NOT_CLOSED",
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "close_msg": close_msg})
+                return None, tp_id, (
+                    f"🚨 {pos.symbol} KEPT OPEN: the stop-loss could not be placed "
+                    f"and the safety close did not complete — close_position kept it "
+                    f"tracked; its own line below says what it re-placed. Review it "
+                    f"on the exchange NOW.\n{close_msg}")
             return None, tp_id, (
                 f"⚠️ ENTRY ABORTED: {pos.symbol} filled but the stop-loss could "
                 f"not be placed — position CLOSED for safety.\n{close_msg}")
@@ -8391,6 +8438,16 @@ class LiveExecutor:
         pos.status = "closing"
         self._save_positions()
 
+        # What the final handler needs to know about how far the close got.
+        # `close_order_id` is bound the moment the venue ACCEPTS the close
+        # order; `_venue_flat` when the venue has said there is no position;
+        # `_cancel_pass_done` once the SL/TP cancel pass has run, so a failed
+        # close can clear the ids it actually removed.
+        close_order_id: Optional[str] = None
+        _venue_flat = False
+        _cancel_pass_done = False
+        cancel_failed: list = []
+
         try:
             exchange = await self._get_exchange()
             close_side = "sell" if pos.direction == "LONG" else "buy"
@@ -8436,6 +8493,7 @@ class LiveExecutor:
                                         "order_type": order_label, "symbol": pos.symbol,
                                         "error": exc_str})
                         cancel_failed.append(oid)
+            _cancel_pass_done = True
 
             # Futures-only mode: all positions close via swap exchange
             # UTA v3 does NOT support tradeSide — use reduceOnly instead.
@@ -8929,6 +8987,7 @@ class LiveExecutor:
                         flash_result = await self._flash_close_position(pos)
                         if flash_result and flash_result.get("code") == "00000":
                             # Flash close worked — now look up fill data
+                            _venue_flat = True
                             await asyncio.sleep(1.0)  # Let fill settle
                             close_result = await self._handle_already_closed_position(pos)
                             if close_result:
@@ -8938,6 +8997,7 @@ class LiveExecutor:
                                        pos.symbol, flash_exc)
                 else:
                     # Position is truly gone — look up actual fill data
+                    _venue_flat = True
                     audit(trade_log,
                           f"Position {pos.symbol} confirmed closed on exchange — looking up fill data",
                           action="live_close_25227", result="LOOKUP")
@@ -8951,7 +9011,45 @@ class LiveExecutor:
 
             # H-01 FIX: Revert status so position is retried next cycle
             pos.status = "open"
+            # The cancel pass ran before the close order: whatever it removed
+            # is gone from the venue, and a record that still names those ids
+            # claims a protection that is not there. Clear what was cancelled
+            # (a cancel that itself failed left its order live, so that id
+            # stays); the periodic stop check re-places on empty ids.
+            if _cancel_pass_done:
+                if pos.sl_order_id and pos.sl_order_id not in cancel_failed:
+                    pos.sl_order_id = None
+                if pos.tp_order_id and pos.tp_order_id not in cancel_failed:
+                    pos.tp_order_id = None
             self._save_positions()
+            if close_order_id is not None or _venue_flat:
+                # Not a rejected close. Either the venue ACCEPTED the close
+                # order and the bookkeeping after it raised, or the venue
+                # answered 25227 and its book read flat (or the flash close
+                # went through) and the fill lookup then failed. In both the
+                # position is most likely gone, so "CLOSE FAILED" — which the
+                # post-fill guards rightly read as "open, place the stop" —
+                # would put a stop and a take-profit on a flat book. Answer as
+                # an unconfirmed close instead: kept OPEN for the next
+                # reconcile, which books it from the venue's own history.
+                _how = (f"the close order was accepted ({close_order_id or 'no id'})"
+                        if close_order_id is not None
+                        else "the venue reports no position")
+                audit(trade_log,
+                      f"Live close NOT CONFIRMED for {pos.symbol}: {_how}, but the "
+                      f"result could not be booked ({type(exc).__name__}) — kept OPEN "
+                      f"for reconcile",
+                      action="live_close", result="NOT_CONFIRMED",
+                      data={"trade_id": trade_id, "error": exc_str,
+                            "close_order_id": close_order_id, "venue_flat": _venue_flat})
+                return (
+                    f"⚠️ CLOSE NOT CONFIRMED: {pos.direction} {pos.symbol}\n"
+                    f"{_how[0].upper()}{_how[1:]}, but the result could not be booked "
+                    f"({type(exc).__name__}).\n"
+                    f"The position is kept OPEN for the next reconcile rather than "
+                    f"booked closed on a reading nobody made; if it did close, the "
+                    f"reconcile books it from the venue's own history. Review on Bitget."
+                )
             audit(trade_log, f"Live close failed: {exc}",
                   action="live_close", result="ERROR",
                   data={"trade_id": trade_id, "error": exc_str})

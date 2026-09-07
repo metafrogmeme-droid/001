@@ -200,6 +200,22 @@ async def test_flatten_failure_by_return_string_is_detected(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_a_flatten_kept_open_by_close_position_is_not_announced_as_closed(tmp_path, monkeypatch):
+    # close_position's other non-close: it kept the position (or its remainder)
+    # tracked and re-protected. The old check knew only "CLOSE FAILED", so
+    # this answer printed "position CLOSED for safety".
+    kept = "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN and re-protected."
+    e, _ = _exec(tmp_path, monkeypatch, [(None, None), (None, None)],
+                 close=AsyncMock(return_value=kept))
+    p = _pos()
+    sl_id, tp_id, close_msg = await e._reattempt_post_fill_sl(
+        object(), p, Direction.LONG, 1.0, None, None, "T1")
+    assert sl_id is None
+    assert close_msg and "KEPT OPEN" in close_msg and kept in close_msg
+    assert "CLOSED for safety" not in close_msg and "URGENT" not in close_msg
+
+
+@pytest.mark.asyncio
 async def test_grace_close_failed_string_escalates_to_flatten(tmp_path, monkeypatch):
     # A failed grace breach-close (returns "CLOSE FAILED ...") must NOT be
     # treated as a completed close — the ladder continues to the flatten stage.

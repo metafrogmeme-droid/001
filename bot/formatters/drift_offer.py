@@ -138,10 +138,21 @@ def flatten_failed_messages(messages: Any) -> list[str]:
     Telegram card, the engine's per-account rollup and the website ack cannot
     drift apart on what counts as flat.
     """
+    # close_position itself never raises for a venue-side failure: it RETURNS
+    # "CLOSE FAILED for …", or a "kept OPEN" answer for a close that did not
+    # complete, and close_all_positions appends that text verbatim. Only a
+    # raise ever produced the "Failed to close" shape, so a rejected close
+    # used to count as flat here — on the emergency screen, and in the web
+    # acknowledgement that stops the retry. flatten_outcome is the one
+    # reading of that text, shared with the post-fill guards.
+    from bot.core.order_state import flatten_outcome
+
     out: list[str] = []
     for message in (messages or []):
         text = str(message)
         if text.startswith("Failed to close") or text.startswith("close_all_positions failed"):
+            out.append(text)
+        elif flatten_outcome(text) != "closed":
             out.append(text)
     return out
 

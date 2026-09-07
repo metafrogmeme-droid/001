@@ -75,6 +75,62 @@ def is_filled_status(status: str) -> bool:
     return status in FILLED_STATUSES or status in PARTIAL_STATUSES
 
 
+#: close_position's "the position is still there" answers. Each is RETURNED,
+#: not raised, with the record kept and — where the close could — the
+#: remainder re-protected inside close_position itself. The first three come
+#: from the market-close path; the rest from the pending-limit cancel path,
+#: which no post-fill guard can reach today (they all run on an open
+#: position) but which the same reader must not file under "closed".
+CLOSE_KEPT_OPEN_MARKERS = (
+    "CLOSE NOT CONFIRMED",
+    "RESIDUAL REMAINS",
+    "not found or already closed",
+    "Failed to cancel limit order",
+    "Could NOT verify the cancel",
+    "filled while cancelling",
+    "already filled",
+    "limit order is gone, but",
+)
+
+
+def flatten_outcome(close_msg) -> str:
+    """Read close_position's verdict off its return value.
+
+    close_position signals failure by RETURN VALUE, not by raising: a venue
+    error comes back as ``"CLOSE FAILED for …"`` with the position's status
+    restored to open, and an unconfirmed or partial close comes back as a
+    "kept OPEN" message with whatever remains re-protected inside
+    close_position. live_executor says so beside ``_reattempt_post_fill_sl``.
+    The post-fill flatten guards did not honour it: each read "the coroutine
+    returned" as "the position is closed", so a rejected flatten rested the
+    symbol, skipped the stop and headed its card CLOSED over an open,
+    over-levered position — and the handler each had written for a failed
+    close was reachable only by a raise the real close never makes.
+
+    Three values, because the three states need three different answers:
+
+    ``"closed"``     the position is gone; the caller may stand down.
+    ``"failed"``     open and NOT re-protected by the close; treat it exactly
+                     like a close that raised.
+    ``"kept_open"``  open in whole or in part, or not this caller's to close
+                     (already closed, or closing under another path), and
+                     already handled by close_position: the caller must not
+                     claim a close and must not place a second set of stops.
+
+    Unreadable — ``None``, or not a string — is ``"failed"``: absent is never
+    a close. ``tests/test_flatten_outcome.py`` pins every return statement of
+    ``_close_position_inner`` against this reading, so a new answer must be
+    classified there before it can ship.
+    """
+    if not isinstance(close_msg, str) or not close_msg:
+        return "failed"
+    if "CLOSE FAILED" in close_msg:
+        return "failed"
+    if any(marker in close_msg for marker in CLOSE_KEPT_OPEN_MARKERS):
+        return "kept_open"
+    return "closed"
+
+
 def pending_cancel_verdict(order_info) -> dict:
     """After cancelling a resting limit order: what does the venue's order say?
 
