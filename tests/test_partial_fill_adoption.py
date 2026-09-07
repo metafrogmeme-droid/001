@@ -119,6 +119,33 @@ class TestCancelAdoptsPartialFill:
         assert pos.status == "closed"
 
 
+class TestAdoptionSurfacesTheLadderFirst:
+    @pytest.mark.asyncio
+    async def test_a_ladder_card_is_returned_before_the_leverage_guard_runs(self):
+        # The ladder closed the position, or its close failed and the operator
+        # must act. The leverage guard used to run AFTER that and could replace
+        # the ladder's card with its own — a second flatten on a position the
+        # ladder may just have closed — while a "partial_fill_adopted OPEN"
+        # audit was written for a position that may not exist.
+        pos = _pos()
+        ex = _executor(pos)
+        ex._reattempt_post_fill_sl = AsyncMock(return_value=(None, None, "🚨 URGENT: BTC/USDT:USDT is LIVE …"))
+        ex._guard_fill_leverage = AsyncMock(return_value="⚠️ POSITION CLOSED — the guard's card")
+        seen: list[dict] = []
+        from bot.core import live_executor as le
+        real_audit = le.audit
+        le.audit = lambda log, message, **kw: seen.append({"message": message, **kw})
+        try:
+            msg = await ex._adopt_partial_fill(MagicMock(), "T1", pos, 0.4, 101.0, "expiry")
+        finally:
+            le.audit = real_audit
+        assert msg and "URGENT" in msg
+        ex._guard_fill_leverage.assert_not_awaited()
+        adopted = [a for a in seen if a.get("action") == "partial_fill_adopted"]
+        assert [a["result"] for a in adopted] == ["FILLED_THEN_LADDER"], (
+            "no 'OPEN' audit for a position the ladder may have closed")
+
+
 class TestMarketFallbackRemainderOnly:
     @pytest.mark.asyncio
     async def test_fallback_markets_only_unfilled_remainder_and_blends_entry(self):

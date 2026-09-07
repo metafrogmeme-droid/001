@@ -12,7 +12,7 @@ gate, the trigger logic, and the fail-open posture in isolation.
 
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -164,6 +164,64 @@ class TestTriggers:
         finally:
             p.stop()
         assert ex.closed == []
+
+
+class TestTheAnswerIsRead:
+    """close_position signals failure by RETURN VALUE. The smart exit used to
+    discard the answer and notify "Smart-exit closed …" for a rejected close
+    and for one the venue kept open."""
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_close_is_not_announced_as_closed(self):
+        ex = _Executor([_stale_time_pos()])
+        ex.close_position = AsyncMock(return_value="CLOSE FAILED for t1: venue 5xx")
+        eng = _engine(ex, {"BTC/USDT": 100.5})
+        notes: list[str] = []
+
+        async def _note(msg):
+            notes.append(msg)
+        eng._close_notify_callback = _note
+        p, _ = _cfg()
+        try:
+            await eng._evaluate_live_smart_exits(ex)
+        finally:
+            p.stop()
+        assert notes and "FAILED" in notes[0] and "still OPEN" in notes[0], notes
+        assert not any(n.startswith("Smart-exit closed") for n in notes)
+
+    @pytest.mark.asyncio
+    async def test_a_close_kept_open_is_not_announced_as_closed(self):
+        ex = _Executor([_stale_time_pos()])
+        ex.close_position = AsyncMock(return_value="⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN")
+        eng = _engine(ex, {"BTC/USDT": 100.5})
+        notes: list[str] = []
+
+        async def _note(msg):
+            notes.append(msg)
+        eng._close_notify_callback = _note
+        p, _ = _cfg()
+        try:
+            await eng._evaluate_live_smart_exits(ex)
+        finally:
+            p.stop()
+        assert notes and "KEPT OPEN" in notes[0] and "CLOSE NOT CONFIRMED" in notes[0], notes
+
+    @pytest.mark.asyncio
+    async def test_a_completed_close_is_announced_as_closed(self):
+        ex = _Executor([_stale_time_pos()])
+        eng = _engine(ex, {"BTC/USDT": 100.5})
+        notes: list[str] = []
+
+        async def _note(msg):
+            notes.append(msg)
+        eng._close_notify_callback = _note
+        p, _ = _cfg()
+        try:
+            await eng._evaluate_live_smart_exits(ex)
+        finally:
+            p.stop()
+        assert notes == [f"Smart-exit closed BTC/USDT: {notes[0].split(': ', 1)[1]}"]
+        assert notes[0].startswith("Smart-exit closed BTC/USDT")
 
 
 class TestFailOpen:

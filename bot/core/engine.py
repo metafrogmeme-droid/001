@@ -7422,19 +7422,42 @@ class RuneClawEngine:
                     continue
 
                 audit(trade_log, f"Live smart-exit auto-close: {pos.symbol} — {reason}",
-                      action="live_smart_exit", result="CLOSED",
+                      action="live_smart_exit", result="CLOSING",
                       data={"symbol": pos.symbol,
                             "r_multiple": (None if r_mult is None
                                            else round(r_mult, 2)),
                             "hold_hours": round(hold_h, 1), "signal_type": sig,
                             "strategy_type": stype})
                 try:
-                    await executor.close_position(
+                    # close_position signals failure by RETURN VALUE; this
+                    # used to discard the answer and notify "closed" for a
+                    # rejected close and for one the venue kept open.
+                    from bot.core.order_state import flatten_outcome
+                    _answer = await executor.close_position(
                         pos.trade_id, reason=f"smart_exit:{reason[:48]}")
+                    _outcome = flatten_outcome(_answer)
+                    if _outcome == "closed":
+                        audit(trade_log, f"Live smart-exit closed {pos.symbol}: {reason}",
+                              action="live_smart_exit", result="CLOSED",
+                              data={"symbol": pos.symbol})
+                        _note = f"Smart-exit closed {pos.symbol}: {reason}"
+                    elif _outcome == "failed":
+                        audit(trade_log,
+                              f"Live smart-exit close FAILED for {pos.symbol}: {reason}",
+                              action="live_smart_exit", result="CLOSE_FAILED",
+                              data={"symbol": pos.symbol, "close_msg": _answer})
+                        _note = (f"🚨 Smart-exit close FAILED for {pos.symbol} — the "
+                                 f"position is still OPEN.\n{_answer}")
+                    else:
+                        audit(trade_log,
+                              f"Live smart-exit did NOT complete for {pos.symbol}: {reason}",
+                              action="live_smart_exit", result="NOT_CLOSED",
+                              data={"symbol": pos.symbol, "close_msg": _answer})
+                        _note = (f"🚨 Smart-exit did NOT complete for {pos.symbol} — "
+                                 f"KEPT OPEN by close_position.\n{_answer}")
                     if self._close_notify_callback:
                         try:
-                            await self._close_notify_callback(
-                                f"Smart-exit closed {pos.symbol}: {reason}")
+                            await self._close_notify_callback(_note)
                         except Exception as nexc:
                             logger.debug("Smart-exit notify failed: %s", nexc)
                 except Exception as cexc:
@@ -7480,14 +7503,23 @@ class RuneClawEngine:
     def _is_kept_open_message(msg: str) -> bool:
         """True when a position-monitor message reports a close that did NOT
         happen — a flatten close_position rejected or could not complete, or
-        a stop that could not be placed on a position still live. Those go to
-        the close card like a close (the operator must see them) but must not
-        be audited as "auto-closed": the position is still there."""
+        a position escalated as unprotected because no stop could be placed.
+        Those go to the close card like a close (the operator must see them)
+        but must not be audited as "auto-closed": the position is still there.
+
+        The close's own kept-open answers come from the one vocabulary in
+        order_state, so a new answer there is read here without a second
+        hand-typed list; the rest are the guards' headings and the
+        executor's unprotected escalation.
+        """
+        from bot.core.order_state import CLOSE_KEPT_OPEN_MARKERS
+
         text = msg or ""
-        return any(k in text for k in (
-            "CLOSE FAILED", "CLOSE NOT CONFIRMED", "RESIDUAL REMAINS",
-            "KEPT OPEN", "DID NOT COMPLETE", "URGENT",
-        ))
+        keys = CLOSE_KEPT_OPEN_MARKERS + (
+            "CLOSE FAILED", "KEPT OPEN", "DID NOT COMPLETE", "URGENT",
+            "UNPROTECTED POSITION",
+        )
+        return any(k in text for k in keys)
 
     @staticmethod
     def _is_sync_message(msg: str) -> bool:

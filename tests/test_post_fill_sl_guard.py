@@ -216,6 +216,45 @@ async def test_a_flatten_kept_open_by_close_position_is_not_announced_as_closed(
 
 
 @pytest.mark.asyncio
+async def test_the_ladder_hands_back_what_the_close_left_not_what_it_stamped(tmp_path, monkeypatch):
+    # The ladder stamps the TP leg onto the position BEFORE it flattens, so
+    # close_position's cancel pass can remove it. It then used to return that
+    # same pre-flatten tp_id, and every caller writes the returned pair straight
+    # onto the position — re-stamping a cancelled id over the None the close
+    # had left, which blocked the periodic stop check (it re-places only on
+    # EMPTY ids). What comes back must be what close_position left.
+    async def _close_that_clears(trade_id, reason="bot_auto", close_price=0):
+        p.sl_order_id = None
+        p.tp_order_id = None
+        return "CLOSE FAILED for T1: venue 5xx"
+
+    e, _ = _exec(tmp_path, monkeypatch, [(None, "tp-pre"), (None, None)],
+                 close=AsyncMock(side_effect=_close_that_clears))
+    p = _pos()
+    sl_id, tp_id, close_msg = await e._reattempt_post_fill_sl(
+        object(), p, Direction.LONG, 1.0, None, "tp-pre", "T1")
+    assert close_msg and "URGENT" in close_msg
+    assert (sl_id, tp_id) == (None, None), "the cancelled TP must not come back"
+
+
+@pytest.mark.asyncio
+async def test_the_ladder_hands_back_the_stop_close_position_re_placed(tmp_path, monkeypatch):
+    async def _close_that_reprotects(trade_id, reason="bot_auto", close_price=0):
+        p.sl_order_id = "re-sl"
+        p.tp_order_id = "re-tp"
+        return "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN, re-protected (stop re-sl)"
+
+    e, _ = _exec(tmp_path, monkeypatch, [(None, "tp-pre"), (None, None)],
+                 close=AsyncMock(side_effect=_close_that_reprotects))
+    p = _pos()
+    sl_id, tp_id, close_msg = await e._reattempt_post_fill_sl(
+        object(), p, Direction.LONG, 1.0, None, "tp-pre", "T1")
+    assert close_msg and "KEPT OPEN" in close_msg
+    assert (sl_id, tp_id) == ("re-sl", "re-tp"), (
+        "the stop close_position re-placed must survive the caller's write-back")
+
+
+@pytest.mark.asyncio
 async def test_grace_close_failed_string_escalates_to_flatten(tmp_path, monkeypatch):
     # A failed grace breach-close (returns "CLOSE FAILED ...") must NOT be
     # treated as a completed close — the ladder continues to the flatten stage.

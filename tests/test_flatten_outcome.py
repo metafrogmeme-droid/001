@@ -136,6 +136,8 @@ EXPECTED_ANSWERS = [
     ("CLOSE NOT CONFIRMED", "kept_open"),
     ("RESIDUAL REMAINS", "kept_open"),
     ("CLOSE FAILED for", "failed"),
+    # booked closed before the report after it raised: gone, and says so
+    ("booked; the close card could not be rendered", "closed"),
 ]
 
 
@@ -186,30 +188,97 @@ def test_the_reader_reads_the_answer_before_it_says_anything(reader, closed_clai
         f"{reader} announces a close before it has ruled out a kept-open answer")
 
 
-def test_no_flatten_on_the_live_paths_infers_a_close_from_a_return():
-    """The other direction of the wiring pin: every `await self.close_position(`
-    inside the executor's post-fill paths is followed by a reading. Sites that
-    exist only to close (the sweeps, the kill switch, close_all) return the
-    answer to their own readers and are listed here on purpose."""
+#: Every function anywhere under bot/ that awaits close_position and does NOT
+#: read the answer itself, each with the reason that is allowed. A new caller
+#: not listed here fails the pin below until it reads flatten_outcome or is
+#: added with its reason.
+HANDS_THE_ANSWER_ON = {
+    # live_executor.py
+    "close_all_positions": "appends each answer; the emergency rollup reads them",
+    "check_positions": "returns its messages to the engine's monitor loop, which reads them",
+    "_guard_unprotected_grace": "returns its answer to the ladder, which reads it",
+    "_close_position_inner": "is the close",
+    # engine.py
+    "flatten_all_positions": "goes through close_all_positions and flatten_account_ok",
+    "_maybe_flatten_web_requests": "goes through close_all_positions and flatten_failed_messages",
+    # engine_ops_commands.py
+    "_cmd_liveclose": "prints the answer verbatim to the operator who asked",
+}
+
+
+def _functions(code: str):
+    """(name, body) for every def in a module. A body ends at the next def OR
+    class header at the same or a shallower indent — a class header counts,
+    or a module-level function just before a class would swallow every method
+    of that class."""
+    pattern = re.compile(r"\n( *)(?:(?:async )?def|class) (\w+)[\(:]")
+    heads = [(m.group(2), m.start(), len(m.group(1)), "class" in m.group(0))
+             for m in pattern.finditer(code)]
+    for i, (name, start, indent, is_class) in enumerate(heads):
+        if is_class:
+            continue
+        end = len(code)
+        for _n, nxt_start, nxt_indent, _c in heads[i + 1:]:
+            if nxt_indent <= indent:
+                end = nxt_start
+                break
+        yield name, code[start:end]
+
+
+def test_no_close_position_caller_under_bot_infers_a_close_from_a_return():
+    """The other direction of the wiring pin, over the whole tree: every
+    function under bot/ that awaits close_position either reads the answer
+    (flatten_outcome) or hands it on to a reader — and says which, above.
+    The version that scanned live_executor.py alone missed the NLP close
+    handler and the smart exit, both live-money surfaces."""
     known_readers = {name for name, _ in READERS}
-    pattern = re.compile(r"\n    (?:async )?def (\w+)\(")
-    heads = [(m.group(1), m.start()) for m in pattern.finditer(CODE)]
-    unread = []
-    for (name, start), (_next, end) in zip(heads, heads[1:] + [("", len(CODE))]):
-        body = CODE[start:end]
-        if "await self.close_position(" not in body:
-            continue
-        if name in known_readers:
-            assert "flatten_outcome(close_msg)" in body, name
-            continue
-        if "flatten_outcome(" not in body:
-            unread.append(name)
-    # Callers that hand the answer on rather than acting on it themselves.
-    assert set(unread) <= {"close_all_positions", "_guard_unprotected_grace",
-                           "_check_pending_limit", "check_positions",
-                           "_close_position_inner", "flatten_all"}, (
-        f"new close_position callers that never read the answer: "
-        f"{sorted(set(unread) - {'close_all_positions'})}")
+    unread = {}
+    for path in sorted((ROOT / "bot").rglob("*.py")):
+        if "backtest" in path.parts:
+            continue                      # a different close_position (the backtest portfolio)
+        code = code_only(path.read_text(encoding="utf-8"))
+        for name, body in _functions(code):
+            if not re.search(r"await \w[\w.]*\.close_position\(", body):
+                continue
+            if name in known_readers:
+                assert "flatten_outcome(close_msg)" in body, (path.name, name)
+                continue
+            if "flatten_outcome(" in body:
+                continue
+            if name in HANDS_THE_ANSWER_ON:
+                continue
+            unread[f"{path.name}:{name}"] = True
+    assert not unread, (
+        f"close_position callers that neither read the answer nor are listed as "
+        f"handing it on: {sorted(unread)}")
+
+
+def test_every_listed_hand_off_still_exists():
+    """A stale allow-list entry is a caller that could be re-added unread."""
+    names = set()
+    for path in (ROOT / "bot").rglob("*.py"):
+        code = code_only(path.read_text(encoding="utf-8"))
+        names |= {name for name, _ in _functions(code)}
+    missing = [n for n in HANDS_THE_ANSWER_ON if n not in names]
+    assert not missing, f"listed hand-off callers that no longer exist: {missing}"
+
+
+def test_the_two_readers_outside_the_executor_read_the_answer():
+    """The NLP close handler used to know only 'CLOSE FAILED', so a kept-open
+    answer rendered a 'closed' card with a $0.00 PnL nobody measured; the smart
+    exit discarded the answer and notified 'closed' for every one."""
+    handler = code_only((ROOT / "bot" / "skills" / "callback_handler.py").read_text(encoding="utf-8"))
+    site = handler.index('"manual_nlp"')
+    window = handler[site:site + 3000]      # code_only blanks comments in place, so the offsets stay
+    assert "flatten_outcome(result)" in window
+    assert '_outcome == "failed"' in window and '_outcome == "kept_open"' in window
+    engine = code_only((ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8"))
+    site = engine.index('reason=f"smart_exit:')
+    window = engine[site - 400:site + 1800]
+    assert "flatten_outcome(_answer)" in window
+    assert 'result="CLOSE_FAILED"' in window and 'result="NOT_CLOSED"' in window
+    assert 'result="CLOSING"' in engine[site - 900:site], (
+        "the audit written BEFORE the close must not say CLOSED")
 
 
 # ── the readers beyond the executor ──────────────────────────────────────────
@@ -271,9 +340,29 @@ def test_the_monitor_loop_does_not_audit_a_kept_open_message_as_a_close():
     assert kept("🚨 BTC/USDT KEPT OPEN: the stop-loss could not be placed …")
     assert kept("CLOSE FAILED for T1: venue 5xx")
     assert kept("🚨 URGENT: BTC/USDT is LIVE with NO stop-loss and the safety close FAILED.")
+    assert kept("🚨 <b>UNPROTECTED POSITION — BTC/USDT LONG</b>\nNo exchange stop-loss could be placed")
+    # Derived from the one vocabulary: every kept-open answer the close can
+    # give is read here without a second hand-typed list.
+    for marker in CLOSE_KEPT_OPEN_MARKERS:
+        assert kept(f"… {marker} …"), marker
     assert not kept("BTC/USDT LONG closed +$5.00 (TP)")
     assert not kept("⚠️ POSITION CLOSED — APT/USDT:USDT\nThe venue filled at 20x …")
     engine = code_only((ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8"))
     consult = engine.index("self._is_kept_open_message(msg)")
     closed_audit = engine.index('action="live_auto_close", result="CLOSED"')
     assert consult < closed_audit, "the loop must consult the reading before it audits a close"
+
+
+def test_no_card_claims_close_position_re_placed_a_stop():
+    """close_position's final handler re-places nothing, and its re-protect
+    path re-places only when it could. The guards' cards used to forward
+    'close_position's own line below says what it kept and re-placed' —
+    implying a first set of stops exists — and that line itself read
+    're-protected' even when the re-placement had failed."""
+    assert "says what it kept and re-placed" not in CODE
+    assert "says what it re-placed" not in CODE
+    assert "kept OPEN and re-protected rather than" not in CODE
+    inner = _method("_close_position_inner")
+    assert "NOT re-protected" in inner and 're-protected (stop {re_sl})' in inner, (
+        "the re-protect answer must say what the re-placement did")
+    assert inner.index("_protection = (") < inner.index("CLOSE NOT CONFIRMED: {pos.direction}")
