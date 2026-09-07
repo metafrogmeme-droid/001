@@ -409,10 +409,24 @@ async def test_a_close_kept_open_is_not_announced_as_closed_by_the_slippage_guar
     kept = "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nThe position is kept OPEN and re-protected."
     monkeypatch.setattr(ex, "close_position", AsyncMock(return_value=kept))
     msg, warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
-    assert msg and "did NOT complete" in msg and kept in msg, msg
+    assert msg and "KEPT OPEN" in msg and kept in msg, msg
     assert "CLOSED for safety" not in msg
     assert warn == ""
     assert [a["result"] for a in _by(audits, "slippage_guard")] == ["FLATTEN", "NOT_CLOSED"]
+    # The engine classifies execute()'s string: EXECUTION ABORTED means "no
+    # position remains" and stops tracking it. This one is still there.
+    assert not le.execution_indicates_failure(msg), (
+        "a kept-open abort must not carry a token the engine reads as 'no position'")
+
+
+@pytest.mark.asyncio
+async def test_a_completed_slippage_flatten_still_reads_as_no_position(ex, audits, monkeypatch):
+    """The other half of the token rule: a flatten that DID close the position
+    keeps the EXECUTION ABORTED token, so the engine records no live position."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(slippage_guard=True, max_slip_ratio=0.3))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value="closed at 101"))
+    msg, _warn = await ex._post_fill_slippage_guard(_idea(entry=100.0, sl=98.0), 101.0)
+    assert msg and le.execution_indicates_failure(msg)
 
 
 @pytest.mark.asyncio
@@ -540,11 +554,49 @@ async def test_a_close_kept_open_is_neither_announced_closed_nor_given_a_second_
     rested = []
     monkeypatch.setattr(ex, "_rest_symbol", lambda s: rested.append(s))
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
-    assert msg and "did NOT complete" in msg and answer in msg, msg
+    assert msg and "KEPT OPEN" in msg and answer in msg, msg
     assert "was CLOSED" not in msg
+    assert "nothing more has been placed" not in msg, (
+        "close_position re-places a stop on the remainder; the card must not deny it")
     assert close_failed is True
     assert rested == [SYM], "the sticky leverage is on the symbol either way"
     assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "NOT_CLOSED"]
+    assert not le.execution_indicates_failure(msg), (
+        "a kept-open abort must not carry a token the engine reads as 'no position'")
+
+
+@pytest.mark.asyncio
+async def test_a_completed_overshoot_flatten_still_reads_as_no_position(ex, audits, monkeypatch):
+    """The other half of the token rule, on this guard."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value="closed"))
+    monkeypatch.setattr(ex, "_rest_symbol", lambda s: None)
+    msg, _cf = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
+    assert msg and le.execution_indicates_failure(msg)
+
+
+@pytest.mark.asyncio
+async def test_a_raise_after_a_kept_open_answer_does_not_say_closed(ex, audits, monkeypatch):
+    """The flag that stops the fall-through is armed for a kept-open answer
+    too, and the outer handler used to word its card from the flag: CLOSED,
+    about a position close_position had just kept. Same contrived geometry as
+    the closed case above — the NOT_CLOSED audit raising."""
+    monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(
+        return_value="⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN and re-protected."))
+    monkeypatch.setattr(ex, "_rest_symbol", lambda s: None)
+    real_spy = le.audit
+
+    def _audit_that_dies_on_not_closed(log, message, **kw):
+        if kw.get("result") == "NOT_CLOSED":
+            raise RuntimeError("audit sink down")
+        return real_spy(log, message, **kw)
+    monkeypatch.setattr(le, "audit", _audit_that_dies_on_not_closed)
+
+    msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
+    assert msg and "KEPT OPEN" in msg and "Reporting the details afterwards failed" in msg, msg
+    assert "was CLOSED" not in msg and "EXECUTION ABORTED" not in msg
+    assert close_failed is True
 
 
 @pytest.mark.asyncio
@@ -663,6 +715,43 @@ async def test_a_stop_failure_whose_flatten_also_fails_is_urgent(ex, audits, mon
     monkeypatch.setattr(ex, "close_position", AsyncMock(side_effect=RuntimeError("venue down")))
     msg, _, _ = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
     assert msg and "URGENT" in msg and "NO stop-loss" in msg
+    assert "venue down" not in msg, "driver text belongs in the log, not on the card"
+    assert not le.execution_indicates_failure(msg), "a live, stop-less position must be tracked"
+
+
+@pytest.mark.asyncio
+async def test_a_stop_failure_whose_flatten_answers_close_failed_is_urgent_too(ex, audits, monkeypatch):
+    """The fifth reader. This is the flatten that runs when the stop could NOT
+    be placed, and a returned "CLOSE FAILED" used to be announced as "CLOSED
+    for safety" — open, no stop, told it was closed."""
+    monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(return_value=(None, None)))
+    monkeypatch.setattr(ex, "close_position",
+                        AsyncMock(return_value="CLOSE FAILED for t1: venue rejected"))
+    msg, _, _ = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
+    assert msg and "URGENT" in msg and "NO stop-loss" in msg, msg
+    assert "CLOSED for safety" not in msg and "venue rejected" not in msg
+    assert [a["result"] for a in _by(audits, "sl_tp_failed")] == ["FLATTEN", "FLATTEN_FAILED"]
+    assert "venue rejected" in _by(audits, "sl_tp_failed")[1]["data"]["close_msg"]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_failure_whose_flatten_is_kept_open_says_so(ex, audits, monkeypatch):
+    monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(return_value=(None, None)))
+    kept = "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN and re-protected."
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value=kept))
+    msg, _, _ = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
+    assert msg and "KEPT OPEN" in msg and kept in msg, msg
+    assert "CLOSED for safety" not in msg
+    assert not le.execution_indicates_failure(msg)
+    assert [a["result"] for a in _by(audits, "sl_tp_failed")] == ["FLATTEN", "NOT_CLOSED"]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_failure_whose_flatten_completed_still_reads_as_no_position(ex, audits, monkeypatch):
+    monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(return_value=(None, None)))
+    monkeypatch.setattr(ex, "close_position", AsyncMock(return_value="closed"))
+    msg, _, _ = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
+    assert msg and "CLOSED for safety" in msg and le.execution_indicates_failure(msg)
 
 
 # ── 7. the card ──────────────────────────────────────────────────────────

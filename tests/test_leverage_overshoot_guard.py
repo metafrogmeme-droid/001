@@ -466,6 +466,49 @@ async def test_an_over_slipped_fill_whose_flatten_fails_still_gets_a_stop(tmp_pa
     assert ex._positions["TI-SLIP-001"].sl_order_id == "SL-1"
 
 
+async def test_a_close_the_venue_accepted_but_could_not_confirm_places_no_stop(tmp_path):
+    """THE OTHER WAY "CLOSE FAILED" USED TO BE WRONG — through the real close.
+
+    close_position's final handler catches everything after the close order
+    was ACCEPTED too: a raise while verifying or booking the result used to
+    come back as "CLOSE FAILED" with the record restored to open. On a book
+    the venue has most likely just flattened, the guard's failed arm would
+    then place a stop and a take-profit — resting orders against nothing.
+    That answer is CLOSE NOT CONFIRMED now: the guard keeps the record for the
+    next reconcile, places nothing, and the card does not carry the token the
+    engine reads as "no position remains".
+    """
+    from bot.core.live_executor import LiveExecutor, execution_indicates_failure
+    from bot.utils.models import Direction, TradeIdea
+
+    venue = _venue()                       # create_order answers every order, entry and close
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._exchange = venue
+    venue_lev = 4 * int(CONFIG.exchange.max_leverage)
+    ex._verify_position_exists = AsyncMock(return_value={
+        "confirmed": True, "leverage": venue_lev,
+        "exchange_entry": 100_000.0, "exchange_qty": 0.0001})
+    ex._verify_position_closed = AsyncMock(side_effect=RuntimeError("book unreadable"))
+    ex._place_sl_tp = AsyncMock(return_value=("SL-1", "TP-1"))
+    idea = TradeIdea(
+        id="TI-OVERSHOOT-004", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100_000.0, stop_loss=98_000.0, take_profit=105_000.0,
+        confidence=0.85, reasoning="overshoot fixture, close accepted but unconfirmed")
+
+    with patch.object(type(CONFIG), "is_live", return_value=True):
+        result = await ex.execute(idea, size_usd=10.0)
+
+    assert venue.create_order.await_count == 2, "the entry, then the close the venue accepted"
+    ex._place_sl_tp.assert_not_awaited()
+    assert "KEPT OPEN" in result and "CLOSE NOT CONFIRMED" in result, result
+    assert "was CLOSED" not in result and "AUTOMATIC CLOSE FAILED" not in result
+    assert "book unreadable" not in result, "driver text belongs in the log, not on the card"
+    assert not execution_indicates_failure(result), (
+        "the record is kept for reconcile; the engine must keep tracking it")
+    assert ex._positions["TI-OVERSHOOT-004"].status == "open"
+    assert ex._leverage_blocked_until, "the sticky leverage is on the symbol either way"
+
+
 def test_the_pre_order_fail_open_path_is_untouched():
     """The 2026-07-21 reversion must survive this change.
 

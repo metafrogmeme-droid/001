@@ -7477,6 +7477,19 @@ class RuneClawEngine:
         return first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
 
     @staticmethod
+    def _is_kept_open_message(msg: str) -> bool:
+        """True when a position-monitor message reports a close that did NOT
+        happen — a flatten close_position rejected or could not complete, or
+        a stop that could not be placed on a position still live. Those go to
+        the close card like a close (the operator must see them) but must not
+        be audited as "auto-closed": the position is still there."""
+        text = msg or ""
+        return any(k in text for k in (
+            "CLOSE FAILED", "CLOSE NOT CONFIRMED", "RESIDUAL REMAINS",
+            "KEPT OPEN", "DID NOT COMPLETE", "URGENT",
+        ))
+
+    @staticmethod
     def _is_sync_message(msg: str) -> bool:
         """True for the periodic exchange-sync adoption notices the executor
         emits through the same monitor-message channel ("SYNC: Adopted
@@ -7570,8 +7583,15 @@ class RuneClawEngine:
                                     logger.debug("Sync notify failed: %s", exc)
                             continue
 
-                        audit(trade_log, f"Live position auto-closed: {msg}",
-                              action="live_auto_close", result="CLOSED")
+                        if self._is_kept_open_message(msg):
+                            # A flatten that did not complete, or a stop that
+                            # could not be placed: the position is still
+                            # there, and the chain must not say it closed.
+                            audit(trade_log, f"Live position NOT closed: {msg}",
+                                  action="live_auto_close", result="NOT_CLOSED")
+                        else:
+                            audit(trade_log, f"Live position auto-closed: {msg}",
+                                  action="live_auto_close", result="CLOSED")
                         if self._close_notify_callback:
                             try:
                                 await self._close_notify_callback(msg)
