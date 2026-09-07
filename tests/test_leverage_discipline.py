@@ -48,8 +48,12 @@ class TestDynamicLeverageOnlyReduces:
         # Explicit cap at the default leverage.
         assert "min(lev, default_lev)" in helper_src
         # Both paths delegate to the helper rather than recomputing.
+        # The sizing path is `_size_or_block` (extracted from execute()
+        # verbatim); the up-scale must be absent from the sizer AND from what
+        # remains of execute(), since either could reintroduce it.
+        size_src = inspect.getsource(le.LiveExecutor._size_or_block)
         exec_src = inspect.getsource(le.LiveExecutor.execute)
         ensure_src = inspect.getsource(le.LiveExecutor._ensure_leverage)
-        assert "self._compute_target_leverage(symbol)" in exec_src
+        assert "self._compute_target_leverage(symbol)" in size_src
         assert "self._compute_target_leverage(symbol)" in ensure_src
-        assert "* 1.4" not in exec_src and "* 1.4" not in ensure_src
+        assert "* 1.4" not in size_src and "* 1.4" not in exec_src and "* 1.4" not in ensure_src

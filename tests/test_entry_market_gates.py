@@ -145,7 +145,23 @@ class TestTheExecutorConsultsThemAndKeepsTodaysBehaviour:
 
         from bot.core.live_executor import LiveExecutor
         from tests.source_scan import code_only
-        return code_only(inspect.getsource(LiveExecutor.execute))
+        # The gate left execute() for its own method, verbatim — so these
+        # pins now read the 98 lines that hold the code they assert rather
+        # than the 1,800-line neighbourhood around it. That execute() still
+        # CALLS it is pinned separately below.
+        return code_only(inspect.getsource(LiveExecutor._entry_market_gate))
+
+    def test_execute_still_consults_the_gate(self):
+        # A gate that exists and is never reached is #999 all over again.
+        import inspect
+
+        from bot.core.live_executor import LiveExecutor
+        from tests.source_scan import code_only
+        src = code_only(inspect.getsource(LiveExecutor.execute))
+        assert "await self._entry_market_gate(" in src
+        # And its verdict is acted on, not just collected.
+        i = src.index("await self._entry_market_gate(")
+        assert "return _gate_msg" in src[i:i + 400]
 
     def test_both_verdicts_are_actually_called(self):
         src = self._src()

@@ -85,5 +85,7 @@ class TestBothPathsUseHelper:
         assert "* 1.4" not in src
 
     def test_size_path_uses_helper(self):
-        src = inspect.getsource(LiveExecutor.execute)
+        # The size path is `_size_or_block`, extracted from execute() verbatim.
+        src = inspect.getsource(LiveExecutor._size_or_block)
         assert "leverage_mult = self._compute_target_leverage(symbol)" in src
+        assert "self._size_or_block(" in inspect.getsource(LiveExecutor.execute)

@@ -355,9 +355,13 @@ class TestNotionalBoundary:
     def test_execute_has_notional_boundary_check(self):
         import inspect
         from bot.core.live_executor import LiveExecutor
-        src = inspect.getsource(LiveExecutor.execute)
+        # The check is `_notional_boundary_gate` now, extracted from execute()
+        # verbatim — and execute() must still consult it, or the check exists
+        # without being reached.
+        src = inspect.getsource(LiveExecutor._notional_boundary_gate)
         assert "notional_boundary" in src
         assert "EXCEEDS_CEILING" in src
+        assert "self._notional_boundary_gate(" in inspect.getsource(LiveExecutor.execute)
 
     def test_normal_micro_trade_within_ceiling(self):
         # A normal micro trade (margin $100, 5x) places $500 notional, well under
