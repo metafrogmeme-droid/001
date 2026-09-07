@@ -125,8 +125,9 @@ def audits(monkeypatch):
 @pytest.mark.asyncio
 async def test_stuck_leverage_aborts_the_order(ex, audits):
     """Two reads, both wrong → RuntimeError, so execute() never places."""
+    from bot.core.live_executor import LeverageStuck
     fake = FakeExchange(leverage_reads=[{"leverage": 10}, {"leverage": 10}])
-    with pytest.raises(RuntimeError) as err:
+    with pytest.raises(LeverageStuck) as err:
         await ex._ensure_leverage_generic(fake, "BTC/USDT")
     msg = str(err.value)
     assert "10" in msg and str(TARGET) in msg, (
@@ -197,26 +198,42 @@ async def test_a_raising_read_back_does_not_abort(ex, audits):
 
 
 @pytest.mark.asyncio
-async def test_a_venue_RuntimeError_propagates_as_an_abort(ex, audits):
-    """A SHARP EDGE, PINNED RATHER THAN CHANGED.
+async def test_a_venue_RuntimeError_is_unverifiable_not_stuck(ex, audits, caplog):
+    """THE SHARP EDGE, NOW FIXED.
 
-    The abort is raised as a bare ``RuntimeError`` and propagated by
-    ``except RuntimeError: raise``, so the handler cannot tell its own abort
-    from a ``RuntimeError`` raised by the venue client — and a read-back that
-    fails that way aborts the order with "stuck at Nx", a verdict nobody
-    measured.
-
-    It errs SAFE: the outcome is no trade, which is the correct direction to
-    fail on a control that decides position sizing, and ccxt raises from its
-    own ``BaseError`` hierarchy so the path is narrow in practice. Recorded
-    here rather than fixed because the fix (a ``RuntimeError`` subclass for the
-    abort) edits the live order path to buy a message, and this is not the
-    change to make on the way to a deploy. The test is what makes it a known
-    edge instead of a surprise.
+    The abort used to be a bare ``RuntimeError`` propagated by
+    ``except RuntimeError: raise``, so the handler could not tell its own
+    verdict from a ``RuntimeError`` raised by the venue client — and a
+    read-back that failed that way aborted the order with "stuck at Nx", a
+    verdict nobody had measured, while every OTHER read-back failure was
+    (correctly) treated as unverifiable. This file pinned that edge on the way
+    to a deploy rather than touch the live order path; the deploy is done and
+    the abort is ``LeverageStuck`` now, so the venue's RuntimeError lands in
+    the same branch as any other unreadable read-back: warn once, proceed.
     """
     fake = FakeExchange(leverage_reads=[RuntimeError("venue client blew up")])
-    with pytest.raises(RuntimeError):
+    with caplog.at_level(logging.WARNING, logger="bot.core.live_executor"):
+        await ex._ensure_leverage_generic(fake, "BTC/USDT")   # must not raise
+    # A RAISING read-back takes the "verify unavailable" branch, which warns
+    # through the logger (the `leverage_unverified` AUDIT is the other
+    # branch: the venue answered, without a leverage field). Both are
+    # once-per-symbol, through the same set.
+    assert any("Leverage verify unavailable" in r.message for r in caplog.records), (
+        f"no unavailable-warning was logged: {[r.message for r in caplog.records]}")
+    assert "BTC/USDT" in ex._lev_unverified_warned
+    assert not [a for a in audits if a.get("action") == "leverage_unverified"], (
+        "a raising read-back must not be reported as 'answered without a field'")
+
+
+@pytest.mark.asyncio
+async def test_the_abort_is_still_a_RuntimeError_for_executes_handler(ex, audits):
+    """execute() catches the abort as a RuntimeError and reports EXECUTION
+    FAILED with `order` still None. Subclassing must not change that."""
+    from bot.core.live_executor import LeverageStuck
+    fake = FakeExchange(leverage_reads=[{"leverage": 10}, {"leverage": 10}])
+    with pytest.raises(LeverageStuck) as err:
         await ex._ensure_leverage_generic(fake, "BTC/USDT")
+    assert isinstance(err.value, RuntimeError)
 
 
 @pytest.mark.asyncio

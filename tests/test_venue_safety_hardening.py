@@ -91,10 +91,16 @@ def _selfheal_source() -> str:
 
 class TestGenericLeverageVerify:
     def test_generic_path_verifies_and_aborts(self):
+        from bot.core.live_executor import LeverageStuck
         src = inspect.getsource(LiveExecutor._ensure_leverage_generic)
         assert "fetch_leverage" in src
         assert "ABORTING" in src
-        assert "RuntimeError" in src
+        # The abort is a dedicated RuntimeError SUBCLASS now, so the guard can
+        # propagate its own verdict without also propagating a venue client's
+        # RuntimeError as if it were one. Still a RuntimeError, so execute()'s
+        # handler is unchanged.
+        assert "raise LeverageStuck(" in src
+        assert issubclass(LeverageStuck, RuntimeError)
 
     def test_generic_path_checks_margin_mode(self):
         src = inspect.getsource(LiveExecutor._ensure_leverage_generic)

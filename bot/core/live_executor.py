@@ -681,6 +681,24 @@ def _used_or_none(entry) -> float | None:
     return read_money_field(entry, "used")
 
 
+class LeverageStuck(RuntimeError):
+    """The venue would not take the target leverage after a retry — abort the order.
+
+    A SUBCLASS, so it can be told apart from a ``RuntimeError`` the venue client
+    raises. ``_ensure_leverage_generic`` propagated its own abort with
+    ``except RuntimeError: raise``, which also propagated any RuntimeError from
+    the read-back itself — so a client that blew up on ``fetch_leverage``
+    aborted the order with "stuck at Nx", a verdict nobody had measured, while
+    every OTHER read-back failure (a missing field, a different exception
+    class) was correctly treated as unverifiable: warn once, proceed.
+    ``tests/test_leverage_guard_is_exercised.py`` pinned that edge on the way
+    to a deploy rather than change the live order path; this is the change.
+
+    Still a RuntimeError, so ``execute()``'s handler catches it exactly as
+    before and reports EXECUTION FAILED with ``order`` still None.
+    """
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -1363,15 +1381,15 @@ class LiveExecutor:
                         logger.critical(
                             "LEVERAGE STILL MISMATCHED for %s on %s: wanted %dx, venue "
                             "reports %dx — ABORTING order", sym, self._venue.id, target, _actual2)
-                        raise RuntimeError(
+                        raise LeverageStuck(
                             f"Cannot set leverage to {target}x for {symbol} on "
                             f"{self._venue.id} (stuck at {_actual2}x). Aborting order.")
-                except RuntimeError:
+                except LeverageStuck:
                     raise
                 except Exception:
                     pass  # retry read failed — proceed with the warning above
-        except RuntimeError:
-            raise  # propagate the abort
+        except LeverageStuck:
+            raise  # propagate the abort — and ONLY the abort (see LeverageStuck)
         except Exception as _lev_exc:
             if symbol not in self._lev_unverified_warned:
                 self._lev_unverified_warned.add(symbol)
