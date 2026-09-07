@@ -40,9 +40,15 @@ PYTEST_CMD = [
     "-rfE", "-q", "--no-header",
 ]
 
-# Coverage floor on the money-moving modules. Measured ~70% at introduction;
-# the floor is set below that so normal CI-env variance / the order-dependent
-# flakes don't redden it, while still catching a real coverage regression.
+# Coverage floor on the money-moving modules. The "~70% at introduction" this
+# sentence used to claim was measured over the two targets that actually
+# resolved — see the note below — so it was a figure for 2,721 statements
+# described as one for 6,983. Re-measured over all three once the middle entry
+# started counting: 74% total, with live_executor.py itself at 66%. The floor
+# is set below that so normal CI-env variance / the order-dependent flakes
+# don't redden it, while still catching a real coverage regression. A number in
+# prose is the part that rots first, and this one had already rotted into
+# describing a scope it was never taken over.
 # Ratchet this up as test isolation improves and scale_out.py gets tested.
 # Coverage is collected on the gate's first full-suite run (pytest-cov), and the
 # threshold is enforced separately via `coverage report` so the per-node flake

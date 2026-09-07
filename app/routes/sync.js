@@ -205,7 +205,18 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       // Preserve null when the bot flagged the live account UNAVAILABLE — never
       // coerce it to 0 or a paper baseline (the dashboard renders "—" +
       // "live account unavailable" instead of a fake balance).
-      equity: cb.live_unavailable ? null : (cb.equity || 0),
+      // `|| 0` HERE, `?? null` ON THE THREE LINES BELOW, in the same object.
+      // The guard admits `cb` whenever `total_trades` is readable, so a payload
+      // with trades and no equity reading reaches this line with
+      // `live_unavailable` false — and published $0.00 as the account balance,
+      // the one figure the comment above swears never to coerce. Same rule,
+      // same object, one line short of applied.
+      // `open_count` is deliberately left alone: `_build_scan_payload` starts it
+      // at 0 and only ever raises it from a real read, unlike `cb_equity` /
+      // `cb_net_pnl` / `cb_win_rate`, which that function made explicitly None
+      // for exactly this reason. Nulling a field the producer never sends null
+      // buys no case and costs a real refactor.
+      equity: cb.live_unavailable ? null : (cb.equity ?? null),
       open_count: cb.open_count || 0,
       // The equity null was honoured here and the two figures beside it were
       // not — `?? null` rather than `|| 0`, so a bot that says "we could not
@@ -856,7 +867,12 @@ router.post('/scan', async (req, res) => {
       // whose balance cannot be read must render "—", never "$0.00" — zero
       // reads as "account wiped", which is a fabricated (and alarming) number.
       latestPortfolio = {
-        equity: cb.live_unavailable ? null : (cb.equity || 0),
+        // And `|| 0` here too, on the ingest that overwrites the cold path
+        // seconds later — the copy whose own comment above explains why a
+        // careful null must not be stamped back to zero. Both copies fixed
+        // together, because fixing one and leaving the other is how this pair
+        // survived the first pass.
+        equity: cb.live_unavailable ? null : (cb.equity ?? null),
         open_count: cb.open_count || 0,
         // Same contract as the GET path above, and it matters more here for
         // the same reason the equity comment gives: this ingest runs on every
@@ -1315,17 +1331,43 @@ router.get('/onchain-flow', async (req, res) => {
 });
 
 // Read-side accessor for routes/guardian.js: in-memory first, DB on cold start.
+/**
+ * The cached flight record, or null.
+ *
+ * `getLatestFlight.lastReadFailed` reports whether the last cold read RAISED,
+ * as against finding nothing — because those are opposite facts and the caller
+ * had no way to tell them apart. A null from here rendered as
+ * "No decisions recorded yet." on /api/guardian/flight and as `recorderOk =
+ * null` on the readiness axis, so an unreachable database published a
+ * confident negative about the tamper-evident evidence chain: the surface an
+ * operator opens precisely to find out whether the record is intact.
+ *
+ * A property on the function rather than a second return value: every existing
+ * caller awaits a record and would have to be rewritten to destructure one,
+ * and the two that care can ask.
+ */
 async function getLatestFlight() {
-  if (latestFlight) return latestFlight;
+  // Reset on the warm path too. The flag describes whether the record we are
+  // handing back could be read, not whether some earlier cold read once failed
+  // — and a stale `true` would answer 503 about a record we are holding.
+  if (latestFlight) { getLatestFlight.lastReadFailed = false; return latestFlight; }
   try {
     const [rows] = await pool.execute(
       'SELECT flight_json FROM flight_cache WHERE id = 1');
     if (rows.length > 0 && rows[0].flight_json) {
       latestFlight = JSON.parse(rows[0].flight_json);
     }
-  } catch (err) { /* cold-start miss / table absent is fine */ }
+    getLatestFlight.lastReadFailed = false;
+  } catch (err) {
+    // Cold-start miss and "the table is not there yet" are genuinely fine, and
+    // indistinguishable from a dead pool at this layer — so the flag says
+    // "could not read", and the caller says so in those words rather than
+    // inventing which of the two it was.
+    getLatestFlight.lastReadFailed = true;
+  }
   return latestFlight;
 }
+getLatestFlight.lastReadFailed = false;
 
 /**
  * Daily Duel over the bot channel.

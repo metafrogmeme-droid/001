@@ -53,6 +53,20 @@ router.get('/flight', async (req, res) => {
   try {
     const flight = await getLatestFlight();
     if (!flight || !Array.isArray(flight.records)) {
+      // "No decisions recorded yet" is a MEASUREMENT — it says the recorder ran
+      // and sealed nothing. getLatestFlight swallows a failed read and returns
+      // the same null as an empty cache, so an unreachable database published
+      // that sentence about the tamper-evident chain, on the page an operator
+      // opens to check whether the evidence is intact. 503 rather than a 200
+      // with a softer note: this endpoint has one source, so the panel must
+      // paint an error state (CLAUDE.md's "guard" strategy), not an empty one.
+      if (getLatestFlight.lastReadFailed) {
+        return res.status(503).json({
+          error: 'Flight record unavailable',
+          note: 'The decision record could not be read — this is not the same as '
+            + 'an empty record. Nothing here is a statement about what the agent did.',
+        });
+      }
       return res.json({
         records: [], chain: null, guardian_status: (flight && flight.guardian_status) || null,
         window: null, updated_at: (flight && flight.updated_at) || null,

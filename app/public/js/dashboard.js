@@ -870,6 +870,14 @@
         const pos = posR && posR.ok ? posR.data : null;
         const openN = (pos?.positions || pf?.open_positions || []).length;
         const unp = pos?.unprotected_count || 0;
+        // RC-2026-016 REACHED slPositionsHtml AND NOT THIS BAR. The positions
+        // payload is three-valued — `unknown_count` is positions whose stop
+        // could not be READ — and the panel below distinguishes all three while
+        // this one, the first thing on the home screen, showed only
+        // `unprotected_count`. So a book where every stop was unreadable
+        // rendered as a mission-control bar with no warning chip at all: the
+        // absence of an alarm, which is how a reader takes "nothing is wrong".
+        const unk = pos?.unknown_count || 0;
         const mode = (pf?.mode) || (pos?.live ? 'LIVE' : 'PAPER');
         const paused = !!ctlR?.data?.paused;
         const stance = scanR?.circuit_breaker?.strategy_mode || null;
@@ -884,6 +892,11 @@
         if (stance) cells.push(chip('#engine', 'Stance', `<b>${esc(String(stance))}</b>`));
         cells.push(chip('#portfolio', 'Open', `<b>${openN}</b>`));
         if (unp > 0) cells.push(chip('#portfolio', '⚠️ Unprotected', `<b>${unp}</b>`, 'mc-chip--alert'));
+        // Its own chip, not folded into the one above: "no stop on the
+        // exchange" and "nobody could ask the exchange" call for different
+        // actions, and summing them would report a count of confirmed
+        // exposures that includes positions which may be perfectly protected.
+        if (unk > 0) cells.push(chip('#portfolio', '🛑 Stop unknown', `<b>${unk}</b>`, 'mc-chip--alert'));
         if (daily != null) cells.push(chip(null, 'Today', `<b class="num ${pnlClass(daily)}">${signed(daily)}</b>`));
         if (paused) cells.push(chip('#account/actl', '', `<span class="chip chip--warn">Paused</span>`));
         return `<div class="mc-bar">${cells.join('')}</div>`;
@@ -5867,7 +5880,16 @@
 
     let data = null, curYear = 'all';
     const money = (v) => fmtMoney(v);
-    const gl = (v) => { v = Math.round((+v || 0) * 100) / 100; return `<span class="num ${pnlClass(v)}">${v > 0 ? '+' : ''}${fmtMoney(v)}</span>`; };
+    // `(+v || 0)` was the last coercion between an unpriced disposal and the
+    // reader: lib/tax.js now sends `null` for a trade whose P&L was never
+    // booked, and this turned it straight back into a measured $0.00 — in the
+    // colour of a break-even, on a tax figure. `pnlClass` and `fmtMoney` are
+    // both already three-valued; only this line was not.
+    const gl = (v) => {
+      if (v == null) return `<span class="num muted" title="This disposal has no booked P&L — it is excluded from every total above.">unpriced</span>`;
+      v = Math.round(v * 100) / 100;
+      return `<span class="num ${pnlClass(v)}">${v > 0 ? '+' : ''}${fmtMoney(v)}</span>`;
+    };
     const dt = (s) => (s ? esc(String(s).slice(0, 10)) : '—');
     const shortSym = (s) => esc(String(s || '').replace(':USDT', '').replace('/USDT', ''));
 
@@ -5885,7 +5907,12 @@
       const rows = (data && data.disposals) || [];
       if (!rows.length) return;
       const cell = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-      const lines = [CSV_COLS.join(',')].concat(rows.map(d => [d.symbol, d.direction, d.acquired || '', d.disposed || '', d.proceeds, d.cost_basis, d.fees, d.gain_loss, d.holding_days == null ? '' : d.holding_days, d.term].map(cell).join(',')));
+      // UNPRICED, not a blank cell, and for the reason lib/tax.js states at
+      // `moneyCell`: a blank is what SUM() treats as nothing, so the download
+      // would re-manufacture the $0.00 the server stopped sending. This file
+      // mirrors that CSV, so it mirrors this too.
+      const m = (v) => (v == null ? 'UNPRICED' : v);
+      const lines = [CSV_COLS.join(',')].concat(rows.map(d => [d.symbol, d.direction, d.acquired || '', d.disposed || '', m(d.proceeds), d.cost_basis, d.fees, m(d.gain_loss), d.holding_days == null ? '' : d.holding_days, d.term].map(cell).join(',')));
       const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `runeclaw-tax-${curYear}.csv`;
@@ -5910,16 +5937,33 @@
       if (!data) { el.innerHTML = `<p class="small muted">Your tax report is unavailable right now.</p>`; return; }
       const t = data.totals || {};
       if (!t.disposals) { el.innerHTML = `<p class="small muted">No closed trades ${curYear === 'all' ? 'yet' : 'in ' + esc(curYear)} — realized-gain rows appear here once you close a round-trip.</p>`; return; }
+      // WHEN NOTHING WAS PRICED, THE ACCUMULATORS ARE UNTOUCHED — and an
+      // untouched accumulator is 0, which renders as a measured, break-even
+      // year. That is "a partial total, printed as whole" with the partial
+      // part empty: the last row of CLAUDE.md's table, reached from the other
+      // side. A sum over no rows is not a reading, so the tiles show none.
+      const priced = (t.disposals || 0) - (t.unpriced || 0);
+      const sum = (v) => (priced ? v : null);
       el.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:var(--s2)">
-          <div><div class="small muted">Net realized</div><div style="font-size:var(--fs-lg)">${gl(t.net_gain_loss)}</div></div>
-          <div><div class="small muted">Short-term</div><div>${gl(t.short_term_gain_loss)}</div></div>
-          <div><div class="small muted">Long-term</div><div>${gl(t.long_term_gain_loss)}</div></div>
-          <div><div class="small muted">Fees</div><div class="num">${money(t.fees)}</div></div>
-          <div><div class="small muted">Proceeds</div><div class="num">${money(t.proceeds)}</div></div>
-          <div><div class="small muted">Disposals</div><div class="num">${t.disposals} <span class="muted small">(${t.gains}W/${t.losses}L)</span></div></div>
+          <div><div class="small muted">Net realized</div><div style="font-size:var(--fs-lg)">${gl(sum(t.net_gain_loss))}</div></div>
+          <div><div class="small muted">Short-term</div><div>${gl(sum(t.short_term_gain_loss))}</div></div>
+          <div><div class="small muted">Long-term</div><div>${gl(sum(t.long_term_gain_loss))}</div></div>
+          <div><div class="small muted">Fees</div><div class="num">${money(sum(t.fees))}</div></div>
+          <div><div class="small muted">Proceeds</div><div class="num">${money(sum(t.proceeds))}</div></div>
+          <div><div class="small muted">Disposals</div><div class="num">${t.disposals} <span class="muted small">(${t.gains}W/${t.losses}L${t.unpriced ? ` · ${t.unpriced} unpriced` : ''})</span></div></div>
         </div>
-        ${(data.years && data.years.length > 1 && curYear === 'all') ? `<div class="tbl-wrap mt-3"><table class="tbl"><thead><tr><th>Year</th><th class="r">Net</th><th class="r">Short</th><th class="r">Long</th><th class="r">Fees</th><th class="r">Disposals</th></tr></thead><tbody>${data.years.map(y => `<tr><td class="num">${y.year}</td><td class="r">${gl(y.net_gain_loss)}</td><td class="r">${gl(y.short_term_gain_loss)}</td><td class="r">${gl(y.long_term_gain_loss)}</td><td class="r num muted">${money(y.fees)}</td><td class="r num muted">${y.disposals}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+        ${t.unpriced ? `<p class="small mt-2" style="color:var(--warn,#f0a848)">⚠️ ${t.unpriced} of ${t.disposals} disposal${t.disposals === 1 ? '' : 's'} ${t.unpriced === 1 ? 'has' : 'have'} no booked P&amp;L and ${t.unpriced === 1 ? 'is' : 'are'} excluded from every figure above — these totals cover the ${t.disposals - t.unpriced} priced disposal${(t.disposals - t.unpriced) === 1 ? '' : 's'} only. Reconcile the unpriced rows against your exchange statements before filing.</p>` : ''}
+        ${(data.years && data.years.length > 1 && curYear === 'all') ? `<div class="tbl-wrap mt-3"><table class="tbl"><thead><tr><th>Year</th><th class="r">Net</th><th class="r">Short</th><th class="r">Long</th><th class="r">Fees</th><th class="r">Disposals</th></tr></thead><tbody>${data.years.map((y) => {
+    // Per year, the same guard as the tiles. A year whose every disposal was
+    // unpriced has untouched accumulators, and an untouched accumulator prints
+    // as a measured $0.00 — which in a per-year table reads as "that year came
+    // out exactly flat", the most specific claim on the page.
+    const yp = (y.disposals || 0) - (y.unpriced || 0);
+    const ys = (v) => (yp ? v : null);
+    const tag = y.unpriced ? ` <span class="muted small" title="excluded from this row's figures">·&nbsp;${y.unpriced}&nbsp;unpriced</span>` : '';
+    return `<tr><td class="num">${y.year}</td><td class="r">${gl(ys(y.net_gain_loss))}</td><td class="r">${gl(ys(y.short_term_gain_loss))}</td><td class="r">${gl(ys(y.long_term_gain_loss))}</td><td class="r num muted">${money(ys(y.fees))}</td><td class="r num muted">${y.disposals}${tag}</td></tr>`;
+  }).join('')}</tbody></table></div>` : ''}`;
     }
 
     function paintRows() {
@@ -8022,10 +8066,27 @@
     none: 'var(--up,#31c48d)', low: 'var(--accent,#3fb6ff)',
     medium: 'var(--warn,#f0a848)', high: 'var(--down,#f05252)',
   };
-  function riskCol(r) { return _RISK_COL[String(r || 'none')] || 'var(--muted,#8a94a6)'; }
+  // THE PRODUCER WAS FIXED AND THE TWO RENDERERS WERE NOT.
+  //
+  // engine.guardian_status() used to fail open to `posture: "none"` and
+  // `twin/sentinel/escape.risk: "none"` — the calmest reading it has, about a
+  // book it never read — and that default was replaced with `None`. Which
+  // arrives here as `null`, and `String(null || 'none')` is `'none'`, so the
+  // console went on painting an unassessable book GREEN, now from an explicit
+  // "I do not know" instead of an implicit one. Colour is a claim (CLAUDE.md);
+  // a green chip says "nothing flagged" as loudly as the word does.
+  //
+  // Unknown is muted here and reads UNKNOWN below. `'none'` keeps its green,
+  // because a book that WAS assessed and flagged nothing is a real measurement
+  // and the safest thing this panel can truthfully report.
+  const _unknownRisk = (r) => r == null || (typeof r === 'string' && r.trim() === '');
+  function riskCol(r) {
+    if (_unknownRisk(r)) return 'var(--muted,#8a94a6)';
+    return _RISK_COL[String(r)] || 'var(--muted,#8a94a6)';
+  }
   function moduleChip(label, risk, armed) {
     const col = riskCol(risk);
-    const rk = String(risk || 'none').toUpperCase();
+    const rk = _unknownRisk(risk) ? 'UNKNOWN' : String(risk).toUpperCase();
     const arm = armed ? '' : ' <span class="muted" style="font-size:10px">· off</span>';
     return `<span class="chip" style="font-size:11px;padding:2px 8px;border-color:${col}">
       <span class="muted">${esc(label)}</span>&nbsp;<strong style="color:${col}">${esc(rk)}</strong>${arm}</span>`;
@@ -8034,8 +8095,9 @@
   function guardianPostureCard(gs) {
     if (!gs || typeof gs !== 'object') return '';
     const f = gs.flags || {};
-    const posture = String(gs.posture || 'none');
-    const col = riskCol(posture);
+    const postureUnknown = _unknownRisk(gs.posture);
+    const posture = postureUnknown ? 'unknown' : String(gs.posture);
+    const col = riskCol(gs.posture);
     const twin = (gs.twin || {}), sent = (gs.sentinel || {}), esc_ = (gs.escape || {});
     const armLabel = (on) => on ? '<strong style="color:var(--up,#31c48d)">armed</strong>' : '<span class="muted">off</span>';
     const chips = [
@@ -8052,9 +8114,18 @@
           · Intent policy ${armLabel(f.intent_policy)}</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${chips}</div>
-      <div class="small muted" style="margin-top:8px">Live-book safety read across the Guardian layer${
-        (twin.position_count ? ` · ${twin.position_count} open position${twin.position_count === 1 ? '' : 's'}` : ' · flat')
-      }. The AI proposes · controls authorize · the recorder proves · the escape agent recovers.</div>
+      <div class="small muted" style="margin-top:8px">${postureUnknown
+        ? 'The Guardian layer could not be read, so this is not a safety verdict — neither a clear one nor an alarming one. Check the bot directly'
+        : `Live-book safety read across the Guardian layer${
+          // Three-valued, and the middle value used to be the reassuring one.
+          // `position_count` is null when the book could not be read, null is
+          // falsy, and the falsy branch said "· flat" — announcing an empty
+          // book on the strength of a failed read, beside a posture chip that
+          // was green for the same reason.
+          twin.position_count == null ? ' · position count unread'
+            : twin.position_count === 0 ? ' · flat'
+              : ` · ${twin.position_count} open position${twin.position_count === 1 ? '' : 's'}`
+        }`}. The AI proposes · controls authorize · the recorder proves · the escape agent recovers.</div>
     </section>`;
   }
 

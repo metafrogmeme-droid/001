@@ -34,6 +34,29 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * The same coercion, three-valued: `null` when the field could not be read.
+ *
+ * `trades.pnl` is `DECIMAL(14,2)` and NULLABLE — a CLOSED row whose P&L the
+ * engine never managed to book is an ordinary state, and `loadClosed` selects
+ * it unfiltered. Through `num()` that row arrived here as a realized gain of
+ * exactly 0.00 and was published on a Form-8949-friendly CSV as a measured
+ * break-even disposal. Of every surface in this repo that turns an absent
+ * field into a confident number, this is the one a reader files a tax return
+ * from.
+ *
+ * Scoped deliberately to `pnl`. `size_usd` is `NOT NULL` and `fees` is
+ * `DEFAULT 0`, so `num()` is the right reader for both and widening this to
+ * them would buy a case the schema does not permit — the cost of a refactor
+ * with no defect under it is real (CLAUDE.md: check reachability before
+ * fixing).
+ */
+function numOrNull(v) {
+  if (v == null || (typeof v === 'string' && v.trim() === '')) return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function round2(v) {
   return Math.round((num(v) + Number.EPSILON) * 100) / 100;
 }
@@ -53,10 +76,13 @@ function classifyDisposal(trade) {
   const acquired = validDate(trade.opened_at);
   const disposed = validDate(trade.closed_at);
 
-  const gain = num(trade.pnl);           // realized, as booked by the engine
+  const gain = numOrNull(trade.pnl);     // realized, as booked by the engine — or null
   const fees = num(trade.fees);
   const costBasis = num(trade.size_usd); // capital committed at entry (notional)
-  const proceeds = costBasis + gain;     // identity: proceeds − basis = realized gain
+  // The identity `proceeds − basis = gain` only holds over a gain we have.
+  // Deriving proceeds from an unreadable gain would put the basis back on the
+  // form under a different heading and make the row look complete.
+  const proceeds = gain === null ? null : costBasis + gain;
 
   let holdingDays = null;
   let term = 'unknown';
@@ -73,9 +99,14 @@ function classifyDisposal(trade) {
     holding_days: holdingDays,
     term,
     cost_basis: round2(costBasis),
-    proceeds: round2(proceeds),
+    proceeds: proceeds === null ? null : round2(proceeds),
     fees: round2(fees),
-    gain_loss: round2(gain),
+    gain_loss: gain === null ? null : round2(gain),
+    // Carried explicitly rather than left for each reader to infer from a null:
+    // the CSV, the summary and the browser table all have to agree about which
+    // rows are measured, and three independent `x == null` checks is three
+    // chances to get it wrong in only two of them.
+    priced: gain !== null,
     year: disposed ? disposed.getUTCFullYear() : null,
   };
 }
@@ -84,6 +115,11 @@ function emptyYear(year) {
   return {
     year,
     disposals: 0,
+    // Rows whose realized P&L the engine never booked. They are disposals —
+    // they happened, and a tax reader must know they exist — but they are not
+    // in a single money figure below, because a total assembled over rows one
+    // of which is a guess is a partial total printed as a whole one.
+    unpriced: 0,
     gains: 0,
     losses: 0,
     proceeds: 0,
@@ -109,6 +145,14 @@ function summarize(disposals) {
     const y = byYear.get(d.year);
     for (const bucket of [y, totals]) {
       bucket.disposals += 1;
+      // EVERY money accumulator below is skipped for an unpriced row. `+ null`
+      // coerces to `+ 0` in JavaScript, so leaving them to run would have added
+      // a silent zero to `net_gain_loss` and to `proceeds` — the same $0.00
+      // claim as before, one layer further from where it could be seen. The
+      // win/loss counters need no such guard for a different reason: `null > 0`
+      // and `null < 0` are both false, so an unpriced row was never scored a
+      // win or a loss. (`losses = disposals - gains` would have made it one.)
+      if (!d.priced) { bucket.unpriced += 1; continue; }
       if (d.gain_loss > 0) bucket.gains += 1;
       else if (d.gain_loss < 0) bucket.losses += 1;
       bucket.proceeds = round2(bucket.proceeds + d.proceeds);
@@ -155,6 +199,20 @@ function csvCell(v) {
 }
 
 /**
+ * A money cell that a spreadsheet cannot quietly re-zero.
+ *
+ * The obvious rendering for an unreadable figure is a blank cell, and a blank
+ * cell is exactly what `SUM()` treats as nothing — so the $0.00 this file just
+ * stopped inventing would be reinvented by Excel the moment the reader totals
+ * the column. A word cannot be summed, and it cannot be mistaken for a
+ * measurement either.
+ */
+const UNPRICED_CELL = 'UNPRICED';
+function moneyCell(v) {
+  return v == null ? UNPRICED_CELL : v;
+}
+
+/**
  * Form-8949-friendly CSV of the disposal rows (headers + one line per disposal).
  */
 function toCsv(disposals) {
@@ -168,7 +226,7 @@ function toCsv(disposals) {
     lines.push([
       d.symbol, d.direction,
       d.acquired || '', d.disposed || '',
-      d.proceeds, d.cost_basis, d.fees, d.gain_loss,
+      moneyCell(d.proceeds), d.cost_basis, d.fees, moneyCell(d.gain_loss),
       d.holding_days == null ? '' : d.holding_days, d.term,
     ].map(csvCell).join(','));
   }
@@ -178,6 +236,8 @@ function toCsv(disposals) {
 module.exports = {
   DISCLAIMER,
   LONG_TERM_DAYS,
+  UNPRICED_CELL,
+  numOrNull,
   classifyDisposal,
   summarize,
   buildReport,

@@ -2687,16 +2687,36 @@ class RuneClawEngine:
         except Exception as exc:
             logger.warning("Per-user executor rehydrate skipped: %s", exc)
             return
+        failed = 0
         for uid in ids:
             try:
                 # _executor_for builds, caches, and (via __init__) loads that
                 # user's persisted positions; skips users with no usable keys.
                 self._executor_for(uid)
             except Exception as exc:
+                failed += 1
                 logger.warning("Rehydrate executor for %s failed: %s", uid, exc)
-        if self._user_executors:
+        # A NUMERATOR WITH NO DENOMINATOR, AND SILENCE ON THE WORST OUTCOME.
+        #
+        # This reported "Rehydrated N executor(s)" and nothing else — so N of
+        # M was unknowable, and the case where EVERY user failed audited
+        # nothing at all, because `self._user_executors` was empty and the
+        # branch did not run. That is the failure this whole file is careful
+        # about, at startup: a bot whose linked users all failed to rehydrate
+        # looks exactly like a bot with no linked users, while their persisted
+        # LIVE positions sit unmonitored — nothing re-arms their stops and
+        # nothing closes them.
+        built = len(self._user_executors)
+        if failed:
             audit(system_log,
-                  f"Rehydrated {len(self._user_executors)} per-user executor(s) at startup",
+                  f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup — "
+                  f"{failed} FAILED; those users' persisted live positions are NOT "
+                  f"being monitored",
+                  action="per_user_rehydrate", result="WARNING",
+                  level=logging.WARNING)
+        elif ids:
+            audit(system_log,
+                  f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
 
     def get_effective_equity(self, user_id: str = "") -> Optional[float]:
@@ -4635,7 +4655,19 @@ class RuneClawEngine:
         # hours between manual scans, showing the dashboard as "disconnected"
         # even while the bot was healthy and trading normally.
         try:
-            self._push_scan_summary_to_website(signals)
+            # ON A WORKER THREAD, because this is not the cheap serialiser its
+            # name suggests. `_push_scan_summary_to_website` calls
+            # `_build_scan_payload`, which in live mode calls
+            # `_fetch_live_exchange_data` — SYNCHRONOUS ccxt: a balance fetch, a
+            # positions fetch and a trade-history read, each with its own HTTP
+            # timeout. Called inline from `_tick` it blocked the event loop for
+            # as long as the venue took to answer, which stalls every other
+            # coroutine on it: the stop-loss re-arm, the Telegram poller, the
+            # heartbeat the dashboard reads to decide the engine is alive. The
+            # `sync_scan_in_background` at the end of it was already off-thread,
+            # so the fire-and-forget half was covered and the expensive half was
+            # not.
+            await asyncio.to_thread(self._push_scan_summary_to_website, signals)
         except Exception as _scan_push_exc:
             logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)
 
