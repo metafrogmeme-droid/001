@@ -58,7 +58,16 @@ router.get('/', async (req, res) => {
   try {
     const { getLatestFlight } = require('./sync');
     const flight = await getLatestFlight();
-    if (flight && flight.chain) recorderOk = flight.chain.ok !== false;
+    // `chain.ok` IS THREE-VALUED AT THE SOURCE, and `!== false` collapsed it
+    // onto the pass. engine.guardian_status() sets `chain: {ok: None}` and only
+    // promotes it to a bool when `audit_chain.verify()` actually ran — so an
+    // unverifiable chain (verify raised, or the console never reached it)
+    // arrived as null, `null !== false` is true, and this axis scored **100,
+    // "Decision→outcome chain is intact"** on provenance nobody had checked.
+    // The Telegram card has told these three apart for a while (✅ verified /
+    // ⚠️ UNVERIFIED / · unchecked); this is the same read, and it had two.
+    const ok = flight && flight.chain ? flight.chain.ok : undefined;
+    if (ok === true || ok === false) recorderOk = ok;
   } catch (_) { /* null */ }
 
   // 3. Drawdown headroom (max drawdown % of peak, from the user's closed trades).
@@ -121,10 +130,39 @@ router.get('/', async (req, res) => {
         live_enabled: !!c.live_enabled,
         allowlisted: !!c.allowlisted,
         paused: !!c.paused,
+        source: 'controls',
       };
     } else {
-      // No controls row → paper by default (nothing live has been enabled).
-      liveState = { live_enabled: false, allowlisted: false, paused: false };
+      // THE ABSENT ROW WAS SCORED 100, "Paper only — no live capital exposed."
+      //
+      // `user_controls` is a MIRROR, and routes/webtrade.js says what of:
+      // "written only for web-originated control changes, so it is empty for a
+      // user who enabled live in Telegram AND for every web-only live user".
+      // So the rows this branch fires on are, precisely, the accounts most
+      // likely to be live — and it handed them full marks on the
+      // highest-consequence axis this score has, off a row that does not exist.
+      // Absent is never a measurement.
+      //
+      // Ask the same authority the confirm path asks (`_trade_mode`, via
+      // /trade/live_mode). An answer is a real reading in either direction; no
+      // answer leaves the axis null, which scoreReadiness renormalises around
+      // and reports as "not yet observed".
+      if (isConfigured()) {
+        const lm = await withDeadline(getGateway(
+          `/trade/live_mode?telegram_id=${encodeURIComponent(ident.id)}`, AXIS_MS), AXIS_MS);
+        if (lm && lm.status === 200 && lm.data && typeof lm.data.live_allowed === 'boolean') {
+          liveState = {
+            // The bot's gate is the operator gate: it says live_allowed only
+            // once the allowlist (or the fail-closed web-live gate) has let
+            // this identity through, so `allowlisted` tracks it rather than
+            // being asserted separately.
+            live_enabled: lm.data.live_allowed,
+            allowlisted: lm.data.live_allowed,
+            paused: false,
+            source: 'gateway',
+          };
+        }
+      }
     }
   } catch (_) { /* null */ }
 

@@ -130,11 +130,65 @@ test('a readable live balance still flows through unchanged', async () => {
   assert.equal(pf.mode, 'LIVE');
 });
 
+test('an equity the bot simply did not send is null, not $0.00', async () => {
+  // THE HOLE THE `live_unavailable` FLAG LEFT, and the two tests above walk
+  // straight past it: both set the flag. The admission guard is
+  //
+  //   if (cb && (cb.equity != null || cb.total_trades != null || cb.live_unavailable))
+  //
+  // so a payload with a readable trade count and NO equity reading enters with
+  // `live_unavailable` false — and `cb.equity || 0` published $0.00 as the
+  // account balance, on the exact path whose comment swears never to coerce it.
+  // "The bot flagged it unavailable" and "the bot sent no figure" are the same
+  // absence of a measurement; only one of them was honoured.
+  const r = await post('/api/bot/sync/scan', {
+    symbols: {},
+    circuit_breaker: {
+      live_mode: true, total_trades: 7, open_count: 1,
+      net_pnl: 3.5, win_rate: 42.0,
+    },
+  });
+  assert.equal(r.status, 200);
+  const s = await get('/api/bot/sync/portfolio-summary', { token: TOKEN });
+  const pf = s.data.portfolio;
+  assert.equal(pf.equity, null,
+    `an unsent equity was published as ${pf.equity} — "$0.00" on a live account `
+    + 'reads as "account wiped"');
+  // The rest of the payload is real and must survive; nulling equity must not
+  // blank a summary that has genuine numbers in it.
+  assert.equal(pf.total_trades, 7);
+  assert.equal(pf.open_count, 1);
+  assert.equal(pf.net_pnl, 3.5);
+});
+
+test('a measured zero equity is still zero', async () => {
+  // 0.0 is falsy and 0.0 is a real, measured, drained account. The fix must
+  // not turn a genuine reading into "unknown" — that is the same defect
+  // pointed the other way, and `|| 0` would have hidden it too.
+  const r = await post('/api/bot/sync/scan', {
+    symbols: {},
+    circuit_breaker: { live_mode: true, equity: 0, total_trades: 3, open_count: 0 },
+  });
+  assert.equal(r.status, 200);
+  const s = await get('/api/bot/sync/portfolio-summary', { token: TOKEN });
+  assert.equal(s.data.portfolio.equity, 0);
+  assert.equal(s.data.portfolio.live_unavailable, false);
+});
+
 test('both cache writers build the same shape', () => {
   // The defect was divergence: the GET cold path preserved null while the
   // POST ingest path coerced to 0. Pin that BOTH now carry the guard, so a
   // future edit to one can't silently reopen the gap in the other.
-  const guards = syncSrc.match(/cb\.live_unavailable \? null : \(cb\.equity \|\| 0\)/g) || [];
+  //
+  // The guard is `?? null`, not `|| 0`. This assertion named the old text and
+  // so it failed the moment the guard got STRONGER — which is the right
+  // behaviour for a pin, and the reason it is updated here rather than
+  // loosened: `|| 0` also ate a genuine 0.0 (a real, drained account) and
+  // published $0.00 for an equity the bot never sent at all, which is what the
+  // two tests above now cover behaviourally.
+  const guards = syncSrc.match(/cb\.live_unavailable \? null : \(cb\.equity \?\? null\)/g) || [];
   assert.equal(guards.length, 2,
     `expected the null-preserving equity guard on both cache writers, found ${guards.length}`);
+  assert.equal((syncSrc.match(/cb\.equity \|\| 0/g) || []).length, 0,
+    'a cache writer is back to coercing an unreadable balance to zero');
 });

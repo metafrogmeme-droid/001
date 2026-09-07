@@ -97,15 +97,26 @@ function scoreCounterparty(tier) {
   return { score: map[tier], note: `Counterparty concentration: ${tier}.` };
 }
 
+// Which reading this axis rests on. `user_controls` is a MIRROR of
+// web-originated control changes — authoritative for what the website set, and
+// blind to a user who went live from Telegram — while the gateway answers with
+// the gate the confirm path itself consults. Reporting one as the other is the
+// mistake `drawdown_source` exists to prevent: a number whose provenance is
+// unstated is a number the reader cannot weigh.
+const _SOURCE_NOTE = {
+  controls: ' (from your website controls).',
+  gateway: ' (confirmed by the bot’s own live gate).',
+};
 function scoreLivegate(live) {
   if (!live) return { score: null, note: 'Live-gate state not yet observed.' };
-  if (live.paused) return { score: 100, note: 'De-risked — routed to paper / paused.' };
+  const src = _SOURCE_NOTE[live.source] || '.';
+  if (live.paused) return { score: 100, note: `De-risked — routed to paper / paused${src}` };
   if (live.live_enabled) {
     return live.allowlisted
-      ? { score: 70, note: 'Live capital is exposed, operator-gated by the allowlist.' }
-      : { score: 30, note: 'Live flag set without operator allowlist.' };
+      ? { score: 70, note: `Live capital is exposed, operator-gated by the allowlist${src}` }
+      : { score: 30, note: `Live flag set without operator allowlist${src}` };
   }
-  return { score: 100, note: 'Paper only — no live capital exposed.' };
+  return { score: 100, note: `Paper only — no live capital exposed${src}` };
 }
 
 const SCORERS = {

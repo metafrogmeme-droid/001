@@ -479,14 +479,39 @@ class GuardianCommands:
         def _arm(on: bool) -> str:
             return "🟢 armed" if on else "⚪ off"
 
-        posture = s.get("posture", "none")
+        def _risk(value: object) -> str:
+            """Render a Guardian risk word, keeping "unknown" out of "none".
+
+            ``guardian_status`` fails open to ``None`` for every risk it could
+            not assess — the fix that stopped it reporting ``"none"`` about a
+            book it never read. This card then did ``str(None).upper()`` and
+            printed **NONE**: the identical word, the calmest verdict in the
+            vocabulary, restored one layer downstream of the fix. The icon was
+            already honest (``_RISK_ICON.get(None)`` misses and falls to ⚪), so
+            the card showed a grey dot beside the word "NONE" and the word is
+            the half that gets read.
+            """
+            if value is None or (isinstance(value, str) and not value.strip()):
+                return "UNKNOWN"
+            return html.escape(str(value).upper())
+
+        def _risk_icon(value: object) -> str:
+            return _RISK_ICON.get(value, "⚪") if isinstance(value, str) else "⚪"
+
+        posture = s.get("posture")
+        _twin = s.get("twin") or {}
+        _twin_risk = _twin.get("risk")
+        _sent_risk = (s.get("sentinel") or {}).get("risk")
+        _esc_risk = (s.get("escape") or {}).get("risk")
+        _raw_count = _twin.get("position_count")
+        _pos_count = "?" if _raw_count is None else _raw_count
         chain = s.get("chain", {})
         chain_ok = chain.get("ok")
         chain_badge = ("✅ verified" if chain_ok is True
                        else "⚠️ UNVERIFIED" if chain_ok is False else "· unchecked")
         lines = [
-            f"🛡 <b>Guardian console</b> — posture {_RISK_ICON.get(posture, '⚪')} "
-            f"<b>{html.escape(str(posture).upper())}</b>",
+            f"🛡 <b>Guardian console</b> — posture {_risk_icon(posture)} "
+            f"<b>{_risk(posture)}</b>",
             "",
             f"🎞 <b>Flight Recorder</b> — {chain.get('length', 0)} entries · {chain_badge}",
             f"📜 <b>Intent Compiler</b> — {'policy set' if s.get('policy') else 'no policy'} · "
@@ -495,13 +520,15 @@ class GuardianCommands:
             + (" · blocks HIGH" if flags.get('firewall_block') else " · record-only"),
             "",
             "<b>Live book</b>",
-            f"🔮 Digital Twin — {_RISK_ICON.get(s.get('twin', {}).get('risk','none'), '⚪')} "
-            f"{html.escape(str(s.get('twin', {}).get('risk','none')).upper())} "
-            f"({s.get('twin', {}).get('position_count', 0)} pos) · {_arm(flags.get('digital_twin'))}",
-            f"🛰 Risk Sentinel — {_RISK_ICON.get(s.get('sentinel', {}).get('risk','none'), '⚪')} "
-            f"{html.escape(str(s.get('sentinel', {}).get('risk','none')).upper())} · {_arm(flags.get('risk_sentinel'))}",
-            f"🪂 Escape Agent — {_RISK_ICON.get(s.get('escape', {}).get('risk','none'), '⚪')} "
-            f"{html.escape(str(s.get('escape', {}).get('risk','none')).upper())} · {_arm(flags.get('escape'))}",
+            f"🔮 Digital Twin — {_risk_icon(_twin_risk)} {_risk(_twin_risk)} "
+            # `(0 pos)` for an unread book is the same lie as "flat": the count
+            # is None precisely when nobody could count, and `.get(k, 0)` is on
+            # the list of shapes CLAUDE.md names.
+            f"({_pos_count} pos) · {_arm(flags.get('digital_twin'))}",
+            f"🛰 Risk Sentinel — {_risk_icon(_sent_risk)} "
+            f"{_risk(_sent_risk)} · {_arm(flags.get('risk_sentinel'))}",
+            f"🪂 Escape Agent — {_risk_icon(_esc_risk)} "
+            f"{_risk(_esc_risk)} · {_arm(flags.get('escape'))}",
             "",
             "<i>Deep-dive: /twin · /sentinel · /escape · /policy · /whynot</i>",
             "<i>The AI proposes · controls authorize · the wallet enforces · "
