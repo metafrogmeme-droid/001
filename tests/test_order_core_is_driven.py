@@ -451,9 +451,9 @@ async def test_an_error_after_a_successful_flatten_does_not_fail_open(ex, audits
     through would place a stop and a take-profit against a position that no
     longer exists — resting orders that can open a new one later.
 
-    The path that reaches the outer handler with `_lev_flattened` set is the
-    inner handler itself raising: the close succeeded, the rest bookkeeping
-    raised into the inner except, and THAT handler's audit raised. Contrived,
+    The path that reaches the outer handler with `_lev_flattened` set is a
+    handler itself raising: the close succeeded, the cooldown bookkeeping
+    raised into its own except, and THAT handler's audit raised. Contrived,
     but it is precisely the path the flag was added for, and the first draft
     of this test had the geometry wrong (see the test below for what a plain
     post-close failure actually does).
@@ -467,11 +467,11 @@ async def test_an_error_after_a_successful_flatten_does_not_fail_open(ex, audits
 
     real_spy = le.audit
 
-    def _audit_that_dies_on_close_failed(log, message, **kw):
-        if kw.get("result") == "CLOSE_FAILED":
+    def _audit_that_dies_on_rest_failed(log, message, **kw):
+        if kw.get("result") == "REST_FAILED":
             raise RuntimeError("audit sink down")
         return real_spy(log, message, **kw)
-    monkeypatch.setattr(le, "audit", _audit_that_dies_on_close_failed)
+    monkeypatch.setattr(le, "audit", _audit_that_dies_on_rest_failed)
 
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
     assert msg and "was CLOSED" in msg and "Reporting the details afterwards failed" in msg
@@ -479,17 +479,16 @@ async def test_an_error_after_a_successful_flatten_does_not_fail_open(ex, audits
 
 
 @pytest.mark.asyncio
-async def test_a_post_close_bookkeeping_failure_is_reported_as_a_failed_close(ex, audits, monkeypatch):
-    """PINNED, NOT FIXED — a pre-existing edge the seam made visible.
+async def test_a_post_close_bookkeeping_failure_still_reports_the_close(ex, audits, monkeypatch):
+    """The edge #299 pinned and did not fix.
 
-    `_rest_symbol` runs inside the same try as the close, so a failure there
-    AFTER a successful flatten is caught by the "flatten FAILED" handler: the
-    audit says CLOSE_FAILED and the card will say the position is OPEN, about
-    a position that was closed. This extraction is byte-identical by design,
-    so the behaviour is recorded here rather than changed; the fix (move the
-    rest call and the return outside the close's try, or narrow that try to
-    the close) is a one-method change for a follow-up, and this test is the
-    one that will flip when it lands.
+    `_rest_symbol` used to run inside the close's own try, so a failure there
+    AFTER a successful flatten was caught as "flatten FAILED": CLOSE_FAILED in
+    the audit, OPEN on the card, and — worse than the misreport — a
+    fall-through into SL/TP placement for a position that no longer existed.
+    The rest has its own handler now. The close is reported as the close it
+    was, the cooldown failure is said in its own words on the card and in the
+    audit, and the driver's exception text stays in the log.
     """
     monkeypatch.setattr(le, "CONFIG", _cfg(overshoot_ratio=1.5))
     monkeypatch.setattr(ex, "close_position", AsyncMock(return_value="closed"))
@@ -498,8 +497,11 @@ async def test_a_post_close_bookkeeping_failure_is_reported_as_a_failed_close(ex
         raise RuntimeError("rest bookkeeping failed")
     monkeypatch.setattr(ex, "_rest_symbol", _boom)
     msg, close_failed = await ex._leverage_overshoot_guard(_idea(), SYM, (5, 20))
-    assert msg is None and close_failed is True
-    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "CLOSE_FAILED"]
+    assert msg and "was CLOSED" in msg and "cooldown" in msg, msg
+    assert close_failed is False
+    assert "rest bookkeeping failed" not in msg, "driver text belongs in the log, not on the card"
+    assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "REST_FAILED"]
+    assert _by(audits, "leverage_overshoot_guard")[1]["data"]["error"] == "RuntimeError"
 
 
 # ── 6. SL/TP placement and the flatten-on-failure ────────────────────────

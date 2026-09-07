@@ -4253,14 +4253,29 @@ class LiveExecutor:
                     try:
                         close_msg = await self.close_position(
                             idea.id, reason="leverage_overshoot")
+                    except Exception as _lev_close_exc:
+                        # The position is OPEN, over-levered, and the close
+                        # failed. Do NOT return here: falling through leaves
+                        # _place_sl_tp below to put the stop on, which is the
+                        # only protection left. Say both things plainly.
+                        logger.error("Leverage-overshoot flatten FAILED for %s: %s",
+                                     idea.asset, _lev_close_exc)
+                        audit(trade_log,
+                              f"Leverage overshoot flatten FAILED for {idea.asset}",
+                              action="leverage_overshoot_guard", result="CLOSE_FAILED",
+                              level=logging.ERROR,
+                              data={"trade_id": idea.id, "symbol": idea.asset,
+                                    "requested": _lev_want, "actual": _lev_got})
+                        _lev_close_failed = True
+                    else:
                         # Armed the INSTANT the close returns, before any
                         # further work. Everything after this point is
-                        # message formatting, and if any of it raised, the
-                        # outer `except` below would log "continuing" and
-                        # fall through to _place_sl_tp — putting a stop and
-                        # a take-profit on the venue for a position that no
-                        # longer exists. The flag is what makes the outer
-                        # fail-open safe to keep.
+                        # bookkeeping and message formatting, and if any of
+                        # it raised, the outer `except` below would log
+                        # "continuing" and fall through to _place_sl_tp —
+                        # putting a stop and a take-profit on the venue for a
+                        # position that no longer exists. The flag is what
+                        # makes the outer fail-open safe to keep.
                         _lev_flattened = True
                         # Bitget's sticky per-symbol leverage does NOT heal
                         # because we closed. Without this the engine
@@ -4276,30 +4291,47 @@ class LiveExecutor:
                         # check that reads this rest is called with
                         # `idea.asset`. Keyed raw, the rest was unfindable
                         # on the futures path — which is every path.
-                        self._rest_symbol(symbol)
+                        #
+                        # And in its OWN handler, not the close's. The rest
+                        # used to sit inside the try above, so a failure
+                        # here — AFTER a successful close — was caught as
+                        # "flatten FAILED": it audited CLOSE_FAILED, told
+                        # the card the position was OPEN, and fell through
+                        # to place a stop and a take-profit against a
+                        # position that no longer existed. That is the
+                        # resurrection hazard `_lev_flattened` exists to
+                        # prevent, reached through the one handler that
+                        # runs before the flag is read. The position is
+                        # closed either way; only the cooldown is in doubt,
+                        # so that is what gets said.
+                        _rest_note = ""
+                        try:
+                            self._rest_symbol(symbol)
+                        except Exception as _rest_exc:
+                            logger.error(
+                                "Leverage-overshoot cooldown NOT set for %s after "
+                                "flattening: %s", idea.asset, _rest_exc)
+                            audit(trade_log,
+                                  f"Leverage overshoot cooldown NOT set for "
+                                  f"{idea.asset} — position closed, symbol not rested",
+                                  action="leverage_overshoot_guard", result="REST_FAILED",
+                                  level=logging.ERROR,
+                                  data={"trade_id": idea.id, "symbol": idea.asset,
+                                        "error": type(_rest_exc).__name__})
+                            _rest_note = (
+                                "\n⚠️ The cooldown for this symbol could not be set: "
+                                "the engine may re-enter it at the same sticky "
+                                "leverage.")
                         return (
-                            (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                            f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
                             f"The venue filled at <b>{_lev_got}x</b> against a "
                             f"{_lev_want}x target (sticky per-symbol setting), "
                             f"which is {_lev_ratio:.1f}× the approved leverage. "
                             f"The position was CLOSED rather than run at a "
                             f"liquidation distance the risk check never "
-                            f"approved.\n{close_msg}", _lev_close_failed)
+                            f"approved.\n{close_msg}{_rest_note}",
+                            _lev_close_failed,
                         )
-                    except Exception as _lev_close_exc:
-                        # The position is OPEN, over-levered, and the close
-                        # failed. Do NOT return here: falling through leaves
-                        # _place_sl_tp below to put the stop on, which is the
-                        # only protection left. Say both things plainly.
-                        logger.error("Leverage-overshoot flatten FAILED for %s: %s",
-                                     idea.asset, _lev_close_exc)
-                        audit(trade_log,
-                              f"Leverage overshoot flatten FAILED for {idea.asset}",
-                              action="leverage_overshoot_guard", result="CLOSE_FAILED",
-                              level=logging.ERROR,
-                              data={"trade_id": idea.id, "symbol": idea.asset,
-                                    "requested": _lev_want, "actual": _lev_got})
-                        _lev_close_failed = True
         except Exception as _lev_guard_exc:
             # Fail open, exactly as the slippage guard does: the SL placement
             # below still protects the position, and a guard that raises must

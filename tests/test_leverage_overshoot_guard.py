@@ -312,6 +312,54 @@ async def test_a_flatten_from_the_entry_path_places_no_stop(tmp_path):
         "the same sticky leverage — the fee pump")
 
 
+async def test_a_cooldown_failure_after_the_flatten_places_no_stop(tmp_path):
+    """THE RESURRECTION HAZARD, DRIVEN THROUGH execute().
+
+    The flatten succeeds and the cooldown bookkeeping raises. Until the
+    follow-up to #299 the close's own handler caught that: it audited
+    CLOSE_FAILED, told the card the position was OPEN, and let execute()
+    carry on into SL/TP placement — a stop and a take-profit on the venue for
+    a position that no longer existed, which can fill later and open a new
+    one in the opposite direction. `_lev_flattened` was meant to stop exactly
+    that, and never got read, because the handler that swallowed the error
+    sits before the one that consults the flag.
+
+    Same run now: it ends at the close. No stop placed, the card says
+    CLOSED, the cooldown failure is said in its own words, and the driver's
+    exception text stays in the log.
+    """
+    from bot.core.live_executor import LiveExecutor
+    from bot.utils.models import Direction, TradeIdea
+
+    venue = _venue()
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._exchange = venue
+    venue_lev = 4 * int(CONFIG.exchange.max_leverage)
+    ex._verify_position_exists = AsyncMock(return_value={
+        "confirmed": True, "leverage": venue_lev,
+        "exchange_entry": 100_000.0, "exchange_qty": 0.0001})
+    ex._place_sl_tp = AsyncMock(return_value=("SL-1", "TP-1"))
+    ex.close_position = AsyncMock(return_value="closed")
+
+    def _rest_bookkeeping_dies(symbol):
+        raise RuntimeError("rest store unavailable")
+    ex._rest_symbol = _rest_bookkeeping_dies
+    idea = TradeIdea(
+        id="TI-OVERSHOOT-002", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100_000.0, stop_loss=98_000.0, take_profit=105_000.0,
+        confidence=0.85, reasoning="overshoot fixture, cooldown failing")
+
+    with patch.object(type(CONFIG), "is_live", return_value=True):
+        result = await ex.execute(idea, size_usd=10.0)
+
+    ex.close_position.assert_awaited_once_with("TI-OVERSHOOT-002", reason="leverage_overshoot")
+    ex._place_sl_tp.assert_not_awaited()
+    assert "EXECUTION ABORTED" in result and "was CLOSED" in result, result
+    assert "cooldown" in result, "the operator must hear that the symbol is not resting"
+    assert "AUTOMATIC CLOSE FAILED" not in result, "a closed position must not be reported as open"
+    assert "rest store unavailable" not in result, "driver text belongs in the log, not on the card"
+
+
 def test_the_pre_order_fail_open_path_is_untouched():
     """The 2026-07-21 reversion must survive this change.
 
