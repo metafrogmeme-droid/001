@@ -2988,33 +2988,17 @@ class LiveExecutor:
         except (TypeError, ValueError):
             return 1
 
-    async def execute(self, idea: TradeIdea, size_usd: float,
-                      order_type: str = "", atr_value: float = 0.0) -> str:
-        """Execute a live trade on Bitget.
+    def _apply_order_rules(self, idea: TradeIdea, size_usd: float,
+                           order_type: str) -> tuple[str, float, str, bool]:
+        """Market-hours and weekend adjustments, applied before anything is priced.
 
-        Args:
-            idea: The approved TradeIdea
-            size_usd: Position size in USD (will be clamped to micro limits)
-            order_type: "market" or "limit" (empty = use config default)
-            atr_value: ATR at entry time (for trailing stop initialization)
-
-        Returns:
-            Human-readable result string
+        Extracted from execute() verbatim. Mutates ``idea.stop_loss`` (execute
+        works on a copy of the idea) and returns the adjusted
+        ``(order_type, size_usd, asset_class, defer_tp_sl)``. The pure rules it
+        applies live in bot/core/order_rules.py and are tested there; what this
+        seam adds is that the WIRING — which adjustment fires, in what order,
+        with which audit — can now be driven without placing an order.
         """
-        # C-04: Work on a copy of the idea to avoid mutating the caller's object
-        import copy as _copy
-        idea = _copy.copy(idea)
-        # Resolve order type: explicit > config > default
-        if self._persistence_broken:
-            return "REFUSED: position persistence is broken — cannot open new trades until resolved"
-        if not order_type:
-            order_type = CONFIG.limit_orders.default_order_type if CONFIG.limit_orders.enabled else "market"
-        order_type = order_type.lower()
-        if order_type not in ("market", "limit"):
-            order_type = "market"
-        # Clamp to micro limit
-        size_usd = min(size_usd, MICRO_MAX_POSITION_USD)
-
         # ── GETCLAW ORDER RULES: market hours + weekend adjustments ──
         asset_class = _classify_symbol(idea.asset)
         mkt_open, mkt_reason = is_market_open(asset_class)
@@ -3059,7 +3043,15 @@ class LiveExecutor:
 
         # Check if TP/SL should be deferred until after fill (gap-risk limit orders)
         defer_tp_sl = should_defer_tp_sl(asset_class, is_weekend, order_type)
+        return order_type, size_usd, asset_class, defer_tp_sl
 
+    async def _note_funding_rate(self, idea: TradeIdea) -> None:
+        """Audit the funding rate's stance on this entry. WARN-only; never blocks.
+
+        Extracted from execute() verbatim. It has no return value on purpose:
+        ``tests/test_funding_read_and_clock.py`` pins that this section cannot
+        refuse an entry, and a method that returns nothing cannot.
+        """
         # ── GETCLAW: Funding rate awareness ──────────────────────────
         # Negative funding = longs get paid (favorable for longs)
         # Positive funding = longs pay (unfavorable, factor into R:R)
@@ -3108,6 +3100,13 @@ class LiveExecutor:
                   action="funding_check", result="FETCH_FAILED",
                   data={"asset": idea.asset})
 
+    def _note_settlement_clock(self, idea: TradeIdea) -> None:
+        """Warn when an entry lands minutes before funding settles. Never blocks.
+
+        Extracted from execute() verbatim; reads the SHARED clock in
+        bot/risk/funding_clock rather than its own calendar, and the test that
+        pins that now reads this method.
+        """
         # ── GETCLAW: Funding settlement clock guard ──────────────────
         # Opening a position minutes BEFORE settlement means paying funding
         # almost immediately. Warn and log; never block.
@@ -3135,6 +3134,501 @@ class LiveExecutor:
                   f"{_clock_exc}",
                   action="funding_clock", result="UNREADABLE",
                   data={"asset": idea.asset})
+
+    async def _entry_market_gate(self, active_exchange: ccxt.Exchange, symbol: str,
+                                 ticker: Any, current_price: float,
+                                 ) -> tuple[Optional[str], Any, float]:
+        """Refuse an entry on a stale ticker or a book too wide to enter.
+
+        Extracted from execute() verbatim. Returns ``(block, ticker, current_price)``:
+        ``block`` is the exact string execute() used to return (and now returns
+        on the caller's behalf), or None to proceed; the ticker and price come
+        back because the one permitted refetch can update both. The verdicts
+        themselves are pure and live in bot/core/entry_quality.py — this is the
+        half only the executor can do: the refetch, the audit, the refusal.
+        """
+        # ── QC-2 SAFEGUARDS 0a/0b: stale ticker, wide spread ──
+        # The DECISIONS moved to bot/core/entry_quality.py (pure, no clock,
+        # no I/O). This half keeps what only the executor can do: the one
+        # refetch, and the audit/return. Inline, neither gate could be
+        # driven by a test, and both had the same defect — an unreadable
+        # reading fell into the same branch as a clean one and proceeded.
+        # `except (TypeError, ValueError): _age = 0.0` was the sharpest of
+        # them: 0.0 is the FRESHEST possible age, invented for the one case
+        # where the guard knew least.
+        #
+        # ENTRY_UNREADABLE_MARKET_GATE = off | warn | block (default warn)
+        # decides what an *unreadable* reading does. warn keeps today's
+        # trading behaviour byte-for-byte and makes the blind spot visible
+        # first — the observe-first house rule the book-wall gate below
+        # already follows.
+        from bot.core.entry_quality import spread_verdict, ticker_age_verdict
+        from bot.core.order_flow import entry_max_spread_pct
+
+        _unreadable_mode = os.environ.get(
+            "ENTRY_UNREADABLE_MARKET_GATE", "warn").strip().lower()
+
+        def _unreadable_block(kind: str, reason: str) -> Optional[str]:
+            """Audit an unreadable market reading; block only on 'block'."""
+            if _unreadable_mode == "off":
+                return None
+            audit(trade_log,
+                  f"{symbol} {kind} could not be read: {reason} "
+                  f"(mode={_unreadable_mode})",
+                  action="entry_market_unreadable",
+                  result="BLOCKED" if _unreadable_mode == "block" else "WARN",
+                  data={"asset": symbol, "check": kind, "reason": reason})
+            if _unreadable_mode != "block":
+                return None
+            return (f"EXECUTION BLOCKED: {symbol} {kind} could not be read "
+                    f"({reason}) — entering on a market reading this thin "
+                    "is the thing the gate exists to stop; nothing was "
+                    "placed.")
+
+        _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
+        _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+        if _age_v["state"] == "stale":
+            # One refetch, then re-judge — unchanged behaviour.
+            try:
+                ticker = await active_exchange.fetch_ticker(symbol)
+                _last2 = ticker.get("last")
+                if _last2 is not None:
+                    current_price = float(_last2)
+            except Exception:
+                pass
+            _age_v = ticker_age_verdict(ticker, _max_age, time.time())
+            # A refetch that comes back UNREADABLE does not clear a
+            # staleness we already measured. Absent is not fresher.
+            if _age_v["state"] == "unreadable":
+                _age_v = {"state": "stale", "age_sec": None,
+                          "reason": "still stale after a refetch that "
+                                    "returned no readable timestamp"}
+        if _age_v["state"] == "stale":
+            audit(trade_log,
+                  f"BLOCKED: {symbol} ticker is stale — {_age_v['reason']}",
+                  action="live_execute", result="BLOCKED_STALE_TICKER",
+                  data={"asset": symbol, "age_sec": _age_v["age_sec"],
+                        "max_age_sec": _max_age})
+            return ((f"EXECUTION BLOCKED: {symbol} {_age_v['reason']} — the "
+                    "market may have moved; nothing was placed.", ticker, current_price))
+        if _age_v["state"] == "unreadable":
+            _blocked = _unreadable_block("ticker age", _age_v["reason"])
+            if _blocked:
+                return (_blocked, ticker, current_price)
+
+        _max_spread = entry_max_spread_pct()
+        _sp_v = spread_verdict(ticker, _max_spread)
+        if _sp_v["state"] == "too_wide":
+            audit(trade_log,
+                  f"BLOCKED: {symbol} {_sp_v['reason']} — book too wide to enter",
+                  action="live_execute", result="BLOCKED_WIDE_SPREAD",
+                  data={"asset": symbol, "bid": _sp_v["bid"],
+                        "ask": _sp_v["ask"],
+                        "spread_pct": round(_sp_v["spread_pct"], 3)})
+            return ((f"EXECUTION BLOCKED: {symbol} bid/ask {_sp_v['reason']} — "
+                    "entering into a book this wide gives away the edge; "
+                    "nothing was placed.", ticker, current_price))
+        if _sp_v["state"] == "unreadable":
+            _blocked = _unreadable_block("bid/ask spread", _sp_v["reason"])
+            if _blocked:
+                return (_blocked, ticker, current_price)
+        return None, ticker, current_price
+
+    async def _book_wall_gate(self, active_exchange: ccxt.Exchange, symbol: str,
+                              idea: TradeIdea, current_price: float,
+                              ) -> tuple[Optional[str], Any, str]:
+        """Observe (or, in block mode, refuse on) a dominant wall in the entry→TP path.
+
+        Extracted from execute() verbatim. Returns ``(block, _entry_book, _slip_mode)``:
+        the book is fetched ONCE here and handed to the slippage gate, which is
+        why both come back rather than being re-read — one call on the live
+        entry path, not two.
+        """
+        # ── QC-2b SAFEGUARD 0c: order-book wall gate ──
+        # A dominant opposing wall in the entry→TP path (a level far larger
+        # than its neighbours, or a lopsided shelf of resting liquidity)
+        # tends to stall or reject the move — the setup's edge leaks away.
+        # OBSERVE-FIRST house rule: "off" skips entirely; "warn" logs only
+        # (never blocks); "block" enforces. DEFAULT is now "warn" — it
+        # starts gathering evidence (audit event entry_book_wall) with zero
+        # trade impact, the intended step before any operator flips it to
+        # "block". Fail-open at every layer — a degraded/absent book, a fetch
+        # error, or a malformed verdict must NEVER block a trade. Set
+        # ENTRY_BOOK_WALL_GATE=off to opt out of the observing fetch.
+        _wall_mode = os.environ.get("ENTRY_BOOK_WALL_GATE", "warn").strip().lower()
+        _slip_mode = os.environ.get("ENTRY_SLIPPAGE_GATE", "warn").strip().lower()
+        # ONE fetch serves both book gates. The slippage gate below reads
+        # `_entry_book` rather than fetching its own, so enabling it costs
+        # no extra call, no extra latency and no extra rate-limit budget on
+        # the live entry path. It is also why the fetch is driven by EITHER
+        # gate being on: making the slippage estimate depend on the WALL
+        # gate's flag would be a coupling nobody could see from its own
+        # config. `None` means the book was never read — distinct from a
+        # book that was read and came back empty.
+        _entry_book = None
+        if _wall_mode in ("warn", "block") or _slip_mode in ("warn", "block"):
+            try:
+                _entry_book = await active_exchange.fetch_order_book(symbol, limit=25)
+            except Exception as _ob_exc:
+                trade_log.debug("entry order-book fetch failed for %s: %s",
+                                symbol, _ob_exc)
+        if _wall_mode in ("warn", "block"):
+            try:
+                from bot.core.entry_quality import book_wall_verdict
+                _ob = _entry_book
+                _verdict = book_wall_verdict(
+                    idea.direction.value if hasattr(idea.direction, "value")
+                    else str(idea.direction),
+                    current_price, idea.take_profit,
+                    (_ob or {}).get("bids"), (_ob or {}).get("asks"))
+                if _verdict.get("flag"):
+                    audit(trade_log,
+                          f"{symbol} book-wall {_verdict.get('reason')} "
+                          f"(mode={_wall_mode})",
+                          action="entry_book_wall",
+                          result="BLOCKED" if _wall_mode == "block" else "WARN",
+                          data={"asset": symbol, "reason": _verdict.get("reason"),
+                                **(_verdict.get("metrics") or {})})
+                    if _wall_mode == "block":
+                        return ((f"EXECUTION BLOCKED: {symbol} order book shows "
+                                f"{_verdict.get('reason')} in the entry→target "
+                                "path — the move would likely stall there; "
+                                "nothing was placed.", _entry_book, _slip_mode))
+            except Exception as _wall_exc:
+                # Fail-open: never let a book read take a trade down.
+                trade_log.debug("book-wall gate skipped for %s: %s",
+                                symbol, _wall_exc)
+        return None, _entry_book, _slip_mode
+
+    def _size_or_block(self, idea: TradeIdea, symbol: str, current_price: float,
+                       size_usd: float) -> tuple[Optional[str], int, float]:
+        """Refuse a price already past the stop, else size the order.
+
+        Extracted from execute() verbatim. Returns ``(block, leverage_mult,
+        quantity)``; on a block the last two are placeholders execute() never
+        reads, because it returns first — exactly as it did when this was
+        inline. The leverage used to SIZE here is the same helper that SETS
+        it on the venue, and the risk engine's reduce-only clamp is honoured
+        before the quantity is computed; both facts are pinned against this
+        method now rather than against a 1,800-line neighbourhood.
+        """
+        # ── SAFEGUARD 1: Pre-trade price validation ──
+        # Block trades where the market has already moved past the SL level.
+        # This prevents opening a position that will be instantly stopped out.
+        if idea.direction == Direction.LONG and current_price <= idea.stop_loss:
+            audit(trade_log,
+                  f"BLOCKED: {symbol} price ${current_price:.4f} already at/below SL ${idea.stop_loss:.4f}",
+                  action="live_execute", result="BLOCKED_PRICE_PAST_SL",
+                  data={"asset": symbol, "price": current_price,
+                        "sl": idea.stop_loss, "direction": "LONG"})
+            return ((f"EXECUTION BLOCKED: {symbol} price ${current_price:.4f} is already "
+                    f"at/below SL ${idea.stop_loss:.4f} — would be instantly stopped out."), 0, 0.0)
+        elif idea.direction == Direction.SHORT and current_price >= idea.stop_loss:
+            audit(trade_log,
+                  f"BLOCKED: {symbol} price ${current_price:.4f} already at/above SL ${idea.stop_loss:.4f}",
+                  action="live_execute", result="BLOCKED_PRICE_PAST_SL",
+                  data={"asset": symbol, "price": current_price,
+                        "sl": idea.stop_loss, "direction": "SHORT"})
+            return ((f"EXECUTION BLOCKED: {symbol} price ${current_price:.4f} is already "
+                    f"at/above SL ${idea.stop_loss:.4f} — would be instantly stopped out."), 0, 0.0)
+
+        # Calculate quantity
+        # For futures with leverage: size_usd is the margin (collateral).
+        # Notional exposure = margin * leverage, so qty = (size_usd * leverage) / price.
+        # Dynamic leverage scaling — shared, reduce-only helper so the
+        # leverage used to SIZE the order matches the leverage SET on the
+        # exchange in _ensure_leverage (they had diverged: deep-audit medium).
+        leverage_mult = self._compute_target_leverage(symbol)
+        # Honor the risk engine's margin-risk-capped leverage. When SL distance
+        # × leverage would exceed max_margin_risk_pct, RiskEngine.evaluate()
+        # reduces leverage and writes idea._adjusted_leverage "for the executor"
+        # — but it was never read, so orders sized at full leverage and blew
+        # through the very cap the engine reported enforcing. Clamp reduce-only:
+        # this can only LOWER the sized leverage, never raise it, so it is a
+        # no-op whenever the risk gate left leverage unchanged.
+        _risk_lev = getattr(idea, "_adjusted_leverage", None)
+        if _risk_lev:
+            try:
+                leverage_mult = min(int(leverage_mult), int(_risk_lev))
+            except (TypeError, ValueError):
+                pass
+        quantity = (size_usd * leverage_mult) / current_price
+        return None, leverage_mult, quantity
+
+    def _pre_trade_slippage_gate(self, symbol: str, idea: TradeIdea, quantity: float,
+                                 current_price: float, _entry_book: Any,
+                                 _slip_mode: str) -> Optional[str]:
+        """Walk the already-fetched book for the order's real notional. Observe-first.
+
+        Extracted from execute() verbatim. Returns the block string, or None.
+        Sized on ``quantity * price`` — the notional — not on ``size_usd``,
+        which is margin; see the comment inside for why it sits after sizing.
+        """
+        # ── QC-2c SAFEGUARD 0d: pre-trade slippage estimate ──
+        # The only PRE-trade slippage reading in the codebase.
+        # `live_executor`'s wired guard is post-FILL: it compares what
+        # filled against the approved entry and complains afterwards, which
+        # cannot prevent a bad fill. This walks the book before the order
+        # exists.
+        #
+        # WHY HERE AND NOT BESIDE THE WALL GATE ABOVE. `size_usd` is the
+        # MARGIN, not the notional — `quantity = size_usd * leverage /
+        # price` two lines up. At the wall gate `leverage_mult` still holds
+        # CONFIG's default; the real value is only resolved just above.
+        # Estimating on the margin, or on the default leverage, would size
+        # the walk at a fraction of the real order and report a slippage
+        # for a trade nobody is placing. The book is the one fetched above,
+        # so this costs no second call.
+        #
+        # OBSERVE-FIRST: off | warn | block, default warn — logs and
+        # gathers evidence with zero trade impact. Fail-open at every
+        # layer; an unreadable book reports None and never blocks.
+        # Names are prefixed `_pre_slip*` deliberately. `_slip` and
+        # `_notional` are both ALREADY BOUND later in this same
+        # function — `_slip` to a float by the POST-FILL slippage
+        # guard, `_notional` by the notional check — and a function
+        # scope has one binding per name across 1,700 lines. The
+        # first draft reused both; the type ratchet caught it as
+        # `dict` assigned where `float` was expected. Harmless only
+        # because of statement order, which is not a property worth
+        # relying on.
+        if _slip_mode in ("warn", "block"):
+            try:
+                from bot.risk.order_router import SmartOrderRouter
+                # Buys eat the asks, sells eat the bids.
+                _pre_slip_levels = ((_entry_book or {}).get("asks")
+                                if idea.direction == Direction.LONG
+                                else (_entry_book or {}).get("bids"))
+                _pre_slip_notional = abs(quantity * current_price)
+                _pre_slip = SmartOrderRouter().estimate_slippage(
+                    symbol, _pre_slip_notional, _pre_slip_levels)
+                _pre_slip_pct = _pre_slip.get("slippage_pct")
+                if _pre_slip_pct is None:
+                    # Not measured. Recorded as such rather than as 0.0,
+                    # which is the best slippage there is and the whole
+                    # reason this module was fixed before being wired.
+                    audit(trade_log,
+                          f"{symbol} pre-trade slippage UNREADABLE: "
+                          f"{_pre_slip.get('warning')} (mode={_slip_mode})",
+                          action="entry_slippage", result="UNREADABLE",
+                          data={"asset": symbol, "notional_usd": _pre_slip_notional,
+                                "reason": _pre_slip.get("warning")})
+                elif _pre_slip_pct > SmartOrderRouter.REJECT_THRESHOLD_PCT:
+                    audit(trade_log,
+                          f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% on "
+                          f"${_pre_slip_notional:,.0f} notional (mode={_slip_mode})",
+                          action="entry_slippage",
+                          result="BLOCKED" if _slip_mode == "block" else "WARN",
+                          data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                "notional_usd": _pre_slip_notional,
+                                "order_type": _pre_slip.get("order_type"),
+                                "warning": _pre_slip.get("warning")})
+                    if _slip_mode == "block":
+                        return (f"EXECUTION BLOCKED: {symbol} order book is too "
+                                f"thin for ${_pre_slip_notional:,.0f} — a market order "
+                                f"would slip ~{_pre_slip_pct:.2f}%; nothing was "
+                                "placed.")
+                else:
+                    audit(trade_log,
+                          f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% "
+                          f"on ${_pre_slip_notional:,.0f} notional",
+                          action="entry_slippage", result="OK",
+                          data={"asset": symbol, "slippage_pct": _pre_slip_pct,
+                                "notional_usd": _pre_slip_notional,
+                                "order_type": _pre_slip.get("order_type")})
+            except Exception as _pre_slip_exc:
+                # Fail-open: a slippage read must never take a trade down.
+                trade_log.debug("slippage gate skipped for %s: %s",
+                                symbol, _pre_slip_exc)
+        return None
+
+    def _exchange_minimum_gate(self, active_exchange: ccxt.Exchange, market: Any,
+                               symbol: str, quantity: float, current_price: float,
+                               leverage_mult: int, size_usd: float,
+                               ) -> tuple[Optional[str], float]:
+        """Round up to the venue minimum when the overshoot is small; else refuse cleanly.
+
+        Extracted from execute() verbatim. Returns ``(block, quantity)`` — the
+        quantity comes back because this is where it is rounded, both to the
+        minimum and to the venue's precision step.
+        """
+        # ── Pre-flight exchange-minimum check (live incident: XPT) ──
+        # A risk-sized position on a small account meeting a high-priced
+        # asset (optionally at low leverage) can produce a quantity below
+        # the venue's minimum amount step. ccxt's amount_to_precision then
+        # RAISES ("amount ... must be greater than minimum amount precision
+        # of X") and the operator saw a raw exchange error. Check the
+        # market's minimums FIRST. Operator-requested: round the quantity UP
+        # to the minimum when the overshoot is SMALL (within
+        # exchange_min_roundup_max_mult of the approved quantity); otherwise
+        # skip cleanly with an actionable message.
+        if market:
+            _limits = market.get("limits", {}) or {}
+            _min_amt = (_limits.get("amount", {}) or {}).get("min")
+            _prec_amt = (market.get("precision", {}) or {}).get("amount")
+            # precision.amount is a STEP under ccxt TICK_SIZE mode (bitget:
+            # e.g. 0.001) but DECIMAL PLACES on older builds (e.g. 3).
+            # Interpret defensively: <=1 → already a step; integer >1 →
+            # decimal places → 10^-n. Never let a misread inflate the floor.
+            _step = min_amount_step(_prec_amt)
+            _floor = max(float(_min_amt or 0), _step)
+            _min_cost = float((_limits.get("cost", {}) or {}).get("min") or 0.0)
+            _too_small = (_floor > 0 and quantity < _floor)
+            _too_cheap = _min_cost > 0 and (quantity * current_price) < _min_cost
+            if _too_small or _too_cheap:
+                _roundup_on = getattr(
+                    CONFIG.exchange, "exchange_min_roundup_enabled", False) is True
+                _max_mult = float(getattr(
+                    CONFIG.exchange, "exchange_min_roundup_max_mult", 1.5))
+                _resolved, _q_min, _mult = resolve_exchange_min_quantity(
+                    quantity, _floor, _step, _min_cost, current_price,
+                    _roundup_on, _max_mult)
+                _need_notional = max((_floor * current_price) if _floor > 0 else 0.0,
+                                     _min_cost)
+                _need_margin = _need_notional / max(int(leverage_mult or 1), 1)
+                if _resolved is not None:
+                    _old_qty = quantity
+                    quantity = _resolved
+                    audit(trade_log,
+                          f"Rounded {symbol} UP to exchange minimum: "
+                          f"qty {_old_qty:.8f} -> {quantity:.8f} "
+                          f"({_mult:.2f}x approved, notional "
+                          f"~${quantity * current_price:.2f})",
+                          action="live_execute", result="ROUNDED_TO_MIN",
+                          data={"asset": symbol, "old_qty": _old_qty,
+                                "new_qty": quantity, "mult": round(_mult, 3),
+                                "min_amount": _floor, "min_cost": _min_cost,
+                                "price": current_price})
+                    # Falls through to amount_to_precision + the notional
+                    # ceiling hard-block below (which still bounds the result).
+                else:
+                    _why = ("round-up disabled" if not _roundup_on
+                            else f"overshoot {_mult:.1f}x exceeds {_max_mult:.1f}x cap")
+                    audit(trade_log,
+                          f"BLOCKED: {symbol} size below exchange minimum "
+                          f"(qty {quantity:.8f} < min {_q_min:.8f}; {_why})",
+                          action="live_execute", result="BELOW_EXCHANGE_MIN",
+                          data={"asset": symbol, "size_usd": round(size_usd, 4),
+                                "leverage": leverage_mult, "price": current_price,
+                                "qty": quantity, "min_amount": _floor,
+                                "min_cost": _min_cost, "mult": round(_mult, 3)})
+                    return ((f"BLOCKED: {symbol} position too small for the exchange — "
+                            f"sized ${size_usd * leverage_mult:.2f} notional at "
+                            f"{leverage_mult}x, but Bitget requires ≥ "
+                            f"${_need_notional:.2f} notional (≈ ${_need_margin:.2f} "
+                            f"margin at {leverage_mult}x). Skipped ({_why}) — not "
+                            f"worth exceeding the risk-approved size.", quantity))
+            try:
+                _rounded = active_exchange.amount_to_precision(symbol, quantity)
+            except Exception as _prec_exc:
+                # Defense-in-depth: never surface a raw venue precision
+                # error — classify it as a clean skip.
+                audit(trade_log,
+                      f"BLOCKED: {symbol} amount precision rejected: {_prec_exc}",
+                      action="live_execute", result="BELOW_EXCHANGE_MIN",
+                      data={"asset": symbol, "qty": quantity,
+                            "error": str(_prec_exc)[:200]})
+                return ((f"BLOCKED: {symbol} position too small for the "
+                        f"exchange's precision rules ({quantity:.8f}). Skipped.", quantity))
+            if _rounded is None:
+                return (f"EXECUTION FAILED: exchange returned no precision data for {symbol}", quantity)
+            quantity = float(_rounded)
+
+        if quantity <= 0:
+            audit(trade_log, f"Quantity too small after precision: {symbol} ${size_usd}",
+                  action="live_execute", result="QUANTITY_TOO_SMALL",
+                  data={"asset": symbol, "size_usd": size_usd, "price": current_price})
+            return (f"BLOCKED: quantity too small after precision rounding for {symbol}", quantity)
+        return None, quantity
+
+    def _notional_boundary_gate(self, symbol: str, quantity: float, current_price: float,
+                                size_usd: float, leverage_mult: int, market: Any,
+                                ) -> Optional[str]:
+        """Hard-block a notional outside the design envelope; validate venue limits.
+
+        Extracted from execute() verbatim. Returns the block string, or None.
+        """
+        # ── Audit F-3: notional vs margin boundary check ──
+        # size_usd is MARGIN; the real exchange exposure is notional =
+        # quantity * price = size_usd * leverage. The risk engine's %-caps are
+        # margin-based, so they validate size_usd, not this notional. Make the
+        # relationship explicit in the audit trail, and HARD-BLOCK only when
+        # notional exceeds the design envelope (the configured margin cap times
+        # the max allowed leverage, with a small rounding tolerance) — this
+        # catches a sizing/leverage misconfiguration without touching the
+        # legitimate per-trade range. Manual-margin trades intentionally exceed
+        # the micro cap, so the ceiling scales with the actual margin used.
+        _notional = quantity * current_price
+        _margin_basis = max(size_usd, MICRO_MAX_POSITION_USD)
+        _max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage_mult) or 1),
+                       int(leverage_mult or 1))
+        _notional_ceiling = _margin_basis * _max_lev * 1.05  # 5% rounding headroom
+        audit(trade_log,
+              f"Notional check {symbol}: notional=${_notional:.2f} "
+              f"(margin=${size_usd:.2f} x {leverage_mult}x), ceiling=${_notional_ceiling:.2f}",
+              action="notional_boundary", result="OK",
+              data={"symbol": symbol, "notional": round(_notional, 2),
+                    "margin": round(size_usd, 2), "leverage": leverage_mult,
+                    "ceiling": round(_notional_ceiling, 2)})
+        if _notional > _notional_ceiling:
+            audit(trade_log,
+                  f"Notional ${_notional:.2f} exceeds design ceiling "
+                  f"${_notional_ceiling:.2f} for {symbol} — BLOCKED (audit F-3)",
+                  action="notional_boundary", result="EXCEEDS_CEILING",
+                  data={"symbol": symbol, "notional": round(_notional, 2),
+                        "ceiling": round(_notional_ceiling, 2),
+                        "margin": round(size_usd, 2), "leverage": leverage_mult})
+            return (f"BLOCKED: order notional ${_notional:,.2f} exceeds the design "
+                    f"ceiling ${_notional_ceiling:,.2f} (margin x max-leverage)")
+
+        # UPGRADE: validate against the venue's min-amount / min-notional
+        # filters so a sub-minimum order is BLOCKED cleanly here instead of
+        # being rejected by Bitget after submission.
+        limit_err = self._validate_order_limits(market, quantity, quantity * current_price)
+        if limit_err:
+            audit(trade_log, f"Order below exchange limits: {symbol} — {limit_err}",
+                  action="live_execute", result="BELOW_EXCHANGE_MIN",
+                  data={"asset": symbol, "size_usd": size_usd,
+                        "quantity": quantity, "price": current_price})
+            return f"BLOCKED: {limit_err}"
+        return None
+
+    async def execute(self, idea: TradeIdea, size_usd: float,
+                      order_type: str = "", atr_value: float = 0.0) -> str:
+        """Execute a live trade on Bitget.
+
+        Args:
+            idea: The approved TradeIdea
+            size_usd: Position size in USD (will be clamped to micro limits)
+            order_type: "market" or "limit" (empty = use config default)
+            atr_value: ATR at entry time (for trailing stop initialization)
+
+        Returns:
+            Human-readable result string
+        """
+        # C-04: Work on a copy of the idea to avoid mutating the caller's object
+        import copy as _copy
+        idea = _copy.copy(idea)
+        # Resolve order type: explicit > config > default
+        if self._persistence_broken:
+            return "REFUSED: position persistence is broken — cannot open new trades until resolved"
+        if not order_type:
+            order_type = CONFIG.limit_orders.default_order_type if CONFIG.limit_orders.enabled else "market"
+        order_type = order_type.lower()
+        if order_type not in ("market", "limit"):
+            order_type = "market"
+        # Clamp to micro limit
+        size_usd = min(size_usd, MICRO_MAX_POSITION_USD)
+
+        # ── GETCLAW ORDER RULES: market hours + weekend adjustments ── (see _apply_order_rules)
+        order_type, size_usd, asset_class, defer_tp_sl = self._apply_order_rules(
+            idea, size_usd, order_type)
+
+        # ── GETCLAW: Funding rate awareness ── (see _note_funding_rate)
+        await self._note_funding_rate(idea)
+
+        # ── GETCLAW: Funding settlement clock guard ── (see _note_settlement_clock)
+        self._note_settlement_clock(idea)
 
         # Pre-flight
         preflight_err = self._preflight_check(size_usd, symbol=idea.asset)
@@ -3266,265 +3760,30 @@ class LiveExecutor:
                 return f"EXECUTION FAILED: exchange returned no price for {symbol}"
             current_price = float(_last_raw)
 
-            # ── QC-2 SAFEGUARDS 0a/0b: stale ticker, wide spread ──
-            # The DECISIONS moved to bot/core/entry_quality.py (pure, no clock,
-            # no I/O). This half keeps what only the executor can do: the one
-            # refetch, and the audit/return. Inline, neither gate could be
-            # driven by a test, and both had the same defect — an unreadable
-            # reading fell into the same branch as a clean one and proceeded.
-            # `except (TypeError, ValueError): _age = 0.0` was the sharpest of
-            # them: 0.0 is the FRESHEST possible age, invented for the one case
-            # where the guard knew least.
-            #
-            # ENTRY_UNREADABLE_MARKET_GATE = off | warn | block (default warn)
-            # decides what an *unreadable* reading does. warn keeps today's
-            # trading behaviour byte-for-byte and makes the blind spot visible
-            # first — the observe-first house rule the book-wall gate below
-            # already follows.
-            from bot.core.entry_quality import spread_verdict, ticker_age_verdict
-            from bot.core.order_flow import entry_max_spread_pct
+            # ── QC-2 SAFEGUARDS 0a/0b: stale ticker, wide spread ── (see _entry_market_gate)
+            _gate_msg, ticker, current_price = await self._entry_market_gate(
+                active_exchange, symbol, ticker, current_price)
+            if _gate_msg:
+                return _gate_msg
 
-            _unreadable_mode = os.environ.get(
-                "ENTRY_UNREADABLE_MARKET_GATE", "warn").strip().lower()
+            # ── QC-2b SAFEGUARD 0c: order-book wall gate ── (see _book_wall_gate)
+            _gate_msg, _entry_book, _slip_mode = await self._book_wall_gate(
+                active_exchange, symbol, idea, current_price)
+            if _gate_msg:
+                return _gate_msg
 
-            def _unreadable_block(kind: str, reason: str) -> Optional[str]:
-                """Audit an unreadable market reading; block only on 'block'."""
-                if _unreadable_mode == "off":
-                    return None
-                audit(trade_log,
-                      f"{symbol} {kind} could not be read: {reason} "
-                      f"(mode={_unreadable_mode})",
-                      action="entry_market_unreadable",
-                      result="BLOCKED" if _unreadable_mode == "block" else "WARN",
-                      data={"asset": symbol, "check": kind, "reason": reason})
-                if _unreadable_mode != "block":
-                    return None
-                return (f"EXECUTION BLOCKED: {symbol} {kind} could not be read "
-                        f"({reason}) — entering on a market reading this thin "
-                        "is the thing the gate exists to stop; nothing was "
-                        "placed.")
+            # ── SAFEGUARD 1: Pre-trade price validation + sizing ── (see _size_or_block)
+            _gate_msg, _sized_lev, _sized_qty = self._size_or_block(
+                idea, symbol, current_price, size_usd)
+            if _gate_msg:
+                return _gate_msg
+            leverage_mult, quantity = _sized_lev, _sized_qty
 
-            _max_age = float(os.environ.get("ENTRY_TICKER_MAX_AGE_SEC", "120"))
-            _age_v = ticker_age_verdict(ticker, _max_age, time.time())
-            if _age_v["state"] == "stale":
-                # One refetch, then re-judge — unchanged behaviour.
-                try:
-                    ticker = await active_exchange.fetch_ticker(symbol)
-                    _last2 = ticker.get("last")
-                    if _last2 is not None:
-                        current_price = float(_last2)
-                except Exception:
-                    pass
-                _age_v = ticker_age_verdict(ticker, _max_age, time.time())
-                # A refetch that comes back UNREADABLE does not clear a
-                # staleness we already measured. Absent is not fresher.
-                if _age_v["state"] == "unreadable":
-                    _age_v = {"state": "stale", "age_sec": None,
-                              "reason": "still stale after a refetch that "
-                                        "returned no readable timestamp"}
-            if _age_v["state"] == "stale":
-                audit(trade_log,
-                      f"BLOCKED: {symbol} ticker is stale — {_age_v['reason']}",
-                      action="live_execute", result="BLOCKED_STALE_TICKER",
-                      data={"asset": symbol, "age_sec": _age_v["age_sec"],
-                            "max_age_sec": _max_age})
-                return (f"EXECUTION BLOCKED: {symbol} {_age_v['reason']} — the "
-                        "market may have moved; nothing was placed.")
-            if _age_v["state"] == "unreadable":
-                _blocked = _unreadable_block("ticker age", _age_v["reason"])
-                if _blocked:
-                    return _blocked
-
-            _max_spread = entry_max_spread_pct()
-            _sp_v = spread_verdict(ticker, _max_spread)
-            if _sp_v["state"] == "too_wide":
-                audit(trade_log,
-                      f"BLOCKED: {symbol} {_sp_v['reason']} — book too wide to enter",
-                      action="live_execute", result="BLOCKED_WIDE_SPREAD",
-                      data={"asset": symbol, "bid": _sp_v["bid"],
-                            "ask": _sp_v["ask"],
-                            "spread_pct": round(_sp_v["spread_pct"], 3)})
-                return (f"EXECUTION BLOCKED: {symbol} bid/ask {_sp_v['reason']} — "
-                        "entering into a book this wide gives away the edge; "
-                        "nothing was placed.")
-            if _sp_v["state"] == "unreadable":
-                _blocked = _unreadable_block("bid/ask spread", _sp_v["reason"])
-                if _blocked:
-                    return _blocked
-
-            # ── QC-2b SAFEGUARD 0c: order-book wall gate ──
-            # A dominant opposing wall in the entry→TP path (a level far larger
-            # than its neighbours, or a lopsided shelf of resting liquidity)
-            # tends to stall or reject the move — the setup's edge leaks away.
-            # OBSERVE-FIRST house rule: "off" skips entirely; "warn" logs only
-            # (never blocks); "block" enforces. DEFAULT is now "warn" — it
-            # starts gathering evidence (audit event entry_book_wall) with zero
-            # trade impact, the intended step before any operator flips it to
-            # "block". Fail-open at every layer — a degraded/absent book, a fetch
-            # error, or a malformed verdict must NEVER block a trade. Set
-            # ENTRY_BOOK_WALL_GATE=off to opt out of the observing fetch.
-            _wall_mode = os.environ.get("ENTRY_BOOK_WALL_GATE", "warn").strip().lower()
-            _slip_mode = os.environ.get("ENTRY_SLIPPAGE_GATE", "warn").strip().lower()
-            # ONE fetch serves both book gates. The slippage gate below reads
-            # `_entry_book` rather than fetching its own, so enabling it costs
-            # no extra call, no extra latency and no extra rate-limit budget on
-            # the live entry path. It is also why the fetch is driven by EITHER
-            # gate being on: making the slippage estimate depend on the WALL
-            # gate's flag would be a coupling nobody could see from its own
-            # config. `None` means the book was never read — distinct from a
-            # book that was read and came back empty.
-            _entry_book = None
-            if _wall_mode in ("warn", "block") or _slip_mode in ("warn", "block"):
-                try:
-                    _entry_book = await active_exchange.fetch_order_book(symbol, limit=25)
-                except Exception as _ob_exc:
-                    trade_log.debug("entry order-book fetch failed for %s: %s",
-                                    symbol, _ob_exc)
-            if _wall_mode in ("warn", "block"):
-                try:
-                    from bot.core.entry_quality import book_wall_verdict
-                    _ob = _entry_book
-                    _verdict = book_wall_verdict(
-                        idea.direction.value if hasattr(idea.direction, "value")
-                        else str(idea.direction),
-                        current_price, idea.take_profit,
-                        (_ob or {}).get("bids"), (_ob or {}).get("asks"))
-                    if _verdict.get("flag"):
-                        audit(trade_log,
-                              f"{symbol} book-wall {_verdict.get('reason')} "
-                              f"(mode={_wall_mode})",
-                              action="entry_book_wall",
-                              result="BLOCKED" if _wall_mode == "block" else "WARN",
-                              data={"asset": symbol, "reason": _verdict.get("reason"),
-                                    **(_verdict.get("metrics") or {})})
-                        if _wall_mode == "block":
-                            return (f"EXECUTION BLOCKED: {symbol} order book shows "
-                                    f"{_verdict.get('reason')} in the entry→target "
-                                    "path — the move would likely stall there; "
-                                    "nothing was placed.")
-                except Exception as _wall_exc:
-                    # Fail-open: never let a book read take a trade down.
-                    trade_log.debug("book-wall gate skipped for %s: %s",
-                                    symbol, _wall_exc)
-
-            # ── SAFEGUARD 1: Pre-trade price validation ──
-            # Block trades where the market has already moved past the SL level.
-            # This prevents opening a position that will be instantly stopped out.
-            if idea.direction == Direction.LONG and current_price <= idea.stop_loss:
-                audit(trade_log,
-                      f"BLOCKED: {symbol} price ${current_price:.4f} already at/below SL ${idea.stop_loss:.4f}",
-                      action="live_execute", result="BLOCKED_PRICE_PAST_SL",
-                      data={"asset": symbol, "price": current_price,
-                            "sl": idea.stop_loss, "direction": "LONG"})
-                return (f"EXECUTION BLOCKED: {symbol} price ${current_price:.4f} is already "
-                        f"at/below SL ${idea.stop_loss:.4f} — would be instantly stopped out.")
-            elif idea.direction == Direction.SHORT and current_price >= idea.stop_loss:
-                audit(trade_log,
-                      f"BLOCKED: {symbol} price ${current_price:.4f} already at/above SL ${idea.stop_loss:.4f}",
-                      action="live_execute", result="BLOCKED_PRICE_PAST_SL",
-                      data={"asset": symbol, "price": current_price,
-                            "sl": idea.stop_loss, "direction": "SHORT"})
-                return (f"EXECUTION BLOCKED: {symbol} price ${current_price:.4f} is already "
-                        f"at/above SL ${idea.stop_loss:.4f} — would be instantly stopped out.")
-
-            # Calculate quantity
-            # For futures with leverage: size_usd is the margin (collateral).
-            # Notional exposure = margin * leverage, so qty = (size_usd * leverage) / price.
-            # Dynamic leverage scaling — shared, reduce-only helper so the
-            # leverage used to SIZE the order matches the leverage SET on the
-            # exchange in _ensure_leverage (they had diverged: deep-audit medium).
-            leverage_mult = self._compute_target_leverage(symbol)
-            # Honor the risk engine's margin-risk-capped leverage. When SL distance
-            # × leverage would exceed max_margin_risk_pct, RiskEngine.evaluate()
-            # reduces leverage and writes idea._adjusted_leverage "for the executor"
-            # — but it was never read, so orders sized at full leverage and blew
-            # through the very cap the engine reported enforcing. Clamp reduce-only:
-            # this can only LOWER the sized leverage, never raise it, so it is a
-            # no-op whenever the risk gate left leverage unchanged.
-            _risk_lev = getattr(idea, "_adjusted_leverage", None)
-            if _risk_lev:
-                try:
-                    leverage_mult = min(int(leverage_mult), int(_risk_lev))
-                except (TypeError, ValueError):
-                    pass
-            quantity = (size_usd * leverage_mult) / current_price
-
-            # ── QC-2c SAFEGUARD 0d: pre-trade slippage estimate ──
-            # The only PRE-trade slippage reading in the codebase.
-            # `live_executor`'s wired guard is post-FILL: it compares what
-            # filled against the approved entry and complains afterwards, which
-            # cannot prevent a bad fill. This walks the book before the order
-            # exists.
-            #
-            # WHY HERE AND NOT BESIDE THE WALL GATE ABOVE. `size_usd` is the
-            # MARGIN, not the notional — `quantity = size_usd * leverage /
-            # price` two lines up. At the wall gate `leverage_mult` still holds
-            # CONFIG's default; the real value is only resolved just above.
-            # Estimating on the margin, or on the default leverage, would size
-            # the walk at a fraction of the real order and report a slippage
-            # for a trade nobody is placing. The book is the one fetched above,
-            # so this costs no second call.
-            #
-            # OBSERVE-FIRST: off | warn | block, default warn — logs and
-            # gathers evidence with zero trade impact. Fail-open at every
-            # layer; an unreadable book reports None and never blocks.
-            # Names are prefixed `_pre_slip*` deliberately. `_slip` and
-            # `_notional` are both ALREADY BOUND later in this same
-            # function — `_slip` to a float by the POST-FILL slippage
-            # guard, `_notional` by the notional check — and a function
-            # scope has one binding per name across 1,700 lines. The
-            # first draft reused both; the type ratchet caught it as
-            # `dict` assigned where `float` was expected. Harmless only
-            # because of statement order, which is not a property worth
-            # relying on.
-            if _slip_mode in ("warn", "block"):
-                try:
-                    from bot.risk.order_router import SmartOrderRouter
-                    # Buys eat the asks, sells eat the bids.
-                    _pre_slip_levels = ((_entry_book or {}).get("asks")
-                                    if idea.direction == Direction.LONG
-                                    else (_entry_book or {}).get("bids"))
-                    _pre_slip_notional = abs(quantity * current_price)
-                    _pre_slip = SmartOrderRouter().estimate_slippage(
-                        symbol, _pre_slip_notional, _pre_slip_levels)
-                    _pre_slip_pct = _pre_slip.get("slippage_pct")
-                    if _pre_slip_pct is None:
-                        # Not measured. Recorded as such rather than as 0.0,
-                        # which is the best slippage there is and the whole
-                        # reason this module was fixed before being wired.
-                        audit(trade_log,
-                              f"{symbol} pre-trade slippage UNREADABLE: "
-                              f"{_pre_slip.get('warning')} (mode={_slip_mode})",
-                              action="entry_slippage", result="UNREADABLE",
-                              data={"asset": symbol, "notional_usd": _pre_slip_notional,
-                                    "reason": _pre_slip.get("warning")})
-                    elif _pre_slip_pct > SmartOrderRouter.REJECT_THRESHOLD_PCT:
-                        audit(trade_log,
-                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% on "
-                              f"${_pre_slip_notional:,.0f} notional (mode={_slip_mode})",
-                              action="entry_slippage",
-                              result="BLOCKED" if _slip_mode == "block" else "WARN",
-                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
-                                    "notional_usd": _pre_slip_notional,
-                                    "order_type": _pre_slip.get("order_type"),
-                                    "warning": _pre_slip.get("warning")})
-                        if _slip_mode == "block":
-                            return (f"EXECUTION BLOCKED: {symbol} order book is too "
-                                    f"thin for ${_pre_slip_notional:,.0f} — a market order "
-                                    f"would slip ~{_pre_slip_pct:.2f}%; nothing was "
-                                    "placed.")
-                    else:
-                        audit(trade_log,
-                              f"{symbol} pre-trade slippage {_pre_slip_pct:.3f}% "
-                              f"on ${_pre_slip_notional:,.0f} notional",
-                              action="entry_slippage", result="OK",
-                              data={"asset": symbol, "slippage_pct": _pre_slip_pct,
-                                    "notional_usd": _pre_slip_notional,
-                                    "order_type": _pre_slip.get("order_type")})
-                except Exception as _pre_slip_exc:
-                    # Fail-open: a slippage read must never take a trade down.
-                    trade_log.debug("slippage gate skipped for %s: %s",
-                                    symbol, _pre_slip_exc)
+            # ── QC-2c SAFEGUARD 0d: pre-trade slippage estimate ── (see _pre_trade_slippage_gate)
+            _gate_msg = self._pre_trade_slippage_gate(
+                symbol, idea, quantity, current_price, _entry_book, _slip_mode)
+            if _gate_msg:
+                return _gate_msg
 
             # Determine side
             side = "buy" if idea.direction == Direction.LONG else "sell"
@@ -3533,137 +3792,18 @@ class LiveExecutor:
             markets = await active_exchange.load_markets()
             market = markets.get(symbol)
 
-            # ── Pre-flight exchange-minimum check (live incident: XPT) ──
-            # A risk-sized position on a small account meeting a high-priced
-            # asset (optionally at low leverage) can produce a quantity below
-            # the venue's minimum amount step. ccxt's amount_to_precision then
-            # RAISES ("amount ... must be greater than minimum amount precision
-            # of X") and the operator saw a raw exchange error. Check the
-            # market's minimums FIRST. Operator-requested: round the quantity UP
-            # to the minimum when the overshoot is SMALL (within
-            # exchange_min_roundup_max_mult of the approved quantity); otherwise
-            # skip cleanly with an actionable message.
-            if market:
-                _limits = market.get("limits", {}) or {}
-                _min_amt = (_limits.get("amount", {}) or {}).get("min")
-                _prec_amt = (market.get("precision", {}) or {}).get("amount")
-                # precision.amount is a STEP under ccxt TICK_SIZE mode (bitget:
-                # e.g. 0.001) but DECIMAL PLACES on older builds (e.g. 3).
-                # Interpret defensively: <=1 → already a step; integer >1 →
-                # decimal places → 10^-n. Never let a misread inflate the floor.
-                _step = min_amount_step(_prec_amt)
-                _floor = max(float(_min_amt or 0), _step)
-                _min_cost = float((_limits.get("cost", {}) or {}).get("min") or 0.0)
-                _too_small = (_floor > 0 and quantity < _floor)
-                _too_cheap = _min_cost > 0 and (quantity * current_price) < _min_cost
-                if _too_small or _too_cheap:
-                    _roundup_on = getattr(
-                        CONFIG.exchange, "exchange_min_roundup_enabled", False) is True
-                    _max_mult = float(getattr(
-                        CONFIG.exchange, "exchange_min_roundup_max_mult", 1.5))
-                    _resolved, _q_min, _mult = resolve_exchange_min_quantity(
-                        quantity, _floor, _step, _min_cost, current_price,
-                        _roundup_on, _max_mult)
-                    _need_notional = max((_floor * current_price) if _floor > 0 else 0.0,
-                                         _min_cost)
-                    _need_margin = _need_notional / max(int(leverage_mult or 1), 1)
-                    if _resolved is not None:
-                        _old_qty = quantity
-                        quantity = _resolved
-                        audit(trade_log,
-                              f"Rounded {symbol} UP to exchange minimum: "
-                              f"qty {_old_qty:.8f} -> {quantity:.8f} "
-                              f"({_mult:.2f}x approved, notional "
-                              f"~${quantity * current_price:.2f})",
-                              action="live_execute", result="ROUNDED_TO_MIN",
-                              data={"asset": symbol, "old_qty": _old_qty,
-                                    "new_qty": quantity, "mult": round(_mult, 3),
-                                    "min_amount": _floor, "min_cost": _min_cost,
-                                    "price": current_price})
-                        # Falls through to amount_to_precision + the notional
-                        # ceiling hard-block below (which still bounds the result).
-                    else:
-                        _why = ("round-up disabled" if not _roundup_on
-                                else f"overshoot {_mult:.1f}x exceeds {_max_mult:.1f}x cap")
-                        audit(trade_log,
-                              f"BLOCKED: {symbol} size below exchange minimum "
-                              f"(qty {quantity:.8f} < min {_q_min:.8f}; {_why})",
-                              action="live_execute", result="BELOW_EXCHANGE_MIN",
-                              data={"asset": symbol, "size_usd": round(size_usd, 4),
-                                    "leverage": leverage_mult, "price": current_price,
-                                    "qty": quantity, "min_amount": _floor,
-                                    "min_cost": _min_cost, "mult": round(_mult, 3)})
-                        return (f"BLOCKED: {symbol} position too small for the exchange — "
-                                f"sized ${size_usd * leverage_mult:.2f} notional at "
-                                f"{leverage_mult}x, but Bitget requires ≥ "
-                                f"${_need_notional:.2f} notional (≈ ${_need_margin:.2f} "
-                                f"margin at {leverage_mult}x). Skipped ({_why}) — not "
-                                f"worth exceeding the risk-approved size.")
-                try:
-                    _rounded = active_exchange.amount_to_precision(symbol, quantity)
-                except Exception as _prec_exc:
-                    # Defense-in-depth: never surface a raw venue precision
-                    # error — classify it as a clean skip.
-                    audit(trade_log,
-                          f"BLOCKED: {symbol} amount precision rejected: {_prec_exc}",
-                          action="live_execute", result="BELOW_EXCHANGE_MIN",
-                          data={"asset": symbol, "qty": quantity,
-                                "error": str(_prec_exc)[:200]})
-                    return (f"BLOCKED: {symbol} position too small for the "
-                            f"exchange's precision rules ({quantity:.8f}). Skipped.")
-                if _rounded is None:
-                    return f"EXECUTION FAILED: exchange returned no precision data for {symbol}"
-                quantity = float(_rounded)
+            # ── Pre-flight exchange-minimum check ── (see _exchange_minimum_gate)
+            _gate_msg, quantity = self._exchange_minimum_gate(
+                active_exchange, market, symbol, quantity, current_price,
+                leverage_mult, size_usd)
+            if _gate_msg:
+                return _gate_msg
 
-            if quantity <= 0:
-                audit(trade_log, f"Quantity too small after precision: {symbol} ${size_usd}",
-                      action="live_execute", result="QUANTITY_TOO_SMALL",
-                      data={"asset": symbol, "size_usd": size_usd, "price": current_price})
-                return f"BLOCKED: quantity too small after precision rounding for {symbol}"
-
-            # ── Audit F-3: notional vs margin boundary check ──
-            # size_usd is MARGIN; the real exchange exposure is notional =
-            # quantity * price = size_usd * leverage. The risk engine's %-caps are
-            # margin-based, so they validate size_usd, not this notional. Make the
-            # relationship explicit in the audit trail, and HARD-BLOCK only when
-            # notional exceeds the design envelope (the configured margin cap times
-            # the max allowed leverage, with a small rounding tolerance) — this
-            # catches a sizing/leverage misconfiguration without touching the
-            # legitimate per-trade range. Manual-margin trades intentionally exceed
-            # the micro cap, so the ceiling scales with the actual margin used.
-            _notional = quantity * current_price
-            _margin_basis = max(size_usd, MICRO_MAX_POSITION_USD)
-            _max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage_mult) or 1),
-                           int(leverage_mult or 1))
-            _notional_ceiling = _margin_basis * _max_lev * 1.05  # 5% rounding headroom
-            audit(trade_log,
-                  f"Notional check {symbol}: notional=${_notional:.2f} "
-                  f"(margin=${size_usd:.2f} x {leverage_mult}x), ceiling=${_notional_ceiling:.2f}",
-                  action="notional_boundary", result="OK",
-                  data={"symbol": symbol, "notional": round(_notional, 2),
-                        "margin": round(size_usd, 2), "leverage": leverage_mult,
-                        "ceiling": round(_notional_ceiling, 2)})
-            if _notional > _notional_ceiling:
-                audit(trade_log,
-                      f"Notional ${_notional:.2f} exceeds design ceiling "
-                      f"${_notional_ceiling:.2f} for {symbol} — BLOCKED (audit F-3)",
-                      action="notional_boundary", result="EXCEEDS_CEILING",
-                      data={"symbol": symbol, "notional": round(_notional, 2),
-                            "ceiling": round(_notional_ceiling, 2),
-                            "margin": round(size_usd, 2), "leverage": leverage_mult})
-                return (f"BLOCKED: order notional ${_notional:,.2f} exceeds the design "
-                        f"ceiling ${_notional_ceiling:,.2f} (margin x max-leverage)")
-
-            # UPGRADE: validate against the venue's min-amount / min-notional
-            # filters so a sub-minimum order is BLOCKED cleanly here instead of
-            # being rejected by Bitget after submission.
-            limit_err = self._validate_order_limits(market, quantity, quantity * current_price)
-            if limit_err:
-                audit(trade_log, f"Order below exchange limits: {symbol} — {limit_err}",
-                      action="live_execute", result="BELOW_EXCHANGE_MIN",
-                      data={"asset": symbol, "size_usd": size_usd,
-                            "quantity": quantity, "price": current_price})
-                return f"BLOCKED: {limit_err}"
+            # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
+            _gate_msg = self._notional_boundary_gate(
+                symbol, quantity, current_price, size_usd, leverage_mult, market)
+            if _gate_msg:
+                return _gate_msg
 
             # Place order (market or limit)
             use_limit = (order_type == "limit" and CONFIG.limit_orders.enabled)

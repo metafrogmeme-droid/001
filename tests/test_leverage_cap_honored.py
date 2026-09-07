@@ -13,13 +13,20 @@ from bot.risk.risk_engine import RiskEngine
 
 
 def test_execute_clamps_leverage_to_risk_adjusted_value():
-    src = inspect.getsource(LiveExecutor.execute)
+    # The sizing step is `_size_or_block` now, extracted from execute()
+    # verbatim; the ordering claim reads the method that holds it.
+    src = inspect.getsource(LiveExecutor._size_or_block)
     read = src.index('getattr(idea, "_adjusted_leverage"')
     # The clamp must be reduce-only (min) and applied BEFORE quantity is sized.
     qty = src.index("quantity = (size_usd * leverage_mult)")
     assert read < qty, "leverage must be clamped before it sizes the order"
     clamp = src.index("min(int(leverage_mult), int(_risk_lev))")
     assert read < clamp < qty
+    # And execute() sizes THROUGH it: the leverage and quantity it goes on to
+    # trade with are the ones this method returns.
+    exec_src = inspect.getsource(LiveExecutor.execute)
+    assert "self._size_or_block(" in exec_src
+    assert "leverage_mult, quantity = _sized_lev, _sized_qty" in exec_src
 
 
 def test_risk_engine_still_writes_adjusted_leverage():

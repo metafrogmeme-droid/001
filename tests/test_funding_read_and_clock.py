@@ -78,7 +78,10 @@ class TestTheClockIsTheSharedOne:
 
         from bot.core.live_executor import LiveExecutor
         from tests.source_scan import code_only
-        src = code_only(inspect.getsource(LiveExecutor.execute))
+        # The clock guard is its own method now (extracted from execute()
+        # verbatim); the pin follows the code. That execute() still calls it
+        # is pinned in test_funding_still_never_blocks_an_entry below.
+        src = code_only(inspect.getsource(LiveExecutor._note_settlement_clock))
         assert "seconds_to_settlement(" in src, (
             "the executor stopped using the shared funding clock")
         assert "[0, 480, 960]" not in src, (
@@ -91,7 +94,7 @@ class TestTheClockIsTheSharedOne:
 
         from bot.core.live_executor import LiveExecutor
         from tests.source_scan import code_only
-        src = code_only(inspect.getsource(LiveExecutor.execute))
+        src = code_only(inspect.getsource(LiveExecutor._note_funding_rate))
         assert "read_funding_rate(funding_info)" in src
         assert 'get("fundingRate", 0)' not in src, (
             "the collapsing read is back: absent, null and a real 0.0 are "
@@ -102,7 +105,7 @@ class TestTheClockIsTheSharedOne:
 
         from bot.core.live_executor import LiveExecutor
         from tests.source_scan import code_only
-        src = code_only(inspect.getsource(LiveExecutor.execute))
+        src = code_only(inspect.getsource(LiveExecutor._note_funding_rate))
         assert 'result="FETCH_FAILED"' in src
         assert 'result="UNREADABLE"' in src, (
             "a venue that answered without a usable rate leaves no trace again")
@@ -114,15 +117,24 @@ class TestTheClockIsTheSharedOne:
 
         from bot.core.live_executor import LiveExecutor
         from tests.source_scan import code_only
+        # STRONGER THAN THE SLICE IT REPLACES. The old form cut execute()'s
+        # source from `read_funding_rate(` to `_preflight_check(` and asserted
+        # no `return` in between — a window that also covered whatever else
+        # happened to sit there. Both advisory sections are methods now, so
+        # the claim is exact: neither method returns anything at all.
+        for fn in (LiveExecutor._note_funding_rate, LiveExecutor._note_settlement_clock):
+            body = code_only(inspect.getsource(fn))
+            assert "return" not in body, (
+                f"{fn.__name__} became able to refuse an entry — funding has "
+                "always been WARN-only on this path")
+            assert "-> None" in body, f"{fn.__name__} grew a return type"
+        # And execute() still consults both, in order, before the pre-flight
+        # that CAN refuse — a method nothing calls is the same as no check.
         src = code_only(inspect.getsource(LiveExecutor.execute))
-        # Anchored on CODE, not on the banner comment — code_only() strips
-        # comments, so the first draft's `src.index("Funding rate awareness")`
-        # raised on a string that was no longer there.
-        i = src.index("read_funding_rate(funding_info)")
-        block = src[i:src.index("_preflight_check(", i)]
-        assert "return" not in block, (
-            "funding became able to refuse an entry — it has always been "
-            "WARN-only on this path")
+        fund = src.index("await self._note_funding_rate(idea)")
+        clock = src.index("self._note_settlement_clock(idea)")
+        pre = src.index("_preflight_check(")
+        assert fund < clock < pre, "the advisory checks no longer precede the pre-flight"
 
 
 class TestTheSharedClockItself:

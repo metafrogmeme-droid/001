@@ -42,21 +42,26 @@ class TestRoundNumbersAboveSixFigures:
 
 class TestEntrySafeguardsExistBeforeMoneyPath:
     def test_stale_ticker_and_spread_gates_precede_safeguard_1(self):
+        # The ORDERING claim, restated at the granularity the code now has.
+        # The stale/spread gate and SAFEGUARD 1 each left execute() for a
+        # method of their own (`_entry_market_gate`, `_size_or_block`), so
+        # "the guard runs before any money step" is a statement about the
+        # order execute() CALLS them in — which is what it always meant; the
+        # old version measured it by the position of two strings inside one
+        # 1,800-line body and could only ever be a proxy for this.
         src = inspect.getsource(LiveExecutor.execute)
-        stale = src.find("BLOCKED_STALE_TICKER")
-        spread = src.find("BLOCKED_WIDE_SPREAD")
-        # `sg1` WAS `src.find("SAFEGUARD 1")` — a comment. The claim here is an
-        # ORDERING one on the entry path, and its reference point was a
-        # sentence: reword the banner and `find` returns -1, which makes
-        # `0 < stale < -1` false and fails on unchanged code. Anchored on the
-        # first line SAFEGUARD 1 actually executes, which is what "before any
-        # money step" means.
-        sg1 = src.find("current_price <= idea.stop_loss")
-        assert sg1 > 0, "SAFEGUARD 1's price check is gone from execute()"
-        assert 0 < stale < sg1, "staleness guard must run before any money step"
-        assert 0 < spread < sg1, "spread gate must run before any money step"
+        gate = src.find("await self._entry_market_gate(")
+        sg1 = src.find("self._size_or_block(")
+        assert gate > 0, "the stale-ticker/spread gate is no longer consulted by execute()"
+        assert sg1 > 0, "SAFEGUARD 1's sizing step is gone from execute()"
+        assert gate < sg1, "staleness/spread guard must run before any money step"
+        # The two blocks still live in that gate, and SAFEGUARD 1 in the sizer.
+        gate_src = inspect.getsource(LiveExecutor._entry_market_gate)
+        assert "BLOCKED_STALE_TICKER" in gate_src
+        assert "BLOCKED_WIDE_SPREAD" in gate_src
+        assert "current_price <= idea.stop_loss" in inspect.getsource(LiveExecutor._size_or_block)
         # Both are audited blocks that place nothing.
-        assert "nothing was placed" in src
+        assert "nothing was placed" in gate_src
 
 
 class TestDriftMarketChaseBound:
