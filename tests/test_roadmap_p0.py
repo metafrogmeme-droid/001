@@ -51,10 +51,13 @@ class TestDedupFirstAlert:
 class TestSlippageGuardWired:
     def test_config_is_consumed_not_just_defined(self):
         import bot.core.live_executor as le
-        src = inspect.getsource(le.LiveExecutor.execute)
+        # The guard is `_post_fill_slippage_guard` now, extracted from
+        # execute() verbatim; execute() must still consult it after the fill.
+        src = inspect.getsource(le.LiveExecutor._post_fill_slippage_guard)
         assert "slippage_guard_enabled" in src
         assert "max_slippage_edge_ratio" in src
         assert "slippage_guard" in src  # the audit action
+        assert "await self._post_fill_slippage_guard(" in inspect.getsource(le.LiveExecutor.execute)
 
     def test_guard_math_trips_on_excessive_adverse_slippage(self):
         # Mirror the guard's decision rule to pin the intended threshold.
@@ -76,10 +79,14 @@ class TestSlippageGuardWired:
 class TestOrderSplitHardBlock:
     def test_split_path_blocks_not_fakes(self):
         import bot.core.live_executor as le
-        src = inspect.getsource(le.LiveExecutor.execute)
+        # The block sits in `_submit_entry_order` (extracted from execute()
+        # verbatim), right before the kill switch and the submission.
+        src = inspect.getsource(le.LiveExecutor._submit_entry_order)
         assert "BLOCKED_NOT_IMPLEMENTED" in src
-        # The misleading "SPLITTING" success result must be gone.
+        # The misleading "SPLITTING" success result must be gone — from the
+        # submitter and from what remains of execute().
         assert 'result="SPLITTING"' not in src
+        assert 'result="SPLITTING"' not in inspect.getsource(le.LiveExecutor.execute)
 
 
 # ── P0-4: .env.example matches code defaults ─────────────────────────

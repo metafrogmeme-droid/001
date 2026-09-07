@@ -353,10 +353,14 @@ async def test_venue_market_price_is_none_on_bitget(tmp_path):
 def test_execute_wires_market_price_and_venue_params():
     import inspect
     from bot.core.live_executor import LiveExecutor
-    src = inspect.getsource(LiveExecutor.execute)
+    # The submission left execute() for `_submit_entry_order` (extracted
+    # verbatim); the venue-routing pins follow the code, and execute() must
+    # still submit THROUGH it — a submitter nothing calls is no submitter.
+    src = inspect.getsource(LiveExecutor._submit_entry_order)
     assert "self._venue.entry_params(" in src
     assert "market_order_needs_price" in src
     assert "self._venue.post_only_params()" in src
+    assert "await self._submit_entry_order(" in inspect.getsource(LiveExecutor.execute)
 
 
 def test_sl_tp_and_close_paths_are_venue_routed():

@@ -192,10 +192,19 @@ def test_every_entry_submission_is_preceded_by_a_check():
     import pathlib
     src = (pathlib.Path(__file__).resolve().parent.parent
            / "bot" / "core" / "live_executor.py").read_text()
-    body = next(ast.get_source_segment(src, n)
-                for n in ast.walk(ast.parse(src))
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and n.name == "execute")
+    # Both submission sites, and both halt checks, live in `_submit_entry_order`
+    # now — extracted from execute() verbatim. The invariant is about whichever
+    # function submits, so the slice follows the submissions; and execute()
+    # must itself contain NO submission, or a third site could appear there
+    # without a check and this test would be reading the wrong function.
+    fns = {n.name: (ast.get_source_segment(src, n) or "")
+           for n in ast.walk(ast.parse(src))
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    body = fns["_submit_entry_order"]
+    assert "_create_order_idempotent(exchange" not in fns["execute"], (
+        "execute() submits an order directly again — the halt-check invariant "
+        "below is only enforced on _submit_entry_order")
+    assert fns["execute"].count("await self._submit_entry_order(") == 1
 
     def _at(needle):
         out, i = [], body.find(needle)

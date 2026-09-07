@@ -155,7 +155,9 @@ class TestMarketFallbackRemainderOnly:
 
 class TestPostOnlyRepriceShiftsSlTp:
     def test_retry_path_recalcs_sl_tp_for_the_new_entry(self):
-        src = inspect.getsource(LiveExecutor.execute)
+        # The retry is in `_submit_entry_order` (extracted from execute()
+        # verbatim); the window search below is unchanged.
+        src = inspect.getsource(LiveExecutor._submit_entry_order)
         retry = src.find("POST_ONLY reprice SL/TP shift")
         assert retry > 0, "reprice retry must shift SL/TP with the moved entry"
         # The shift must use the shared shifted-entry helper, not ad-hoc math.

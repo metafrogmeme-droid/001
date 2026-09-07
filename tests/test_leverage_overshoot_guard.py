@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from bot.config import CONFIG
 from bot.core.live_executor import leverage_overshoot_verdict as verdict
@@ -55,6 +56,26 @@ SRC = (Path(__file__).resolve().parent.parent
 CODE = code_only(SRC)
 
 DEFAULT = 1.5
+
+
+def _method_spans(lines: list[str]) -> list[tuple[str, int, int]]:
+    """Every class-level method as (name, def line, end line), in file order."""
+    heads = [(m.group(1), i) for i, ln in enumerate(lines)
+             if (m := re.match(r"    (?:async )?def (\w+)\(", ln))]
+    ends = [i for _, i in heads[1:]] + [len(lines)]
+    return [(name, start, end) for (name, start), end in zip(heads, ends)]
+
+
+def _venue():
+    """The live_executor suite's mock venue, borrowed the way
+    test_halt_holds_at_order_submission borrows it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_le_fixtures_overshoot",
+        Path(__file__).resolve().parent / "test_live_executor.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod._mock_exchange()
 
 
 # ── the incident itself ───────────────────────────────────────────────────────
@@ -207,11 +228,88 @@ def test_the_guard_runs_before_sl_tp_orders_are_placed():
             f"placement (lines ~{placements}) — closing from it would orphan "
             "live stop and take-profit orders on the venue")
 
+    # THE ENTRY PATH, ONE LEVEL DOWN. Slice 2 of the execute() extraction
+    # moved the verdict into `_leverage_overshoot_guard` and the placement
+    # into `_place_entry_stops`, so no single method holds both any more and
+    # the loop above has nothing to check — which is exactly the vacuity its
+    # guard below was written to catch, and it did. The invariant did not
+    # move: execute() must reach the verdict before it reaches a placement.
+    # So the scan follows each call ONE level: whichever method execute()
+    # calls that itself calls the verdict is the guard site, and whichever it
+    # calls that itself awaits _place_sl_tp is a placement site. A renamed or
+    # re-cut helper is still found; a placement moved back inline is too.
+    spans = _method_spans(lines)
+    verdict_methods = {n for n, s, e in spans
+                       if any("leverage_overshoot_verdict(" in lines[i] for i in range(s + 1, e))}
+    placing_methods = {n for n, s, e in spans
+                       if any("await self._place_sl_tp(" in lines[i] for i in range(s + 1, e))}
+    entry = [(s, e) for n, s, e in spans if n == "execute"]
+    assert len(entry) == 1, f"expected exactly one execute(), found {len(entry)}"
+    ex_start, ex_end = entry[0]
+    guard_calls = [i for i in range(ex_start + 1, ex_end)
+                   if any(f"self.{m}(" in lines[i] for m in verdict_methods)]
+    placements = [i for i in range(ex_start + 1, ex_end)
+                  if "await self._place_sl_tp(" in lines[i]
+                  or any(f"self.{m}(" in lines[i] for m in placing_methods)]
+    assert guard_calls, (
+        "execute() no longer reaches the leverage-overshoot verdict, directly "
+        "or through a helper — the entry fill is unguarded")
+    assert placements, (
+        "execute() no longer reaches _place_sl_tp, directly or through a "
+        "helper — an entry that places no stop is a different bug")
+    checked_ordering += 1
+    late = [p for p in placements if any(g > p for g in guard_calls)]
+    assert not late, (
+        f"execute() reaches SL/TP placement (lines ~{late}) BEFORE the "
+        f"leverage guard (lines ~{guard_calls}) — a flatten from the guard "
+        "would orphan live stop and take-profit orders on the venue")
+
     assert checked_ordering >= 1, (
-        "no call site places SL/TP in the same method as the verdict any more, "
-        "so this test asserted nothing. Either `execute`'s guard moved, or "
-        "every path now flattens through close_position — if the latter is "
-        "deliberate, delete this test rather than let it pass vacuously")
+        "no site was checked, so this test asserted nothing. Either the entry "
+        "path was restructured past one level of indirection, or every path "
+        "now flattens through close_position — if the latter is deliberate, "
+        "delete this test rather than let it pass vacuously")
+
+
+async def test_a_flatten_from_the_entry_path_places_no_stop(tmp_path):
+    """THE ORDERING, DRIVEN.
+
+    The scan above pins where the calls sit; this runs the real `execute()`
+    through them. The venue reports the fill at four times the largest
+    leverage the executor may ask for — the 2026-08-17 ratio, at any target
+    the risk engine picks for this fixture — and the position must be closed
+    WITHOUT a stop or take-profit ever having been placed. A placement that
+    moved above the guard shows up here as `_place_sl_tp` awaited on the way
+    to the close: the orphaned-order hazard the module docstring names,
+    observed rather than inferred from line numbers.
+    """
+    from bot.core.live_executor import LiveExecutor
+    from bot.utils.models import Direction, TradeIdea
+
+    venue = _venue()
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._exchange = venue
+    venue_lev = 4 * int(CONFIG.exchange.max_leverage)
+    ex._verify_position_exists = AsyncMock(return_value={
+        "confirmed": True, "leverage": venue_lev,
+        "exchange_entry": 100_000.0, "exchange_qty": 0.0001})
+    ex._place_sl_tp = AsyncMock(return_value=("SL-1", "TP-1"))
+    ex.close_position = AsyncMock(return_value="closed")
+    idea = TradeIdea(
+        id="TI-OVERSHOOT-001", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100_000.0, stop_loss=98_000.0, take_profit=105_000.0,
+        confidence=0.85, reasoning="overshoot fixture")
+
+    with patch.object(type(CONFIG), "is_live", return_value=True):
+        result = await ex.execute(idea, size_usd=10.0)
+
+    venue.create_order.assert_called()      # the entry went in: this guard is post-fill
+    ex.close_position.assert_awaited_once_with("TI-OVERSHOOT-001", reason="leverage_overshoot")
+    ex._place_sl_tp.assert_not_awaited()
+    assert "EXECUTION ABORTED" in result and f"{venue_lev}x" in result, result
+    assert ex._preflight_check(10.0, symbol="BTC/USDT") is not None, (
+        "the flattened symbol must be resting, or the engine re-enters it at "
+        "the same sticky leverage — the fee pump")
 
 
 def test_the_pre_order_fail_open_path_is_untouched():
