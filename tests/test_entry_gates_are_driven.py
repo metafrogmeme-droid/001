@@ -462,7 +462,14 @@ def test_execute_calls_every_gate_in_the_order_the_money_path_requires():
         "self._pre_trade_slippage_gate(",
         "self._exchange_minimum_gate(",
         "self._notional_boundary_gate(",
-        "_create_order_idempotent(",
+        # Slice 2: the order-placement core, in the order the money path runs.
+        "await self._recalculate_limit_entry(",
+        "self._round_limit_price_to_tick(",
+        "await self._submit_entry_order(",
+        "await self._post_fill_slippage_guard(",
+        "await self._leverage_overshoot_guard(",
+        "await self._place_entry_stops(",
+        "return self._entry_filled_card(",
     ]
     positions = [src.find(needle) for needle in order]
     missing = [n for n, p in zip(order, positions) if p < 0]

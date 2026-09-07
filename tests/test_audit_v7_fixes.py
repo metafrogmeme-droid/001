@@ -213,7 +213,10 @@ class TestExecutorRobustness:
         # re-verify the original isn't resting (index-lag double-fill guard).
         import inspect
         import bot.core.live_executor as le
-        src = inspect.getsource(le.LiveExecutor.execute)
+        # The POST_ONLY retry lives in `_submit_entry_order` now (extracted
+        # from execute() verbatim). The double-fill guard is exercised
+        # behaviourally in tests/test_order_core_is_driven.py.
+        src = inspect.getsource(le.LiveExecutor._submit_entry_order)
         assert "ABORT_UNVERIFIED_RECHECK" in src
 
 

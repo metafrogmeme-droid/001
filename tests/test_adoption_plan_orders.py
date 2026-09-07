@@ -81,8 +81,12 @@ def test_mismatch_warning_reaches_the_card():
     """The warning must be part of the operator-visible execution card,
     not just a log line (the whole point — the operator kept discovering
     20x fills by reading position cards manually)."""
-    src = inspect.getsource(LiveExecutor.execute)
+    # The card is `_entry_filled_card` now (extracted from execute() verbatim)
+    # and execute() returns THROUGH it, so the warning reaches the operator by
+    # construction; the render itself is driven in test_order_core_is_driven.
+    src = inspect.getsource(LiveExecutor._entry_filled_card)
     assert "LEVERAGE: venue filled at" in src
     # It rides the same warn-suffix the unprotected alert uses, which is
     # appended to the returned card text.
     assert "sl_tp_warn +=" in src or 'sl_tp_warn = (' in src
+    assert "return self._entry_filled_card(" in inspect.getsource(LiveExecutor.execute)

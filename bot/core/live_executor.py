@@ -3611,6 +3611,870 @@ class LiveExecutor:
             return f"BLOCKED: {limit_err}"
         return None
 
+    async def _recalculate_limit_entry(self, active_exchange: ccxt.Exchange, symbol: str,
+                                       idea: TradeIdea, side: str, market: Any,
+                                       use_limit: bool, limit_price: Optional[float],
+                                       current_price: float, size_usd: float, quantity: float,
+                                       leverage_mult: int, atr_value: float,
+                                       ) -> tuple[bool, Optional[float], float, float]:
+        """Re-price a limit that would fill as a taker, and keep SL/TP attached to it.
+
+        Extracted from execute() verbatim (slice 2). Returns
+        ``(use_limit, limit_price, size_usd, quantity)`` — a Tier D confluence
+        downgrades to market, a Tier C reduces size and re-sizes the quantity,
+        and a moved entry shifts the idea's stop and target with it. Mutates
+        ``idea.stop_loss`` / ``idea.take_profit`` on the copy execute() works on.
+        """
+        # ── LIMIT ORDER PRICE VALIDATION ──
+        # A limit order that's on the wrong side of the market fills instantly
+        # as a taker (effectively a market order). Recalculate the limit price
+        # using the CURRENT price with an offset to ensure it rests on the book.
+        if use_limit and limit_price and current_price > 0:
+            needs_recalc = False
+            if side == "buy" and limit_price >= current_price:
+                # LONG limit buy above market = instant fill = market order
+                needs_recalc = True
+            elif side == "sell" and limit_price <= current_price:
+                # SHORT limit sell below market = instant fill = market order
+                needs_recalc = True
+
+            if needs_recalc and atr_value > 0:
+                # GETCLAW: confluence-based limit entry calculation
+                # Fetch recent 1H OHLCV for VWAP/EMA computation
+                ohlcv_data = None
+                try:
+                    ohlcv_data = await active_exchange.fetch_ohlcv(
+                        symbol, "1h", limit=50)
+                    # Repaint guard: VWAP/EMA/session levels must come from
+                    # CLOSED bars, same policy as every analysis path.
+                    from bot.utils.candles import drop_forming_candle
+                    ohlcv_data = drop_forming_candle(ohlcv_data, "1h")
+                except Exception as ohlcv_exc:
+                    logger.debug("Could not fetch OHLCV for limit calc: %s", ohlcv_exc)
+
+                entry_result = calculate_entry(
+                    current_price=current_price,
+                    direction=idea.direction.value,
+                    atr_value=atr_value,
+                    ohlcv=ohlcv_data,
+                )
+                limit_price = entry_result.limit_price
+
+                # Apply entry tier size adjustment
+                if entry_result.tier == "D":
+                    # Tier D = no confluence — downgrade to market order
+                    use_limit = False
+                    limit_price = None
+                    audit(trade_log,
+                          f"Limit downgraded to market: Tier D (no confluence) for {symbol}",
+                          action="limit_tier_d", result="MARKET_FALLBACK",
+                          data={"symbol": symbol, "tier": "D"})
+                elif entry_result.size_multiplier < 1.0:
+                    # Tier C = marginal confluence — reduce size
+                    old_sz = size_usd
+                    size_usd = round(size_usd * entry_result.size_multiplier, 2)
+                    audit(trade_log,
+                          f"Tier C size reduced: ${old_sz:,.2f} → ${size_usd:,.2f} "
+                          f"(×{entry_result.size_multiplier:.2f}) for {symbol}",
+                          action="limit_tier_c", result="SIZE_REDUCED",
+                          data={"symbol": symbol, "old_size": old_sz,
+                                "new_size": size_usd,
+                                "multiplier": entry_result.size_multiplier})
+                    # Recalculate quantity with new size
+                    quantity = (size_usd * leverage_mult) / current_price
+                    if market:
+                        _re_rounded = active_exchange.amount_to_precision(symbol, quantity)
+                        if _re_rounded:
+                            quantity = float(_re_rounded)
+
+                # ── Keep SL/TP geometry attached to the RECALCULATED entry
+                # and gate the structure SL (see recalc_sl_tp_for_shifted_entry) ──
+                if limit_price:
+                    old_sl, old_tp = idea.stop_loss, idea.take_profit
+                    new_sl, new_tp, _shifted, _nat_outcome = recalc_sl_tp_for_shifted_entry(
+                        entry_price=idea.entry_price,
+                        stop_loss=idea.stop_loss,
+                        take_profit=idea.take_profit,
+                        limit_price=limit_price,
+                        natural_sl=entry_result.natural_sl,
+                        side=side,
+                    )
+                    idea.stop_loss = new_sl
+                    idea.take_profit = new_tp
+                    if _shifted or _nat_outcome:
+                        audit(trade_log,
+                              f"Limit-recalc SL/TP: SL ${old_sl:,.4f} → ${new_sl:,.4f}, "
+                              f"TP ${old_tp:,.4f} → ${new_tp:,.4f} "
+                              f"(shifted={_shifted}, natural_sl={_nat_outcome or 'n/a'})",
+                              action="limit_recalc_sltp",
+                              result=_nat_outcome.upper() if _nat_outcome else "SHIFTED",
+                              data={"old_sl": old_sl, "new_sl": new_sl,
+                                    "old_tp": old_tp, "new_tp": new_tp,
+                                    "limit_price": limit_price,
+                                    "natural_sl": entry_result.natural_sl,
+                                    "natural_outcome": _nat_outcome,
+                                    "shifted": _shifted})
+
+                if limit_price:
+                    audit(trade_log,
+                          f"Confluence entry: {entry_result.explanation}",
+                          action="limit_recalc_exec", result="RECALCULATED",
+                          data={"old_limit": idea.entry_price, "new_limit": limit_price,
+                                "market_price": current_price, "atr": atr_value,
+                                "tier": entry_result.tier,
+                                "confluence": entry_result.confluence_count,
+                                "levels": entry_result.levels_used})
+            elif needs_recalc and atr_value <= 0:
+                # No ATR available — fall back to market order
+                use_limit = False
+                limit_price = None
+                audit(trade_log,
+                      "Limit order downgraded to market: no ATR for offset calculation",
+                      action="limit_downgrade", result="MARKET_FALLBACK",
+                      data={"symbol": symbol})
+        return use_limit, limit_price, size_usd, quantity
+
+    def _round_limit_price_to_tick(self, active_exchange: ccxt.Exchange, market: Any,
+                                   symbol: str, limit_price: float) -> float:
+        """Snap a limit price to the venue's tick grid, with the fallbacks in order.
+
+        Extracted from execute() verbatim (slice 2): ccxt's price_to_precision
+        first, then the market's tick size, then magnitude-based rounding, then
+        the Bitget pricePlace/priceEndStep safety net as the last word.
+        """
+        # Round limit price to exchange tick grid
+        _prec_price = None
+        if market:
+            try:
+                _prec_price = active_exchange.price_to_precision(symbol, limit_price)
+            except Exception:
+                pass
+        if _prec_price is not None:
+            limit_price = float(_prec_price)
+        else:
+            # Fallback: round to tick size from market info, or safe default
+            tick_size = None
+            if market:
+                tick_size = (market.get("precision", {}).get("price")
+                             or market.get("info", {}).get("pricePlace"))
+            if tick_size is not None:
+                try:
+                    ts = float(tick_size)
+                    if ts >= 1:
+                        # tick_size is decimal places count
+                        limit_price = round(limit_price, int(ts))
+                    else:
+                        # tick_size is actual step (e.g. 0.001)
+                        limit_price = round(limit_price / ts) * ts
+                except (ValueError, TypeError) as _tick_exc:
+                    logger.warning("Tick size rounding failed for %s: %s", symbol, _tick_exc)
+                    self._record_warning("tick_size_rounding")
+            # Ultimate fallback: round based on price magnitude
+            if _prec_price is None:
+                if limit_price >= 10000:
+                    limit_price = round(limit_price, 1)
+                elif limit_price >= 1000:
+                    limit_price = round(limit_price, 2)
+                elif limit_price >= 1:
+                    limit_price = round(limit_price, 3)
+                elif limit_price >= 0.01:
+                    limit_price = round(limit_price, 4)
+                else:
+                    limit_price = round(limit_price, 6)
+            logger.debug("Limit price fallback rounding: %s -> %s", _prec_price, limit_price)
+
+        # Safety net: double-check tick alignment via market info fields
+        # (see _bitget_tick_safety_net for why this needs pricePlace and
+        # priceEndStep combined, not treated as alternatives).
+        limit_price = self._bitget_tick_safety_net(market, limit_price)
+        return limit_price
+
+    async def _submit_entry_order(self, exchange: ccxt.Exchange, active_exchange: ccxt.Exchange,
+                                  symbol: str, side: str, quantity: float, coid: str,
+                                  current_price: float, limit_price: Optional[float],
+                                  use_limit: bool, size_usd: float, leverage_mult: int,
+                                  is_futures: bool, market: Any, idea: TradeIdea,
+                                  atr_value: float, asset_class: str,
+                                  ) -> tuple[Optional[str], Any, Optional[float], str]:
+        """Build the order, consult the kill switch, submit, and survive a POST_ONLY rejection.
+
+        Extracted from execute() verbatim (slice 2) — the first irreversible step
+        and everything that decides it: the balance pre-check, venue params and
+        time-in-force, the final price re-validation, the order-split hard block,
+        the LAST-MILE halt check, the idempotent submission, and the POST_ONLY
+        retry with its double-fill guard and its own halt check.
+
+        Returns ``(block, order, limit_price, asset_class)``. ``block`` is the
+        exact string execute() used to return, or None; ``order`` is the venue's
+        order (None on a block); ``limit_price`` comes back because the retry
+        re-prices it; ``asset_class`` comes back because the time-in-force step
+        re-classifies the PERP symbol and the deferred-stops audit downstream
+        reads that value — handing it back keeps that audit byte-identical.
+
+        NO RAISE FOLLOWS AN ASSIGNMENT TO ``order`` in this body — each of the
+        four assignments is the last thing on its path — so an exception out of
+        here reaches execute()'s handler with execute()'s ``order`` still None,
+        exactly as the inline code did. That property is what makes this cut
+        safe; keep it.
+        """
+        if is_futures:
+            # Futures: use USDT-FUTURES product type
+            # tradeSide only required in hedge (double_hold) mode
+            leverage = leverage_mult  # Use dynamically-adjusted leverage
+
+            # Pre-check: verify balance is accessible
+            # UTA accounts pool all margin — try swap first, fall back to default
+            _bal_coin = self._venue.balance_coin
+            try:
+                bal_free = 0.0
+                try:
+                    fut_bal = await exchange.fetch_balance(
+                        self._venue.balance_fetch_params())
+                    fut_usdt = fut_bal.get(_bal_coin, {})
+                    bal_free = float(fut_usdt.get("free", 0) if isinstance(fut_usdt, dict) else 0)
+                except Exception:
+                    # UTA mode: fetch_balance without type returns unified balance
+                    uni_bal = await exchange.fetch_balance()
+                    uni_usdt = uni_bal.get(_bal_coin, {})
+                    bal_free = float(uni_usdt.get("free", 0) if isinstance(uni_usdt, dict) else 0)
+                logger.info("Balance pre-check: free=%.2f %s for %s",
+                            bal_free, _bal_coin, symbol)
+                if bal_free < size_usd:
+                    audit(trade_log,
+                          f"Low balance warning: ${bal_free:.2f} available, need ~${size_usd:.2f} margin for {symbol}",
+                          action="live_execute", result="BALANCE_WARN",
+                          data={"balance_free": bal_free, "margin_needed": size_usd})
+            except Exception as exc:
+                logger.debug("Balance pre-check failed: %s", exc)
+
+            futures_params = self._venue.entry_params(
+                CONFIG.exchange.margin_mode, leverage)
+            if self._venue.id == "bitget":
+                # Even in one-way mode, explicitly set tradeSide for safety
+                # (hedge mode requires it; one-way tolerates it).
+                futures_params["tradeSide"] = "open"
+
+            # NOTE: v3 UTA Place Order supports inline takeProfit/stopLoss
+            # params which would place SL/TP atomically with the position.
+            # However, the response doesn't return SL/TP order IDs, and
+            # _place_sl_tp_v3 already cancels existing plans before placing
+            # new ones, so inline SL/TP would just get replaced. Keeping
+            # the two-step flow (entry + separate SL/TP) for now since it
+            # returns usable order IDs for reconciliation tracking.
+
+            otype = "limit" if use_limit else "market"
+            # TIME IN FORCE — asset-class aware:
+            # GETCLAW: metals/stocks need GTC (session queue for overnight).
+            # Crypto gets POST_ONLY for maker-only fee savings.
+            if use_limit:
+                asset_class = _classify_symbol(symbol)
+                if asset_class in ("Metal", "Commodity", "Stock", "Pre-IPO"):
+                    # GTC: stays live through session close/reopen
+                    futures_params.update(self._venue.gtc_params())
+                elif CONFIG.limit_orders.post_only:
+                    # POST_ONLY: maker-only, rejects if would fill as taker
+                    futures_params.update(self._venue.post_only_params())
+
+            create_kwargs: dict[str, Any] = {
+                "symbol": symbol, "type": otype, "side": side,
+                "amount": quantity, "coid": coid, "params": futures_params,
+            }
+            if otype == "market" and self._venue.market_order_needs_price:
+                # Hyperliquid market orders are slippage-bounded IOC
+                # orders — ccxt requires the reference price.
+                create_kwargs["price"] = current_price
+            if use_limit and limit_price:
+                # FINAL authoritative re-validation, right at the point of
+                # submission. Multiple upstream paths can produce
+                # limit_price (confluence recalc, the precision/tick-size
+                # rounding chain, the bitget tick safety net) — rather than
+                # trust whichever one ran last, re-run ccxt's own
+                # price_to_precision one more time here so whatever gets
+                # submitted is unconditionally what the exchange's own
+                # market data says is valid. Logged at INFO so a repeat of
+                # error 45115 ("price should be a multiple of X") shows the
+                # exact value that was actually sent, not just the error.
+                _final_price = limit_price
+                if market:
+                    try:
+                        _final_str = active_exchange.price_to_precision(symbol, limit_price)
+                        if _final_str is not None:
+                            _final_price = float(_final_str)
+                    except Exception as _fp_exc:
+                        logger.warning(
+                            "Final price_to_precision re-check failed for %s @ %s: %s "
+                            "— submitting pre-rounded value",
+                            symbol, limit_price, _fp_exc)
+                if _final_price != limit_price:
+                    logger.warning(
+                        "Final price re-validation changed %s limit price %.10g -> %.10g "
+                        "before submission (upstream rounding didn't match market precision)",
+                        symbol, limit_price, _final_price)
+                limit_price = _final_price
+                # AUTHORITATIVE final snap: price_to_precision above can
+                # UN-snap a tick-aligned price when ccxt mis-parses Bitget's
+                # pricePlace/priceEndStep pair — the exact 45115 rejection.
+                # Apply the real tick as the LAST word before submission.
+                limit_price = self._bitget_tick_safety_net(market, limit_price)
+                logger.info(
+                    "Submitting %s limit order @ %s (pricePlace=%s priceEndStep=%s)",
+                    symbol, limit_price,
+                    (market or {}).get("info", {}).get("pricePlace"),
+                    (market or {}).get("info", {}).get("priceEndStep"))
+                # ccxt requires price as a top-level param for limit orders
+                create_kwargs["price"] = limit_price
+
+            # Order splitting for large market positions.
+            # Roadmap P0-3: tranching is NOT implemented — the old code logged
+            # "SPLITTING" and then placed the FULL order as a single market
+            # fill, so the audit trail claimed market-impact protection that
+            # never happened. Until real tranche execution (fill aggregation +
+            # weighted-average pricing) lands, BLOCK the oversized order rather
+            # than silently take full market impact while pretending otherwise.
+            _split_enabled = getattr(getattr(CONFIG, 'execution', None), 'order_split_enabled', False)
+            _split_threshold = getattr(getattr(CONFIG, 'execution', None), 'order_split_threshold_usd', 50000)
+            if (_split_enabled and otype == "market" and
+                    size_usd > _split_threshold):
+                audit(trade_log,
+                      f"Order ${size_usd:.2f} exceeds split threshold "
+                      f"${_split_threshold:.2f} but tranching is not implemented "
+                      f"— BLOCKING to avoid full market impact",
+                      action="order_split", result="BLOCKED_NOT_IMPLEMENTED",
+                      data={"symbol": symbol, "size_usd": round(size_usd, 2),
+                            "threshold": _split_threshold})
+                return (
+                    (f"BLOCKED: order ${size_usd:,.2f} exceeds the split threshold "
+                    f"${_split_threshold:,.2f} and order-splitting is not yet "
+                    f"implemented — refusing to send it as a single market order. "
+                    f"Lower the size or raise ORDER_SPLIT_THRESHOLD_USD.", None, limit_price, asset_class)
+                )
+
+            # ── LAST-MILE KILL SWITCH ──
+            #
+            # The engine checks _halted immediately before calling execute()
+            # — and then this function performs uncancellable network awaits
+            # (load_markets, _ensure_leverage, fetch_ticker) before reaching
+            # here. A /halt or a breaker trip landing inside that window used
+            # to open a live position anyway: the upstream check had already
+            # passed, and nothing between it and the order re-read the flag.
+            #
+            # Worse than a stray position, it can be a position the halt
+            # cannot clean up. emergency_halt_all sets the flag and then
+            # awaits flatten_all_positions, which iterates a SNAPSHOT of
+            # self._positions — an order landing after that snapshot is not
+            # in it, so the flatten walks past it.
+            #
+            # The check belongs here rather than at the top of execute() for
+            # the same reason it sits mid-function at the drift fallback:
+            # everything above this line is preparation that is safe to run
+            # while halted. This is the first irreversible step.
+            if trading_halted():
+                logger.warning(
+                    "Entry order REFUSED for %s: engine halted or circuit "
+                    "breaker open between the engine's check and submission.",
+                    symbol)
+                audit(trade_log,
+                      f"Entry order refused for {symbol} — halted at submission",
+                      action="live_execute", result="BLOCKED_HALTED",
+                      data={"symbol": symbol, "side": side})
+                return ((f"⛔ BLOCKED: {symbol} entry refused — the engine was "
+                        "halted or a circuit breaker opened while the order was "
+                        "being prepared. No exposure was opened.", None, limit_price, asset_class))
+
+            # Try to place the order — handle POST_ONLY rejection gracefully
+            try:
+                order = await self._create_order_idempotent(exchange, **create_kwargs)
+            except Exception as post_only_exc:
+                exc_str = str(post_only_exc).lower()
+                # Bitget rejects POST_ONLY orders that would cross the book
+                # with "post only order failed" or similar. Retry with wider offset.
+                if use_limit and CONFIG.limit_orders.post_only and (
+                    "post only" in exc_str or "post_only" in exc_str
+                    or "would immediately" in exc_str
+                ):
+                    # RC-AUD-005/006: the retry below regenerates the clientOid,
+                    # which bypasses the venue's dedup. Before resubmitting, make
+                    # sure the ORIGINAL order did not actually land. If it did,
+                    # use it; if its status cannot be verified, fail-closed
+                    # rather than risk a double-fill.
+                    _orig, _orig_verified = await self._find_order_by_client_oid(
+                        exchange, symbol, coid)
+                    if _orig is not None:
+                        logger.warning(
+                            "POST_ONLY: original order for %s actually landed — "
+                            "using it instead of resubmitting", symbol)
+                        order = _orig
+                    elif not _orig_verified:
+                        audit(trade_log,
+                              f"POST_ONLY retry ABORTED for {symbol}: original order "
+                              f"status unverifiable — not resubmitting (double-fill guard)",
+                              action="post_only_retry", result="ABORT_UNVERIFIED",
+                              data={"symbol": symbol, "coid": coid})
+                        raise
+                    else:
+                        # Audit F-10: the resubmit below uses a fresh clientOid
+                        # (coid+"-r1"), so the venue will NOT dedup it against
+                        # the original. The check above can miss an order that
+                        # landed in the few ms before the lookup (fetch_open_orders
+                        # index lag). Settle briefly and re-verify once more so a
+                        # just-landed original is caught before we risk a second fill.
+                        await asyncio.sleep(0.5)
+                        _orig2, _orig2_verified = await self._find_order_by_client_oid(
+                            exchange, symbol, coid)
+                        if _orig2 is not None:
+                            logger.warning(
+                                "POST_ONLY: original order for %s found on re-check — "
+                                "using it instead of resubmitting (audit F-10)", symbol)
+                            order = _orig2
+                        elif not _orig2_verified:
+                            audit(trade_log,
+                                  f"POST_ONLY retry ABORTED for {symbol}: original status "
+                                  f"unverifiable on re-check — not resubmitting (double-fill guard)",
+                                  action="post_only_retry", result="ABORT_UNVERIFIED_RECHECK",
+                                  data={"symbol": symbol, "coid": coid})
+                            raise
+                        else:
+                            audit(trade_log,
+                                  f"POST_ONLY rejected for {symbol} @ ${limit_price:,.4f} — "
+                                  f"widening offset and retrying",
+                                  action="post_only_retry", result="WIDENING",
+                                  data={"symbol": symbol, "rejected_price": limit_price})
+                            # Double the offset and retry
+                            _pre_retry_limit = limit_price
+                            wider_offset = 1.0 * atr_value if atr_value > 0 else current_price * 0.005
+                            if side == "buy":
+                                limit_price = round(current_price - wider_offset, 8)
+                            else:
+                                limit_price = round(current_price + wider_offset, 8)
+                            _prec_price = active_exchange.price_to_precision(symbol, limit_price)
+                            limit_price = float(_prec_price) if _prec_price is not None else limit_price
+                            # QC-1: the retry moves the entry up to 1 ATR —
+                            # shift SL/TP with it, or the position records
+                            # stops sized for the ORIGINAL entry (a buy
+                            # repriced 1 ATR lower gets a stop 1 ATR too
+                            # tight and a target 1 ATR too far).
+                            if _pre_retry_limit and limit_price:
+                                _r_sl, _r_tp, _r_shifted, _ = recalc_sl_tp_for_shifted_entry(
+                                    entry_price=_pre_retry_limit,
+                                    stop_loss=idea.stop_loss,
+                                    take_profit=idea.take_profit,
+                                    limit_price=limit_price,
+                                    natural_sl=None,
+                                    side=side,
+                                )
+                                if _r_shifted:
+                                    audit(trade_log,
+                                          f"POST_ONLY reprice SL/TP shift: SL ${idea.stop_loss:,.4f} → ${_r_sl:,.4f}, "
+                                          f"TP ${idea.take_profit:,.4f} → ${_r_tp:,.4f}",
+                                          action="post_only_retry", result="SLTP_SHIFTED",
+                                          data={"old_limit": _pre_retry_limit,
+                                                "new_limit": limit_price})
+                                    idea.stop_loss = _r_sl
+                                    idea.take_profit = _r_tp
+                            create_kwargs["price"] = limit_price
+                            # Generate new coid for retry (venue-legal)
+                            retry_coid = coid + "-r1"
+                            create_kwargs["coid"] = retry_coid
+                            create_kwargs["params"].update(
+                                self._venue.order_id_params(retry_coid))
+                            # Checked AGAIN. Reaching here cost a rejected
+                            # order plus _find_order_by_client_oid — more
+                            # awaits, and a wider window than the one above.
+                            # A halt that arrives during a POST_ONLY retry is
+                            # no less a halt.
+                            if trading_halted():
+                                logger.warning(
+                                    "POST_ONLY retry REFUSED for %s: halted "
+                                    "during the retry. The rejected original "
+                                    "never landed, so nothing is open.", symbol)
+                                audit(trade_log,
+                                      f"POST_ONLY retry refused for {symbol} — halted",
+                                      action="live_execute", result="BLOCKED_HALTED",
+                                      data={"symbol": symbol, "side": side,
+                                            "phase": "post_only_retry"})
+                                return ((f"⛔ BLOCKED: {symbol} entry refused — the "
+                                        "engine halted while retrying a rejected "
+                                        "order. No exposure was opened.", None, limit_price, asset_class))
+                            order = await self._create_order_idempotent(exchange, **create_kwargs)
+                else:
+                    raise  # Not a POST_ONLY rejection — propagate
+        else:
+            # FUTURES-ONLY MODE: all non-futures order paths are removed.
+            # This branch should never execute when trade_mode="futures".
+            raise RuntimeError(
+                f"Unreachable: non-futures order path hit for {symbol} "
+                f"(side={side}, is_futures={is_futures}). "
+                f"Check CONFIG.exchange.trade_mode setting."
+            )
+        return None, order, limit_price, asset_class
+
+    async def _post_fill_slippage_guard(self, idea: TradeIdea, fill_price: float) -> Optional[str]:
+        """Flatten a fill that slipped far enough to break the approved risk:reward.
+
+        Extracted from execute() verbatim (slice 2). Returns the abort message
+        when the position was closed (or the URGENT message when the close
+        failed), else None. Fail-open on its own errors: the SL placement that
+        follows still protects the position.
+        """
+        # ── Roadmap P0-2: slippage guard ──
+        # The risk engine approved this trade against idea.entry_price and the
+        # resulting stop distance / R:R. If a market fill lands far enough from
+        # the expected entry to consume a large fraction of the planned stop
+        # buffer, that approval no longer holds. CONFIG.execution.slippage_
+        # guard_enabled defaulted ON but was never enforced — only recorded.
+        # Now: flatten an adverse over-slipped fill instead of holding a
+        # position whose risk:reward is broken.
+        try:
+            _exec_cfg = getattr(CONFIG, "execution", None)
+            if (_exec_cfg is not None
+                    and getattr(_exec_cfg, "slippage_guard_enabled", False)
+                    and idea.entry_price > 0 and fill_price > 0):
+                _stop_dist = abs(idea.entry_price - idea.stop_loss) / idea.entry_price
+                _slip = abs(fill_price - idea.entry_price) / idea.entry_price
+                _max_slip = _exec_cfg.max_slippage_edge_ratio * _stop_dist
+                _adverse = (
+                    (idea.direction == Direction.LONG and fill_price > idea.entry_price)
+                    or (idea.direction == Direction.SHORT and fill_price < idea.entry_price)
+                )
+                if _adverse and _stop_dist > 0 and _slip > _max_slip:
+                    audit(trade_log,
+                          f"Slippage guard tripped for {idea.asset}: fill "
+                          f"${fill_price:.4f} vs entry ${idea.entry_price:.4f} "
+                          f"({_slip:.2%}) exceeds {_exec_cfg.max_slippage_edge_ratio:.0%} "
+                          f"of stop distance ({_stop_dist:.2%}) — flattening",
+                          action="slippage_guard", result="FLATTEN",
+                          data={"trade_id": idea.id, "symbol": idea.asset,
+                                "fill_price": fill_price, "entry": idea.entry_price,
+                                "slippage_pct": round(_slip, 5),
+                                "stop_dist_pct": round(_stop_dist, 5),
+                                "limit_pct": round(_max_slip, 5)})
+                    try:
+                        close_msg = await self.close_position(
+                            idea.id, reason="slippage_guard")
+                        return (
+                            f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                            f"Fill slipped {_slip:.2%} from the planned entry "
+                            f"(> {_exec_cfg.max_slippage_edge_ratio:.0%} of the stop "
+                            f"buffer), so the position was CLOSED for safety.\n{close_msg}"
+                        )
+                    except Exception as _sl_close_exc:
+                        logger.error("Slippage-guard flatten FAILED for %s: %s",
+                                     idea.asset, _sl_close_exc)
+                        return (
+                            f"🚨 <b>URGENT — {idea.asset} filled with excessive slippage</b>\n"
+                            f"Automatic close also FAILED ({_sl_close_exc}). "
+                            f"Close this position MANUALLY on Bitget immediately."
+                        )
+        except Exception as _slip_guard_exc:
+            # Fail open: the SL placement below still protects the position.
+            logger.warning("Slippage guard error for %s (continuing): %s",
+                           idea.asset, _slip_guard_exc)
+        return None
+
+    async def _leverage_overshoot_guard(self, idea: TradeIdea, symbol: str,
+                                        _lev_mismatch: Optional[tuple[int, int]],
+                                        ) -> tuple[Optional[str], bool]:
+        """Flatten a fill the venue over-levered past the approved ratio.
+
+        Extracted from execute() verbatim (slice 2). Returns
+        ``(abort, _lev_close_failed)``: the abort message when the position was
+        closed, else None; and whether a flatten was attempted and FAILED, which
+        the card must say in those words rather than as an informational note.
+        """
+        # ── Leverage overshoot guard ──
+        # Same argument as the slippage guard directly above, and it sits
+        # here for the same reason: the risk engine approved this trade at a
+        # target leverage, and a fill at a much higher one is not the trade
+        # that was approved. Live incident 2026-08-17: a 5x APT/USDT SHORT
+        # filled at 20x on Bitget's sticky per-symbol setting.
+        #
+        # Until now the mismatch was DETECTED (:3803), audited, and then only
+        # printed on the card — "Margin/liquidation math follows 20x". True,
+        # and it tells the operator after the fact about risk they did not
+        # choose. What it costs, with that position's 3.1% stop:
+        #
+        #    5x   liquidation ~20.0% adverse   buffer 16.9 points
+        #   20x   liquidation ~ 5.0% adverse   buffer  1.9 points
+        #
+        # (first-order; maintenance margin and fees pull liquidation closer
+        # still). At 5x the stop has a wide corridor. At 20x a gap or wick
+        # that overshoots the stop by two points liquidates instead of
+        # stopping out, which is the whole difference.
+        #
+        # WHY HERE AND NOT AT THE DETECTION SITE. _place_sl_tp is called at
+        # :3922, BELOW this. Closing from here therefore cannot orphan a
+        # stop or take-profit order on the venue — there are none yet. That
+        # ordering is the reason this is safe to do at all, so if the SL/TP
+        # placement ever moves above this point, this guard must move with it.
+        #
+        # WHAT THIS DELIBERATELY DOES NOT TOUCH. The PRE-ORDER fail-open
+        # path (~:954-1060, LEVERAGE_FAIL_OPEN / LEVERAGE_FAIL_CLOSED) stays
+        # exactly as it is. That one governs "we could not VERIFY leverage
+        # before ordering", it was set to fail closed after the 2026-07-20
+        # BCH incident, and failing closed then blocked BTC/ETHFI entirely
+        # ("trades can not open") until it was deliberately reverted on
+        # 2026-07-21. This guard fires only on a CONFIRMED read-back, which
+        # is the one case that carries no false positives — the venue has
+        # told us what it actually did.
+        #
+        # OVERSHOOT ONLY. Filling UNDER the target (3x on a 5x request) is
+        # less risk than approved, not more, so it must never close.
+        _lev_close_failed = False
+        # Set the instant a flatten SUCCEEDS. Read by the guard's outer
+        # except, which must not fail open once there is no longer a
+        # position to protect.
+        _lev_flattened = False
+        try:
+            if _lev_mismatch is not None:
+                _lev_want, _lev_got = _lev_mismatch
+                _lev_max_ratio = float(getattr(
+                    getattr(CONFIG, "execution", None),
+                    "leverage_overshoot_max_ratio", 1.5))
+                _lev_verdict = leverage_overshoot_verdict(
+                    _lev_want, _lev_got, _lev_max_ratio)
+                # `["ratio"] or 0.0` was the banned shape here, and it was
+                # safe only by position: ratio is guaranteed non-None inside
+                # the "close" branch. One refactor away it would print a
+                # fabricated "0.0x the approved leverage" into the audit
+                # record beside real numbers. Read it where it is known.
+                if _lev_verdict["decision"] == "close":
+                    _lev_ratio = float(_lev_verdict["ratio"])
+                    audit(trade_log,
+                          f"Leverage overshoot guard tripped for {idea.asset}: "
+                          f"venue filled at {_lev_got}x against a {_lev_want}x "
+                          f"target ({_lev_ratio:.1f}x the approved leverage, "
+                          f"limit {_lev_max_ratio:.1f}x) — flattening",
+                          action="leverage_overshoot_guard", result="FLATTEN",
+                          level=logging.WARNING,
+                          data={"trade_id": idea.id, "symbol": idea.asset,
+                                "requested": _lev_want, "actual": _lev_got,
+                                "ratio": round(_lev_ratio, 3),
+                                "limit": _lev_max_ratio})
+                    try:
+                        close_msg = await self.close_position(
+                            idea.id, reason="leverage_overshoot")
+                        # Armed the INSTANT the close returns, before any
+                        # further work. Everything after this point is
+                        # message formatting, and if any of it raised, the
+                        # outer `except` below would log "continuing" and
+                        # fall through to _place_sl_tp — putting a stop and
+                        # a take-profit on the venue for a position that no
+                        # longer exists. The flag is what makes the outer
+                        # fail-open safe to keep.
+                        _lev_flattened = True
+                        # Bitget's sticky per-symbol leverage does NOT heal
+                        # because we closed. Without this the engine
+                        # re-signals the same symbol, the venue fills at 20x
+                        # again, and the guard flattens again — a loop that
+                        # pays a round-trip fee every cycle and looks, from
+                        # outside, exactly like the bot trading badly. The
+                        # cooldown is the difference between a guard and a
+                        # fee pump.
+                        #
+                        # Through the helper, and that is the whole fix:
+                        # `symbol` is the PERP form by here, while the
+                        # check that reads this rest is called with
+                        # `idea.asset`. Keyed raw, the rest was unfindable
+                        # on the futures path — which is every path.
+                        self._rest_symbol(symbol)
+                        return (
+                            (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                            f"The venue filled at <b>{_lev_got}x</b> against a "
+                            f"{_lev_want}x target (sticky per-symbol setting), "
+                            f"which is {_lev_ratio:.1f}× the approved leverage. "
+                            f"The position was CLOSED rather than run at a "
+                            f"liquidation distance the risk check never "
+                            f"approved.\n{close_msg}", _lev_close_failed)
+                        )
+                    except Exception as _lev_close_exc:
+                        # The position is OPEN, over-levered, and the close
+                        # failed. Do NOT return here: falling through leaves
+                        # _place_sl_tp below to put the stop on, which is the
+                        # only protection left. Say both things plainly.
+                        logger.error("Leverage-overshoot flatten FAILED for %s: %s",
+                                     idea.asset, _lev_close_exc)
+                        audit(trade_log,
+                              f"Leverage overshoot flatten FAILED for {idea.asset}",
+                              action="leverage_overshoot_guard", result="CLOSE_FAILED",
+                              level=logging.ERROR,
+                              data={"trade_id": idea.id, "symbol": idea.asset,
+                                    "requested": _lev_want, "actual": _lev_got})
+                        _lev_close_failed = True
+        except Exception as _lev_guard_exc:
+            # Fail open, exactly as the slippage guard does: the SL placement
+            # below still protects the position, and a guard that raises must
+            # not become a new way to lose the stop.
+            #
+            # UNLESS THE CLOSE ALREADY SUCCEEDED. Then there is nothing left
+            # to protect, and "failing open" would place a stop and a
+            # take-profit against a position that no longer exists — live
+            # resting orders that can fill later and open a NEW position in
+            # the opposite direction. Fail-open is the right default for a
+            # guard that did nothing; it is the wrong one for a guard that
+            # already acted.
+            if _lev_flattened:
+                logger.error(
+                    "Leverage overshoot guard raised AFTER flattening %s: %s "
+                    "— position is closed; skipping SL/TP placement",
+                    idea.asset, _lev_guard_exc)
+                return (
+                    (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                    f"The venue over-levered this fill and the position was "
+                    f"CLOSED. (Reporting the details afterwards failed: "
+                    f"{type(_lev_guard_exc).__name__}.)", _lev_close_failed)
+                )
+            logger.warning("Leverage overshoot guard error for %s (continuing): %s",
+                           idea.asset, _lev_guard_exc)
+        return None, _lev_close_failed
+
+    async def _place_entry_stops(self, exchange: ccxt.Exchange, idea: TradeIdea, filled_qty: float,
+                                 position: LivePosition, defer_tp_sl: bool, is_pending_limit: bool,
+                                 asset_class: str) -> tuple[Optional[str], Any, Any]:
+        """Place the stop and target — or defer them — and flatten if the stop cannot be placed.
+
+        Extracted from execute() verbatim (slice 2). Returns ``(abort, sl_id,
+        tp_id)``: the abort message when a missing stop forced a flatten (or the
+        URGENT message when that close failed), else None with the order ids.
+        Mutates ``position`` on the failure path exactly as the inline code did.
+        """
+        # Try to place SL/TP orders (best-effort — not all exchanges support this for spot)
+        # GETCLAW: For gap-risk limit orders (weekend metals/stocks),
+        # defer TP/SL until after fill to avoid instant trigger on gap.
+        if defer_tp_sl and is_pending_limit:
+            sl_id, tp_id = None, None
+            audit(trade_log,
+                  f"TP/SL deferred until fill: {idea.asset} (weekend-queued limit)",
+                  action="defer_tp_sl", result="DEFERRED",
+                  data={"symbol": idea.asset, "class": asset_class})
+        else:
+            sl_id, tp_id = await self._place_sl_tp(
+                exchange, idea.asset, idea.direction,
+                filled_qty, idea.stop_loss, idea.take_profit
+            )
+            # RC-AUD-001: a missing STOP-LOSS (not merely a missing TP) leaves a
+            # live, leveraged position with no downside protection. Retry once;
+            # if the stop still cannot be placed, FLATTEN the just-opened
+            # position rather than reporting success with no stop.
+            if sl_id is None:
+                audit(trade_log,
+                      f"SL placement failed for {idea.asset} — retrying once",
+                      action="sl_retry", result="RETRY",
+                      data={"trade_id": idea.id, "symbol": idea.asset})
+                try:
+                    retry_sl, retry_tp = await self._place_sl_tp(
+                        exchange, idea.asset, idea.direction,
+                        filled_qty, idea.stop_loss, idea.take_profit
+                    )
+                    sl_id = retry_sl
+                    if tp_id is None:
+                        tp_id = retry_tp
+                except Exception as _sl_exc:
+                    logger.warning("SL retry raised for %s: %s", idea.asset, _sl_exc)
+                if sl_id is None:
+                    position.sl_order_id = None
+                    position.tp_order_id = tp_id
+                    self._save_positions()
+                    audit(trade_log,
+                          f"UNPROTECTED position {idea.asset}: stop-loss could not be "
+                          f"placed — flattening for safety",
+                          action="sl_tp_failed", result="FLATTEN",
+                          data={"trade_id": idea.id, "symbol": idea.asset,
+                                "stop_loss": idea.stop_loss})
+                    try:
+                        close_msg = await self.close_position(
+                            idea.id, reason="sl_placement_failed")
+                        return (
+                            (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
+                            f"Position opened but the stop-loss could not be placed, "
+                            f"so it was CLOSED for safety.\n{close_msg}", None, None)
+                        )
+                    except Exception as _close_exc:
+                        logger.error("Emergency flatten FAILED for %s: %s",
+                                     idea.asset, _close_exc)
+                        return (
+                            (f"🚨 <b>URGENT — {idea.asset} is LIVE with NO stop-loss</b>\n"
+                            f"Automatic close also FAILED ({_close_exc}). "
+                            f"Close this position MANUALLY on Bitget immediately.", None, None)
+                        )
+        return None, sl_id, tp_id
+
+    def _entry_filled_card(self, idea: TradeIdea, side: str, leverage: Any, is_futures: bool,
+                           fill_price: float, filled_qty: float, cost: float, order_id: Any,
+                           sl_id: Any, tp_id: Any, trailing_st: Any, confirmed: Any,
+                           position_confirmed: Any, verify: dict, exchange_fees: float,
+                           _lev_mismatch: Optional[tuple[int, int]], _lev_close_failed: bool,
+                           ) -> str:
+        """The card the operator reads after a fill. Pure formatting.
+
+        Extracted from execute() verbatim (slice 2) — the renderer seam: every
+        warning state on this card (unprotected, leverage mismatch kept, mismatch
+        with a failed close, unconfirmed fill, fees, trailing armed) can now be
+        rendered from planted values and read.
+        """
+        sl_info = f" | SL order: {sl_id}" if sl_id else " | SL: pending"
+        tp_info = f" | TP order: {tp_id}" if tp_id else " | TP: pending"
+
+        lev_info = f" | {leverage}x" if leverage > 1 else ""
+        mode_label = "FUTURES" if is_futures else "SPOT"
+        dir_icon = "🟢" if side == "buy" else "🔴"
+        trail_info = ""
+        if trailing_st:
+            trail_info = "\n- Trailing: ✅ armed (activates at 1R)"
+
+        # Verification status line
+        if confirmed and position_confirmed:
+            verify_line = "- Verified: ✅ CONFIRMED (order + position)"
+        elif confirmed:
+            verify_line = "- Verified: ✅ order confirmed, ⚠️ position check pending"
+        else:
+            verify_line = f"- Verified: ⚠️ UNCONFIRMED ({verify.get('failure_stage', 'pending')})"
+
+        fee_line = ""
+        if exchange_fees > 0:
+            fee_line = f"\n- Fees: <code>${exchange_fees:.4f}</code>"
+
+        sl_tp_warn = ""
+        if sl_id is None and tp_id is None:
+            sl_tp_warn = "\n⚠️ SL/TP FAILED — position unprotected!"
+        if _lev_mismatch is not None:
+            if _lev_close_failed:
+                # The guard decided this position should not exist and could
+                # not remove it. That is not the same event as a mismatch we
+                # chose to hold, and it must not read like one — the old
+                # wording below is informational, and an operator who skims
+                # it would not learn that a close was attempted and failed.
+                sl_tp_warn += (
+                    f"\n🚨 <b>LEVERAGE {_lev_mismatch[1]}x — AUTOMATIC CLOSE FAILED</b>\n"
+                    f"Target was {_lev_mismatch[0]}x. The overshoot guard tried "
+                    f"to flatten this position and could not. It is OPEN at "
+                    f"{_lev_mismatch[1]}x with a liquidation distance the risk "
+                    f"check never approved — close it MANUALLY on the venue.")
+            else:
+                sl_tp_warn += (
+                    f"\n⚠️ LEVERAGE: venue filled at <b>{_lev_mismatch[1]}x</b>, "
+                    f"target was {_lev_mismatch[0]}x (sticky per-symbol setting). "
+                    f"Margin/liquidation math follows {_lev_mismatch[1]}x.\n"
+                    f"Within the {getattr(getattr(CONFIG, 'execution', None), 'leverage_overshoot_max_ratio', 1.5):.1f}× "
+                    f"overshoot limit, so the position was kept.")
+
+        st_label = getattr(idea, 'strategy_type', 'swing').upper()
+
+        return (
+            f"{dir_icon} <b>LIVE {side.upper()} {idea.asset}</b> ({mode_label}{lev_info}) [{st_label}]\n"
+            f"{'─' * 16}\n"
+            f"- Fill: <code>${fill_price:,.4f}</code>\n"
+            f"- Qty: <code>{filled_qty:.6f}</code>\n"
+            f"- Cost: <code>${cost:.2f}</code>\n"
+            f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
+            f"- Leverage: <code>{leverage}x</code>\n"
+            f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
+            f"- TP: <code>${idea.take_profit:,.4f}</code>{tp_info}\n"
+            f"- Order: <code>{order_id}</code>{fee_line}\n"
+            f"- Risk: ✅ APPROVED{trail_info}\n"
+            f"- {verify_line}\n"
+            f"- Mode: 🔥 Live {mode_label}{sl_tp_warn}"
+        )
+
     async def execute(self, idea: TradeIdea, size_usd: float,
                       order_type: str = "", atr_value: float = 0.0) -> str:
         """Execute a live trade on Bitget.
@@ -3829,450 +4693,22 @@ class LiveExecutor:
             # limit is placed at entry_price and the exchange fills at that price or better.
             limit_price = idea.entry_price if use_limit else None
 
-            # ── LIMIT ORDER PRICE VALIDATION ──
-            # A limit order that's on the wrong side of the market fills instantly
-            # as a taker (effectively a market order). Recalculate the limit price
-            # using the CURRENT price with an offset to ensure it rests on the book.
-            if use_limit and limit_price and current_price > 0:
-                needs_recalc = False
-                if side == "buy" and limit_price >= current_price:
-                    # LONG limit buy above market = instant fill = market order
-                    needs_recalc = True
-                elif side == "sell" and limit_price <= current_price:
-                    # SHORT limit sell below market = instant fill = market order
-                    needs_recalc = True
-
-                if needs_recalc and atr_value > 0:
-                    # GETCLAW: confluence-based limit entry calculation
-                    # Fetch recent 1H OHLCV for VWAP/EMA computation
-                    ohlcv_data = None
-                    try:
-                        ohlcv_data = await active_exchange.fetch_ohlcv(
-                            symbol, "1h", limit=50)
-                        # Repaint guard: VWAP/EMA/session levels must come from
-                        # CLOSED bars, same policy as every analysis path.
-                        from bot.utils.candles import drop_forming_candle
-                        ohlcv_data = drop_forming_candle(ohlcv_data, "1h")
-                    except Exception as ohlcv_exc:
-                        logger.debug("Could not fetch OHLCV for limit calc: %s", ohlcv_exc)
-
-                    entry_result = calculate_entry(
-                        current_price=current_price,
-                        direction=idea.direction.value,
-                        atr_value=atr_value,
-                        ohlcv=ohlcv_data,
-                    )
-                    limit_price = entry_result.limit_price
-
-                    # Apply entry tier size adjustment
-                    if entry_result.tier == "D":
-                        # Tier D = no confluence — downgrade to market order
-                        use_limit = False
-                        limit_price = None
-                        audit(trade_log,
-                              f"Limit downgraded to market: Tier D (no confluence) for {symbol}",
-                              action="limit_tier_d", result="MARKET_FALLBACK",
-                              data={"symbol": symbol, "tier": "D"})
-                    elif entry_result.size_multiplier < 1.0:
-                        # Tier C = marginal confluence — reduce size
-                        old_sz = size_usd
-                        size_usd = round(size_usd * entry_result.size_multiplier, 2)
-                        audit(trade_log,
-                              f"Tier C size reduced: ${old_sz:,.2f} → ${size_usd:,.2f} "
-                              f"(×{entry_result.size_multiplier:.2f}) for {symbol}",
-                              action="limit_tier_c", result="SIZE_REDUCED",
-                              data={"symbol": symbol, "old_size": old_sz,
-                                    "new_size": size_usd,
-                                    "multiplier": entry_result.size_multiplier})
-                        # Recalculate quantity with new size
-                        quantity = (size_usd * leverage_mult) / current_price
-                        if market:
-                            _re_rounded = active_exchange.amount_to_precision(symbol, quantity)
-                            if _re_rounded:
-                                quantity = float(_re_rounded)
-
-                    # ── Keep SL/TP geometry attached to the RECALCULATED entry
-                    # and gate the structure SL (see recalc_sl_tp_for_shifted_entry) ──
-                    if limit_price:
-                        old_sl, old_tp = idea.stop_loss, idea.take_profit
-                        new_sl, new_tp, _shifted, _nat_outcome = recalc_sl_tp_for_shifted_entry(
-                            entry_price=idea.entry_price,
-                            stop_loss=idea.stop_loss,
-                            take_profit=idea.take_profit,
-                            limit_price=limit_price,
-                            natural_sl=entry_result.natural_sl,
-                            side=side,
-                        )
-                        idea.stop_loss = new_sl
-                        idea.take_profit = new_tp
-                        if _shifted or _nat_outcome:
-                            audit(trade_log,
-                                  f"Limit-recalc SL/TP: SL ${old_sl:,.4f} → ${new_sl:,.4f}, "
-                                  f"TP ${old_tp:,.4f} → ${new_tp:,.4f} "
-                                  f"(shifted={_shifted}, natural_sl={_nat_outcome or 'n/a'})",
-                                  action="limit_recalc_sltp",
-                                  result=_nat_outcome.upper() if _nat_outcome else "SHIFTED",
-                                  data={"old_sl": old_sl, "new_sl": new_sl,
-                                        "old_tp": old_tp, "new_tp": new_tp,
-                                        "limit_price": limit_price,
-                                        "natural_sl": entry_result.natural_sl,
-                                        "natural_outcome": _nat_outcome,
-                                        "shifted": _shifted})
-
-                    if limit_price:
-                        audit(trade_log,
-                              f"Confluence entry: {entry_result.explanation}",
-                              action="limit_recalc_exec", result="RECALCULATED",
-                              data={"old_limit": idea.entry_price, "new_limit": limit_price,
-                                    "market_price": current_price, "atr": atr_value,
-                                    "tier": entry_result.tier,
-                                    "confluence": entry_result.confluence_count,
-                                    "levels": entry_result.levels_used})
-                elif needs_recalc and atr_value <= 0:
-                    # No ATR available — fall back to market order
-                    use_limit = False
-                    limit_price = None
-                    audit(trade_log,
-                          "Limit order downgraded to market: no ATR for offset calculation",
-                          action="limit_downgrade", result="MARKET_FALLBACK",
-                          data={"symbol": symbol})
+            # ── LIMIT ORDER PRICE VALIDATION ── (see _recalculate_limit_entry)
+            use_limit, limit_price, size_usd, quantity = await self._recalculate_limit_entry(
+                active_exchange, symbol, idea, side, market, use_limit, limit_price,
+                current_price, size_usd, quantity, leverage_mult, atr_value)
 
             if use_limit and limit_price:
-                # Round limit price to exchange tick grid
-                _prec_price = None
-                if market:
-                    try:
-                        _prec_price = active_exchange.price_to_precision(symbol, limit_price)
-                    except Exception:
-                        pass
-                if _prec_price is not None:
-                    limit_price = float(_prec_price)
-                else:
-                    # Fallback: round to tick size from market info, or safe default
-                    tick_size = None
-                    if market:
-                        tick_size = (market.get("precision", {}).get("price")
-                                     or market.get("info", {}).get("pricePlace"))
-                    if tick_size is not None:
-                        try:
-                            ts = float(tick_size)
-                            if ts >= 1:
-                                # tick_size is decimal places count
-                                limit_price = round(limit_price, int(ts))
-                            else:
-                                # tick_size is actual step (e.g. 0.001)
-                                limit_price = round(limit_price / ts) * ts
-                        except (ValueError, TypeError) as _tick_exc:
-                            logger.warning("Tick size rounding failed for %s: %s", symbol, _tick_exc)
-                            self._record_warning("tick_size_rounding")
-                    # Ultimate fallback: round based on price magnitude
-                    if _prec_price is None:
-                        if limit_price >= 10000:
-                            limit_price = round(limit_price, 1)
-                        elif limit_price >= 1000:
-                            limit_price = round(limit_price, 2)
-                        elif limit_price >= 1:
-                            limit_price = round(limit_price, 3)
-                        elif limit_price >= 0.01:
-                            limit_price = round(limit_price, 4)
-                        else:
-                            limit_price = round(limit_price, 6)
-                    logger.debug("Limit price fallback rounding: %s -> %s", _prec_price, limit_price)
+                # Round limit price to the exchange tick grid (see _round_limit_price_to_tick)
+                limit_price = self._round_limit_price_to_tick(active_exchange, market, symbol, limit_price)
 
-                # Safety net: double-check tick alignment via market info fields
-                # (see _bitget_tick_safety_net for why this needs pricePlace and
-                # priceEndStep combined, not treated as alternatives).
-                limit_price = self._bitget_tick_safety_net(market, limit_price)
-
-            if is_futures:
-                # Futures: use USDT-FUTURES product type
-                # tradeSide only required in hedge (double_hold) mode
-                leverage = leverage_mult  # Use dynamically-adjusted leverage
-
-                # Pre-check: verify balance is accessible
-                # UTA accounts pool all margin — try swap first, fall back to default
-                _bal_coin = self._venue.balance_coin
-                try:
-                    bal_free = 0.0
-                    try:
-                        fut_bal = await exchange.fetch_balance(
-                            self._venue.balance_fetch_params())
-                        fut_usdt = fut_bal.get(_bal_coin, {})
-                        bal_free = float(fut_usdt.get("free", 0) if isinstance(fut_usdt, dict) else 0)
-                    except Exception:
-                        # UTA mode: fetch_balance without type returns unified balance
-                        uni_bal = await exchange.fetch_balance()
-                        uni_usdt = uni_bal.get(_bal_coin, {})
-                        bal_free = float(uni_usdt.get("free", 0) if isinstance(uni_usdt, dict) else 0)
-                    logger.info("Balance pre-check: free=%.2f %s for %s",
-                                bal_free, _bal_coin, symbol)
-                    if bal_free < size_usd:
-                        audit(trade_log,
-                              f"Low balance warning: ${bal_free:.2f} available, need ~${size_usd:.2f} margin for {symbol}",
-                              action="live_execute", result="BALANCE_WARN",
-                              data={"balance_free": bal_free, "margin_needed": size_usd})
-                except Exception as exc:
-                    logger.debug("Balance pre-check failed: %s", exc)
-
-                futures_params = self._venue.entry_params(
-                    CONFIG.exchange.margin_mode, leverage)
-                if self._venue.id == "bitget":
-                    # Even in one-way mode, explicitly set tradeSide for safety
-                    # (hedge mode requires it; one-way tolerates it).
-                    futures_params["tradeSide"] = "open"
-
-                # NOTE: v3 UTA Place Order supports inline takeProfit/stopLoss
-                # params which would place SL/TP atomically with the position.
-                # However, the response doesn't return SL/TP order IDs, and
-                # _place_sl_tp_v3 already cancels existing plans before placing
-                # new ones, so inline SL/TP would just get replaced. Keeping
-                # the two-step flow (entry + separate SL/TP) for now since it
-                # returns usable order IDs for reconciliation tracking.
-
-                otype = "limit" if use_limit else "market"
-                # TIME IN FORCE — asset-class aware:
-                # GETCLAW: metals/stocks need GTC (session queue for overnight).
-                # Crypto gets POST_ONLY for maker-only fee savings.
-                if use_limit:
-                    asset_class = _classify_symbol(symbol)
-                    if asset_class in ("Metal", "Commodity", "Stock", "Pre-IPO"):
-                        # GTC: stays live through session close/reopen
-                        futures_params.update(self._venue.gtc_params())
-                    elif CONFIG.limit_orders.post_only:
-                        # POST_ONLY: maker-only, rejects if would fill as taker
-                        futures_params.update(self._venue.post_only_params())
-
-                create_kwargs: dict[str, Any] = {
-                    "symbol": symbol, "type": otype, "side": side,
-                    "amount": quantity, "coid": coid, "params": futures_params,
-                }
-                if otype == "market" and self._venue.market_order_needs_price:
-                    # Hyperliquid market orders are slippage-bounded IOC
-                    # orders — ccxt requires the reference price.
-                    create_kwargs["price"] = current_price
-                if use_limit and limit_price:
-                    # FINAL authoritative re-validation, right at the point of
-                    # submission. Multiple upstream paths can produce
-                    # limit_price (confluence recalc, the precision/tick-size
-                    # rounding chain, the bitget tick safety net) — rather than
-                    # trust whichever one ran last, re-run ccxt's own
-                    # price_to_precision one more time here so whatever gets
-                    # submitted is unconditionally what the exchange's own
-                    # market data says is valid. Logged at INFO so a repeat of
-                    # error 45115 ("price should be a multiple of X") shows the
-                    # exact value that was actually sent, not just the error.
-                    _final_price = limit_price
-                    if market:
-                        try:
-                            _final_str = active_exchange.price_to_precision(symbol, limit_price)
-                            if _final_str is not None:
-                                _final_price = float(_final_str)
-                        except Exception as _fp_exc:
-                            logger.warning(
-                                "Final price_to_precision re-check failed for %s @ %s: %s "
-                                "— submitting pre-rounded value",
-                                symbol, limit_price, _fp_exc)
-                    if _final_price != limit_price:
-                        logger.warning(
-                            "Final price re-validation changed %s limit price %.10g -> %.10g "
-                            "before submission (upstream rounding didn't match market precision)",
-                            symbol, limit_price, _final_price)
-                    limit_price = _final_price
-                    # AUTHORITATIVE final snap: price_to_precision above can
-                    # UN-snap a tick-aligned price when ccxt mis-parses Bitget's
-                    # pricePlace/priceEndStep pair — the exact 45115 rejection.
-                    # Apply the real tick as the LAST word before submission.
-                    limit_price = self._bitget_tick_safety_net(market, limit_price)
-                    logger.info(
-                        "Submitting %s limit order @ %s (pricePlace=%s priceEndStep=%s)",
-                        symbol, limit_price,
-                        (market or {}).get("info", {}).get("pricePlace"),
-                        (market or {}).get("info", {}).get("priceEndStep"))
-                    # ccxt requires price as a top-level param for limit orders
-                    create_kwargs["price"] = limit_price
-
-                # Order splitting for large market positions.
-                # Roadmap P0-3: tranching is NOT implemented — the old code logged
-                # "SPLITTING" and then placed the FULL order as a single market
-                # fill, so the audit trail claimed market-impact protection that
-                # never happened. Until real tranche execution (fill aggregation +
-                # weighted-average pricing) lands, BLOCK the oversized order rather
-                # than silently take full market impact while pretending otherwise.
-                _split_enabled = getattr(getattr(CONFIG, 'execution', None), 'order_split_enabled', False)
-                _split_threshold = getattr(getattr(CONFIG, 'execution', None), 'order_split_threshold_usd', 50000)
-                if (_split_enabled and otype == "market" and
-                        size_usd > _split_threshold):
-                    audit(trade_log,
-                          f"Order ${size_usd:.2f} exceeds split threshold "
-                          f"${_split_threshold:.2f} but tranching is not implemented "
-                          f"— BLOCKING to avoid full market impact",
-                          action="order_split", result="BLOCKED_NOT_IMPLEMENTED",
-                          data={"symbol": symbol, "size_usd": round(size_usd, 2),
-                                "threshold": _split_threshold})
-                    return (
-                        f"BLOCKED: order ${size_usd:,.2f} exceeds the split threshold "
-                        f"${_split_threshold:,.2f} and order-splitting is not yet "
-                        f"implemented — refusing to send it as a single market order. "
-                        f"Lower the size or raise ORDER_SPLIT_THRESHOLD_USD."
-                    )
-
-                # ── LAST-MILE KILL SWITCH ──
-                #
-                # The engine checks _halted immediately before calling execute()
-                # — and then this function performs uncancellable network awaits
-                # (load_markets, _ensure_leverage, fetch_ticker) before reaching
-                # here. A /halt or a breaker trip landing inside that window used
-                # to open a live position anyway: the upstream check had already
-                # passed, and nothing between it and the order re-read the flag.
-                #
-                # Worse than a stray position, it can be a position the halt
-                # cannot clean up. emergency_halt_all sets the flag and then
-                # awaits flatten_all_positions, which iterates a SNAPSHOT of
-                # self._positions — an order landing after that snapshot is not
-                # in it, so the flatten walks past it.
-                #
-                # The check belongs here rather than at the top of execute() for
-                # the same reason it sits mid-function at the drift fallback:
-                # everything above this line is preparation that is safe to run
-                # while halted. This is the first irreversible step.
-                if trading_halted():
-                    logger.warning(
-                        "Entry order REFUSED for %s: engine halted or circuit "
-                        "breaker open between the engine's check and submission.",
-                        symbol)
-                    audit(trade_log,
-                          f"Entry order refused for {symbol} — halted at submission",
-                          action="live_execute", result="BLOCKED_HALTED",
-                          data={"symbol": symbol, "side": side})
-                    return (f"⛔ BLOCKED: {symbol} entry refused — the engine was "
-                            "halted or a circuit breaker opened while the order was "
-                            "being prepared. No exposure was opened.")
-
-                # Try to place the order — handle POST_ONLY rejection gracefully
-                try:
-                    order = await self._create_order_idempotent(exchange, **create_kwargs)
-                except Exception as post_only_exc:
-                    exc_str = str(post_only_exc).lower()
-                    # Bitget rejects POST_ONLY orders that would cross the book
-                    # with "post only order failed" or similar. Retry with wider offset.
-                    if use_limit and CONFIG.limit_orders.post_only and (
-                        "post only" in exc_str or "post_only" in exc_str
-                        or "would immediately" in exc_str
-                    ):
-                        # RC-AUD-005/006: the retry below regenerates the clientOid,
-                        # which bypasses the venue's dedup. Before resubmitting, make
-                        # sure the ORIGINAL order did not actually land. If it did,
-                        # use it; if its status cannot be verified, fail-closed
-                        # rather than risk a double-fill.
-                        _orig, _orig_verified = await self._find_order_by_client_oid(
-                            exchange, symbol, coid)
-                        if _orig is not None:
-                            logger.warning(
-                                "POST_ONLY: original order for %s actually landed — "
-                                "using it instead of resubmitting", symbol)
-                            order = _orig
-                        elif not _orig_verified:
-                            audit(trade_log,
-                                  f"POST_ONLY retry ABORTED for {symbol}: original order "
-                                  f"status unverifiable — not resubmitting (double-fill guard)",
-                                  action="post_only_retry", result="ABORT_UNVERIFIED",
-                                  data={"symbol": symbol, "coid": coid})
-                            raise
-                        else:
-                            # Audit F-10: the resubmit below uses a fresh clientOid
-                            # (coid+"-r1"), so the venue will NOT dedup it against
-                            # the original. The check above can miss an order that
-                            # landed in the few ms before the lookup (fetch_open_orders
-                            # index lag). Settle briefly and re-verify once more so a
-                            # just-landed original is caught before we risk a second fill.
-                            await asyncio.sleep(0.5)
-                            _orig2, _orig2_verified = await self._find_order_by_client_oid(
-                                exchange, symbol, coid)
-                            if _orig2 is not None:
-                                logger.warning(
-                                    "POST_ONLY: original order for %s found on re-check — "
-                                    "using it instead of resubmitting (audit F-10)", symbol)
-                                order = _orig2
-                            elif not _orig2_verified:
-                                audit(trade_log,
-                                      f"POST_ONLY retry ABORTED for {symbol}: original status "
-                                      f"unverifiable on re-check — not resubmitting (double-fill guard)",
-                                      action="post_only_retry", result="ABORT_UNVERIFIED_RECHECK",
-                                      data={"symbol": symbol, "coid": coid})
-                                raise
-                            else:
-                                audit(trade_log,
-                                      f"POST_ONLY rejected for {symbol} @ ${limit_price:,.4f} — "
-                                      f"widening offset and retrying",
-                                      action="post_only_retry", result="WIDENING",
-                                      data={"symbol": symbol, "rejected_price": limit_price})
-                                # Double the offset and retry
-                                _pre_retry_limit = limit_price
-                                wider_offset = 1.0 * atr_value if atr_value > 0 else current_price * 0.005
-                                if side == "buy":
-                                    limit_price = round(current_price - wider_offset, 8)
-                                else:
-                                    limit_price = round(current_price + wider_offset, 8)
-                                _prec_price = active_exchange.price_to_precision(symbol, limit_price)
-                                limit_price = float(_prec_price) if _prec_price is not None else limit_price
-                                # QC-1: the retry moves the entry up to 1 ATR —
-                                # shift SL/TP with it, or the position records
-                                # stops sized for the ORIGINAL entry (a buy
-                                # repriced 1 ATR lower gets a stop 1 ATR too
-                                # tight and a target 1 ATR too far).
-                                if _pre_retry_limit and limit_price:
-                                    _r_sl, _r_tp, _r_shifted, _ = recalc_sl_tp_for_shifted_entry(
-                                        entry_price=_pre_retry_limit,
-                                        stop_loss=idea.stop_loss,
-                                        take_profit=idea.take_profit,
-                                        limit_price=limit_price,
-                                        natural_sl=None,
-                                        side=side,
-                                    )
-                                    if _r_shifted:
-                                        audit(trade_log,
-                                              f"POST_ONLY reprice SL/TP shift: SL ${idea.stop_loss:,.4f} → ${_r_sl:,.4f}, "
-                                              f"TP ${idea.take_profit:,.4f} → ${_r_tp:,.4f}",
-                                              action="post_only_retry", result="SLTP_SHIFTED",
-                                              data={"old_limit": _pre_retry_limit,
-                                                    "new_limit": limit_price})
-                                        idea.stop_loss = _r_sl
-                                        idea.take_profit = _r_tp
-                                create_kwargs["price"] = limit_price
-                                # Generate new coid for retry (venue-legal)
-                                retry_coid = coid + "-r1"
-                                create_kwargs["coid"] = retry_coid
-                                create_kwargs["params"].update(
-                                    self._venue.order_id_params(retry_coid))
-                                # Checked AGAIN. Reaching here cost a rejected
-                                # order plus _find_order_by_client_oid — more
-                                # awaits, and a wider window than the one above.
-                                # A halt that arrives during a POST_ONLY retry is
-                                # no less a halt.
-                                if trading_halted():
-                                    logger.warning(
-                                        "POST_ONLY retry REFUSED for %s: halted "
-                                        "during the retry. The rejected original "
-                                        "never landed, so nothing is open.", symbol)
-                                    audit(trade_log,
-                                          f"POST_ONLY retry refused for {symbol} — halted",
-                                          action="live_execute", result="BLOCKED_HALTED",
-                                          data={"symbol": symbol, "side": side,
-                                                "phase": "post_only_retry"})
-                                    return (f"⛔ BLOCKED: {symbol} entry refused — the "
-                                            "engine halted while retrying a rejected "
-                                            "order. No exposure was opened.")
-                                order = await self._create_order_idempotent(exchange, **create_kwargs)
-                    else:
-                        raise  # Not a POST_ONLY rejection — propagate
-            else:
-                # FUTURES-ONLY MODE: all non-futures order paths are removed.
-                # This branch should never execute when trade_mode="futures".
-                raise RuntimeError(
-                    f"Unreachable: non-futures order path hit for {symbol} "
-                    f"(side={side}, is_futures={is_futures}). "
-                    f"Check CONFIG.exchange.trade_mode setting."
-                )
+            # ── Submission: venue params, last-mile kill switch, POST_ONLY retry ── (see _submit_entry_order)
+            _gate_msg, order, limit_price, asset_class = await self._submit_entry_order(
+                exchange, active_exchange, symbol, side, quantity, coid, current_price,
+                limit_price, use_limit, size_usd, leverage_mult, is_futures, market, idea,
+                atr_value, asset_class)
+            if _gate_msg:
+                return _gate_msg
 
             # ── CRITICAL SAFETY NET ──
             # Everything below runs AFTER the order was submitted to the exchange.
@@ -4509,10 +4945,6 @@ class LiveExecutor:
             # so the notification must say that rather than the ordinary
             # "venue filled at Nx" note, which reads as informational.
             _lev_close_failed = False
-            # Set the instant a flatten SUCCEEDS. Read by the guard's outer
-            # except, which must not fail open once there is no longer a
-            # position to protect.
-            _lev_flattened = False
             if position_confirmed:
                 if pos_verify["exchange_entry"] > 0:
                     position.entry_price = pos_verify["exchange_entry"]
@@ -4567,199 +4999,16 @@ class LiveExecutor:
             except Exception:
                 pass
 
-            # ── Roadmap P0-2: slippage guard ──
-            # The risk engine approved this trade against idea.entry_price and the
-            # resulting stop distance / R:R. If a market fill lands far enough from
-            # the expected entry to consume a large fraction of the planned stop
-            # buffer, that approval no longer holds. CONFIG.execution.slippage_
-            # guard_enabled defaulted ON but was never enforced — only recorded.
-            # Now: flatten an adverse over-slipped fill instead of holding a
-            # position whose risk:reward is broken.
-            try:
-                _exec_cfg = getattr(CONFIG, "execution", None)
-                if (_exec_cfg is not None
-                        and getattr(_exec_cfg, "slippage_guard_enabled", False)
-                        and idea.entry_price > 0 and fill_price > 0):
-                    _stop_dist = abs(idea.entry_price - idea.stop_loss) / idea.entry_price
-                    _slip = abs(fill_price - idea.entry_price) / idea.entry_price
-                    _max_slip = _exec_cfg.max_slippage_edge_ratio * _stop_dist
-                    _adverse = (
-                        (idea.direction == Direction.LONG and fill_price > idea.entry_price)
-                        or (idea.direction == Direction.SHORT and fill_price < idea.entry_price)
-                    )
-                    if _adverse and _stop_dist > 0 and _slip > _max_slip:
-                        audit(trade_log,
-                              f"Slippage guard tripped for {idea.asset}: fill "
-                              f"${fill_price:.4f} vs entry ${idea.entry_price:.4f} "
-                              f"({_slip:.2%}) exceeds {_exec_cfg.max_slippage_edge_ratio:.0%} "
-                              f"of stop distance ({_stop_dist:.2%}) — flattening",
-                              action="slippage_guard", result="FLATTEN",
-                              data={"trade_id": idea.id, "symbol": idea.asset,
-                                    "fill_price": fill_price, "entry": idea.entry_price,
-                                    "slippage_pct": round(_slip, 5),
-                                    "stop_dist_pct": round(_stop_dist, 5),
-                                    "limit_pct": round(_max_slip, 5)})
-                        try:
-                            close_msg = await self.close_position(
-                                idea.id, reason="slippage_guard")
-                            return (
-                                f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
-                                f"Fill slipped {_slip:.2%} from the planned entry "
-                                f"(> {_exec_cfg.max_slippage_edge_ratio:.0%} of the stop "
-                                f"buffer), so the position was CLOSED for safety.\n{close_msg}"
-                            )
-                        except Exception as _sl_close_exc:
-                            logger.error("Slippage-guard flatten FAILED for %s: %s",
-                                         idea.asset, _sl_close_exc)
-                            return (
-                                f"🚨 <b>URGENT — {idea.asset} filled with excessive slippage</b>\n"
-                                f"Automatic close also FAILED ({_sl_close_exc}). "
-                                f"Close this position MANUALLY on Bitget immediately."
-                            )
-            except Exception as _slip_guard_exc:
-                # Fail open: the SL placement below still protects the position.
-                logger.warning("Slippage guard error for %s (continuing): %s",
-                               idea.asset, _slip_guard_exc)
+            # ── Roadmap P0-2: slippage guard ── (see _post_fill_slippage_guard)
+            _gate_msg = await self._post_fill_slippage_guard(idea, fill_price)
+            if _gate_msg:
+                return _gate_msg
 
-            # ── Leverage overshoot guard ──
-            # Same argument as the slippage guard directly above, and it sits
-            # here for the same reason: the risk engine approved this trade at a
-            # target leverage, and a fill at a much higher one is not the trade
-            # that was approved. Live incident 2026-08-17: a 5x APT/USDT SHORT
-            # filled at 20x on Bitget's sticky per-symbol setting.
-            #
-            # Until now the mismatch was DETECTED (:3803), audited, and then only
-            # printed on the card — "Margin/liquidation math follows 20x". True,
-            # and it tells the operator after the fact about risk they did not
-            # choose. What it costs, with that position's 3.1% stop:
-            #
-            #    5x   liquidation ~20.0% adverse   buffer 16.9 points
-            #   20x   liquidation ~ 5.0% adverse   buffer  1.9 points
-            #
-            # (first-order; maintenance margin and fees pull liquidation closer
-            # still). At 5x the stop has a wide corridor. At 20x a gap or wick
-            # that overshoots the stop by two points liquidates instead of
-            # stopping out, which is the whole difference.
-            #
-            # WHY HERE AND NOT AT THE DETECTION SITE. _place_sl_tp is called at
-            # :3922, BELOW this. Closing from here therefore cannot orphan a
-            # stop or take-profit order on the venue — there are none yet. That
-            # ordering is the reason this is safe to do at all, so if the SL/TP
-            # placement ever moves above this point, this guard must move with it.
-            #
-            # WHAT THIS DELIBERATELY DOES NOT TOUCH. The PRE-ORDER fail-open
-            # path (~:954-1060, LEVERAGE_FAIL_OPEN / LEVERAGE_FAIL_CLOSED) stays
-            # exactly as it is. That one governs "we could not VERIFY leverage
-            # before ordering", it was set to fail closed after the 2026-07-20
-            # BCH incident, and failing closed then blocked BTC/ETHFI entirely
-            # ("trades can not open") until it was deliberately reverted on
-            # 2026-07-21. This guard fires only on a CONFIRMED read-back, which
-            # is the one case that carries no false positives — the venue has
-            # told us what it actually did.
-            #
-            # OVERSHOOT ONLY. Filling UNDER the target (3x on a 5x request) is
-            # less risk than approved, not more, so it must never close.
-            try:
-                if _lev_mismatch is not None:
-                    _lev_want, _lev_got = _lev_mismatch
-                    _lev_max_ratio = float(getattr(
-                        getattr(CONFIG, "execution", None),
-                        "leverage_overshoot_max_ratio", 1.5))
-                    _lev_verdict = leverage_overshoot_verdict(
-                        _lev_want, _lev_got, _lev_max_ratio)
-                    # `["ratio"] or 0.0` was the banned shape here, and it was
-                    # safe only by position: ratio is guaranteed non-None inside
-                    # the "close" branch. One refactor away it would print a
-                    # fabricated "0.0x the approved leverage" into the audit
-                    # record beside real numbers. Read it where it is known.
-                    if _lev_verdict["decision"] == "close":
-                        _lev_ratio = float(_lev_verdict["ratio"])
-                        audit(trade_log,
-                              f"Leverage overshoot guard tripped for {idea.asset}: "
-                              f"venue filled at {_lev_got}x against a {_lev_want}x "
-                              f"target ({_lev_ratio:.1f}x the approved leverage, "
-                              f"limit {_lev_max_ratio:.1f}x) — flattening",
-                              action="leverage_overshoot_guard", result="FLATTEN",
-                              level=logging.WARNING,
-                              data={"trade_id": idea.id, "symbol": idea.asset,
-                                    "requested": _lev_want, "actual": _lev_got,
-                                    "ratio": round(_lev_ratio, 3),
-                                    "limit": _lev_max_ratio})
-                        try:
-                            close_msg = await self.close_position(
-                                idea.id, reason="leverage_overshoot")
-                            # Armed the INSTANT the close returns, before any
-                            # further work. Everything after this point is
-                            # message formatting, and if any of it raised, the
-                            # outer `except` below would log "continuing" and
-                            # fall through to _place_sl_tp — putting a stop and
-                            # a take-profit on the venue for a position that no
-                            # longer exists. The flag is what makes the outer
-                            # fail-open safe to keep.
-                            _lev_flattened = True
-                            # Bitget's sticky per-symbol leverage does NOT heal
-                            # because we closed. Without this the engine
-                            # re-signals the same symbol, the venue fills at 20x
-                            # again, and the guard flattens again — a loop that
-                            # pays a round-trip fee every cycle and looks, from
-                            # outside, exactly like the bot trading badly. The
-                            # cooldown is the difference between a guard and a
-                            # fee pump.
-                            #
-                            # Through the helper, and that is the whole fix:
-                            # `symbol` is the PERP form by here, while the
-                            # check that reads this rest is called with
-                            # `idea.asset`. Keyed raw, the rest was unfindable
-                            # on the futures path — which is every path.
-                            self._rest_symbol(symbol)
-                            return (
-                                f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
-                                f"The venue filled at <b>{_lev_got}x</b> against a "
-                                f"{_lev_want}x target (sticky per-symbol setting), "
-                                f"which is {_lev_ratio:.1f}× the approved leverage. "
-                                f"The position was CLOSED rather than run at a "
-                                f"liquidation distance the risk check never "
-                                f"approved.\n{close_msg}"
-                            )
-                        except Exception as _lev_close_exc:
-                            # The position is OPEN, over-levered, and the close
-                            # failed. Do NOT return here: falling through leaves
-                            # _place_sl_tp below to put the stop on, which is the
-                            # only protection left. Say both things plainly.
-                            logger.error("Leverage-overshoot flatten FAILED for %s: %s",
-                                         idea.asset, _lev_close_exc)
-                            audit(trade_log,
-                                  f"Leverage overshoot flatten FAILED for {idea.asset}",
-                                  action="leverage_overshoot_guard", result="CLOSE_FAILED",
-                                  level=logging.ERROR,
-                                  data={"trade_id": idea.id, "symbol": idea.asset,
-                                        "requested": _lev_want, "actual": _lev_got})
-                            _lev_close_failed = True
-            except Exception as _lev_guard_exc:
-                # Fail open, exactly as the slippage guard does: the SL placement
-                # below still protects the position, and a guard that raises must
-                # not become a new way to lose the stop.
-                #
-                # UNLESS THE CLOSE ALREADY SUCCEEDED. Then there is nothing left
-                # to protect, and "failing open" would place a stop and a
-                # take-profit against a position that no longer exists — live
-                # resting orders that can fill later and open a NEW position in
-                # the opposite direction. Fail-open is the right default for a
-                # guard that did nothing; it is the wrong one for a guard that
-                # already acted.
-                if _lev_flattened:
-                    logger.error(
-                        "Leverage overshoot guard raised AFTER flattening %s: %s "
-                        "— position is closed; skipping SL/TP placement",
-                        idea.asset, _lev_guard_exc)
-                    return (
-                        f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
-                        f"The venue over-levered this fill and the position was "
-                        f"CLOSED. (Reporting the details afterwards failed: "
-                        f"{type(_lev_guard_exc).__name__}.)"
-                    )
-                logger.warning("Leverage overshoot guard error for %s (continuing): %s",
-                               idea.asset, _lev_guard_exc)
+            # ── Leverage overshoot guard ── (see _leverage_overshoot_guard)
+            _gate_msg, _lev_close_failed = await self._leverage_overshoot_guard(
+                idea, symbol, _lev_mismatch)
+            if _gate_msg:
+                return _gate_msg
 
             # Record API success for degradation tracking
             self.record_api_success()
@@ -4777,65 +5026,11 @@ class LiveExecutor:
                       "verify_failure_stage": verify.get("failure_stage", ""),
                   })
 
-            # Try to place SL/TP orders (best-effort — not all exchanges support this for spot)
-            # GETCLAW: For gap-risk limit orders (weekend metals/stocks),
-            # defer TP/SL until after fill to avoid instant trigger on gap.
-            if defer_tp_sl and is_pending_limit:
-                sl_id, tp_id = None, None
-                audit(trade_log,
-                      f"TP/SL deferred until fill: {idea.asset} (weekend-queued limit)",
-                      action="defer_tp_sl", result="DEFERRED",
-                      data={"symbol": idea.asset, "class": asset_class})
-            else:
-                sl_id, tp_id = await self._place_sl_tp(
-                    exchange, idea.asset, idea.direction,
-                    filled_qty, idea.stop_loss, idea.take_profit
-                )
-                # RC-AUD-001: a missing STOP-LOSS (not merely a missing TP) leaves a
-                # live, leveraged position with no downside protection. Retry once;
-                # if the stop still cannot be placed, FLATTEN the just-opened
-                # position rather than reporting success with no stop.
-                if sl_id is None:
-                    audit(trade_log,
-                          f"SL placement failed for {idea.asset} — retrying once",
-                          action="sl_retry", result="RETRY",
-                          data={"trade_id": idea.id, "symbol": idea.asset})
-                    try:
-                        retry_sl, retry_tp = await self._place_sl_tp(
-                            exchange, idea.asset, idea.direction,
-                            filled_qty, idea.stop_loss, idea.take_profit
-                        )
-                        sl_id = retry_sl
-                        if tp_id is None:
-                            tp_id = retry_tp
-                    except Exception as _sl_exc:
-                        logger.warning("SL retry raised for %s: %s", idea.asset, _sl_exc)
-                    if sl_id is None:
-                        position.sl_order_id = None
-                        position.tp_order_id = tp_id
-                        self._save_positions()
-                        audit(trade_log,
-                              f"UNPROTECTED position {idea.asset}: stop-loss could not be "
-                              f"placed — flattening for safety",
-                              action="sl_tp_failed", result="FLATTEN",
-                              data={"trade_id": idea.id, "symbol": idea.asset,
-                                    "stop_loss": idea.stop_loss})
-                        try:
-                            close_msg = await self.close_position(
-                                idea.id, reason="sl_placement_failed")
-                            return (
-                                f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
-                                f"Position opened but the stop-loss could not be placed, "
-                                f"so it was CLOSED for safety.\n{close_msg}"
-                            )
-                        except Exception as _close_exc:
-                            logger.error("Emergency flatten FAILED for %s: %s",
-                                         idea.asset, _close_exc)
-                            return (
-                                f"🚨 <b>URGENT — {idea.asset} is LIVE with NO stop-loss</b>\n"
-                                f"Automatic close also FAILED ({_close_exc}). "
-                                f"Close this position MANUALLY on Bitget immediately."
-                            )
+            # SL/TP placement, one retry, flatten if the stop cannot be placed (see _place_entry_stops)
+            _gate_msg, sl_id, tp_id = await self._place_entry_stops(
+                exchange, idea, filled_qty, position, defer_tp_sl, is_pending_limit, asset_class)
+            if _gate_msg:
+                return _gate_msg
             position.sl_order_id = sl_id
             position.tp_order_id = tp_id
             # Persist SL/TP order IDs to disk immediately
@@ -4851,69 +5046,10 @@ class LiveExecutor:
                       data={"trade_id": idea.id, "symbol": idea.asset,
                             "stop_loss": idea.stop_loss, "take_profit": idea.take_profit})
 
-            sl_info = f" | SL order: {sl_id}" if sl_id else " | SL: pending"
-            tp_info = f" | TP order: {tp_id}" if tp_id else " | TP: pending"
-
-            lev_info = f" | {leverage}x" if leverage > 1 else ""
-            mode_label = "FUTURES" if is_futures else "SPOT"
-            dir_icon = "🟢" if side == "buy" else "🔴"
-            trail_info = ""
-            if trailing_st:
-                trail_info = "\n- Trailing: ✅ armed (activates at 1R)"
-
-            # Verification status line
-            if confirmed and position_confirmed:
-                verify_line = "- Verified: ✅ CONFIRMED (order + position)"
-            elif confirmed:
-                verify_line = "- Verified: ✅ order confirmed, ⚠️ position check pending"
-            else:
-                verify_line = f"- Verified: ⚠️ UNCONFIRMED ({verify.get('failure_stage', 'pending')})"
-
-            fee_line = ""
-            if exchange_fees > 0:
-                fee_line = f"\n- Fees: <code>${exchange_fees:.4f}</code>"
-
-            sl_tp_warn = ""
-            if sl_id is None and tp_id is None:
-                sl_tp_warn = "\n⚠️ SL/TP FAILED — position unprotected!"
-            if _lev_mismatch is not None:
-                if _lev_close_failed:
-                    # The guard decided this position should not exist and could
-                    # not remove it. That is not the same event as a mismatch we
-                    # chose to hold, and it must not read like one — the old
-                    # wording below is informational, and an operator who skims
-                    # it would not learn that a close was attempted and failed.
-                    sl_tp_warn += (
-                        f"\n🚨 <b>LEVERAGE {_lev_mismatch[1]}x — AUTOMATIC CLOSE FAILED</b>\n"
-                        f"Target was {_lev_mismatch[0]}x. The overshoot guard tried "
-                        f"to flatten this position and could not. It is OPEN at "
-                        f"{_lev_mismatch[1]}x with a liquidation distance the risk "
-                        f"check never approved — close it MANUALLY on the venue.")
-                else:
-                    sl_tp_warn += (
-                        f"\n⚠️ LEVERAGE: venue filled at <b>{_lev_mismatch[1]}x</b>, "
-                        f"target was {_lev_mismatch[0]}x (sticky per-symbol setting). "
-                        f"Margin/liquidation math follows {_lev_mismatch[1]}x.\n"
-                        f"Within the {getattr(getattr(CONFIG, 'execution', None), 'leverage_overshoot_max_ratio', 1.5):.1f}× "
-                        f"overshoot limit, so the position was kept.")
-
-            st_label = getattr(idea, 'strategy_type', 'swing').upper()
-
-            return (
-                f"{dir_icon} <b>LIVE {side.upper()} {idea.asset}</b> ({mode_label}{lev_info}) [{st_label}]\n"
-                f"{'─' * 16}\n"
-                f"- Fill: <code>${fill_price:,.4f}</code>\n"
-                f"- Qty: <code>{filled_qty:.6f}</code>\n"
-                f"- Cost: <code>${cost:.2f}</code>\n"
-                f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
-                f"- Leverage: <code>{leverage}x</code>\n"
-                f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
-                f"- TP: <code>${idea.take_profit:,.4f}</code>{tp_info}\n"
-                f"- Order: <code>{order_id}</code>{fee_line}\n"
-                f"- Risk: ✅ APPROVED{trail_info}\n"
-                f"- {verify_line}\n"
-                f"- Mode: 🔥 Live {mode_label}{sl_tp_warn}"
-            )
+            return self._entry_filled_card(
+                idea, side, leverage, is_futures, fill_price, filled_qty, cost, order_id,
+                sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
+                exchange_fees, _lev_mismatch, _lev_close_failed)
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
