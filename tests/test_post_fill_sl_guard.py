@@ -270,6 +270,35 @@ async def test_grace_close_failed_string_escalates_to_flatten(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_the_retry_hands_back_its_own_tp_not_the_first_attempts(tmp_path, monkeypatch):
+    # The classic path places SL then TP in separate tries, so the first
+    # attempt can return (None, tp). The retry's _place_sl_tp cancels every
+    # resting plan order before it places — the first TP is GONE — and then
+    # `if tp_id is None and retry_tp` kept the dead first id and dropped the
+    # live retry TP: the record named a dead TP beside a live SL, the periodic
+    # check (which fires on an EMPTY id) never refreshed it, and the TP the
+    # retry placed went untracked.
+    e, calls = _exec(tmp_path, monkeypatch, [("sl-retry", "tp-retry")])
+    p = _pos()
+    sl_id, tp_id, close_msg = await e._reattempt_post_fill_sl(
+        object(), p, Direction.LONG, 1.0, None, "tp-first", "T1")
+    assert (sl_id, tp_id, close_msg) == ("sl-retry", "tp-retry", None)
+    assert calls["place"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_retry_that_placed_nothing_leaves_the_first_tp_named(tmp_path, monkeypatch):
+    # Nothing landed on the retry: whether its cleanup ran is unknown, and the
+    # ladder goes on to grace/flatten with what it has.
+    e, _ = _exec(tmp_path, monkeypatch, [(None, None), (None, None)])
+    p = _pos()
+    sl_id, tp_id, close_msg = await e._reattempt_post_fill_sl(
+        object(), p, Direction.LONG, 1.0, None, "tp-first", "T1")
+    assert sl_id is None and close_msg is not None
+    assert p.tp_order_id == "tp-first", "stamped before the escalation, so the flatten cancels it"
+
+
+@pytest.mark.asyncio
 async def test_tp_leg_is_stamped_before_escalation(tmp_path, monkeypatch):
     # When the ladder escalates, the TP id must already be on the position so
     # close_position can cancel the leg — otherwise a live TP trigger survives

@@ -191,6 +191,8 @@ class TestTheAnswerIsRead:
 
     @pytest.mark.asyncio
     async def test_a_close_kept_open_is_not_announced_as_closed(self):
+        from bot.core.order_state import close_did_not_happen
+
         ex = _Executor([_stale_time_pos()])
         ex.close_position = AsyncMock(return_value="⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT\nkept OPEN")
         eng = _engine(ex, {"BTC/USDT": 100.5})
@@ -204,7 +206,33 @@ class TestTheAnswerIsRead:
             await eng._evaluate_live_smart_exits(ex)
         finally:
             p.stop()
-        assert notes and "KEPT OPEN" in notes[0] and "CLOSE NOT CONFIRMED" in notes[0], notes
+        assert notes and "DID NOT COMPLETE" in notes[0] and "CLOSE NOT CONFIRMED" in notes[0], notes
+        assert not any(n.startswith("Smart-exit closed") for n in notes)
+        assert close_did_not_happen(notes[0]), "the close card must not stand in for this note"
+
+    @pytest.mark.asyncio
+    async def test_a_position_another_path_closed_first_is_not_called_kept_open(self):
+        """The 'not found or already closed/closing' answer sits in the
+        kept-open bucket as 'not this caller's to close'. The note used to
+        assert 'KEPT OPEN by close_position' over a position the monitor had
+        just closed under the per-trade lock; it quotes the answer now."""
+        ex = _Executor([_stale_time_pos()])
+        ex.close_position = AsyncMock(return_value="Position t1 not found or already closed/closing.")
+        eng = _engine(ex, {"BTC/USDT": 100.5})
+        notes: list[str] = []
+
+        async def _note(msg):
+            notes.append(msg)
+        eng._close_notify_callback = _note
+        p, _ = _cfg()
+        try:
+            await eng._evaluate_live_smart_exits(ex)
+        finally:
+            p.stop()
+        assert notes and "already closed or closing under another path" in notes[0], notes
+        assert "not found or already closed/closing" in notes[0]
+        assert "KEPT OPEN by close_position" not in notes[0]
+        assert not any(n.startswith("Smart-exit closed") for n in notes)
 
     @pytest.mark.asyncio
     async def test_a_completed_close_is_announced_as_closed(self):

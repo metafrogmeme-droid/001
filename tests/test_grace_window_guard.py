@@ -63,6 +63,45 @@ def _no_sleep():
     return patch("bot.core.live_executor.asyncio.sleep", new=AsyncMock())
 
 
+class TestTheBreachCloseAuditReadsTheAnswer:
+    """close_position answers by RETURN VALUE. The grace guard audited
+    `grace_guard/CLOSED_LOCAL` before anyone read the answer, so a rejected
+    or kept-open breach-close entered the tamper-evident chain as a close."""
+
+    def _drive(self, answer):
+        exe = _executor()
+        exe.close_position = AsyncMock(return_value=answer)
+        pos = _unprotected_long(price_stop=98.0)
+        rows = []
+
+        def _audit(log, message, **kw):
+            rows.append((message, kw.get("action"), kw.get("result"), kw.get("data") or {}))
+        with patch("bot.core.live_executor.audit", _audit), _no_sleep():
+            msg = _run(exe._guard_unprotected_grace(_ex(last_price=97.0), pos))
+        grace = [r for r in rows if r[1] == "grace_guard"]
+        assert grace, rows
+        return msg, grace[-1]
+
+    def test_a_completed_close_audits_closed_local(self):
+        msg, (message, _a, result, data) = self._drive("✅ CLOSED LONG BTC/USDT:USDT @ 97")
+        assert result == "CLOSED_LOCAL" and "closed UNPROTECTED" in message
+        assert data.get("close_msg") is None
+
+    def test_a_rejected_close_does_not_audit_a_close(self):
+        answer = "CLOSE FAILED for T1: venue 5xx"
+        msg, (message, _a, result, data) = self._drive(answer)
+        assert msg == answer, "the answer still goes back to the ladder"
+        assert result == "CLOSE_FAILED" and "could NOT close" in message
+        assert data.get("close_msg") == answer
+
+    def test_a_close_kept_open_does_not_audit_a_close(self):
+        answer = "⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT:USDT\nkept OPEN"
+        msg, (message, _a, result, data) = self._drive(answer)
+        assert msg == answer
+        assert result == "NOT_CLOSED" and "did NOT complete" in message
+        assert data.get("close_msg") == answer
+
+
 class TestPlacesStop:
     def test_places_exchange_stop_and_does_not_close(self):
         exe = _executor()

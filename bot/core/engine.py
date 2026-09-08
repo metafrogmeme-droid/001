@@ -7453,8 +7453,15 @@ class RuneClawEngine:
                               f"Live smart-exit did NOT complete for {pos.symbol}: {reason}",
                               action="live_smart_exit", result="NOT_CLOSED",
                               data={"symbol": pos.symbol, "close_msg": _answer})
-                        _note = (f"🚨 Smart-exit did NOT complete for {pos.symbol} — "
-                                 f"KEPT OPEN by close_position.\n{_answer}")
+                        # One bucket, two truths: kept open in whole or in
+                        # part, OR not this request's to close (already
+                        # closed, or closing under another path that won the
+                        # per-trade lock). Quote the answer; do not assert
+                        # "kept open" over a position another path closed.
+                        _note = (f"🚨 Smart-exit DID NOT COMPLETE for {pos.symbol} — not "
+                                 f"closed by this request (kept open, or already closed "
+                                 f"or closing under another path); close_position "
+                                 f"answered:\n{_answer}")
                     if self._close_notify_callback:
                         try:
                             await self._close_notify_callback(_note)
@@ -7507,19 +7514,15 @@ class RuneClawEngine:
         Those go to the close card like a close (the operator must see them)
         but must not be audited as "auto-closed": the position is still there.
 
-        The close's own kept-open answers come from the one vocabulary in
-        order_state, so a new answer there is read here without a second
-        hand-typed list; the rest are the guards' headings and the
-        executor's unprotected escalation.
+        The reading is order_state's: the close's own kept-open answers plus
+        the guards' headings and the executor's unprotected escalation, one
+        vocabulary shared with the close-card renderer — which carried its
+        own hand-typed subset and missed the close's lower-case "kept OPEN"
+        answers.
         """
-        from bot.core.order_state import CLOSE_KEPT_OPEN_MARKERS
+        from bot.core.order_state import close_did_not_happen
 
-        text = msg or ""
-        keys = CLOSE_KEPT_OPEN_MARKERS + (
-            "CLOSE FAILED", "KEPT OPEN", "DID NOT COMPLETE", "URGENT",
-            "UNPROTECTED POSITION",
-        )
-        return any(k in text for k in keys)
+        return close_did_not_happen(msg or "")
 
     @staticmethod
     def _is_sync_message(msg: str) -> bool:
