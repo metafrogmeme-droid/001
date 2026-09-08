@@ -139,7 +139,13 @@ test('no route reads a secret without going through verifyTotp or stepUpBlock', 
   // code itself, or hands the column to anything else, is a plaintext
   // assumption that the seven known call sites do not cover.
   const { codeOnly } = require('./helpers/code_only');
-  const roots = [path.join(__dirname, '..', 'routes'), path.join(__dirname, '..', 'lib')];
+  // scripts/ IS IN THIS SWEEP, and it was the obvious omission. The backfill
+  // (scripts/reseal_totp_secrets.js) both reads this column and WRITES it, on
+  // every enrolled account at once, and the guard that exists to make sure
+  // every reader opens the value was not looking at the one caller with the
+  // largest blast radius. Same shape as the CI parse glob that stopped at
+  // routes/ — a gate whose coverage is narrower than the claim read off it.
+  const roots = ['routes', 'lib', 'scripts'].map((d) => path.join(__dirname, '..', d));
   const files = [path.join(__dirname, '..', 'auth.js')];
   for (const d of roots) {
     for (const f of fs.readdirSync(d)) if (f.endsWith('.js')) files.push(path.join(d, f));
@@ -151,6 +157,15 @@ test('no route reads a secret without going through verifyTotp or stepUpBlock', 
     // Each use must be a SELECT of the column, a write, or a hand-off to the
     // two functions that open it.
     for (const m of src.matchAll(/[\w.[\]']*totp_secret[\w.[\]']*/g)) {
+      // THE COLUMN, not every identifier containing its name. The filename
+      // `reseal_totp_secrets.js` appears in two warning strings and matched
+      // here — a fourth false positive of the same family as the three below,
+      // but one the scan can rule out precisely instead of by exception:
+      // strip the receiver and the quotes, and what remains must BE the
+      // column. `user.totp_secret`, `rows[0].totp_secret` and the bare
+      // literal all still match; `reseal_totp_secrets.js` reduces to `js`.
+      const token = m[0].replace(/^.*[.[]/, '').replace(/['\]]/g, '');
+      if (token !== 'totp_secret') continue;
       const line = src.slice(src.lastIndexOf('\n', m.index) + 1,
         src.indexOf('\n', m.index) === -1 ? undefined : src.indexOf('\n', m.index));
       // A BARE STRING LITERAL IS A COLUMN NAME, NOT A READ. account_erasure.js

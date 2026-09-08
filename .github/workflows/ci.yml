@@ -723,10 +723,15 @@ jobs:
       # reachable that way. It fails at RUNTIME, on the first request to
       # whatever was never imported. Same gate the token job already runs, for
       # the same reason.
+      # scripts/ WAS NOT IN THIS GLOB, which is the same hole one directory
+      # over: an operator-run script is the code least likely to be exercised
+      # before the day it is needed, and the day it is needed is an incident.
+      # `reseal_totp_secrets.js` writes to the column holding a permanent second
+      # factor and nothing here would have refused to ship a syntax error in it.
       - name: Parse — every script must at least compile
         working-directory: app
         run: |
-          for f in *.js lib/*.js routes/*.js public/js/*.js; do
+          for f in *.js lib/*.js routes/*.js public/js/*.js scripts/*.js; do
             [ -f "$f" ] || continue
             node --check "$f" || exit 1
           done

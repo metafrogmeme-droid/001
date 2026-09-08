@@ -825,6 +825,13 @@
       </div>
       <div id="tfa-on" class="hidden">
         <p class="small"><svg class="icon" style="width:14px;height:14px;color:var(--up)" aria-hidden="true"><use href="#icon-check"></use></svg> <span data-i18n-html="acc.tfa_on">2FA is <b>enabled</b>.</span> <span class="muted" id="tfa-backups"></span></p>
+        <!-- Shown ONLY when this account's stored seed is not encrypted, which
+             /2fa/setup already tells people at enrolment. The users it never
+             told are the ones enrolled before WEB_CREDS_KEY existed, and their
+             remedy is here: disabling and re-enrolling reseals the row. No
+             badge for the good case and none for a missing field — an absent
+             reading is not a measurement, and "encrypted ✓" earns nothing. -->
+        <p class="small hidden" id="tfa-at-rest" style="color:var(--text-2)"></p>
         <div class="field mt-2"><label class="visually-hidden" for="tfa-disable-code" data-i18n="a11y.tfa_disable">Current authenticator code or a backup code</label><input class="input" type="text" id="tfa-disable-code" placeholder="Current code or backup code" autocomplete="one-time-code" data-i18n-attr="placeholder:acc.tfa_ph_disable"></div>
         <button class="btn btn--ghost btn--sm" data-act="tfaDisable" data-i18n="acc.tfa_disable">Disable 2FA</button>
       </div>
@@ -1350,6 +1357,22 @@ function tfaShow(state){
   for(const id of ['tfa-off','tfa-pending','tfa-on'])
     document.getElementById(id).classList.toggle('hidden',id!=='tfa-'+state);
 }
+// What the account page says about where THIS account's seed is stored.
+// Pure and named so it can be driven with each of the four readings, rather
+// than pinned by grepping the page that builds it — the inline engine-status
+// chip is the standing lesson there.
+//
+// STRICTLY false. `null` means no secret is stored and `undefined` means the
+// server did not say; neither of those is "your seed is in the clear", and
+// painting that warning from an absent reading would be the same defect one
+// level up from the one it warns about. Silence for the sealed case too: an
+// "encrypted ✓" badge earns nothing and trains people past the line that does.
+function tfaAtRestNote(encryptedAtRest){
+  return encryptedAtRest===false
+    ?'Your authenticator seed is stored unencrypted on this deployment. '
+      +'Disabling and re-enrolling 2FA will store it encrypted.'
+    :'';
+}
 async function tfaRefresh(){
   try{
     const s=await apiAuth('/auth/2fa/status',null,'GET');
@@ -1358,6 +1381,10 @@ async function tfaRefresh(){
       tfaShow('on');
       document.getElementById('tfa-backups').textContent=
         s.backup_codes_remaining!=null?`${s.backup_codes_remaining} backup codes left.`:'';
+      const ar=document.getElementById('tfa-at-rest');
+      const note=tfaAtRestNote(s.encrypted_at_rest);
+      ar.textContent=note;
+      ar.classList.toggle('hidden',!note);
     }else{tfaShow('off');}
   }catch{document.getElementById('tfa-state').textContent='2FA status unavailable.';}
 }

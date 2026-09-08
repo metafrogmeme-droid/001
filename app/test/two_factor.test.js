@@ -96,7 +96,10 @@ test('full 2FA lifecycle: setup → enable → gated login → backup → disabl
 
   // Fresh account: 2FA off, plain login works.
   let st = await req('GET', '/api/auth/2fa/status', { token });
-  assert.deepEqual(st.data, { enabled: false, pending: false, backup_codes_remaining: null });
+  // `encrypted_at_rest` is null, not false: this account has no stored seed, so
+  // there is nothing here that is or is not encrypted.
+  assert.deepEqual(st.data, { enabled: false, pending: false,
+    backup_codes_remaining: null, encrypted_at_rest: null });
 
   // Setup stages a secret but does NOT enable — a wrong code can't lock out.
   const setup = await req('POST', '/api/auth/2fa/setup', { token });
@@ -150,6 +153,61 @@ test('full 2FA lifecycle: setup → enable → gated login → backup → disabl
   const loginAfter = await req('POST', '/api/auth/login',
     { body: { email: 'tfa1@test.io', password: 'x'.repeat(12) } });
   assert.equal(loginAfter.status, 200, 'clean single-factor login after disable');
+});
+
+test('/2fa/status reports where THIS account\'s seed actually landed', async () => {
+  // End to end, through the real routes, because the defect this covers is not
+  // in any one function: setting WEB_CREDS_KEY flips `secretsAreSealed()` to
+  // true, silences the boot warning, and reseals no existing row. A status
+  // field wired to the deployment answer would report both accounts below
+  // identically, and the wrong one of the two would be believed.
+  const before = process.env.WEB_CREDS_KEY;
+  const enrol = async (email) => {
+    const reg = await req('POST', '/api/auth/register',
+      { body: { email, password: 'x'.repeat(12) } });
+    assert.equal(reg.status, 200, email);
+    const token = reg.data.token;
+    const setup = await req('POST', '/api/auth/2fa/setup', { token });
+    assert.equal(setup.status, 200);
+    const good = await req('POST', '/api/auth/2fa/enable', { token,
+      body: { code: totp.hotp(setup.data.secret, Math.floor(Date.now() / 30_000)) } });
+    assert.equal(good.status, 200);
+    return { token, setup };
+  };
+
+  try {
+    // The deployment the operator described: no key, seeds in the clear.
+    delete process.env.WEB_CREDS_KEY;
+    const bare = await enrol('tfa-bare@test.io');
+    assert.equal(bare.setup.data.encrypted_at_rest, false, 'enrolment said so');
+    let st = await req('GET', '/api/auth/2fa/status', { token: bare.token });
+    assert.equal(st.data.encrypted_at_rest, false,
+      'the account page is the only surface an already-enrolled user reads, and '
+      + 'it is the one that never said anything');
+
+    // Key set. New enrolments seal — and the row above does NOT change, which
+    // is the whole point of the backfill.
+    process.env.WEB_CREDS_KEY = Buffer.alloc(32, 3).toString('base64');
+    const sealed = await enrol('tfa-sealed@test.io');
+    assert.equal(sealed.setup.data.encrypted_at_rest, true);
+    st = await req('GET', '/api/auth/2fa/status', { token: sealed.token });
+    assert.equal(st.data.encrypted_at_rest, true);
+
+    st = await req('GET', '/api/auth/2fa/status', { token: bare.token });
+    assert.equal(st.data.encrypted_at_rest, false,
+      'setting the key resealed an existing row — if this ever passes as true, '
+      + 'the backfill has been made redundant and this test should say so');
+    // And the second factor still works for the account whose seed is plaintext:
+    // a migration that locks out the users it protects is worse than the defect.
+    const login = await req('POST', '/api/auth/login', {
+      body: { email: 'tfa-bare@test.io', password: 'x'.repeat(12),
+        totp_code: totp.hotp(bare.setup.data.secret, Math.floor(Date.now() / 30_000)) },
+    });
+    assert.equal(login.status, 200);
+  } finally {
+    if (before === undefined) delete process.env.WEB_CREDS_KEY;
+    else process.env.WEB_CREDS_KEY = before;
+  }
 });
 
 test('landing page carries the 2FA wiring', () => {

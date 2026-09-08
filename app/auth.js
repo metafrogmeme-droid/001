@@ -745,6 +745,7 @@ router.get('/me', authMiddleware, async (req, res) => {
 
 router.get('/2fa/status', authMiddleware, async (req, res) => {
   try {
+    const totp = require('./lib/totp');
     const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.user.user_id]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     let backups = [];
@@ -753,6 +754,15 @@ router.get('/2fa/status', authMiddleware, async (req, res) => {
       enabled: !!rows[0].totp_enabled,
       pending: !rows[0].totp_enabled && !!rows[0].totp_secret,
       backup_codes_remaining: rows[0].totp_enabled ? backups.length : null,
+      // THIS ROW, not this deployment. /2fa/setup answers the same question
+      // with `secretsAreSealed()`, which is correct there — it is describing a
+      // write happening in that request. Here it would be a claim about a seed
+      // stored possibly years ago, and setting WEB_CREDS_KEY re-seals nothing:
+      // a user enrolled before the key existed would be told their seed is
+      // encrypted by the very deploy that left it in the clear. `null` when
+      // there is no secret at all, because a user who never enrolled does not
+      // have an unencrypted seed either.
+      encrypted_at_rest: totp.secretIsSealed(rows[0].totp_secret),
     });
   } catch (err) {
     res.status(500).json({ error: '2FA status failed' });

@@ -917,6 +917,15 @@ async function migrateWithRetry() {
   // before the schema is in place — that is why they wait on the retry loop
   // rather than on the listen call.
 
+  // COUNT the 2FA seeds that are still stored in the clear, rather than
+  // inferring "encrypted at rest" from WEB_CREDS_KEY being set. auditConfig()
+  // above warns when the key is UNSET; setting it silences that warning and
+  // reseals nothing, so the rows enrolled before it had no surface at all.
+  // Best-effort by contract, and an unreachable database reports "could not be
+  // checked" rather than zero.
+  require('./lib/totp_seed_audit').auditSealedSeeds()
+    .catch(() => { /* a diagnostic must never be the thing that breaks boot */ });
+
   // Custom "tell me when…" alert tripwires: evaluate active alerts against
   // public tickers once a minute (skips instantly when none are armed).
   require('./lib/alerts').startAlertEngine();
