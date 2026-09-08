@@ -187,6 +187,27 @@ and `readable_venues()` are the readings now, both derived from one
 `_load_or_create_master_key` GENERATES a new key when `RUNECLAW_SECRETS_KEY` is
 unset and the data dir was wiped, and its own warning says so.
 
+**And the third store, sharing that same key, was DESTROYING what it could not
+read.** `secrets_vault._load_vault` dropped every entry `decrypt` refused and
+both write paths then saved the map wholesale — `store_secrets` (reached by
+`/setexchange`, `/setgateway`, `/setllm`, which is what an operator runs
+*because* a secret went missing) and `seed_and_restore` (runs at boot, saves
+whenever any managed env value differs, which after a key change is all of
+them). One boot erased the lot, permanently, from a file with no `.bak`.
+`exchange_credentials._load` was hardened against that exact thing and says so
+in capitals; the vault never got the equivalent. **The fix is not the same
+shape, and that matters**: there the whole FILE failed to parse, so a
+`_load_failed` flag blocking every save was right; here the file parses and
+individual ENTRIES fail, so blocking the save would take the vault offline over
+one stale key. `_load_vault` returns `(readable, opaque)` and `_save_vault`
+writes the un-openable ciphertext back verbatim — a re-entered value taking
+precedence, or the fix would be undoable — so readable entries keep working and
+unreadable ones stay recoverable. `/vault` has a fourth bucket saying which,
+because "env-only, mirrored on next boot" is a promise about a copy already
+sitting there. The Node half (`app/lib/secrets_vault.js`) reads the same file
+with the same key and was left alone on purpose: it has no write path, so it
+cannot erase, and it claims nothing it has not restored.
+
 **Ask which OTHER surface makes the same claim — before calling the fix
 done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
 still had the defect `/open_positions` had just been cured of. A `theater.js`
