@@ -34,6 +34,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -116,27 +117,68 @@ def _cipher():
         return None
 
 
-def _load_vault(cipher) -> dict[str, str]:
+def _load_vault(cipher) -> tuple[dict[str, str], dict[str, str]]:
+    """``(readable, opaque)`` — the plaintext this process can produce, and the
+    CIPHERTEXT of every entry it could not open, kept verbatim.
+
+    THE SECOND HALF IS THE POINT, AND IT USED TO BE DROPPED ON THE FLOOR.
+
+    An entry that will not decrypt was logged and left out of the returned map.
+    Both write paths then saved that map WHOLESALE — `store_secrets` (reached by
+    /setexchange, /setgateway and /setllm, which is what an operator runs when a
+    secret has gone missing, i.e. exactly this situation) and `seed_and_restore`
+    (which runs at boot and saves whenever any env value differs). So the next
+    write erased every entry nobody could read, permanently, from a file with no
+    .bak anywhere in this module.
+
+    `exchange_credentials._load` was hardened against the identical failure and
+    says so in capitals — AN UNREADABLE STORE IS NOT AN EMPTY STORE, AND THE
+    DIFFERENCE IS EVERY KEY IN IT. This module shares that module's master key,
+    through the same loader, so it is reached by the same event: a wiped data dir
+    with RUNECLAW_SECRETS_KEY unset regenerates the key and every entry here
+    stops decrypting at once.
+
+    It is NOT the same fix, though. There the whole file failed to parse, so a
+    `_load_failed` flag blocking every save was right. Here the file parses and
+    individual entries fail, so blocking the save would take the vault offline
+    over one stale key. Carrying the opaque bytes through is what keeps the
+    readable entries working AND keeps the unreadable ones recoverable — restore
+    the master key and they come back.
+    """
     p = Path(_vault_file())
     if not p.exists():
-        return {}
+        return {}, {}
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, ValueError):
         log.error("secrets vault file unreadable — ignoring it")
-        return {}
+        return {}, {}
     out: dict[str, str] = {}
+    opaque: dict[str, str] = {}
     for k, ct in (raw.items() if isinstance(raw, dict) else []):
         try:
             out[k] = cipher.decrypt(str(ct).encode()).decode()
         except Exception:
-            log.warning("secrets vault: could not decrypt %s (stale master key?)", k)
-    return out
+            log.warning("secrets vault: could not decrypt %s (stale master key?) "
+                        "— kept as-is, not erased", k)
+            opaque[k] = str(ct)
+    return out, opaque
 
 
-def _save_vault(cipher, plain: dict[str, str]) -> None:
+def _save_vault(cipher, plain: dict[str, str],
+                opaque: Optional[dict[str, str]] = None) -> None:
+    """Write the vault: `plain` freshly encrypted, `opaque` passed through.
+
+    PLAIN WINS on a key present in both — an operator re-entering a secret is
+    replacing the copy nobody could read, and keeping the old ciphertext would
+    make the fix undoable. Everything else in `opaque` is written back byte for
+    byte, which is what stops a save from erasing it.
+    """
     p = Path(_vault_file())
     enc = {k: cipher.encrypt(v.encode()).decode() for k, v in plain.items()}
+    for k, ct in (opaque or {}).items():
+        if k not in enc:
+            enc[k] = ct
     # 0600 lands on the scratch file before the rename, so the vault is
     # never briefly world-readable under its final name.
     atomic_write_json(p, enc, indent=2, mode=0o600)
@@ -179,9 +221,14 @@ def store_secrets(mapping: dict[str, str]) -> list[str]:
             log.warning("secrets vault: no cipher — %d secret(s) set for THIS "
                         "process only, not persisted", len(stored))
             return stored
-        persisted = _load_vault(cipher)
+        persisted, opaque = _load_vault(cipher)
         persisted.update(clean)
-        _save_vault(cipher, persisted)
+        # THE OPAQUE HALF RIDES ALONG. Without it this save is the erasure: an
+        # operator re-entering ONE secret after a key change wrote back a vault
+        # containing only what happened to decrypt, and every other entry was
+        # gone. `/setexchange` is what somebody runs *because* secrets went
+        # missing, so the destructive path is the recovery path.
+        _save_vault(cipher, persisted, opaque)
         log.info("secrets vault: stored %d operator secret(s): %s",
                  len(stored), ", ".join(stored))
     except Exception as exc:  # pragma: no cover - persistence is best-effort
@@ -190,24 +237,44 @@ def store_secrets(mapping: dict[str, str]) -> list[str]:
     return stored
 
 
-def vault_status() -> dict[str, dict[str, bool]]:
-    """Presence map for every managed secret: {key: {env, vault}}.
+def vault_status() -> dict[str, dict]:
+    """State map for every managed secret: ``{key: {env, vault, state}}``.
 
-    Never returns values — only whether each key is currently in the process
-    environment and whether an encrypted copy exists in the vault (i.e. would
-    survive a wiped .env). Empty dict when the vault is disabled/unavailable.
+    Never returns values. ``env`` is whether the key is in the process
+    environment; ``vault`` is whether a copy exists that this process can READ;
+    ``state`` is the third question, which nothing could ask before:
+
+        readable    a copy is there and opens — it survives a wiped .env
+        unreadable  a copy is there and will NOT open. Not a milder "absent":
+                    the bytes exist, the master key is what changed, and
+                    re-entering the secret is a different act from setting one
+                    for the first time
+        absent      no copy at all
+
+    `vault` stayed a bool and stayed honest — "is there a copy I can read" is a
+    real question — but it was the ONLY question, so `/vault` filed an entry
+    nobody could decrypt under "env-only, mirrored to the vault on next boot"
+    (a promise about a copy that is already there) or under absent (on the
+    command whose docstring says it "is how you verify nothing is left
+    unprotected").
+
+    Empty dict when the vault is disabled/unavailable — the caller renders that
+    as "vault unavailable", which is the honest reading and not a per-key claim.
     """
-    out: dict[str, dict[str, bool]] = {}
+    out: dict[str, dict] = {}
     try:
         stored: dict[str, str] = {}
+        opaque: dict[str, str] = {}
         if _enabled():
             cipher = _cipher()
             if cipher is not None:
-                stored = _load_vault(cipher)
+                stored, opaque = _load_vault(cipher)
         for k in _managed_keys():
             out[k] = {
                 "env": bool(os.environ.get(k, "").strip()),
                 "vault": bool(stored.get(k)),
+                "state": ("readable" if stored.get(k)
+                          else "unreadable" if k in opaque else "absent"),
             }
     except Exception as exc:  # pragma: no cover - status must never raise
         log.debug("secrets vault: status failed: %s", exc)
@@ -220,7 +287,7 @@ def seed_and_restore() -> dict[str, list[str]]:
     Returns ``{"seeded": [...], "restored": [...]}`` (key NAMES only — never
     values) for logging/tests. No-op + no files created when disabled, crypto is
     absent, or there is nothing to do. Never raises."""
-    summary: dict[str, list[str]] = {"seeded": [], "restored": []}
+    summary: dict[str, list[str]] = {"seeded": [], "restored": [], "unreadable": []}
     try:
         if not _enabled():
             return summary
@@ -234,7 +301,7 @@ def seed_and_restore() -> dict[str, list[str]]:
         cipher = _cipher()
         if cipher is None:
             return summary
-        stored = _load_vault(cipher)
+        stored, opaque = _load_vault(cipher)
         changed = False
         for k in keys:
             env_val = os.environ.get(k, "").strip()
@@ -246,11 +313,25 @@ def seed_and_restore() -> dict[str, list[str]]:
             elif stored.get(k):
                 os.environ[k] = stored[k]
                 summary["restored"].append(k)
+            elif k in opaque:
+                # NOT restored, and not absent either. Saying nothing here is
+                # how a boot that recovered nothing looks exactly like a boot
+                # with nothing to recover — on the module whose entire promise
+                # is that a wiped .env self-heals.
+                summary["unreadable"].append(k)
         if changed:
             try:
-                _save_vault(cipher, stored)
+                _save_vault(cipher, stored, opaque)
             except OSError as exc:
                 log.error("secrets vault: save failed: %s", exc)
+        if summary["unreadable"]:
+            log.critical(
+                "SECRETS VAULT holds %d secret(s) it CANNOT DECRYPT and could "
+                "not restore: %s — the master key changed (a wiped data dir "
+                "with RUNECLAW_SECRETS_KEY unset does it). The ciphertext is "
+                "kept, not erased: restore the old key to recover it, or set "
+                "these again to replace it.",
+                len(summary["unreadable"]), ", ".join(summary["unreadable"]))
         if summary["restored"]:
             log.critical(
                 "SECRETS VAULT restored %d secret(s) missing from the "

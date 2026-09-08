@@ -403,9 +403,18 @@ class AccountCommands:
                 if key.startswith(prefix):
                     return cmd
             return "/setllm <provider> <key>" if key.endswith("_API_KEY") else ".env"
-        protected, env_only, absent = [], [], []
+        # FOUR BUCKETS, and the fourth used to be filed under two wrong ones.
+        # An entry the vault holds but cannot DECRYPT has a copy on disk, so
+        # "env-only … mirrored to the vault on next boot" is a promise about a
+        # file that already has it; and with nothing in .env it fell to
+        # "Missing", on the card whose own docstring says this command "is how
+        # you verify nothing is left unprotected". Neither says the true thing:
+        # the bytes are there and the master key changed.
+        protected, env_only, absent, unreadable = [], [], [], []
         for key, s in sorted(status.items()):
-            if s["vault"]:
+            if s.get("state") == "unreadable":
+                unreadable.append(key)
+            elif s["vault"]:
                 protected.append(key)
             elif s["env"]:
                 env_only.append(key)  # present but would die with .env
@@ -415,6 +424,16 @@ class AccountCommands:
         lines = [f"🔐 <b>Secrets vault</b>\n{SEP}"]
         lines.append(f"🟢 <b>Protected</b> (encrypted, survive redeploys): "
                      f"<code>{len(protected)}</code>")
+        if unreadable:
+            # ABOVE the other buckets: it is the only one that means something
+            # is already broken, and it explains every other oddity on the box.
+            lines.append("🟠 <b>Stored but UNREADABLE</b> (the master key "
+                         "changed — a wiped <code>data/</code> with "
+                         "<code>RUNECLAW_SECRETS_KEY</code> unset does it). The "
+                         "ciphertext is kept, not erased; restore the old key, "
+                         "or set these again to replace them:\n"
+                         + "\n".join(f"- <code>{k}</code> → {_fix_for(k)}"
+                                     for k in unreadable))
         if env_only:
             # Present in .env and not yet in the vault: mirrored on the next
             # boot, but the .env copy is the one that stays in the clear —

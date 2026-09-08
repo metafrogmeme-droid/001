@@ -130,7 +130,7 @@ class TestNoOpSafety:
         _isolate(monkeypatch, tmp_path, enabled="false")
         monkeypatch.setenv("BITGET_API_KEY", "X")
         s = sv.seed_and_restore()
-        assert s == {"seeded": [], "restored": []}
+        assert s == {"seeded": [], "restored": [], "unreadable": []}
         assert not (tmp_path / "secrets_vault.enc").exists()
 
     def test_idle_creates_no_files(self, tmp_path, monkeypatch):
@@ -138,7 +138,7 @@ class TestNoOpSafety:
         # no vault file (keeps fresh checkouts and tests clean).
         _isolate(monkeypatch, tmp_path)
         s = sv.seed_and_restore()
-        assert s == {"seeded": [], "restored": []}
+        assert s == {"seeded": [], "restored": [], "unreadable": []}
         assert not (tmp_path / "secrets_vault.enc").exists()
         assert not (tmp_path / ".exchange_secret.key").exists()
 
@@ -147,7 +147,7 @@ class TestNoOpSafety:
         monkeypatch.setenv("BITGET_API_KEY", "X")
         monkeypatch.setattr(sv, "_cipher", lambda: None)  # simulate no crypto
         s = sv.seed_and_restore()
-        assert s == {"seeded": [], "restored": []}
+        assert s == {"seeded": [], "restored": [], "unreadable": []}
         assert not (tmp_path / "secrets_vault.enc").exists()
 
 
@@ -183,9 +183,12 @@ class TestVaultStatus:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-live-env-only")  # env only
 
         st = sv.vault_status()
-        assert st["BITGET_API_KEY"] == {"env": True, "vault": True}
-        assert st["OPENAI_API_KEY"] == {"env": True, "vault": False}
-        assert st["GROQ_API_KEY"] == {"env": False, "vault": False}
+        assert st["BITGET_API_KEY"] == {"env": True, "vault": True,
+                                        "state": "readable"}
+        assert st["OPENAI_API_KEY"] == {"env": True, "vault": False,
+                                        "state": "absent"}
+        assert st["GROQ_API_KEY"] == {"env": False, "vault": False,
+                                      "state": "absent"}
         # Names only — no secret value may appear anywhere in the payload.
         flat = repr(st)
         assert "AKEY123456789" not in flat and "sk-live-env-only" not in flat
