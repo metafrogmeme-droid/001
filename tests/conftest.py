@@ -223,3 +223,51 @@ def _restore_lookahead_flags():
     for name, val in saved.items():
         if val is not None and getattr(CONFIG.analyzer, name, None) != val:
             object.__setattr__(CONFIG.analyzer, name, val)
+
+
+@pytest.fixture(autouse=True)
+def _contain_vault_writes_to_the_environment():
+    """Hand the vault-managed environment variables back after every test.
+
+    THE SAME SHAPE AS THE FIXTURE ABOVE, AND IT COST MORE. `store_secrets`
+    writes each secret straight into `os.environ` — deliberately, and its own
+    comment says why: "Always update the live environment first — recovery of
+    the running process". `seed_and_restore` does the same at boot. Both are
+    correct; neither goes through monkeypatch, so monkeypatch's teardown has
+    no record of the write and cannot undo it.
+
+    ONE test did it — `test_vault_keeps_what_it_cannot_read.py::
+    test_the_recovery_command_does_not_erase_the_rest` calls
+    `store_secrets({"WEB_GATEWAY_SECRET": "g" * 48})` — and `WEB_GATEWAY_SECRET`
+    then stayed set for the rest of the session. `user_gateway._secret()` reads
+    the environment on every request and falls back to the module attribute
+    only when it is unset, so every later test that plants a secret by
+    monkeypatching `ug._GATEWAY_SECRET` was silently overridden: **40 of
+    tests/test_web_gateway.py's 48 failed 403 in a full run and all 48 passed
+    alone.** They cover confirm, the live-mode gate, portfolio and authority
+    apply/revoke — and `ci_test_gate`'s flake filter re-ran each one alone, saw
+    it pass, and counted none of them. The money-facing HTTP surface was in CI
+    and gating nothing, for as long as that leak existed.
+
+    Restore rather than assert, for the reason the fixture above gives: the
+    leaking test tested exactly what it meant to, and the production write it
+    exercises is the behaviour under test. Containment belongs in the harness,
+    not in a rule each test has to remember. The behaviour claim that
+    `store_secrets` reaches the environment is not made vacuous by this — it is
+    asserted WITHIN a single test, before this teardown runs.
+    """
+    import os as _os
+    try:
+        from bot.core.secrets_vault import _managed_keys
+        keys = tuple(_managed_keys()) + ("RUNECLAW_SECRETS_KEY", "RUNECLAW_VAULT_KEYS")
+    except Exception:  # vault unavailable — nothing writes these, nothing to hold
+        yield
+        return
+
+    saved = {k: _os.environ.get(k) for k in keys}
+    yield
+    for name, val in saved.items():
+        if val is None:
+            _os.environ.pop(name, None)
+        elif _os.environ.get(name) != val:
+            _os.environ[name] = val
