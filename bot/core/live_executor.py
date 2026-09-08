@@ -42,7 +42,8 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.order_state import (
-    CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, pending_cancel_verdict, position_presence,
+    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, order_status,
+    pending_cancel_verdict, position_presence,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
@@ -311,6 +312,57 @@ def execution_indicates_failure(result: str) -> bool:
     if not isinstance(result, str):
         return True
     return any(token in result for token in _EXECUTION_FAILURE_TOKENS)
+
+
+def send_outcome_unknown(exc: BaseException) -> bool:
+    """Whether a raise from the close order's SEND leaves it unknown if the
+    venue received the order.
+
+    ccxt files everything transport-shaped under ``NetworkError``, and most
+    of that family is the venue ANSWERING — a rate limit (429, 418, Bitget's
+    1001/50009), a 5xx, maintenance, a bad nonce. Those are refusals: the
+    order never reached the book, and reading them as "may have reached the
+    venue" told every post-fill guard to stand down on a position whose
+    stops the cancel pass had just removed. Two members are genuinely
+    unknown: a timeout (socket, 408, 504 — no answer at all), and a
+    connection that dropped AFTER the request was on the wire (the server
+    disconnected, the socket reset), which ccxt raises as
+    ``ExchangeNotAvailable`` from the aiohttp connection error. A connection
+    that never opened — DNS, refused, TLS — sent nothing and is a refusal.
+    """
+    if isinstance(exc, ccxt.RequestTimeout):
+        return True
+    if not isinstance(exc, ccxt.ExchangeNotAvailable):
+        return False
+    cause = exc.__cause__
+    try:
+        import aiohttp
+    except ImportError:                      # pragma: no cover — ccxt needs it
+        return False
+    if isinstance(cause, aiohttp.ClientConnectorError):
+        return False                         # never connected: nothing was sent
+    return isinstance(cause, aiohttp.ClientConnectionError)
+
+
+def stop_replacement_note(stop_loss: Any, take_profit: Any) -> str:
+    """What the monitor will do about a position left without a stop.
+
+    The periodic re-place (and the grace one) runs only for a position that
+    carries BOTH a stop level and a target: ``_place_sl_tp`` refuses a pair
+    with a non-positive leg. Every card used to promise "the monitor
+    re-places one on its next pass" unconditionally, which is false for an
+    adopted or emergency position with no target — those are price-monitored
+    only, and the operator has to put the stop on by hand.
+    """
+    try:
+        both = float(stop_loss or 0) > 0 and float(take_profit or 0) > 0
+    except (TypeError, ValueError):
+        both = False
+    if both:
+        return ("if it is still there without a stop the monitor re-places "
+                "one on its next pass")
+    return ("it carries no target level, so the monitor will NOT re-place a "
+            "stop on it — put one on it by hand")
 
 # F-07 FIX: Persistence file for live positions
 _POSITIONS_FILE = os.path.join(
@@ -2115,9 +2167,9 @@ class LiveExecutor:
                     f"to flatten it and close_position did not close it — still open "
                     f"in whole or in part, or already closed or closing under another "
                     f"path. This guard placed nothing further; close_position's own "
-                    f"line below says what it kept, and if it is still there without "
-                    f"a stop the monitor re-places one on its next pass. Review it on "
-                    f"the venue NOW.\n{close_msg}{rest_note}")
+                    f"line below says what it kept, and "
+                    f"{stop_replacement_note(getattr(pos, 'stop_loss', None), getattr(pos, 'take_profit', None))}. "
+                    f"Review it on the venue NOW.\n{close_msg}{rest_note}")
             return (
                 f"⚠️ <b>POSITION CLOSED — {pos.symbol}</b>\n"
                 f"The venue filled at <b>{got}x</b> against a {want}x target "
@@ -4189,8 +4241,9 @@ class LiveExecutor:
         Extracted from execute() (slice 2); the close's answer is READ now
         rather than assumed. Returns ``(abort, warn)``. ``abort`` is the card
         execute() returns with — the position was closed, or the close did not
-        complete and close_position kept it tracked and re-protected, so
-        nothing more may be placed on it. ``warn`` is the URGENT note for the
+        complete and close_position kept it tracked (its answer says whether
+        a stop was re-placed), so nothing more may be placed on it. ``warn``
+        is the URGENT note for the
         fill card when the flatten FAILED outright: the position is open with
         a broken risk:reward and nothing protecting it, so execute() carries
         on into SL/TP placement — the only protection left — and the card says
@@ -4277,9 +4330,9 @@ class LiveExecutor:
                             f"did not close it — still open in whole or in part, or "
                             f"already closed or closing under another path. This guard "
                             f"placed nothing further; close_position's own line below "
-                            f"says what it kept, and if it is still there without a stop "
-                            f"the monitor re-places one on its next pass. Review it on "
-                            f"the venue NOW.\n{close_msg}"
+                            f"says what it kept, and "
+                            f"{stop_replacement_note(idea.stop_loss, idea.take_profit)}. "
+                            f"Review it on the venue NOW.\n{close_msg}"
                         ), ""
                     return (
                         f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
@@ -4302,8 +4355,9 @@ class LiveExecutor:
         (flatten_outcome) rather than assumed. Returns ``(abort,
         _lev_close_failed)``. ``abort`` is the card execute() returns with —
         the position was closed, or close_position did not complete the close
-        and kept it tracked and re-protected, so nothing more may be placed on
-        it; else None. ``_lev_close_failed`` is True when the flatten did not
+        and kept it tracked — its answer says whether a stop was re-placed —
+        so nothing more may be placed on it; else None. ``_lev_close_failed``
+        is True when the flatten did not
         close the position: on the failed arm (raised or "CLOSE FAILED") the
         run carries on into stop placement — the only protection left — and
         the card must say AUTOMATIC CLOSE FAILED in those words rather than as
@@ -4477,8 +4531,10 @@ class LiveExecutor:
                                 "leverage.")
                         if _outcome == "kept_open":
                             # Not closed, and not ours to protect either:
-                            # close_position kept it tracked and re-placed
-                            # what it could. Returning here is what keeps
+                            # close_position kept it tracked, and its own
+                            # line says whether a stop was re-placed (its
+                            # final handler re-places nothing). Returning
+                            # here is what keeps
                             # execute() from putting a SECOND set of stops on
                             # it; the card must not say "closed" about it —
                             # and must not carry the EXECUTION ABORTED token
@@ -4503,9 +4559,9 @@ class LiveExecutor:
                                 f"not close it — still open in whole or in part, or "
                                 f"already closed or closing under another path. This "
                                 f"guard placed nothing further; close_position's own "
-                                f"line below says what it kept, and if it is still there "
-                                f"without a stop the monitor re-places one on its next "
-                                f"pass. Review it on the venue NOW.\n{close_msg}{_rest_note}",
+                                f"line below says what it kept, and "
+                                f"{stop_replacement_note(idea.stop_loss, idea.take_profit)}. "
+                                f"Review it on the venue NOW.\n{close_msg}{_rest_note}",
                                 True,
                             )
                         return (
@@ -4654,9 +4710,9 @@ class LiveExecutor:
                              f"not close the position — still open in whole or in part, "
                              f"or already closed or closing under another path. This path "
                              f"placed nothing further; close_position's own line below "
-                             f"says what it kept, and if it is still there without a stop "
-                             f"the monitor re-places one on its next pass. Review it on "
-                             f"the venue NOW.\n{close_msg}", None, None)
+                             f"says what it kept, and "
+                             f"{stop_replacement_note(idea.stop_loss, idea.take_profit)}. "
+                             f"Review it on the venue NOW.\n{close_msg}", None, None)
                         )
                     return (
                         (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
@@ -6476,12 +6532,23 @@ class LiveExecutor:
             if breached:
                 msg = await self.close_position(
                     pos.trade_id, f"{reason} (grace sub-loop)", price)
+                # close_position answers by RETURN VALUE. This audit used to
+                # say CLOSED_LOCAL before anyone read the answer, so a
+                # rejected or kept-open breach-close entered the chain as a
+                # close; the ladder reads the answer, and so does the chain.
+                _outcome = flatten_outcome(msg)
+                _result = {"closed": "CLOSED_LOCAL",
+                           "failed": "CLOSE_FAILED"}.get(_outcome, "NOT_CLOSED")
+                _what = {"closed": "closed",
+                         "failed": "could NOT close (rejected)"}.get(
+                    _outcome, "did NOT complete the close of")
                 audit(trade_log,
-                      f"Grace sub-loop closed UNPROTECTED {pos.symbol} on {reason} "
+                      f"Grace sub-loop {_what} UNPROTECTED {pos.symbol} on {reason} "
                       f"@ ${price:.6f}",
-                      action="grace_guard", result="CLOSED_LOCAL",
+                      action="grace_guard", result=_result,
                       data={"trade_id": pos.trade_id, "symbol": pos.symbol,
-                            "reason": reason, "price": price, "iterations": i + 1})
+                            "reason": reason, "price": price, "iterations": i + 1,
+                            "close_msg": None if _outcome == "closed" else msg})
                 return msg
 
             # 3. Unprotected but not breached — wait a beat, then retry.
@@ -7139,9 +7206,15 @@ class LiveExecutor:
                 retry_sl, retry_tp = await self._place_sl_tp(
                     exchange, pos.symbol, direction, qty,
                     pos.stop_loss, pos.take_profit)
-                if retry_sl:
+                if retry_sl or retry_tp:
+                    # _place_sl_tp cancels every resting plan order before it
+                    # places, so the first attempt's TP is gone whether or
+                    # not the retry's own TP landed: name the retry's, never
+                    # the dead one. A record naming a dead TP beside a live
+                    # SL kept the periodic stop check (it fires on an EMPTY
+                    # id) from ever refreshing it, and the live TP the retry
+                    # placed went untracked.
                     sl_id = retry_sl
-                if tp_id is None and retry_tp:
                     tp_id = retry_tp
             except Exception as exc:
                 logger.warning("Post-fill SL retry raised for %s: %s", pos.symbol, exc)
@@ -7223,8 +7296,9 @@ class LiveExecutor:
                     f"exchange NOW.\n{close_msg or ''}")
             if _outcome == "kept_open":
                 # close_position did not complete the close and kept the
-                # position (or its remainder) tracked, re-protecting what it
-                # could. Not a close, so not "CLOSED for safety" — the words
+                # position (or its remainder) tracked; its own line says
+                # whether a stop was re-placed, and its final handler
+                # re-places nothing. Not a close, so not "CLOSED for safety" — the words
                 # the old check, which only knew "CLOSE FAILED", printed for
                 # these answers. Same rule for the ids: what close_position
                 # left, which may be the stop IT re-placed.
@@ -7237,9 +7311,9 @@ class LiveExecutor:
                 return pos.sl_order_id, pos.tp_order_id, (
                     f"🚨 {pos.symbol} KEPT OPEN: the stop-loss could not be placed "
                     f"and the safety close did not complete — close_position kept it "
-                    f"tracked; its own line below says what it kept, and if it is "
-                    f"still there without a stop the monitor re-places one on its "
-                    f"next pass. Review it on the exchange NOW.\n{close_msg}")
+                    f"tracked; its own line below says what it kept, and "
+                    f"{stop_replacement_note(pos.stop_loss, pos.take_profit)}. "
+                    f"Review it on the exchange NOW.\n{close_msg}")
             return pos.sl_order_id, pos.tp_order_id, (
                 f"⚠️ ENTRY ABORTED: {pos.symbol} filled but the stop-loss could "
                 f"not be placed — position CLOSED for safety.\n{close_msg}")
@@ -8220,6 +8294,131 @@ class LiveExecutor:
                 return tid
         return None
 
+    # ── the protective leg is cancelled where it lives ───────────────────
+
+    def _v3_strategy_cancel_sync(self, oid: str) -> dict:
+        """POST /api/v3/trade/cancel-strategy-order for one strategy order.
+
+        The v3 combined stop is a STRATEGY order (``_place_sl_tp_v3`` posts it
+        to place-strategy-order, type ``tpsl``), and a strategy id handed to
+        the regular cancel-order endpoint — where ccxt's ``cancel_order``
+        routes a cancel with no trigger flag under UTA — answers 25204
+        "Order does not exist" whether or not the stop is live. Read as
+        "gone", that recorded a live stop as removed on every rejected close.
+        Same transport as the placement, same contract: the venue's envelope
+        comes back, an HTTP error's JSON body comes back as the envelope, and
+        a request that never completed comes back as ``{"code":
+        "TRANSPORT"}`` — distinct from a refusal, because a cancel nobody
+        could send is not a cancel the venue declined. Synchronous; callers
+        wrap it in ``asyncio.to_thread``.
+        """
+        import json as _json
+
+        from bot.core.bitget_v3_client import BitgetV3Client
+        try:
+            return cast(dict, BitgetV3Client.for_account(self._credentials).request(
+                "POST", "/api/v3/trade/cancel-strategy-order", {"orderId": str(oid)}))
+        except Exception as e:
+            if hasattr(e, "read"):
+                try:
+                    return cast(dict, _json.loads(e.read().decode()))
+                except Exception:
+                    return {"code": "TRANSPORT",
+                            "msg": f"unreadable error body ({getattr(e, 'code', '?')})"}
+            return {"code": "TRANSPORT", "msg": str(e)}
+
+    def _v3_strategy_order_resting_sync(self, oid: str) -> Optional[bool]:
+        """Is strategy order ``oid`` still among the account's unfilled tpsl
+        orders? THREE-valued: True it is listed and not terminal, False the
+        venue listed its unfilled strategy orders and this id is not among
+        them, None the list could not be read. A cancel-strategy-order
+        success "only indicates receipt" (docs/bitget-uta), so this is the
+        reading that lets the record forget the id. Synchronous."""
+        from bot.core.bitget_v3_client import BitgetV3Client
+        try:
+            data = BitgetV3Client.for_account(self._credentials).get(
+                "/api/v3/trade/unfilled-strategy-orders?category=USDT-FUTURES&type=tpsl")
+        except Exception as exc:
+            logger.warning("v3 unfilled strategy orders read raised: %s", exc)
+            return None
+        if not isinstance(data, dict) or data.get("code") != "00000":
+            return None
+        payload = data.get("data")
+        if isinstance(payload, dict):
+            payload = payload.get("list")
+        if not isinstance(payload, list):
+            return None
+        for row in payload:
+            if isinstance(row, dict) and str(row.get("orderId", "")) == str(oid):
+                return order_status(row) not in ("cancelled", "canceled", "success", "failed")
+        return False
+
+    async def _cancel_stop_leg(self, exchange, pos: LivePosition, oid: str,
+                               *, combined: bool) -> tuple[str, str]:
+        """Cancel one protective order and say what became of it.
+
+        Returns ``(verdict, detail)``, verdict one of::
+
+            removed     the venue cancelled it — a terminal cancel status, a
+                        follow-up read, or the strategy list confirming it
+            gone        the table that holds it says it does not exist: it
+                        fired, or had already been cancelled
+            live        the venue refused the cancel, or the order is still
+                        resting after it
+            unverified  the cancel was sent and nobody could confirm what
+                        became of the order
+
+        Only ``removed`` and ``gone`` may clear the id off the record. A stop
+        that is ``live`` or ``unverified`` may still fire, and a record that
+        forgets it claims a protection is absent that is there.
+
+        A COMBINED id — one ``orderId`` naming both legs — is the v3
+        strategy order and is cancelled in the strategy table, then read back
+        from it. A distinct id is a ccxt trigger order and goes through ccxt;
+        there "does not exist" cannot be told from the wrong-table answer the
+        regular endpoint gives a trigger order, so it is ``unverified``.
+        """
+        if combined and self._venue.id == "bitget":
+            resp = await asyncio.to_thread(self._v3_strategy_cancel_sync, oid)
+            code = str(resp.get("code", "")) if isinstance(resp, dict) else ""
+            msg = str(resp.get("msg", "")) if isinstance(resp, dict) else str(resp)
+            if code == "00000":
+                resting = await asyncio.to_thread(self._v3_strategy_order_resting_sync, oid)
+                if resting is False:
+                    return "removed", "cancel accepted; the unfilled strategy list no longer carries it"
+                if resting is True:
+                    return "live", "cancel accepted, but the strategy order is still listed unfilled"
+                return "unverified", "cancel accepted; the unfilled strategy list could not be read"
+            if code == "25204" or "does not exist" in msg.lower():
+                return "gone", f"the strategy table does not know it ({code} {msg[:80]})"
+            if code == "TRANSPORT":
+                return "unverified", f"the cancel request did not complete ({msg[:120]})"
+            return "live", f"cancel refused ({code} {msg[:120]})"
+
+        try:
+            cancel_resp = await exchange.cancel_order(oid, self._venue.order_symbol(pos.symbol))
+        except Exception as cancel_exc:
+            exc_str = str(cancel_exc)
+            if "25204" in exc_str or "Order does not exist" in exc_str:
+                return "unverified", ("the regular-order table does not know it — a stop "
+                                      "that fired, or a trigger order this cancel cannot see")
+            return "live", f"cancel raised: {exc_str[:160]}"
+        cancel_status = order_status(cancel_resp)
+        if cancel_status in ("canceled", "cancelled", "closed"):
+            return "removed", f"cancel answered {cancel_status}"
+        # No status, or a non-terminal one: a cancel that returned is not a
+        # confirmation (the pending-fill path says the same), so read the
+        # order back before the record may forget it.
+        try:
+            order_info = await exchange.fetch_order(oid, pos.symbol)
+        except Exception:
+            return "unverified", (f"cancel answered {cancel_status or 'no status'}; "
+                                  f"the follow-up read failed")
+        after = order_status(order_info)
+        if after in ("canceled", "cancelled", "closed", "expired"):
+            return "removed", f"follow-up read: {after}"
+        return "live", f"still {after or 'unstated'} after the cancel"
+
     async def close_position(self, trade_id: str, reason: str = "bot_auto",
                               close_price: float = 0) -> str:
         """Close a live position by placing the opposite order."""
@@ -8477,6 +8676,7 @@ class LiveExecutor:
         _flash_applied = False
         _cancel_pass_done = False
         _cancelled_ids: set = set()
+        _combined_ids: set = set()
         cancel_failed: list = []
 
         try:
@@ -8491,56 +8691,50 @@ class LiveExecutor:
             # "still live" and kept BOTH ids on every rejected close on that
             # account type — so the pair is deduplicated first.
             _legs = [oid for oid in dict.fromkeys([pos.sl_order_id, pos.tp_order_id]) if oid]
+            # The combined id is the v3 strategy order, cancelled in the
+            # strategy table by _cancel_stop_leg; remembered here so the
+            # post-close sweep sends its re-cancel to the same table.
+            _combined_ids = {oid for oid in _legs if oid == pos.sl_order_id == pos.tp_order_id}
             for oid in _legs:
-                if oid == pos.sl_order_id == pos.tp_order_id:
-                    order_label = "SL/TP"
-                else:
-                    order_label = "SL" if oid == pos.sl_order_id else "TP"
-                try:
-                    cancel_resp = await exchange.cancel_order(oid, self._venue.order_symbol(pos.symbol))
-                    cancel_status = cancel_resp.get("status", "") if isinstance(cancel_resp, dict) else ""
-                    if cancel_status and cancel_status not in ("canceled", "cancelled", "closed"):
-                        # Verify it is actually cancelled
-                        try:
-                            order_info = await exchange.fetch_order(oid, pos.symbol)
-                            if order_info.get("status") not in ("canceled", "cancelled", "closed", "expired"):
-                                logger.warning("SL/TP order %s may not be cancelled (status=%s), proceeding with close anyway",
-                                               oid, order_info.get("status"))
-                                cancel_failed.append(oid)
-                            else:
-                                _cancelled_ids.add(oid)
-                        except Exception:
-                            # Fetch failed — assume the cancel worked for the
-                            # purpose of sending the close, but the id is NOT
-                            # recorded as removed: an order nobody could
-                            # verify gone may still be live, and keeping its
-                            # id is the safe direction.
-                            pass
-                    else:
-                        _cancelled_ids.add(oid)
-                except Exception as cancel_exc:
-                    exc_str = str(cancel_exc)
-                    # 25204 = "Order does not exist" — exchange already executed
-                    # it (SL/TP fired). We still send the reduceOnly market close
-                    # below: it no-ops if the position is already flat, but
-                    # guarantees closure if the 25204 was a stale/expired order
-                    # rather than a real trigger. The audit records the event.
-                    if "25204" in exc_str or "Order does not exist" in exc_str:
-                        audit(trade_log,
-                              f"{order_label} order already executed by exchange: {pos.symbol} (order {oid})",
-                              action="sltp_exchange_trigger", result="TRIGGERED",
-                              data={"trade_id": trade_id, "order_id": oid,
-                                    "order_type": order_label, "symbol": pos.symbol})
-                        # Gone from the venue either way: not an order the
-                        # record may keep naming.
-                        _cancelled_ids.add(oid)
-                    else:
-                        audit(trade_log,
-                              f"Failed to cancel {order_label} order {oid} for {pos.symbol}: {exc_str}",
-                              action="sltp_cancel_fail", result="ERROR",
-                              data={"trade_id": trade_id, "order_id": oid,
-                                    "order_type": order_label, "symbol": pos.symbol,
-                                    "error": exc_str})
+                combined = oid in _combined_ids
+                order_label = "SL/TP" if combined else ("SL" if oid == pos.sl_order_id else "TP")
+                # Four verdicts, and only two of them let the record forget
+                # the id. We still send the reduceOnly market close below on
+                # every verdict: it no-ops if the position is already flat,
+                # and guarantees closure if a "gone" stop had expired rather
+                # than fired.
+                _leg_verdict, _leg_detail = await self._cancel_stop_leg(
+                    exchange, pos, oid, combined=combined)
+                if _leg_verdict in ("removed", "gone"):
+                    _cancelled_ids.add(oid)
+                if _leg_verdict == "gone":
+                    audit(trade_log,
+                          f"{order_label} order already gone from the venue: {pos.symbol} "
+                          f"(order {oid}) — {_leg_detail}",
+                          action="sltp_exchange_trigger", result="TRIGGERED",
+                          data={"trade_id": trade_id, "order_id": oid,
+                                "order_type": order_label, "symbol": pos.symbol})
+                    cancel_failed.append(oid)          # the post-close sweep still runs
+                elif _leg_verdict == "live":
+                    audit(trade_log,
+                          f"Failed to cancel {order_label} order {oid} for {pos.symbol}: {_leg_detail}",
+                          action="sltp_cancel_fail", result="ERROR",
+                          data={"trade_id": trade_id, "order_id": oid,
+                                "order_type": order_label, "symbol": pos.symbol,
+                                "error": _leg_detail})
+                    cancel_failed.append(oid)
+                elif _leg_verdict == "unverified":
+                    # Sent, not confirmed: the id stays on the record — an
+                    # order nobody saw go may still be live, and a forgotten
+                    # live stop the record does not name is not protection.
+                    logger.warning("%s order %s for %s not verified gone: %s — id kept",
+                                   order_label, oid, pos.symbol, _leg_detail)
+                    audit(trade_log,
+                          f"{order_label} order {oid} for {pos.symbol} could not be verified "
+                          f"gone: {_leg_detail}",
+                          action="sltp_cancel", result="UNVERIFIED",
+                          data={"trade_id": trade_id, "order_id": oid,
+                                "order_type": order_label, "symbol": pos.symbol})
                     cancel_failed.append(oid)
             _cancel_pass_done = True
 
@@ -8914,7 +9108,12 @@ class LiveExecutor:
             if cancel_failed:
                 for stale_oid in cancel_failed:
                     try:
-                        await exchange.cancel_order(stale_oid, self._venue.order_symbol(pos.symbol))
+                        if stale_oid in _combined_ids and self._venue.id == "bitget":
+                            # The strategy order lives in the strategy table;
+                            # the regular cancel does not know it.
+                            await asyncio.to_thread(self._v3_strategy_cancel_sync, stale_oid)
+                        else:
+                            await exchange.cancel_order(stale_oid, self._venue.order_symbol(pos.symbol))
                     except Exception:
                         pass  # Best-effort cleanup
                 try:
@@ -8988,8 +9187,12 @@ class LiveExecutor:
                     "place to price it."
                 )
 
-            # Store structured close data for rich rendering
+            # Store structured close data for rich rendering. `trade_id` is
+            # what lets a reader that knows which close it is asking about
+            # refuse an earlier close of the same symbol — the slot is
+            # last-write-wins and the symbol alone cannot tell them apart.
             self._last_close_data = {
+                "trade_id": pos.trade_id,
                 "symbol": pos.symbol,
                 "direction": pos.direction,
                 "reason": reason,
@@ -9048,9 +9251,12 @@ class LiveExecutor:
                         # still open, not a flat book.
                         _flash_env: dict = flash_result if isinstance(flash_result, dict) else {}
                         _flash_items = (_flash_env.get("data") or {}).get("list") or []
-                        _flash_ok = _flash_env.get("code") == "00000" and all(
+                        # `all([])` is True: an accepted request that applied
+                        # NOTHING must not read as a flat book either.
+                        _flash_ok = (_flash_env.get("code") == "00000"
+                                     and bool(_flash_items) and all(
                             not item.get("code") or item.get("code") == "00000"
-                            for item in _flash_items if isinstance(item, dict))
+                            for item in _flash_items if isinstance(item, dict)))
                         if _flash_ok:
                             # Flash close applied — now look up fill data
                             _venue_flat = True
@@ -9087,16 +9293,27 @@ class LiveExecutor:
                 # Persist and prune now, so the closed record does not sit in
                 # the open book until something else happens to save.
                 self._save_positions()
+                # "The ledger row is written" is a reading, not a promise:
+                # the append skips a cross-record duplicate and the save
+                # swallows write failures, so look before saying so.
+                _row_written = any(ct.trade_id == trade_id for ct in self._closed_trades)
+                # No card was built for this close, so the shared close slot
+                # still holds an EARLIER close — the renderers must not use it.
+                self._last_close_data = None
                 audit(trade_log,
                       f"Live close BOOKED for {pos.symbol} but the report after it "
                       f"failed ({type(exc).__name__})",
                       action="live_close", result="CLOSED_UNREPORTED",
                       data={"trade_id": trade_id, "error": exc_str,
-                            "close_order_id": close_order_id})
+                            "close_order_id": close_order_id,
+                            "ledger_row_written": _row_written})
+                _ledger = ("The ledger row is written; check it if the numbers matter."
+                           if _row_written else
+                           "The ledger row could NOT be confirmed — the close is booked "
+                           "on the record but may be missing from the ledger; check it.")
                 return (
-                    f"✅ CLOSED {pos.direction} {pos.symbol} — booked; the close card "
-                    f"could not be rendered ({type(exc).__name__}). The ledger row is "
-                    f"written; check it if the numbers matter."
+                    f"✅ CLOSED {pos.direction} {pos.symbol} — booked; "
+                    f"{CLOSE_CARD_NOT_RENDERED} ({type(exc).__name__}). {_ledger}"
                 )
 
             # H-01 FIX: Revert status so position is retried next cycle
@@ -9113,12 +9330,15 @@ class LiveExecutor:
                 if pos.tp_order_id in _cancelled_ids:
                     pos.tp_order_id = None
             self._save_positions()
-            # A network-class error while SENDING the close order is not a
-            # rejection: the venue may have received and filled it. Reading
-            # it as "CLOSE FAILED" would have the guards put a stop on a book
-            # that is most likely flat; it is an unconfirmed close.
+            # A timeout or a dropped connection while SENDING the close order
+            # is not a rejection: the venue may have received and filled it.
+            # Reading it as "CLOSE FAILED" would have the guards put a stop
+            # on a book that is most likely flat; it is an unconfirmed close.
+            # The rest of ccxt's NetworkError family — rate limits, 5xx,
+            # maintenance, a bad nonce — is the venue ANSWERING no, and stays
+            # a failed close (send_outcome_unknown says which is which).
             _close_unknown = (_cancel_pass_done and close_order_id is None
-                              and isinstance(exc, ccxt.NetworkError))
+                              and send_outcome_unknown(exc))
             if close_order_id is not None or _venue_flat or _close_unknown:
                 # Not a rejected close. Either the venue ACCEPTED the close
                 # order and the bookkeeping after it raised, or it applied a
@@ -9154,8 +9374,8 @@ class LiveExecutor:
                     f"({type(exc).__name__}).\n"
                     f"The position is kept OPEN for the next reconcile rather than "
                     f"booked closed on a reading nobody made; if it did close, the "
-                    f"reconcile books it from the venue's own history, and if it is "
-                    f"still there the monitor re-places its stop on the next pass. "
+                    f"reconcile books it from the venue's own history, and "
+                    f"{stop_replacement_note(pos.stop_loss, pos.take_profit)}. "
                     f"Review on Bitget."
                 )
             audit(trade_log, f"Live close failed: {exc}",
@@ -9794,6 +10014,7 @@ class LiveExecutor:
         )
 
         self._last_close_data = {
+            "trade_id": pos.trade_id,
             "symbol": pos.symbol,
             "direction": pos.direction,
             "reason": reason,
@@ -10806,6 +11027,7 @@ class LiveExecutor:
                                     "entry price as a break-even nobody measured."
                                 )
                             self._last_close_data = {
+                                "trade_id": pos.trade_id,
                                 "symbol": pos.symbol,
                                 "direction": pos.direction,
                                 "reason": reason,

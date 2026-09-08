@@ -117,7 +117,7 @@ def test_a_close_kept_open_is_not_announced_as_closed(tmp_path):
     assert "DID NOT COMPLETE" in msg and kept in msg
     assert "POSITION CLOSED" not in msg
     assert "nothing more has been placed" not in msg, (
-        "close_position re-places a stop on the remainder; the card must not deny it")
+        "close_position's own line says whether a stop was re-placed; the card must not deny it")
     assert ex._preflight_check(10.0, symbol="APT/USDT") is not None, (
         "the sticky leverage is on the symbol either way")
 

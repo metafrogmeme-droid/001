@@ -557,7 +557,7 @@ async def test_a_close_kept_open_is_neither_announced_closed_nor_given_a_second_
     assert msg and "KEPT OPEN" in msg and answer in msg, msg
     assert "was CLOSED" not in msg
     assert "nothing more has been placed" not in msg, (
-        "close_position re-places a stop on the remainder; the card must not deny it")
+        "close_position's own line says whether a stop was re-placed; the card must not deny it")
     assert close_failed is True
     assert rested == [SYM], "the sticky leverage is on the symbol either way"
     assert [a["result"] for a in _by(audits, "leverage_overshoot_guard")] == ["FLATTEN", "NOT_CLOSED"]

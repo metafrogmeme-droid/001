@@ -185,6 +185,84 @@ class CallbackHandler:
 
         def _yield_client(self): ...
 
+    async def _report_manual_close(self, update: Update, executor, lp, pair: str,
+                                   result) -> None:
+        """Tell the user what a "close X" request did, from close_position's ANSWER.
+
+        close_position signals failure by RETURN VALUE and answers "kept OPEN"
+        for a close it could not complete. This used to know only "CLOSE
+        FAILED", so a kept-open answer rendered a "closed" card with a $0.00
+        PnL nobody measured; then its closed branch trusted the shared close
+        slot on the SYMBOL alone, so an earlier close of the same symbol — or
+        none at all, for a close booked without a card or a cancelled pending
+        order — rendered as this one, and its text fallback rebuilt a card
+        from the position record with ``pnl_usd or 0``.
+
+        Three rules: read the verdict first; render a card only for THIS
+        trade's close (the slot carries the trade id, and the answer itself
+        says when no card was built); otherwise print the answer, which is
+        the honest text — it carries the fill, the PnL line (or UNPRICED) and
+        how the close was verified.
+        """
+        from bot.core.order_state import close_card_is_wrong, flatten_outcome
+
+        _outcome = flatten_outcome(result)
+        shown = html.escape(str(result)[:700])
+        if _outcome == "failed":
+            await self._send(
+                update,
+                f"\u274c Close failed for <b>{html.escape(pair)}</b> "
+                f"\u2014 the position is still open.\n"
+                f"<code>{shown}</code>",
+                edit=True)
+            return
+        if _outcome == "kept_open":
+            # One bucket, two truths: kept open in whole or in part, OR not
+            # this request's to close — already closed, or closing under
+            # another path (a second tap while the first close holds the
+            # per-trade lock lands here). Quote the answer; asserting "kept
+            # it open" over a position another path just closed was false.
+            await self._send(
+                update,
+                f"\u26a0\ufe0f <b>{html.escape(pair)}</b> was NOT closed by this "
+                f"request \u2014 close_position answered:\n"
+                f"<code>{shown}</code>\n"
+                f"Review it on the venue.",
+                edit=True)
+            return
+        # closed. Only THIS close's card: the slot is last-write-wins and is
+        # written only when a card was built, so match on the trade id and
+        # honour an answer that says no card exists.
+        close_data = getattr(executor, "_last_close_data", None)
+        if (not isinstance(close_data, dict)
+                or close_data.get("trade_id") != getattr(lp, "trade_id", None)
+                or close_card_is_wrong(result)):
+            close_data = None
+        close_png = None
+        if close_data:
+            try:
+                from bot.formatters.signal_card import render_close_card
+                close_png = render_close_card(close_data)
+            except Exception:
+                pass
+        if close_png:
+            from bot.formatters.signal_card import humanize_close_reason
+            # Tri-state — see the /close caption above.
+            pnl_val = close_data.get("pnl_usd")
+            pnl_emoji, reason_short = humanize_close_reason(
+                close_data.get("reason", "manual"), pnl_val)
+            _pnl_txt = ("unread" if pnl_val is None
+                        else f"${pnl_val:+,.2f}")
+            cap = (f"{pnl_emoji} <b>{html.escape(pair)}</b> CLOSED\n"
+                   f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
+            await self._send_photo(update, close_png, cap)
+            return
+        # No card for THIS close: the answer is the record. It already says
+        # CLOSED (or CANCELLED, for a pending order that never filled) and
+        # carries the numbers that were measured — nothing is rebuilt from
+        # the position record, where a missing PnL used to print as $+0.00.
+        await self._send(update, html.escape(str(result)), edit=True)
+
     async def _handle_callback(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         try:
@@ -1049,80 +1127,12 @@ class CallbackHandler:
                         try:
                             result = await executor.close_position(lp.trade_id, "manual_nlp")
                             live_closed = True
-                            # Live incident 2026-07-07: this block used to render
-                            # a SUCCESS card unconditionally \u2014 a FAILED VET close
-                            # (position reverted to open) still rendered a card
-                            # from _last_close_data, which held ANOTHER symbol's
-                            # close ("VETUSDT CLOSED" caption over a BTC card).
-                            # 1) honor close_position's answer. It signals
-                            #    failure by RETURN VALUE, and it also answers
-                            #    "kept OPEN" for a close it could not complete;
-                            #    the old check knew only "CLOSE FAILED", so a
-                            #    kept-open answer rendered a "closed" card with
-                            #    a $0.00 PnL nobody measured.
-                            from bot.core.order_state import flatten_outcome
-                            _outcome = flatten_outcome(result)
-                            if _outcome == "failed":
-                                await self._send(
-                                    update,
-                                    f"\u274c Close failed for <b>{html.escape(pair)}</b> "
-                                    f"\u2014 the position is still open.\n"
-                                    f"<code>{html.escape(str(result)[:300])}</code>",
-                                    edit=True)
-                                break
-                            if _outcome == "kept_open":
-                                await self._send(
-                                    update,
-                                    f"\u26a0\ufe0f <b>{html.escape(pair)}</b> was NOT closed "
-                                    f"\u2014 close_position kept it open. Review it on "
-                                    f"the venue.\n"
-                                    f"<code>{html.escape(str(result)[:300])}</code>",
-                                    edit=True)
-                                break
-                            # 2) only trust _last_close_data if it is THIS
-                            #    position's close (another close finishing in the
-                            #    same window can overwrite the shared slot).
-                            close_data = getattr(executor, '_last_close_data', None)
-                            if close_data:
-                                _cd_sym = str(close_data.get("symbol", "")).replace(
-                                    "/", "").replace(":USDT", "")
-                                if _cd_sym != pair:
-                                    close_data = None  # fall to per-position text
-                            close_png = None
-                            if close_data:
-                                try:
-                                    from bot.formatters.signal_card import render_close_card
-                                    close_png = render_close_card(close_data)
-                                except Exception:
-                                    pass
-
-                            if close_png:
-                                from bot.formatters.signal_card import humanize_close_reason
-                                # Tri-state — see the /close caption above.
-                                pnl_val = close_data.get("pnl_usd")
-                                pnl_emoji, reason_short = humanize_close_reason(
-                                    close_data.get("reason", "manual"), pnl_val)
-                                _pnl_txt = ("unread" if pnl_val is None
-                                            else f"${pnl_val:+,.2f}")
-                                cap = (f"{pnl_emoji} <b>{html.escape(pair)}</b> CLOSED\n"
-                                       f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
-                                await self._send_photo(update, close_png, cap)
-                            else:
-                                # Fallback to text
-                                from datetime import datetime, timezone
-                                hold_h = (datetime.now(timezone.utc) - lp.opened_at).total_seconds() / 3600
-                                cost = lp.cost_usd if lp.cost_usd > 0 else lp.entry_price * lp.quantity
-                                close_px = lp.close_price or lp.entry_price
-                                pnl_val = lp.pnl_usd or 0
-                                pnl_emoji = "\U0001f7e2" if pnl_val >= 0 else "\U0001f534"
-                                lines = [
-                                    f"<b>{html.escape(pair)} closed</b>",
-                                    "",
-                                    f"Entry <code>{lp.entry_price:,.6f}</code> / Exit <code>{close_px:,.6f}</code>",
-                                    f"Size <code>${cost:,.2f}</code> | Hold {hold_h:.1f}h",
-                                    f"{pnl_emoji} PnL: <code>${pnl_val:+,.2f}</code>",
-                                ]
-                                await self._send(update, "\n".join(lines), edit=True)
+                            # The answer is read and rendered in ONE place —
+                            # _report_manual_close — so a test can plant a
+                            # kept-open answer beside a stale close slot and
+                            # read what the user is told. Inline, this block
+                            # was pinned by a source window only.
+                            await self._report_manual_close(update, executor, lp, pair, result)
                             # Remove buttons from the original details message
                             try:
                                 if update.callback_query and update.callback_query.message:
@@ -1314,7 +1324,7 @@ class CallbackHandler:
                 pnl_emoji = "\U0001f7e2" if closed_trade.pnl >= 0 else "\U0001f534"
                 sz = closed_trade.quantity * closed_trade.entry_price
                 from datetime import datetime, timezone
-                hold_h = 0
+                hold_h = 0.0
                 if closed_trade.opened_at and closed_trade.closed_at:
                     hold_h = (closed_trade.closed_at - closed_trade.opened_at).total_seconds() / 3600
                 funding_paid = sz * (0.01 / 100.0) * (hold_h / 8.0) if hold_h > 0 else 0

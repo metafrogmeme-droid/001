@@ -76,8 +76,9 @@ def is_filled_status(status: str) -> bool:
 
 
 #: close_position's "the position is still there" answers. Each is RETURNED,
-#: not raised, with the record kept and — where the close could — the
-#: remainder re-protected inside close_position itself. The first three come
+#: not raised, with the record kept tracked; the answer itself says whether
+#: the close re-placed a stop on what it kept (its residual path re-places
+#: where it can, its final handler re-places nothing). The first three come
 #: from the market-close path; the rest from the pending-limit cancel path,
 #: which no post-fill guard can reach today (they all run on an open
 #: position) but which the same reader must not file under "closed".
@@ -92,6 +93,55 @@ CLOSE_KEPT_OPEN_MARKERS = (
     "limit order is gone, but",
 )
 
+#: The headings the post-fill guards, the ladder and the monitor put over a
+#: close that did NOT happen: a rejected flatten, one close_position kept
+#: open, and a position escalated because no stop could be placed. With
+#: CLOSE_KEPT_OPEN_MARKERS this is the whole vocabulary a reader of monitor
+#: messages needs — alerts_monitor and the engine's loop used to each carry
+#: a hand-typed subset of it, and the subset missed the close's own lower-
+#: case "kept OPEN" answers.
+KEPT_OPEN_HEADINGS = (
+    "CLOSE FAILED",
+    "KEPT OPEN",
+    "DID NOT COMPLETE",
+    "URGENT",
+    "UNPROTECTED POSITION",
+)
+
+#: The one "closed" answer with no card behind it: the close was booked and
+#: the report after it raised, before the close slot was written.
+CLOSE_CARD_NOT_RENDERED = "the close card could not be rendered"
+
+
+def close_did_not_happen(msg) -> bool:
+    """True when a monitor/guard message reports a close that did NOT happen —
+    a flatten close_position rejected or could not complete, or a position
+    escalated as unprotected because no stop could be placed. The position is
+    still there: the chain must not audit it as auto-closed, and no close
+    card may stand in for the text.
+
+    Derived from the one vocabulary, so a new answer in
+    CLOSE_KEPT_OPEN_MARKERS is read here without a second list.
+    """
+    text = msg if isinstance(msg, str) else ""
+    return any(k in text for k in CLOSE_KEPT_OPEN_MARKERS + KEPT_OPEN_HEADINGS)
+
+
+def close_card_is_wrong(msg) -> bool:
+    """True when a rendered close card would misdescribe this message.
+
+    Three shapes: the close did not happen (the text is the only warning that
+    the position is live); a safety abort that DID close the position but
+    whose text — the stop could not be placed — is the thing the operator
+    must read; and the booked close whose card was never built. For each of
+    these the shared close slot holds an EARLIER close, possibly of the same
+    symbol, and a symbol-only guard lets that earlier card through.
+    """
+    text = msg if isinstance(msg, str) else ""
+    return (close_did_not_happen(text)
+            or "ENTRY ABORTED" in text
+            or CLOSE_CARD_NOT_RENDERED in text)
+
 
 def flatten_outcome(close_msg) -> str:
     """Read close_position's verdict off its return value.
@@ -99,8 +149,8 @@ def flatten_outcome(close_msg) -> str:
     close_position signals failure by RETURN VALUE, not by raising: a venue
     error comes back as ``"CLOSE FAILED for …"`` with the position's status
     restored to open, and an unconfirmed or partial close comes back as a
-    "kept OPEN" message with whatever remains re-protected inside
-    close_position. live_executor says so beside ``_reattempt_post_fill_sl``.
+    "kept OPEN" message whose own text says whether the close re-placed a
+    stop on what it kept. live_executor says so beside ``_reattempt_post_fill_sl``.
     The post-fill flatten guards did not honour it: each read "the coroutine
     returned" as "the position is closed", so a rejected flatten rested the
     symbol, skipped the stop and headed its card CLOSED over an open,
@@ -118,9 +168,10 @@ def flatten_outcome(close_msg) -> str:
                      claim a close and must not place a second set of stops.
 
     Unreadable — ``None``, or not a string — is ``"failed"``: absent is never
-    a close. ``tests/test_flatten_outcome.py`` pins every return statement of
-    ``_close_position_inner`` against this reading, so a new answer must be
-    classified there before it can ship.
+    a close. ``tests/test_flatten_outcome.py`` pins every LITERAL return of
+    ``_close_position_inner`` against this reading (a ``return name`` is
+    classified where the name is built), so a new answer must be classified
+    there before it can ship.
     """
     if not isinstance(close_msg, str) or not close_msg:
         return "failed"

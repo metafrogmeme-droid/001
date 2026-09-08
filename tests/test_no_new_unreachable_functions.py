@@ -57,6 +57,13 @@ cannot know what a given registry does with it.
 
 It is also a LOWER BOUND, deliberately: a name defined in more than one module
 is skipped rather than guessed at.
+
+And the prose stripper had a blind spot of its own, in the accusing direction:
+it took any string token after a line break for a docstring, which is also the
+shape of every continuation line of a parenthesised multi-line string. A
+function whose six call sites all sat inside f-string continuation lines was
+reported as having no caller. Docstrings open a statement at bracket depth 0;
+the stripper counts brackets now, and the case is planted below.
 """
 from __future__ import annotations
 
@@ -147,15 +154,34 @@ def _code_only(text: str) -> str:
     """
     import io
     import tokenize
-    out, prev_type = [], None
+    out, prev_type, depth = [], None, 0
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
             if tok.type == tokenize.COMMENT:
                 continue
+            if tok.type == tokenize.OP and tok.string in "([{":
+                depth += 1
+            elif tok.type == tokenize.OP and tok.string in ")]}":
+                depth = max(0, depth - 1)
+            # A docstring is a string that OPENS a statement, at bracket depth
+            # 0. Inside brackets a line break is an NL token too, so this
+            # test alone dropped every continuation line of a parenthesised
+            # multi-line string — and a function called only inside such
+            # lines (six f-string continuation lines) was accused of having
+            # no caller at all. Only an f-string can carry code, so only an
+            # f-string continuation line is kept; a plain one stays dropped,
+            # exactly as before, because the alternative counted every name
+            # in a multi-line `__all__` as a call (four warroom_bot entries
+            # came off the baseline on the strength of their own export
+            # list). A plain string on a single line still counts, as it
+            # always has — registries reach functions by name — and that
+            # asymmetry is the accepted over-count, not a rule.
             if tok.type == tokenize.STRING and prev_type in (
                     None, tokenize.NEWLINE, tokenize.NL, tokenize.INDENT,
                     tokenize.DEDENT):
-                continue                      # a docstring, not a value
+                prefix = re.match(r"[rRbBuUfF]*", tok.string).group(0).lower()
+                if depth == 0 or "f" not in prefix:
+                    continue                  # a docstring, or prose on a continuation line
             out.append(tok.string)
             prev_type = tok.type
     except (tokenize.TokenError, IndentationError, SyntaxError):
@@ -217,6 +243,33 @@ def test_the_baseline_has_no_stale_entries():
         "these are no longer unreachable — they were wired up, renamed or "
         "deleted — but are still baselined:\n  " + "\n  ".join(gone)
         + "\n\nRemove them from tests/unreachable_functions_baseline.txt.")
+
+
+def test_a_call_that_lives_only_inside_a_continuation_string_is_a_call():
+    """The docstring heuristic — a string token after a line break — matched
+    every continuation line of a parenthesised multi-line string, so a
+    function called only from inside such strings counted as never called:
+    a false accusation, on the day it was first reached. Planted, because a
+    real-tree assertion can pass for a reason unrelated to the rule."""
+    src = (
+        "def card(pos):\n"
+        "    return (\n"
+        '        f"line one {alpha(pos)} "\n'
+        '        f"line two {beta(pos)}"\n'
+        "    )\n"
+        "\n"
+        "def doc():\n"
+        '    """gamma is mentioned here only."""\n'
+        "    return 1\n"
+        "\n"
+        "__all__ = [\n"
+        '    "delta",\n'
+        "]\n"
+    )
+    code = _code_only(src)
+    assert "alpha" in code and "beta" in code, "f-string continuation lines are code"
+    assert "gamma" not in code, "a docstring is still prose"
+    assert "delta" not in code, "an export list is a registration, not a call"
 
 
 def test_decorated_route_handlers_are_not_accused():

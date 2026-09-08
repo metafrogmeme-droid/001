@@ -264,14 +264,17 @@ class AlertsMonitor:
                 # only written on close SUCCESS, so on a failed/urgent close it
                 # holds an EARLIER close of possibly the same symbol — the guard
                 # above passes and a stale "normal close" card would swallow the
-                # only warning that a position is live and unprotected.
-                # "KEPT OPEN" / "DID NOT COMPLETE" are the post-fill guards'
-                # answers to a flatten close_position did not complete: the
-                # position is still there, so a close card is the wrong
-                # picture and the text is the only warning.
-                if any(k in msg for k in ("CLOSE FAILED", "URGENT", "ENTRY ABORTED",
-                                          "KEPT OPEN", "DID NOT COMPLETE")):
-                    close_data = None      # always deliver the failure text itself
+                # only warning that a position is live and unprotected. The
+                # reading is order_state's, derived from the close's own
+                # kept-open vocabulary plus the guards' headings: the hand-typed
+                # list this replaced knew the guards' upper-case headings and
+                # missed the close's own "kept OPEN" answers (CLOSE NOT
+                # CONFIRMED, RESIDUAL REMAINS), which the monitor loop forwards
+                # raw — so a same-symbol earlier close's green card replaced the
+                # only warning that the position was live and NOT re-protected.
+                from bot.core.order_state import close_card_is_wrong
+                if close_card_is_wrong(msg):
+                    close_data = None      # always deliver the text itself
                 close_png = None
                 if close_data:
                     try:
