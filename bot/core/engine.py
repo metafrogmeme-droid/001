@@ -417,6 +417,67 @@ def _of_snapshot_path() -> str:
                               "data/learning/order_flow_snapshots.jsonl"))
 
 
+#: How far back a close counts as belonging to "this tick".
+COOLDOWN_LOOKBACK_SECONDS = 120
+
+
+def loss_cooldown_reason(trades, now, cooldown_seconds) -> "str | None":
+    """Why trading should pause after this tick's live closes, or ``None``.
+
+    THREE OUTCOMES, NOT TWO, ON THE CONTROL THAT STOPS TRADING AFTER A LOSS.
+    The filter was ``(t.pnl_usd or 0) < 0``, which asks "did it lose" and
+    answers **no** for a close nobody could price -- ``0 < 0`` is False.
+    ``LivePosition.pnl_usd`` is ``Optional[float]`` and ``live_executor``
+    writes ``None`` on purpose (``pos.pnl_usd = None if net_pnl is None``),
+    so the one close the bot understood least was the one it declined to
+    slow down for, and it went straight back to sizing the next entry.
+
+    Cooling down on an unpriced close is the cheap side of the asymmetry: a
+    pause that was not needed costs one cycle, and a missed pause after a real
+    loss is the thing ``cooldown_after_loss_seconds`` exists to prevent. The
+    reason string says which of the two happened, because "live loss on X" over
+    a P&L nobody read would be the same fabrication one layer up.
+
+    A SEAM, because there was none: this was a list comprehension inside a
+    ``try`` inside a message loop inside ``_monitor_live_positions``, and
+    nothing could plant a ledger and read what the operator is told. A source
+    scan of the comprehension would have passed against a mutation that kept
+    the literal and inverted the test -- which is exactly what happened twice
+    in the credentials work.
+    """
+    recent = []
+    for t in trades or []:
+        closed_at = getattr(t, "closed_at", None)
+        if closed_at is None:
+            continue
+        if closed_at.tzinfo is None:
+            closed_at = closed_at.replace(tzinfo=UTC)
+        if (now - closed_at).total_seconds() <= COOLDOWN_LOOKBACK_SECONDS:
+            recent.append(t)
+
+    # `is not None` rather than truthiness, and a mutation swapping it back
+    # SURVIVES: an unpriced close falls out of this list either way and the
+    # branch below catches it, so the two spellings agree on every input the
+    # function can be given today. Kept explicit anyway, because the agreement
+    # is a property of the pair -- delete the `unpriced` branch and the
+    # truthiness form is silently the original bug again. Same reason
+    # `min(losses, ...)` is not `min(recent, ...)`: equivalent today (a loss is
+    # below every other key), wrong the moment the guard above it moves.
+    losses = [t for t in recent
+              if getattr(t, "pnl_usd", None) is not None and t.pnl_usd < 0]
+    if losses:
+        worst = min(losses, key=lambda t: t.pnl_usd)
+        return (f"live loss on {worst.symbol} (PnL=${worst.pnl_usd}), "
+                f"cooling down {cooldown_seconds}s")
+
+    unpriced = [t for t in recent if getattr(t, "pnl_usd", None) is None]
+    if unpriced:
+        syms = ", ".join(sorted({str(getattr(t, "symbol", "?"))
+                                 for t in unpriced}))
+        return (f"live close on {syms} could not be priced — cooling down "
+                f"{cooldown_seconds}s rather than reading an unknown as a win")
+    return None
+
 
 class RuneClawEngine:
     """
@@ -1350,8 +1411,17 @@ class RuneClawEngine:
 
         def _closed_dict(pos) -> dict:
             d = _open_dict(pos)
-            d["exit_price"] = pos.close_price or 0
-            d["pnl"] = pos.pnl_usd or 0
+            # `or 0` here said an unreadable close broke even, on the dashboard
+            # a live user reads. `LivePosition.pnl_usd` is Optional and
+            # live_executor writes None deliberately (`pos.pnl_usd = None if
+            # net_pnl is None else ...`), and the website's `winStats` already
+            # counts unpriced closes as their own outcome — so this line was
+            # the only thing standing between an honest producer and an honest
+            # reader. Six lines below, the equity field says the same rule in
+            # words: "in LIVE mode with an empty balance cache this must send
+            # None (website renders 'unavailable')".
+            d["exit_price"] = pos.close_price
+            d["pnl"] = pos.pnl_usd
             d["closed_at"] = pos.closed_at
             return d
 
@@ -7653,25 +7723,13 @@ class RuneClawEngine:
                     if any(not self._is_fill_message(m)
                            and not self._is_sync_message(m) for m in live_closed):
                         try:
-                            _now_utc = datetime.now(UTC)
-                            _tick_losses = [
-                                t for t in getattr(_ex, '_closed_trades', [])
-                                if (t.pnl_usd or 0) < 0 and t.closed_at is not None
-                                and (_now_utc - (t.closed_at if t.closed_at.tzinfo
-                                                 else t.closed_at.replace(tzinfo=UTC))
-                                     ).total_seconds() <= 120
-                            ]
-                            if _tick_losses:
-                                _worst = min(_tick_losses, key=lambda t: t.pnl_usd or 0)
-                                self._cooldown_until = (
-                                    time.monotonic() + CONFIG.risk.cooldown_after_loss_seconds
-                                )
-                                self._transition(
-                                    AgentState.COOLING_DOWN,
-                                    f"live loss on {_worst.symbol} "
-                                    f"(PnL=${_worst.pnl_usd}), "
-                                    f"cooling down {CONFIG.risk.cooldown_after_loss_seconds}s",
-                                )
+                            _cd_s = CONFIG.risk.cooldown_after_loss_seconds
+                            _reason = loss_cooldown_reason(
+                                getattr(_ex, '_closed_trades', []),
+                                datetime.now(UTC), _cd_s)
+                            if _reason:
+                                self._cooldown_until = time.monotonic() + _cd_s
+                                self._transition(AgentState.COOLING_DOWN, _reason)
                         except Exception as exc:
                             logger.debug("Loss-cooldown scan failed: %s", exc)
                 except Exception as exc:

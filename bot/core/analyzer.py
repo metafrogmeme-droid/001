@@ -1716,34 +1716,59 @@ class Analyzer:
             logger.debug("Confidence calibration skipped: %s", _cal_exc)
 
         # ── Per-setup expectancy nudge (Phase C) ─────────────────────────────
-        # Shade confidence by THIS setup's own track record (symbol + regime +
-        # direction win rate from completed trades). Small, bounded, and shrunk
-        # by sample count, so it can only nudge — never dominate. Fail-open;
-        # default OFF (shadow-logs the would-be nudge, applies nothing).
+        # Shade confidence by this setup's own track record (symbol + regime +
+        # direction win rate from completed trades), or — when that symbol has
+        # no record and backoff is enabled — by the regime/direction tier.
+        # Small, bounded, and shrunk by sample count, so it can only nudge,
+        # never dominate. Fail-open.
+        #
+        # SETUP_EXPECTANCY_ENABLED IS ON BY DEFAULT and this comment used to say
+        # "default OFF … applies nothing", as did the module's own docstring.
+        # Both were wrong about the live setting for as long as they existed;
+        # the nudge was inert only because no setup ever reached the threshold.
         try:
             from bot.learning.setup_expectancy import get_setup_expectancy
             _exp = get_setup_expectancy()
             if _exp is not None and _exp.is_ready():
-                _nudge = _exp.confidence_nudge(signal.symbol, regime.value, direction.value)
+                _n = _exp.nudge_for(signal.symbol, regime.value, direction.value)
+                _nudge = _n.value
                 if _nudge != 0.0:
-                    if CONFIG.analyzer.setup_expectancy_enabled:
+                    # A COARSE TIER IS A WIDER CLAIM, so it carries its own
+                    # switch: applying "longs in RANGE have won 58%" to a symbol
+                    # with no history of its own is not what "this setup's own
+                    # track record" means, and it should be read in shadow first.
+                    from bot.learning.setup_expectancy import may_apply
+                    if may_apply(
+                            _n,
+                            enabled=CONFIG.analyzer.setup_expectancy_enabled,
+                            backoff_enabled=getattr(
+                                CONFIG.analyzer,
+                                "setup_expectancy_backoff_enabled", False)):
                         _before = blended_confidence
                         blended_confidence = round(
                             max(0.0, min(1.0, blended_confidence + _nudge)), 2)
                         audit(trade_log,
                               f"Setup expectancy nudge {_before:.2f} -> {blended_confidence:.2f}",
                               action="setup_expectancy", result="APPLIED",
+                              # THE TIER RIDES ON THE RECORD. "+0.03 on SOL" is
+                              # a different fact depending on whether 14 SOL
+                              # trades said so or 14 longs-in-RANGE did, and the
+                              # audit line is where that is reconstructed later.
                               data={"symbol": signal.symbol, "regime": regime.value,
-                                    "direction": direction.value, "nudge": round(_nudge, 4)})
+                                    "direction": direction.value, "nudge": round(_nudge, 4),
+                                    "tier": _n.tier, "tier_n": _n.n})
                     else:
                         # #36: surface the would-be nudge on the visible audit
                         # channel (was DEBUG → invisible) so shadow mode can be
-                        # evaluated before the flag is enabled.
+                        # evaluated before the flag is enabled. Reached for TWO
+                        # reasons now — the whole feature off, or a coarse tier
+                        # whose own switch is off — and `tier` below says which.
                         audit(trade_log,
                               f"Setup expectancy SHADOW nudge would={_nudge:+.3f} on {blended_confidence:.2f}",
                               action="setup_expectancy", result="SHADOW",
                               data={"symbol": signal.symbol, "regime": regime.value,
-                                    "direction": direction.value, "nudge": round(_nudge, 4)})
+                                    "direction": direction.value, "nudge": round(_nudge, 4),
+                                    "tier": _n.tier, "tier_n": _n.n})
         except Exception as _exp_exc:
             logger.debug("Setup expectancy skipped: %s", _exp_exc)
 

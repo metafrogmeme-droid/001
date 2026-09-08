@@ -14,6 +14,7 @@ So the checkable claims are pinned. Every command it gives runs, every file it
 points at exists, every rule it states is one the suite actually enforces.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -81,12 +82,16 @@ def test_the_gate_count_it_quotes_is_the_real_one():
     """"Eight gates" is a number someone will trust rather than count."""
     sys.path.insert(0, str(ROOT / "scripts"))
     import preflight
-    m = re.search(r"(\w+) gates:", DOC)
+    # `[\w-]+`, not `\w+`: a hyphen is not a word character, so "Twenty-one
+    # gates:" matched the group as "one" and the count silently compared 1
+    # against 21. The parser has to reach the whole numeral it is checking.
+    m = re.search(r"([\w-]+) gates:", DOC)
     assert m, "the gate count sentence is gone"
     words = {"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
              "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
              "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
-             "nineteen": 19, "twenty": 20}
+             "nineteen": 19, "twenty": 20, "twenty-one": 21, "twenty-two": 22,
+             "twenty-three": 23, "twenty-four": 24, "twenty-five": 25}
     claimed = words.get(m.group(1).lower())
     # Refusing an unknown word rather than skipping is the point: `.get()`
     # returning None and the test passing anyway would mean the doc could say
@@ -116,6 +121,32 @@ def test_the_honesty_rule_has_a_guard_behind_it():
     assert "renderPanel" in guard and "mustRead" in guard, (
         "the doc cites this file as the structural enforcement — it must "
         "still be that")
+
+
+def test_the_honesty_backlog_it_quotes_is_the_real_one():
+    """A number in prose is the part that rots first.
+
+    Same rule as the gate count above and the unreachable-module count: the
+    doc says how big the baselined backlog is, and a reader will trust that
+    rather than open the file. It moves whenever the ratchet moves.
+    """
+    m = re.search(r"two-way\s+ratchet on ([\d,]+) hits", DOC)
+    assert m, "the honesty-ratchet backlog sentence is gone"
+    baseline = json.loads((ROOT / "tests" / "honesty_baseline.json")
+                          .read_text(encoding="utf-8"))
+    assert int(m.group(1).replace(",", "")) == baseline["total"], (
+        f"CLAUDE.md says {m.group(1)} baselined hits; the baseline records "
+        f"{baseline['total']}")
+
+
+def test_the_shapes_it_says_are_uncovered_really_are():
+    """The doc states the gate's coverage. An overstated one is the failure
+    the gate exists to prevent, so the two halves have to agree."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import honesty_gate
+    assert "Python only" in DOC and "skips `tests/`" in DOC
+    assert "tests" not in honesty_gate.ROOTS
+    assert "Five of the eight shapes" in honesty_gate.__doc__
 
 
 def test_the_three_look_alikes_it_clears_are_still_clear():

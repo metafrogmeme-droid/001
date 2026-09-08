@@ -8,23 +8,26 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Twenty gates: two strict ruff passes, the whole-tree ruff
-ratchet, mypy on the money modules, the whole-tree mypy ratchet, bandit,
-pip-audit, the baseline test gate, the red team, the custody red team, the web
-app's parse check, its npm advisory ratchet, its suite, the marketing site's
-build, its npm advisory ratchet, its published-output honesty tests, the check
-that the committed site is the built site, the Anchor workspace's typecheck, its
-npm advisory ratchet, and guard reachability. ~14 minutes.
+step for free. Twenty-one gates: two strict ruff passes, the whole-tree ruff
+ratchet, mypy on the money modules, the whole-tree mypy ratchet, the honesty
+ratchet, bandit, pip-audit, the baseline test gate, the red team, the custody
+red team, the web app's parse check, its npm advisory ratchet, its suite, the
+marketing site's build, its npm advisory ratchet, its published-output honesty
+tests, the check that the committed site is the built site, the Anchor
+workspace's typecheck, its npm advisory ratchet, and guard reachability.
+~14 minutes.
 
-That "for free" is literal and has now been collected six times: the app parse
+That "for free" is literal and has now been collected seven times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
 plan with no change to `preflight.py`, the two red-team gates each did the
-same, the marketing site's advisory ratchet did it again, and the two lint/type
-ratchets did it a sixth time. This paragraph's own gate count is pinned by
+same, the marketing site's advisory ratchet did it again, the two lint/type
+ratchets did it a sixth time, and the honesty ratchet a seventh. This
+paragraph's own gate count is pinned by
 `tests/test_claude_md_accuracy.py`, which failed the moment each of them landed
 — including on the sentence you are reading, which said "Ten" until the risk
 red team made it eleven, the custody one made it fifteen, the audit's
-npm-coverage fix made it eighteen, and its lint/type ratchets made it twenty.
+npm-coverage fix made it eighteen, its lint/type ratchets made it twenty, and
+the honesty ratchet made it twenty-one.
 
 **Two gates per tool, and the pairing is the point.** The strict steps are
 FLOORS over a narrow scope — those rules, those directories, zero tolerance —
@@ -138,6 +141,53 @@ searchable. The **shapes** it takes are, so here they are:
 
 Two practices found these; the rule alone found none of them.
 
+**The third practice is a ratchet, and the table above is its rule set.**
+Reading every diff and auditing the previous PR both work and neither scales.
+`scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
+eight shapes per file, against `tests/honesty_baseline.json` — a two-way
+ratchet on 792 hits, same rule as `known_failures.txt`. It claims exactly one
+thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
+them are not defects, which is the whole reason they are recorded rather than
+swept: `patterns.py` computes a rate `if completed else 0` two lines under
+`if not completed: continue`; `sum(t.pnl or 0 ...)` over rows already filtered
+`is not None` changes `0.0` into `0` and nothing else. *Check reachability
+before fixing* applies to a gate's output like anything else.
+
+Its first run bought three that were real, all one field:
+
+- **The cooldown that stops the bot after a live loss** filtered on
+  `(t.pnl_usd or 0) < 0`. `0 < 0` is False, so a close nobody could price was
+  read as *not a loss* and the engine went straight back to sizing the next
+  entry — on the one trade it understood least. `loss_cooldown_reason()` is
+  the seam (there was none: a comprehension inside a `try` inside a message
+  loop), it has three outcomes, and the unpriced reason quotes no dollar figure.
+- **Both website wires** then turned the same close into `$0.00`. The producer
+  said `d["pnl"] = pos.pnl_usd or 0` six lines above its own comment about
+  sending `None` for unavailable equity; the wire said
+  `float(_attr(t, "pnl", 0))`, twice. Every other party was already honest —
+  `live_executor` writes `None` deliberately, `trades.pnl` is nullable,
+  `sync.js` inserts it raw, and `winStats` counts unpriced closes as a fourth
+  outcome with `rate: null`. Three lines in the middle made sure it never saw
+  one.
+
+The wire is also why the gate knows more than two spellings. Its first version
+looked for `.get(k, 0)` and `getattr(o, k, 0)` and found neither, because
+`_attr` is a project-local accessor — so the single most expensive instance in
+the tree was invisible to the gate written to find it. Any call ending
+`(..., "<measurement>", 0)` counts now.
+
+Two things it deliberately does not do, stated because a gate whose coverage is
+overstated is the failure this file exists to prevent. It is **Python only** —
+the JS half of every shape above is not checked here — and it skips `tests/`,
+because a test PLANTS these shapes to prove the code rejects them. The three
+remaining shapes (a partial `sum`, an `if total != 0:` guarding a display, a
+config flag read as the state of stored rows) are semantic and stay a reading
+job. Its rule set is fingerprinted into the baseline: widen the vocabulary and
+the counts stop being comparable, so it reports CANNOT CHECK rather than
+manufacturing growth — the same trap `ruff_gate.check_version` documents, where
+a baseline recorded under mypy 1.19.1 and checked under 1.15.0 named eleven
+grown classes and not one was a code change.
+
 **A config flag is not a measurement of what is already stored — and the flip
 that makes it true is the one that hides what it did not fix.** With
 `WEB_CREDS_KEY` unset, `config_audit` warned "new 2FA secrets are stored
@@ -234,6 +284,37 @@ store, a fitted calibrator and a config to reach, so a test of it either did
 not exist or reimplemented it. Both had happened. And a bare `— ON` beside a
 state the reader has skimmed past is itself a claim: it reads as approval of
 the exact thing that has not been approved.
+
+**A bar cleared by two points is cleared by noise, and the count beside it has
+to be the rate's own.** The next live card off that report read
+`✅ voter_weights: READY — 62% of 34 voter(s) held direction on 46 unseen
+trade(s) (bar 60%)` and recommended turning the flag on. 62% of 34 is 21 of 34,
+which a fair coin reaches about one time in ten. The two sample floors added
+previously bound the SAMPLE and say nothing about the MARGIN, which is why that
+card passed both: 46 trades and 34 voters is a real sample, and 21 of 34 is
+still a coin flip. `wilson_lower_bound` is twenty lines of arithmetic and no
+new dependency, and READY now needs the whole 95% interval above chance, not
+its top end. Underneath it the usual defect: `hold_rate` is holds/JUDGED and
+the card printed `len(voters)` — a fraction over one population beside a count
+of another, so no reader could recover the 21 the significance turns on.
+`n_judged` and `n_holds` travel with the rate now. **`setup_expectancy` makes
+the same claim and is NOT the same defect** — `nudge = (wr - 0.5) * 2 *
+max_nudge * shrink`, and `shrink = n / (n + shrinkage)` already pulls a thin
+sample toward zero, so a weak reading produces a weak nudge instead of a
+verdict. Check reachability before fixing, in the corollary sweep too.
+
+**A component that can never become ready is a slot on the card, not a
+learner.** `setup_expectancy` keyed on `(symbol, regime, direction)` with a
+10-trade floor, and after 168 trades the card had said `0 setup(s) at/above
+10-trade threshold` for months: 105 setups over 168 trades is 1.6 trades each,
+and no amount of trading fixes a key space that sparse. It backs off now —
+symbol, then regime, then direction — with the tier on the `Nudge` and a weight
+per tier, because a regime-level record applied to a symbol with no record of
+its own is a wider claim than the module's name suggests. That claim is what
+`SETUP_EXPECTANCY_BACKOFF_ENABLED` gates (default off, shadow first), and
+`may_apply()` is the seam so the analyzer and the readiness card cannot
+disagree about what is switched on. `lookup()` deliberately does NOT back off:
+something still has to be able to ask the narrow question.
 
 **Write the assertion, then re-run the search.** Three separate times the
 source test written for the known sites failed on sites the original grep

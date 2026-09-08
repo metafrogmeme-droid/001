@@ -221,6 +221,16 @@ class VoterWeightLearner:
                 "oos_win_rate": round(wr, 4), "oos_edge": round(edge, 4),
                 "direction_holds": direction_holds,
             }
+        # THE DENOMINATOR TRAVELS WITH THE RATE. `hold_rate` is holds/JUDGED,
+        # but the only count the report exposed was `voters`, which holds an
+        # entry for every learned voter including the ones no unseen trade
+        # agreed with (`an == 0`) and the ones whose adjustment was ~1.0. The
+        # readiness card read `len(voters)` and printed "62% of 34 voters" —
+        # a fraction and a population that are not the same population. The
+        # bar that gates VOTER_WEIGHT_LEARNING_ENABLED is computed from these
+        # two, so both belong on the record.
+        report["n_judged"] = judged
+        report["n_holds"] = holds
         report["hold_rate"] = round(holds / judged, 4) if judged else 0.0
         return report
 

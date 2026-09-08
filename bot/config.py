@@ -1289,6 +1289,18 @@ class AnalyzerConfig:
     # applies a small bounded nudge to confidence. When disabled it is computed
     # in shadow-mode (logged, not applied). See bot/learning/setup_expectancy.py.
     setup_expectancy_enabled: bool = _env_bool("SETUP_EXPECTANCY_ENABLED", True)
+    # Backed-off tiers: apply a nudge learned from (regime, direction) or from
+    # (direction) alone when this symbol has no record of its own. DEFAULT OFF
+    # — it is a wider claim than "this setup's own track record", so it goes
+    # through the same shadow-first path every other learner here did: the
+    # coarse nudge is computed and SHADOW-logged until this is switched on.
+    #
+    # Without it the learner is INERT rather than conservative: keyed on
+    # (symbol, regime, direction) at a 10-trade floor, a live table held 105
+    # setups across 168 trades with none at the threshold, and a broad-universe
+    # scanner will not get one there.
+    setup_expectancy_backoff_enabled: bool = _env_bool(
+        "SETUP_EXPECTANCY_BACKOFF_ENABLED", False)
     # Voter-weight learning application (Phase B2): when ON, each confluence
     # voter's hand-tuned weight is multiplied by a learned, bounded ([0.5,1.5])
     # multiplier reflecting how well that voter has predicted winning trades.
