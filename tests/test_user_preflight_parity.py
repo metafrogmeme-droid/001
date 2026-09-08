@@ -90,19 +90,27 @@ class TestTheUserPathClassifiesToo:
 
 
 class TestNobodyIsToldToTouchAKeyOverABlip:
-    def test_the_unreachable_notice_says_entries_are_not_halted(self):
+    # ANCHORED ON THE NOTICE, NOT ON A COMMON PHRASE. These two sliced from
+    # `block.index("could not ")` — three ordinary words that any later
+    # addition to this function can own. A master-key reading landed one
+    # `"could not be read."` earlier in the block and both windows moved off
+    # the notice they exist to check; one failed, and the other PASSED for a
+    # reason unrelated to the rule, which is the worse half. The anchor is the
+    # notice's own first line now, and it is a phrase nothing else can claim.
+    UNREACHABLE = "could not \"\n                     \"be reached"
+
+    def _window(self):
         block = _user_block()
-        i = block.index("could not ")
-        window = block[i:i + 700]
-        assert "NOT halted" in window
+        i = block.index(self.UNREACHABLE)
+        return block[i:i + 700]
+
+    def test_the_unreachable_notice_says_entries_are_not_halted(self):
+        assert "NOT halted" in self._window()
 
     def test_the_unreachable_notice_does_not_ask_for_a_reconnect(self):
         # /connect means re-entering an API key. Asking for that over a
         # network failure is useless work on a secret.
-        block = _user_block()
-        i = block.index("could not ")
-        window = block[i:i + 700]
-        assert "/connect" not in window, (
+        assert "/connect" not in self._window(), (
             "only a genuine rejection warrants re-entering credentials"
         )
 

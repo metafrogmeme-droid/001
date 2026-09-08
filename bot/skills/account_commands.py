@@ -37,6 +37,56 @@ if TYPE_CHECKING:
     from bot.utils.user_store import UserStore
 
 
+def master_key_line(state: dict) -> str:
+    """The `/vault` bullet for the master key. Pure, so it can be driven.
+
+    THE CARD NAMED THIS KEY AND NEVER READ IT. It printed "Fernet under the
+    master key (`RUNECLAW_SECRETS_KEY` / `data/.exchange_secret.key`)" as
+    though the two were one thing, on the command whose own docstring says it
+    "is how you verify nothing is left unprotected". They are not one thing:
+    with the variable set the key exists in two places and either can be
+    rebuilt from the other; without it the file is the only copy and a wiped
+    `data/` is unrecoverable. That is the single fact that decides what a wipe
+    costs, and it was the fact the card left out.
+
+    `prior_backup` prints whenever it exists, in every state. It is written
+    only when a key was replaced, so it is the one durable trace of the event
+    that `state` itself stops reporting a boot later.
+    """
+    st = (state or {}).get("state", "unreadable")
+    fp = (state or {}).get("fingerprint")
+    fp_txt = f" (fingerprint <code>{html.escape(str(fp))}</code>)" if fp else ""
+    body = {
+        "pinned": ("🟢 pinned in <code>RUNECLAW_SECRETS_KEY</code> and mirrored to "
+                   "<code>data/</code>" + fp_txt + " — survives a wiped "
+                   "<code>.env</code> <i>and</i> a wiped <code>data/</code>."),
+        "file_only": ("🟠 <b>file-only</b>" + fp_txt + " — <code>RUNECLAW_SECRETS_KEY</code> "
+                      "is unset, so <code>data/.exchange_secret.key</code> is the "
+                      "ONLY copy. It survives a wiped <code>.env</code>; a wiped "
+                      "<code>data/</code> loses every stored secret permanently. "
+                      "Set the variable to that file's value to fix it."),
+        "diverged": ("🔴 <b>diverged</b>" + fp_txt + " — <code>RUNECLAW_SECRETS_KEY</code> "
+                     "and the key file hold DIFFERENT keys. The environment wins, "
+                     "so anything encrypted under the other one will not open."),
+        "absent": ("⚪ not created yet — nothing is encrypted so far; the next "
+                   "secret written generates a key into <code>data/</code>."),
+        "unreadable": "🔴 <b>could not be read</b>",
+    }.get(st, "🔴 <b>could not be read</b>")
+
+    detail = (state or {}).get("detail", "")
+    if st in ("unreadable", "diverged") and detail:
+        body += f" — {html.escape(str(detail))}"
+
+    bak = (state or {}).get("prior_backup")
+    if bak:
+        body += ("\n  ↳ a previous key was replaced and kept at "
+                 f"<code>{html.escape(str(bak.get('path', '')))}</code> "
+                 f"(fingerprint <code>{html.escape(str(bak.get('fingerprint', '')))}</code>). "
+                 "If secrets stopped opening after a key change, that is the one "
+                 "that reads them.")
+    return "• The master key itself: " + body
+
+
 class AccountCommands:
     """A user's own account, and the operator's keys. Host contract below."""
 
@@ -481,11 +531,20 @@ class AccountCommands:
                     if web_key.get("env") or web_key.get("vault") else
                     "<code>WEB_CREDS_KEY</code> is unset — not needed; it was the legacy "
                     "shared-key path. Keys already linked are unaffected.")
+        # The master key's own state, READ rather than named. Reading a file
+        # and hashing it is cheap, but it is I/O on the reply path, so it goes
+        # off the loop like the sealing kid above.
+        try:
+            from bot.core.exchange_credentials import master_key_state
+            _mk = await asyncio.to_thread(master_key_state)
+        except Exception as exc:
+            _mk = {"state": "unreadable", "detail": _safe_exc_text(exc)}
         lines.append(
             f"{SEP}\n<b>What encrypts what</b>\n"
             "• Keys users link (/connect, the website): Fernet under the "
             "master key (<code>RUNECLAW_SECRETS_KEY</code> / "
             "<code>data/.exchange_secret.key</code>) — always, whatever else is set.\n"
+            + master_key_line(_mk) + "\n"
             "• Website submissions in transit to the bot: " + seal_line + " " + web_line + "\n"
             "• The operator's own keys: this vault mirrors .env, it does not "
             "replace it — a key that only ever came from .env stays in the clear "
