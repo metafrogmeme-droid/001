@@ -40,6 +40,40 @@ if TYPE_CHECKING:
     from bot.utils.user_store import UserStore
 
 
+def close_card_for(msg: str, close_data):
+    """The close-card payload this message may wear, or None for text only.
+
+    Two independent reasons a card would misdescribe the message, and the
+    slot is a shared last-write-wins one, so both have to be checked.
+
+    1. WRONG POSITION (live incident 2026-07-07). With two closes in one
+       sweep, THIS message's close may not be the slot's occupant, and the
+       card would picture the other one. The symbol has to appear in the
+       message. It is a weaker key than the trade id the slot now carries —
+       the callback handler matches on that — but this callback receives only
+       text, so the symbol is what there is to match on; two closes of the
+       SAME symbol in one sweep are still indistinguishable here.
+    2. NOT A CLOSE AT ALL. The slot is written only on success, so on a
+       failed, kept-open or urgent message it holds an EARLIER close of
+       possibly the same symbol: reason 1 passes and a green card swallows
+       the only warning that a position is live and unprotected. The reading
+       is `order_state`'s, derived from the close's own kept-open vocabulary
+       plus the guards' headings — the hand-typed list it replaced knew the
+       upper-case headings and missed the close's own "kept OPEN" answers,
+       which the monitor loop forwards raw.
+    """
+    from bot.core.order_state import close_card_is_wrong
+
+    if not close_data or not isinstance(close_data, dict) or close_card_is_wrong(msg):
+        return None                     # an empty slot is no slot
+    _cd_sym = str(close_data.get("symbol", "")).replace(
+        "/", "").replace(":USDT", "").upper()
+    _msg_norm = str(msg or "").replace("/", "").replace(":USDT", "").upper()
+    if _cd_sym and _cd_sym not in _msg_norm:
+        return None
+    return close_data
+
+
 class AlertsMonitor:
     """The proactive-alert loop and the operator broadcast. Host contract below; methods after."""
 
@@ -247,34 +281,13 @@ class AlertsMonitor:
             if not _notify_chat_ids:
                 return
             try:
-                # Try to render a styled PNG close card
-                close_data = getattr(self.engine.live_executor, '_last_close_data', None)
-                # Consistency guard (live incident 2026-07-07): _last_close_data
-                # is a shared last-write-wins slot. With 2+ closes in one sweep,
-                # THIS message's close may not be the slot's occupant — rendering
-                # it would caption/card the WRONG position. Only trust the slot
-                # when its symbol actually appears in this message.
-                if close_data:
-                    _cd_sym = str(close_data.get("symbol", "")).replace(
-                        "/", "").replace(":USDT", "").upper()
-                    _msg_norm = msg.replace("/", "").replace(":USDT", "").upper()
-                    if _cd_sym and _cd_sym not in _msg_norm:
-                        close_data = None  # mismatched close — fall to text from msg
-                # FAILURE messages must never be replaced by a card: the slot is
-                # only written on close SUCCESS, so on a failed/urgent close it
-                # holds an EARLIER close of possibly the same symbol — the guard
-                # above passes and a stale "normal close" card would swallow the
-                # only warning that a position is live and unprotected. The
-                # reading is order_state's, derived from the close's own
-                # kept-open vocabulary plus the guards' headings: the hand-typed
-                # list this replaced knew the guards' upper-case headings and
-                # missed the close's own "kept OPEN" answers (CLOSE NOT
-                # CONFIRMED, RESIDUAL REMAINS), which the monitor loop forwards
-                # raw — so a same-symbol earlier close's green card replaced the
-                # only warning that the position was live and NOT re-protected.
-                from bot.core.order_state import close_card_is_wrong
-                if close_card_is_wrong(msg):
-                    close_data = None      # always deliver the text itself
+                # Try to render a styled PNG close card. The decision of
+                # WHETHER this message may wear a card is `close_card_for`,
+                # a seam: inline, it was pinned by a source window that a
+                # mutation adding `and False` to the guard walked straight
+                # through.
+                close_data = close_card_for(
+                    msg, getattr(self.engine.live_executor, '_last_close_data', None))
                 close_png = None
                 if close_data:
                     try:

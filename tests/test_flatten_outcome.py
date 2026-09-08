@@ -52,6 +52,7 @@ from bot.core.order_state import (
     close_did_not_happen,
     flatten_outcome,
 )
+from bot.utils.models import Direction
 from tests.source_scan import code_only
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -340,11 +341,12 @@ def test_the_two_readers_outside_the_executor_read_the_answer():
     through in tests/test_manual_close_report.py — and hands the answer there."""
     call_site = _handler_function("_handle_callback")
     site = call_site.index('"manual_nlp"')
-    assert "_report_manual_close(update, executor, lp, pair, result)" in call_site[site:site + 800]
+    assert "_report_manual_close(" in call_site[site:site + 900]
     reader = _handler_function("_report_manual_close")
     assert "flatten_outcome(result)" in reader
     assert '_outcome == "failed"' in reader and '_outcome == "kept_open"' in reader
-    assert 'close_data.get("trade_id")' in reader, "the slot is matched on the trade id, not the symbol"
+    assert '_slot_id' in reader and '_this_id' in reader, (
+        "the slot is matched on the trade id, not the symbol")
     assert "close_card_is_wrong(result)" in reader
     assert "pnl_usd or 0" not in reader, "no PnL is rebuilt from the record"
     engine = code_only((ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8"))
@@ -400,11 +402,13 @@ def test_the_close_card_renderer_never_replaces_a_kept_open_text_with_a_picture(
     close's own answers ("kept OPEN") that the monitor loop forwards raw; it
     reads order_state's vocabulary now."""
     monitor = code_only((ROOT / "bot" / "skills" / "alerts_monitor.py").read_text(encoding="utf-8"))
-    anchor = monitor.index("close_card_is_wrong(msg)")
-    guard = monitor[anchor:anchor + 200]
-    assert "close_data = None" in guard, "the suppression no longer clears the close slot"
+    decide = monitor.index("def close_card_for(")
     render = monitor.index("render_close_card(close_data)")
-    assert anchor < render, "the reading must precede the rendering"
+    assert decide < render, "the reading must precede the rendering"
+    assert "close_card_for(" in monitor[monitor.index("async def _on_trade_closed"):render], (
+        "the notifier must go through the seam, not re-decide inline")
+    # …and the seam's behaviour is driven in tests/test_alerts_monitor_close_card.py,
+    # because a window like this one passes against `if close_card_is_wrong(msg) and False:`.
 
 
 def test_the_close_did_not_happen_reading_is_the_whole_vocabulary():
@@ -441,9 +445,22 @@ def test_the_re_place_promise_is_made_once_and_per_position():
     position carrying both a stop level and a target, and the old sentence
     promised it unconditionally in six places."""
     assert "re-places one on its next pass" in stop_replacement_note(95.0, 110.0)
-    assert "will NOT re-place" in stop_replacement_note(95.0, 0.0)
-    assert "will NOT re-place" in stop_replacement_note(95.0, None)
-    assert "will NOT re-place" in stop_replacement_note(0.0, 110.0)
+    # …and the reason names WHAT is missing, rather than assuming the target:
+    # a first draft said "no target level" for a position whose target was the
+    # leg it had.
+    assert "no target level" in stop_replacement_note(95.0, 0.0)
+    assert "no target level" in stop_replacement_note(95.0, None)
+    assert "no stop level" in stop_replacement_note(0.0, 110.0)
+    assert "no stop level and no target" in stop_replacement_note(0.0, 0.0)
+    # The monitor's placement refuses BOTH clauses of the side check, and the
+    # note reproduced only the positivity one: an inverted pair is positive on
+    # both legs and refused on every attempt, forever.
+    assert "wrong sides" in stop_replacement_note(110.0, 95.0, Direction.LONG)
+    assert "wrong sides" in stop_replacement_note(95.0, 110.0, Direction.SHORT)
+    assert "re-places one on its next pass" in stop_replacement_note(
+        110.0, 95.0, Direction.SHORT)
+    assert "re-places one on its next pass" in stop_replacement_note(
+        95.0, 110.0, "LONG"), "a position's direction is a string"
     assert CODE.count("the monitor re-places") == 1, (
         "a card promises the re-place in its own words — route it through stop_replacement_note")
     assert "monitor re-places its stop" not in CODE

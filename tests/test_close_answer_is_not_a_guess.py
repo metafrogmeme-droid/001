@@ -28,9 +28,19 @@ combined stop is a STRATEGY order; ccxt's cancel_order with no trigger flag
 goes to the regular-order endpoint under UTA, where the id is unknown, and its
 25204 "Order does not exist" was read as "the stop fired" — so every rejected
 close blanked both ids off a record whose stop was live on the venue. The
-combined id is cancelled in the strategy table now and read back from it; on
-the ccxt route a "does not exist" keeps the id, because there it cannot be
-told from the same wrong-table answer.
+combined id is cancelled in the strategy table now and read back from it.
+
+Four verdicts, and exactly ONE of them keeps the id: `live`, where the venue
+answered and the order is still resting. `removed`, `gone` and `unverified`
+all clear it. That is not a shrug at the third — it is the point of having it.
+Nothing in the tree reads `sl_order_id` three-valued: non-empty is a green
+tick to /positions, to the web gateway, to the unprotected escalation and to
+the periodic re-place, so an id nobody could verify would answer "protected"
+over a position that may be naked, with the self-heal standing down. The file
+says so 2,000 lines up, beside `_mark_stop_absent`: "A cancelled stop that
+could not be replaced is an ABSENT stop, and the field has to say so."
+Clearing is also idempotent — `_place_sl_tp` cancels what it finds before it
+places — so a stop that turns out to be live is replaced, not doubled.
 """
 
 from __future__ import annotations
@@ -139,19 +149,25 @@ async def test_a_venue_that_reports_no_position_is_not_confirmed_rather_than_fai
 # ── the cancel pass records what it REMOVED ──────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_a_does_not_exist_from_the_regular_table_keeps_the_id(tmp_path):
+async def test_a_does_not_exist_from_the_regular_table_does_not_leave_a_green_tick(tmp_path):
     """On the ccxt route, 25204 ("Order does not exist") cannot be told from
     the answer the regular-order endpoint gives a trigger order it does not
     hold: a stop that fired, or a live stop looked up in the wrong table.
-    Neither reading may clear the id — a forgotten live stop the record does
-    not name is not protection — so it stays, and the audit says why."""
+
+    Unverified is not protected. Nothing in the tree reads `sl_order_id`
+    three-valued — non-empty is a green tick to /positions, to the web
+    gateway, to the unprotected escalation and to the periodic re-place —
+    so keeping an id nobody could verify answers "protected" over a position
+    that may be naked, with the self-heal standing down. The id goes, and
+    the re-place is idempotent: `_place_sl_tp` cancels what it finds before
+    it places."""
     venue = _venue(AsyncMock(side_effect=RuntimeError("venue 5xx")),
                    cancel_order=AsyncMock(side_effect=Exception(
                        'bitget {"code":"25204","msg":"Order does not exist"}')))
     e, p = _executor(tmp_path, venue)
     msg = await e.close_position("T1", reason="leverage_overshoot")
     assert "CLOSE FAILED" in msg
-    assert p.sl_order_id == "sl-1" and p.tp_order_id == "tp-1"
+    assert p.sl_order_id is None and p.tp_order_id is None
 
 
 def _v3(e, *, cancel=None, resting=None):
@@ -213,9 +229,10 @@ async def test_a_strategy_order_still_listed_after_the_cancel_keeps_its_id(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_a_strategy_cancel_nobody_could_verify_keeps_its_id(tmp_path):
+async def test_a_strategy_cancel_nobody_could_verify_does_not_leave_a_green_tick(tmp_path):
     """Accepted, and then the strategy list could not be read; or the cancel
-    request never completed. Nobody saw the order go."""
+    request never completed. Nobody saw the order go — so the record must not
+    say one is there. Same rule as the ccxt route above."""
     for cancel, resting in (({"code": "00000"}, None),
                             ({"code": "TRANSPORT", "msg": "connection reset"}, False)):
         venue = _venue(AsyncMock(side_effect=RuntimeError("venue 5xx")))
@@ -224,7 +241,21 @@ async def test_a_strategy_cancel_nobody_could_verify_keeps_its_id(tmp_path):
         _v3(e, cancel=cancel, resting=resting)
         msg = await e.close_position("T1", reason="leverage_overshoot")
         assert "CLOSE FAILED" in msg
-        assert p.sl_order_id == "combined-1" and p.tp_order_id == "combined-1", (cancel, resting)
+        assert p.sl_order_id is None and p.tp_order_id is None, (cancel, resting)
+
+
+@pytest.mark.asyncio
+async def test_a_transport_failure_whose_text_says_does_not_exist_is_not_a_reading(tmp_path):
+    """The TRANSPORT envelope's msg is `str(exc)` of an arbitrary transport
+    failure. Testing the venue's "does not exist" wording first would read
+    such a message as the venue's own answer."""
+    venue = _venue(AsyncMock(side_effect=RuntimeError("venue 5xx")))
+    e, p = _executor(tmp_path, venue)
+    p.sl_order_id = p.tp_order_id = "combined-1"
+    _v3(e, cancel={"code": "TRANSPORT", "msg": "<urlopen error host does not exist>"},
+        resting=None)
+    verdict, detail = await e._cancel_stop_leg(venue, p, "combined-1", combined=True)
+    assert verdict == "unverified", detail
 
 
 @pytest.mark.asyncio
@@ -245,7 +276,8 @@ async def test_a_status_less_cancel_answer_is_read_back_before_the_record_forget
     venue.fetch_order = AsyncMock(side_effect=RuntimeError("read failed"))
     e, p = _executor(tmp_path, venue)
     await e.close_position("T1", reason="leverage_overshoot")
-    assert p.sl_order_id == "sl-1" and p.tp_order_id == "tp-1"
+    assert p.sl_order_id is None and p.tp_order_id is None, (
+        "an unreadable follow-up is not a stop the record may claim")
 
 
 @pytest.mark.asyncio
@@ -265,14 +297,26 @@ async def test_the_post_close_sweep_re_cancels_a_combined_id_in_the_strategy_tab
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_nobody_could_verify_keeps_its_id(tmp_path):
+async def test_a_cancel_nobody_could_verify_does_not_leave_a_green_tick(tmp_path):
     """The venue answered the cancel with a non-terminal status and the
-    follow-up read failed. Nobody saw the order go, so it may still be live:
-    the id stays. A forgotten live stop is extra protection; a forgotten live
-    stop the record does not name is not."""
+    follow-up read failed. Nobody saw the order go, so the record must not
+    keep naming it: unverified is not protected."""
     venue = _venue(AsyncMock(side_effect=RuntimeError("venue 5xx")),
                    cancel_order=AsyncMock(return_value={"status": "open"}))
     venue.fetch_order = AsyncMock(side_effect=RuntimeError("read failed"))
+    e, p = _executor(tmp_path, venue)
+    msg = await e.close_position("T1", reason="leverage_overshoot")
+    assert "CLOSE FAILED" in msg
+    assert p.sl_order_id is None and p.tp_order_id is None
+
+
+@pytest.mark.asyncio
+async def test_only_a_stop_the_venue_says_is_still_there_keeps_its_id(tmp_path):
+    """The one verdict that keeps the id: the venue answered and the order is
+    still resting. The record naming it is then true."""
+    venue = _venue(AsyncMock(side_effect=RuntimeError("venue 5xx")),
+                   cancel_order=AsyncMock(return_value={"status": "open"}))
+    venue.fetch_order = AsyncMock(return_value={"id": "sl-1", "status": "open"})
     e, p = _executor(tmp_path, venue)
     msg = await e.close_position("T1", reason="leverage_overshoot")
     assert "CLOSE FAILED" in msg
@@ -351,7 +395,6 @@ def _refusals():
     return [
         ccxt.RateLimitExceeded('bitget {"code":"1001","msg":"too frequent"}'),
         ccxt.DDoSProtection("bitget 429 Too Many Requests"),
-        ccxt.ExchangeNotAvailable("bitget 503 Service Unavailable"),
         ccxt.OnMaintenance("bitget maintenance"),
         ccxt.InvalidNonce("bitget bad timestamp"),
         never_connected,
@@ -366,14 +409,23 @@ def _unknown_sends():
     dropped.__cause__ = aiohttp.ServerDisconnectedError()
     reset = ccxt.ExchangeNotAvailable("bitget POST /order")
     reset.__cause__ = aiohttp.ClientOSError(104, "Connection reset by peer")
-    return [ccxt.RequestTimeout("timed out"), dropped, reset]
+    # A 5xx: the request REACHED a server that then failed. Whether the order
+    # reached the book is exactly what nobody knows, and ccxt raises it with
+    # no aiohttp cause. A first draft called this a refusal, which is a
+    # verdict from no reading.
+    http_5xx = ccxt.ExchangeNotAvailable("bitget 503 Service Unavailable")
+    # The venue was answering and the body was cut mid-transfer.
+    cut_body = ccxt.ExchangeError("bitget POST /order")
+    cut_body.__cause__ = aiohttp.ClientPayloadError("response payload is not completed")
+    return [ccxt.RequestTimeout("timed out"), dropped, reset, http_5xx, cut_body]
 
 
 def test_a_refusal_is_not_an_unknown_send():
-    """ccxt files rate limits, 5xx, maintenance and a bad nonce under
-    NetworkError beside the timeout. Those are the venue ANSWERING no; only a
-    timeout, or a connection that dropped after the request was on the wire,
-    leaves it unknown whether the order reached the book."""
+    """ccxt files rate limits, maintenance and a bad nonce under NetworkError
+    beside the timeout. Those are the venue ANSWERING no. Unknown is anything
+    that happened once the request was on the wire: a timeout, a connection
+    dropped after the send, a body cut mid-transfer, and a 5xx — which says
+    the request reached a server that then failed."""
     for exc in _refusals():
         assert send_outcome_unknown(exc) is False, type(exc).__name__
     for exc in _unknown_sends():
@@ -386,7 +438,7 @@ async def test_a_rate_limit_on_the_send_is_a_rejected_close(tmp_path):
     the order never reached the book. "CLOSE NOT CONFIRMED" here told every
     guard to stand down on a live, stop-less position — during the rate-limit
     storms in which closes fail most. It is a failed close: the guards place
-    the stop."""
+    the stop. A 5xx is NOT in this list — see the test below."""
     for exc in _refusals():
         venue = _venue(AsyncMock(side_effect=exc))
         e, p = _executor(tmp_path, venue)
@@ -398,8 +450,9 @@ async def test_a_rate_limit_on_the_send_is_a_rejected_close(tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_connection_dropped_after_the_send_is_not_a_rejection(tmp_path):
-    """The server disconnected, or the socket reset, once the request was on
-    the wire: the venue may have filled it. Same reading as the timeout."""
+    """The server disconnected, the socket reset, the body was cut, or a
+    server answered 5xx — all once the request was on the wire: the venue may
+    have filled it. Same reading as the timeout."""
     for exc in _unknown_sends():
         venue = _venue(AsyncMock(side_effect=exc))
         e, p = _executor(tmp_path, venue)
@@ -466,6 +519,23 @@ async def test_a_close_booked_whose_ledger_row_is_missing_says_so(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_ledger_write_that_failed_is_not_a_written_row(tmp_path):
+    """The comment names two ways the row can be missing — the dedup skip and
+    a swallowed write failure — and reading the IN-MEMORY list caught only the
+    first: a disk-full write leaves the row in memory and the sentence still
+    claimed it."""
+    venue = _venue(AsyncMock(return_value={"id": "CLOSE-1", "average": 101.0, "filled": 1.0}))
+    e, p = _executor(tmp_path, venue)
+    e._verify_position_closed = AsyncMock(return_value={
+        "confirmed": True, "fill_price": 101.0, "fill_qty": 1.0, "failure_stage": "", "fees": 0.0})
+    e._save_closed_trades = lambda: False          # the atomic write did not land
+    e._fire_position_closed = lambda pos: (_ for _ in ()).throw(RuntimeError("card renderer down"))
+    msg = await e.close_position("T1", reason="leverage_overshoot")
+    assert "CLOSED" in msg and "booked" in msg and flatten_outcome(msg) == "closed", msg
+    assert "could NOT be confirmed" in msg and "The ledger row is written" not in msg, msg
+
+
+@pytest.mark.asyncio
 async def test_a_completed_close_stamps_the_slot_with_its_trade_id(tmp_path):
     """The close slot is last-write-wins and was matched on the symbol alone;
     a reader that knows which close it asked about can now refuse an earlier
@@ -504,6 +574,91 @@ async def test_a_venue_that_reports_no_position_but_a_book_that_could_not_be_rea
     e._flash_close_position = AsyncMock(return_value=None)
     msg = await e.close_position("T1", reason="leverage_overshoot")
     assert "CLOSE FAILED" in msg and flatten_outcome(msg) == "failed"
+
+
+# ── the strategy channel itself, not a stub of it ────────────────────────────
+
+class _FakeV3:
+    """Records what would go on the wire and answers what the test says."""
+
+    def __init__(self, post=None, get=None):
+        self.calls: list = []
+        self._post, self._get = post, get
+        self.has_credentials = True
+
+    def request(self, method, path, body_dict=None, timeout=10):
+        self.calls.append((method, path, body_dict))
+        if isinstance(self._post, Exception):
+            raise self._post
+        return self._post
+
+    def get(self, path, timeout=10):
+        self.calls.append(("GET", path, None))
+        if isinstance(self._get, Exception):
+            raise self._get
+        return self._get
+
+
+def _client(monkeypatch, fake):
+    import bot.core.bitget_v3_client as mod
+    monkeypatch.setattr(mod.BitgetV3Client, "for_account",
+                        classmethod(lambda cls, creds: fake))
+    return fake
+
+
+def test_the_strategy_cancel_addresses_the_strategy_table(tmp_path, monkeypatch):
+    """Every test above stubs these two helpers, so nothing checked the
+    endpoint, the body or the query — and the whole point of the change is
+    WHICH table the cancel reaches. One word apart from cancel-order, which
+    is the bug it fixes."""
+    e = LiveExecutor(state_dir=str(tmp_path))
+    fake = _client(monkeypatch, _FakeV3(post={"code": "00000", "data": None}))
+    resp = e._v3_strategy_cancel_sync("combined-1")
+    assert resp == {"code": "00000", "data": None}
+    assert fake.calls == [("POST", "/api/v3/trade/cancel-strategy-order",
+                           {"orderId": "combined-1"})]
+
+
+def test_the_strategy_read_back_asks_for_unfilled_tpsl_orders(tmp_path, monkeypatch):
+    e = LiveExecutor(state_dir=str(tmp_path))
+    fake = _client(monkeypatch, _FakeV3(get={"code": "00000", "data": []}))
+    assert e._v3_strategy_order_resting_sync("combined-1") is False
+    (method, path, _), = fake.calls
+    assert method == "GET"
+    assert path.startswith("/api/v3/trade/unfilled-strategy-orders")
+    assert "category=USDT-FUTURES" in path and "type=tpsl" in path
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ({"code": "00000", "data": [{"orderId": "combined-1", "status": "pending"}]}, True),
+    ({"code": "00000", "data": [{"orderId": "combined-1", "status": "submitting"}]}, True),
+    ({"code": "00000", "data": [{"orderId": "combined-1", "status": "cancelled"}]}, False),
+    ({"code": "00000", "data": [{"orderId": "combined-1", "status": "success"}]}, False),
+    ({"code": "00000", "data": [{"orderId": "combined-1", "status": "failed"}]}, False),
+    ({"code": "00000", "data": [{"orderId": "other", "status": "pending"}]}, False),
+    ({"code": "00000", "data": {"list": [{"orderId": "combined-1", "status": "pending"}]}}, True),
+    ({"code": "00000", "data": []}, False),
+    # unreadable — and each of these MUST stay None, because False would clear
+    # a live stop's id off the record and True would keep a dead one
+    ({"code": "40001", "msg": "bad request"}, None),
+    ({"code": "00000"}, None),
+    ({"code": "00000", "data": "not a list"}, None),
+    ("not a dict", None),
+])
+def test_the_strategy_list_is_read_three_valued(tmp_path, monkeypatch, payload, expected):
+    e = LiveExecutor(state_dir=str(tmp_path))
+    _client(monkeypatch, _FakeV3(get=payload))
+    assert e._v3_strategy_order_resting_sync("combined-1") is expected, payload
+
+
+def test_a_request_that_never_completed_is_not_a_venue_answer(tmp_path, monkeypatch):
+    """The envelope-shaped error body of an HTTPError is the venue's answer;
+    a transport failure with no body is not, and must not be read as one."""
+    e = LiveExecutor(state_dir=str(tmp_path))
+    _client(monkeypatch, _FakeV3(post=OSError("connection reset")))
+    assert e._v3_strategy_cancel_sync("combined-1")["code"] == "TRANSPORT"
+    _client(monkeypatch, _FakeV3(get=OSError("connection reset")))
+    assert e._v3_strategy_order_resting_sync("combined-1") is None
 
 
 # ── the promise about the monitor is per position ────────────────────────────

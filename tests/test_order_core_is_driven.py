@@ -692,8 +692,29 @@ async def test_stops_placed_first_time_come_back_as_ids(ex, audits, monkeypatch)
 async def test_a_missing_stop_is_retried_once(ex, audits, monkeypatch):
     monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(side_effect=[(None, "tp1"), ("sl2", None)]))
     out = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
-    assert out == (None, "sl2", "tp1"), "the retry's stop and the first pass's target are both kept"
+    assert out == (None, "sl2", None), (
+        "the retry cancels every resting plan order it can find before it places, "
+        "so the first pass's TP is most likely gone: naming it left the record "
+        "pointing at a dead order beside a live stop, and the periodic check — "
+        "which fires on an EMPTY id — then never refreshed it")
     assert _by(audits, "sl_retry")[0]["result"] == "RETRY"
+
+
+@pytest.mark.asyncio
+async def test_a_retry_that_placed_both_legs_names_both(ex, audits, monkeypatch):
+    monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(side_effect=[(None, "tp1"), ("sl2", "tp2")]))
+    out = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
+    assert out == (None, "sl2", "tp2")
+
+
+@pytest.mark.asyncio
+async def test_a_retry_that_placed_nothing_leaves_the_first_pass_alone(ex, audits, monkeypatch):
+    """Nothing landed, so whether the cleanup ran is unknown and there is no
+    newer id to name. The stop is still missing, so this flattens."""
+    monkeypatch.setattr(ex, "_place_sl_tp", AsyncMock(side_effect=[(None, "tp1"), (None, None)]))
+    ex.close_position = AsyncMock(return_value="✅ CLOSED LONG BTC/USDT @ $100.00 (sl_failed)")
+    out = await ex._place_entry_stops(FakeExchange(), _idea(), 5.0, _position(), False, False, "Crypto")
+    assert out[1] is None, "no stop was placed"
 
 
 @pytest.mark.asyncio
