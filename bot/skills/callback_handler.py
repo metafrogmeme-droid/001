@@ -186,7 +186,7 @@ class CallbackHandler:
         def _yield_client(self): ...
 
     async def _report_manual_close(self, update: Update, executor, lp, pair: str,
-                                   result) -> None:
+                                   result) -> bool:
         """Tell the user what a "close X" request did, from close_position's ANSWER.
 
         close_position signals failure by RETURN VALUE and answers "kept OPEN"
@@ -203,6 +203,12 @@ class CallbackHandler:
         says when no card was built); otherwise print the answer, which is
         the honest text — it carries the fill, the PnL line (or UNPRICED) and
         how the close was verified.
+
+        Returns whether the position is GONE. The caller strips the message's
+        buttons on the strength of it: extracting this block dropped the two
+        `break`s that used to skip that, so a failed close answered "the
+        position is still open" on a message whose Close button had just been
+        taken away — the one path where the operator needs it most.
         """
         from bot.core.order_state import close_card_is_wrong, flatten_outcome
 
@@ -215,7 +221,7 @@ class CallbackHandler:
                 f"\u2014 the position is still open.\n"
                 f"<code>{shown}</code>",
                 edit=True)
-            return
+            return False
         if _outcome == "kept_open":
             # One bucket, two truths: kept open in whole or in part, OR not
             # this request's to close — already closed, or closing under
@@ -229,14 +235,18 @@ class CallbackHandler:
                 f"<code>{shown}</code>\n"
                 f"Review it on the venue.",
                 edit=True)
-            return
+            return False
         # closed. Only THIS close's card: the slot is last-write-wins and is
         # written only when a card was built, so match on the trade id and
         # honour an answer that says no card exists.
         close_data = getattr(executor, "_last_close_data", None)
+        _slot_id = close_data.get("trade_id") if isinstance(close_data, dict) else None
+        _this_id = getattr(lp, "trade_id", None)
         if (not isinstance(close_data, dict)
-                or close_data.get("trade_id") != getattr(lp, "trade_id", None)
+                or _slot_id is None or _this_id is None or _slot_id != _this_id
                 or close_card_is_wrong(result)):
+            # `!=` alone let two ABSENT ids match and render the card; the
+            # guard exists to establish identity, and absent is not identity.
             close_data = None
         close_png = None
         if close_data:
@@ -256,12 +266,13 @@ class CallbackHandler:
             cap = (f"{pnl_emoji} <b>{html.escape(pair)}</b> CLOSED\n"
                    f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
             await self._send_photo(update, close_png, cap)
-            return
+            return True
         # No card for THIS close: the answer is the record. It already says
         # CLOSED (or CANCELLED, for a pending order that never filled) and
         # carries the numbers that were measured — nothing is rebuilt from
         # the position record, where a missing PnL used to print as $+0.00.
-        await self._send(update, html.escape(str(result)), edit=True)
+        await self._send(update, html.escape(str(result)[:3500]), edit=True)
+        return True
 
     async def _handle_callback(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -1132,13 +1143,19 @@ class CallbackHandler:
                             # kept-open answer beside a stale close slot and
                             # read what the user is told. Inline, this block
                             # was pinned by a source window only.
-                            await self._report_manual_close(update, executor, lp, pair, result)
-                            # Remove buttons from the original details message
-                            try:
-                                if update.callback_query and update.callback_query.message:
-                                    await update.callback_query.message.edit_reply_markup(reply_markup=None)
-                            except Exception:
-                                pass
+                            _gone = await self._report_manual_close(
+                                update, executor, lp, pair, result)
+                            # Remove buttons only when the position is GONE.
+                            # A close that failed or was kept open leaves the
+                            # operator needing the Close button they just
+                            # tapped, and a vanished button reads as "done".
+                            if _gone:
+                                try:
+                                    if update.callback_query and update.callback_query.message:
+                                        await update.callback_query.message.edit_reply_markup(
+                                            reply_markup=None)
+                                except Exception:
+                                    pass
                         except Exception as e:
                             live_closed = True  # prevent fallthrough to "not found"
                             await self._send(update,

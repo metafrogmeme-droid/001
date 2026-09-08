@@ -13,11 +13,14 @@ These cover the helper directly (no network — _place_sl_tp, the grace
 sub-loop, and close_position are stubbed).
 """
 
-import pytest
+import inspect
 from unittest.mock import AsyncMock
+
+import pytest
 
 from bot.core.live_executor import LiveExecutor, LivePosition
 from bot.utils.models import Direction
+from tests.source_scan import code_only
 
 
 def _pos(sl_id=None, tp_id=None, sl=95.0, tp=110.0):
@@ -296,6 +299,23 @@ async def test_a_retry_that_placed_nothing_leaves_the_first_tp_named(tmp_path, m
         object(), p, Direction.LONG, 1.0, None, "tp-first", "T1")
     assert sl_id is None and close_msg is not None
     assert p.tp_order_id == "tp-first", "stamped before the escalation, so the flatten cancels it"
+
+
+@pytest.mark.asyncio
+async def test_the_other_two_retry_sites_hand_back_their_own_tp_too(tmp_path, monkeypatch):
+    """The same three lines live in `_place_entry_stops` (the primary market
+    entry) and in `adopt_exchange_positions`. Both call `_place_sl_tp` a
+    second time, whose cleanup cancels the first attempt's TP, and both kept
+    the dead first id — which is verbatim the failure the ladder's fix
+    describes. Asking which OTHER surface makes the same claim is the rule;
+    this pins all three."""
+    src = inspect.getsource(LiveExecutor)
+    body = code_only(src)
+    assert "if tp_id is None:\n" not in body.replace("\r\n", "\n"), (
+        "a retry site still keeps the first attempt's TP id over the retry's own")
+    # …and the three sites each name what the retry placed.
+    assert body.count("sl_id = retry_sl\n") + body.count("sl_id = retry_sl\r\n") >= 3
+    assert body.count("tp_id = retry_tp") >= 3
 
 
 @pytest.mark.asyncio

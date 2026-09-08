@@ -60,7 +60,8 @@ def card(monkeypatch):
 
 
 async def _report(handler, slot, answer, trade_id="T1"):
-    await handler._report_manual_close(object(), _executor(slot), _lp(trade_id), "BTCUSDT", answer)
+    return await handler._report_manual_close(
+        object(), _executor(slot), _lp(trade_id), "BTCUSDT", answer)
 
 
 @pytest.mark.asyncio
@@ -152,3 +153,35 @@ async def test_an_unreadable_answer_is_a_failed_close(card):
     h = _Handler()
     await _report(h, _slot("T1"), None)
     assert h.photos == [] and "Close failed" in h.sent[0]
+
+
+# ── the answer decides whether the Close button may be taken away ────────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer, gone", [
+    ("CLOSE FAILED for T1: venue 5xx", False),
+    ("⚠️ CLOSE NOT CONFIRMED: LONG BTC/USDT:USDT\nkept OPEN", False),
+    ("Position T1 not found or already closed/closing.", False),
+    ("✅ CLOSED LONG BTC/USDT:USDT @ $101.00 (manual_nlp)", True),
+    ("✅ CANCELLED pending LONG BTC/USDT:USDT limit order", True),
+    (None, False),
+])
+async def test_the_report_says_whether_the_position_is_gone(card, answer, gone):
+    """`_handle_callback` strips the message's buttons on this answer. The
+    extraction dropped the two `break`s that used to skip that, so a failed
+    close said "the position is still open" on a message whose Close button
+    had just been removed — a vanished action button reads as "done", on the
+    one path where the operator needs it."""
+    h = _Handler()
+    assert await _report(h, None, answer) is gone, answer
+
+
+@pytest.mark.asyncio
+async def test_a_slot_with_no_trade_id_is_not_this_closes_card(card):
+    """Two ABSENT ids compared equal under a bare `!=`, and the card rendered.
+    This guard's whole job is identity, and absent is not identity."""
+    h = _Handler()
+    slot = {k: v for k, v in _slot("T1").items() if k != "trade_id"}
+    await _report(h, slot, "✅ CLOSED LONG BTC/USDT:USDT @ $101.00 (manual_nlp)",
+                  trade_id=None)
+    assert h.photos == [] and len(h.sent) == 1
