@@ -18,14 +18,14 @@ def _samples(sym, regime, direction, wins, losses):
 def test_zero_nudge_below_min_samples():
     exp = SetupExpectancy(min_samples=10)
     exp.ingest(_samples("SOL", "RANGE", "LONG", wins=3, losses=2))  # 5 < 10
-    assert exp.confidence_nudge("SOL", "RANGE", "LONG") == 0.0
+    assert exp.nudge_for("SOL", "RANGE", "LONG").value == 0.0
 
 
 def test_unseen_setup_is_neutral():
     exp = SetupExpectancy(min_samples=10).ingest(_samples("SOL", "RANGE", "LONG", 20, 0))
     wr, n = exp.lookup("BTC", "TREND_UP", "SHORT")
     assert (wr, n) == (0.5, 0)
-    assert exp.confidence_nudge("BTC", "TREND_UP", "SHORT") == 0.0
+    assert exp.nudge_for("BTC", "TREND_UP", "SHORT").value == 0.0
 
 
 def test_winning_setup_nudges_up_losing_down():
@@ -34,8 +34,8 @@ def test_winning_setup_nudges_up_losing_down():
     win.ingest(_samples("SOL", "RANGE", "LONG", wins=80, losses=20))   # 80% win
     lose = SetupExpectancy(min_samples=10, max_nudge=0.05, shrinkage=10.0)
     lose.ingest(_samples("SOL", "RANGE", "LONG", wins=20, losses=80))  # 20% win
-    up = win.confidence_nudge("SOL", "RANGE", "LONG")
-    down = lose.confidence_nudge("SOL", "RANGE", "LONG")
+    up = win.nudge_for("SOL", "RANGE", "LONG").value
+    down = lose.nudge_for("SOL", "RANGE", "LONG").value
     assert up > 0 and down < 0
     assert abs(up) <= 0.05 and abs(down) <= 0.05      # bounded
 
@@ -43,10 +43,10 @@ def test_winning_setup_nudges_up_losing_down():
 def test_nudge_is_bounded_at_extremes():
     exp = SetupExpectancy(min_samples=5, max_nudge=0.05, shrinkage=0.0)
     exp.ingest(_samples("X", "RANGE", "LONG", wins=100, losses=0))    # 100% win
-    assert exp.confidence_nudge("X", "RANGE", "LONG") <= 0.05 + 1e-9
+    assert exp.nudge_for("X", "RANGE", "LONG").value <= 0.05 + 1e-9
     exp2 = SetupExpectancy(min_samples=5, max_nudge=0.05, shrinkage=0.0)
     exp2.ingest(_samples("X", "RANGE", "LONG", wins=0, losses=100))   # 0% win
-    assert exp2.confidence_nudge("X", "RANGE", "LONG") >= -0.05 - 1e-9
+    assert exp2.nudge_for("X", "RANGE", "LONG").value >= -0.05 - 1e-9
 
 
 def test_shrinkage_tempers_thin_samples():
@@ -55,13 +55,13 @@ def test_shrinkage_tempers_thin_samples():
     thin.ingest(_samples("X", "RANGE", "LONG", wins=6, losses=0))
     thick = SetupExpectancy(min_samples=5, max_nudge=0.05, shrinkage=10.0)
     thick.ingest(_samples("X", "RANGE", "LONG", wins=200, losses=0))
-    assert thick.confidence_nudge("X", "RANGE", "LONG") > thin.confidence_nudge("X", "RANGE", "LONG")
+    assert thick.nudge_for("X", "RANGE", "LONG").value > thin.nudge_for("X", "RANGE", "LONG").value
 
 
 def test_case_and_whitespace_insensitive():
     exp = SetupExpectancy(min_samples=5).ingest(_samples("sol", "range", "long", 10, 0))
-    a = exp.confidence_nudge("SOL", "RANGE", "LONG")
-    b = exp.confidence_nudge(" sol ", " Range ", " Long ")
+    a = exp.nudge_for("SOL", "RANGE", "LONG").value
+    b = exp.nudge_for(" sol ", " Range ", " Long ").value
     assert a == b and a > 0
 
 
@@ -81,4 +81,4 @@ def test_samples_from_decisions():
 def test_not_ready_when_empty():
     exp = SetupExpectancy()
     assert exp.is_ready() is False
-    assert exp.confidence_nudge("SOL", "RANGE", "LONG") == 0.0
+    assert exp.nudge_for("SOL", "RANGE", "LONG").value == 0.0

@@ -87,15 +87,22 @@ def test_a_learner_applied_while_not_ready_is_called_out(monkeypatch, flag_on):
 
     cal = a["components"]["calibration"]
     assert cal["state"] == "ACCUMULATING", "the fixture stopped reproducing"
-    warnings = [r for r in a["recommendations"] if "NOT validated" in r]
+    # SCOPED TO THE COMPONENT UNDER TEST. A bare "no warnings" was a claim about
+    # every learner, and it started failing honestly the day `setup_expectancy`
+    # stopped reporting `applied` from `is_ready()` — its flag is on by default,
+    # so it raises this same warning while it accumulates. That is a true line
+    # about a different component, not a regression in this one.
+    warnings = [r for r in a["recommendations"]
+                if "NOT validated" in r and "calibration" in r]
     if flag_on:
         assert warnings, (
             "the flag is ON and the evidence bar is unmet, and the report that "
             "exists to govern that decision said nothing")
         assert "AUTO_CONFIRM_USE_CALIBRATED" in warnings[0]
-        assert a["recommendations"][0] is warnings[0], (
-            "it is the only line that means something is already wrong, so it "
-            "cannot sit under 'applied and validated ✓' for another component")
+        assert "NOT validated" in a["recommendations"][0], (
+            "a warning must lead: these are the only lines that mean something "
+            "is already wrong, and under an 'applied and validated ✓' for some "
+            "other component is where they would not be read")
     else:
         assert not warnings
 

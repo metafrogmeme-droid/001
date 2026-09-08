@@ -93,6 +93,23 @@ jobs:
       # there. api_bridge.py and dashboard_api.py are clean, which is the
       # useful half of this result: the value here is coverage from now on, not
       # a pile of findings to triage.
+      # The rule this repo breaks more than any other — "unreadable is never
+      # zero, and absent is never a measurement" — has been written down since
+      # 2026-07-31, and was broken in twenty-plus places across ten PRs the day
+      # it was written. A principle is not searchable; the SHAPES it takes are,
+      # and CLAUDE.md tabulates them. This is that table as a ratchet, per-file
+      # and both ways, exactly like the two above.
+      #
+      # It claims ONE thing: these shapes did not increase. A hit is a place to
+      # LOOK, not a defect — most of the 792 are not (`patterns.py` computes a
+      # rate `if completed else 0` two lines under `if not completed: continue`;
+      # `arena_trades.pnl` is NOT NULL). What it bought on its first run was
+      # three that were: the cooldown filter that read an unpriced live close
+      # as "not a loss", and the two website wires that turned the same close
+      # into a $0.00 break-even on a live user's dashboard.
+      - name: Honesty — the shapes of "unreadable is never zero" (ratchet)
+        run: python3 scripts/honesty_gate.py
+
       - name: SAST — bandit (high severity, high confidence)
         run: bandit -r bot/ api_bridge.py dashboard_api.py scripts/ --severity-level high --confidence-level high -q
 

@@ -37,7 +37,7 @@ pointed at the risk settings.
 
 
 from bot.learning.readiness import (_VW_HOLD_RATE_BAR, _VW_MIN_TEST_TRADES,
-                                    _VW_MIN_VOTERS, assess_readiness)
+                                    assess_readiness)
 from bot.learning.setup_expectancy import SetupExpectancy
 
 
@@ -56,10 +56,27 @@ class _Learner:
         return self._report
 
 
-def _voter_state(monkeypatch, *, hold_rate, n_test, n_voters):
+def _voter_state(monkeypatch, *, hold_rate, n_test, n_voters, n_learned=None):
+    """Plant an OOS report whose rate and counts are ONE measurement.
+
+    `hold_rate` is `n_holds / n_judged` in production, so a fixture that lets
+    the two be set independently plants a report `validate_oos` cannot emit —
+    and every assertion read off it is about nothing. The counts are derived
+    here and the rate is recomputed from them, so the rate a test asks for may
+    be rounded to the nearest one a sample of that size can express.
+
+    `n_learned` is the OTHER population: every voter with an adjustment,
+    including the ones no unseen trade agreed with. It is deliberately
+    different from `n_voters` by default, because presenting one as the other
+    is the defect this file's card came from.
+    """
     import bot.learning.voter_weights as vw
-    report = {"n_train": 40, "n_test": n_test, "hold_rate": hold_rate,
-              "voters": {f"v{i}": {} for i in range(n_voters)}}
+    n_holds = round(hold_rate * n_voters)
+    learned = n_voters if n_learned is None else n_learned
+    report = {"n_train": 40, "n_test": n_test,
+              "n_judged": n_voters, "n_holds": n_holds,
+              "hold_rate": round(n_holds / n_voters, 4) if n_voters else 0.0,
+              "voters": {f"v{i}": {} for i in range(learned)}}
     monkeypatch.setattr(vw, "VoterWeightLearner", lambda *a, **k: _Learner(report))
     return assess_readiness()["components"]["voter_weights"]
 
@@ -80,9 +97,13 @@ class TestTheBarNeedsASample:
         assert comp["state"] == "VALIDATING"
         assert "not enough to judge" in comp["note"]
 
-    def test_enough_trades_AND_enough_voters_does_clear(self, monkeypatch):
-        comp = _voter_state(monkeypatch, hold_rate=0.72,
-                            n_test=_VW_MIN_TEST_TRADES, n_voters=_VW_MIN_VOTERS)
+    def test_a_clear_margin_on_a_real_sample_does_clear(self, monkeypatch):
+        # The floors are additional requirements, not a blanket denial: a rate
+        # that is clearly better than a coin flip on a sample big enough to
+        # show it still reaches READY. (`_VW_MIN_VOTERS` alone no longer gets
+        # there — see test_voter_bar_needs_a_margin.py; even 3 of 3 has a 95%
+        # lower bound of 44%.)
+        comp = _voter_state(monkeypatch, hold_rate=0.8, n_test=60, n_voters=20)
         assert comp["state"] == "READY", comp.get("note")
 
     def test_enough_trades_but_too_few_voters_does_not(self, monkeypatch):

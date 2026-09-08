@@ -34,6 +34,31 @@ def _attr(obj, key, default=None):
     return val if val is not None else default
 
 
+def _opt_num(obj, key):
+    """The number, or ``None`` when nobody could read one.
+
+    `float(_attr(t, "pnl", 0))` was the wire between an honest producer and an
+    honest reader, and it broke both. `LivePosition.pnl_usd` is
+    `Optional[float]` and live_executor writes `None` on purpose -- "unreadable"
+    is a state that path goes out of its way to preserve -- while the website's
+    `winStats` counts unpriced closes as a fourth outcome and reports
+    `rate: null` rather than scoring them. Between the two, `_attr(..., 0)`
+    turned every one of them into a measured $0.00 break-even, and the column
+    it lands in (`trades.pnl DECIMAL(14,2)`) has always been nullable.
+
+    `float("")` and `float(None)` both raise, so a non-numeric value answers
+    None here rather than taking down the sync -- an unreadable field is not a
+    reason to drop the other nine.
+    """
+    val = _attr(obj, key, None)
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 #: Status codes worth trying again. A 5xx and a dropped connection mean "this
 #: server could not answer right now"; a 4xx means "this request will never be
 #: accepted", and retrying it is noise that hides the real fault. The live 503
@@ -208,9 +233,15 @@ def sync_portfolio(user_id: int, equity: float,
             "symbol": _attr(t, "asset", ""),
             "direction": str(_attr(t, "direction", "")).split(".")[-1],
             "entry_price": float(_attr(t, "entry_price", 0)),
-            "exit_price": float(_attr(t, "exit_price", 0)),
+            # None, not 0.0, when the close could not be priced. Both columns
+            # are nullable and the web reader counts unpriced closes; see
+            # `_opt_num`. `fees` is NOT converted with them on purpose --
+            # `trades.fees` defaults to 0 and `sync.js` writes `t.fees || 0`,
+            # so a null there would be re-zeroed one layer down and the change
+            # would read as done while changing nothing.
+            "exit_price": _opt_num(t, "exit_price"),
             "size_usd": float(_attr(t, "quantity", 0)) * float(_attr(t, "entry_price", 0)),
-            "pnl": float(_attr(t, "pnl", 0)),
+            "pnl": _opt_num(t, "pnl"),
             "fees": float(_attr(t, "commission", 0)),
             "pattern": _attr(t, "pattern"),
             "opened_at": str(_attr(t, "opened_at", "")),
@@ -254,8 +285,12 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
     }
 
     if event == "close":
-        trade_data["exit_price"] = float(_attr(trade, "exit_price", 0))
-        trade_data["pnl"] = float(_attr(trade, "pnl", 0))
+        # The single-event wire makes the identical claim as the bulk one
+        # above, so it reads the same way. Fixing one and not the other is how
+        # a `theater.js` value flowed through three renderings and two got
+        # fixed.
+        trade_data["exit_price"] = _opt_num(trade, "exit_price")
+        trade_data["pnl"] = _opt_num(trade, "pnl")
         trade_data["opened_at"] = str(_attr(trade, "opened_at", ""))
         trade_data["closed_at"] = str(_attr(trade, "closed_at", ""))
 

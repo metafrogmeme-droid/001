@@ -26,6 +26,7 @@ from backtest curves.
 from __future__ import annotations
 
 import logging
+import math
 
 log = logging.getLogger("runeclaw.readiness")
 
@@ -45,6 +46,51 @@ _VW_MIN_TEST_TRADES = 40
 # Voters are the unit hold_rate is a fraction OF. Two of three is 67% and is
 # not evidence; the count has to be on the card next to the percentage.
 _VW_MIN_VOTERS = 3
+#: …AND THE MARGIN HAS TO SURVIVE THE ARITHMETIC. The floors above bound the
+#: SAMPLE; they say nothing about whether the rate clears the bar by more than
+#: noise. A live card read "62% of 34 voter(s) … (bar 60%)" and recommended
+#: enabling the flag — 21 of 34, which a coin flip clears about one time in ten.
+#: The bar's own comment demands "clearly better than a coin flip", so the
+#: WHOLE interval has to be, not the point estimate.
+_VW_CHANCE = 0.5
+_VW_Z = 1.96          # ~95%
+
+
+def wilson_lower_bound(successes: int, n: int, z: float = _VW_Z) -> float:
+    """Lower end of the Wilson score interval for `successes / n`.
+
+    Wilson rather than the textbook normal interval because the normal one is
+    badly behaved exactly where this is used — small n and a rate near the
+    edges, where it can hand back a bound below 0 or above 1. Pure arithmetic;
+    this repo takes no stats dependency for one number.
+
+    `n <= 0` returns 0.0: no sample cannot clear any bar, and returning the
+    point estimate for an empty one is the fabrication this whole file exists
+    to prevent. `p` is clamped because both counts are read off a report dict
+    rather than computed here, so a stale or hand-written record must be
+    bounded rather than propagated.
+
+    ZERO SUCCESSES RETURNS EXACTLY ZERO, and that early exit is not a
+    tidiness. At p == 0 the interval's two halves cancel algebraically, but in
+    float64 they do not: `wilson_lower_bound(0, 11)` came out at 2e-17, so a
+    voter set that held on NOTHING carried a positive lower bound. It is a
+    rounding error and it renders as `0%`, and it is still a positive number
+    standing where a measured zero belongs.
+    """
+    if n <= 0:
+        return 0.0
+    p = max(0.0, min(1.0, successes / n))
+    if p <= 0.0:
+        return 0.0
+    z2 = z * z
+    centre = p + z2 / (2 * n)
+    # `math.sqrt`, not `** 0.5`: the latter is typed `Any` (a float power can
+    # be complex), which propagates through `margin` and makes the return an
+    # unmeasured Any on a number that gates a live-money flag.
+    margin = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+    return (centre - margin) / (1 + z2 / n)
+
+
 # Calibration readiness rides on the fitter's own min_samples (30), but for
 # a RECOMMENDATION we want a fuller curve than the bare minimum.
 _CAL_RECOMMEND_SAMPLES = 50
@@ -120,9 +166,17 @@ def assess_readiness(store=None) -> dict:
             comp["oos_hold_rate"] = oos.get("hold_rate", 0.0)
             comp["oos_n_test"] = oos.get("n_test", 0)
             n_test = int(oos.get("n_test", 0) or 0)
-            n_voters = len(oos.get("voters") or {})
+            # THE RATE'S OWN DENOMINATOR. `hold_rate` is holds/JUDGED, and this
+            # read `len(voters)` — every learned voter, including the ones no
+            # unseen trade agreed with. "62% of 34 voter(s)" stated a fraction
+            # over one population beside a count of another.
+            n_voters = int(oos.get("n_judged", 0) or 0)
+            n_holds = int(oos.get("n_holds", 0) or 0)
             comp["oos_n_voters"] = n_voters
+            comp["oos_n_learned"] = len(oos.get("voters") or {})
             rate = float(oos.get("hold_rate", 0.0) or 0.0)
+            lower = wilson_lower_bound(n_holds, n_voters)
+            comp["oos_hold_rate_lower"] = round(lower, 4)
             # "67%" alone reads as a trade-level win rate. It is the fraction
             # of learned VOTERS whose direction held, so the card says which
             # unit it is and how many there were — 2 of 3 and 27 of 40 are the
@@ -136,9 +190,19 @@ def assess_readiness(store=None) -> dict:
                     f"(need >= {_VW_MIN_TEST_TRADES} trades and "
                     f">= {_VW_MIN_VOTERS} voters before the {_VW_HOLD_RATE_BAR:.0%} "
                     "bar means anything)")
+            elif rate >= _VW_HOLD_RATE_BAR and lower <= _VW_CHANCE:
+                # Clears the bar on the point estimate and NOT on the interval:
+                # the margin is inside the noise the floors were added to keep
+                # out. Not READY, and the note says which of the two it failed.
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} clears the {_VW_HOLD_RATE_BAR:.0%} bar, but "
+                    f"its 95% lower bound is {lower:.0%} — a coin flip reaches "
+                    "this margin often enough that it is not yet evidence")
             elif rate >= _VW_HOLD_RATE_BAR:
                 comp["state"] = "READY"
-                comp["note"] = f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%})"
+                comp["note"] = (f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, "
+                                f"95% lower bound {lower:.0%})")
             else:
                 comp["state"] = "VALIDATING"
                 comp["note"] = (f"{evidence} < bar {_VW_HOLD_RATE_BAR:.0%} — "
@@ -148,12 +212,34 @@ def assess_readiness(store=None) -> dict:
     out["components"]["voter_weights"] = comp
 
     # -- setup expectancy ----------------------------------------------------------
-    comp = {"flag": "(auto-applies when ready)"}
+    # `applied` USED TO BE `se.is_ready()`, which is a different question and
+    # made two of the four (state, applied) combinations unreachable: READY
+    # implied applied, so "validated but not applied — consider enabling" could
+    # never fire for this component and "applied and validated ✓" always did.
+    # The flag was labelled "(auto-applies when ready)", true before
+    # SETUP_EXPECTANCY_ENABLED existed and false since.
+    #
+    # It matters more now: evidence can qualify at a BACKED-OFF tier while
+    # SETUP_EXPECTANCY_BACKOFF_ENABLED is off, in which case the analyzer
+    # shadow-logs the nudge and applies nothing — and the card would have said
+    # "applied and validated ✓" over it.
+    comp = {"flag": "SETUP_EXPECTANCY_ENABLED"}
     try:
+        from bot.config import CONFIG
         from bot.learning.setup_expectancy import get_setup_expectancy
         se = get_setup_expectancy(reload=True)
+        _tiers = se.learned_at_tier()
+        # Ready, but with nothing at setup level: whatever is moving trades is
+        # coming from the wider tier, so THAT is the switch to name.
+        _coarse_only = se.is_ready() and _tiers.get("setup", 0) == 0
+        _on = bool(CONFIG.analyzer.setup_expectancy_enabled)
+        _backoff = bool(getattr(CONFIG.analyzer,
+                                "setup_expectancy_backoff_enabled", False))
+        if _coarse_only:
+            comp["flag"] = "SETUP_EXPECTANCY_BACKOFF_ENABLED"
         comp.update(setups=len(getattr(se, "_table", {}) or {}),
-                    applied=se.is_ready())
+                    tiers=_tiers,
+                    applied=_on and (_backoff or not _coarse_only))
         comp["state"] = "READY" if se.is_ready() else "ACCUMULATING"
         comp["note"] = se.summary()
     except Exception as exc:
