@@ -134,8 +134,36 @@ searchable. The **shapes** it takes are, so here they are:
 | `.get("pnl", 0)` · `getattr(o, "pnl", 0)` | absent field is zero |
 | `sum(...)` over a set that includes unreadable rows | a partial total, printed as whole |
 | `if total != 0:` guarding a display | all-missing and genuinely-flat hidden alike |
+| `isConfigured()` rendered as "encrypted at rest" | a config flag is the state of every stored row |
 
 Two practices found these; the rule alone found none of them.
+
+**A config flag is not a measurement of what is already stored — and the flip
+that makes it true is the one that hides what it did not fix.** With
+`WEB_CREDS_KEY` unset, `config_audit` warned "new 2FA secrets are stored
+unencrypted". Setting it stopped that warning, flipped `secretsAreSealed()` to
+true, and re-sealed **zero** rows: `/2fa/enable` migrates the row it enables and
+refuses to run for an account that is already enabled, so every seed enrolled
+before that deploy had no path to encryption and no surface that said so. The
+deployment answer is right at exactly one moment — the instant a row is written
+— which is why `/2fa/setup` may use it and `/2fa/status` may not.
+`totp.secretIsSealed()` is the row reading (shape, not readability: a row sealed
+to a rotated-away key is still encrypted at rest). `app/lib/totp_seed_audit.js`
+counts four outcomes, because three of them look alike from a distance — sealed,
+plaintext, **unreadable** (an envelope the current key will not open, so those
+accounts fail their next second-factor check while the row looks healthy), and
+absent — and a query that fails reports `could not be checked`, never zero.
+`app/scripts/reseal_totp_secrets.js` is the backfill: dry run by default,
+compare-and-swap on the value it read, and the seal verified to open back to the
+seed before anything is written. Its guards each needed a `db` seam to be driven
+at all; the first draft had one that a mutation could flip with the suite still
+green, because `classify` had already ruled its case out.
+
+Two gates were narrower than the claims read off them, both one directory
+short: CI's app parse step compiled `lib/` and `routes/` but not `scripts/`,
+and `totp_secret_at_rest.test.js` — the guard that every reader of the column
+opens it — swept the same two and skipped the one caller that *writes* the
+column for every enrolled account at once.
 
 **Ask which OTHER surface makes the same claim — before calling the fix
 done.** Five of those ten PRs came from auditing the previous one. `/portfolio`

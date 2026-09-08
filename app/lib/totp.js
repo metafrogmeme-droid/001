@@ -113,6 +113,33 @@ function secretsAreSealed() {
   return require('./creds_crypto').isConfigured();
 }
 
+/**
+ * Whether ONE stored value is sealed. `null` when nothing is stored.
+ *
+ * `secretsAreSealed()` answers a DEPLOYMENT question — will the NEXT write be
+ * encrypted — and it was the only answer anything had, so it stood in for a
+ * row question nobody asked. The two agree at exactly one moment: the instant
+ * a row is written. Setting WEB_CREDS_KEY flips the deployment answer to true
+ * and re-seals nothing, so every seed enrolled before that moment stays in the
+ * clear underneath a surface that has started saying encrypted — and the boot
+ * warning that used to name the problem goes quiet on the same deploy. That is
+ * the shape this file spends its comments on: a heuristic standing in for a
+ * measurement, and the measurement never taken.
+ *
+ * Three-valued because an account with no secret is neither sealed nor
+ * plaintext. A bare boolean would report "not encrypted" for a user who has
+ * never enrolled, inventing a plaintext seed that does not exist.
+ *
+ * SHAPE, not readability. A row sealed to a key this deployment no longer
+ * holds is still encrypted at rest — it is `openSecret` that reports whether
+ * anyone can read it, and the two questions have different right answers.
+ */
+function secretIsSealed(stored) {
+  const v = stored == null ? '' : String(stored);
+  if (!v) return null;
+  return ENVELOPE.test(v);
+}
+
 function verifyTotp(secretB32, code, nowMs) {
   const c = String(code || '').replace(/\s+/g, '');
   // EVERY CALL SITE INHERITS THE FIX. The secret is read in seven places
@@ -163,7 +190,7 @@ function consumeBackupCode(code, hashes) {
 
 module.exports = {
   generateSecret, hotp, verifyTotp, otpauthUri,
-  sealSecret, openSecret, secretsAreSealed,
+  sealSecret, openSecret, secretsAreSealed, secretIsSealed,
   generateBackupCodes, consumeBackupCode, hashBackupCode,
   base32Encode, base32Decode,
 };
