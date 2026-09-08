@@ -288,12 +288,25 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                 or not getattr(CONFIG, "per_user_live_enabled", False)):
             return
         from bot.core.exchange_credentials import get_credential_store
-        ids = get_credential_store().user_ids()
+        _store = get_credential_store()
+        ids = _store.user_ids()
         if not ids:
             return
         failures = []
         unreachable: list = []
+        undecryptable: list = []
         for uid in ids:
+            # THE USERS THIS PROBE EXISTS FOR WERE THE ONES IT SKIPPED. The
+            # docstring above names a key that was "revoked/regenerated" as the
+            # thing this catches before a stop fails to place — but a record
+            # this bot can no longer decrypt builds no executor, so it fell into
+            # the `continue` below as "no usable keys" and left no trace at all.
+            # A key regenerated at the VENUE reaches the balance probe; a key
+            # regenerated on THIS side never got that far, and that is the case
+            # a wiped data dir produces for every linked user at once.
+            if _store.credential_state(uid) == "unreadable":
+                undecryptable.append(str(uid))
+                continue
             try:
                 ex = engine._executor_for(uid)
             except Exception:
@@ -326,6 +339,35 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                     failures.append((uid, str(_err)[:100]))
             else:
                 engine.set_live_auth_status(True, user_id=uid)
+        if undecryptable:
+            # REPORTED, AND NOT AS A VENUE AUTH FAILURE. `set_live_auth_status`
+            # is untouched here on purpose: it records what the VENUE said, and
+            # the venue was never asked — marking these DOWN would manufacture a
+            # rejection nobody issued, which is the same invention this whole
+            # pass is about, pointed the other way. Entries are already refused
+            # by the credential gate, so nothing needs halting; what was missing
+            # was anyone being told.
+            _d = "\n".join(f"• <code>{u}</code>" for u in undecryptable)
+            audit(system_log,
+                  f"Per-user preflight: {len(undecryptable)} account(s) stored "
+                  f"but undecryptable",
+                  action="cred_preflight_users", result="UNDECRYPTABLE")
+            _note_d = ("\U0001f510 <b>STARTUP: %d linked account(s) will not "
+                       "decrypt</b>\nTheir keys are on file but this bot cannot "
+                       "read them — the encryption key changed (a wiped "
+                       "data dir with <code>RUNECLAW_SECRETS_KEY</code> unset "
+                       "does it). The venue was never asked, so this is not a "
+                       "rejection. They must re-<code>/connect</code>:\n%s"
+                       % (len(undecryptable), _d))
+            _admin_d = CONFIG.telegram.chat_id or ""
+            _ids_d = [i.strip() for i in
+                      (CONFIG.telegram.admin_ids or "").split(",") if i.strip()]
+            for _t in ([_admin_d] if _admin_d else []) + _ids_d:
+                try:
+                    await bot.send_message(chat_id=_t, text=_note_d,
+                                           parse_mode="HTML")
+                except Exception:
+                    continue
         if unreachable:
             # Reported, not silenced -- a repeated blip is worth knowing about
             # -- but nobody is told to touch a key and no entries are halted.

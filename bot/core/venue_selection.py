@@ -127,10 +127,20 @@ class VenueSelectionStore:
         # propagated out of a routing read — and a crash here is not a narrow
         # failure, it is an unhandled exception on the path that decides where
         # an order goes. Cannot verify → cannot route.
+        #
+        # READABLE, NOT MERELY PRESENT. This asked `list_venues()`, which reads
+        # the record map without decrypting anything — so a venue whose keys had
+        # stopped decrypting was still "connected", stayed in `live`, and could
+        # never appear in `gone`. The docstring above this class promises the
+        # opposite in as many words: "an active venue whose keys stopped
+        # decrypting must drop out of routing and be REPORTED, not silently
+        # skipped." Every part of that was built — `dropped` is threaded to the
+        # operator surface and three comments insist it is never discarded — and
+        # the one question being asked could not see the case.
         try:
             if connected is None:
                 from bot.core.exchange_credentials import get_credential_store
-                have = set(get_credential_store().list_venues(user_id))
+                have = set(get_credential_store().readable_venues(user_id))
             else:
                 have = set(connected(user_id) or ())
         except Exception as exc:
@@ -172,7 +182,7 @@ class VenueSelectionStore:
         try:
             if connected is None:
                 from bot.core.exchange_credentials import get_credential_store
-                have = set(get_credential_store().list_venues(uid))
+                have = set(get_credential_store().readable_venues(uid))
             else:
                 have = set(connected(uid) or ())
         except Exception as exc:

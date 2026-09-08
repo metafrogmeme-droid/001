@@ -49,9 +49,18 @@ def _src() -> str:
 
 
 def _user_block() -> str:
+    """The per-user probe loop, ANCHORED at both ends.
+
+    This was `src[i - 3000 : i + 600]`, and a later commit inserted an
+    undecryptable-credentials branch inside the loop — pushing the classifier
+    more than 3000 characters back from the anchor, so three assertions failed
+    against correct code. A fixed-width window is a measurement of the file on
+    the day it was written; this file's own comment two functions down says the
+    same thing about the 400 that ran past a branch boundary.
+    """
     src = _src()
-    i = src.index("failed venue ")
-    return src[max(0, i - 3000):i + 600]
+    start = src.index("for uid in ids:")
+    return src[start:src.index("failed venue ") + 600]
 
 
 class TestTheUserPathClassifiesToo:

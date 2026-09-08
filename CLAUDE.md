@@ -165,6 +165,28 @@ and `totp_secret_at_rest.test.js` — the guard that every reader of the column
 opens it — swept the same two and skipped the one caller that *writes* the
 column for every enrolled account at once.
 
+**The same shape, on the exchange keys, was already written down and not
+followed up.** `test_unreadable_credentials_are_not_reported_present.py` fixed
+the LLM key with exactly that design — `llm_key_state()` three-valued, the
+decrypt refusing to hand back ciphertext — and its own docstring names the
+trigger as "the same event this repo already logs for **the exchange vault**".
+The exchange vault was not then checked, and it holds the keys that move real
+money. `ExchangeCredentialStore.get()` answered `None` for "never connected"
+and for "stored but undecryptable" alike, saying so in its docstring ("the
+caller treats that as 'not connected'"), while `has()` and `list_venues()` read
+the record map without decrypting and answered CONNECTED for that same user —
+so `/exchange` printed `Status: connected` above an **empty** `Key:` line while
+the engine's live gate told the same user "no linked Bitget account". Routing
+asked `list_venues()`, a presence test, so a venue whose keys stopped
+decrypting could never reach `dropped` — defeating a property
+`venue_selection`'s own docstring promises in as many words, with the whole
+reporting path already built. And a FAIL-CLOSED web live gate was satisfied by
+`has()`, from two callers. `credential_state()` (readable/unreadable/absent)
+and `readable_venues()` are the readings now, both derived from one
+`_decrypt_fields` so no two answers can drift. It is not exotic:
+`_load_or_create_master_key` GENERATES a new key when `RUNECLAW_SECRETS_KEY` is
+unset and the data dir was wiped, and its own warning says so.
+
 **Ask which OTHER surface makes the same claim — before calling the fix
 done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
 still had the defect `/open_positions` had just been cured of. A `theater.js`
@@ -269,6 +291,17 @@ Extracting each into a pure renderer took minutes and immediately caught
 things the scans could not: `/risk` scoring `HEALTHY 100%` on a halted
 engine, and a `0 trades at 0% win rate` line that reads as a measured record
 of failure rather than the absence of one.
+
+**A mutation is what tells you a scan is standing in for behaviour.** Two of
+these were written knowingly and both SURVIVED the round that should have
+killed them, for the same reason: the mutation kept the literal and inverted
+the branch. A scan asserting `credential_state` appears in the engine's live
+gate passed against a swap of its two sentences, so a linked user was still
+told they had never linked; a scan asserting `result="UNDECRYPTABLE"` appears
+in the boot preflight passed against `if False:` around the block containing
+it. Neither could see reachability, which is the one thing they were being
+asked about. Both are driven now — plant the state, read what the operator is
+told — and the drives are shorter than the scans were.
 
 **Do not convert wholesale.** 47 of 532 test files scan source and most of
 them should — `tests/test_trade_live_mode.py` says so in its own docstring:

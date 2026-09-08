@@ -45,7 +45,12 @@ def _cfg(monkeypatch, *, per_user=True, open_live=True):
 
 
 def _keys(monkeypatch, holders):
-    fake = types.SimpleNamespace(get=lambda uid: ("k" if str(uid) in holders else None))
+    # `credential_state` too: the gate distinguishes a user who never connected
+    # from one whose stored record will not decrypt, and this double holds only
+    # the first kind.
+    fake = types.SimpleNamespace(
+        get=lambda uid: ("k" if str(uid) in holders else None),
+        credential_state=lambda uid: ("readable" if str(uid) in holders else "absent"))
     monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
                         lambda: fake)
 
