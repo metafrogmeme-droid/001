@@ -31,7 +31,15 @@ def flag():
 
 
 def _store(creds_by_id):
-    return type("S", (), {"get": staticmethod(lambda uid: creds_by_id.get(str(uid)))})()
+    # `credential_state` alongside `get`, because the gate now asks WHICH of the
+    # two Nones it is looking at: a user who never connected gets "use /connect",
+    # a stored-but-undecryptable record gets a different sentence. A double that
+    # only answers the old question makes the gate report a lookup failure.
+    return type("S", (), {
+        "get": staticmethod(lambda uid: creds_by_id.get(str(uid))),
+        "credential_state": staticmethod(
+            lambda uid: "readable" if creds_by_id.get(str(uid)) else "absent"),
+    })()
 
 
 def test_flag_off_everyone_eligible(flag):

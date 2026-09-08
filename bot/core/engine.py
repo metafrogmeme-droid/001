@@ -2438,10 +2438,21 @@ class RuneClawEngine:
         if self._is_operator_user(user_id):
             return True, "operator/admin user"
         # A regular user must have their OWN linked, decryptable keys …
+        #
+        # … and this said "decryptable" while reporting the two cases as one.
+        # `get()` is None for a user who never connected AND for one whose
+        # stored record will not decrypt, so the second was told "no linked
+        # Bitget account" — a flat contradiction of `/exchange`, which read the
+        # same record with a presence test and said "connected". Both refuse,
+        # which is right; only one of them was true.
         try:
             from bot.core.exchange_credentials import get_credential_store
-            if not get_credential_store().get(user_id):
+            _state = get_credential_store().credential_state(user_id)
+            if _state == "absent":
                 return False, "no linked Bitget account — use /connect to link one"
+            if _state != "readable":
+                return False, ("your stored keys will not decrypt on this bot — "
+                               "re-link with /connect (see /exchange)")
         except Exception as exc:
             return False, f"credential lookup failed: {exc}"
         # … AND clear the live-access policy. Two policies, one switch:

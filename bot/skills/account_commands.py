@@ -505,12 +505,37 @@ class AccountCommands:
         store = get_credential_store()
         bitget_env = ("DEMO trading (BITGET_SANDBOX=true)"
                       if CONFIG.exchange.sandbox else "PRODUCTION")
-        if not store.has(tg_id):
+        # THREE STATES, and the middle one used to render as the good one.
+        # `has()` is a presence test, so a record this bot can no longer decrypt
+        # printed "connected" — above a `Key:` line that came out EMPTY, because
+        # the fingerprint is built from `get()`, which returns None on exactly
+        # that failure. A heading that announces itself and then says nothing,
+        # on the card an operator reads to find out whether their account is
+        # linked. The engine's own live gate meanwhile tells the same user "no
+        # linked Bitget account — use /connect", so one bot gave two answers.
+        state = store.credential_state(tg_id)
+        if state == "absent":
             await self._send(update,
                 "<b>Your exchange link</b>\n\n"
                 "Status: <code>not connected</code>\n"
                 f"Environment: <code>{bitget_env}</code>\n\n"
                 "Link your own Bitget account with\n"
+                "<code>/connect &lt;api_key&gt; &lt;api_secret&gt; &lt;passphrase&gt;</code>")
+            return
+        if state == "unreadable":
+            # NOT "not connected": they did connect, and nothing they did broke
+            # it. The remedy happens to be the same command, but the sentence is
+            # not, and an operator reading "not connected" would go looking for
+            # a user who never linked an account.
+            await self._send(update,
+                "<b>Your exchange link</b>\n\n"
+                "Status: <code>stored, but this bot cannot read them</code>\n"
+                f"Environment: <code>{bitget_env}</code>\n\n"
+                "Your keys are on file but will not decrypt — this happens when "
+                "the bot's encryption key changed (a wiped data directory with "
+                "<code>RUNECLAW_SECRETS_KEY</code> unset does it). Nothing you "
+                "did caused this and no trading is running on them.\n\n"
+                "Re-link to fix it:\n"
                 "<code>/connect &lt;api_key&gt; &lt;api_secret&gt; &lt;passphrase&gt;</code>")
             return
         per_user = getattr(CONFIG, "per_user_live_enabled", False)

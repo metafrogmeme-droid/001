@@ -43,6 +43,10 @@ def _cfg_live_per_user():
 def _patch_store(creds_present):
     store = MagicMock()
     store.get.return_value = {"api_key": "k"} if creds_present else None
+    # A bare MagicMock answers a Mock object for `credential_state`, which is
+    # neither "readable" nor "absent" — so every case here would land in the
+    # undecryptable arm and this suite would test one branch three times.
+    store.credential_state.return_value = "readable" if creds_present else "absent"
     return patch("bot.core.exchange_credentials.get_credential_store",
                  return_value=store)
 

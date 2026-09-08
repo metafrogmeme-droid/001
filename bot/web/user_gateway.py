@@ -1412,10 +1412,15 @@ def _web_envelope_enforcing(app, tg_id: str) -> bool:
 def _web_live_decision(app, tg_handler, tg_id: str):
     """Evaluate the fail-closed web live gate for a web-only identity."""
     from bot.web import web_live_gate
+    # READABLE keys, not merely stored ones. `has()` is a presence test, so a
+    # record this bot can no longer decrypt satisfied a FAIL-CLOSED live gate on
+    # evidence it did not have — the one direction a fail-closed gate must never
+    # fail. Nothing downstream could recover: the executor build then returns
+    # None and the order falls back or dies, after the gate already said yes.
     has_keys = False
     try:
         from bot.core.exchange_credentials import get_credential_store
-        has_keys = bool(get_credential_store().has(tg_id))
+        has_keys = get_credential_store().credential_state(tg_id) == "readable"
     except Exception:
         has_keys = False
     opt_in_fn = getattr(tg_handler.users, "web_live_enabled", None)

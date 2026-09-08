@@ -31,8 +31,10 @@ def wired(monkeypatch, tmp_path):
     monkeypatch.setenv("WEB_LIVE_TRADING_ENABLED", "1")
     monkeypatch.setattr(adm, "CONFIG", types.SimpleNamespace(is_live=lambda: True))
     # own keys present
-    monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
-                        lambda: types.SimpleNamespace(has=lambda tg: True))
+    monkeypatch.setattr(
+        "bot.core.exchange_credentials.get_credential_store",
+        lambda: types.SimpleNamespace(has=lambda tg: True,
+                                      credential_state=lambda tg: "readable"))
     # enforce-mode envelope bound
     store = uas.UserAuthorityStore(str(tmp_path / "ua.json"))
     env = compile_envelope({"mode": "enforce", "allowed_venues": ["bitget"],

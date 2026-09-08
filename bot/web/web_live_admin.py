@@ -21,9 +21,15 @@ from bot.web import web_live_gate
 
 
 def _has_own_keys(tg_id: str) -> bool:
+    # READABLE, not merely stored — the same fail-closed gate `user_gateway`'s
+    # `_web_live_decision` feeds, so it had to be the same question. `has()` is
+    # a presence test and would satisfy the gate on a record this bot cannot
+    # decrypt, which is the one direction a fail-closed gate must never fail.
+    # Fixing one of two callers of the same gate is how the previous defect in
+    # this file lasted an hour longer than it had to.
     try:
         from bot.core.exchange_credentials import get_credential_store
-        return bool(get_credential_store().has(tg_id))
+        return get_credential_store().credential_state(tg_id) == "readable"
     except Exception:
         return False
 

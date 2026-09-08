@@ -296,7 +296,98 @@ class ExchangeCredentialStore:
             self._save()
         log.info("Stored encrypted %s credentials for user %s", venue, telegram_id)
 
+    # -- readings -------------------------------------------------------------
+    #
+    # AN UNREADABLE RECORD IS NOT AN ABSENT ONE, AND THE DIFFERENCE IS WHETHER
+    # THE USER HAS TO DO ANYTHING.
+    #
+    # `_load` says the same sentence one level up, about the FILE. This is the
+    # record level, and it was the half nothing could express: `get()` returned
+    # None both for "no credentials" and for "stored, but this store cannot
+    # decrypt them", and its own docstring resolved the two into "the caller
+    # treats that as 'not connected'". Meanwhile `has()` and `list_venues()`
+    # read `_enc` without decrypting anything, so they answer CONNECTED for the
+    # very same user. Two surfaces of one bot, opposite answers, and the second
+    # factor of neither.
+    #
+    # It is not exotic. `_load_or_create_master_key` GENERATES a new key when
+    # RUNECLAW_SECRETS_KEY is unset and the data dir was wiped — its own warning
+    # says so — and every record then stops decrypting at once, with the file
+    # itself perfectly readable.
+
+    def _decrypt_fields(self, venue: str, fields_enc: dict,
+                        telegram_id="") -> Optional[dict]:
+        """The venue's plaintext fields, or None when this store cannot produce
+        them. THE one test — every reading below and both getters derive their
+        answer from this call, so no two of them can disagree about a record.
+
+        The id rides along ONLY to be logged. Both getters carried it in their
+        own log lines before they were folded into this one, and dropping it
+        would leave an operator reading "a credential failed to decrypt" with no
+        way to tell whether that is one stale account or every account at once —
+        which are the two things a wiped data dir looks like from the log.
+        """
+        field_names = _VENUE_FIELDS.get(venue, _FIELDS)
+        try:
+            c = self._cipher()
+            return {f: c.decrypt(fields_enc[f].encode()).decode() for f in field_names}
+        except Exception as exc:  # InvalidToken, missing field, missing crypto
+            log.error("Failed to decrypt %s credentials for %s: %s",
+                      venue, telegram_id or "<unknown user>", exc)
+            return None
+
+    def venue_states(self, telegram_id) -> dict:
+        """``{venue: "readable" | "unreadable"}`` for every venue stored.
+
+        Empty when nothing is stored — which is the third state, expressed by
+        the map being empty rather than by a word, because "this user has no
+        venues" is not a property of any venue.
+        """
+        with self._lock:
+            enc = self._enc.get(str(telegram_id))
+        if not enc:
+            return {}
+        out = {}
+        for venue, fields_enc in self._normalize(enc)["venues"].items():
+            out[venue] = ("readable"
+                          if self._decrypt_fields(venue, fields_enc, telegram_id)
+                          else "unreadable")
+        return out
+
+    def readable_venues(self, telegram_id) -> list:
+        """The venues whose credentials this store can actually produce.
+
+        `list_venues()` answers "which venues have a record", which is what
+        routing was asking and is not the same question: a venue whose keys
+        stopped decrypting stayed in that list, so it stayed in the routing set
+        and never reached the caller's `dropped` — the exact silence
+        `venue_selection`'s docstring is written against.
+        """
+        return sorted(v for v, s in self.venue_states(telegram_id).items()
+                      if s == "readable")
+
+    def credential_state(self, telegram_id) -> str:
+        """``"readable" | "unreadable" | "absent"`` for the ACTIVE venue.
+
+        The reading a status surface wants. "unreadable" is not a milder
+        "absent": absent means the user never connected and `/connect` is an
+        invitation, unreadable means they did and something on this side broke,
+        which is a different sentence and a different remedy.
+        """
+        with self._lock:
+            enc = self._enc.get(str(telegram_id))
+        if not enc:
+            return "absent"
+        venue, fields_enc = self._read_record(enc)
+        if not fields_enc:
+            return "absent"
+        return ("readable" if self._decrypt_fields(venue, fields_enc, telegram_id)
+                else "unreadable")
+
     def has(self, telegram_id) -> bool:
+        """Whether a RECORD exists. Says nothing about whether it can be read —
+        use `credential_state()` for anything a user or operator will see, and
+        `readable_venues()` for anything that decides where an order goes."""
         with self._lock:
             return str(telegram_id) in self._enc
 
@@ -313,20 +404,21 @@ class ExchangeCredentialStore:
         Hyperliquid records return ``{wallet_address, agent_private_key}``. Used
         by the execution layer at trade time. Returns None (never raises) if the
         user has no credentials or decryption fails (e.g. the master key
-        changed) — the caller treats that as 'not connected'.
+        changed).
+
+        NONE STILL MEANS BOTH, and it has to: the execution layer's question is
+        "can I trade with this", and the answer is no either way. What changed
+        is that None is no longer the ONLY thing anyone can ask — a surface that
+        has to say WHY calls `credential_state()`, and routing calls
+        `readable_venues()`. This docstring used to end "the caller treats that
+        as 'not connected'", which is the conflation those two exist to undo.
         """
         with self._lock:
             enc = self._enc.get(str(telegram_id))
         if not enc:
             return None
         venue, fields_enc = self._read_record(enc)
-        field_names = _VENUE_FIELDS.get(venue, _FIELDS)
-        try:
-            c = self._cipher()
-            return {f: c.decrypt(fields_enc[f].encode()).decode() for f in field_names}
-        except Exception as exc:  # InvalidToken, missing field, etc.
-            log.error("Failed to decrypt exchange credentials for %s: %s", telegram_id, exc)
-            return None
+        return self._decrypt_fields(venue, fields_enc, telegram_id)
 
     def get_venue(self, telegram_id) -> str:
         """The user's ACTIVE venue (``"bitget"`` default, including for legacy
@@ -356,13 +448,7 @@ class ExchangeCredentialStore:
         fields_enc = self._normalize(enc)["venues"].get(venue)
         if not fields_enc:
             return None
-        field_names = _VENUE_FIELDS.get(venue, _FIELDS)
-        try:
-            c = self._cipher()
-            return {f: c.decrypt(fields_enc[f].encode()).decode() for f in field_names}
-        except Exception as exc:
-            log.error("Failed to decrypt %s credentials for %s: %s", venue, telegram_id, exc)
-            return None
+        return self._decrypt_fields(venue, fields_enc, telegram_id)
 
     def set_active(self, telegram_id, venue: str) -> bool:
         """Switch the user's ACTIVE venue (must already have credentials for it)."""
@@ -418,6 +504,13 @@ class ExchangeCredentialStore:
         Returns e.g. ``"BG-1a2b…f9"`` (Bitget, a short hash of the api_key) or
         ``"HL-…"`` (Hyperliquid, hash of the wallet address), or "" if none.
         Never reveals the key itself.
+
+        `""` MEANS EITHER "nothing stored" OR "stored but undecryptable", since
+        it is built from `get()`. That is fine for a fingerprint — there is no
+        third string to return — but a caller that prints it beside a STATUS
+        must decide the status from `credential_state()`, not from a presence
+        test. `/exchange` did the latter and rendered "connected" above an empty
+        `Key:` line: a heading that announces itself and then says nothing.
         """
         creds = self.get(telegram_id)
         if not creds:

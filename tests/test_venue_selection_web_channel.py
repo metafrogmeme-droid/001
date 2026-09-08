@@ -27,7 +27,14 @@ def _isolated_store(tmp_path, monkeypatch):
     monkeypatch.setattr(vs, "_STORE", VenueSelectionStore(path=str(tmp_path / "sel.json")))
 
     class _Creds:
+        # `readable_venues`, because routing stopped asking "which venues have a
+        # record" and started asking "which ones can this bot actually decrypt".
+        # A double still answering the old question makes every selection here
+        # refuse with "could not verify which venues are connected".
         def list_venues(self, uid):
+            return ["bitget", "bybit"]
+
+        def readable_venues(self, uid):
             return ["bitget", "bybit"]
 
     monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
