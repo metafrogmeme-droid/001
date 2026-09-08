@@ -258,6 +258,46 @@ sitting there. The Node half (`app/lib/secrets_vault.js`) reads the same file
 with the same key and was left alone on purpose: it has no write path, so it
 cannot erase, and it claims nothing it has not restored.
 
+**And the KEY those three stores share was named by four surfaces and read by
+none.** `/vault` printed "Fernet under the master key (`RUNECLAW_SECRETS_KEY` /
+`data/.exchange_secret.key`)" as though those were one thing, on the command
+whose own docstring says it "is how you verify nothing is left unprotected".
+They are not one thing, and the difference is the entire durability story: with
+the variable set the key lives in two places and either rebuilds the other;
+without it that file is the only copy and a wiped `data/` loses every linked
+account, the vault and the `llm_api_key` column, permanently. The boot
+preflight's undecryptable-accounts alert had the same shape — "a wiped data dir
+with `RUNECLAW_SECRETS_KEY` unset does it" is a *hypothesis*, offered at the
+moment the operator most needs the fact, on a box where the fact is one file
+read away. `master_key_state()` is that read (`pinned` / `file_only` /
+`diverged` / `absent` / `unreadable`, with a fingerprint and never the key), and
+all three surfaces derive from it so no two can drift.
+
+**A warning that fires once is not a surface.** `_load_or_create_master_key`
+logs "set RUNECLAW_SECRETS_KEY for production" on the boot that GENERATES the
+key, and every boot after that takes `if p.exists(): return p.read_bytes()` in
+silence. The condition persists; the only thing that reported it does not — so a
+box one `rm -rf data/` from losing everything says so once, in a container log,
+months ago. `_master_key_preflight` runs on every boot and is quiet only when
+the state is genuinely healthy, because a warning that fires when nothing is
+wrong is how operators learn to skip the next one (`boot_health.py` records that
+lesson about `WEB_CREDS_KEY` and it is why the master key did NOT go in
+`IMPORTANT_ENV`: unset is a durability condition, not a broken surface).
+
+**The vault's rule applies to the key that reads the vault.** With
+`RUNECLAW_SECRETS_KEY` set to something the file does not match, the loader
+overwrote the file — destroying the only copy of the key that still opened the
+data, with no `.bak`, from a typo or a stale compose file. That is the sentence
+already in this document one store up. It keeps a `0600` backup now and refuses
+to overwrite when the backup fails, which is the case that matters.
+
+**Driving the states is what found the defect in the fix.** `diverged` is
+transient: the loader replaces the file on the first boot that sees it, after
+which the reading says `pinned` — the healthiest word available — at the exact
+moment every existing ciphertext stopped opening. The `.bak` is the durable
+trace, so `prior_backup` rides on the reading in *every* state and prints on the
+card, because the operator who needs it is the one who does not know it exists.
+
 **Ask which OTHER surface makes the same claim — before calling the fix
 done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
 still had the defect `/open_positions` had just been cured of. A `theater.js`

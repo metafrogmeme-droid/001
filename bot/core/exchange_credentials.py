@@ -70,6 +70,132 @@ _DEFAULT_VENUE = "bitget"
 _FIELDS = _VENUE_FIELDS[_DEFAULT_VENUE]
 
 
+def _fingerprint(key: bytes) -> str:
+    """Twelve hex chars of sha256(key). Enough to answer "is the key I pinned
+    the one in force?", short of being the disclosure itself."""
+    return hashlib.sha256(bytes(key).strip()).hexdigest()[:12]
+
+
+def master_key_state(key_file: str = _KEY_FILE) -> dict:
+    """WHERE the master key lives, and what a wipe would cost. Never the key.
+
+    Four surfaces in this repo explain this condition in prose -- ``/vault``
+    ("a wiped data dir with RUNECLAW_SECRETS_KEY unset does it"), the boot
+    preflight's undecryptable-accounts alert, ``secrets_vault``'s own warning,
+    and this module's docstring -- and **not one of them ever read whether it
+    is true here**. Every mention is a hypothesis offered at the moment the
+    operator most needs the fact.
+
+    Worse, the one warning that does measure something fires exactly once, on
+    the boot that GENERATES the key. Every boot after that takes the
+    ``if p.exists(): return`` branch below in silence, so a box that has been
+    one ``rm -rf data/`` from losing every stored credential for six months has
+    said so once, in a container log, half a year ago.
+
+    The states, and what each costs:
+
+        pinned      env set, and the file agrees (or is absent and will be
+                    written). The key exists in TWO places: a wiped ``.env``
+                    recovers from the file, a wiped ``data/`` recovers from
+                    the environment.
+        file_only   env unset, file present. Survives a wiped ``.env``. A
+                    wiped ``data/`` is UNRECOVERABLE -- every vault entry and
+                    every linked account's keys become permanently unreadable.
+        diverged    env set and the file holds a DIFFERENT key. The env key
+                    wins and the loader is about to overwrite the file with
+                    it, so anything encrypted under the old one is orphaned.
+                    The only state here that means something is already wrong.
+        absent      env unset, no file. Nothing is encrypted yet; the next
+                    load generates one and lands in ``file_only``.
+        unreadable  the file could not be read, or RUNECLAW_SECRETS_KEY is not
+                    a valid Fernet key. NOT a milder "absent": there may be
+                    ciphertext that depends on what is in there.
+
+    ``prior_backup`` IS PART OF THE READING, and driving the states is what
+    showed why. ``diverged`` is transient: the loader overwrites the file on
+    the first boot that sees it, after which this reports the healthiest state
+    there is -- ``pinned`` -- at the exact moment every existing ciphertext
+    stopped opening. The ``.bak`` the loader keeps is the durable evidence, and
+    it is only ever written when a key was destroyed, so its presence (and
+    whose fingerprint it holds) belongs on the same reading rather than being
+    something an operator has to know to go looking for.
+
+    Never raises and never returns key material -- only a fingerprint, which
+    is what makes "is the key I pinned the one being used?" answerable at all.
+    """
+    out: dict = {"state": "unreadable", "env_set": False, "file_present": False,
+                 "fingerprint": None, "survives_env_wipe": None,
+                 "survives_data_wipe": None, "prior_backup": None, "detail": ""}
+    try:
+        env_key = os.environ.get("RUNECLAW_SECRETS_KEY", "").strip()
+        out["env_set"] = bool(env_key)
+
+        file_key = b""
+        p = Path(key_file)
+        try:
+            if p.exists():
+                out["file_present"] = True
+                file_key = p.read_bytes().strip()
+        except OSError as exc:
+            out["detail"] = f"the key file could not be read ({type(exc).__name__})"
+            return out
+
+        # Written only when a key was about to be destroyed, so its existence
+        # is a fact about this box's history that outlives the state that
+        # created it.
+        try:
+            bak = Path(str(p) + ".bak")
+            if bak.exists():
+                prior = bak.read_bytes().strip()
+                if prior:
+                    out["prior_backup"] = {"path": str(bak),
+                                           "fingerprint": _fingerprint(prior)}
+        except OSError:
+            pass
+
+        if env_key:
+            try:
+                from cryptography.fernet import Fernet
+                Fernet(env_key.encode())
+            except Exception:
+                # The loader raises on this, so the bot will not start -- but
+                # the reason belongs on a surface, not only in a traceback.
+                out["detail"] = ("RUNECLAW_SECRETS_KEY is set but is not a valid "
+                                 "Fernet key; the loader refuses it rather than "
+                                 "silently falling back to a different key")
+                return out
+            out["fingerprint"] = _fingerprint(env_key.encode())
+            if file_key and file_key != env_key.encode():
+                out.update(state="diverged", survives_env_wipe=False,
+                           survives_data_wipe=True,
+                           detail=("the key file holds a DIFFERENT key "
+                                   f"(fingerprint {_fingerprint(file_key)}); the "
+                                   "environment wins and the file is replaced, so "
+                                   "anything encrypted under the old key is "
+                                   "orphaned"))
+            else:
+                out.update(state="pinned", survives_env_wipe=True,
+                           survives_data_wipe=True,
+                           detail="the key is in the environment and mirrored to disk")
+            return out
+
+        if file_key:
+            out.update(state="file_only", fingerprint=_fingerprint(file_key),
+                       survives_env_wipe=True, survives_data_wipe=False,
+                       detail=("generated or inherited; this file is the ONLY "
+                               "copy, so wiping the data dir loses every stored "
+                               "secret permanently"))
+            return out
+
+        out.update(state="absent", survives_env_wipe=None, survives_data_wipe=None,
+                   detail="no key yet; the next load generates one into the data dir")
+        return out
+    except Exception as exc:  # pragma: no cover - a status read must never raise
+        log.debug("master key state failed: %s", exc)
+        out["detail"] = "the master key state could not be determined"
+        return out
+
+
 def _load_or_create_master_key(key_file: str = _KEY_FILE) -> bytes:
     """Return the Fernet master key.
 
@@ -91,8 +217,47 @@ def _load_or_create_master_key(key_file: str = _KEY_FILE) -> bytes:
         # rely on this). Only write when the file is absent or differs.
         try:
             p = Path(key_file)
-            if not p.exists() or p.read_bytes().strip() != env_key.encode():
+            prior = p.read_bytes().strip() if p.exists() else b""
+            if prior != env_key.encode():
                 p.parent.mkdir(parents=True, exist_ok=True)
+                # KEEP THE KEY YOU ARE ABOUT TO DESTROY. `secrets_vault` was
+                # hardened against exactly this shape and its note is in
+                # CLAUDE.md: "One boot erased the lot, permanently, from a file
+                # with no .bak." Here the casualty is worse than an entry -- it
+                # is the key that reads every entry, every linked account and
+                # the llm_api_key column. A wrong or stale RUNECLAW_SECRETS_KEY
+                # (a copy-paste, a rotated deploy secret, a stale compose file)
+                # silently replaced the only copy of the one that still opened
+                # the data, and no amount of unsetting the variable afterwards
+                # brought it back.
+                #
+                # Both files are 0600 and neither is logged. Two copies of a key
+                # on one disk is a real cost; it is smaller than the operator
+                # having no path back from a typo.
+                if prior:
+                    try:
+                        bak = Path(str(p) + ".bak")
+                        bak.write_bytes(prior)
+                        try:
+                            os.chmod(str(bak), 0o600)
+                        except OSError:
+                            pass
+                        log.warning(
+                            "RUNECLAW_SECRETS_KEY (fingerprint %s) differs from the "
+                            "key on disk (fingerprint %s). The environment wins; "
+                            "the previous key is kept at %s so data encrypted "
+                            "under it is still recoverable. If that was not "
+                            "intended, restore it before writing anything new.",
+                            _fingerprint(env_key.encode()), _fingerprint(prior),
+                            str(bak))
+                    except OSError as exc:
+                        # Refuse to destroy what we could not copy.
+                        log.error(
+                            "RUNECLAW_SECRETS_KEY differs from %s and the previous "
+                            "key could NOT be backed up (%s) — leaving the file "
+                            "alone. The environment key is in force this run.",
+                            key_file, exc)
+                        return env_key.encode()
                 p.write_bytes(env_key.encode())
                 try:
                     os.chmod(str(p), 0o600)

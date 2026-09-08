@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import logging
 import os
 import signal
@@ -273,6 +274,82 @@ async def _credential_preflight(engine, bot) -> None:
             pass
 
 
+async def _master_key_preflight(engine, bot) -> None:
+    """Say, on EVERY boot, where the master key lives and what a wipe costs.
+
+    `_load_or_create_master_key` warns "set RUNECLAW_SECRETS_KEY for
+    production" exactly once — on the boot that GENERATES the key. Every boot
+    after that takes its `if p.exists(): return` branch in silence, so a box
+    that has been one `rm -rf data/` away from losing every linked account and
+    every vault entry since March has said so once, in a container log, in
+    March. The condition persists; the only surface that reported it does not.
+
+    Fail-open and never blocks startup: this is a durability reading, not a
+    gate. `pinned` is silent — a healthy state does not need an alert, and a
+    warning that fires when nothing is wrong is how operators learn to skip
+    the next one (`boot_health.py` records that lesson about WEB_CREDS_KEY).
+    """
+    try:
+        from bot.core.exchange_credentials import master_key_state
+        st = await asyncio.to_thread(master_key_state)
+    except Exception as exc:
+        system_log.debug("master key preflight skipped: %s", exc)
+        return
+
+    state = st.get("state")
+    bak = st.get("prior_backup")
+    if state == "pinned" and not bak:
+        return
+
+    NOTE = {
+        "file_only": (
+            "\U0001f511 <b>STARTUP: the master key is FILE-ONLY</b>\n"
+            "<code>RUNECLAW_SECRETS_KEY</code> is unset, so "
+            "<code>data/.exchange_secret.key</code> is the only copy of the key "
+            "that decrypts every linked account, the secrets vault and the LLM "
+            "key column. A wiped <code>data/</code> loses all of it permanently. "
+            "Set that variable to the file's value — nothing re-encrypts, the "
+            "key simply stops living in one place."),
+        "diverged": (
+            "\U0001f6a8 <b>STARTUP: two different master keys</b>\n"
+            "<code>RUNECLAW_SECRETS_KEY</code> and "
+            "<code>data/.exchange_secret.key</code> disagree. The environment "
+            "wins, so anything written under the other key will not open."),
+        "unreadable": (
+            "\U0001f6a8 <b>STARTUP: the master key could not be read</b>\n"
+            "Stored secrets cannot be assumed readable."),
+        "absent": (
+            "\U0001f511 <b>STARTUP: no master key yet</b>\nNothing is encrypted "
+            "so far. Set <code>RUNECLAW_SECRETS_KEY</code> before the first "
+            "secret is written and it will never live only in <code>data/</code>."),
+    }
+    body = NOTE.get(str(state), "")
+    if st.get("detail") and state in ("diverged", "unreadable"):
+        body += f"\n<i>{html.escape(str(st['detail']))}</i>"
+    if bak:
+        body += ("\n\U0001f4be A previous master key was replaced and kept at "
+                 f"<code>{html.escape(str(bak.get('path', '')))}</code> "
+                 f"(fingerprint <code>{html.escape(str(bak.get('fingerprint', '')))}</code>). "
+                 "If secrets stopped opening after a key change, that file is "
+                 "what reads them.")
+        if not body.strip():
+            body = ("\U0001f4be <b>STARTUP: a master key was replaced</b>" + body)
+    if not body.strip():
+        return
+
+    # A coarse state word, never the key and never the detail text, on the
+    # audit channel — same vocabulary rule as /readyz.
+    audit(system_log, f"Master key state: {state}",
+          action="master_key_preflight", result=str(state).upper())
+    _admin = CONFIG.telegram.chat_id or ""
+    _ids = [i.strip() for i in (CONFIG.telegram.admin_ids or "").split(",") if i.strip()]
+    for _t in ([_admin] if _admin else []) + _ids:
+        try:
+            await bot.send_message(chat_id=_t, text=body, parse_mode="HTML")
+        except Exception as exc:
+            system_log.debug("master key alert to %s failed: %s", _t, exc)
+
+
 async def _per_user_credential_preflight(engine, bot) -> None:
     """Probe every LINKED per-user account's venue auth at boot and alert on
     failure (live-readiness audit C3).
@@ -352,13 +429,42 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                   f"Per-user preflight: {len(undecryptable)} account(s) stored "
                   f"but undecryptable",
                   action="cred_preflight_users", result="UNDECRYPTABLE")
+            # NAME THE CAUSE, DO NOT GUESS AT IT. This sentence explained the
+            # failure with "a wiped data dir with RUNECLAW_SECRETS_KEY unset
+            # does it" — a hypothesis, offered at the one moment the operator
+            # most needs the fact, on a box where the fact is a file read away.
+            # `master_key_state()` is that read, and it distinguishes the case
+            # where a REPLACED key is still sitting in a .bak (recoverable, and
+            # nobody would have known to look) from the case where the key is
+            # simply gone.
+            try:
+                from bot.core.exchange_credentials import master_key_state
+                _mk = await asyncio.to_thread(master_key_state)
+            except Exception:
+                _mk = {}
+            _why = {
+                "file_only": ("This box's master key is FILE-ONLY "
+                              "(<code>RUNECLAW_SECRETS_KEY</code> unset), which is "
+                              "exactly the state a wiped <code>data/</code> "
+                              "destroys."),
+                "diverged": ("This box has TWO different master keys — the "
+                             "environment's and the file's — and the environment "
+                             "wins."),
+                "unreadable": "This box's master key could not be read.",
+            }.get(str(_mk.get("state", "")), "")
+            _bak = _mk.get("prior_backup") or {}
+            if _bak:
+                _why += (" A previous key was replaced and kept at "
+                         f"<code>{html.escape(str(_bak.get('path', '')))}</code> — "
+                         "restoring it is likely to reopen these accounts without "
+                         "anyone re-entering a key.")
             _note_d = ("\U0001f510 <b>STARTUP: %d linked account(s) will not "
                        "decrypt</b>\nTheir keys are on file but this bot cannot "
-                       "read them — the encryption key changed (a wiped "
-                       "data dir with <code>RUNECLAW_SECRETS_KEY</code> unset "
-                       "does it). The venue was never asked, so this is not a "
-                       "rejection. They must re-<code>/connect</code>:\n%s"
-                       % (len(undecryptable), _d))
+                       "read them — the encryption key changed. %s The venue was "
+                       "never asked, so this is not a rejection.%s\n%s"
+                       % (len(undecryptable), _why,
+                          "" if _bak else " They must re-<code>/connect</code>:",
+                          _d))
             _admin_d = CONFIG.telegram.chat_id or ""
             _ids_d = [i.strip() for i in
                       (CONFIG.telegram.admin_ids or "").split(",") if i.strip()]
@@ -513,6 +619,10 @@ def run_telegram() -> None:
             # Fail-open: never blocks startup — a live position still needs
             # monitoring even with broken creds — but it MUST alert loudly.
             await _credential_preflight(engine, app.bot)
+            # Where the master key lives, on every boot — not only the one
+            # that generated it. Ordered BEFORE the per-user sweep because it
+            # is the cause that sweep's alert can only guess at.
+            await _master_key_preflight(engine, app.bot)
             # Per-user auth sweep (C3): probe each LINKED account so a revoked or
             # regenerated user key surfaces here at boot, not when their first
             # protective stop fails to place. No-op unless per-user live is on.
