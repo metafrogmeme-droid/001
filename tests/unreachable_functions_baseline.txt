@@ -159,7 +159,10 @@ bot/guardian/authority_preflight.py:reconcile_posture
 # stand or fall together.
 bot/backtest/snapshot.py:load_dataset
 bot/core/stock_trading.py:get_stock_risk_params
-bot/formatters/escape_card.py:risk_word
+# escape_card.py:risk_word left this list when the prose stripper learned to
+# read f-string continuation lines: it is called from escape_card.py's own
+# card, inside a parenthesised multi-line f-string, and had been baselined on
+# the strength of a false accusation.
 bot/proofofpnl/ingest_cex.py:fills_from_proof_file
 bot/risk/venue_aggregate.py:cap_verdict
 bot/skills/quant_skill.py:register_quant_skill
