@@ -213,6 +213,28 @@ done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
 still had the defect `/open_positions` had just been cured of. A `theater.js`
 value flowed through three renderings and fixing two left the third.
 
+**A fix that lands in the assessor and not the renderer has not landed.**
+`assess_readiness` added `decisions_on_record` precisely so three disagreeing
+denominators would stop reading as one, with a comment naming the live
+`6 / 17 / 61` card that caused it — and `render_report` went on printing
+`resolved_samples`, the calibrator's own subset. A later live card headed
+itself "Resolved outcomes: 23" above a component claiming 46 unseen trades and
+another counting 168. The guard that shipped with the fix asserts the KEY IS IN
+THE DICT, which is one step short of the surface anyone reads.
+
+**Enumerate the combinations, not the happy ones.** The same card printed
+`⏳ calibration: ACCUMULATING (23/30)` with `AUTO_CONFIRM_USE_CALIBRATED — ON`
+directly beneath and recommended nothing, because both branches keyed on
+`READY` (ready-and-unapplied → "consider enabling"; ready-and-applied →
+"validated ✓"). Applied-and-NOT-validated — the one combination of the four
+that means something is already wrong — had no branch at all, on the report
+whose header says it answers *the question the operator has to answer before
+flipping*. `recommendations_for()` is the seam now, because the rule needed a
+store, a fitted calibrator and a config to reach, so a test of it either did
+not exist or reimplemented it. Both had happened. And a bare `— ON` beside a
+state the reader has skimmed past is itself a claim: it reads as approval of
+the exact thing that has not been approved.
+
 **Write the assertion, then re-run the search.** Three separate times the
 source test written for the known sites failed on sites the original grep
 could not reach — they used `t.pnl`, `getattr(t, 'net_pnl', 0)`, a streak

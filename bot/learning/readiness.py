@@ -54,7 +54,7 @@ def assess_readiness(store=None) -> dict:
     """Assess every learner. Never raises — a component that errors reports
     state 'ERROR' with the message, and the others still assess."""
     out: dict = {"components": {}, "resolved_samples": 0,
-                 "decisions_on_record": 0, "recommendations": []}
+                 "decisions_on_record": None, "recommendations": []}
 
     # Every learner extracts its OWN samples from these decisions, and they do
     # not agree: one live card showed 6 / 17 / 61 for calibration, voter
@@ -63,7 +63,13 @@ def assess_readiness(store=None) -> dict:
     # denominators as one number. Each component reports its own `samples`;
     # `decisions_on_record` is the raw pool they are drawn from, named for
     # what it is.
-    decisions = []
+    # None until a read succeeds — an unreachable store is not an empty one.
+    # This was `[]`, so a store that could not be opened reported
+    # `decisions_on_record: 0` and the card said the bot had no decisions on
+    # record, which is the same sentence it prints on a genuinely fresh
+    # install. The pool is the number every component's evidence is judged
+    # against; a zero nobody measured is the worst value it can carry.
+    decisions = None
     try:
         from bot.learning.store import LearningStore
         decisions = (store or LearningStore()).get_decisions(limit=5000)
@@ -75,11 +81,11 @@ def assess_readiness(store=None) -> dict:
     try:
         from bot.config import CONFIG
         from bot.learning.confidence_calibration import ConfidenceCalibrator
-        samples = ConfidenceCalibrator.samples_from_decisions(decisions)
+        samples = ConfidenceCalibrator.samples_from_decisions(decisions or [])
         # Kept for callers that already read it, but it is the CALIBRATOR's
         # extraction and nothing else's.
         out["resolved_samples"] = len(samples)
-        out["decisions_on_record"] = len(decisions)
+        out["decisions_on_record"] = None if decisions is None else len(decisions)
         cal = ConfidenceCalibrator.load()
         n = getattr(cal, "_n_samples", 0) if cal else 0
         need = getattr(cal, "min_samples", 30) if cal else 30
@@ -155,21 +161,75 @@ def assess_readiness(store=None) -> dict:
     out["components"]["setup_expectancy"] = comp
 
     # -- recommendations -------------------------------------------------------
-    for name, c in out["components"].items():
-        if c.get("state") == "READY" and c.get("applied") is False:
-            out["recommendations"].append(
-                f"{name} is validated but not applied — consider {c['flag']}=true")
-        if c.get("state") == "READY" and c.get("applied") is True:
-            out["recommendations"].append(f"{name}: applied and validated ✓")
+    out["recommendations"] = recommendations_for(out["components"])
     return out
+
+
+#: The states that mean a component's evidence bar has NOT been cleared.
+_UNVALIDATED = ("ACCUMULATING", "VALIDATING")
+
+
+def recommendations_for(components: dict) -> list:
+    """The four (state, applied) combinations, as lines for the card.
+
+    A FUNCTION SO IT CAN BE DRIVEN. It was a loop at the end of
+    `assess_readiness`, which needs a store, a fitted calibrator and a config
+    to reach — so a test of the rule either reimplemented it (and then tested
+    its own copy) or did not exist. Both happened.
+
+    THE FOURTH CASE WAS THE MISSING ONE. Both original branches keyed on READY:
+
+        READY + not applied  -> consider <FLAG>=true
+        READY + applied      -> applied and validated ✓
+
+    so APPLIED-and-NOT-validated fell through to silence — the only one of the
+    four that means something is already wrong. A live card showed
+    `calibration: ACCUMULATING (23/30)` with `AUTO_CONFIRM_USE_CALIBRATED — ON`
+    directly beneath it and recommended nothing: a learner adjusting confidence
+    on real trades from a curve its own gate calls too thin, on the report whose
+    header says it answers "the question the operator has to answer before
+    flipping".
+
+    It sorts FIRST for the same reason — under an "applied and validated ✓" for
+    some other component is exactly where it would not be read.
+    """
+    warnings: list = []
+    notes: list = []
+    for name, c in (components or {}).items():
+        state, applied = c.get("state"), c.get("applied")
+        flag = c.get("flag")
+        if applied is True and state in _UNVALIDATED:
+            warnings.append(f"⚠️ {name} is APPLIED but NOT validated ({state}) — "
+                            f"{flag} is ON and the evidence bar is not met")
+        elif state == "READY" and applied is False:
+            notes.append(f"{name} is validated but not applied — "
+                         f"consider {flag}=true")
+        elif state == "READY" and applied is True:
+            notes.append(f"{name}: applied and validated ✓")
+    return warnings + notes
 
 
 def render_report(assessment: dict) -> str:
     """Telegram-HTML readiness report."""
     icon = {"READY": "✅", "VALIDATING": "\U0001f7e0",
             "ACCUMULATING": "⏳", "ERROR": "⚠️"}
+    # THE RAW POOL, UNDER ITS OWN NAME. This printed `resolved_samples`, which
+    # is the CALIBRATOR's extraction and nothing else's — so the card headed
+    # itself "Resolved outcomes: 23" above a component claiming 46 unseen
+    # trades and another counting 168. `assess_readiness` created
+    # `decisions_on_record` for exactly this, with a comment naming a live
+    # 6/17/61 card, and the renderer went on printing the other number: the
+    # fix reached the assessor and never reached the surface anyone reads.
+    #
+    # `None` is a store that could not be read, and it says so rather than
+    # printing the 0 that a genuinely fresh install also prints.
+    pool = assessment.get("decisions_on_record")
     lines = ["\U0001f9e0 <b>Learning Readiness</b>", "─" * 28,
-             f"Resolved outcomes: <code>{assessment.get('resolved_samples', 0)}</code>", ""]
+             "Decisions on record: <code>"
+             + ("unknown — the learning store could not be read" if pool is None
+                else str(pool)) + "</code>",
+             "<i>each component judges its own subset of these; the counts "
+             "below are not this one.</i>", ""]
     for name, c in assessment.get("components", {}).items():
         state = c.get("state", "?")
         head = f"{icon.get(state, '')} <b>{name}</b>: {state}"
@@ -178,8 +238,15 @@ def render_report(assessment: dict) -> str:
         lines.append(head)
         if c.get("note"):
             lines.append(f"   {c['note']}")
-        lines.append(f"   apply flag: <code>{c.get('flag')}</code>"
-                     + (" — ON" if c.get("applied") is True else ""))
+        # "— ON" ALONE READS AS APPROVAL, and beside a component that has not
+        # cleared its bar it is the opposite. Colour is a claim, and so is a
+        # bare affirmative next to a state the reader has already skimmed past.
+        if c.get("applied") is True:
+            flag_note = (" — ON" if state == "READY"
+                         else " — <b>ON, NOT VALIDATED</b>")
+        else:
+            flag_note = ""
+        lines.append(f"   apply flag: <code>{c.get('flag')}</code>{flag_note}")
     recs = assessment.get("recommendations", [])
     if recs:
         lines += ["", "<b>Recommended:</b>"]
