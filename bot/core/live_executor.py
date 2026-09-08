@@ -399,6 +399,13 @@ def stop_replacement_note(stop_loss: Any, take_profit: Any,
             "one on its next pass")
 
 
+#: How long a venue may take to settle a fresh fill before its position book
+#: reflects it. `_place_sl_tp` already waits this out before placing stops
+#: ("Prevents error 31008 ('no position') on fast fills"); the close's 25227
+#: branch reads the same book and needs the same patience before it may call
+#: an empty answer "closed".
+_VENUE_SETTLE_SECONDS = 1.5
+
 # F-07 FIX: Persistence file for live positions
 _POSITIONS_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "live_positions.json"
@@ -9300,6 +9307,32 @@ class LiveExecutor:
                     # A row that states no size is not a flat book: unreadable
                     # is "still open" here, exactly as a failed read is.
                     still_open = position_presence(ex_positions)["state"] != "flat"
+                    if not still_open:
+                        # An empty book straight after a fill is NOT proof the
+                        # position is gone. Bitget settles a fresh fill with a
+                        # lag this same file waits out before placing stops
+                        # ("Prevents error 31008 ('no position') on fast
+                        # fills"), and a guard that flattens immediately after
+                        # entry — the leverage-overshoot and slippage guards
+                        # both do — can get 25227 and an empty book for its
+                        # OWN unsettled position. Booking that as a close
+                        # prices it off the ticker and prunes the record,
+                        # leaving a live position nobody tracks and no stop on
+                        # it. One re-read after the settle window tells the
+                        # two apart; a position that is really gone still
+                        # reads flat.
+                        await asyncio.sleep(_VENUE_SETTLE_SECONDS)
+                        ex_positions = await verify_exchange.fetch_positions(
+                            [ccxt_sym], params=self._venue.futures_params())
+                        _second = position_presence(ex_positions)["state"]
+                        still_open = _second != "flat"
+                        if still_open:
+                            audit(trade_log,
+                                  f"25227 book read flat for {pos.symbol}, then showed the "
+                                  f"position after the settle window ({_second}) — it had not "
+                                  f"settled yet, not closed",
+                                  action="live_close_25227", result="UNSETTLED_NOT_CLOSED",
+                                  data={"trade_id": trade_id, "symbol": pos.symbol})
                 except Exception as verify_exc:
                     logger.debug("25227 position verification failed: %s", verify_exc)
                     still_open = True  # Assume still open if we can't verify
@@ -9329,7 +9362,12 @@ class LiveExecutor:
                             _venue_flat = True
                             _flash_applied = True
                             await asyncio.sleep(1.0)  # Let fill settle
-                            close_result = await self._handle_already_closed_position(pos)
+                            # THIS bot closed it, with the flash close, for
+                            # `reason`. Inferring a venue trigger from the exit
+                            # price here would label the guard's own flatten a
+                            # take-profit hit.
+                            close_result = await self._handle_already_closed_position(
+                                pos, bot_reason=reason, bot_closed=True)
                             if close_result:
                                 return close_result
                     except Exception as flash_exc:
@@ -9342,6 +9380,11 @@ class LiveExecutor:
                           f"Position {pos.symbol} confirmed closed on exchange — looking up fill data",
                           action="live_close_25227", result="LOOKUP")
                     try:
+                        # The position was already gone when this close
+                        # arrived, so the bot did not close it: the venue's
+                        # own history is the reason, and the price-proximity
+                        # inference is the labelled fallback it was written
+                        # for.
                         close_result = await self._handle_already_closed_position(pos)
                         if close_result:
                             return close_result
@@ -9955,11 +9998,25 @@ class LiveExecutor:
         # the honest "unknown" rather than asserting MANUAL.
         return "CLOSED (unknown)"
 
-    async def _handle_already_closed_position(self, pos: LivePosition) -> str | None:
-        """Handle a position that was already closed on exchange (25227).
+    async def _handle_already_closed_position(
+            self, pos: LivePosition, *, bot_reason: str = "",
+            bot_closed: bool = False) -> str | None:
+        """Handle a position that is gone from the venue's book (25227).
 
-        Uses Bitget position history API for actual close price and PnL.
-        Never estimates — only uses real exchange data.
+        Uses Bitget position history for the actual close price and PnL, and
+        falls back to the ticker when that channel is unreadable.
+
+        ``bot_closed`` says whether THIS call is what closed the position —
+        true on the flash-close path, false when the position was already gone
+        before the close order arrived. It decides the recorded reason, and
+        the distinction is the whole point: `_infer_close_reason` guesses a
+        venue trigger from how near the exit sits to the stop or the target,
+        which is the right fallback for a close the VENUE made and a
+        fabrication for one the bot made. A leverage-overshoot flatten was
+        being booked with a reason inferred from price — "CLOSED (unknown)"
+        when the exit sat between the levels, and "TP HIT (inferred)" when it
+        happened to sit near one, which every win-rate and attribution
+        surface reads as a target reached.
 
         Returns close message string if successful, None if lookup fails.
         """
@@ -9985,6 +10042,7 @@ class LiveExecutor:
             est_exit = close_data["close_price"]
             reason = close_data["reason"]
             fill_source = close_data["source"]
+            _confirmed = True                   # the venue's own record of it
             exchange_reported_pnl = close_data["pnl"]  # may be None for closed_order source
             # Reconcile leverage from the exchange record when it carries one
             # (belt-and-suspenders: the position-history payload does not always
@@ -10005,9 +10063,19 @@ class LiveExecutor:
                 est_exit = 0
             if est_exit <= 0:
                 return None  # Can't determine anything
-            # Infer whether TP or SL was hit based on exit price proximity
-            reason = self._infer_close_reason(pos, est_exit)
+            if bot_closed:
+                # This call closed it, and for a stated reason. Nothing about
+                # the exit price can tell us more than that.
+                reason = bot_reason or "CLOSED (unknown)"
+            else:
+                # Something else closed it and the venue will not say what:
+                # infer the trigger from the exit price, labelled "(inferred)".
+                reason = self._infer_close_reason(pos, est_exit)
             fill_source = "ticker_fallback"
+            # Nothing here was confirmed: the venue's close record could not be
+            # read and the exit is a ticker estimate. The card paints a green
+            # "✅ CONFIRMED" badge off this flag, and colour is a claim.
+            _confirmed = False
             exchange_reported_pnl = None
             logger.warning(
                 "Using ticker price for %s close — exchange history unavailable (inferred: %s)",
@@ -10102,7 +10170,7 @@ class LiveExecutor:
             "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
             "leverage": lev,
             "hold_time": hold_str,
-            "confirmed": True,
+            "confirmed": _confirmed,
             "close_order_id": "",
         }
 

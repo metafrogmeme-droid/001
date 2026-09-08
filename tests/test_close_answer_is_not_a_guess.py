@@ -661,6 +661,152 @@ def test_a_request_that_never_completed_is_not_a_venue_answer(tmp_path, monkeypa
     assert e._v3_strategy_order_resting_sync("combined-1") is None
 
 
+# ── an unsettled fill is not a closed position ───────────────────────────────
+#
+# From a live card: RAVE/USDT filled at 20x against a 5x target, the overshoot
+# guard flattened it immediately, and the operator was told
+#
+#     ⚠️ EXECUTION ABORTED — RAVE/USDT … The position was CLOSED …
+#     CLOSED LONG RAVE/USDT (CLOSED (unknown))
+#     Fill source: ticker_fallback        Hold: 0m
+#
+# Nothing observed that position closing. The venue answered 25227 "no position
+# available to close", the book read empty, and the close was booked off the
+# ticker with a reason inferred from the exit price.
+
+def _v3_flash(e, items):
+    e._flash_close_position = AsyncMock(
+        return_value={"code": "00000", "data": {"list": items}})
+
+
+@pytest.mark.asyncio
+async def test_an_empty_book_straight_after_a_fill_is_not_a_close(tmp_path, monkeypatch):
+    """Bitget settles a fresh fill with a lag `_place_sl_tp` already waits out
+    ("Prevents error 31008 ('no position') on fast fills"). A guard that
+    flattens right after entry gets 25227 and an empty book for its OWN
+    unsettled position; booking that prices the close off a ticker and prunes
+    the record, leaving a live, unstopped position nobody tracks."""
+    monkeypatch.setattr("bot.core.live_executor.asyncio.sleep", AsyncMock())
+    venue = _venue(AsyncMock(side_effect=Exception(
+        'bitget {"code":"25227","msg":"No position available to close"}')))
+    venue.fetch_positions = AsyncMock(side_effect=[[], [{"contracts": 1.0}]])
+    e, p = _executor(tmp_path, venue)
+    e._flash_close_position = AsyncMock(return_value=None)      # the flash close fails
+    e._handle_already_closed_position = AsyncMock(return_value="✅ CLOSED (booked)")
+    msg = await e.close_position("T1", reason="leverage_overshoot")
+    assert flatten_outcome(msg) != "closed", msg
+    e._handle_already_closed_position.assert_not_awaited()
+    assert p.status == "open" and "T1" in e._positions, "the record must survive"
+    assert venue.fetch_positions.await_count == 2, "the book is read again after the settle window"
+
+
+@pytest.mark.asyncio
+async def test_a_book_that_is_still_flat_after_the_settle_window_is_a_close(tmp_path, monkeypatch):
+    """The other half: a position that really is gone reads flat twice, and is
+    booked exactly as before."""
+    monkeypatch.setattr("bot.core.live_executor.asyncio.sleep", AsyncMock())
+    venue = _venue(AsyncMock(side_effect=Exception(
+        'bitget {"code":"25227","msg":"No position available to close"}')))
+    venue.fetch_positions = AsyncMock(side_effect=[[], []])
+    e, p = _executor(tmp_path, venue)
+    e._handle_already_closed_position = AsyncMock(return_value="✅ CLOSED LONG BTC/USDT (SL HIT (inferred))")
+    msg = await e.close_position("T1", reason="leverage_overshoot")
+    assert flatten_outcome(msg) == "closed", msg
+    e._handle_already_closed_position.assert_awaited_once()
+    assert e._handle_already_closed_position.await_args.kwargs == {}, (
+        "the position was already gone: the bot did not close it")
+
+
+# ── a close the bot made is not a venue trigger guessed from the price ───────
+
+def _closed_pos(tmp_path, sl=95.0, tp=110.0):
+    e = LiveExecutor(state_dir=str(tmp_path))
+    pos = _pos()
+    pos.stop_loss, pos.take_profit = sl, tp
+    e._positions = {"T1": pos}
+    e._is_duplicate_close_booking = lambda p: False
+    e._fetch_bitget_close_data = AsyncMock(return_value=None)   # history unreadable
+    ex = AsyncMock()
+    ex.fetch_ticker = AsyncMock(return_value={"last": 110.0})   # sitting ON the target
+    e._get_exchange = AsyncMock(return_value=ex)
+    return e, pos
+
+
+@pytest.mark.asyncio
+async def test_a_bot_close_is_recorded_with_the_reason_the_bot_had(tmp_path):
+    """`_infer_close_reason` guesses a venue trigger from how near the exit is
+    to the stop or the target. That is the right fallback for a close the
+    VENUE made and a fabrication for one the bot made: here the exit sits
+    exactly on the target, and the guard's flatten would have been booked
+    "TP HIT (inferred)" — which every win-rate and attribution surface reads
+    as a target reached."""
+    e, pos = _closed_pos(tmp_path)
+    msg = await e._handle_already_closed_position(
+        pos, bot_reason="leverage_overshoot", bot_closed=True)
+    assert msg and "leverage_overshoot" in msg, msg
+    assert "inferred" not in msg and "TP HIT" not in msg
+    assert e._last_close_data["reason"] == "leverage_overshoot"
+
+
+@pytest.mark.asyncio
+async def test_the_flash_close_path_carries_the_bots_reason_end_to_end(tmp_path, monkeypatch):
+    """The seam above is only right if the call site tells it who closed the
+    position. The flash close IS the bot closing it: 25227, the book still
+    shows the position, the v2 flash close applies — and the exit lands on the
+    target, which is where the inference fabricates a TP hit."""
+    monkeypatch.setattr("bot.core.live_executor.asyncio.sleep", AsyncMock())
+    venue = _venue(AsyncMock(side_effect=Exception(
+        'bitget {"code":"25227","msg":"No position available to close"}')))
+    venue.fetch_positions = AsyncMock(return_value=[{"contracts": 1.0}])   # still there
+    venue.fetch_ticker = AsyncMock(return_value={"last": 110.0})           # ON the target
+    e, p = _executor(tmp_path, venue)
+    e._is_duplicate_close_booking = lambda _p: False
+    e._fetch_bitget_close_data = AsyncMock(return_value=None)              # history unreadable
+    e._flash_close_position = AsyncMock(
+        return_value={"code": "00000", "data": {"list": [{"code": "00000"}]}})
+    msg = await e.close_position("T1", reason="leverage_overshoot")
+    assert flatten_outcome(msg) == "closed", msg
+    assert "leverage_overshoot" in msg, msg
+    assert "TP HIT" not in msg and "inferred" not in msg, (
+        "the bot flattened this; the exit price cannot say otherwise")
+    assert e._last_close_data["confirmed"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_venue_side_close_still_infers_the_trigger(tmp_path):
+    """The fallback this function was written for is untouched: nothing the
+    bot did explains the close, so the exit price is the only evidence and
+    the label says it is inferred."""
+    e, pos = _closed_pos(tmp_path)
+    msg = await e._handle_already_closed_position(pos)
+    assert msg and "TP HIT (inferred)" in msg, msg
+
+
+@pytest.mark.asyncio
+async def test_a_ticker_priced_close_is_not_rendered_as_confirmed(tmp_path):
+    """The close card paints a green "✅ CONFIRMED" badge off this flag. The
+    venue's close record could not be read and the exit is a ticker estimate:
+    nothing here was confirmed, and colour is a claim."""
+    e, pos = _closed_pos(tmp_path)
+    await e._handle_already_closed_position(pos, bot_reason="manual_telegram", bot_closed=True)
+    assert e._last_close_data["confirmed"] is False
+    assert e._last_close_data["exit"] == 110.0, "the ticker price is still recorded, just not as a fact"
+
+
+@pytest.mark.asyncio
+async def test_a_close_the_venue_itself_reported_is_confirmed(tmp_path):
+    """When the venue's own history answers, the price AND the reason are
+    measurements — that is what the flag is for."""
+    e, pos = _closed_pos(tmp_path)
+    e._fetch_bitget_close_data = AsyncMock(return_value={
+        "close_price": 109.0, "reason": "TP HIT", "source": "position_history",
+        "pnl": 9.0, "leverage": 1})
+    msg = await e._handle_already_closed_position(
+        pos, bot_reason="leverage_overshoot", bot_closed=True)
+    assert msg and "TP HIT" in msg and "position_history" in msg, msg
+    assert e._last_close_data["confirmed"] is True
+
+
 # ── the promise about the monitor is per position ────────────────────────────
 
 @pytest.mark.asyncio
