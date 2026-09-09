@@ -119,12 +119,22 @@ class TestAHostileFieldIsStillEscaped:
 
         The other order slices `&amp;` into `&am`, which is malformed markup
         rather than a shortened word.
+
+        THE FIRST VERSION OF THIS PUT THE `&` AT POSITION 5 and the mutation
+        that swapped the order survived it: an entity nowhere near the cut is
+        never cut. The `&` sits at 44 now, so escaping first would leave
+        exactly four characters of a five-character entity inside the slice.
         """
         data = dict(CLUSDT)
-        data["reason"] = "risk & margin " + "x" * 60
+        data["reason"] = "x" * 44 + "&more"
         line = public_close_line(data)
-        assert "&am " not in line and "&am)" not in line
-        assert "&amp;" in line
+        # Every `&` in the finished card must open a complete entity.
+        for i, ch in enumerate(line):
+            if ch == "&":
+                tail = line[i:i + 6]
+                assert any(tail.startswith(e) for e in
+                           ("&amp;", "&lt;", "&gt;", "&quot;", "&#x27;", "&#39;")), (
+                    f"a truncated entity reached the card: {line[i:i + 8]!r}")
 
 
 class TestThePlainTextFallbackIsEscapedByItsCaller:
