@@ -372,6 +372,49 @@ max_nudge * shrink`, and `shrink = n / (n + shrinkage)` already pulls a thin
 sample toward zero, so a weak reading produces a weak nudge instead of a
 verdict. Check reachability before fixing, in the corollary sweep too.
 
+**The same bar, on a TOTAL, in a second module — and the sweep for it found a
+third surface.** The nightly self-audit's card read `MTF_ALIGNMENT is the
+costliest gate (net +4.1R over 97 blocked trades)` off `net_r > 0.5`, and +4.1R
+over 97 is **+0.042R per trade**: the 95% interval is (-0.25, +0.34). Same
+defect as the voter card, on the scoreboard whose next step is loosening a risk
+gate on a live account. The instrument is NOT Wilson and that is the point — R
+is a continuous signed magnitude, not a proportion, so `mean_r_interval` is the
+normal interval on the per-trade mean and only the DISCIPLINE is shared (the
+whole interval clear of the null). `MIN_GATE_TRADES` sits beside it because
+three blocked trades that all took profit at exactly +1.8R have a sample sd of
+**zero**, hence a lower bound of +1.8R, from three trades — the interval alone
+would call that certainty.
+
+Two more fell out of it. `gate_report`'s verdict rides on the row, so the
+Telegram scoreboard, the card and the LLM's evidence blob cannot disagree; the
+`/shadow` icon was making the same claim in colour off `net_r > 0.5`, and
+**`app/public/js/dashboard.js` was making it with no threshold at all** —
+`g.net_r > 0 ? 'neg' : 'pos'`, whose else-branch catches a measured zero AND a
+missing field (`undefined > 0` is false), painting both green on a panel whose
+caption reads green as *saved you money*. Two rows of the shapes table in one
+ternary. `RCShadowGates` reads the server's verdict rather than recomputing a
+bar, for the reason `RCWinRate` gives about `MIN_RATED`: a second copy of a
+threshold is a second answer.
+
+**And the sentence under it was the else-branch of `if not results:`.** The
+same card printed *"No changes proposed — the evidence supports the current
+configuration"* directly beneath `40 closes · win 28% · PF 0.4 · net $-26.86` —
+a verdict on evidence the function never consulted, twenty lines under the
+summary it would have read. `window_reading()` is that reading and
+`no_change_verdict()` the sentence, with four outcomes because *proposed
+nothing*, *could not read the reply*, *proposed things I then rejected* and
+*the record is too thin to say* are different events and only one is a pass.
+The second of those was `parse_llm_json` returning `[]` **"when unparseable" by
+its own docstring** — so a truncated reply, a refusal or a page of prose became
+an endorsement of a live trading config. It answers `None` now.
+
+**The honesty gate caught two defects in the commit that fixed them, in the
+renderer written to stop that exact reading.** `_gate_stat`'s first draft was
+`float(g.get('net_r') or 0)` and a raw `{g.get('n')}` — an absent total
+printing `net +0.0R`, a measured break-even, and an absent count printing `over
+None blocked trades`. Knowing the rule is not enough *while writing the fix for
+it* either; the ratchet is, and both were fixed rather than re-recorded.
+
 **A component that can never become ready is a slot on the card, not a
 learner.** `setup_expectancy` keyed on `(symbol, regime, direction)` with a
 10-trade floor, and after 168 trades the card had said `0 setup(s) at/above

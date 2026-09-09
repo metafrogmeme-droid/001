@@ -79,10 +79,37 @@ class TestParseLlmJson:
                 '[{"flag": "A", "value": true, "rationale": "r"}]\n```\nDone.')
         assert parse_llm_json(text)[0]["flag"] == "A"
 
-    def test_unparseable_is_empty(self):
-        assert parse_llm_json("I would not change anything.") == []
-        assert parse_llm_json("") == []
-        assert parse_llm_json(None) == []
+    def test_unparseable_is_none_not_an_empty_proposal_list(self):
+        """`[]` means the model proposed nothing. These are not that.
+
+        This assertion used to read `== []`, and every layer downstream treats
+        an empty proposal list as "the model reviewed the evidence and endorsed
+        the configuration" — so a truncated reply, a refusal, a rate-limit stub
+        and two paragraphs of prose all rendered as an endorsement of a live
+        trading config. `None` is the third state; `no_change_verdict` reports
+        it as a FAILED audit.
+        """
+        assert parse_llm_json("I would not change anything.") is None
+        assert parse_llm_json("") is None
+        assert parse_llm_json(None) is None
+        # A truncated array is the one that actually happens: the reply ran out
+        # of tokens mid-object. It must not read as "nothing to change".
+        assert parse_llm_json('[{"flag": "ENTRY_TIMING_ENABL') is None
+        # A JSON object where an array was asked for is also not an answer.
+        assert parse_llm_json('{"flag": "X", "value": 1}') is None
+        # BRACKETED BUT NOT JSON — the case that reaches the `except` rather
+        # than the no-match return. Every input above bails at the regex, so
+        # the mutation turning that handler back into `return []` survived the
+        # first version of this test: three spellings of the same branch and
+        # none of the other one.
+        assert parse_llm_json("[not json at all]") is None
+        assert parse_llm_json("[{'flag': 'X'}]") is None      # single quotes
+        assert parse_llm_json("[1, 2,]") is None              # trailing comma
+
+    def test_a_real_empty_array_stays_empty(self):
+        """The other side of it: an empty list is a measurement and survives."""
+        assert parse_llm_json("[]") == []
+        assert parse_llm_json("No changes needed.\n```json\n[]\n```") == []
 
 
 # ── benchmark output parsing ──────────────────────────────────────────
@@ -251,12 +278,57 @@ def test_unmeasured_proposal_marked_not_verified():
 
 
 def test_costly_shadow_gate_surfaces_in_report():
+    """An ESTABLISHED gate is still named as the costliest one.
+
+    `verdict`/`lower_r` come off `gate_report()` in production; the fixture
+    carries them because this test is about the renderer. The n=8 row it used
+    to carry now falls under `MIN_GATE_TRADES` — see the test below, which is
+    the half that changed.
+    """
     report = SelfAudit.render_report(
         {"summary": {"n": 5, "win_rate": 0.6, "net_pnl": 1.0},
-         "shadow_gates": {"CORRELATION": {"n": 8, "net_r": 3.2, "wins": 5,
-                                          "losses": 3, "avg_r": 0.4}}},
+         "shadow_gates": {"CORRELATION": {
+             "n": 24, "net_r": 9.6, "wins": 15, "losses": 9, "avg_r": 0.4,
+             "sum_r2": 12.0, "lower_r": 0.18, "upper_r": 0.62,
+             "verdict": "eating_edge"}}},
         [], {}, "alts_1h")
-    assert "CORRELATION" in report and "+3.2R" in report
+    assert "CORRELATION" in report and "+9.6R" in report
+    assert "costliest gate" in report
+    assert "+0.18R/trade" in report, "the bound the verdict turns on is missing"
+
+
+def test_a_gate_that_only_leads_the_sort_is_not_called_the_costliest():
+    """The live card's own defect: +4.1R over 97 trades is +0.042R each.
+
+    `net_r > 0.5` was the whole bar, so a total accumulated over a large
+    sample read exactly like a real per-trade effect — on the scoreboard whose
+    next step is loosening a risk gate on a live account.
+    """
+    report = SelfAudit.render_report(
+        {"summary": {"n": 40, "scored": 40, "win_rate": 0.28, "pf": 0.4,
+                     "net_pnl": -26.86},
+         "shadow_gates": {"MTF_ALIGNMENT": {
+             "n": 97, "net_r": 4.1, "wins": 30, "losses": 60, "avg_r": 0.042,
+             "sum_r2": 210.0, "lower_r": -0.2519, "upper_r": 0.3365,
+             "verdict": "undistinguished"}}},
+        [], {}, "alts_1h")
+    assert "costliest gate" not in report
+    assert "not distinguishable from noise" in report
+    # The per-trade figure has to be ON the card: without it no reader can
+    # recover the 0.042 the whole verdict turns on.
+    assert "+0.042R/trade" in report
+    assert "MTF_ALIGNMENT" in report and "97 blocked trades" in report
+
+
+def test_an_unreadable_shadow_book_is_not_a_clean_one():
+    """`None` and `{}` both used to render as silence."""
+    unreadable = SelfAudit.render_report(
+        {"summary": {"n": 5}, "shadow_gates": None}, [], {}, "alts_1h")
+    assert "could not be read" in unreadable
+    empty = SelfAudit.render_report(
+        {"summary": {"n": 5}, "shadow_gates": {}}, [], {}, "alts_1h")
+    assert "Shadow book" not in empty, (
+        "an empty ledger has nothing to report; saying so would be noise")
 
 
 # ── wiring pins ───────────────────────────────────────────────────────

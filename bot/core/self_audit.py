@@ -31,6 +31,7 @@ import sys
 import time
 from typing import Any, Callable, Optional
 
+from bot.core.shadow_book import MIN_GATE_TRADES
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
@@ -153,13 +154,18 @@ def _same_value(current: Any, norm: str, kind: str) -> bool:
         return False
 
 
-def validate_proposals(raw: list, current_env: Optional[dict] = None,
+def validate_proposals(raw: Optional[list], current_env: Optional[dict] = None,
                        max_proposals: int = 2) -> list[dict]:
     """Filter LLM proposals to allowlisted flags with in-bounds values.
 
     Drops: unknown flags, wrong types, out-of-bounds values, duplicates,
     and no-ops (value equals the current env setting when provided).
-    Pure — no I/O — so the gate is unit-testable."""
+    Pure — no I/O — so the gate is unit-testable.
+
+    ``None`` (the parser could not read the reply) yields ``[]`` here, same as
+    an empty array — the two are indistinguishable to a VALIDATOR and should
+    be. They are told apart one layer up, where the difference is reported:
+    see `no_change_verdict`."""
     out: list[dict] = []
     seen: set[str] = set()
     env = current_env if current_env is not None else {}
@@ -208,17 +214,232 @@ def validate_proposals(raw: list, current_env: Optional[dict] = None,
     return out
 
 
-def parse_llm_json(text: str) -> list:
+def parse_llm_json(text: str) -> Optional[list]:
     """Extract the first JSON array from an LLM response, tolerating
-    markdown fences and surrounding prose. Returns [] when unparseable."""
+    markdown fences and surrounding prose.
+
+    ``None`` WHEN IT COULD NOT BE READ; ``[]`` only for a reply that really did
+    carry an empty array. It used to answer ``[]`` for both, and the whole
+    chain downstream reads an empty proposal list as *the model reviewed the
+    evidence and endorsed the configuration* — so a truncated reply, a refusal,
+    a rate-limit stub, or two paragraphs of prose all became an endorsement of
+    a live trading config. The parser cannot tell "I would change nothing" from
+    "I would set LIVE_PERF_REDUCE_MULT to 0.4" once neither is JSON, and it
+    must not pick the reassuring one.
+    """
     try:
         m = re.search(r"\[.*\]", text or "", re.DOTALL)
         if not m:
-            return []
+            return None
         data = json.loads(m.group(0))
-        return data if isinstance(data, list) else []
+        # `else None` IS UNREACHABLE AS WRITTEN, and saying so beats leaving
+        # the next reader to write a test for it. `m.group(0)` always starts
+        # `[` and ends `]`, so anything `json.loads` accepts from it is a
+        # list; a non-list reply lands on the `not m` return or in the
+        # handler below. Kept as an invariant on the regex rather than
+        # deleted — it is the line that would matter the day the pattern
+        # widens. Round 16's mutation of it survived for this reason, not
+        # for want of a test.
+        return data if isinstance(data, list) else None
     except Exception:
-        return []
+        return None
+
+
+#: `render_report`'s `parsed` argument has THREE meaningful inputs (None, [],
+#: a non-empty list), so its default cannot be any of them. Omitting it means
+#: "an older caller that does not carry the reply".
+_NO_REPLY_GIVEN: Any = object()
+
+#: Below this many PRICED closes the live window cannot support a verdict in
+#: either direction. It bounds the ENDORSEMENT, not the proposal — the model is
+#: still shown a thin record (and told, in the system prompt, that a small
+#: `scored` is too thin to propose from); what it must not produce is a card
+#: reading "the evidence supports the current configuration" off four trades.
+_MIN_SCORED_FOR_A_VERDICT = 10
+
+
+def window_reading(summary: Optional[dict]) -> str:
+    """What the live window actually says: unreadable / thin / losing / sound.
+
+    Four, because the card had one. "No changes proposed — the evidence
+    supports the current configuration" was the else-branch of `if not
+    results:`, printed without consulting the summary computed twenty lines
+    above it, so a live card carried that sentence directly under
+    ``40 closes · win 28% · PF 0.4 · net $-26.86``.
+    """
+    s = summary or {}
+    if s.get("error"):
+        return "unreadable"
+    n = s.get("n")
+    if not n:
+        return "thin"
+    # `scored` absent is not `scored == 0`: an older record that never carried
+    # the field has an unknown coverage, and unknown coverage cannot clear a
+    # coverage floor.
+    scored = s.get("scored")
+    if scored is None or int(scored) < _MIN_SCORED_FOR_A_VERDICT:
+        return "thin"
+    pf, net = s.get("pf"), s.get("net_pnl")
+    if pf is None and net is None:
+        return "thin"
+    # `is not None`, not falsiness, on both: a net of 0.0 is a measured
+    # break-even and a PF of 0.0 is a window with no gross profit at all.
+    if (net is not None and float(net) < 0) or \
+            (pf is not None and float(pf) < 1.0):
+        return "losing"
+    return "sound"
+
+
+def no_change_verdict(summary: Optional[dict], parsed: Any) -> str:
+    """The sentence for a run that produced nothing to apply.
+
+    FOUR OUTCOMES WHERE THERE WAS ONE, because "I proposed nothing", "I could
+    not read my own answer", "everything I proposed was rejected before
+    measurement" and "the record is too thin to say" are different events and
+    only one of them is a pass.
+    """
+    if parsed is None:
+        return ("⚠️ <b>The model's reply could not be read</b> as a "
+                "proposal list — so nothing was proposed <i>and nothing was "
+                "ruled out</i>. This is a failed audit, not a clean one; the "
+                "configuration was not reviewed.")
+    if parsed:
+        # It DID propose. validate_proposals dropped every one.
+        return (f"{len(parsed)} change(s) proposed and <b>all dropped before "
+                "measurement</b> — not on the allowlist, outside its bounds, "
+                "or already in force. Nothing was measured, so nothing here "
+                "endorses the configuration in force.")
+    reading = window_reading(summary)
+    if reading == "unreadable":
+        return ("No changes proposed — but the live window could not be read, "
+                "so this is not a finding about the configuration.")
+    if reading == "thin":
+        return ("No changes proposed. The live record is too thin to support "
+                "a verdict either way — this is neither a pass nor a failure.")
+    if reading == "losing":
+        # The case the old sentence was worst on, and the one it printed most.
+        return ("No changes proposed — <b>this is not an endorsement</b>. The "
+                "live window above is net-negative, and the audit reaches only "
+                f"{len(ALLOWED_FLAGS)} allowlisted flags: finding nothing to "
+                "turn among them rules out no cause outside them.")
+    return ("No changes proposed — the evidence supports the current "
+            "configuration. (An empty audit is a pass, not a failure.)")
+
+
+def costliest_gate_line(gates: Optional[dict]) -> Optional[str]:
+    """The shadow-book line, or ``None`` to print nothing.
+
+    THE BAR USED TO BE `net_r > 0.5` ON A TOTAL. A live card read
+    ``MTF_ALIGNMENT is the costliest gate (net +4.1R over 97 blocked trades)``
+    — which is +0.042R per trade — and the operator's next move off that card
+    is to loosen a risk gate on a live account. `shadow_book.gate_report` puts
+    a 95% interval on the per-trade figure now; this reports which side of zero
+    it clears, and says so plainly when it clears neither.
+
+    It also names the highest-net_r gate that IS established when the top of
+    the sort is not: "costliest" ranks by total, but only an established gate
+    is one you can act on, and the two are not always the same row.
+    """
+    if gates is None:
+        # Distinct from an empty ledger. Both used to render as silence, and
+        # silence for a failed read is the composite card's version of zero.
+        return ("Shadow book: <b>could not be read</b> — no gate scoreboard "
+                "this run, so no gate is cleared or accused.")
+    if not gates:
+        return None            # a genuinely empty ledger has nothing to say
+    try:
+        top_key, top = next(iter(gates.items()))
+        # Both conditions, not just the verdict: a row asserting `eating_edge`
+        # with no bound behind it is contradictory input, and the line quotes
+        # the bound. `gate_report` never emits that pair; a stale cache or a
+        # hand-written row can.
+        established = next(((k, g) for k, g in gates.items()
+                            if g.get("verdict") == "eating_edge"
+                            and g.get("lower_r") is not None), None)
+    except Exception:
+        return None
+    if established is not None:
+        key, g = established
+        return (f"Shadow book: <code>{_clip_gate(key)}</code> is the costliest "
+                f"gate ({_gate_stat(g)}, 95% lower bound "
+                f"{g['lower_r']:+.2f}R/trade)")
+    net, n = _num(top.get("net_r")), _num(top.get("n"))
+    if net is None or net <= 0:
+        # Nothing at the top of the sort is blocking winners at all.
+        return None
+    lo, hi = _num(top.get("lower_r")), _num(top.get("upper_r"))
+    if top.get("verdict") == "undistinguished" and lo is not None \
+            and hi is not None:
+        # BOTH ends, and both READ before either is printed. The lower one
+        # alone is what a reader has to be handed to see that zero is inside
+        # the interval; printing it without its partner invites the same "bar
+        # cleared by two points" reading one level down. And a row claiming
+        # this verdict with no interval on it is contradictory input — the
+        # same pair `gate_report` never emits and a stale cache can, guarded
+        # here for the same reason it is guarded above. Indexing it directly
+        # would be a KeyError on the card rather than a wrong line on it.
+        tail = (" — <b>not distinguishable from noise</b> (95% interval "
+                f"{lo:+.2f} to {hi:+.2f}R/trade)")
+    elif n is not None and n < MIN_GATE_TRADES:
+        # NO BOUND IS QUOTED HERE, deliberately. Three blocked trades that all
+        # took profit at exactly +1.8R have a sample sd of 0 and therefore a
+        # lower bound of +1.8R/trade — which reads as strong evidence and is an
+        # artefact of the sample being degenerate. The first draft of this
+        # function printed it beside the words "not distinguishable from
+        # noise", which is a card contradicting itself in one sentence.
+        tail = (f" — <b>not established</b>: {top.get('n')} blocked trade(s), "
+                f"fewer than the {MIN_GATE_TRADES} needed to bound the "
+                "per-trade figure")
+    else:
+        tail = (" — <b>not established</b>: no interval could be computed for "
+                "the per-trade figure")
+    return (f"Shadow book: <code>{_clip_gate(top_key)}</code> has the highest "
+            f"net R ({_gate_stat(top)}){tail}. No gate is established as "
+            "costing edge.")
+
+
+def _num(v: Any) -> Optional[float]:
+    """A finite number, or ``None`` — never a substituted zero.
+
+    The gate rows arrive through a JSON round-trip and, on the scan-cache path,
+    out of a cache written by an older build. `float(x or 0)` on any of these
+    fields turns a missing reading into a measured one, which is the defect
+    this whole module is being repaired for.
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _gate_stat(g: dict) -> str:
+    """net + sample + the per-trade figure the verdict actually turns on.
+
+    Every field is `is None`-tested rather than coerced. The first draft read
+    `float(g.get('net_r') or 0)` and interpolated `{g.get('n')}` raw — so a row
+    missing its total rendered `net +0.0R`, a measured break-even, and a row
+    missing its count rendered `over None blocked trades`. The honesty gate
+    flagged both on the commit that introduced them, in the function written to
+    stop this exact reading one level up.
+    """
+    net, n, avg = g.get("net_r"), g.get("n"), g.get("avg_r")
+    return ("net " + (f"{float(net):+.1f}R" if net is not None else "—")
+            + " over " + (str(n) if n is not None else "?")
+            + " blocked trades · avg "
+            + (f"{float(avg):+.3f}R/trade" if avg is not None else "—"))
+
+
+def _clip_gate(key: Any) -> str:
+    """`[:28]` with no marker. The 2026-08-31 card printed
+    "LIQUIDITY: LIQUIDITY: spread" — 28 characters exactly, cut mid-name, and
+    it read as a finished phrase so nothing said it had been cut. Gate keys are
+    categories now (shadow_book.gate_category), so this rarely bites; when it
+    does it says so."""
+    g = str(key)
+    return g if len(g) <= 28 else g[:27] + "…"
 
 
 def _benchmark_root():
@@ -373,8 +594,15 @@ class SelfAudit:
             from bot.core.shadow_book import SHADOW_BOOK
             ev["shadow_gates"] = SHADOW_BOOK.gate_report()
             ev["shadow_counts"] = SHADOW_BOOK.counts()
-        except Exception:
-            pass
+        except Exception as exc:
+            # `null`, not a missing key. Absent rendered identically to an
+            # empty ledger — the card went silent for both, so "no gate is
+            # costing you anything" and "the scoreboard did not load" were the
+            # same output. The system prompt already tells the model null means
+            # NOT MEASURED, so the same marker serves both readers.
+            logger.warning("self-audit shadow book unreadable: %s", exc)
+            ev["shadow_gates"] = None
+            ev["shadow_counts"] = None
         try:
             risk = getattr(engine, "risk", None)
             if risk is not None:
@@ -418,8 +646,9 @@ class SelfAudit:
                 client, cfg,
                 _SYSTEM_PROMPT.format(max_proposals=max_props),
                 user_prompt)
+            parsed = parse_llm_json(text)
             proposals = validate_proposals(
-                parse_llm_json(text),
+                parsed,
                 current_env={k: os.environ.get(k) for k in ALLOWED_FLAGS},
                 max_proposals=max_props)
 
@@ -433,7 +662,8 @@ class SelfAudit:
                     self._run_backtest, dataset, {p["flag"]: p["value"]})
                 results.append({**p, "measured": measured})
 
-            report = self.render_report(evidence, results, baseline, dataset)
+            report = self.render_report(evidence, results, baseline, dataset,
+                                        parsed=parsed)
             self._last_report = report
             self._pending.append({"report": report, "ts": time.time()})
             self._save_state({"last_run_ts": time.time(),
@@ -448,7 +678,8 @@ class SelfAudit:
     # ── reporting ─────────────────────────────────────────────────
     @staticmethod
     def render_report(evidence: dict, results: list[dict],
-                      baseline: dict, dataset: str) -> str:
+                      baseline: dict, dataset: str,
+                      parsed: Any = _NO_REPLY_GIVEN) -> str:
         s = evidence.get("summary") or {}
         lines = ["\U0001f9fe <b>Nightly self-audit</b>", "─" * 16]
         if s.get("error"):
@@ -474,24 +705,18 @@ class SelfAudit:
                 lines.append(f"<i>{s.get('scored', 0)} of {s['n']} closes carry "
                              f"a recorded P&amp;L; {unpriced} do not and are "
                              f"scored neither way.</i>")
-        gates = evidence.get("shadow_gates") or {}
-        worst = next(iter(gates.items()), None)
-        if worst and worst[1].get("net_r", 0) > 0.5:
-            # `[:28]` with no marker. The 2026-08-31 card printed
-            # "LIQUIDITY: LIQUIDITY: spread" — 28 characters exactly, cut mid
-            # -name, and it read as a finished phrase so nothing said it had
-            # been cut. Gate keys are categories now (shadow_book
-            # .gate_category), so this rarely bites; when it does it says so.
-            _g = str(worst[0])
-            _g = _g if len(_g) <= 28 else _g[:27] + "…"
-            lines.append(f"Shadow book: <code>{_g}</code> is the "
-                         f"costliest gate (net {worst[1]['net_r']:+.1f}R "
-                         f"over {worst[1]['n']} blocked trades)")
+        # `in`, then the value — with NO `or {}`. The collapse of None into {}
+        # is what made an unreadable scoreboard render as a clean one, and the
+        # membership test keeps that distinct from a caller who never gathered
+        # the shadow book at all. Three inputs, three outputs.
+        if "shadow_gates" in evidence:
+            gate_line = costliest_gate_line(evidence["shadow_gates"])
+            if gate_line:
+                lines.append(gate_line)
         if not results:
             lines.append("")
-            lines.append("No changes proposed — the evidence supports the "
-                         "current configuration. (An empty audit is a pass, "
-                         "not a failure.)")
+            lines.append(no_change_verdict(
+                s, [] if parsed is _NO_REPLY_GIVEN else parsed))
             return "\n".join(lines)
         base_ret = baseline.get("return_pct")
         # Trade count included: without it a reader cannot see that a
