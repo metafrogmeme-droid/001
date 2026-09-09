@@ -897,6 +897,65 @@ class ScanCommands:
             system_log.error(f"Swing scan error: {exc}", exc_info=True)
             await self._send(update, f"\U0001f534 <b>Swing scan error:</b> <code>{_safe_exc_text(exc)}</code>")
 
+    @guard("analyze")
+    async def _cmd_quant(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/quant [SYMBOL] [TF] — regime, volatility model, Hurst, edge gate.
+
+        `@guard("analyze")` because this IS an analyze, one layer deeper: the
+        same read-only question about one symbol that `/analyze` answers, so it
+        reuses a permission trader and paper already hold, the way `/eventrisk`
+        reused `macro`. The COST difference is the tier gate's job, not the
+        role gate's — `quant_analyze` sits at `pro` beside `deepscan`,
+        `patterns` and `analyze_asset` on the ladder's own stated basis (cost
+        to serve: seconds of in-process modelling, not the minutes `elite`
+        buys).
+
+        It does NOT pass `allow_synthetic`. A chat user asking about a real
+        symbol must never be handed generated candles — that was the defect
+        this command's skill was fixed for.
+        """
+        if await self._token_gate_blocks(update, "analysis", "quant_analyze"):
+            return
+        args = ctx.args or []
+        raw = (args[0].upper().strip().replace(":USDT", "") if args else "BTC")
+        if not _SYMBOL_RE.match(raw):
+            await self._send(update,
+                f"\U0001f534 {t('analyze_invalid_symbol', self._lang(update))}")
+            return
+        if raw.split("/")[0] == "USDT":
+            await self._send(update,
+                f"\U0001f534 {t('analyze_usdt_self', self._lang(update))}")
+            return
+        symbol = raw if "/" in raw else f"{raw}/USDT"
+
+        from bot.utils.candles import SUPPORTED_TIMEFRAMES
+        tf = "4h"
+        if len(args) > 1 and args[1].lower().strip() in SUPPORTED_TIMEFRAMES:
+            tf = args[1].lower().strip()
+
+        await self._send(update,
+            f"\U0001f9ee <i>Quant read on {html.escape(symbol)} [{tf}]...</i>")
+        try:
+            result = await asyncio.wait_for(
+                self.registry.dispatch("quant_analyze", self.engine,
+                                       symbol=symbol, timeframe=tf),
+                timeout=CONFIG.deepscan_timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            # Not a report and not a zero — the modelling did not finish.
+            await self._send(update,
+                f"\U0001f7e0 <b>Quant timed out</b> on <code>"
+                f"{html.escape(symbol)}</code> — no reading was produced.")
+            return
+        except Exception as exc:
+            await self._send(update,
+                f"\U0001f534 <b>Quant error:</b> <code>"
+                f"{_safe_exc_text(exc)}</code>")
+            return
+        # The report is a monospace block; <pre> keeps its columns aligned.
+        await self._send(update,
+                         f"<pre>{html.escape(str(result))}</pre>")
+
     @guard("deepscan")
     async def _cmd_deepscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Deep scan the universe with chart + candle patterns."""

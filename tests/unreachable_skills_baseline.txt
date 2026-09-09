@@ -61,14 +61,24 @@ request_live_approval
 #   getclaw      — an SDK bridge probe that answers "adapter ready" and a
 #                  boolean. Not a user feature; kept registered so the
 #                  registry describes what the adapter package installs.
-#   quant_analyze
-#                — read-only, but a full OHLCV fetch plus regime, volatility
-#                  and Hurst modelling: heavier than `deepscan`, which the
-#                  $RCLAW tier gate charges for, and not in that gate's
-#                  feature table at all. A permission alone would give away
-#                  more than deepscan for free; it needs a tier decision
-#                  first, then a permission and a card.
+#
+# quant_analyze LEFT this list, and the note that kept it here named the wrong
+# blocker. It said the obstacle was a TIER decision — "a permission alone would
+# give away more than deepscan for free" — which was true and was the smaller
+# half. Driven against a 503 the skill returned a full report: `Hurst 0.851 →
+# trending memory`, `ADX 22.9`, a GARCH forecast, `Composite Score 0.381` and
+# `QUANT GATE: REJECTED`, every number modelled from
+# `_generate_synthetic_ohlcv(150, seed=hash(symbol))` and nothing on the card
+# saying so. The word "synthetic" reached the audit log only. Being unwired is
+# why that survived — it is the `market_cap`/`basis`/`seasonality` shape again,
+# a module defective in exactly the way a module nobody reads becomes
+# defective, and the fixing was most of the work.
+#
+# The tier question then answered itself on the ladder's own stated basis (cost
+# to serve): seconds of in-process modelling is what `pro` means, so
+# `quant_analyze` sits at `pro` beside deepscan, patterns and analyze_asset,
+# and `/quant` is @guard("analyze") — the same read-only question about one
+# symbol, one layer deeper, so it reuses a permission trader and paper hold.
 execute_paper_trade
 feedback
 getclaw
-quant_analyze

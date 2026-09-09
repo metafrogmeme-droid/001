@@ -53,6 +53,7 @@
     "fullscan": "전체 유니버스 풀 스캔",
     "deepscan": "차트 + 캔들 패턴 심층 스캔",
     "analyze": "코인 하나를 심층 분석 — /analyze SOL",
+    "quant": "통계 분석 — 국면, 변동성, 허스트 지수, 엣지 게이트 — /quant SOL 4h",
     "alpha": "일일 알파 인사이트 카드",
     "research": "출처가 있는 심볼 리서치 자료",
     "token": "컨트랙트 탐정 — /token 0x… [chain]",

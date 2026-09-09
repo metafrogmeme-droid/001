@@ -53,6 +53,7 @@
     "fullscan": "tüm evrenin tam taraması",
     "deepscan": "grafik + mum formasyonlarıyla derin tarama",
     "analyze": "tek bir coini derinlemesine inceleyin — /analyze SOL",
+    "quant": "istatistiksel okuma — rejim, oynaklık, Hurst, avantaj filtresi — /quant SOL 4h",
     "alpha": "günlük alfa içgörü kartı",
     "research": "bir sembol için kaynaklı araştırma dosyası",
     "token": "sözleşme dedektifi — /token 0x… [chain]",

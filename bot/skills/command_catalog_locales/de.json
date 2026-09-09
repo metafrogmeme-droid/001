@@ -53,6 +53,7 @@
     "fullscan": "vollständiger Scan des ganzen Universums",
     "deepscan": "tiefer Scan mit Chart + Kerzenmustern",
     "analyze": "einen Coin im Detail analysieren — /analyze SOL",
+    "quant": "statistische Auswertung — Regime, Volatilität, Hurst, Edge-Gate — /quant SOL 4h",
     "alpha": "tägliche Alpha-Insight-Karte",
     "research": "belegtes Research-Dossier zu einem Symbol",
     "token": "Contract-Detektiv — /token 0x… [chain]",

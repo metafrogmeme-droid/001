@@ -516,6 +516,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/fullscan` | full scan of the whole universe |
 | `/deepscan` | deep scan with chart + candle patterns |
 | `/analyze` | deep-dive one coin — /analyze SOL |
+| `/quant` | statistical read — regime, volatility, Hurst, edge gate — /quant SOL 4h |
 | `/alpha` | daily alpha insight card |
 | `/research` | cited research dossier for a symbol |
 | `/token` | contract detective — /token 0x… [chain] |

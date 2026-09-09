@@ -20,7 +20,7 @@ import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 # ── Compatibility shim: use pydantic if available, else plain dataclass ──────
 try:
@@ -790,6 +790,90 @@ def format_quant_for_telegram(result: dict) -> str:
 # 8.  SKILL CLASS  (plugs into SkillRegistry)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+async def read_ohlcv(engine: Any, symbol: str, timeframe: str,
+                     bars: int = 150) -> tuple[list, Optional[str]]:
+    """``(candles, failure)`` — never invents a bar.
+
+    A SEAM, because there was none and the caller could not be driven. This
+    read used to sit inline inside `execute`, wrapped in a handler that
+    substituted `_generate_synthetic_ohlcv(150, seed=hash(symbol))` on ANY
+    exception and again on an empty answer. Driven against a 503 the card came
+    back "RUNECLAW QUANT REPORT — BTC/USDT [4h]" over `Hurst 0.851 → trending
+    memory`, `ADX 22.9`, a GARCH forecast and `QUANT GATE: REJECTED —
+    LOW_QUANT_SCORE: 0.381` — every number invented, `bars_analyzed: 150` bars
+    nobody fetched, and the word "synthetic" only in the audit log where no
+    reader of the card would meet it.
+
+    The seed made it worse rather than better: `hash(symbol)` is stable, so the
+    same fabricated report came back every time, and a user who ran it twice
+    read the consistency as corroboration.
+
+    `failure` is None on success and a short reason otherwise. Empty is a
+    failure, not an empty report: this is a single-source panel, so the rule is
+    GUARD — the caller paints an error state rather than modelling nothing.
+    """
+    try:
+        if hasattr(engine, "get_exchange"):
+            exchange = await engine.get_exchange()
+        else:
+            exchange = getattr(engine, "exchange", None)
+        if exchange is None:
+            return [], "no exchange is configured"
+        raw = await exchange.fetch_ohlcv(symbol, timeframe, limit=bars)
+    except Exception as exc:
+        return [], _safe_reason(exc)
+    try:
+        candles = [[float(c) for c in bar] for bar in (raw or [])]
+    except (TypeError, ValueError) as exc:
+        return [], f"the venue's candles could not be read ({type(exc).__name__})"
+    if not candles:
+        return [], "the venue returned no candles"
+    return candles, None
+
+
+def _safe_reason(exc: BaseException) -> str:
+    """A driver's message, trimmed — never a key, never a URL with a token."""
+    text = " ".join(str(exc).split())[:120]
+    return text or type(exc).__name__
+
+
+def unreadable_card(symbol: str, timeframe: str, failure: str) -> str:
+    """What the operator sees when the data did not arrive.
+
+    It names the symbol it could NOT model, so this is never mistaken for a
+    report about something else, and it quotes no statistic at all — the whole
+    defect was a card that looked exactly like a successful one.
+    """
+    return (
+        f"RUNECLAW QUANT REPORT — {symbol} [{timeframe}]\n"
+        + "─" * 42 + "\n"
+        f"⚠️  NO REPORT — the price history could not be read.\n\n"
+        f"Reason: {failure}\n\n"
+        "Nothing below this line was computed, because there was nothing to\n"
+        "compute it from. Regime, volatility, Hurst and the edge gate are all\n"
+        "unknown for this symbol right now — not neutral, not weak, unknown.\n"
+        "Try again when the venue answers."
+    )
+
+
+def synthetic_notice(symbol: str, timeframe: str) -> str:
+    """The banner that must ride on any report built from generated candles.
+
+    The offline path is real and stays — `scripts/e2e_pipeline.py` walks the
+    whole pipeline with no venue, and deterministic candles are what let it.
+    What changed is that it must now be ASKED for, and it says so on the card
+    rather than in a log line.
+    """
+    return (
+        "\U0001f9ea  SYNTHETIC DATA — NOT A MARKET READING\n"
+        + "─" * 42 + "\n"
+        f"These candles were GENERATED for {symbol} [{timeframe}]. No venue was\n"
+        "read. Every number below describes invented prices and says nothing\n"
+        "about the real market. Do not trade on it.\n"
+        + "─" * 42 + "\n\n"
+    )
+
+
 class QuantAnalyzeSkill(BaseSkill):
     """
     Quant Skill — deep statistical layer.
@@ -808,30 +892,29 @@ class QuantAnalyzeSkill(BaseSkill):
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         symbol    = kwargs.get("symbol", "BTC/USDT").upper()
         timeframe = kwargs.get("timeframe", "4h")
+        # OPT-IN, and it used to be the silent default on every failure. Only
+        # a caller that knows it is running without a venue may ask for
+        # generated candles, and the card it gets back says so in its first
+        # line. Chat never passes this.
+        allow_synthetic = bool(kwargs.get("allow_synthetic", False))
 
-        # ── Fetch OHLCV data ──────────────────────────────────────────────────
-        ohlcv: list[list[float]] = []
+        ohlcv, failure = await read_ohlcv(engine, symbol, timeframe, bars=150)
 
-        try:
-            # Use engine's public exchange accessor
-            if hasattr(engine, "get_exchange"):
-                exchange = await engine.get_exchange()
-                if exchange is not None:
-                    raw = await exchange.fetch_ohlcv(symbol, timeframe, limit=150)
-                    ohlcv = [[float(c) for c in bar] for bar in raw]
-            elif hasattr(engine, "exchange") and engine.exchange is not None:
-                raw = await engine.exchange.fetch_ohlcv(symbol, timeframe, limit=150)
-                ohlcv = [[float(c) for c in bar] for bar in raw]
-        except Exception as exc:
-            # Graceful fallback: generate synthetic data for demo/test
-            audit(system_log, f"[QUANT] Exchange fetch failed ({exc}), using synthetic data",
-                  action="quant_data_fallback")
-            sym_seed = hash(symbol) % (2**31)
-            ohlcv = _generate_synthetic_ohlcv(150, seed=sym_seed)
-
-        if not ohlcv:
-            sym_seed = hash(symbol) % (2**31)
-            ohlcv = _generate_synthetic_ohlcv(150, seed=sym_seed)
+        banner = ""
+        if failure is not None:
+            if not allow_synthetic:
+                # GUARD. A single-source panel with no source paints an error
+                # state; it does not model invented numbers and print a verdict.
+                audit(system_log,
+                      f"[QUANT] {symbol}: no price history ({failure}) — no report",
+                      action="quant_analyze", result="UNREADABLE")
+                return unreadable_card(symbol, timeframe, failure)
+            audit(system_log,
+                  f"[QUANT] {symbol}: no price history ({failure}) — SYNTHETIC "
+                  "candles by explicit request",
+                  action="quant_data_fallback", result="SYNTHETIC")
+            ohlcv = _generate_synthetic_ohlcv(150, seed=hash(symbol) % (2**31))
+            banner = synthetic_notice(symbol, timeframe)
 
         # ── Run analysis ──────────────────────────────────────────────────────
         report = run_quant_analysis(symbol, timeframe, ohlcv)
@@ -846,7 +929,7 @@ class QuantAnalyzeSkill(BaseSkill):
             data=report.to_dict(),
         )
 
-        return report.explanation
+        return banner + report.explanation
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

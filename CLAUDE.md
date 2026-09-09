@@ -909,7 +909,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **6** of 30 registered skills now: `/eventrisk` and
+reached. The backlog is **5** of 30 registered skills now: `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;
@@ -918,10 +918,30 @@ role but admin holds. `macro_brief` is the third, and the question for it was
 *which surface*: it advertised `/macro`, which the calendar already answers
 to, so it is a sub-mode of that command — `/macro brief` — plus a chat tool
 and a free-text skill under `macro`, rather than a second name for one
-subject. The six left are each triaged in the baseline with a reason,
+subject. The five left are each triaged in the baseline with a reason,
 and the two macro ones are arguments against themselves — `kill_switch` would
 be a SECOND emergency halt beside `/halt`, which is a hazard in an emergency,
 and `request_live_approval` needs an `approval_manager` that does not exist.
+
+**A triage note names the blocker it noticed, and the one it did not is the
+reason the skill was still dark.** `quant_analyze`'s entry said the obstacle
+was a TIER decision — "a permission alone would give away more than deepscan
+for free" — which was true and was the smaller half. Driven against a 503 the
+skill returned a complete report: `Hurst 0.851 → trending memory`, `ADX 22.9`,
+a GARCH forecast, `Composite Score 0.381` and `QUANT GATE: REJECTED`, every
+number modelled from `_generate_synthetic_ohlcv(150, seed=hash(symbol))`, with
+`bars_analyzed: 150` for bars nobody fetched and the word "synthetic" reaching
+the audit log only. The seed made it worse rather than better: `hash(symbol)`
+is stable, so the same fabricated report came back every time and a user who
+ran it twice read the consistency as corroboration. Unwired is *why* that
+survived — the `market_cap` / `basis` / `seasonality` shape a fourth time, and
+fixing was most of the work. `read_ohlcv` is the seam, an unreadable fetch
+GUARDS (a card that quotes no statistic at all), and generated candles are now
+opt-in and banner-labelled on the card, because `scripts/e2e_pipeline.py`
+legitimately walks the whole system with no venue. The tier question then
+answered itself on the ladder's own stated basis — seconds of in-process
+modelling is what `pro` means — and `/quant` is `@guard("analyze")`, the same
+read-only question one layer deeper.
 
 Neither older ratchet could see them: the module *is* imported and its
 `build_v2_skills()` *is* called, and every skill body is an `execute` override

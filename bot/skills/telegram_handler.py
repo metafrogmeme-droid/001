@@ -588,6 +588,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("calibration", self._cmd_calibration),
             # Deep scan & playbook
             ("playbook", self._cmd_playbook), ("deepscan", self._cmd_deepscan),
+            ("quant", self._cmd_quant),
             ("fullscan", self._cmd_fullscan),
             ("stockscan", self._cmd_stockscan),
             # Multi-user commands

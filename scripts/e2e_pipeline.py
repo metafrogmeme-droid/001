@@ -291,7 +291,11 @@ async def main():
     quant_skill = registry.get("quant_analyze")
     for idea, pos in executed[:2]:
         print(f"\n  --- {pos.asset} ---")
-        qout = await quant_skill.execute(engine, symbol=pos.asset)
+        # This pipeline walks the whole system with no venue attached, so it
+        # ASKS for generated candles rather than receiving them silently on a
+        # failed fetch. The report it gets back is banner-labelled synthetic.
+        qout = await quant_skill.execute(engine, symbol=pos.asset,
+                                         allow_synthetic=True)
         # Print key lines
         for line in qout.split('\n'):
             if any(k in line for k in ['Regime', 'ADX', 'Hurst', 'GARCH', 'Score', 'GATE']):
@@ -300,7 +304,8 @@ async def main():
     # Also run quant on BTC if not already
     if not any(p.asset == "BTC/USDT" for _, p in executed):
         print("\n  --- BTC/USDT (benchmark) ---")
-        qout = await quant_skill.execute(engine, symbol="BTC/USDT")
+        qout = await quant_skill.execute(engine, symbol="BTC/USDT",
+                                         allow_synthetic=True)
         for line in qout.split('\n'):
             if any(k in line for k in ['Regime', 'ADX', 'Hurst', 'GARCH', 'Score', 'GATE']):
                 print(f"  {line.strip()}")

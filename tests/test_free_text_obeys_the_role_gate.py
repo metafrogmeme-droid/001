@@ -380,6 +380,12 @@ class TestTheTableDoesNotDrift:
             # sub-mode of the same command (`/macro brief`) because the one
             # it advertised, /macro, is the calendar's. A chat tool too.
             "macro_brief": "macro",
+            # /quant. The same read-only question about one symbol that
+            # /analyze answers, one statistical layer deeper, so it reuses
+            # `analyze` — a permission trader and paper already hold. What
+            # kept it dark was recorded as a COST objection, and cost is the
+            # tier gate's job: `quant_analyze` is `pro` there, beside deepscan.
+            "quant_analyze": "analyze",
         }
 
     def test_halt_reaches_no_chat_transport(self):
