@@ -25,6 +25,7 @@ and to say so on the card rather than in a log line.
 """
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -215,6 +216,99 @@ class TestTheStableSeedNoLongerCorroboratesItself:
 
 # ── the wiring ────────────────────────────────────────────────────────────
 
+def _drive_quant(args=None, raises=None, gate_blocks=False):
+    """Run `/quant` on a bare host and return what it sent + how it dispatched.
+
+    A SCAN STOOD IN FOR THIS AND THE MUTATION WALKED PAST IT. The claim "chat
+    never asks for generated candles" was asserted by collecting the lines of
+    `_cmd_quant` that mention `dispatch(` and checking none said
+    `allow_synthetic` — and `allow_synthetic=True` added on its own line of the
+    multi-line call is in none of those lines. 33 tests passed against a
+    command handing chat users invented prices. So the kwargs are read off the
+    dispatch itself.
+    """
+    from bot.skills.scan_commands import ScanCommands
+
+    host = ScanCommands.__new__(ScanCommands)
+    sent: list[str] = []
+    seen: dict = {}
+
+    class _Registry:
+        async def dispatch(self, name, engine, **kwargs):
+            seen["name"] = name
+            seen["kwargs"] = kwargs
+            if raises is not None:
+                raise raises
+            return "RUNECLAW QUANT REPORT — stub"
+
+    async def _send(update, text, *a, **k):
+        sent.append(str(text))
+
+    async def _guard(update, command, ctx):
+        seen["permission"] = command
+        return True
+
+    async def _token_gate_blocks(update, mode, feature):
+        seen["tier_feature"] = feature
+        return gate_blocks
+
+    host._send = _send
+    host._guard = _guard
+    host._token_gate_blocks = _token_gate_blocks
+    host._lang = lambda update: "en"
+    host.registry = _Registry()
+    host.engine = object()
+
+    ctx = SimpleNamespace(args=list(args or []))
+    asyncio.run(ScanCommands._cmd_quant(host, SimpleNamespace(), ctx))
+    return sent, seen
+
+
+class TestTheCommandItselfNeverAsksForSyntheticCandles:
+    """Driven, because the scan that replaced this survived its mutation."""
+
+    def test_the_dispatch_carries_no_allow_synthetic(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["name"] == "quant_analyze"
+        assert "allow_synthetic" not in seen["kwargs"], (
+            "chat asked for generated candles — the whole defect, re-armed")
+
+    def test_it_dispatches_the_symbol_the_user_asked_for(self):
+        _, seen = _drive_quant(["sol"])
+        assert seen["kwargs"]["symbol"] == "SOL/USDT"
+
+    def test_the_default_symbol_is_a_real_pair(self):
+        _, seen = _drive_quant([])
+        assert seen["kwargs"]["symbol"] == "BTC/USDT"
+
+    def test_a_timeframe_is_honoured_and_a_bogus_one_is_not(self):
+        _, seen = _drive_quant(["SOL", "1h"])
+        assert seen["kwargs"]["timeframe"] == "1h"
+        _, seen = _drive_quant(["SOL", "nonsense"])
+        assert seen["kwargs"]["timeframe"] == "4h"
+
+    def test_the_role_gate_runs_and_is_the_analyze_permission(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["permission"] == "analyze"
+
+    def test_the_tier_gate_runs_before_any_work(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["tier_feature"] == "quant_analyze"
+
+    def test_a_blocked_tier_dispatches_nothing(self):
+        _, seen = _drive_quant(["SOL"], gate_blocks=True)
+        assert "name" not in seen, "the tier gate did not stop the work"
+
+    def test_a_bad_symbol_is_refused_before_dispatch(self):
+        _, seen = _drive_quant(["../etc/passwd"])
+        assert "name" not in seen
+
+    def test_usdt_against_itself_is_refused(self):
+        _, seen = _drive_quant(["USDT"])
+        assert "name" not in seen
+
+
+
 class TestItIsReachableAndPriced:
     def test_chat_declares_a_permission_for_it(self):
         from bot.skills.skill_permissions import permission_for
@@ -230,15 +324,10 @@ class TestItIsReachableAndPriced:
         # The decorator immediately above the def is the fact the table is
         # derived from; anchor on that window, not on the whole class.
         assert '@guard("analyze")' in block[max(0, idx - 200):idx]
-        # The DISPATCH, not the source: this method's docstring says it does
-        # NOT pass `allow_synthetic`, and a bare substring search matched that
-        # sentence — the same misfire as the card assertions above. What
-        # matters is the call.
-        call = [ln for ln in inspect.getsource(ScanCommands._cmd_quant).split("\n")
-                if "dispatch(" in ln or "symbol=symbol" in ln]
-        assert call, "the command no longer dispatches quant_analyze"
-        assert not any("allow_synthetic" in ln for ln in call), (
-            "chat must never ask for generated candles")
+        # The kwarg claim is DRIVEN, not scanned — see
+        # TestTheCommandItselfNeverAsksForSyntheticCandles below. A line-based
+        # scan here survived the mutation that added `allow_synthetic=True` on
+        # its own line of the multi-line dispatch call.
 
     def test_a_transport_dispatches_it(self):
         import inspect
@@ -263,6 +352,13 @@ class TestItIsReachableAndPriced:
         from bot.skills.scan_commands import ScanCommands
         src = inspect.getsource(ScanCommands._cmd_quant)
         assert '_token_gate_blocks(update, "analysis", "quant_analyze")' in src
+
+    def test_a_command_error_is_not_a_report(self):
+        """A raising dispatch must not fall through to anything report-shaped."""
+        sent, _ = _drive_quant(raises=RuntimeError("boom"))
+        assert sent, "the command said nothing at all"
+        assert "Quant error" in sent[-1]
+        assert "Composite Score:" not in sent[-1]
 
     def test_the_offline_pipeline_asks_for_what_it_needs(self):
         """It ran on generated candles before, silently. Now it says so."""
