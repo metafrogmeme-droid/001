@@ -2,7 +2,7 @@
   "name": "runeclaw-anchor-workspace",
   "version": "0.1.0-draft",
   "private": true,
-  "description": "DRAFT/devnet Anchor workspace tooling — provides the TS test runner for programs/*/tests/*.ts (`anchor test`). Separate from the Python bot and the app/ web server, which have their own dependencies.",
+  "description": "DRAFT/devnet Anchor workspace tooling \u2014 provides the TS test runner for programs/*/tests/*.ts (`anchor test`). Separate from the Python bot and the app/ web server, which have their own dependencies.",
   "license": "BUSL-1.1",
   "scripts": {
     "test": "ts-mocha -p ./tsconfig.json -t 1000000 programs/rclaw_staking/tests/**/*.ts",
@@ -20,5 +20,8 @@
     "mocha": "^10.3.0",
     "ts-mocha": "^10.0.0",
     "typescript": "^5.4.5"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.2"
   }
 }
