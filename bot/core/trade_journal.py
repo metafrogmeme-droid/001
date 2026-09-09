@@ -43,7 +43,13 @@ class JournalEntry:
     # Results
     pnl: float
     pnl_pct: float
-    r_multiple: float  # actual PnL / initial risk
+    #: actual PnL / initial risk -- ``None`` when the risk could not be read.
+    #: OPTIONAL, and the reason is the whole point: R is a RATIO AGAINST THE
+    #: STOP, so a close whose stop nobody recorded has no R at all. It is not
+    #: 0R (a trade that came back to its stop distance) and it is certainly not
+    #: pnl/entry_price, which is what the old arithmetic produced. See
+    #: `r_multiple_for`.
+    r_multiple: Optional[float]
     holding_hours: float
 
     # Context at entry
@@ -64,6 +70,83 @@ class JournalEntry:
     tags: list = field(default_factory=list)  # "winner", "loser", "breakeven", "runner", etc.
 
     timestamp: float = 0.0
+
+
+def r_multiple_for(entry_price: float, stop_loss: float, pnl: float,
+                   direction: str) -> Optional[float]:
+    """R for this close, or ``None`` when the risk it is a ratio OF is unknown.
+
+    THE OLD ARITHMETIC FABRICATED ONE. It was::
+
+        initial_risk = abs(entry_price - stop_loss)
+        r_multiple = pnl / (initial_risk * ±1) if initial_risk > 0 else 0
+
+    and its two callers both hand it ``float(getattr(pos, "stop_loss", 0) or 0)``
+    — the absent-field-is-zero shape, on the one field the whole calculation is
+    a ratio against. So a close with no recorded stop (an ORPHAN: a position
+    the bot did not open, which is exactly the kind whose stop it cannot read)
+    arrived here as ``stop_loss = 0.0``, and then::
+
+        initial_risk = abs(entry - 0) = entry
+        r_multiple   = pnl / entry_price
+
+    which is not an R-multiple at all. It is P&L over the entry price — a
+    different quantity entirely, in the right units, printed on the weekly
+    review as ``Avg R-Multiple: +0.02R`` and ``Best: SOL $+41.00 (0.0R)``.
+    Not a rounding error: a number with no meaning wearing the name of one
+    that has.
+
+    The ``else 0`` branch was the quieter half of the same bug. Both prices
+    unreadable gives ``abs(0 - 0) == 0``, and 0R is a REAL outcome — a trade
+    that ended exactly at its risk distance — so an unmeasurable close entered
+    the record indistinguishable from a measured break-even. Same defect as
+    the ghost close booked at its entry price, one module over.
+
+    ``None`` for both cases. A stop of zero is not a stop.
+    """
+    try:
+        entry = float(entry_price)
+        stop = float(stop_loss)
+    except (TypeError, ValueError):
+        return None
+    # `<= 0`, not `is None`: these arrive already coerced by the callers, so
+    # zero IS the absent value here and there is no earlier seam to read.
+    # A real stop is a positive price on every venue this trades.
+    if entry <= 0 or stop <= 0:
+        return None
+    initial_risk = abs(entry - stop)
+    if initial_risk <= 0:
+        return None
+    try:
+        return pnl / (initial_risk * (1 if direction == "LONG" else -1))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def average_r(entries) -> dict:
+    """Mean R over the entries that HAVE one, with the coverage beside it.
+
+    Three fields, not one, for the reason `win_stats` carries `scored` and
+    `unscored`: "0.42R over 20 trades" and "0.42R over the 6 of 20 we could
+    price" are different readings and only the coverage tells them apart.
+    ``avg`` is ``None`` when nothing could be priced — never 0.0, which is a
+    real R a real trade can post.
+    """
+    rs = []
+    total = 0
+    for e in entries or ():
+        total += 1
+        r = getattr(e, "r_multiple", None)
+        if r is not None:
+            try:
+                rs.append(float(r))
+            except (TypeError, ValueError):
+                pass
+    return {
+        "avg": (sum(rs) / len(rs)) if rs else None,
+        "scored": len(rs),
+        "total": total,
+    }
 
 
 class TradeJournal:
@@ -96,9 +179,8 @@ class TradeJournal:
         venue: str = "bitget",
     ) -> JournalEntry:
         """Record a completed trade in the journal."""
-        # Calculate R-multiple
-        initial_risk = abs(entry_price - stop_loss)
-        r_multiple = pnl / (initial_risk * (1 if direction == "LONG" else -1)) if initial_risk > 0 else 0
+        # R, or None when the risk it is a ratio of could not be read.
+        r_multiple = r_multiple_for(entry_price, stop_loss, pnl, direction)
 
         # Calculate PnL %
         pnl_pct = (pnl / (entry_price * 1)) * 100 if entry_price > 0 else 0  # simplified
@@ -124,7 +206,7 @@ class TradeJournal:
             take_profit=take_profit,
             pnl=round(pnl, 2),
             pnl_pct=round(pnl_pct, 4),
-            r_multiple=round(r_multiple, 2),
+            r_multiple=None if r_multiple is None else round(r_multiple, 2),
             holding_hours=round(holding_hours, 2),
             regime=regime,
             session=session,
@@ -192,8 +274,11 @@ class TradeJournal:
         # Average holding time
         avg_hold = sum(e.holding_hours for e in recent) / len(recent)
 
-        # Average R-multiple
-        avg_r = sum(e.r_multiple for e in recent) / len(recent)
+        # Average R over the entries that HAVE one. `sum(e.r_multiple ...)` /
+        # len(recent) counted an unpriceable R as 0R in both halves of the
+        # fraction, which is the partial-total shape from CLAUDE.md's table
+        # printed as a whole.
+        _r = average_r(recent)
 
         return {
             "period": f"Last {lookback_days} days",
@@ -202,7 +287,12 @@ class TradeJournal:
             "losses": len(losses),
             "win_rate": round(len(wins) / len(recent) * 100, 1),
             "total_pnl": round(total_pnl, 2),
-            "avg_r_multiple": round(avg_r, 2),
+            # None, not 0.0, when nothing in the window could be priced in R.
+            # The two counts travel with it so a reader can tell "0.42R over
+            # 20" from "0.42R over the 6 of 20 that had a stop on record".
+            "avg_r_multiple": None if _r["avg"] is None else round(_r["avg"], 2),
+            "r_scored": _r["scored"],
+            "r_unscored": _r["total"] - _r["scored"],
             "avg_holding_hours": round(avg_hold, 1),
             "best_trade": {"symbol": best.symbol, "pnl": best.pnl, "r": best.r_multiple},
             "worst_trade": {"symbol": worst.symbol, "pnl": worst.pnl, "r": worst.r_multiple},
@@ -214,7 +304,16 @@ class TradeJournal:
         """Auto-generate lessons from trade outcome patterns."""
         lessons = []
         pnl = kwargs.get("pnl", 0)
-        r_mult = kwargs.get("r_multiple", 0)
+        # `is None` rather than a default: every rule below is a THRESHOLD on
+        # R, and a close with no R clears none of them. Defaulting to 0 made
+        # "the stop was too tight" and "nobody recorded a stop" produce the
+        # same (empty) set of lessons for opposite reasons.
+        #
+        # Tested inline at each site rather than hoisted to an `r_known` flag:
+        # a separate boolean does not NARROW the Optional for the analyser, so
+        # the hoisted version cost three `operator` errors on the type gate
+        # while reading identically.
+        r_mult = kwargs.get("r_multiple")
         exit_reason = kwargs.get("exit_reason", "")
         confidence = kwargs.get("confidence", 0)
         holding = kwargs.get("holding_hours", 0)
@@ -222,11 +321,11 @@ class TradeJournal:
         regime = kwargs.get("regime", "")
 
         # Exit analysis
-        if exit_reason == "sl_hit" and r_mult < -0.8:
+        if r_mult is not None and exit_reason == "sl_hit" and r_mult < -0.8:
             lessons.append("Full stop hit — consider if SL was too tight")
-        if exit_reason == "tp_hit" and r_mult > 2.5:
+        if r_mult is not None and exit_reason == "tp_hit" and r_mult > 2.5:
             lessons.append("TP hit at good R — setup quality was high")
-        if exit_reason == "trailing" and r_mult > 1.0:
+        if r_mult is not None and exit_reason == "trailing" and r_mult > 1.0:
             lessons.append("Trailing stop locked profit — good trade management")
 
         # Confidence analysis
@@ -248,18 +347,25 @@ class TradeJournal:
             lessons.append("Profitable trend trade — regime alignment works")
 
         return lessons
-    def _generate_tags(self, pnl: float, r_mult: float, exit_reason: str, holding: float) -> list[str]:
+    def _generate_tags(self, pnl: float, r_mult: Optional[float],
+                       exit_reason: str, holding: float) -> list[str]:
         """Auto-tag the trade for filtering."""
         tags = []
+        # `r_mult is None` is a close with no stop on record. The P&L tags
+        # still apply — a win is a win — but "runner" and "full_stop" are
+        # claims about the SIZE of the move in risk units, and there are no
+        # risk units here. An unknown R used to arrive as 0.0 and quietly
+        # failed every one of these thresholds, so the tags were absent for a
+        # reason no reader could see.
         if pnl > 0:
             tags.append("winner")
-            if r_mult >= 3.0:
+            if r_mult is not None and r_mult >= 3.0:
                 tags.append("runner")
-            elif r_mult >= 2.0:
+            elif r_mult is not None and r_mult >= 2.0:
                 tags.append("solid_win")
         elif pnl < 0:
             tags.append("loser")
-            if r_mult <= -1.0:
+            if r_mult is not None and r_mult <= -1.0:
                 tags.append("full_stop")
         else:
             tags.append("breakeven")
@@ -311,7 +417,13 @@ class TradeJournal:
                     entry_price=d["entry"], exit_price=d["exit"],
                     stop_loss=d["sl"], take_profit=d["tp"],
                     pnl=d["pnl"], pnl_pct=d.get("pnl_pct", 0),
-                    r_multiple=d.get("r_mult", 0), holding_hours=d.get("hold_hrs", 0),
+                    # `.get("r_mult")` with NO default. `_save` writes JSON
+                    # null for a close that had no stop on record, and an
+                    # entry written before this field became Optional simply
+                    # lacks the key — both are "no R", and defaulting them to
+                    # 0 puts a measured break-even into the average on the way
+                    # back off disk. The same shape the writer just lost.
+                    r_multiple=d.get("r_mult"), holding_hours=d.get("hold_hrs", 0),
                     regime=d.get("regime", ""), session=d.get("session", ""),
                     volatility=d.get("vol", ""), confidence=d.get("conf", 0),
                     signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),

@@ -174,7 +174,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 792 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 793 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -216,6 +216,61 @@ the counts stop being comparable, so it reports CANNOT CHECK rather than
 manufacturing growth — the same trap `ruff_gate.check_version` documents, where
 a baseline recorded under mypy 1.19.1 and checked under 1.15.0 named eleven
 grown classes and not one was a code change.
+
+**"Python only" was a stated hole, and something walked through it.** That
+gate's own coverage section says the JS half of every shape above is not
+checked, and PR #314's third surface was `dashboard.js` — found by a human
+deciding to sweep, which is the practice `honesty_gate.py` exists because it
+does not scale. `app/test/js_honesty_ratchet.test.js` is the other half (161
+hits, four shapes, same two-way rule), and it rides `npm test`, so it reached
+CI and preflight with no new job and no change to the gate count.
+
+**The shape is JS-specific and Python could not host the rule.** `None > 0`
+RAISES in Python — loud. In JS the two ways of being absent disagree with each
+other: `undefined >= 0` is false and `null >= 0` is **true**, so
+`pnl >= 0 ? 'up' : 'down'` renders one absent value as a loss and the other as
+a win, from one expression. It is not an `|| 0`, so no vocabulary of or-zero
+spellings would ever have found it.
+
+**Building it found the deeper cause, and it was in the Python gate too.** The
+new gate did not catch `g.net_r > 0 ? …` on its first run, and the reason was
+not the pattern: `net_r` splits to `['net','r']` and **neither word was in the
+measurement vocabulary**, on a repo whose entire shadow book is denominated in
+R. `honesty_gate.py` had the same blind spot and always had. The vocabulary is
+`tests/honesty_vocabulary.json` now — one file, both gates, both hashing it
+into their own baseline — because a second copy of a threshold is a second
+answer, which is the rule `winrate-bar.js` states about `MIN_RATED`. Widening
+it by one word (`net`) and one substring (`rmultiple`) tripped both
+fingerprints to CANNOT CHECK, exactly as designed.
+
+**What the widening bought was an R-multiple computed from the wrong
+denominator.** `trade_journal.record_trade` did
+`initial_risk = abs(entry_price - stop_loss)` and both live callers hand it
+`float(getattr(pos, "stop_loss", 0) or 0)` — absent-is-zero, on the one field
+the calculation is a ratio *against*. A close with no recorded stop (an
+ORPHAN, so precisely the kind whose stop cannot be read) gave
+`abs(entry - 0) == entry` and therefore `r_multiple = pnl / entry_price`:
+**not an R at all**, a different quantity in the right units, printed on the
+weekly review as `Avg R-Multiple: +0.02R`. The `else 0` branch was the quieter
+half — both prices unreadable gives `abs(0-0) == 0`, and 0R is a real outcome,
+so an unmeasurable close was indistinguishable from a measured break-even.
+`r_multiple_for` answers `None` for both, `average_r` carries `scored`/`total`
+beside the mean, and the card says *"R unknown — no stop on record"* rather
+than formatting one.
+
+**A gate that scolds the cure teaches the wrong thing.** The first draft of
+`bare-compare-verdict` flagged 104 lines and most were
+`size > 0 ? pnl / size : null` — the honest guard, the shape the whole gate
+exists to encourage. It counts a comparison only when BOTH branches assert a
+verdict: one branch abstaining (`null`, `undefined`, `''`) is the fix, and two
+bare numbers are a precision choice, not a claim.
+
+> **And I grepped a name I had invented, again.** A sweep for `log_trade`
+> returned zero callers and very nearly went into a PR body as "the journal is
+> never written". The method is `record_trade`, and it has two live call
+> sites. That is the `_infer_close_price` lesson, repeated in the same session
+> that wrote it into this file. Grep the definitions (`^\s*def `) and count
+> callers of THOSE; a name you remember is not a measurement of anything.
 
 **A config flag is not a measurement of what is already stored — and the flip
 that makes it true is the one that hides what it did not fix.** With

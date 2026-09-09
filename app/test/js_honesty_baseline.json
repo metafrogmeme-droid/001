@@ -1,0 +1,75 @@
+{
+  "_comment": "Recorded shapes of \"unreadable is never zero\" in the JS surfaces. A hit is a place to LOOK, not a defect — see app/test/js_honesty_ratchet.test.js. Two-way ratchet: growth fails, and an improvement must be re-recorded in the same commit. Regenerate with node app/test/update_js_honesty_baseline.js",
+  "rules_fingerprint": "d74252e19bbf247e",
+  "roots": [
+    "public/js",
+    "lib",
+    "routes"
+  ],
+  "total": 161,
+  "counts": {
+    "or-zero": {
+      "public/js/charts2d.js": 2,
+      "public/js/dashboard.js": 23,
+      "lib/airdrops.js": 1,
+      "lib/daily_rune.js": 1,
+      "lib/holdings.js": 2,
+      "lib/meme.js": 4,
+      "lib/solana.js": 3,
+      "lib/wallet.js": 5,
+      "routes/signals.js": 2,
+      "routes/sync.js": 7,
+      "routes/wallet.js": 2
+    },
+    "or-zero-compare": {
+      "public/js/arena_engine.js": 1,
+      "lib/airdrops.js": 1
+    },
+    "coerce-or-zero": {
+      "public/js/arena_engine.js": 3,
+      "public/js/chartread.js": 2,
+      "public/js/dashboard.js": 9,
+      "public/js/theater.js": 1,
+      "lib/arena_badges.js": 1,
+      "lib/arena_follow.js": 1,
+      "lib/arena_letter.js": 2,
+      "lib/arena_seasons.js": 1,
+      "lib/badges.js": 1,
+      "lib/callseal.js": 5,
+      "lib/daily_rune.js": 1,
+      "lib/envelope_replay.js": 2,
+      "lib/pattern_watch.js": 2,
+      "routes/arena.js": 2,
+      "routes/call.js": 6,
+      "routes/cross_yield.js": 3,
+      "routes/frame.js": 1,
+      "routes/lab.js": 1,
+      "routes/mcp.js": 2,
+      "routes/since.js": 1,
+      "routes/sync.js": 5,
+      "routes/track.js": 2
+    },
+    "bare-compare-verdict": {
+      "public/js/arena-risk-model.js": 1,
+      "public/js/dashboard.js": 14,
+      "public/js/duel.js": 1,
+      "public/js/engine-card-model.js": 1,
+      "public/js/firewall-model.js": 1,
+      "public/js/stress-model.js": 2,
+      "public/js/theater.js": 3,
+      "public/js/winrate-bar.js": 1,
+      "lib/envelope_guard.js": 1,
+      "lib/letter.js": 7,
+      "lib/replay.js": 1,
+      "lib/reputation.js": 3,
+      "lib/research.js": 1,
+      "lib/sentinel.js": 8,
+      "lib/trade_performance.js": 1,
+      "lib/user_strategies.js": 1,
+      "routes/frame.js": 3,
+      "routes/macro.js": 1,
+      "routes/mcp.js": 1,
+      "routes/track.js": 1
+    }
+  }
+}
