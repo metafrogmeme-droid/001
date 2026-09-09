@@ -250,6 +250,38 @@ class TestTheShareSheet:
         assert _is_win({"pnl_pct_margin_net": None, "pnl_usd": None}) is False
 
 
+class TestTheCloseCardSizeCell:
+    """`data.get("size_usd", 0)` printed `$0.00` for an unrecorded margin.
+
+    ADDED BECAUSE THE MUTATION SURVIVED. Round 1 reverted this read to the
+    zero-default and all 150 tests still passed: the fix was in the renderer
+    and nothing anywhere asked the renderer about it. A PNG is awkward to
+    assert on, which is exactly why it went unchecked — but "these two inputs
+    must not produce the same card" needs no pixel reading.
+    """
+
+    BASE = {"symbol": "CL/USDT:USDT", "direction": "LONG", "reason": "closed",
+            "entry": 0.4, "exit": 0.39, "pnl_pct": -2.5,
+            "pnl_pct_margin_net": -3.3, "pnl_usd": -0.81, "fees": 0.35,
+            "leverage": 20, "hold_time": "1.0h"}
+
+    def test_an_unrecorded_margin_is_not_drawn_as_zero(self):
+        from bot.formatters import signal_card
+        unrecorded = signal_card.render_close_card(
+            dict(self.BASE, margin_usd=None, size_usd=None))
+        measured_zero = signal_card.render_close_card(
+            dict(self.BASE, margin_usd=0.0, size_usd=0.0))
+        assert unrecorded != measured_zero, (
+            "an unrecorded margin renders identically to a measured $0.00")
+
+    def test_a_real_margin_still_draws(self):
+        from bot.formatters import signal_card
+        card = signal_card.render_close_card(dict(self.BASE, margin_usd=4.2))
+        assert isinstance(card, bytes) and len(card) > 0
+        assert card != signal_card.render_close_card(
+            dict(self.BASE, margin_usd=None))
+
+
 class TestTheFeeEstimate:
     """Two halves of one round trip, computed on bases a leverage apart."""
 
