@@ -155,6 +155,79 @@ class TestSetllmActuallyStoresTheKey:
         assert stored == {}
 
 
+class TestNoSurfaceDerivesTheEnvNameInstead:
+    """A name DERIVED from the provider's own is a fourth copy with extra steps.
+
+    `shadow_eval` read `f"{PROVIDER}_API_KEY"`. That is right for ten of the
+    eleven providers, which is exactly why nobody noticed: any derivation looks
+    correct until you check the one exception. Grok's key is in `XAI_API_KEY`,
+    so shadow eval on Grok read a variable that does not exist, got "", and
+    logged "could not build client" with the key sitting in the process.
+    """
+
+    def test_the_derivation_is_wrong_for_exactly_one_provider(self):
+        """State the fact the fix rests on, so a rename cannot quietly undo it."""
+        missed = [p.value for p, real in _PROVIDER_KEY_ENV.items()
+                  if real not in (f"{p.value.upper()}_LLM_API_KEY",
+                                  f"{p.value.upper()}_API_KEY")]
+        assert missed == ["grok"], missed
+
+    @staticmethod
+    def _resolved_key(monkeypatch, provider, env):
+        """The api_key shadow eval hands its client builder, for `provider`.
+
+        A first draft called `_client_for(analyzer, provider, model)` — a
+        method that does not exist, with an argument list the real one does not
+        take. It is `_resolve(analyzer)`, and the provider comes from
+        LLM_SHADOW_PROVIDER. Read the definition; a name you remember is not a
+        measurement.
+        """
+        from bot.llm.shadow_eval import ShadowEval
+
+        for e in list(_PROVIDER_KEY_ENV.values()) + ["LLM_SHADOW_API_KEY"]:
+            monkeypatch.delenv(e, raising=False)
+        monkeypatch.delenv(f"{provider.upper()}_LLM_API_KEY", raising=False)
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.setenv("LLM_SHADOW_PROVIDER", provider)
+        monkeypatch.setenv("LLM_SHADOW_MODEL", "some-model")
+
+        seen: dict = {}
+        ev = ShadowEval.__new__(ShadowEval)
+        ev._client, ev._cfg, ev._client_key = None, None, ""
+
+        class _Analyzer:
+            @staticmethod
+            def _build_client_for_config(cfg):
+                seen["api_key"] = cfg.api_key
+                return object()
+
+        ev._resolve(_Analyzer())
+        return seen.get("api_key")
+
+    @pytest.mark.parametrize("provider,env_var", sorted(
+        (p.value, e) for p, e in _PROVIDER_KEY_ENV.items()))
+    def test_shadow_eval_finds_the_key_where_it_lives(
+            self, provider, env_var, monkeypatch):
+        got = self._resolved_key(monkeypatch, provider,
+                                 {env_var: "shadow-" + provider})
+        assert got == "shadow-" + provider, (
+            f"shadow eval looked somewhere other than {env_var}")
+
+    def test_the_explicit_override_still_wins(self, monkeypatch):
+        """Operators set LLM_SHADOW_API_KEY deliberately; do not break that."""
+        got = self._resolved_key(monkeypatch, "grok", {
+            "LLM_SHADOW_API_KEY": "override",
+            "XAI_API_KEY": "provider-specific"})
+        assert got == "override"
+
+    def test_the_underscore_llm_spelling_still_works(self, monkeypatch):
+        """The middle lookup predates this change; it is not ours to remove."""
+        got = self._resolved_key(monkeypatch, "groq",
+                                 {"GROQ_LLM_API_KEY": "middle"})
+        assert got == "middle"
+
+
 class TestEveryHintNamesSomethingThatWorks:
     """Direction 1: what the card sends to /setllm, /setllm can set."""
 
