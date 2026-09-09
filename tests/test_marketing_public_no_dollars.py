@@ -228,6 +228,13 @@ class TestTheBoundaryEnforcesItRegardlessOfCaller:
             "symbol": "BTC", "direction": "LONG", "pnl_pct": -1.23,
             "hold_time": "1h"})))
         assert "\U0001f4c9" in f._bot.sent[1]
+        # AND THE MARKUP SURVIVED THE TRIP. This test already sent exactly the
+        # message the live leak came out of and asserted on the result — it
+        # checked the emoji and never this, which is the whole distance between
+        # a green suite and `🔴 <b>CLUSDT</b> LONG closed` printed to a public
+        # channel. One assertion; see test_public_close_markup_survives.py.
+        assert "&lt;b&gt;" not in f._bot.sent[0], "the forwarder escaped its own HTML"
+        assert "<b>" in f._bot.sent[0]
 
 
 class TestTheCallersWereFixedAndNotOnlyTheBackstop:

@@ -30,6 +30,7 @@ text; this makes sure they did.
 """
 from __future__ import annotations
 
+import html
 import re
 from typing import Any, Mapping, Optional
 
@@ -121,6 +122,20 @@ def public_close_line(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
     above handle it, which is worse-looking but never wrong. Inventing a 0.00%
     for a close whose percentage was never computed is the failure mode this
     repo's doctrine opens with.
+
+    THIS FUNCTION BUILDS HTML, SO IT ESCAPES WHAT IT INTERPOLATES. It did not,
+    and the forwarder escaped the whole finished string instead — turning the
+    `<b>` and `<code>` below into `&lt;b&gt;` and printing the tags to a public
+    channel:
+
+        🔴 <b>CLUSDT</b> LONG closed (leverage overshoot)
+        Move: <code>-0.08%</code> | on margin <code>-1.67%</code>
+
+    The escape was guarding something real (`sym`, `direction` and `reason` all
+    arrive from outside and none were escaped), it was just doing it a layer
+    too late — where it could no longer tell a tag this function wrote from a
+    bracket a venue supplied. Escaping the fields here lets the forwarder stop
+    escaping the message, which is the fix.
     """
     if not close_data:
         return None
@@ -130,13 +145,18 @@ def public_close_line(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
     pct = _num(close_data, "pnl_pct")
     if pct is None:
         return None
-    direction = str(close_data.get("direction") or "").upper()
-    reason = str(close_data.get("reason") or "").replace("_", " ").strip()
+    sym = html.escape(sym)
+    direction = html.escape(str(close_data.get("direction") or "").upper())
+    # TRUNCATE, THEN ESCAPE. The other order cuts an entity in half — a reason
+    # carrying `&` becomes `&amp;`, and a 48-character slice through that
+    # leaves `&am`, which is malformed markup rather than a shortened word.
+    reason = html.escape(
+        str(close_data.get("reason") or "").replace("_", " ").strip()[:48])
     icon = "\U0001f7e2" if pct > 0 else "\U0001f534" if pct < 0 else "⚪"
 
     head = f"{icon} <b>{sym}</b> {direction} closed".rstrip()
     if reason:
-        head += f" ({reason[:48]})"
+        head += f" ({reason})"
 
     parts = [f"Move: <code>{pct:+.2f}%</code>"]
     lev = _num(close_data, "pnl_pct_margin")
