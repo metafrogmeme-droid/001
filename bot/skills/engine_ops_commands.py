@@ -79,6 +79,46 @@ def _each_executor(engine):
             yield ex
 
 
+def _r_tag(r) -> str:
+    """One trade's R, or a mark that it has none. Never a formatted `None`.
+
+    A journal entry carries `r_multiple = None` when the close had no stop on
+    record, because R is a ratio AGAINST the stop (`trade_journal
+    .r_multiple_for` has the full argument). The card printed `{r:.1f}R`,
+    which is a TypeError on None — and before that, on an R the arithmetic had
+    invented from `pnl / entry_price`.
+    """
+    if r is None:
+        return "R unknown — no stop on record"
+    try:
+        return f"{float(r):.1f}R"
+    except (TypeError, ValueError):
+        return "R unknown"
+
+
+def _avg_r_line(review: dict) -> str:
+    """The weekly average R with its coverage, or a statement that there is none.
+
+    `scored`/`unscored` travel with the mean for the reason `win_stats` carries
+    them: an average over the subset that could be measured is a different
+    claim from an average over the window, and only the counts distinguish
+    them. Reads the keys with `.get` so an older cached review — one recorded
+    before the split — degrades to the bare figure rather than raising.
+    """
+    avg = review.get("avg_r_multiple")
+    scored = review.get("r_scored")
+    unscored = review.get("r_unscored")
+    if avg is None:
+        n = review.get("trades")
+        over = f" of {n}" if n else ""
+        return ("<b>—</b> <i>no close in the window had a stop on record"
+                f"{(' (0' + over + ' scoreable)') if n else ''}</i>")
+    line = f"<code>{float(avg):+.2f}R</code>"
+    if scored is not None and unscored:
+        line += f" <i>over {scored} of {scored + unscored} closes</i>"
+    return line
+
+
 def _journal_gap_closes(engine, *, days: int = 7) -> int:
     """Closes the EXECUTOR recorded in the window, for a journal that has none.
 
@@ -1087,11 +1127,22 @@ class EngineOpsCommands:
                 f"Trades: <b>{review['trades']}</b> ({review['wins']}W / {review['losses']}L)",
                 f"Win Rate: <b>{review['win_rate']:.0f}%</b>",
                 f"Total PnL: <b>${review['total_pnl']:+.2f}</b>",
-                f"Avg R-Multiple: <code>{review['avg_r_multiple']:+.2f}</code>",
+                # THREE OUTCOMES. `avg_r_multiple` is None when no close in
+                # the window had a stop on record to measure R against, and
+                # the coverage rides beside it when only some did — "0.42R
+                # over 20" and "0.42R over the 6 of 20 we could price" are
+                # different readings and `+0.42R` alone tells them apart for
+                # nobody. It used to be a bare `:+.2f` over an average that
+                # counted an unpriceable close as 0R.
+                f"Avg R-Multiple: {_avg_r_line(review)}",
                 f"Avg Hold: <code>{review['avg_holding_hours']:.1f}h</code>",
                 "",
-                f"\U0001f3c6 Best: {review['best_trade']['symbol']} ${review['best_trade']['pnl']:+.2f} ({review['best_trade']['r']:.1f}R)",
-                f"\U0001f4a9 Worst: {review['worst_trade']['symbol']} ${review['worst_trade']['pnl']:+.2f} ({review['worst_trade']['r']:.1f}R)",
+                f"\U0001f3c6 Best: {review['best_trade']['symbol']} "
+                f"${review['best_trade']['pnl']:+.2f} "
+                f"({_r_tag(review['best_trade']['r'])})",
+                f"\U0001f4a9 Worst: {review['worst_trade']['symbol']} "
+                f"${review['worst_trade']['pnl']:+.2f} "
+                f"({_r_tag(review['worst_trade']['r'])})",
             ]
 
             # Top lessons

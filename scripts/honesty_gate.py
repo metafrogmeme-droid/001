@@ -90,32 +90,35 @@ BASELINE = ROOT / "tests" / "honesty_baseline.json"
 #: Directories scanned. `tests/` is deliberately absent -- see the docstring.
 ROOTS = ("bot", "scripts")
 
-#: Words whose ZERO IS A CLAIM. A count, an index, a retry budget or a
-#: timeout may default to zero honestly; a price, a P&L or a win rate may not,
-#: because zero is a real, measured value those fields can legitimately hold
-#: and nothing downstream can tell the two apart.
-MEASUREMENT_WORDS = frozenset("""
-    pnl pl profit loss losses gain roi return returns win wins winrate edge
-    expectancy rate ratio pct percent score confidence weight
-    price mark last bid ask close open high low vwap twap
-    equity balance free used margin leverage notional size qty quantity amount
-    exposure value usd cost basis fee fees funding slippage spread
-    drawdown dd liq liquidation sl tp stop takeprofit
-    volume oi apy apr yield tvl fdv mcap marketcap supply cap
-    """.split())
+#: THE VOCABULARY LIVES IN ONE FILE, READ BY TWO GATES.
+#:
+#: Words whose ZERO IS A CLAIM. A count, an index, a retry budget or a timeout
+#: may default to zero honestly; a price, a P&L or a win rate may not, because
+#: zero is a real, measured value those fields can legitimately hold and
+#: nothing downstream can tell the two apart.
+#:
+#: It used to be three literals in this file, and this file is Python-only —
+#: so when the JS half of the same rule got a gate
+#: (`app/test/js_honesty_ratchet.test.js`), the choice was a second copy or a
+#: shared source. A second copy of a threshold is a second answer, and then
+#: the two gates disagree about what a measurement is; `winrate-bar.js` states
+#: exactly that rule about `MIN_RATED`. Both gates hash this file's contents
+#: into their own baseline, so widening it is CANNOT CHECK on both sides
+#: rather than manufactured growth on either.
+VOCABULARY_FILE = ROOT / "tests" / "honesty_vocabulary.json"
 
-#: Substring probes for names the token split cannot reach (`maxMargin`,
-#: `pnlUsd`, `fdv_mcap_ratio`). Kept short: every entry here is a word that
-#: means a measurement wherever it appears.
-MEASUREMENT_SUBSTRINGS = ("pnl", "margin", "price", "equity", "balance",
-                          "drawdown", "leverage", "notional", "roi", "fdv",
-                          "mcap", "tvl", "apy", "apr", "expectancy",
-                          "slippage", "liquidat")
+
+def _load_vocabulary() -> dict:
+    with open(VOCABULARY_FILE, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+_VOCAB = _load_vocabulary()
+MEASUREMENT_WORDS = frozenset(_VOCAB["measurement_words"])
+MEASUREMENT_SUBSTRINGS = tuple(_VOCAB["measurement_substrings"])
 
 #: Names that mean "the ones that did not succeed", for the complement shape.
-COMPLEMENT_WORDS = frozenset(
-    "loss losses lost losers fail failed failures miss missed misses "
-    "rejected denied bad red negative".split())
+COMPLEMENT_WORDS = frozenset(_VOCAB["complement_words"])
 
 #: Coercions whose argument is a measurement being forced to a number.
 COERCIONS = frozenset("float int abs round Decimal".split())
