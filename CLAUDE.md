@@ -357,6 +357,36 @@ read away. `master_key_state()` is that read (`pinned` / `file_only` /
 `diverged` / `absent` / `unreadable`, with a fingerprint and never the key), and
 all three surfaces derive from it so no two can drift.
 
+**A secret can be encrypted at rest and still have only a plaintext door.**
+`WEB3_SIGNER_PRIVATE_KEY` — the key that signs on-chain transactions — has
+been in `secrets_vault._DEFAULT_MANAGED` since the WEB3-LIVE-EXEC slice, so
+the vault protects it *once it holds it*. The intake was the hole: the only
+route in was to write the key in the clear into `.env` and wait for a boot to
+mirror it, and `/vault`'s own footnote says what that costs — "a key that only
+ever came from `.env` stays in the clear there". Every other managed secret
+had `/setexchange`, `/setgateway` or `/setllm`; the most sensitive one printed
+`→ .env` on the card that exists to say what is unprotected. Coverage of a
+STORE is not coverage of the PATH INTO it.
+
+`/setsigner` closes it, and the interesting half is the confirmation. **A
+private key cannot be echoed back**, so a typo in a 64-character paste is
+invisible until something is signed by an account the operator did not mean —
+`check_signing_key` derives the ADDRESS and the card shows that, the one thing
+safe to print and the only thing that answers "did I paste the right key?".
+Three outcomes, not two, because `eth-account` is optional and is NOT
+installed in CI: confirmed, **well-formed but unconfirmed** (stored, and the
+card says plainly that nothing checked which account it controls), and
+rejected. The middle one dressed as the first is the failure this whole file
+is about. Validation is arithmetic rather than a library call — 64 hex chars
+and a scalar in `[1, n-1]` — so it works with no crypto installed, and it
+catches the two pastes a length check does not: all-zeros, and a value at or
+above the curve order.
+
+Every rejection quotes **no part of the input**, including the one that comes
+from the signing library's own exception. A parser's error message is one of
+the few places key material genuinely escapes, and the mutation that made it
+`f"rejected: {raw}"` is in round 18.
+
 **A warning that fires once is not a surface.** `_load_or_create_master_key`
 logs "set RUNECLAW_SECRETS_KEY for production" on the boot that GENERATES the
 key, and every boot after that takes `if p.exists(): return p.read_bytes()` in

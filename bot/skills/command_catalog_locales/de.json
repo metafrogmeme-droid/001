@@ -153,6 +153,7 @@
     "ultra": "ULTRA-Admin-Routing",
     "setexchange": "Börsen-Zugangsdaten reparieren",
     "setgateway": "das Web-Gateway-Geheimnis reparieren",
+    "setsigner": "setzt den On-Chain-Signaturschlüssel (verschlüsselt)",
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
     "idleyield": "Bestzins-Scan über alle Quellen",
     "stake": "ungenutzte Stables in flexibles Earn legen",

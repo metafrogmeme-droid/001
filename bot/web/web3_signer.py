@@ -102,6 +102,86 @@ def signer_address(env: Optional[dict] = None) -> Optional[str]:
         return None                     # never surface the key on a parse error
 
 
+#: Order of the secp256k1 curve. A private key is a scalar in [1, n-1]; 0 and
+#: anything at or above n are not keys, and both are what a truncated or
+#: zero-padded paste produces. Written out rather than imported so the check
+#: works with no crypto library installed.
+_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def normalise_signing_key(raw: str) -> str:
+    """Whitespace stripped, `0x` prefix ensured, hex lower-cased.
+
+    A FORMATTER, not a discloser: it returns only what it was handed. That
+    distinction is why it is separate from `check_signing_key` below, which
+    never returns key material at all.
+    """
+    s = str(raw or "").strip()
+    if s[:2].lower() == "0x":
+        s = s[2:]
+    return "0x" + s.lower()
+
+
+def check_signing_key(raw: str) -> dict:
+    """Is this a usable signing key? ``{"ok", "reason", "address"}`` — NEVER the key.
+
+    THE ONLY THING AN OPERATOR CAN SAFELY CHECK IS THE ADDRESS. A private key
+    cannot be echoed back for confirmation, so a typo in a 64-character paste
+    is otherwise invisible until a transaction is signed by the wrong account.
+    Deriving the address and showing THAT is the whole point of this function.
+
+    THREE OUTCOMES, not two:
+
+      * ok with an address — well-formed, and `eth-account` derived the account
+        it controls. The operator can compare it to the wallet they meant.
+      * ok with ``address: None`` — well-formed by arithmetic (64 hex chars, a
+        scalar in [1, n-1]) but `eth-account` is not installed, so nothing
+        could confirm WHICH account it is. Storable, and the caller must say
+        that the confirmation did not happen rather than implying it did.
+      * not ok — with a reason naming the fault and quoting no part of the
+        input, because a rejection message about a private key is a place a
+        private key can leak.
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return {"ok": False, "reason": "no key was given", "address": None}
+    body = s[2:] if s[:2].lower() == "0x" else s
+    if len(body) != 64:
+        return {"ok": False, "address": None,
+                "reason": (f"a signing key is 64 hex characters (32 bytes), "
+                           f"optionally 0x-prefixed; this one is {len(body)}")}
+    try:
+        value = int(body, 16)
+    except ValueError:
+        return {"ok": False, "address": None,
+                "reason": "that is the right length but is not hexadecimal"}
+    # `0 < value < n`, and both ends matter: a key of zero is what an all-zero
+    # paste gives, and a value at or above the curve order is what a key
+    # copied from the wrong field or padded to length gives. Neither is a key,
+    # and some libraries accept them silently.
+    if not (0 < value < _SECP256K1_N):
+        return {"ok": False, "address": None,
+                "reason": ("that is 64 hex characters but not a valid "
+                           "secp256k1 scalar — it is zero or above the curve "
+                           "order, which a truncated or padded paste produces")}
+    account = _signing_lib()
+    if account is None:
+        return {"ok": True, "address": None,
+                "reason": ("the key is well-formed, but eth-account is not "
+                           "installed so the address it controls could not be "
+                           "derived — nothing has confirmed WHICH account "
+                           "this is")}
+    try:
+        return {"ok": True, "address": account.from_key(s).address, "reason": ""}
+    except Exception:
+        # The arithmetic passed and the library still refused it. Say so
+        # without quoting the input: an exception message from a key parser
+        # is one of the few places key material genuinely does escape.
+        return {"ok": False, "address": None,
+                "reason": ("the signing library rejected that key; nothing "
+                           "about it is repeated here")}
+
+
 def signer_status(env: Optional[dict] = None) -> dict:
     """A safe, key-free snapshot for the admin signer UI: the flags, whether the
     library + key are present, the signer's public address, and — per testnet —

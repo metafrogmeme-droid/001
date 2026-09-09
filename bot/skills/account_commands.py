@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import html
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -35,6 +35,44 @@ from bot.warroom.warroom_bot import _bar
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
     from bot.utils.user_store import UserStore
+
+
+def signer_stored_card(address: Optional[str]) -> str:
+    """What the operator is told after a signing key is stored. Never the key.
+
+    TWO OUTCOMES, because the confirmation is the point. A private key cannot
+    be echoed back, so the derived ADDRESS is the only thing that answers "did
+    I paste the right one?" — and when `eth-account` is not installed there is
+    no address, the key is stored unverified, and saying so is the difference
+    between a confirmation and the appearance of one.
+
+    A pure renderer for the reason the rest of this file's cards are: inline,
+    nothing could plant the library-missing state and read what an operator
+    would see, and that branch is the one that matters.
+    """
+    head = "🟢 <b>On-chain signing key stored</b>\n\n"
+    tail = ("Encrypted in the vault (survives a wiped <code>.env</code>) and "
+            "live now — no restart. Signing stays <b>testnet-only</b> and "
+            "still needs its own switches; <code>/vault</code> shows the key "
+            "as protected.\n\n"
+            "<i>Delete any <code>WEB3_SIGNER_PRIVATE_KEY</code> line from "
+            "<code>.env</code> — the vault copy is the one in use, and a key "
+            "that stays in .env stays in the clear there.</i>")
+    if address:
+        return (head
+                + "It controls <code>" + html.escape(str(address)) + "</code>.\n"
+                + "<b>Check that address against the wallet you meant</b> — it "
+                  "is the only confirmation there can be that the paste was "
+                  "correct.\n\n"
+                + tail)
+    return (head
+            + "⚠️ <b>The address could not be derived</b>, because "
+              "<code>eth-account</code> is not installed. The key is "
+              "well-formed, and <i>nothing has confirmed which account it "
+              "controls</i> — install the library and run "
+              "<code>/setsigner</code> again to see the address before you "
+              "rely on it.\n\n"
+            + tail)
 
 
 def master_key_line(state: dict) -> str:
@@ -423,6 +461,86 @@ class AccountCommands:
             "error, make sure the website's <code>WEB_GATEWAY_SECRET</code> "
             "is the exact same value.")
 
+    async def _cmd_setsigner(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/setsigner <key> — ADMIN ONLY. The on-chain signing key.
+
+        THE ONE MANAGED SECRET WITH NO DOOR BUT PLAINTEXT. `WEB3_SIGNER_PRIVATE_KEY`
+        has been in `secrets_vault._DEFAULT_MANAGED` since the WEB3-LIVE-EXEC
+        slice, so it IS encrypted at rest once the vault holds it — but the
+        only way to get it there was to write it in the clear into `.env` and
+        wait for a boot to mirror it. Every other managed secret has
+        `/setexchange`, `/setgateway` or `/setllm`; the one that signs
+        transactions had `→ .env` printed beside it on `/vault`.
+
+        So the value most worth protecting was the only one that had to transit
+        an unencrypted file on disk, where it stays until somebody deletes the
+        line — and `/vault`'s own footnote says a key that came from `.env`
+        "stays in the clear there".
+
+        THE ADDRESS IS THE CONFIRMATION, and it is why this is not just
+        `/setgateway` with a different key name. A private key cannot be echoed
+        back, so a typo in a 64-character paste is invisible until something is
+        signed by an account the operator did not mean. `check_signing_key`
+        derives the address and the card shows THAT — the one thing safe to
+        print and the only thing that answers "did I paste the right key?".
+        """
+        # Delete the key-bearing message FIRST, before any gate can return.
+        # Same ordering as /setgateway, and it matters more here: an admin
+        # check that returns early would otherwise leave a private key sitting
+        # in the chat history.
+        try:
+            if update.message:
+                await update.message.delete()
+        except Exception as del_exc:
+            system_log.warning(
+                "Failed to delete /setsigner message with key: %s", del_exc)
+
+        if not self._is_admin(update):
+            return
+        if update.effective_chat and update.effective_chat.type != "private":
+            await self._send(update,
+                "⚠️ Send <code>/setsigner</code> in a <b>private chat</b> only.")
+            return
+
+        args = ctx.args or []
+        if len(args) != 1:
+            await self._send(update,
+                "<b>Set the on-chain signing key</b> (admin, testnet-only)\n\n"
+                "<code>/setsigner &lt;private key&gt;</code>\n\n"
+                "• 64 hex characters, <code>0x</code> prefix optional.\n"
+                "• Stored <b>encrypted</b> in the vault and live immediately — "
+                "no restart, and no plaintext in <code>.env</code>.\n"
+                "• The reply shows the <b>address</b> it controls, never the "
+                "key. Check that against the wallet you meant.\n"
+                "• This message is deleted immediately.")
+            return
+
+        from bot.web.web3_signer import check_signing_key, normalise_signing_key
+        raw = args[0]
+        verdict = check_signing_key(raw)
+        if not verdict["ok"]:
+            # The reason never quotes the input — see check_signing_key.
+            await self._send(update,
+                f"🔴 <b>Not stored.</b> {html.escape(str(verdict['reason']))}")
+            audit(system_log, "Rejected an invalid on-chain signing key",
+                  action="setsigner", result="REJECTED")
+            return
+
+        try:
+            from bot.core.secrets_vault import store_secrets
+            store_secrets({"WEB3_SIGNER_PRIVATE_KEY": normalise_signing_key(raw)})
+        except Exception as exc:
+            system_log.error("setsigner: vault store failed: %s", exc)
+            await self._send(update,
+                "🔴 Could not store the key. Check the logs.")
+            audit(system_log, "Failed to store the on-chain signing key",
+                  action="setsigner", result="STORE_FAILED")
+            return
+
+        audit(system_log, "Admin set the on-chain signing key via /setsigner",
+              action="setsigner", result="OK")
+        await self._send(update, signer_stored_card(verdict.get("address")))
+
     async def _cmd_vault(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/vault — secret-protection status (admin). Names only, never values.
 
@@ -445,6 +563,10 @@ class AccountCommands:
             "BITGET": "/setexchange", "BYBIT": "/setexchange bybit",
             "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
             "TELEGRAM_BOT_TOKEN": ".env only",
+            # It was `.env` — the fallback below — which meant the ONE secret
+            # that signs transactions was the only managed one whose sole
+            # route into the vault ran through a plaintext file on disk.
+            "WEB3_SIGNER_PRIVATE_KEY": "/setsigner",
             "BOT_SYNC_SECRET": ".env (auto-vaults from env)",
             "WEB_CREDS_KEY": "not needed — website submissions are sealed to this bot's own key",
         }

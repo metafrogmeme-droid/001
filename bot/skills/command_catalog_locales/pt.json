@@ -153,6 +153,7 @@
     "ultra": "encaminhamento admin ULTRA",
     "setexchange": "reparar as credenciais da exchange",
     "setgateway": "reparar o segredo do gateway web",
+    "setsigner": "define a chave de assinatura on-chain (cifrada)",
     "yield": "radar de rendimento de ativos parados (só leitura)",
     "idleyield": "análise da melhor taxa entre fontes",
     "stake": "colocar stables parados em Earn flexível",

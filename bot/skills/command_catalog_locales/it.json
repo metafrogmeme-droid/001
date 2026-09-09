@@ -153,6 +153,7 @@
     "ultra": "routing admin ULTRA",
     "setexchange": "ripara le credenziali dell'exchange",
     "setgateway": "ripara il segreto del gateway web",
+    "setsigner": "imposta la chiave di firma on-chain (cifrata)",
     "yield": "radar del rendimento degli asset inattivi (sola lettura)",
     "idleyield": "scansione del miglior tasso tra le fonti",
     "stake": "metti le stablecoin inattive in Earn flessibile",
