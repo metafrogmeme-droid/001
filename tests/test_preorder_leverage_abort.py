@@ -43,8 +43,7 @@ charges two fees for the privilege.
 
 import pytest
 
-from bot.core.live_executor import (leverage_overshoot_verdict,
-                                    preorder_leverage_verdict)
+from bot.core.live_executor import leverage_overshoot_verdict, preorder_leverage_verdict
 
 RATIO = 1.5
 
