@@ -95,6 +95,35 @@ token tooling). Those still need CI.
 baseline entry that starts *passing* is a hard failure, so stale entries
 cannot hide real bugs.
 
+**The flake filter is the one part of that gate that can hide one, and it did
+— for 40 tests at once.** `ci_test_gate` re-runs each new failure alone and
+files the ones that pass as order-dependent. That is the right call for a
+genuinely time-sensitive test and it is indistinguishable, from the gate's
+side, from a suite-wide state leak. `tests/test_vault_keeps_what_it_cannot_read.py`
+called `store_secrets({"WEB_GATEWAY_SECRET": "g" * 48})` to prove the recovery
+path does not erase the vault — which it does prove — and `store_secrets`
+writes into `os.environ` deliberately ("recovery of the running process"),
+outside monkeypatch's bookkeeping, so the value outlived its test. Every later
+test that plants a gateway secret does it by monkeypatching the module
+attribute, and `_secret()` reads the environment FIRST. **40 of
+`test_web_gateway.py`'s 48 failed 403 in a full run and all 48 passed alone**:
+confirm, the live-mode gate, the portfolio snapshot, authority
+apply/revoke/enforce — the money-facing HTTP surface, in CI, gating nothing.
+The gate reported success, each test passed individually, and the only
+artefact was a count of "flaky" nobody reads.
+
+Three things worth keeping from it. **A leak is invisible from any single
+run's verdict** — it was found by watching `os.environ` after every test in
+one full session and printing the first change, which named the writer in 12
+minutes where bisecting would have taken hours. **The containment belongs in
+the harness, not in a rule each test remembers**: `tests/conftest.py` hands
+the vault-managed keys back after every test, sibling to the fixture that
+does the same for the analyzer's lookahead flags, and for the same stated
+reason — the leaking test tested exactly what it meant to. And **a mutation
+that renames an `autouse` fixture is a no-op**: autouse binds on the decorator,
+not the name, so the first attempt to prove the guard worked passed against a
+fixture that was still running. `autouse=False` is the mutation that bites.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
