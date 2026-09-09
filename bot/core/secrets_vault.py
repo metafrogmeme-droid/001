@@ -55,7 +55,19 @@ _DEFAULT_MANAGED = (
     "GROQ_API_KEY", "DEEPSEEK_API_KEY", "ALIBABA_API_KEY", "MISTRAL_API_KEY",
     "TOGETHER_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY",
     "RUNECLAW_LLM_API_KEY",  # in-house model endpoint (when served remotely)
+    # Hyperliquid's OPERATOR credentials are an agent-wallet address and its
+    # PRIVATE KEY (config.py: "Use a dedicated API wallet (agent wallet), NOT
+    # the main wallet key"; venues.py `has_operator_credentials` reads exactly
+    # those two). This tuple protected the address and two names —
+    # HYPERLIQUID_API_KEY / _API_SECRET — that are read nowhere in the tree,
+    # and left the private key out: the one credential here that SIGNS, on a
+    # live perps venue, with a plaintext .env as its only home. Same shape as
+    # WEB3_SIGNER_PRIVATE_KEY below, one venue over, and quieter — a wiped
+    # .env restored the address, so `has_operator_credentials` went False and
+    # Hyperliquid simply stopped trading. The two dead names are kept so an
+    # operator who already stored something under them still sees it reported.
     "HYPERLIQUID_API_KEY", "HYPERLIQUID_API_SECRET", "HYPERLIQUID_WALLET_ADDRESS",
+    "HYPERLIQUID_PRIVATE_KEY",
     "BYBIT_API_KEY", "BYBIT_API_SECRET",
     "BINGX_API_KEY", "BINGX_API_SECRET",
     "ONCHAIN_API_KEY",
