@@ -216,7 +216,7 @@ class TestTheStableSeedNoLongerCorroboratesItself:
 
 # ── the wiring ────────────────────────────────────────────────────────────
 
-def _drive_quant(args=None, raises=None, gate_blocks=False):
+def _drive_quant(args=None, raises=None, gate_blocks=False, hang=False):
     """Run `/quant` on a bare host and return what it sent + how it dispatched.
 
     A SCAN STOOD IN FOR THIS AND THE MUTATION WALKED PAST IT. The claim "chat
@@ -237,6 +237,8 @@ def _drive_quant(args=None, raises=None, gate_blocks=False):
         async def dispatch(self, name, engine, **kwargs):
             seen["name"] = name
             seen["kwargs"] = kwargs
+            if hang:
+                await asyncio.sleep(5)
             if raises is not None:
                 raise raises
             return "RUNECLAW QUANT REPORT — stub"
@@ -260,6 +262,21 @@ def _drive_quant(args=None, raises=None, gate_blocks=False):
     host.engine = object()
 
     ctx = SimpleNamespace(args=list(args or []))
+    if hang:
+        # A REAL timeout, not a raised TimeoutError: the deadline is what the
+        # branch keys on, so shorten it rather than simulate its effect.
+        from bot.config import CONFIG
+        original = CONFIG.deepscan_timeout_sec
+        # CONFIG is a frozen dataclass, so this is the only way to set the
+        # REAL deadline. Simulating the effect (raising TimeoutError from the
+        # stub) would test the except clause without testing that the branch
+        # is reached by an actual deadline.
+        try:
+            object.__setattr__(CONFIG, "deepscan_timeout_sec", 0.01)
+            asyncio.run(ScanCommands._cmd_quant(host, SimpleNamespace(), ctx))
+        finally:
+            object.__setattr__(CONFIG, "deepscan_timeout_sec", original)
+        return sent, seen
     asyncio.run(ScanCommands._cmd_quant(host, SimpleNamespace(), ctx))
     return sent, seen
 
@@ -352,6 +369,21 @@ class TestItIsReachableAndPriced:
         from bot.skills.scan_commands import ScanCommands
         src = inspect.getsource(ScanCommands._cmd_quant)
         assert '_token_gate_blocks(update, "analysis", "quant_analyze")' in src
+
+    def test_a_timeout_is_not_a_report(self):
+        """The modelling did not finish. That is not a zero and not a verdict.
+
+        This branch had no test and a mutation replacing its whole message
+        with `Composite Score: 0.00` survived the round — the same defect the
+        skill was fixed for, one layer out in the command.
+        """
+        sent, _ = _drive_quant(["SOL"], hang=True)
+        assert sent, "a timeout said nothing at all"
+        last = sent[-1]
+        assert "timed out" in last.lower()
+        assert "no reading was produced" in last
+        for field in TestTheUnreadableCardQuotesNoStatistic.NUMBERS:
+            assert field not in last
 
     def test_a_command_error_is_not_a_report(self):
         """A raising dispatch must not fall through to anything report-shaped."""
