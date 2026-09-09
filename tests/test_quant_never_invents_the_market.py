@@ -1,0 +1,403 @@
+"""`/quant` must not model candles nobody fetched.
+
+`QuantAnalyzeSkill.execute` caught every exchange failure and substituted
+`_generate_synthetic_ohlcv(150, seed=hash(symbol))`, then returned the ordinary
+report. Driven against a 503 the card read:
+
+    RUNECLAW QUANT REPORT — BTC/USDT [4h]
+    Regime:       ↔️  Ranging
+    ADX:          22.9  (weak/ranging)
+    Hurst (H):    0.851  → trending memory
+    GARCH Vol:    curr=0.0116  fcast=0.0120  EXPANDING
+    Composite Score: 0.381 → WEAK
+    ❌ QUANT GATE: REJECTED — LOW_QUANT_SCORE: 0.381 < 0.4 threshold
+
+Every number invented, `bars_analyzed: 150` for bars nobody fetched, and the
+word "synthetic" only in the audit log where no reader of the card would meet
+it. The seed is the part that turns a bug into a trap: `hash(symbol)` is
+stable, so the SAME fabricated report comes back every time and a user who runs
+it twice reads the consistency as corroboration.
+
+The offline path is real and stays — `scripts/e2e_pipeline.py` walks the whole
+pipeline with no venue attached and deterministic candles are what let it — so
+the fix is not to delete the generator. It is to make asking for it explicit,
+and to say so on the card rather than in a log line.
+"""
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+from bot.skills.quant_skill import (
+    QuantAnalyzeSkill,
+    _generate_synthetic_ohlcv,
+    read_ohlcv,
+    synthetic_notice,
+    unreadable_card,
+)
+
+SYMBOL = "BTC/USDT"
+
+
+class _Venue:
+    def __init__(self, behaviour):
+        self._behaviour = behaviour
+
+    async def fetch_ohlcv(self, symbol, timeframe, limit=150):
+        if self._behaviour == "dead":
+            raise RuntimeError("503 Service Unavailable")
+        if self._behaviour == "empty":
+            return []
+        if self._behaviour == "garbage":
+            return [["not", "a", "number"]]
+        return _generate_synthetic_ohlcv(limit, seed=7)
+
+
+class _Engine:
+    def __init__(self, venue):
+        self._venue = venue
+
+    async def get_exchange(self):
+        return self._venue
+
+
+def _run(**kwargs):
+    venue = kwargs.pop("venue")
+    return asyncio.run(QuantAnalyzeSkill().execute(_Engine(venue), **kwargs))
+
+
+# ── the seam ──────────────────────────────────────────────────────────────
+
+class TestReadOhlcvNeverInvents:
+    @pytest.mark.parametrize("behaviour,expect", [
+        ("dead", "503"),
+        ("empty", "no candles"),
+        ("garbage", "could not be read"),
+    ])
+    def test_a_failed_read_answers_a_reason_and_no_bars(self, behaviour, expect):
+        bars, failure = asyncio.run(
+            read_ohlcv(_Engine(_Venue(behaviour)), SYMBOL, "4h"))
+        assert bars == []
+        assert failure is not None and expect in failure
+
+    def test_a_good_read_answers_bars_and_no_failure(self):
+        bars, failure = asyncio.run(
+            read_ohlcv(_Engine(_Venue("live")), SYMBOL, "4h"))
+        assert failure is None
+        assert len(bars) == 150
+
+    def test_no_exchange_is_a_failure_not_an_empty_report(self):
+        bars, failure = asyncio.run(read_ohlcv(_Engine(None), SYMBOL, "4h"))
+        assert bars == []
+        assert failure is not None
+
+    def test_the_reason_is_trimmed_and_single_line(self):
+        """A driver's message reaches a user-facing card, so it is bounded.
+
+        `/readyz` returns a coarse code for this reason; here the text is
+        useful (the operator wants to know it was a 503), so it is length-
+        capped and whitespace-collapsed instead.
+        """
+        class Chatty:
+            async def fetch_ohlcv(self, *a, **k):
+                raise RuntimeError("x" * 500 + "\nsecond line")
+        _, failure = asyncio.run(read_ohlcv(_Engine(Chatty()), SYMBOL, "4h"))
+        assert failure is not None
+        assert len(failure) <= 120
+        assert "\n" not in failure
+
+
+# ── what the operator is told ─────────────────────────────────────────────
+
+class TestTheUnreadableCardQuotesNoStatistic:
+    """The whole defect was a card that looked exactly like a good one.
+
+    The first draft of this listed bare words — "Hurst", "ADX", "Regime" — and
+    failed on the refusal card's OWN sentence, "Regime, volatility, Hurst and
+    the edge gate are all unknown", which is the honest thing to say and names
+    no value. That is the trap CLAUDE.md counts six instances of, done a
+    seventh time in the file written about it: a short string asserted ABSENT
+    matches the surrounding prose. The claim is not "never say Hurst", it is
+    "never PRINT one", so these anchor on the report's own rendering — a label,
+    a colon, and a number — which prose cannot produce.
+    """
+
+    NUMBERS = ("Hurst (H):", "ADX:", "GARCH Vol:", "Composite Score:",
+               "Regime:", "Volatility:", "Price Z-Score:", "QUANT GATE:")
+
+    def test_it_names_the_symbol_it_could_not_model(self):
+        card = unreadable_card("SOL/USDT", "1h", "503 Service Unavailable")
+        assert "SOL/USDT" in card and "1h" in card
+
+    def test_it_states_the_reason(self):
+        card = unreadable_card(SYMBOL, "4h", "the venue returned no candles")
+        assert "the venue returned no candles" in card
+
+    @pytest.mark.parametrize("field", NUMBERS)
+    def test_it_carries_no_measurement(self, field):
+        card = unreadable_card(SYMBOL, "4h", "503")
+        assert field not in card, (
+            f"the no-data card printed {field!r} — it must quote no statistic")
+
+    def test_unknown_is_not_neutral(self):
+        """`0.381 → WEAK` was a verdict manufactured from noise.
+
+        Saying "neutral" or "weak" here would repeat the defect in words
+        instead of numbers.
+        """
+        card = unreadable_card(SYMBOL, "4h", "503").lower()
+        assert "unknown" in card
+        assert "not neutral" in card
+
+
+class TestTheSyntheticBannerIsUnmissable:
+    def test_it_says_the_candles_were_generated(self):
+        note = synthetic_notice(SYMBOL, "4h").lower()
+        assert "synthetic" in note
+        assert "generated" in note
+        assert "no venue was" in note
+
+    def test_it_tells_the_reader_not_to_trade_on_it(self):
+        assert "do not trade" in synthetic_notice(SYMBOL, "4h").lower()
+
+
+# ── the command's three outcomes, driven ──────────────────────────────────
+
+class TestChatNeverSeesInventedNumbers:
+    def test_a_dead_venue_produces_no_report(self):
+        out = _run(venue=_Venue("dead"))
+        assert "NO REPORT" in out
+        for field in TestTheUnreadableCardQuotesNoStatistic.NUMBERS:
+            assert field not in out
+        assert "503" in out
+
+    def test_an_empty_answer_produces_no_report(self):
+        """Empty is a failure, not an empty report — a single-source panel."""
+        out = _run(venue=_Venue("empty"))
+        assert "NO REPORT" in out
+        assert "Hurst (H):" not in out
+
+    def test_a_live_read_produces_the_report_and_no_banner(self):
+        out = _run(venue=_Venue("live"))
+        assert "Hurst" in out and "QUANT GATE" in out
+        assert "SYNTHETIC" not in out
+        assert "NO REPORT" not in out
+
+    def test_synthetic_is_opt_in(self):
+        """The default must never reach the generator. This is the fix."""
+        default = _run(venue=_Venue("dead"))
+        assert "SYNTHETIC" not in default
+        assert "Hurst (H):" not in default
+
+    def test_an_opted_in_caller_gets_a_report_under_a_banner(self):
+        out = _run(venue=_Venue("dead"), allow_synthetic=True)
+        assert "SYNTHETIC DATA" in out
+        assert "Hurst" in out, "the e2e pipeline still needs its report"
+        assert out.index("SYNTHETIC DATA") < out.index("Hurst"), (
+            "the banner must precede the numbers it disclaims")
+
+    def test_the_banner_is_not_glued_to_a_live_report(self):
+        """A mutation that always banners would make the label meaningless."""
+        assert "SYNTHETIC" not in _run(venue=_Venue("live"),
+                                       allow_synthetic=True)
+
+
+class TestTheStableSeedNoLongerCorroboratesItself:
+    def test_two_failed_reads_do_not_return_the_same_confident_report(self):
+        """`seed=hash(symbol)` returned an identical fake report every time.
+
+        Consistency across runs is exactly what a user reads as corroboration,
+        so it is the property most worth pinning gone.
+        """
+        first = _run(venue=_Venue("dead"))
+        second = _run(venue=_Venue("dead"))
+        assert first == second, "the refusal itself should be stable"
+        assert "Composite Score" not in first, (
+            "a repeatable answer is fine; a repeatable INVENTED MEASUREMENT is "
+            "the trap — it reads as corroboration on the second run")
+
+
+# ── the wiring ────────────────────────────────────────────────────────────
+
+def _drive_quant(args=None, raises=None, gate_blocks=False, hang=False):
+    """Run `/quant` on a bare host and return what it sent + how it dispatched.
+
+    A SCAN STOOD IN FOR THIS AND THE MUTATION WALKED PAST IT. The claim "chat
+    never asks for generated candles" was asserted by collecting the lines of
+    `_cmd_quant` that mention `dispatch(` and checking none said
+    `allow_synthetic` — and `allow_synthetic=True` added on its own line of the
+    multi-line call is in none of those lines. 33 tests passed against a
+    command handing chat users invented prices. So the kwargs are read off the
+    dispatch itself.
+    """
+    from bot.skills.scan_commands import ScanCommands
+
+    host = ScanCommands.__new__(ScanCommands)
+    sent: list[str] = []
+    seen: dict = {}
+
+    class _Registry:
+        async def dispatch(self, name, engine, **kwargs):
+            seen["name"] = name
+            seen["kwargs"] = kwargs
+            if hang:
+                await asyncio.sleep(5)
+            if raises is not None:
+                raise raises
+            return "RUNECLAW QUANT REPORT — stub"
+
+    async def _send(update, text, *a, **k):
+        sent.append(str(text))
+
+    async def _guard(update, command, ctx):
+        seen["permission"] = command
+        return True
+
+    async def _token_gate_blocks(update, mode, feature):
+        seen["tier_feature"] = feature
+        return gate_blocks
+
+    host._send = _send
+    host._guard = _guard
+    host._token_gate_blocks = _token_gate_blocks
+    host._lang = lambda update: "en"
+    host.registry = _Registry()
+    host.engine = object()
+
+    ctx = SimpleNamespace(args=list(args or []))
+    if hang:
+        # A REAL timeout, not a raised TimeoutError: the deadline is what the
+        # branch keys on, so shorten it rather than simulate its effect.
+        from bot.config import CONFIG
+        original = CONFIG.deepscan_timeout_sec
+        # CONFIG is a frozen dataclass, so this is the only way to set the
+        # REAL deadline. Simulating the effect (raising TimeoutError from the
+        # stub) would test the except clause without testing that the branch
+        # is reached by an actual deadline.
+        try:
+            object.__setattr__(CONFIG, "deepscan_timeout_sec", 0.01)
+            asyncio.run(ScanCommands._cmd_quant(host, SimpleNamespace(), ctx))
+        finally:
+            object.__setattr__(CONFIG, "deepscan_timeout_sec", original)
+        return sent, seen
+    asyncio.run(ScanCommands._cmd_quant(host, SimpleNamespace(), ctx))
+    return sent, seen
+
+
+class TestTheCommandItselfNeverAsksForSyntheticCandles:
+    """Driven, because the scan that replaced this survived its mutation."""
+
+    def test_the_dispatch_carries_no_allow_synthetic(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["name"] == "quant_analyze"
+        assert "allow_synthetic" not in seen["kwargs"], (
+            "chat asked for generated candles — the whole defect, re-armed")
+
+    def test_it_dispatches_the_symbol_the_user_asked_for(self):
+        _, seen = _drive_quant(["sol"])
+        assert seen["kwargs"]["symbol"] == "SOL/USDT"
+
+    def test_the_default_symbol_is_a_real_pair(self):
+        _, seen = _drive_quant([])
+        assert seen["kwargs"]["symbol"] == "BTC/USDT"
+
+    def test_a_timeframe_is_honoured_and_a_bogus_one_is_not(self):
+        _, seen = _drive_quant(["SOL", "1h"])
+        assert seen["kwargs"]["timeframe"] == "1h"
+        _, seen = _drive_quant(["SOL", "nonsense"])
+        assert seen["kwargs"]["timeframe"] == "4h"
+
+    def test_the_role_gate_runs_and_is_the_analyze_permission(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["permission"] == "analyze"
+
+    def test_the_tier_gate_runs_before_any_work(self):
+        _, seen = _drive_quant(["SOL"])
+        assert seen["tier_feature"] == "quant_analyze"
+
+    def test_a_blocked_tier_dispatches_nothing(self):
+        _, seen = _drive_quant(["SOL"], gate_blocks=True)
+        assert "name" not in seen, "the tier gate did not stop the work"
+
+    def test_a_bad_symbol_is_refused_before_dispatch(self):
+        _, seen = _drive_quant(["../etc/passwd"])
+        assert "name" not in seen
+
+    def test_usdt_against_itself_is_refused(self):
+        _, seen = _drive_quant(["USDT"])
+        assert "name" not in seen
+
+
+
+class TestItIsReachableAndPriced:
+    def test_chat_declares_a_permission_for_it(self):
+        from bot.skills.skill_permissions import permission_for
+        assert permission_for("quant_analyze") == "analyze"
+
+    def test_the_permission_is_the_one_on_the_command(self):
+        """The table is DERIVED, not invented. Re-derive it here too."""
+        import inspect
+
+        from bot.skills.scan_commands import ScanCommands
+        block = inspect.getsource(ScanCommands)
+        idx = block.index("async def _cmd_quant")
+        # The decorator immediately above the def is the fact the table is
+        # derived from; anchor on that window, not on the whole class.
+        assert '@guard("analyze")' in block[max(0, idx - 200):idx]
+        # The kwarg claim is DRIVEN, not scanned — see
+        # TestTheCommandItselfNeverAsksForSyntheticCandles below. A line-based
+        # scan here survived the mutation that added `allow_synthetic=True` on
+        # its own line of the multi-line dispatch call.
+
+    def test_a_transport_dispatches_it(self):
+        import inspect
+
+        from bot.skills.telegram_handler import TelegramHandler
+        src = inspect.getsource(TelegramHandler)
+        assert '("quant", self._cmd_quant)' in src
+
+    def test_the_tier_gate_prices_it(self):
+        from bot.token.tier_gate import _DEFAULT_FEATURE_MIN_TIER
+        assert _DEFAULT_FEATURE_MIN_TIER["quant_analyze"] == "pro"
+
+    def test_it_is_priced_no_lower_than_deepscan(self):
+        """The stated objection was that it gives away more than deepscan."""
+        from bot.token.tier_gate import _DEFAULT_FEATURE_MIN_TIER as T
+        order = ["basic", "pro", "elite"]
+        assert order.index(T["quant_analyze"]) >= order.index(T["deepscan"])
+
+    def test_the_command_checks_the_tier_gate(self):
+        import inspect
+
+        from bot.skills.scan_commands import ScanCommands
+        src = inspect.getsource(ScanCommands._cmd_quant)
+        assert '_token_gate_blocks(update, "analysis", "quant_analyze")' in src
+
+    def test_a_timeout_is_not_a_report(self):
+        """The modelling did not finish. That is not a zero and not a verdict.
+
+        This branch had no test and a mutation replacing its whole message
+        with `Composite Score: 0.00` survived the round — the same defect the
+        skill was fixed for, one layer out in the command.
+        """
+        sent, _ = _drive_quant(["SOL"], hang=True)
+        assert sent, "a timeout said nothing at all"
+        last = sent[-1]
+        assert "timed out" in last.lower()
+        assert "no reading was produced" in last
+        for field in TestTheUnreadableCardQuotesNoStatistic.NUMBERS:
+            assert field not in last
+
+    def test_a_command_error_is_not_a_report(self):
+        """A raising dispatch must not fall through to anything report-shaped."""
+        sent, _ = _drive_quant(raises=RuntimeError("boom"))
+        assert sent, "the command said nothing at all"
+        assert "Quant error" in sent[-1]
+        assert "Composite Score:" not in sent[-1]
+
+    def test_the_offline_pipeline_asks_for_what_it_needs(self):
+        """It ran on generated candles before, silently. Now it says so."""
+        import pathlib
+        src = pathlib.Path("scripts/e2e_pipeline.py").read_text(encoding="utf-8")
+        assert src.count("allow_synthetic=True") == 2

@@ -469,6 +469,7 @@ python -m bot.main --mode scan
 | `/fullscan` | 完整掃描整個交易宇宙 |
 | `/deepscan` | 含形態的深度掃描 |
 | `/analyze` | 深入分析單一幣種 — /analyze SOL |
+| `/quant` | 統計解讀 — 市場狀態、波動率、Hurst、優勢門檻 — /quant SOL 4h |
 | `/alpha` | 每日 alpha 洞察卡 |
 | `/research` | 附出處的研究報告 |
 | `/token` | 合約偵查 — /token 0x… [鏈] |

@@ -53,6 +53,7 @@
     "fullscan": "scan complet de tout l'univers",
     "deepscan": "scan approfondi avec graphique + figures de chandeliers",
     "analyze": "analyse approfondie d'une crypto — /analyze SOL",
+    "quant": "lecture statistique — régime, volatilité, Hurst, filtre d'avantage — /quant SOL 4h",
     "alpha": "carte quotidienne d'insight alpha",
     "research": "dossier de recherche sourcé pour un symbole",
     "token": "détective de contrats — /token 0x… [chain]",

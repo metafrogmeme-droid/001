@@ -53,6 +53,7 @@
     "fullscan": "análise completa de todo o universo",
     "deepscan": "análise profunda com gráfico + padrões de velas",
     "analyze": "análise aprofundada de uma moeda — /analyze SOL",
+    "quant": "leitura estatística — regime, volatilidade, Hurst, filtro de vantagem — /quant SOL 4h",
     "alpha": "cartão diário de insight alpha",
     "research": "dossier de pesquisa com fontes para um símbolo",
     "token": "detetive de contratos — /token 0x… [chain]",

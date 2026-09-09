@@ -95,6 +95,11 @@ _DEFAULT_FEATURE_MIN_TIER: dict[str, str] = {
     "deepscan": "pro",         # 67+ symbols
     "patterns": "pro",
     "analyze_asset": "pro",
+    # /quant — a 150-bar fetch plus regime, GARCH, factor scoring and Hurst.
+    # Heavier than analyze_asset and lighter than anything in `elite`, which
+    # buys MINUTES (backtest, walk-forward, optimize). Seconds of in-process
+    # modelling is what `pro` means on this ladder, so that is where it sits.
+    "quant_analyze": "pro",
     # elite — minutes of compute, the most expensive things this bot does
     "run_backtest": "elite",
     "walk_forward": "elite",

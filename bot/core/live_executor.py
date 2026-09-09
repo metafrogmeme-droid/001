@@ -596,6 +596,71 @@ def leverage_overshoot_verdict(requested: Any, actual: Any,
                     f"({ratio:.2f}x), within the {max_ratio:.2f}x limit")}
 
 
+def preorder_leverage_verdict(target: Any, observed: Any,
+                              max_ratio: float) -> dict:
+    """Should a CONFIRMED pre-order leverage read stop the order being placed?
+
+    The partner of `leverage_overshoot_verdict` above, and it reads the SAME
+    threshold on purpose: the two gates must not disagree about what counts as
+    an overshoot, or the engine opens what it is about to close.
+
+    THAT IS WHAT IT WAS DOING. `_lev_verified` was set when the read-back
+    merely PARSED — ``if actual_lev is not None: _lev_verified = True`` — not
+    when it matched, so a confirmed mismatch was "verified". Both mismatch
+    sites then deferred to `LEVERAGE_FAIL_OPEN`, which defaults to 1, so the
+    order went out at the venue's value. On 2026-09-09 that ran twice inside an
+    hour: TRX/USDT read 20x against a 5x target, was re-set, read 20x again
+    (Bitget's sticky per-symbol leverage), and the order was placed anyway. The
+    post-fill guard then did exactly what it is for and flattened it. Entry
+    $0.3403, exit $0.3403 — the whole $0.1008 loss was fees. CLUSDT cost $0.81
+    the same way.
+
+    So the engine READ 20x, tried to fix it, CONFIRMED it was still 20x, and
+    paid a round trip of fees to discover post-fill what it already knew.
+
+    This does not reopen the 2026-07-21 directive. That was about leverage the
+    venue would not CONFIRM ("I can't open trades"; ETHFI returned a payload
+    the parser could not read while `set_leverage` had succeeded), and that
+    branch is untouched — an unreadable value never reaches this function.
+    Fail-open buys open trades there. Here it buys a fill and an immediate
+    flatten, which is not an open trade; it is a fee.
+
+    Returns ``{"decision": "abort"|"proceed", "ratio": ..., "why": ...}``:
+
+        "abort"    the venue is confirmed at a leverage the post-fill guard
+                   would flatten, so nothing is gained by placing the order
+        "proceed"  unreadable, at/under target, or inside the tolerance
+
+    Under-leverage is never an abort — a venue at 4x against a 5x target is
+    less risk than approved, and the old `!= target` equality would have
+    blocked it. Same convention as the post-fill guard, which is the point.
+    """
+    try:
+        want = int(target)
+        got = int(observed)
+    except (TypeError, ValueError, OverflowError):
+        # Unreadable is not a mismatch. It is the OTHER branch's question and
+        # it is answered there (set_ok / fail-open), deliberately.
+        return {"decision": "proceed", "ratio": None,
+                "why": "leverage values were not numeric"}
+    if want <= 0 or got <= 0:
+        return {"decision": "proceed", "ratio": None,
+                "why": f"non-positive leverage (target={want}, observed={got})"}
+    if got <= want:
+        return {"decision": "proceed", "ratio": got / want,
+                "why": f"venue at {got}x, at or under the {want}x target"}
+    ratio = got / want
+    if ratio > max_ratio:
+        return {"decision": "abort", "ratio": ratio,
+                "why": (f"venue is set to {got}x against a {want}x target "
+                        f"({ratio:.2f}x approved, limit {max_ratio:.2f}x) — the "
+                        "overshoot guard would flatten this fill, so the order "
+                        "is not placed")}
+    return {"decision": "proceed", "ratio": ratio,
+            "why": (f"venue at {got}x against a {want}x target ({ratio:.2f}x), "
+                    f"within the {max_ratio:.2f}x limit")}
+
+
 #: close_position's answer, read one way. The reading lives in order_state
 #: (pure, I/O-free) because the emergency-flatten rollup reads the same
 #: strings and must not drift from the post-fill guards; re-exported here so
@@ -1267,6 +1332,14 @@ class LiveExecutor:
             os.environ.get("LEVERAGE_FAIL_OPEN", "1").strip().lower() not in ("0", "false", "no")
             and os.environ.get("LEVERAGE_FAIL_CLOSED", "0").strip().lower() not in ("1", "true", "yes")
         )
+        # The SAME threshold the post-fill overshoot guard uses. Read once here
+        # so the two gates cannot disagree about what an overshoot is; a
+        # CONFIRMED read at or beyond it is refused below whatever fail-open
+        # says, because proceeding does not open a trade — it opens one the
+        # guard flattens seconds later, and charges two fees for it.
+        _lev_overshoot_ratio = float(getattr(
+            getattr(CONFIG, "execution", None),
+            "leverage_overshoot_max_ratio", 1.5))
 
         # C2-04 FIX: Verify leverage was actually applied — retry once if mismatch
         _lev_verified = False
@@ -1289,26 +1362,36 @@ class LiveExecutor:
                         params={"productType": "USDT-FUTURES", "holdSide": "short"})
                 except Exception:
                     pass
-                # Re-verify after retry
+                # Re-verify after retry.
+                #
+                # `actual_lev2 is None` used to end the story: the first read
+                # had CONFIRMED an overshoot, the re-read could not be parsed,
+                # and the order went out as though the retry had worked.
+                # Failing to confirm a fix is not confirming one — so the
+                # verdict falls back to the reading we actually have.
+                _confirmed_lev = actual_lev
                 try:
                     lev_info2 = await exchange.fetch_leverage(symbol, params=self._venue.futures_params())
                     actual_lev2 = _parse_leverage_readback(lev_info2)
                     if actual_lev2 is not None:
-                        if actual_lev2 != _target_leverage:
-                            logger.critical(
-                                "LEVERAGE STILL MISMATCHED for %s after retry: wanted %dx, exchange reports %dx — "
-                                "%s (SL is the risk backstop)",
-                                symbol, _target_leverage, actual_lev2,
-                                "ABORTING (LEVERAGE_FAIL_CLOSED)" if not _lev_fail_open
-                                else "proceeding with warning")
-                            if not _lev_fail_open:
-                                raise RuntimeError(
-                                    f"Cannot set leverage to {_target_leverage}x for {symbol} "
-                                    f"(exchange stuck at {actual_lev2}x). Aborting order.")
-                except RuntimeError:
-                    raise  # propagate abort
+                        _confirmed_lev = actual_lev2
                 except Exception:
-                    pass  # fetch_leverage failed — proceed with caution
+                    pass  # re-read failed — the first reading is what stands
+
+                if _confirmed_lev != _target_leverage:
+                    _v = preorder_leverage_verdict(
+                        _target_leverage, _confirmed_lev, _lev_overshoot_ratio)
+                    _abort = _v["decision"] == "abort" or not _lev_fail_open
+                    logger.critical(
+                        "LEVERAGE STILL MISMATCHED for %s after retry: wanted %dx, exchange reports %dx — "
+                        "%s (SL is the risk backstop)",
+                        symbol, _target_leverage, _confirmed_lev,
+                        "ABORTING" if _abort else "proceeding with warning")
+                    if _abort:
+                        raise RuntimeError(
+                            f"Cannot set leverage to {_target_leverage}x for {symbol} "
+                            f"(exchange stuck at {_confirmed_lev}x). "
+                            f"{_v['why']}. Aborting order.")
         except RuntimeError:
             raise  # propagate leverage abort
         except Exception:
@@ -1331,16 +1414,20 @@ class LiveExecutor:
                         continue
                     _lev_verified = True
                     if _pl != _target_leverage:
+                        _v = preorder_leverage_verdict(
+                            _target_leverage, _pl, _lev_overshoot_ratio)
+                        _abort = _v["decision"] == "abort" or not _lev_fail_open
                         logger.critical(
                             "LEVERAGE MISMATCH (position read) for %s: wanted "
                             "%dx, position reports %dx — %s",
                             symbol, _target_leverage, _pl,
-                            "ABORTING (LEVERAGE_FAIL_CLOSED)" if not _lev_fail_open
+                            "ABORTING" if _abort
                             else "proceeding with warning (SL is the backstop)")
-                        if not _lev_fail_open:
+                        if _abort:
                             raise RuntimeError(
                                 f"Cannot set leverage to {_target_leverage}x for "
-                                f"{symbol} (position at {_pl}x). Aborting order.")
+                                f"{symbol} (position at {_pl}x). "
+                                f"{_v['why']}. Aborting order.")
                     break
             except RuntimeError:
                 raise  # propagate abort

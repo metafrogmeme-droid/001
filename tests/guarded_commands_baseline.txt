@@ -59,6 +59,7 @@ _cmd_performance
 _cmd_playbook
 _cmd_portfolio
 _cmd_proposals
+_cmd_quant
 _cmd_rejected
 _cmd_research
 _cmd_reset

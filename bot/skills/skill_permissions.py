@@ -60,6 +60,14 @@ SKILL_PERMISSION: dict[str, str] = {
     # Chat reaches it too — free text through this table, tool calling
     # through bot/nlp/chat_tools.py.
     "macro_brief": "macro",
+    # /quant is @guard("analyze") — the same read-only question about one
+    # symbol that /analyze answers, one statistical layer deeper, so it reuses
+    # a permission trader and paper already hold. The reason it sat unwired was
+    # recorded as a TIER decision ("a permission alone would give away more
+    # than deepscan for free"), and the tier gate is where that is now settled:
+    # `quant_analyze` is `pro`, beside deepscan. Derived from the decorator,
+    # like every entry above.
+    "quant_analyze": "analyze",
     # Reachable from Telegram free text ("my journal", "trade log") and not
     # from web chat. Present here because this table is the FACT — /journal and
     # /daily_report are both @guard("journal") — and absent from

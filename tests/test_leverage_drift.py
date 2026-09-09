@@ -134,17 +134,61 @@ async def test_verified_mismatch_aborts_after_retry_in_strict_mode(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_verified_mismatch_proceeds_by_default(tmp_path, monkeypatch):
-    """Default posture: a confirmed 20x mismatch proceeds with a loud warning
-    rather than blocking the trade — the SL caps the downside."""
+async def test_a_mismatch_inside_the_overshoot_limit_still_proceeds(
+        tmp_path, monkeypatch):
+    """The 2026-07-21 posture, intact where it still buys something.
+
+    "Proceed with a loud warning rather than block the trade — the SL caps the
+    downside" holds for drift the post-fill guard tolerates. A venue at 6x
+    against a 5x target is 1.2x, inside `leverage_overshoot_max_ratio`, so the
+    fill is kept and the trade runs. Nothing about that changed.
+    """
     monkeypatch.delenv("LEVERAGE_FAIL_OPEN", raising=False)
     monkeypatch.delenv("LEVERAGE_FAIL_CLOSED", raising=False)
     ex = _executor(tmp_path)
+    target = ex._compute_target_leverage("XPT/USDT:USDT")
+    set_lev = AsyncMock()
+    fetch_lev = AsyncMock(return_value={"longLeverage": str(target + 1)})
+    ex._get_exchange = AsyncMock(return_value=_mock_exchange(set_lev, fetch_lev))
+    await ex._ensure_leverage("XPT/USDT:USDT")   # no raise — proceeds
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_overshoot_no_longer_proceeds_by_default(
+        tmp_path, monkeypatch):
+    """This test asserted the opposite, and its premise expired.
+
+    It read: "a confirmed 20x mismatch proceeds with a loud warning rather than
+    blocking the trade — the SL caps the downside". That was a real operator
+    directive (2026-07-21, "I can't open trades") and it was coherent WHEN IT
+    WAS WRITTEN, because proceeding meant the position RAN and the stop was
+    what bounded it.
+
+    It does not run any more. `_guard_fill_leverage` flattens an overshoot on
+    every fill path there is — `execute`, `_check_pending_limit`,
+    `_adopt_partial_fill` and `_execute_drift_market_fallback` — so a 20x fill
+    against a 5x target is closed within seconds and the SL never engages.
+    Proceeding stopped buying a trade and started buying a fill, a flatten and
+    two fees. Live, 2026-09-09: TRX/USDT entry $0.3403, exit $0.3403, the whole
+    $0.1008 loss the fee; CLUSDT $0.81 the same way, and that one was a LIMIT
+    order, which is how the limit path is known to be guarded too.
+
+    So the end state is identical either way — no position — and the only
+    difference is whether the operator pays for it. The directive is not
+    reopened: this is not "block trades we cannot verify" (see the test above,
+    and the ETHFI case in test_preorder_leverage_abort.py), it is "do not open
+    what we are about to close".
+    """
+    monkeypatch.delenv("LEVERAGE_FAIL_OPEN", raising=False)
+    monkeypatch.delenv("LEVERAGE_FAIL_CLOSED", raising=False)
+    ex = _executor(tmp_path)
+    target = ex._compute_target_leverage("XPT/USDT:USDT")
+    assert target != 20
     set_lev = AsyncMock()
     fetch_lev = AsyncMock(return_value={"longLeverage": "20"})
-    exchange = _mock_exchange(set_lev, fetch_lev)
-    ex._get_exchange = AsyncMock(return_value=exchange)
-    await ex._ensure_leverage("XPT/USDT:USDT")   # no raise — proceeds
+    ex._get_exchange = AsyncMock(return_value=_mock_exchange(set_lev, fetch_lev))
+    with pytest.raises(RuntimeError, match="Cannot set leverage"):
+        await ex._ensure_leverage("XPT/USDT:USDT")
 
 
 # ── post-fill true-up wiring ─────────────────────────────────────────

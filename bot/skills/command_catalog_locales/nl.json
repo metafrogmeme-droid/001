@@ -53,6 +53,7 @@
     "fullscan": "volledige scan van het hele universum",
     "deepscan": "diepe scan met grafiek + candlepatronen",
     "analyze": "diepgaande analyse van één coin — /analyze SOL",
+    "quant": "statistische lezing — regime, volatiliteit, Hurst, edge-gate — /quant SOL 4h",
     "alpha": "dagelijkse alpha-inzichtkaart",
     "research": "onderbouwd onderzoeksdossier voor een symbool",
     "token": "contractdetective — /token 0x… [chain]",
