@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time
 import uuid
@@ -85,6 +86,58 @@ def gate_category(gate: str) -> str:
     # neighbour's. Merging it would credit its R to a gate that did not earn
     # it, which is the same misattribution one level down.
     return head or "UNLABELLED"
+
+
+#: Lower end of a 95% interval, the same bar `readiness.wilson_lower_bound`
+#: applies to voter agreement — "the whole interval clear of the null, not its
+#: top end". Same z, deliberately, so the two readings mean the same thing.
+_Z = 1.96
+
+#: Below this the interval is not trusted whatever it says. An R-multiple is
+#: bounded at -1 and unbounded above, so the normal approximation understates
+#: the upper tail on a thin sample — and worse, a DEGENERATE one reads as
+#: certainty: three blocked trades that all took profit at exactly +1.8R have
+#: a sample sd of 0, hence a lower bound of +1.8R, from three trades. The sd
+#: is zero because the sample is tiny, not because the effect is sure.
+MIN_GATE_TRADES = 10
+
+
+def mean_r_interval(n: int, sum_r: float, sum_r2: float,
+                    z: float = _Z) -> Optional[tuple[float, float]]:
+    """The 95% interval for a gate's MEAN R per blocked trade.
+
+    NOT Wilson, and the difference is the point. Wilson is the interval for a
+    PROPORTION; R is a continuous, signed magnitude, and the question here is
+    "how much per trade", not "how often". Scoring it as a win rate would
+    answer a question nobody asked — the report's own `_identical_run` note
+    calls that out in as many words: *a null from the wrong instrument is not
+    evidence of no effect*. What is shared with `wilson_lower_bound` is the
+    DISCIPLINE — the whole interval must clear the null, not its near end —
+    and the z, so the two readings mean the same thing.
+
+    BOTH ENDS, because both verdicts are claims. "This gate is eating edge"
+    needs the lower end above zero; "this gate is saving money" needs the
+    upper end below it, and the `/shadow` scoreboard was painting the second
+    one green off a bare total.
+
+    Returns ``None`` when it cannot be computed — fewer than two samples, or a
+    variance that will not resolve. ``None`` is *unknown*, and callers must not
+    read it as zero: a gate with no interval is a gate with no claim behind it,
+    which is a different thing from one measured at break-even.
+    """
+    if n < 2:
+        return None
+    try:
+        mean = sum_r / n
+        # Sample variance from the raw accumulators. The subtraction can go
+        # very slightly negative on a near-constant sample (catastrophic
+        # cancellation), which is a float artefact and not a negative
+        # variance, so it is clamped rather than propagated into sqrt.
+        var = max(0.0, (sum_r2 - n * mean * mean) / (n - 1))
+        margin = z * math.sqrt(var / n)
+        return round(mean - margin, 4), round(mean + margin, 4)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
 
 class ShadowBook:
@@ -257,22 +310,52 @@ class ShadowBook:
         """Per-gate scoreboard over CLOSED shadow trades.
 
         net_r POSITIVE = the gate blocked profitable trades (it is eating
-        edge); NEGATIVE = the gate saved money. never_filled excluded."""
+        edge); NEGATIVE = the gate saved money. never_filled excluded.
+
+        `net_r` IS A TOTAL, AND A TOTAL IS NOT AN EFFECT. The nightly card
+        read the top of this sort and printed it as "the costliest gate" off
+        `net_r > 0.5`, so a live card said `MTF_ALIGNMENT … net +4.1R over 97
+        blocked trades` — which is **+0.042R per trade**, a bar cleared by
+        noise, on the scoreboard that decides which risk gate to loosen. Same
+        defect `voter_weights` had ("62% of 34" is 21 of 34, a coin flip) in a
+        second module. `sum_r2` rides along so `mean_r_lower_bound` can put an
+        interval on the per-trade figure; `lower_r` is that interval's floor
+        and is ``None`` when there is no sample to compute one from.
+        """
         self._load()
         out: dict[str, dict] = {}
         for tr in self._trades:
             if tr["status"] != "closed" or tr.get("r") is None:
                 continue
             g = out.setdefault(gate_category(tr["gate"]), {
-                "n": 0, "wins": 0, "losses": 0, "net_r": 0.0})
+                "n": 0, "wins": 0, "losses": 0, "net_r": 0.0, "sum_r2": 0.0})
+            r = float(tr["r"])
             g["n"] += 1
-            g["net_r"] = round(g["net_r"] + float(tr["r"]), 3)
-            if float(tr["r"]) > 0:
+            g["net_r"] = round(g["net_r"] + r, 3)
+            g["sum_r2"] = round(g["sum_r2"] + r * r, 6)
+            if r > 0:
                 g["wins"] += 1
-            elif float(tr["r"]) < 0:
+            elif r < 0:
                 g["losses"] += 1
         for g in out.values():
             g["avg_r"] = round(g["net_r"] / g["n"], 3) if g["n"] else 0.0
+            iv = mean_r_interval(g["n"], g["net_r"], g["sum_r2"])
+            g["lower_r"] = None if iv is None else iv[0]
+            g["upper_r"] = None if iv is None else iv[1]
+            # The one thing a reader has to be able to check without doing the
+            # arithmetic: is this gate's verdict established, or is it the top
+            # of a sort? Carried on the row so the nightly card, the /shadow
+            # scoreboard and the LLM's evidence blob cannot answer it
+            # differently. Three values, not two — `None` is "no interval", and
+            # a gate with no interval has not been shown to do either thing.
+            if iv is None or g["n"] < MIN_GATE_TRADES:
+                g["verdict"] = None
+            elif iv[0] > 0:
+                g["verdict"] = "eating_edge"
+            elif iv[1] < 0:
+                g["verdict"] = "saving"
+            else:
+                g["verdict"] = "undistinguished"
         return dict(sorted(out.items(), key=lambda kv: kv[1]["net_r"],
                            reverse=True))
 
@@ -313,14 +396,22 @@ class ShadowBook:
             lines.append("No closed shadow trades yet — the ledger fills "
                          "as gates reject ideas.")
             return "\n".join(lines)
-        lines.append("net R > 0 = the gate is BLOCKING winners:")
+        lines.append("net R > 0 = the gate is BLOCKING winners "
+                     "(⬜ = not distinguishable from noise):")
         by_regime = self.gate_regime_report()
         for gate, g in list(rep.items())[:12]:
-            icon = "\U0001f7e5" if g["net_r"] > 0.5 else (
-                "\U0001f7e9" if g["net_r"] < -0.5 else "⬜")
-            lines.append(
-                f"{icon} <code>{gate[:32]}</code> — {g['n']}tr · "
-                f"net {g['net_r']:+.1f}R · avg {g['avg_r']:+.2f}R")
+            # COLOUR IS A CLAIM, and this one used to be made off a bare total:
+            # `net_r > 0.5` painted a gate red on +0.6R over 200 blocked trades
+            # (+0.003R each) exactly as it did on +0.6R over 2. The verdict is
+            # the interval's now, and a gate with no interval gets the muted
+            # icon rather than borrowing either colour.
+            icon = {"eating_edge": "\U0001f7e5",
+                    "saving": "\U0001f7e9"}.get(g.get("verdict") or "", "⬜")
+            row = (f"{icon} <code>{gate[:32]}</code> — {g['n']}tr · "
+                   f"net {g['net_r']:+.1f}R · avg {g['avg_r']:+.2f}R")
+            if g.get("verdict") is None:
+                row += f" · <i>too few to bound (&lt;{MIN_GATE_TRADES}tr)</i>"
+            lines.append(row)
             # Regime split: shown only when the gate's verdict actually
             # DIFFERS by regime — the case regime-conditional gating exists
             # for. A gate that's uniformly good/bad stays a single line.

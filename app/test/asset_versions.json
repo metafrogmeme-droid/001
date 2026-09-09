@@ -48,8 +48,8 @@
     "sha": "9d3e40a3a57aa5fd"
   },
   "js/dashboard.js": {
-    "v": 172,
-    "sha": "2867efe8c88e9010"
+    "v": 173,
+    "sha": "fbd138893774a05b"
   },
   "js/duel.js": {
     "v": 1,
@@ -166,6 +166,10 @@
   "js/sandbox.js": {
     "v": 1,
     "sha": "550cc931fed16e08"
+  },
+  "js/shadow-gate-row.js": {
+    "v": 1,
+    "sha": "0af60afd98c06cce"
   },
   "js/signal-chart.js": {
     "v": 1,

@@ -4420,10 +4420,18 @@
       const sb = scan?.features?.shadow_book;
       if (!sb || !(sb.gates || []).length) return null;
       const c = sb.counts || {};
-      return `<p class="muted small mb-2">net R &gt; 0 = the gate blocked winners; &lt; 0 = it saved money. ${c.closed || 0} closed counterfactuals.</p>` +
-        sb.gates.slice(0, 8).map(g => `
-        <div class="kv-row"><span class="small" style="font-family:var(--font-data)">${esc(String(g.gate).slice(0, 30))}</span>
-          <b class="num ${g.net_r > 0 ? 'neg' : 'pos'}">${signed(g.net_r, 1)}R <span class="muted">×${g.n}</span></b></div>`).join('');
+      // COLOUR IS A CLAIM, and this one was made off a bare total with no
+      // threshold at all: `g.net_r > 0 ? 'neg' : 'pos'` painted +0.001R over
+      // three blocked trades red, and painted a gate sitting at exactly 0 —
+      // or one whose net_r never arrived, since `undefined > 0` is false —
+      // GREEN, which on this panel reads as "this gate saved you money".
+      // RCShadowGates reads the server's own verdict rather than recomputing
+      // a bar, for the reason RCWinRate does above.
+      const SG = window.RCShadowGates;
+      const rows = SG ? SG.buildRows(sb.gates) : '';
+      if (!rows) return null;
+      const shown = Math.min(sb.gates.length, SG.MAX_ROWS);
+      return `<p class="muted small mb-2">net R &gt; 0 = the gate blocked winners; &lt; 0 = it saved money — coloured only where the per-trade figure clears a 95% interval. ${SG.establishedCount(sb.gates.slice(0, shown))} of ${shown} established · ${c.closed || 0} closed counterfactuals.</p>` + rows;
     }, { empty: { text: 'The shadow book fills as risk gates reject ideas and their counterfactuals resolve.' } });
 
     renderPanel(C('elist'), async () => {
