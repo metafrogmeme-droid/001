@@ -564,6 +564,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("setexchange", self._cmd_setexchange),
             # Admin: repair the website↔bot shared gateway secret → vault
             ("setgateway", self._cmd_setgateway),
+            ("setsigner", self._cmd_setsigner),
             # Admin: idle-asset yield radar (read-only Bitget Earn scan)
             ("yield", self._cmd_yield),
             # Admin: cross-source idle-yield optimizer (CEX Earn + non-custodial

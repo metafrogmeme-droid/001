@@ -614,6 +614,7 @@ python -m bot.main --mode scan
 | `/ultra` | ULTRA 管理路由 |
 | `/setexchange` | 設定營運者交易所金鑰，只存保險庫——bitget、bybit、bingx |
 | `/setgateway` | 修復網頁閘道密鑰 |
+| `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
 | `/stake` | 將閒置穩定幣投入活期 Earn |

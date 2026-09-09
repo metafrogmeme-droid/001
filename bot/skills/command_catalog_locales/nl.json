@@ -153,6 +153,7 @@
     "ultra": "ULTRA-beheerdersrouting",
     "setexchange": "exchange-inloggegevens herstellen",
     "setgateway": "het webgateway-geheim herstellen",
+    "setsigner": "stelt de on-chain ondertekeningssleutel in (versleuteld)",
     "yield": "yield-radar voor inactieve activa (alleen-lezen)",
     "idleyield": "scan van het beste tarief over alle bronnen",
     "stake": "inactieve stables in flexibele Earn zetten",

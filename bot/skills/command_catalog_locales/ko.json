@@ -153,6 +153,7 @@
     "ultra": "ULTRA 관리자 라우팅",
     "setexchange": "거래소 자격 증명 복구",
     "setgateway": "웹 게이트웨이 비밀키 복구",
+    "setsigner": "온체인 서명 키 설정 (암호화)",
     "yield": "유휴 자산 수익 레이더(읽기 전용)",
     "idleyield": "소스 통합 최고 금리 스캔",
     "stake": "유휴 스테이블을 유연 Earn에 예치",

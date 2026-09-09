@@ -661,6 +661,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/ultra` | ULTRA admin routing |
 | `/setexchange` | set the operator's exchange keys, vault-only — bitget, bybit, bingx |
 | `/setgateway` | repair the web gateway secret |
+| `/setsigner` | set the on-chain signing key (encrypted) |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
 | `/stake` | put idle stables into flexible Earn |

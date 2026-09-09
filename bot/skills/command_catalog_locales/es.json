@@ -153,6 +153,7 @@
     "ultra": "enrutado admin ULTRA",
     "setexchange": "repara las credenciales del exchange",
     "setgateway": "repara el secreto de la pasarela web",
+    "setsigner": "define la clave de firma on-chain (cifrada)",
     "yield": "radar de rendimiento de activos ociosos (solo lectura)",
     "idleyield": "escaneo de la mejor tasa entre fuentes",
     "stake": "pon los stables ociosos en Earn flexible",

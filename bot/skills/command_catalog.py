@@ -210,6 +210,7 @@ GROUPS: List[Group] = [
         ("ultra", "ULTRA admin routing"),
         ("setexchange", "set the operator's exchange keys, vault-only — bitget, bybit, bingx"),
         ("setgateway", "repair the web gateway secret"),
+        ("setsigner", "set the on-chain signing key (encrypted)"),
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
         ("stake", "put idle stables into flexible Earn"),
@@ -441,6 +442,7 @@ DESC_ZH: Dict[str, str] = {
     "setllm": "執行時切換 LLM 供應商", "settier": "各層級 LLM 路由", "ultra": "ULTRA 管理路由",
     "setexchange": "設定營運者交易所金鑰，只存保險庫——bitget、bybit、bingx",
     "setgateway": "修復網頁閘道密鑰",
+    "setsigner": "設定鏈上簽章金鑰（加密儲存）",
     "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
     "stake": "將閒置穩定幣投入活期 Earn", "unstake": "將 Earn 贖回為交易保證金",
 }
