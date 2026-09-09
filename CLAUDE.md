@@ -398,6 +398,45 @@ sets `pnl` and `closed_at` in one atomic `model_copy`. All three look exactly
 like the bug. None of them are. `tests/test_paper_pnl_default_is_safe.py`
 pins the third rather than refactoring twenty call sites to fix nothing.
 
+**And check the NAME before calling something dead.** A sweep for
+`_infer_close_price` returned zero callers and the function was written up
+twice, and in a merged PR body, as ~100 lines of dead code to delete. The
+function is `_get_actual_close_price`; `exchange_sync.py:342` calls it. Zero
+hits on a name that does not exist is not a measurement of anything — the same
+"a checker with a blind spot manufactures exactly the accusation it exists to
+prevent" failure the reachability sweep documents, done by hand. Grep for the
+definition, not for the name you remember.
+
+**It was not dead, it was wrong, and the wrongness was the expensive kind.**
+Its step 4 answered `trade.entry_price` when no fill matched AND no ticker
+could be read, so `_calc_pnl` came out at exactly `0.00` and a position that
+vanished from the venue — liquidated, stopped out, or closed in profit —
+entered the permanent record as a MEASURED break-even. `0.00` is the one
+answer that can be ruled out: a close at the entry is precisely what "no data"
+was standing in for. The damage ran past the record, because
+`close_position` hands the P&L to `_on_trade_close` →
+`_realized_pnl_window`, and **two tighten-only size controls read that window
+and were pushed in opposite wrong directions**: the live-performance governor
+counts `p > 0` over `len(recent)`, so a fabricated `0.0` is not a win but is in
+the denominator and drags the win rate down; the equity throttle's
+`rolling_profit_factor` sees a value that adds to neither gross profit nor
+gross loss, yet it still counts toward `equity_throttle_min_samples` — an
+evidence floor satisfied by a non-measurement. The consecutive-loss streak was
+the one consumer already written for it (`# C2-09 FIX: pnl == 0.0 (breakeven)
+— no change to streak`).
+
+**The fix is to defer, not to guess, and the asymmetry decides it.** Step 4
+answers `None` and the sweep leaves the position tracked. "Open" is not true
+either — it did close — but it is the RECOVERABLE falsehood: the sweep runs
+again, a readable ticker books it at a real price, and local SL/TP monitoring
+keeps running meanwhile. A break-even written into the trade record and the
+risk windows is permanent. That is `live_executor`'s flatten argument
+("keeping a position that DID close is recoverable; booking a close that did
+NOT happen is not") pointed the other way. It did **not** need `Trade.pnl` to
+become Optional — `test_paper_pnl_default_is_safe.py` argues correctly against
+that, and its grounds cover the *default* rather than an invented price, so
+the two never conflicted. The whole chain had no test of any kind before this.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
