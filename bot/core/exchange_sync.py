@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 from bot.config import CONFIG
 from bot.core.live_executor import normalize_symbol
@@ -195,16 +195,18 @@ def _calc_pnl(trade, exit_price: float) -> float:
 
 async def _get_actual_close_price(
     engine, exchange, trade, trade_id: str,
-) -> tuple[float, str, str]:
+) -> tuple[Optional[float], str, str]:
     """Look up the actual close price from exchange trade history.
 
-    Mirrors the 3-step fallback in live_executor.reconcile_positions():
+    Mirrors the fallback chain in live_executor.reconcile_positions():
       1. fetchMyTrades — match by SL/TP order IDs
       2. fetchClosedOrders — match by SL/TP order IDs
       3. Ticker estimate — proximity to SL/TP levels
-      4. Last resort — entry price (PnL = 0)
+      4. Nothing readable — ``None``, and the caller does not book the close
 
-    Returns (close_price, reason, source).
+    Returns ``(close_price, reason, source)`` where ``close_price`` is None
+    exactly when no source could price the exit. Step 4 used to answer
+    ``trade.entry_price`` — see the comment there for what that cost.
     """
     ccxt_symbol = trade.asset if ":USDT" in trade.asset else f"{trade.asset}:USDT"
 
@@ -299,11 +301,37 @@ async def _get_actual_close_price(
     if current_price > 0:
         return current_price, "manually closed", "ticker"
 
-    # ── 4. Last resort: entry price ──────────────────────────────────
+    # ── 4. NOTHING COULD BE READ. This used to return `trade.entry_price`
+    # with the source "fallback", and the caller booked the close at it — so
+    # `_calc_pnl` came out at exactly 0.00 and a position that vanished from
+    # the venue entered the permanent record as a MEASURED break-even. It was
+    # liquidated, or stopped out, or closed in profit; nobody knows which, and
+    # 0.00 is the one answer we can be sure is wrong.
+    #
+    # Note WHEN this branch is reached: steps 1 and 2 found no fill, and step 3
+    # could not read a ticker either (`current_price <= 0`). So the substitute
+    # was a price from an arbitrary earlier moment standing in for one that
+    # could not be read at all.
+    #
+    # The damage ran past the record. `close_position` computes the P&L and
+    # hands it to `_on_trade_close`, which appends to `_realized_pnl_window` —
+    # feeding TWO tighten-only size controls in opposite wrong directions:
+    # the live-performance governor counts `p > 0` for wins over `len(recent)`,
+    # so a fabricated 0.0 is not a win but IS in the denominator and drags the
+    # win rate down; the equity throttle's `rolling_profit_factor` sees a value
+    # that adds to neither gross profit nor gross loss, yet it still counts
+    # toward `equity_throttle_min_samples` — an evidence floor satisfied by a
+    # non-measurement.
+    #
+    # So: say so, and let the caller decide. A ticker that will not read is
+    # usually a blip, the sweep runs again, and the next pass books this at a
+    # real price. Deferring a close we cannot price is recoverable; inventing
+    # one is not.
     logger.warning(
-        "Ghost close for %s: no fill data available — using entry price (PnL=0)",
-        trade.asset)
-    return trade.entry_price, "no matching exchange position", "fallback"
+        "Ghost close for %s: no fill data and no readable ticker — NOT booking "
+        "a close at the entry price. The position is gone from the venue but "
+        "its exit price is unknown; the next sweep re-tries.", trade.asset)
+    return None, "closed on the venue, exit price unreadable", "unpriced"
 
 async def sync_portfolio_with_exchange(engine) -> list[str]:
     """Reconcile local state with the exchange.
@@ -342,6 +370,22 @@ async def sync_portfolio_with_exchange(engine) -> list[str]:
             close_price, close_reason, close_source = await _get_actual_close_price(
                 engine, exchange, trade, trade_id,
             )
+            if close_price is None:
+                # KEEP IT OPEN RATHER THAN BOOK A PRICE NOBODY READ. The
+                # position IS gone from the venue, so "open" is not true
+                # either — but it is the recoverable falsehood. This sweep
+                # runs again, and a readable ticker next pass books the close
+                # at a real price; a break-even written into the trade record
+                # and the risk windows is permanent. Local SL/TP monitoring
+                # keeps running on it in the meantime, which is the safer
+                # side of the trade-off, not merely the quieter one.
+                msg = (f"Ghost UNPRICED: {trade_id} ({key[0]} {key[1]}) — "
+                       f"{close_reason} | kept open, retried next sweep")
+                audit(trade_log, msg, action="ghost_close", result="UNPRICED",
+                      data={"trade_id": trade_id, "symbol": key[0],
+                            "direction": key[1], "source": close_source})
+                messages.append(msg)
+                continue
             try:
                 engine.portfolio.close_position(trade_id, close_price)
                 pnl = _calc_pnl(trade, close_price)
