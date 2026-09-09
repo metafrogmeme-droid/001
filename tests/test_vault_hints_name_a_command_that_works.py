@@ -31,8 +31,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bot.core.secrets_vault import _DEFAULT_MANAGED
-from bot.llm.provider import (LLMProvider, _PROVIDER_KEY_ENV, provider_key_env,
-                              settable_key_envs)
+from bot.llm.provider import _PROVIDER_KEY_ENV, LLMProvider, provider_key_env, settable_key_envs
 from bot.skills.account_commands import optional_venue_absences, vault_fix_hint
 
 SETLLM = "/setllm <provider> <key>"
@@ -71,6 +70,7 @@ class TestTheMapHasOneCopy:
         went wrong twice; `provider_key_env` is the only sanctioned reader.
         """
         import inspect
+
         from bot.skills.llm_commands import LLMCommands
         src = inspect.getsource(LLMCommands._cmd_setllm)
         assert "provider_key_env(" in src
@@ -89,8 +89,8 @@ class TestSetllmActuallyStoresTheKey:
 
     @pytest.fixture
     def run_setllm(self, monkeypatch):
-        from bot.skills import llm_commands
         from bot.llm.provider import BYOK
+        from bot.skills import llm_commands
 
         stored: dict = {}
 
@@ -296,6 +296,7 @@ class TestTheKeyThatSignsIsProtected:
         venue's own gate is the thing to ask.
         """
         from types import SimpleNamespace
+
         from bot.core.venues import HyperliquidVenue
         v = HyperliquidVenue()
         both = SimpleNamespace(hyperliquid_wallet_address="0xabc",
