@@ -29,9 +29,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.skills.quant_skill import (QuantAnalyzeSkill, _generate_synthetic_ohlcv,
-                                    read_ohlcv, synthetic_notice,
-                                    unreadable_card)
+from bot.skills.quant_skill import (
+    QuantAnalyzeSkill,
+    _generate_synthetic_ohlcv,
+    read_ohlcv,
+    synthetic_notice,
+    unreadable_card,
+)
 
 SYMBOL = "BTC/USDT"
 
