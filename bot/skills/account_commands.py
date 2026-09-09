@@ -125,6 +125,85 @@ def master_key_line(state: dict) -> str:
     return "• The master key itself: " + body
 
 
+# Venues whose operator credentials are OPTIONAL: the bot trades fine with
+# none of them set, so an operator not using one must not read a wall of red.
+# Each entry is (prefix, the keys that make the venue usable, how to set them).
+_OPTIONAL_VENUE_KEYS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("HYPERLIQUID", ("HYPERLIQUID_WALLET_ADDRESS", "HYPERLIQUID_PRIVATE_KEY"),
+     ".env (HYPERLIQUID_WALLET_ADDRESS + HYPERLIQUID_PRIVATE_KEY), then restart"),
+    ("BYBIT", ("BYBIT_API_KEY", "BYBIT_API_SECRET"), "/setexchange bybit"),
+    ("BINGX", ("BINGX_API_KEY", "BINGX_API_SECRET"), "/setexchange bingx"),
+)
+
+
+def vault_fix_hint(key: str) -> str:
+    """What to run to protect `key`. Pure, so a test can read the instruction.
+
+    IT WAS NESTED IN A 150-LINE METHOD, and its fallback was a guess about the
+    NAME rather than a reading of any command: anything ending `_API_KEY` was
+    sent to `/setllm <provider> <key>`. Four keys took that route and none of
+    them can be set that way — `ONCHAIN_API_KEY` is a Glassnode/Arkham/Nansen
+    key, `HYPERLIQUID_API_KEY` is an exchange key, `LLM_API_KEY` is the generic
+    default no invocation of that command writes, and `XAI_API_KEY` had a
+    command that ran, reported success and stored nothing. `settable_key_envs()`
+    is the reading: a key is settable by `/setllm` exactly when a provider maps
+    to it.
+
+    The Hyperliquid half was the louder tell — `HYPERLIQUID_API_KEY` said
+    `/setllm` while `HYPERLIQUID_API_SECRET` said `.env`, two halves of one
+    credential given two different instructions on one card.
+    """
+    from bot.llm.provider import settable_key_envs
+    FIX = {
+        "BITGET": "/setexchange", "BYBIT": "/setexchange bybit",
+        "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
+        "TELEGRAM_BOT_TOKEN": ".env only",
+        # It was `.env` — the fallback below — which meant the ONE secret
+        # that signs transactions was the only managed one whose sole
+        # route into the vault ran through a plaintext file on disk.
+        "WEB3_SIGNER_PRIVATE_KEY": "/setsigner",
+        "BOT_SYNC_SECRET": ".env (auto-vaults from env)",
+        "WEB_CREDS_KEY": "not needed — website submissions are sealed to this bot's own key",
+    }
+    for prefix, cmd in FIX.items():
+        if key.startswith(prefix):
+            return cmd
+    for prefix, _needed, how in _OPTIONAL_VENUE_KEYS:
+        if key.startswith(prefix):
+            return how
+    if key in settable_key_envs():
+        return "/setllm <provider> <key>"
+    return ".env"
+
+
+def optional_venue_absences(absent: list[str], present: set[str]) -> list[str]:
+    """Of `absent`, the optional-venue keys worth reporting as missing.
+
+    A venue nobody uses is not a gap, so the card suppressed every
+    `HYPERLIQUID_*` / `BYBIT_*` / `BINGX_*` key by prefix. That is right for
+    all-absent and WRONG for half-configured, which is the state that actually
+    breaks: `has_operator_credentials` needs both of Hyperliquid's keys, so an
+    address restored from the vault without its private key means the venue
+    stopped trading, silently, with the card showing nothing missing.
+
+    `present` is every key this box has a readable copy of, from either side.
+    Absent alone is not a measurement — absent *beside a configured sibling*
+    is.
+    """
+    out = []
+    for key in absent:
+        for prefix, needed, _how in _OPTIONAL_VENUE_KEYS:
+            if key.startswith(prefix):
+                # Report only when the operator has started configuring this
+                # venue: some sibling that makes it usable is already here.
+                if key in needed and any(n in present for n in needed):
+                    out.append(key)
+                break
+        else:
+            continue
+    return out
+
+
 class AccountCommands:
     """A user's own account, and the operator's keys. Host contract below."""
 
@@ -559,22 +638,7 @@ class AccountCommands:
                 "🔴 Vault unavailable (disabled or crypto missing) — secrets "
                 "will NOT survive a redeploy.")
             return
-        FIX = {
-            "BITGET": "/setexchange", "BYBIT": "/setexchange bybit",
-            "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
-            "TELEGRAM_BOT_TOKEN": ".env only",
-            # It was `.env` — the fallback below — which meant the ONE secret
-            # that signs transactions was the only managed one whose sole
-            # route into the vault ran through a plaintext file on disk.
-            "WEB3_SIGNER_PRIVATE_KEY": "/setsigner",
-            "BOT_SYNC_SECRET": ".env (auto-vaults from env)",
-            "WEB_CREDS_KEY": "not needed — website submissions are sealed to this bot's own key",
-        }
-        def _fix_for(key: str) -> str:
-            for prefix, cmd in FIX.items():
-                if key.startswith(prefix):
-                    return cmd
-            return "/setllm <provider> <key>" if key.endswith("_API_KEY") else ".env"
+        _fix_for = vault_fix_hint
         # FOUR BUCKETS, and the fourth used to be filed under two wrong ones.
         # An entry the vault holds but cannot DECRYPT has a copy on disk, so
         # "env-only … mirrored to the vault on next boot" is a promise about a
@@ -616,9 +680,15 @@ class AccountCommands:
         # WEB_CREDS_KEY is the legacy shared-key path for website submissions;
         # unset is the normal state now that they are sealed to the bot's own
         # key, so it is not reported as missing.
+        # An optional venue is suppressed only while it is ENTIRELY unset. Half
+        # of a venue's credentials is not "not using it" — it is the state that
+        # stops it trading, so those siblings are reported (see
+        # `optional_venue_absences`).
+        _have = set(protected) | set(env_only) | set(unreadable)
         used_absent = [k for k in absent
                        if not k.startswith(("HYPERLIQUID", "BYBIT", "BINGX",
                                             "ONCHAIN", "RUNECLAW", "WEB_CREDS_KEY"))]
+        used_absent = sorted(used_absent + optional_venue_absences(absent, _have))
         if used_absent:
             lines.append("🔴 <b>Missing</b> (set once, protected forever):\n"
                          + "\n".join(f"- <code>{k}</code> → {_fix_for(k)}"

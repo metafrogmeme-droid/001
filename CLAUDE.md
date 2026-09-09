@@ -387,6 +387,63 @@ from the signing library's own exception. A parser's error message is one of
 the few places key material genuinely escapes, and the mutation that made it
 `f"rejected: {raw}"` is in round 18.
 
+**A second copy of a map is a second answer, and this one was written three
+times.** `bot/llm/provider.py` holds `_PROVIDER_KEY_ENV` — which env var
+carries which provider's key, eleven rows. `set_provider` had a local copy of
+seven of them, and its own comment records the cost: a client built for Grok,
+Mistral, OpenRouter or Together came up keyless with its key sitting in the
+environment. That copy was consolidated. Two more were not. `/setllm` carried a
+hand-written **ten** of the eleven, missing `grok`, so `/setllm grok <key>`
+switched the provider, answered "LLM provider updated" and stored **nothing** —
+under a help text promising the key is "stored ENCRYPTED in the operator vault
+… survive restarts and redeploys". Free-user chat routes to Grok and falls back
+"if `XAI_API_KEY` is unset", so it fell back on every restart, and `/vault`
+reported the key missing however many times the operator set it.
+
+**The third copy was a DERIVATION, which is the hardest kind to see.**
+`shadow_eval` built the name as `f"{PROVIDER}_API_KEY"`. That is correct for
+ten of the eleven providers — and wrong for `grok`, whose key lives in
+`XAI_API_KEY`, so shadow eval read a variable that does not exist and logged
+"could not build client" with the key in the process. A convention that holds
+ten times in eleven is *why* nobody checks the eleventh. `provider_key_env()`
+and `settable_key_envs()` are the door now, and
+`tests/test_vault_hints_name_a_command_that_works.py` pins that the derivation
+misses exactly one provider, so a rename cannot quietly restore the trap.
+
+**A card that names a command is claiming the command does something.**
+`/vault` prints, per managed secret, what to run to protect it — its docstring
+says it "is how you verify nothing is left unprotected" — and it picked that by
+asking whether the NAME ends `_API_KEY`. That is a guess about what a key is
+FOR, not a reading of what any command DOES, and four keys took the route:
+`ONCHAIN_API_KEY` (a Glassnode/Arkham/Nansen key), `HYPERLIQUID_API_KEY` (an
+exchange key), `LLM_API_KEY` (the generic default no invocation writes), and
+`XAI_API_KEY` (above). Membership in `settable_key_envs()` is the reading. The
+loudest tell was there all along: `HYPERLIQUID_API_KEY` said `/setllm` while
+`HYPERLIQUID_API_SECRET` said `.env` — two halves of one credential, two
+instructions, one card. `vault_fix_hint` is module-level because there was no
+seam; the map was nested in a 150-line method, so nothing could read the
+instruction an operator is given, and `/setsigner`'s own test grepped that
+method for the map rather than asking it.
+
+**And the vault protected two names read nowhere while missing the one that
+signs.** `venues.py` and `config.py` both say operator Hyperliquid needs
+`HYPERLIQUID_WALLET_ADDRESS` + `HYPERLIQUID_PRIVATE_KEY`, and
+`has_operator_credentials` reads exactly those. `_DEFAULT_MANAGED` held
+`HYPERLIQUID_API_KEY` and `_API_SECRET` — grep the tree, nothing reads either —
+plus the address, and **not** the agent-wallet private key that signs live
+perps orders. Same shape as `WEB3_SIGNER_PRIVATE_KEY` one venue over and
+quieter: a wiped `.env` restored the address, the gate went False, and the
+venue simply stopped trading with the card showing nothing missing. Coverage of
+a STORE is not coverage of the KEYS IN IT — check the list against the readers,
+not against itself.
+
+**Suppression needs the same three values as everything else.** All those keys
+were hidden from `Missing` by prefix, correctly: a venue nobody uses is not a
+gap. But half a venue is not an unused venue — it is the state that breaks — so
+`optional_venue_absences` reports a key only when a sibling that makes the
+venue usable is already stored. Absent alone is not a measurement; absent
+beside a configured sibling is.
+
 **A warning that fires once is not a surface.** `_load_or_create_master_key`
 logs "set RUNECLAW_SECRETS_KEY for production" on the boot that GENERATES the
 key, and every boot after that takes `if p.exists(): return p.read_bytes()` in

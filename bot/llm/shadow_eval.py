@@ -64,7 +64,7 @@ class ShadowEval:
     # ── client management ─────────────────────────────────────────
     def _resolve(self, analyzer):
         """(client, cfg) for the shadow provider, cached until env changes."""
-        from bot.llm.provider import LLMConfig, LLMProvider
+        from bot.llm.provider import LLMConfig, LLMProvider, provider_key_env
         provider_s = os.environ.get("LLM_SHADOW_PROVIDER", "").strip().lower()
         model = os.environ.get("LLM_SHADOW_MODEL", "").strip()
         key = f"{provider_s}|{model}"
@@ -77,9 +77,17 @@ class ShadowEval:
             return None, None
         cfg = LLMConfig(
             provider=provider, model=model,
+            # The third lookup was `f"{PROVIDER}_API_KEY"` — a name DERIVED
+            # from the provider's own, which is right for 10 of the 11 and
+            # wrong for `grok`, whose key lives in XAI_API_KEY. So shadow eval
+            # on Grok read an env var that does not exist, got "", and logged
+            # "could not build client" with the key sitting in the process.
+            # A derivation is a third copy of the map with extra steps; the
+            # explicit override and the `_LLM_` spelling stay, since operators
+            # may already set them.
             api_key=os.environ.get("LLM_SHADOW_API_KEY", "")
             or os.environ.get(f"{provider_s.upper()}_LLM_API_KEY", "")
-            or os.environ.get(f"{provider_s.upper()}_API_KEY", ""),
+            or os.environ.get(provider_key_env(provider), ""),
             base_url=os.environ.get("LLM_SHADOW_BASE_URL", ""),
         )
         client = analyzer._build_client_for_config(cfg)

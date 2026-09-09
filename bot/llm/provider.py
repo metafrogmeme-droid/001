@@ -442,6 +442,49 @@ _PROVIDER_KEY_ENV = {
 
 _KEYLESS_PROVIDERS = (LLMProvider.OLLAMA, LLMProvider.RUNECLAW)
 
+
+def provider_key_env(provider: LLMProvider | str) -> str:
+    """The env var holding this provider's key, or "" if it has none.
+
+    Accepts an ``LLMProvider`` or the lowercase string a command parsed.
+
+    THE MAP ABOVE HAS BEEN COPIED TWICE AND WAS WRONG BOTH TIMES. The first
+    copy is recorded ten lines into `set_provider` — "was a local copy of 7 of
+    the 11", so a client built for Grok, Mistral, OpenRouter or Together came
+    up keyless with its key sitting in the environment. The second lived in
+    `/setllm` and carried 10 of the 11: `grok` was missing, so
+    `/setllm grok <key>` switched the provider, answered "LLM provider
+    updated", and stored NOTHING — under a help text promising the key is
+    "stored ENCRYPTED in the operator vault". Free-user chat routes to Grok
+    and falls back "if XAI_API_KEY is unset", so it fell back on every
+    restart, and `/vault` reported XAI_API_KEY missing however many times the
+    operator set it.
+
+    Both copies were written because the map was private. It stays private;
+    this is the door, so the next caller extends the map instead of retyping
+    a subset of it.
+    """
+    try:
+        p = provider if isinstance(provider, LLMProvider) else LLMProvider(str(provider).lower())
+    except ValueError:
+        return ""
+    return _PROVIDER_KEY_ENV.get(p, "")
+
+
+def settable_key_envs() -> frozenset[str]:
+    """Every env var `/setllm <provider> <key>` can actually write.
+
+    `/vault` names the command that fills each managed secret, and it decided
+    that by asking whether the NAME ends `_API_KEY` — which is a guess about
+    what a key is for, not a reading of what any command does. It sent
+    `ONCHAIN_API_KEY` (a Glassnode/Arkham/Nansen key), `HYPERLIQUID_API_KEY`
+    (an exchange key) and `LLM_API_KEY` (the generic default, which no
+    invocation of that command sets) to `/setllm`. Membership here is the
+    reading: a key is settable by that command exactly when some provider
+    maps to it.
+    """
+    return frozenset(_PROVIDER_KEY_ENV.values())
+
 # ── Env-keyed fallback chains ────────────────────────────────────────
 #: The providers a call falls through to when its routed one fails, in
 #: order. Each step is ``(provider, model, admin_only)``; ``model=None`` means

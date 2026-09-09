@@ -299,9 +299,15 @@ class TestWiring:
         assert src.index("check_signing_key(") < src.index("store_secrets(")
 
     def test_vault_points_at_the_command_not_at_env(self):
-        """`/vault` printed `→ .env` for this key — the whole defect."""
-        src = inspect.getsource(TelegramHandler._cmd_vault)
-        assert '"WEB3_SIGNER_PRIVATE_KEY": "/setsigner"' in src
+        """`/vault` printed `→ .env` for this key — the whole defect.
+
+        This grepped `_cmd_vault`'s source for the map entry, and broke the
+        moment the map moved out of the method — while the card's answer was
+        unchanged. The map was nested there because there was no seam; there
+        is one now, so ask it.
+        """
+        from bot.skills.account_commands import vault_fix_hint
+        assert vault_fix_hint("WEB3_SIGNER_PRIVATE_KEY") == "/setsigner"
 
     def test_the_key_is_vault_managed(self):
         from bot.core.secrets_vault import _DEFAULT_MANAGED

@@ -31,7 +31,7 @@ from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
 from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import sweep_note as _sweep_note
 from bot.formatters.brain_state import untested_confirmation as _untested_confirm
-from bot.llm.provider import BYOK, LLMConfig, LLMProvider
+from bot.llm.provider import BYOK, LLMConfig, LLMProvider, provider_key_env
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
@@ -270,14 +270,14 @@ class LLMCommands:
             # runtime source; the vault re-injects the env var on the next
             # boot so tier resolution finds it again.
             if api_key:
-                _key_env = {
-                    "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
-                    "gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY",
-                    "deepseek": "DEEPSEEK_API_KEY", "alibaba": "ALIBABA_API_KEY",
-                    "mistral": "MISTRAL_API_KEY", "together": "TOGETHER_API_KEY",
-                    "openrouter": "OPENROUTER_API_KEY",
-                    "runeclaw": "RUNECLAW_LLM_API_KEY",
-                }.get(provider_str)
+                # ONE MAP. This was a 10-row retyping of `_PROVIDER_KEY_ENV`,
+                # missing `grok` — so `/setllm grok <key>` came through here,
+                # found nothing to store, and still printed "LLM provider
+                # updated" under a help text promising the key survives a
+                # redeploy. Free-user chat routes to Grok and falls back when
+                # XAI_API_KEY is unset, so every restart silently dropped it.
+                # provider.py's own `set_provider` carries the same scar.
+                _key_env = provider_key_env(provider_str)
                 if _key_env:
                     try:
                         from bot.core.secrets_vault import store_secrets
