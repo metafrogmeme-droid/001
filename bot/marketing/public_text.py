@@ -152,16 +152,39 @@ def public_close_line(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
     # leaves `&am`, which is malformed markup rather than a shortened word.
     reason = html.escape(
         str(close_data.get("reason") or "").replace("_", " ").strip()[:48])
-    icon = "\U0001f7e2" if pct > 0 else "\U0001f534" if pct < 0 else "⚪"
+    # COLOUR IS A CLAIM, AND THE CLAIM IS ABOUT THE ACCOUNT, NOT THE CHART.
+    # Keyed on the price move, a close whose move was positive but whose fees
+    # ate it renders green on a public channel — and at 20x the fees are 0.12%
+    # of notional, so any move smaller than that flips the sign. `pnl_usd` is
+    # net and its SIGN is readable even when the margin was never recorded, so
+    # it decides here; it is read, never printed (§4).
+    _net = _num(close_data, "pnl_usd")
+    _signal = _net if _net is not None else pct
+    icon = "\U0001f7e2" if _signal > 0 else "\U0001f534" if _signal < 0 else "⚪"
 
     head = f"{icon} <b>{sym}</b> {direction} closed".rstrip()
     if reason:
         head += f" ({reason})"
 
     parts = [f"Move: <code>{pct:+.2f}%</code>"]
-    lev = _num(close_data, "pnl_pct_margin")
+    # THE MARGIN FIGURE IS THE NET ONE OR IT IS NOT PUBLISHED.
+    # This read `pnl_pct_margin`, which `close_pct` builds as price-move x
+    # leverage and which therefore contains no fees at all. The omission is a
+    # constant — fees/margin is 2 * fee_pct * leverage, so 1.6-2.4% of margin
+    # at 20x — and it runs the flattering way every time. The live CLUSDT card
+    # published `on margin -1.67%` on a limit entry whose fee drag alone was
+    # about 1.6%: roughly half the loss, missing, on a public channel.
+    lev = _num(close_data, "pnl_pct_margin_net")
     if lev is not None and abs(lev - pct) > 0.005:
         parts.append(f"on margin <code>{lev:+.2f}%</code>")
+    else:
+        # OMIT, not substitute. A composite line where one dead source must not
+        # blank the rest — so the leverage still goes out, because that is a
+        # FACT about the position rather than a measurement of its return, and
+        # without it a 20x close reads as a 0.08% nothing.
+        _lv = _num(close_data, "leverage")
+        if _lv is not None and _lv > 1:
+            parts.append(f"at <code>{_lv:.0f}×</code>")
     hold = str(close_data.get("hold_time") or "").strip()
     if hold:
         parts.append(f"Hold: <code>{hold}</code>")

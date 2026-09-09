@@ -32,8 +32,18 @@ from bot.formatters.share_invite import (MoneyLeak, assert_no_money,
                                          telegram_share_url, valid_ref_code)
 
 # The real TAO close from the session that prompted this.
+#
+# THIS FIXTURE WAS ALWAYS SELF-CONSISTENT AND NOBODY READ IT THAT WAY. The
+# published `pnl_pct_margin` is 9.47, and the account made $0.15 on $1.88 of
+# margin, which is 7.98% — the 1.49-point gap being its $0.03 of fees over that
+# same margin (1.60%, and the remainder is the fixture's own rounding). 9.47 is
+# `price_move x leverage`, computed by `close_pct` from two prices, with no fee
+# in it. At 20x a limit-in/market-out round trip costs (0.02 + 0.06)% x 20 =
+# 1.6% of margin, so that gap is not noise; it is the constant, and the share
+# sheet published the flattering side of it.
 TAO = {"symbol": "TAO/USDT:USDT", "direction": "LONG", "pnl_pct": 0.4736,
-       "pnl_pct_margin": 9.47, "leverage": 20, "hold_time": "1.8h",
+       "pnl_pct_margin": 9.47, "pnl_pct_margin_net": 7.98,
+       "leverage": 20, "hold_time": "1.8h",
        "pnl_usd": 0.15, "size_usd": 1.88, "fees": 0.03, "entry": 204.82,
        "exit": 205.79}
 
@@ -50,7 +60,7 @@ class TestNoDollarFigureCanEscape:
     def test_percent_and_leverage_survive(self):
         """Scrubbing must not gut the card — percent is explicitly allowed."""
         text = close_share_text(TAO)
-        assert "+9.47%" in text and "20×" in text and "TAOUSDT" in text
+        assert "+7.98%" in text and "20×" in text and "TAOUSDT" in text
 
     def test_assert_no_money_actually_fires(self):
         """A guard nobody has driven to failure is not a guard."""
@@ -79,37 +89,46 @@ class TestNoDollarFigureCanEscape:
 
 class TestTheRedHerring:
     def test_a_measured_break_even_is_still_shareable(self):
-        data = dict(TAO, pnl_pct=0.0, pnl_pct_margin=0.0)
+        data = dict(TAO, pnl_pct=0.0, pnl_pct_margin=0.0,
+                    pnl_pct_margin_net=0.0, pnl_usd=0.0)
         text = close_share_text(data)
         assert text is not None, "0.00% is a real result, not a missing one"
         assert "+0.00%" in text
 
     def test_an_unreadable_close_produces_no_button_at_all(self):
-        data = dict(TAO, pnl_pct=None, pnl_pct_margin=None)
+        data = dict(TAO, pnl_pct=None, pnl_pct_margin=None,
+                    pnl_pct_margin_net=None, pnl_usd=None)
         assert close_share_text(data) is None
         assert close_share_button(data, "bot") is None
 
     def test_break_even_is_not_labelled_a_win(self):
         """`>= 0` would call it one, and would call an unreadable close one too."""
-        btn = close_share_button(dict(TAO, pnl_pct=0.0, pnl_pct_margin=0.0), "bot")
+        btn = close_share_button(dict(TAO, pnl_pct=0.0, pnl_pct_margin=0.0,
+                                      pnl_pct_margin_net=0.0, pnl_usd=0.0), "bot")
         assert btn["text"] == "📣 Share", btn["text"]
 
     def test_a_real_win_is(self):
         assert close_share_button(TAO, "bot")["text"] == "📣 Share this win"
 
     def test_a_loss_is_shareable_but_not_a_win(self):
-        btn = close_share_button(dict(TAO, pnl_pct=-1.0, pnl_pct_margin=-20.0), "bot")
+        btn = close_share_button(dict(TAO, pnl_pct=-1.0, pnl_pct_margin=-20.0,
+                                      pnl_pct_margin_net=-21.6, pnl_usd=-0.41), "bot")
         assert btn is not None and btn["text"] == "📣 Share"
 
     def test_a_nan_percent_is_unreadable_not_zero(self):
-        data = dict(TAO, pnl_pct=float("nan"), pnl_pct_margin=float("nan"))
+        data = dict(TAO, pnl_pct=float("nan"), pnl_pct_margin=float("nan"),
+                    pnl_pct_margin_net=float("nan"), pnl_usd=float("nan"))
         assert close_share_text(data) is None
 
 
 class TestLeverageGoesWithTheNumber:
-    """+0.47% of price became +9.47% on margin at 20×. Publishing the second
+    """+0.47% of price became +7.98% on margin at 20×. Publishing the second
     alone reads as skill and is what a reader compares to their own unlevered
-    results. Percent breaks no dollar rule and can still mislead."""
+    results. Percent breaks no dollar rule and can still mislead.
+
+    Leverage multiplies the FEE as well as the move, which is why the figure
+    here is 7.98 and not the 9.47 this class was written against: a 20x round
+    trip costs 1.6-2.4% of margin before the position does anything."""
 
     def test_the_underlying_move_and_leverage_are_stated(self):
         text = close_share_text(TAO)
@@ -117,18 +136,25 @@ class TestLeverageGoesWithTheNumber:
 
     def test_an_unlevered_close_is_not_cluttered_with_1x(self):
         text = close_share_text(dict(TAO, leverage=1, pnl_pct_margin=0.47,
-                                     pnl_pct=0.47))
+                                     pnl_pct_margin_net=0.45, pnl_pct=0.47))
         assert "1×" not in text
 
     def test_the_headline_matches_the_operators_own_card(self):
-        """The private card showed +9.47%. A share quoting +0.47% would look
-        like a different trade to the person who posted it."""
-        assert "+9.47%" in close_share_text(TAO)
+        """A share quoting +0.47% would look like a different trade to the
+        person who posted it — so the share is on the operator's own basis.
+
+        That card used to show +9.47% and both now show +7.98%: the basis was
+        always right and the NUMBER on it was gross. The property this test
+        exists for is unchanged and is now checkable against a card that is
+        also correct, rather than against one that agreed by being wrong in
+        the same way.
+        """
+        assert "+7.98%" in close_share_text(TAO)
 
     def test_leverage_is_omitted_when_the_move_is_unknown(self):
         """Cannot state '20× on a ?% move' — so it states neither."""
         text = close_share_text(dict(TAO, pnl_pct=None))
-        assert "20×" not in text and "+9.47%" in text
+        assert "20×" not in text and "+7.98%" in text
 
 
 class TestTheInviteLink:

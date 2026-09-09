@@ -64,6 +64,73 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def position_fee_estimate(pos: dict, comm_pct: float) -> dict:
+    """Round-trip fee and funding for one open-position row — or Nones.
+
+    A FEE IS A FRACTION OF A NOTIONAL. That sentence was already the comment
+    over this arithmetic when it lived inline in `_cmd_open_positions`, and the
+    line under it took the fraction of ``size_usd``:
+
+        entry_fee    = size_usd      * (comm_pct / 100.0)
+        exit_fee     = exit_notional * (comm_pct / 100.0)
+        funding_paid = size_usd      * (0.01 / 100.0) * (hold_h / 8.0)
+
+    ``size_usd`` on the live branch is ``cost`` — the MARGIN — while
+    ``exit_notional`` one line below is the real notional. So the two halves of
+    a single round trip were computed on bases a factor of ``leverage`` apart,
+    three lines apart, under a comment naming the right one; at 20x the entry
+    fee and the funding came out at a twentieth of what was paid, and both feed
+    the ``net_pnl`` the detail card prints.
+
+    Extracted because a fix that lands only inline is a fix nothing can drive.
+    The block sat in a 400-line async handler behind a Telegram update, so the
+    only available check was a grep for the expression — and a grep cannot tell
+    which quantity a name holds, which is the entire defect.
+
+    Every value is None-able and they fail INDEPENDENTLY: a position whose mark
+    cannot be read still has a knowable entry fee. Zero is never substituted —
+    ``$0.00 fees`` reads as a free position, and no position is free.
+    """
+    entry = pos.get("entry")
+    current = pos.get("current")
+    qty = pos.get("quantity")
+    hold_h = pos.get("hold_hours")
+
+    # `entry` is written as `pos.get("entry", 0)` by both row builders, so 0 is
+    # its ABSENT value here, not a price. A positive test is the one that means
+    # "we have it"; `is not None` passes on the absent case and yields a
+    # notional of 0, which prints as the free position above.
+    def _notional(price: object) -> Optional[float]:
+        try:
+            p = float(price)  # type: ignore[arg-type]
+            q = float(qty)    # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        if p != p or q != q:          # NaN
+            return None
+        return p * q if p > 0 and q > 0 else None
+
+    entry_notional = pos.get("notional_usd") or _notional(entry)
+    # The EXIT leg is charged on the exit price. Falling back to the entry
+    # notional is an approximation and is marked as one rather than presented
+    # as a reading of the current book.
+    exit_notional = _notional(current) or entry_notional
+
+    if not entry_notional or not exit_notional:
+        return {"entry_fee": None, "exit_fee": None,
+                "total_fees": None, "funding_paid": None}
+
+    entry_fee = entry_notional * (comm_pct / 100.0)
+    exit_fee = exit_notional * (comm_pct / 100.0)
+    # Funding is charged on the position held — notional — every 8 hours, and
+    # is unknowable without an age. It is the one of the four that stays None
+    # when the others are readable.
+    funding_paid = (None if hold_h is None
+                    else entry_notional * (0.01 / 100.0) * (float(hold_h) / 8.0))
+    return {"entry_fee": entry_fee, "exit_fee": exit_fee,
+            "total_fees": entry_fee + exit_fee, "funding_paid": funding_paid}
+
+
 class TradingCommands:
     """Open, close, list and stop. Host contract below; methods after."""
 
@@ -1530,12 +1597,15 @@ class TradingCommands:
                     _mark = portfolio._last_prices.get(pos.asset)
                     _priced = _mark is not None and _mark > 0
                     last_price = _mark if _priced else pos.entry_price
+                    # Hoisted: the size basis below needs it whether or not the
+                    # mark could be read, and a leverage is a property of the
+                    # position rather than of our ability to price it.
+                    pos_lev = getattr(pos, 'leverage', 1) or 1
                     if _priced:
                         if pos.direction.value == "LONG":
                             pnl_pct_raw = ((last_price - pos.entry_price) / pos.entry_price) * 100
                         else:
                             pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
-                        pos_lev = getattr(pos, 'leverage', 1) or 1
                         pnl_pct = pnl_pct_raw * pos_lev
                     else:
                         pnl_pct = None
@@ -1552,7 +1622,22 @@ class TradingCommands:
                         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
                         "sl": round(pos.stop_loss, 6),
                         "tp": round(pos.take_profit, 6),
-                        "size_usd": round(pos.quantity * pos.entry_price, 2),
+                        # MARGIN, matching the live branch above, because both
+                        # lists go to one `open_book_return` and its docstring
+                        # says in as many words that `size_usd` is the margin
+                        # and that "notional would understate the return by the
+                        # leverage multiple". `PortfolioTracker.open_position`
+                        # sets `quantity = size_usd * leverage / entry`, so
+                        # `quantity * entry` is the NOTIONAL — the two branches
+                        # were filling one key with quantities a factor of
+                        # `leverage` apart. With no `pnl_usd` on this row the
+                        # book derives one as `size_usd * pnl_pct / 100`, and
+                        # `pnl_pct` here is already the ROE (l.1539), so the
+                        # dollars came out `leverage` times too large.
+                        "size_usd": round(
+                            pos.quantity * pos.entry_price / pos_lev, 2),
+                        "notional_usd": round(pos.quantity * pos.entry_price, 2),
+                        "leverage": pos_lev,
                         "comm_pct": CONFIG.risk.commission_pct,
                         "hold_hours": round(hold_h, 1),
                     })
@@ -1647,28 +1732,26 @@ class TradingCommands:
             else:
                 hold_str = f"{hold_h / 24:.1f}d"
 
-            # Fee calculations. A fee is a fraction of a notional; with no
-            # margin and no age there is no fraction to take, and $0.00 fees
-            # would read as a free position.
-            exit_notional = pos.get("notional_usd")
-            if exit_notional is None:
-                _qty = pos.get("quantity")
-                exit_notional = (current * _qty
-                                 if current is not None and _qty is not None
-                                 else None)
-            if size_usd is None or hold_h is None or exit_notional is None:
-                entry_fee = exit_fee = total_fees = funding_paid = None
-            else:
-                entry_fee = size_usd * (comm_pct / 100.0)
-                exit_fee = exit_notional * (comm_pct / 100.0)
-                total_fees = entry_fee + exit_fee
-                funding_paid = size_usd * (0.01 / 100.0) * (hold_h / 8.0)
+            # Fees, on the notional both legs are actually charged against —
+            # see `position_fee_estimate` for what this used to take the
+            # fraction of and what that cost at 20x.
+            _fees = position_fee_estimate(pos, comm_pct)
+            entry_fee = _fees["entry_fee"]
+            exit_fee = _fees["exit_fee"]
+            total_fees = _fees["total_fees"]
+            funding_paid = _fees["funding_paid"]
             # Net is only knowable if gross is. Subtracting fees from an
             # unreadable gross would print a confident negative — the position
             # shown as down exactly the fee total, which reads as a real
             # measured loss rather than "we could not price this". The card
             # renders None here as "—" via its own net_unknown branch.
-            net_pnl = (None if (pnl_usd is None or total_fees is None)
+            # `funding_paid` is tested separately from `total_fees` now that
+            # the two can fail apart: a position of unknown AGE still has a
+            # knowable fee, and the old guard only worked because every value
+            # went None together. Subtracting a None raises; the honest answer
+            # when the funding cannot be known is that the net cannot be known.
+            net_pnl = (None if (pnl_usd is None or total_fees is None
+                                or funding_paid is None)
                        else pnl_usd - total_fees - funding_paid)
 
             sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
@@ -1683,7 +1766,7 @@ class TradingCommands:
                 "pnl_pct": pnl_pct,
                 "pnl_usd": pnl_usd,
                 "net_pnl": net_pnl,
-                "fees": (None if total_fees is None
+                "fees": (None if total_fees is None or funding_paid is None
                          else total_fees + funding_paid),
                 "size_usd": size_usd,
                 "leverage": leverage,
