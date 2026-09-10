@@ -50,7 +50,9 @@ from bot.skills.scan_skill import callback_confirm_reject as _scan_callback
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import SUPPORTED_LANGS, get_user_lang, set_user_lang, t
 from bot.utils.leveraged_return import (
-    _leveraged_pnl_usd, _leveraged_return_pct, position_leverage,
+    _leveraged_pnl_usd,
+    _leveraged_return_pct,
+    position_leverage,
 )
 from bot.utils.logger import audit, system_log
 from bot.utils.user_store import is_vouchable
@@ -875,7 +877,11 @@ class CallbackHandler:
                     pnl_pct = -pnl_pct
                 sz = _cost
                 exit_notional = _qty * last_px
-                pnl_usd = 0.0  # real leveraged value set below once leverage is known
+                # None, not 0.0. A placeholder break-even that a later branch
+                # may fail to overwrite is the shape this whole change is
+                # about, and it also made mypy infer `float` for a name that
+                # is now three-valued.
+                pnl_usd = None
                 d_emoji = "\U0001f7e2" if _dir == "LONG" else "\U0001f534"
                 pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
                 sl_dist = abs(last_px - _sl) / last_px * 100 if last_px else 0
@@ -974,7 +980,10 @@ class CallbackHandler:
                     tp_tag = "bot-managed"
 
                 mode_tag = " LIVE" if is_live_pos else ""
-                lev_str = f" | {leverage:.0f}x" if leverage > 1 else ""
+                # `leverage` is three-valued now and `None > 1` RAISES —
+                # mypy caught this as a type error and it is a live crash on
+                # the card, not a complaint about annotations.
+                lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
 
                 lines = [
                     f"<b>{html.escape(pair)}</b>{mode_tag}",

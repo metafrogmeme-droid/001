@@ -51,7 +51,9 @@ from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint,
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.leveraged_return import (
-    _leveraged_pnl_usd, _leveraged_return_pct, position_leverage,
+    _leveraged_pnl_usd,
+    _leveraged_return_pct,
+    position_leverage,
 )
 from bot.utils.logger import audit, system_log
 from bot.warroom.warroom_bot import render_emergency_stop as wr_emergency_stop

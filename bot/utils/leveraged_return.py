@@ -74,7 +74,7 @@ def position_leverage(stored: object, margin_usd: object,
 
 
 def _leveraged_return_pct(entry: float, last: float, direction: str,
-                          leverage: float) -> Optional[float]:
+                          leverage: object) -> Optional[float]:
     """Return on MARGIN (ROE) — the partner of `_leveraged_pnl_usd` below.
 
     The dollar got a helper on 2026-07-xx precisely so "a leveraged % can never
@@ -119,7 +119,7 @@ def _leveraged_return_pct(entry: float, last: float, direction: str,
 
 
 def _leveraged_pnl_usd(entry: float, last: float, direction: str,
-                       cost_usd: float, leverage: float) -> Optional[float]:
+                       cost_usd: object, leverage: object) -> Optional[float]:
     """Real unrealized USD P&L for a leveraged futures position.
 
     = price-move-fraction × leverage × margin  (equivalently: ROE × margin, or
@@ -134,13 +134,14 @@ def _leveraged_pnl_usd(entry: float, last: float, direction: str,
     `realized_margin_return_pct` gives at length: 0.0 is a real, measured
     break-even and must not stand in for a quantity nobody recorded.
     """
-    if entry <= 0 or last <= 0 or cost_usd <= 0:
+    margin = _finite(cost_usd)
+    if entry <= 0 or last <= 0 or margin is None or margin <= 0:
         return None
     lev = _finite(leverage)
     if lev is None or lev <= 0:
         return None
     raw = ((last - entry) / entry) if direction == "LONG" else ((entry - last) / entry)
-    return raw * lev * cost_usd
+    return raw * lev * margin
 
 
 def realized_margin_return_pct(net_pnl: object,
