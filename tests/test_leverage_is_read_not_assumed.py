@@ -155,3 +155,31 @@ class TestTheCallSitesAskItRatherThanDeriving:
         for shape in ("notional_now / sz", "notional / cost"):
             assert shape not in src, (
                 f"the margin-or-notional derivation is back in {path}: {shape}")
+
+    def test_no_card_invents_a_leverage_from_a_missing_attribute(self):
+        """THE WORST OF THE THREE, and it was one line.
+
+            lev = getattr(p, "leverage", 10) or 1
+
+        Two fabrications from one expression: a missing attribute became TEN,
+        and a recorded 0 became one. The card prints that number as fact — the
+        renderer emits " | 10x" — and multiplies the return by it, so a
+        position nobody could size showed a tenfold ROE beside a confident
+        multiple. Any non-zero default here is a leverage invented from an
+        absence.
+        """
+        src = self._src("bot/skills/trading_commands.py")
+        import re
+        defaults = [int(d) for d in re.findall(
+            r'getattr\([^,]+,\s*["\']leverage["\']\s*,\s*(\d+)\)', src)]
+        # A DEFAULT OF 1 IS NOT THE SAME CLAIM. The first draft of this
+        # assertion forbade any non-zero default and failed on the PAPER
+        # branch, where positions are genuinely unlevered — so 1 is a real
+        # reading there, exactly as `_margin = entry * qty` is in the paper
+        # branch of the detail card. Not every match is a defect, including
+        # in your own new tests. What is forbidden is a default that asserts
+        # LEVERAGE the record never carried.
+        invented = [d for d in defaults if d > 1]
+        assert not invented, (
+            f"a card defaults a missing leverage to {invented} — printed as "
+            "fact on the row and multiplied into the return")
