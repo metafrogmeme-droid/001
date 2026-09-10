@@ -132,4 +132,38 @@ class TestTheConsumerWiring:
         assert 'hold_str = "unknown"' in self._block()
 
     def test_an_unknown_fee_is_not_a_free_position(self):
-        assert "entry_fee = exit_fee = total_fees = funding_paid = None" in self._block()
+        """DRIVEN, not scanned — the block it grepped is a function now.
+
+        This asserted the literal
+        `entry_fee = exit_fee = total_fees = funding_paid = None`, which was
+        the only check available while the arithmetic sat inline in a 400-line
+        async handler behind a Telegram update. A scan cannot see which
+        QUANTITY a name holds, and that was the whole defect underneath it:
+        the line above the one this matched took the fee as a fraction of
+        `size_usd` — the MARGIN — while the exit leg used the notional, so at
+        20x the entry fee was a twentieth of what was paid. The literal was
+        present the entire time and the number was wrong.
+
+        `position_fee_estimate` is the seam; the property this test names is
+        now checked by asking it.
+        """
+        from bot.skills.trading_commands import position_fee_estimate
+        got = position_fee_estimate(
+            {"entry": 0, "quantity": None, "hold_hours": None}, 0.06)
+        assert got["entry_fee"] is None
+        assert got["exit_fee"] is None
+        assert got["total_fees"] is None
+        assert got["funding_paid"] is None
+
+    def test_the_fee_is_a_fraction_of_the_notional_not_the_margin(self):
+        """The defect the scan above could never have seen.
+
+        `size_usd` on the live row is the margin (`cost`), and the comment
+        over the block already said "a fee is a fraction of a notional".
+        """
+        from bot.skills.trading_commands import position_fee_estimate
+        row = {"entry": 0.34, "current": 0.34, "quantity": 247.0,
+               "size_usd": 4.2, "notional_usd": 84.0, "hold_hours": 1.0}
+        got = position_fee_estimate(row, 0.06)
+        assert got["entry_fee"] == pytest.approx(84.0 * 0.0006, rel=1e-6)
+        assert got["entry_fee"] != pytest.approx(4.2 * 0.0006, rel=1e-6)

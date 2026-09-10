@@ -374,8 +374,13 @@ class AlertsMonitor:
             # slot did not match this close (see the guard above) or on a
             # failure message; the forwarder's own scrubber covers that path.
             try:
+                # `msg` is PLAIN TEXT (live_executor's close card carries no
+                # tags), and post_trade_closed now takes ready HTML — so the
+                # fallback is escaped HERE, where we know which of the two we
+                # picked. The forwarder used to escape both and printed
+                # `public_close_line`'s own tags to the channel as a result.
                 await _forwarder.post_trade_closed(
-                    public_close_line(close_data) or msg)
+                    public_close_line(close_data) or html.escape(msg))
             except Exception:
                 pass
 

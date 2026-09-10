@@ -27,19 +27,48 @@ def test_close_card_prefers_margin_pct():
     tri-state — while the BEHAVIOUR it names was untouched. Rendering the
     same payload three ways settles which number reached the card, and no
     rewrite of the read can fake it.
+
+    THE COMPARISON MOVED because the card now states its basis. It used to
+    assert `both == margin_only`, where `margin_only` handed 26.62 as the RAW
+    price move — the two cards were byte-identical precisely because nothing
+    on the card said which question the number answered. That is the property
+    this file was written about, one level up, so the card being able to tell
+    them apart is the improvement and not a regression. `margin_only` now
+    carries the figure on the same basis instead of the same value.
     """
     both = signal_card.render_close_card(
         dict(_TRIA, pnl_pct=2.66, pnl_pct_margin=26.62))
-    margin_only = signal_card.render_close_card(dict(_TRIA, pnl_pct=26.62))
+    margin_only = signal_card.render_close_card(
+        dict(_TRIA, pnl_pct_margin=26.62))
     raw_only = signal_card.render_close_card(dict(_TRIA, pnl_pct=2.66))
 
     # Carrying both draws the MARGIN figure: identical to a card given 26.62
-    # as its only percentage.
+    # on that same basis and nothing else.
     assert both == margin_only
     # ...and distinguishable from the raw price move, which is the whole
     # incident: +2.66% shown at close for a trade the live card had at
     # +26.62%, reading like the gain evaporated.
     assert both != raw_only
+    # And the same NUMBER on the other basis is now a different card, because
+    # the basis is printed. Before this, these two were byte-identical.
+    assert both != signal_card.render_close_card(dict(_TRIA, pnl_pct=26.62))
+
+
+def test_the_net_figure_outranks_the_gross_one():
+    """The fixture above was self-consistent and showed the defect all along.
+
+    $1.89 net on $7.44 of margin is +25.40%; the card printed the +26.62%
+    that `close_pct` builds as price-move x leverage, and the 1.22-point gap
+    is exactly its $0.09 of fees over that margin.
+    """
+    net = signal_card.render_close_card(
+        dict(_TRIA, pnl_pct=2.66, pnl_pct_margin=26.62,
+             pnl_pct_margin_net=25.40))
+    gross = signal_card.render_close_card(
+        dict(_TRIA, pnl_pct=2.66, pnl_pct_margin=26.62))
+    assert net != gross, "the gross figure was still drawn"
+    assert net == signal_card.render_close_card(
+        dict(_TRIA, pnl_pct_margin_net=25.40))
 
 
 def test_close_card_falls_back_to_pnl_pct():

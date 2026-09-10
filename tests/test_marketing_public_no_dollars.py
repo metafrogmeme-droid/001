@@ -122,19 +122,29 @@ class TestEveryOtherDollarAmountLeaves:
 
 class TestTheCloseIsToldInPercent:
     def test_a_win_reads_as_a_percentage(self):
+        """`pnl_pct_margin_net` is what gets published, not `pnl_pct_margin`.
+
+        The gross figure here would be 6.15 (1.23 x 5). $12.3456 net on
+        $1000 of margin is 1.23%... which is why this fixture now carries a
+        REALISTIC 5x row instead: margin $200, so 6.17% net, against a 6.15%
+        gross that never saw the fee.
+        """
         line = public_close_line({
             "symbol": "BTC/USDT:USDT", "direction": "LONG",
             "reason": "take_profit", "pnl_pct": 1.23, "pnl_pct_margin": 6.15,
-            "hold_time": "42m", "pnl_usd": 12.3456, "size_usd": 1000.0})
+            "pnl_pct_margin_net": 5.55, "leverage": 5,
+            "hold_time": "42m", "pnl_usd": 12.3456, "size_usd": 200.0})
         assert "BTCUSDT" in line and "LONG" in line
-        assert "+1.23%" in line and "+6.15%" in line and "42m" in line
+        assert "+1.23%" in line and "+5.55%" in line and "42m" in line
+        assert "+6.15%" not in line, "the gross figure reached the channel"
         assert "$" not in line
-        assert "12.34" not in line and "1000" not in line
+        assert "12.34" not in line and "200.0" not in line
 
     def test_the_leveraged_figure_is_omitted_when_it_adds_nothing(self):
         line = public_close_line({
             "symbol": "ETH/USDT", "direction": "SHORT", "reason": "",
-            "pnl_pct": -0.5, "pnl_pct_margin": -0.5, "hold_time": ""})
+            "pnl_pct": -0.5, "pnl_pct_margin": -0.5,
+            "pnl_pct_margin_net": -0.5, "leverage": 1, "hold_time": ""})
         assert line.count("%") == 1
         assert "-0.50%" in line
 
@@ -228,6 +238,13 @@ class TestTheBoundaryEnforcesItRegardlessOfCaller:
             "symbol": "BTC", "direction": "LONG", "pnl_pct": -1.23,
             "hold_time": "1h"})))
         assert "\U0001f4c9" in f._bot.sent[1]
+        # AND THE MARKUP SURVIVED THE TRIP. This test already sent exactly the
+        # message the live leak came out of and asserted on the result — it
+        # checked the emoji and never this, which is the whole distance between
+        # a green suite and `🔴 <b>CLUSDT</b> LONG closed` printed to a public
+        # channel. One assertion; see test_public_close_markup_survives.py.
+        assert "&lt;b&gt;" not in f._bot.sent[0], "the forwarder escaped its own HTML"
+        assert "<b>" in f._bot.sent[0]
 
 
 class TestTheCallersWereFixedAndNotOnlyTheBackstop:

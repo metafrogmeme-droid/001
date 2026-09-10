@@ -29,6 +29,16 @@ the shared figure is a leveraged one, the leverage and the underlying move go
 with it. Percent is permitted by the dollar rule; an unqualified percent is
 still capable of misleading, and that is the rule this repo actually cares
 about.
+
+AND SO ARE FEES. That `+9.47%` was `price_move x leverage` — the GROSS return
+on margin, which is what `close_pct` computes and what every close record
+published. Leverage multiplies the fee too: a round trip costs
+`2 * fee_pct * leverage` of margin, so 1.6-2.4% of it at 20× on this repo's
+configured rates, before the position has done anything. The TAO share was
+therefore about two points better than the account was, and the direction is
+always flattering — a winner prints larger, a loser smaller. The figure here
+is `pnl_pct_margin_net` now, and a close whose margin was never recorded
+publishes no margin figure at all rather than the gross one.
 """
 from __future__ import annotations
 
@@ -166,7 +176,14 @@ def close_share_text(close_data: Optional[Mapping[str, Any]],
     if not symbol or direction not in ("LONG", "SHORT"):
         return None
 
-    margin_pct = _pct(close_data.get("pnl_pct_margin"))
+    # NET, NOT GROSS. This read `pnl_pct_margin`, which is price-move x
+    # leverage with no fees in it — see the module docstring's own TAO example,
+    # `+9.47% on margin at 20x`, where a 20x round trip costs 1.6-2.4% of
+    # margin in fees that the figure never saw. Publishing gross is not a
+    # rounding difference on a share sheet: at 20x a +0.10% move is +2.0% gross
+    # and -0.4% net, so the button said "Share this win" and published +2.00%
+    # for a trade that lost money.
+    margin_pct = _pct(close_data.get("pnl_pct_margin_net"))
     notional_pct = _pct(close_data.get("pnl_pct"))
     headline = margin_pct if margin_pct is not None else notional_pct
     if headline is None:
@@ -217,14 +234,25 @@ def close_share_button(close_data: Optional[Mapping[str, Any]],
 
 
 def _is_win(close_data: Optional[Mapping[str, Any]]) -> bool:
-    """True only for a POSITIVE readable return.
+    """True only for a POSITIVE readable NET return.
 
     `>= 0` would label an unreadable close a win — the `(x or 0) >= 0` shape
     this repo has been bitten by. Unknown is not a win.
+
+    NEITHER IS A GROSS PROFIT. This read `pnl_pct_margin` and then fell back to
+    `pnl_pct`, and both are price-derived: at 20x a +0.10% move is +2.0% gross
+    on margin and -0.4% after the round trip's fees, so both readings said WIN
+    on a trade that lost money — and this function's only job is to decide
+    whether the button says "Share this win" on a public share sheet.
+
+    The price-move fallback is gone rather than reordered. `pnl_usd` is net and
+    settles the question outright whenever the close was priced at all; a close
+    with neither is not a win, which is the same fail-closed answer the rest of
+    this function already gives.
     """
     if not close_data:
         return False
-    value = _pct(close_data.get("pnl_pct_margin"))
+    value = _pct(close_data.get("pnl_pct_margin_net"))
     if value is None:
-        value = _pct(close_data.get("pnl_pct"))
+        value = _pct(close_data.get("pnl_usd"))
     return value is not None and value > 0

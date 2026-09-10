@@ -8,7 +8,6 @@ no sensitive data. Public-facing marketing content only.
 
 from __future__ import annotations
 
-import html
 import json
 import re
 import threading
@@ -196,7 +195,6 @@ class ChannelForwarder:
         if not self._enabled or not self._group_ids:
             return
         try:
-            lines = close_msg.strip().split("\n")
             # The win/loss emoji used to key off "+$", which is exactly the
             # substring §4 removes from this surface — so the trophy would have
             # silently become a chart-down on every winning trade. The percent
@@ -206,7 +204,19 @@ class ChannelForwarder:
             now = datetime.now(UTC).strftime("%H:%M UTC")
 
             _sep = "\u2500" * 18
-            body = "\n".join(html.escape(line) for line in lines)
+            # READY HTML IN, NOTHING ESCAPED HERE. This used to escape the
+            # message line by line, and it received
+            # two different kinds of message: `public_close_line`'s HTML, and
+            # the private plain-text `close_msg` when that returns None. The
+            # escape is right for the second and wrong for the first, and by
+            # this point nothing can tell them apart \u2014 so a live card went out
+            # reading `\ud83d\udd34 <b>CLUSDT</b> LONG closed` with the tags printed.
+            #
+            # The boundary moved to the two producers instead:
+            # `public_close_line` escapes the fields it interpolates, and
+            # `alerts_monitor` escapes the plain-text fallback where it picks
+            # it. Both hand this ready HTML.
+            body = close_msg.strip()
             msg = (
                 f"{emoji} <b>TRADE CLOSED</b>\n"
                 f"{_sep}\n\n"

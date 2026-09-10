@@ -174,7 +174,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 793 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 792 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -257,6 +257,38 @@ so an unmeasurable close was indistinguishable from a measured break-even.
 `r_multiple_for` answers `None` for both, `average_r` carries `scored`/`total`
 beside the mean, and the card says *"R unknown — no stop on record"* rather
 than formatting one.
+
+**The same shape on the return itself, and what it omitted was a CONSTANT.**
+`close_pct` builds `pnl_pct_margin` from two prices and a leverage, so it is
+the GROSS return on margin, and four surfaces rendered it as *the* return — the
+public channel, the share sheet, the share button's win/lose label, and the PNG
+close card. Fees are a fraction of NOTIONAL and notional is margin × leverage,
+so `fees / margin = 2 × fee_pct × leverage`: **1.2% of margin at 10× and 2.4%
+at 20×**, before the position has done anything, and always in the flattering
+direction — a win prints larger than it was and a loss smaller. **Two fixtures
+already in the suite were self-consistent proofs and nobody read them that
+way**: TRIA published `+26.62%` where `$1.89 / $7.44` is `+25.40%`, TAO
+published `+9.47%` where `$0.15 / $1.88` is `+7.98%`, each gap being exactly
+its own fees. The costliest reader was `_is_win`, which fell back from the
+gross figure to the raw price move — *both* price-derived — so at 20× a
+`+0.10%` move (+2.0% gross, −0.4% net) put **"📣 Share this win"** on a losing
+trade. `realized_margin_return_pct` is the reading, and every publishing
+surface abstains when the margin was never recorded rather than falling back to
+the gross one.
+
+**And the margin it divides by had two meanings.** `size_usd` was
+`cost_usd if cost_usd > 0 else entry_price * quantity` — margin, or the
+NOTIONAL, twenty times larger at 20×, under a name that says neither, selected
+by the falsy shape where `0.0` means the venue never told us. `portfolio_return`
+documents the key as margin; `tax.js`, `intel.js` and `replay.js` each document
+it as notional. `position_size_basis` answers both separately and refuses to
+derive one from `pos.leverage` — the field these very records exist to document
+as unreliable. Its sharpest consumer was three lines of a single round trip on
+two bases, under a comment naming the right one: `entry_fee` and `funding` on
+the margin, `exit_fee` on the notional, at a twentieth of what was paid, all
+feeding the `net_pnl` a card prints. The guard over it was a **grep for a
+literal that was present and correct the whole time** — a scan cannot see which
+quantity a name holds, which was the entire defect.
 
 **A gate that scolds the cure teaches the wrong thing.** The first draft of
 `bare-compare-verdict` flagged 104 lines and most were

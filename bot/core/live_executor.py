@@ -30,6 +30,10 @@ from typing import Any, Callable, Optional, cast
 import ccxt.async_support as ccxt
 
 from bot.config import CONFIG
+from bot.utils.leveraged_return import (
+    fee_drag_on_margin_pct,
+    realized_margin_return_pct,
+)
 from bot.utils.logger import audit, trade_log, system_log
 from bot.utils.models import Direction, TradeIdea
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
@@ -503,6 +507,58 @@ def close_pct(exit_price, entry_price, direction, leverage):
     if direction == "SHORT":
         pct = -pct
     return pct, pct * int(leverage or 1)
+
+
+def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
+    """``(margin_usd, notional_usd)`` for a position — None where unrecorded.
+
+    THESE ARE DIFFERENT NUMBERS BY THE LEVERAGE MULTIPLE, and all three close
+    records used to publish one key holding whichever happened to be available:
+
+        "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0
+                    else round(pos.entry_price * pos.quantity, 2)
+
+    `cost_usd` is the margin — `_place_order` stores `raw_cost / leverage_mult`
+    and says so in as many words — while `entry_price * quantity` is the
+    notional. So the fallback did not supply a worse estimate of the same
+    quantity, it silently supplied a DIFFERENT quantity, twenty times larger on
+    a 20x position, under a name that says neither. And the selector was
+    `cost_usd > 0`, the falsy-check shape: 0.0 there means "the venue never told
+    us", which is the ORPHAN case — exactly the position whose numbers deserve
+    the least confidence.
+
+    Both are answered separately and either may be None, because a reader that
+    wants a fee wants the notional and a reader that wants a return wants the
+    margin, and neither should be handed the other one silently.
+    """
+    cost = _to_float(getattr(pos, "cost_usd", None))
+    margin = cost if (cost is not None and cost > 0) else None
+
+    entry = _to_float(getattr(pos, "entry_price", None))
+    qty = _to_float(getattr(pos, "quantity", None))
+    notional = (entry * qty
+                if entry is not None and qty is not None
+                and entry > 0 and qty > 0 else None)
+
+    # NO DERIVATION FROM LEVERAGE. `notional / pos.leverage` looks like the
+    # obvious last resort and is the one thing that must not be done here: the
+    # close records that reach this function include the ones written when the
+    # venue filled at 20x against a 5x target, so `leverage` is the field whose
+    # unreliability the whole record exists to document. A margin computed from
+    # it would be wrong by exactly the factor nobody noticed, and would then be
+    # published as a return. Unrecorded stays unrecorded.
+    return margin, notional
+
+
+def _to_float(value: Any) -> Optional[float]:
+    """A finite float, or None. NaN and inf are absences wearing digits."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if (f != f or f in (float("inf"), float("-inf"))) else f
 
 
 # F-13 FIX: Maximum order history retained in memory
@@ -9311,6 +9367,7 @@ class LiveExecutor:
                   })
 
             lev = pos.leverage or 1
+            _margin_usd, _notional_usd = position_size_basis(pos)
             # C2-58 FIX: Show both leveraged (margin) and unleveraged (notional) PnL%
             pnl_pct, pnl_pct_margin = close_pct(
                 fill_price if exit_price_known else None,
@@ -9362,12 +9419,21 @@ class LiveExecutor:
                 "exit_price_known": exit_price_known,
                 "fill_source": pos.fill_source,
                 "pnl_pct": pnl_pct,
+                # GROSS return on margin: price move x leverage, no fees in it.
+                # Kept because it is a real quantity, but every surface that
+                # publishes "the return" reads `pnl_pct_margin_net` below.
                 "pnl_pct_margin": pnl_pct_margin,  # C2-58: leveraged return
+                "pnl_pct_margin_net": realized_margin_return_pct(
+                    net_pnl, _margin_usd),
+                "fee_drag_pct": fee_drag_on_margin_pct(commission, _margin_usd),
                 "pnl_usd": None if net_pnl is None else round(net_pnl, 4),
                 "gross_pnl": None if gross_pnl is None else round(gross_pnl, 4),
                 "fees": None if commission is None else round(commission, 4),
                 "exchange_fees": round(exchange_close_fees, 4),
-                "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
+                # MARGIN, or None — never the notional wearing the same name.
+                "size_usd": None if _margin_usd is None else round(_margin_usd, 2),
+                "margin_usd": None if _margin_usd is None else round(_margin_usd, 2),
+                "notional_usd": None if _notional_usd is None else round(_notional_usd, 2),
                 "leverage": pos.leverage or 1,
                 "hold_time": hold_str,
                 "confirmed": close_confirmed,
@@ -10221,6 +10287,7 @@ class LiveExecutor:
             pnl_pct = -pnl_pct
         lev = pos.leverage or 1
         pnl_pct_margin = pnl_pct * lev
+        _margin_usd, _notional_usd = position_size_basis(pos)
         hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
         if hold_secs < 3600:
             hold_str = f"{hold_secs / 60:.0f}m"
@@ -10249,12 +10316,18 @@ class LiveExecutor:
             "entry": pos.entry_price,
             "exit": est_exit,
             "pnl_pct": pnl_pct,
+            # GROSS (price move x leverage). The published return is the _net.
             "pnl_pct_margin": pnl_pct_margin,
+            "pnl_pct_margin_net": realized_margin_return_pct(
+                net_pnl, _margin_usd),
+            "fee_drag_pct": fee_drag_on_margin_pct(commission, _margin_usd),
             "pnl_usd": round(net_pnl, 4),
             "gross_pnl": round(gross_pnl, 4),
             "fees": round(commission, 4),
             "exchange_fees": 0,
-            "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
+            "size_usd": None if _margin_usd is None else round(_margin_usd, 2),
+            "margin_usd": None if _margin_usd is None else round(_margin_usd, 2),
+            "notional_usd": None if _notional_usd is None else round(_notional_usd, 2),
             "leverage": lev,
             "hold_time": hold_str,
             "confirmed": _confirmed,
@@ -11243,6 +11316,7 @@ class LiveExecutor:
                             pnl_pct, pnl_pct_margin = close_pct(
                                 est_exit, pos.entry_price, pos.direction,
                                 pos.leverage or 1)
+                            _margin_usd, _notional_usd = position_size_basis(pos)
                             pnl_str, _pct_str, _fee_str = close_pnl_line(
                                 net_pnl, pnl_pct, pnl_pct_margin,
                                 pos.leverage or 1, commission)
@@ -11275,13 +11349,20 @@ class LiveExecutor:
                                 "entry": pos.entry_price,
                                 "exit": est_exit,
                                 "pnl_pct": pnl_pct,
+                                # GROSS. The published return is the _net one.
                                 "pnl_pct_margin": pnl_pct_margin,
+                                "pnl_pct_margin_net": realized_margin_return_pct(
+                                    net_pnl, _margin_usd),
+                                "fee_drag_pct": fee_drag_on_margin_pct(
+                                    commission, _margin_usd),
                                 "exit_price_known": est_exit is not None,
                                 "fill_source": fill_source,
                                 "pnl_usd": None if net_pnl is None else round(net_pnl, 4),
                                 "gross_pnl": None if gross_pnl is None else round(gross_pnl, 4),
                                 "fees": None if commission is None else round(commission, 4),
-                                "size_usd": round(pos.cost_usd, 2) if pos.cost_usd > 0 else round(pos.entry_price * pos.quantity, 2),
+                                "size_usd": None if _margin_usd is None else round(_margin_usd, 2),
+                                "margin_usd": None if _margin_usd is None else round(_margin_usd, 2),
+                                "notional_usd": None if _notional_usd is None else round(_notional_usd, 2),
                                 "leverage": pos.leverage or 1,
                                 "hold_time": hold_str,
                             }

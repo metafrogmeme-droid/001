@@ -1197,12 +1197,30 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     # the live position card's basis. Live incident (TRIA 10x): the live card
     # showed +22.69% (margin) and the close card +2.66% (raw price move) for
     # the same winning trade — reading like the gain evaporated at close.
-    pnl_pct = _num(data.get("pnl_pct_margin"))
+    #
+    # NET FIRST. That fix picked the right BASIS and the wrong NUMBER on it:
+    # `pnl_pct_margin` is price-move x leverage, so no fee has ever been inside
+    # it. This file's own TRIA fixture is the proof and was self-consistent all
+    # along — $1.89 net on $7.44 of margin is +25.40%, and the card printed
+    # +26.62%, the 1.22-point gap being exactly its $0.09 of fees over that
+    # margin. `_basis` names which question the hero answers so the two can
+    # never again be told apart only by whoever wrote the producer.
+    pnl_pct = _num(data.get("pnl_pct_margin_net"))
+    _basis = "on margin, after fees"
+    if pnl_pct is None:
+        pnl_pct = _num(data.get("pnl_pct_margin"))
+        _basis = "on margin, before fees"
     if pnl_pct is None:
         pnl_pct = _num(data.get("pnl_pct"))
+        _basis = "price move"
     fees = _num(data.get("fees"))
-    size_usd = data.get("size_usd", 0)
-    leverage = data.get("leverage", 1)
+    # `.get("size_usd", 0)` printed `SIZE $0.00` for a close whose margin the
+    # venue never reported — a free position, stated as measured. It only ever
+    # defaulted a MISSING key anyway, and the executor sends a present None.
+    size_usd = _num(data.get("margin_usd"))
+    if size_usd is None:
+        size_usd = _num(data.get("size_usd"))
+    leverage = _num(data.get("leverage")) or 1
     hold_time = data.get("hold_time", "")
 
     # Neutral, not green: colour is a claim, and this one runs the hero row,
@@ -1257,6 +1275,11 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     usd_text = "" if pnl_usd is None else f"  (${pnl_usd:+,.2f})"
     if usd_text:
         draw.text((PAD + pnl_tw, y + 8), usd_text, fill=pnl_color, font=f_value)
+    # A percentage with no basis beside it is three different numbers wearing
+    # one label — this card has shown the price move and the gross ROE under
+    # the same 28pt type, for the same trade, on different days.
+    if pnl_pct is not None:
+        draw.text((PAD, y + 30), _basis, fill=_GRAY, font=f_small)
     y += 42
 
     draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
@@ -1280,7 +1303,12 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     y += CELL_H + GAP
 
     lev_str = f" | {leverage:.0f}x" if leverage > 1 else ""
-    _cell(c1, y, "SIZE", f"${size_usd:,.2f}{lev_str}")
+    # "MARGIN", not "SIZE". The cell prints the collateral and always did, and
+    # the ambiguous word is how the same key came to carry the notional at some
+    # producers and the margin at others — a factor of `leverage` apart.
+    _cell(c1, y, "MARGIN",
+          f"unread{lev_str}" if size_usd is None
+          else f"${size_usd:,.2f}{lev_str}")
     _cell(c2, y, f"{direction} | HOLD", hold_time)
     y += CELL_H + GAP
 
