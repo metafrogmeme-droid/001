@@ -83,6 +83,24 @@ class _Holds(_Counting):
                  "initialMargin": 0.75, "leverage": self._lev}]
 
 
+class _HoldsTwo(_Counting):
+    """Two entries matching the same symbol AND side, at different leverage.
+
+    Not hypothetical: ccxt payloads carry per-margin-mode rows, and the
+    filter here is (symbol, contracts > 0, side) — nothing in it makes a
+    second match impossible.
+    """
+
+    async def fetch_positions(self, symbols):
+        self.calls += 1
+        return [{"symbol": "APT/USDT:USDT", "contracts": 3.0, "side": "long",
+                 "entryPrice": 5.0, "markPrice": 5.1, "unrealizedPnl": 0.3,
+                 "initialMargin": 0.75, "leverage": 20},
+                {"symbol": "APT/USDT:USDT", "contracts": 1.0, "side": "long",
+                 "entryPrice": 9.0, "markPrice": 9.1, "unrealizedPnl": 0.1,
+                 "initialMargin": 0.25, "leverage": 3}]
+
+
 class _Sequence(_Counting):
     """Answers a scripted list of venues in order, repeating the last.
 
@@ -382,6 +400,21 @@ class TestTheLastAnswerIsTheAnswer:
         assert got["state"] == "unreadable"
         assert leverage_went_unverified(got["state"], got["confirmed"])
 
+    def test_the_first_match_still_wins_when_the_venue_sends_two(self):
+        """The restructure could have changed WHICH match is taken, quietly.
+
+        The pre-retry code `return`ed on a match, so the first matching entry
+        won. Making the policy decide every exit turned that into a `break`,
+        and dropping the `break` — the mutation that SURVIVED the first round —
+        silently makes the LAST entry win instead. Nothing else here noticed,
+        because every other double sends exactly one position, and 20x against
+        3x is the difference between the overshoot guard flattening and not.
+        """
+        got = _probe(_HoldsTwo())
+        assert got["leverage"] == 20, "the second entry overwrote the first"
+        assert got["exchange_qty"] == 3.0
+        assert got["exchange_entry"] == 5.0
+
     def test_a_late_confirmation_carries_the_venues_numbers(self):
         """Not just the state: a stale zero-filled result behind a `found`
         state is the same defect one field over."""
@@ -446,6 +479,26 @@ class TestTheDefaultsAreTheOnesClaimed:
         sig = inspect.signature(LiveExecutor._verify_position_exists)
         assert sig.parameters["delay"].default == _VENUE_SETTLE_SECONDS, (
             "a second copy of the venue-settle interval is a second answer")
+
+    def test_the_default_NAMES_the_constant_rather_than_matching_its_value(self):
+        """The assertion above SURVIVED the mutation it exists to catch.
+
+        `_VENUE_SETTLE_SECONDS` is 1.5, so a hand-written `delay: float = 1.5`
+        compares equal to it and the value check passes — while being exactly
+        the second copy the check is named after. A default's value is
+        readable at runtime; which name it came from is not, so this is one of
+        the shapes CLAUDE.md keeps source scanning for. Anchored to the
+        signature's own line, because a comment quoting the constant is
+        indistinguishable from code using it.
+        """
+        from tests.source_scan import code_only
+        src = code_only(inspect.getsource(
+            LiveExecutor._verify_position_exists))
+        decl = [ln for ln in src.split("\n") if ln.strip().startswith("delay")]
+        assert decl, "the `delay` parameter was renamed — re-point this check"
+        assert any("_VENUE_SETTLE_SECONDS" in ln for ln in decl), (
+            "the retry gap is a literal now. The venue-settle interval has one "
+            f"definition and this is not it: {decl}")
 
 
 class TestTheAuditSaysHowHardItLooked:
