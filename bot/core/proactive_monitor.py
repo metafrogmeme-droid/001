@@ -1634,10 +1634,33 @@ class ProactiveMonitor:
                   f"- Failed checks: <code>{fails}</code>\n\n"
                   f"<i>{why}</i>\n"
                   f"{sep}\n"
-                  "\u26a0\ufe0f Trading is UNAFFECTED — the LLM fallback chain "
-                  "is answering these tiers from another provider, which is "
-                  "why nothing else looks wrong. The in-house model is simply "
-                  "not being used."),
+                  # "Trading is UNAFFECTED" was too broad, and the breadth is
+                  # what made it unhelpful on the day it fired. DECISIONS
+                  # are unaffected — the fallback answers, and that is
+                  # worth saying, because without it an operator hunts for
+                  # a trading fault that is not there. LATENCY is a
+                  # different claim: a 404 is not an auth error, so the
+                  # analyzer's handler condemns nothing (only
+                  # `looks_like_auth_error` marks a key), and every call to
+                  # this tier pays the failed round trip before the
+                  # fallback one. A card that reads "nothing to do here"
+                  # while each analyzed symbol carries an extra dead hop is
+                  # the same over-broad verdict this file exists to avoid,
+                  # pointed the other way.
+                  #
+                  # Offered as a CANDIDATE, never a cause. The scan card
+                  # beside it names "the per-symbol dependency (exchange
+                  # fetch or a single provider call)" as one possibility;
+                  # this is one of those, and saying which one it IS would
+                  # need a measurement nobody here has taken.
+                  "\u26a0\ufe0f Decisions are UNAFFECTED \u2014 the LLM "
+                  "fallback chain is answering these tiers from another "
+                  "provider, which is why nothing else looks wrong.\n"
+                  "It is not free, though: a 404 is not an auth error, so "
+                  "nothing condemns this endpoint, and every call to the "
+                  "tier pays the failed round trip before the fallback "
+                  "one. If scans are running slow, that is a candidate "
+                  "\u2014 not a verdict."),
             dedup_key="llm_endpoint_down")]
 
     def _check_public_gateway(self) -> list[Alert]:
