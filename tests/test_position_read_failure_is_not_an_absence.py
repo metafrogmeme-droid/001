@@ -378,9 +378,29 @@ class TestItAsksTheRightNumberOfTimes:
         assert venue.calls == 2, (
             "a bad gap swallowed the retry instead of being coerced away")
 
-    def test_a_negative_gap_is_not_passed_to_sleep(self):
-        got = _probe(_Raises(), max_attempts=2, delay=-5)
+    def test_a_negative_gap_is_not_passed_to_sleep(self, monkeypatch):
+        """This test USED TO ASSERT `attempts == 2` and called itself this.
+
+        `asyncio.sleep(-5)` does not raise — it returns immediately — so the
+        assertion held with or without the clamp, and a mutation dropping
+        `max(0.0, ...)` survived a test named for it. A name is not a
+        measurement, in a test file as much as in a grep. Record what is
+        actually handed to sleep.
+        """
+        from bot.core import live_executor as le
+
+        slept = []
+
+        async def _record(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(le.asyncio, "sleep", _record)
+        ex = LiveExecutor.__new__(LiveExecutor)
+        got = asyncio.run(LiveExecutor._verify_position_exists(
+            ex, _Raises(), "APT/USDT:USDT", "LONG",
+            max_attempts=2, delay=-5))
         assert got["attempts"] == 2
+        assert slept == [0.0], f"a negative gap reached sleep: {slept}"
 
     def test_it_does_not_sleep_after_the_last_attempt(self, monkeypatch):
         """A trailing sleep is invisible in the result and costs 1.5s on every
