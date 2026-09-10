@@ -156,6 +156,35 @@ class TestTheCallSitesAskItRatherThanDeriving:
             assert shape not in src, (
                 f"the margin-or-notional derivation is back in {path}: {shape}")
 
+    def test_the_margin_is_never_defaulted_to_the_notional(self):
+        """The conflation itself, pinned per method.
+
+        A SCAN, and saying so matters. `_cmd_open_positions` is a 250-line
+        Telegram handler with no seam, so what is available here is the shape
+        of the assignment; the BEHAVIOUR of every helper it calls is driven
+        above. It is written to catch the specific reinstatement — `_margin`
+        falling back to the notional — rather than to assert a literal is
+        present, because a scan that survives its own mutation is worthless
+        and this file has already had one of those.
+        """
+        import inspect
+        import re
+
+        from bot.skills.trading_commands import TradingCommands
+        from tests.source_scan import code_only
+        for name in ("_cmd_open_positions", "_render_livepositions_cards"):
+            fn = getattr(TradingCommands, name, None)
+            assert fn is not None, (
+                f"{name} was renamed — this scan is now checking "
+                "nothing, which is how a guard passes for a reason "
+                "unrelated to its rule")
+            src = code_only(inspect.getsource(fn))
+            bad = re.findall(r"_margin\s*=.*else\s+(notional|_notional)\b", src)
+            assert not bad, (
+                f"{name} defaults the margin to the notional again — the two "
+                "are a leverage multiple apart and `notional / margin` then "
+                f"reads 1.0x: {bad}")
+
     def test_no_card_invents_a_leverage_from_a_missing_attribute(self):
         """THE WORST OF THE THREE, and it was one line.
 
