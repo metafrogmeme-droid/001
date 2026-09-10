@@ -2578,12 +2578,20 @@ class LiveExecutor:
         # unusable `delay` also reset `attempts` to 1 — an argument about how
         # LONG to wait silently cancelling the decision about whether to look
         # again, which is the safety half. Its own test caught it.
+        #
+        # AND `is None`, NOT FALSINESS. The first version wrote
+        # `float(delay or 0.0)` and `int(max_attempts or 1)`, and the honesty
+        # ratchet failed the commit on it: `or-zero-coerce` in this file went
+        # 100 -> 101. Neither was a measurement — a delay of None genuinely is
+        # "no gap" — so it was the shape without the defect, which is exactly
+        # the case the gate exists to make somebody LOOK at. The explicit form
+        # is the house rule anyway and reads better than the hit would have.
         try:
-            attempts = max(1, int(max_attempts or 1))
+            attempts = 1 if max_attempts is None else max(1, int(max_attempts))
         except (TypeError, ValueError):
             attempts = 1
         try:
-            gap = max(0.0, float(delay or 0.0))
+            gap = 0.0 if delay is None else max(0.0, float(delay))
         except (TypeError, ValueError):
             gap = 0.0
         for attempt in range(attempts):
