@@ -410,6 +410,23 @@ def stop_replacement_note(stop_loss: Any, take_profit: Any,
 #: an empty answer "closed".
 _VENUE_SETTLE_SECONDS = 1.5
 
+#: The "nobody has answered yet" half of a position read — everything except
+#: the attempt counter, which must survive across attempts. `margin` and
+#: `leverage` are 0 rather than None on purpose: every reader already gates
+#: them behind `> 0`, which is the correct reading of "the venue did not report
+#: this", so making them None would break those guards to fix nothing.
+_UNANSWERED_POSITION_READ: dict = {
+    "confirmed": False,
+    # Absent until a read proves otherwise; the `except` overwrites it.
+    "state": "absent",
+    "exchange_qty": 0.0,
+    "exchange_entry": 0.0,
+    "mark_price": 0.0,
+    "unrealized_pnl": 0.0,
+    "margin": 0.0,
+    "leverage": 0,
+}
+
 # F-07 FIX: Persistence file for live positions
 _POSITIONS_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "live_positions.json"
@@ -561,6 +578,43 @@ def leverage_went_unverified(pos_state: Any, position_confirmed: Any) -> bool:
     different and louder problem, and it is not a leverage question at all.
     """
     return (not position_confirmed) and pos_state == "unreadable"
+
+
+def position_read_needs_another_look(state: Any, attempt: int,
+                                     max_attempts: int) -> bool:
+    """Whether a post-fill position read that did not confirm gets another try.
+
+    ONE ATTEMPT, WHERE ITS SIBLING GETS THREE. `_verify_order_fill` asks the
+    same venue the same shape of question one step earlier in `execute()` and
+    retries three times at 1.5s. `_verify_position_exists` asked once and lived
+    with the answer — on the read that decides whether the leverage-overshoot
+    guard runs at all. So a 429, a socket timeout or a proxy hiccup disarmed a
+    safety control for the whole life of the position, and the only trace was
+    one audit line saying it had.
+
+    BOTH NON-CONFIRMING STATES RETRY, AND THE REASONS ARE DIFFERENT:
+
+      unreadable  the read raised, so there is nothing yet to believe. The
+                  ordinary transient-blip case, and the one the guard gap is
+                  named after.
+      absent      the venue ANSWERED, and said it holds no such position. On a
+                  fresh fill that is also a settle-lag artefact, and this file
+                  is the evidence: `_place_sl_tp` sleeps `_VENUE_SETTLE_SECONDS`
+                  before it dares touch the same position book — "Prevents
+                  error 31008 ('no position') on fast fills" — and in
+                  `execute()` that sleep happens four hundred lines AFTER this
+                  read. The read therefore ran at exactly the moment the code
+                  below it treats as too early to trust, and a lagging book
+                  produced the 🚨 "the venue reports NO POSITION for it" card
+                  about a position that was about to have a stop placed on it.
+
+    `found` never retries: it is the money path, and a confirmation costs
+    nothing extra. That branch is what the loop actually breaks on, rather
+    than an early `return` — one rule, one place, drivable.
+    """
+    if state == "found":
+        return False
+    return attempt < max_attempts - 1
 
 
 def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
@@ -2301,8 +2355,19 @@ class LiveExecutor:
                 # is not a leverage that was fine, and the audit trail has to be
                 # able to tell them apart afterwards.
                 if verdict["decision"] == "unknown":
-                    logger.info("Leverage unverified on %s fill for %s: %s",
-                                context, pos.symbol, verdict["why"])
+                    # The read count belongs here for the same reason it
+                    # belongs in execute()'s audit: "unverified" after one try
+                    # and after three over three seconds are different
+                    # operational facts, and this is the only trace these three
+                    # paths leave. Omitted rather than defaulted when the
+                    # result carries no counter.
+                    _reads = verify.get("attempts")
+                    _reads_note = (f" after {int(_reads)} read(s)"
+                                   if isinstance(_reads, int) and _reads > 0
+                                   else "")
+                    logger.info("Leverage unverified on %s fill for %s%s: %s",
+                                context, pos.symbol, _reads_note,
+                                verdict["why"])
                 return None
 
             want, got = int(intended_leverage), actual
@@ -2432,12 +2497,15 @@ class LiveExecutor:
         exchange: "ccxt.Exchange",
         symbol: str,
         expected_direction: str,
+        max_attempts: int = 3,
+        delay: float = _VENUE_SETTLE_SECONDS,
     ) -> dict:
         """Post-check: verify a position exists on the exchange after opening.
 
         Returns dict with:
           confirmed: bool — True if position found with contracts > 0
           state: str — "found" / "absent" / "unreadable" (see below)
+          attempts: int — how many times the venue was actually asked
           exchange_qty: float — actual quantity on exchange
           exchange_entry: float — exchange-reported entry price
           mark_price: float — current mark price
@@ -2468,44 +2536,134 @@ class LiveExecutor:
         already gates them behind `> 0`, which is the correct reading of "the
         venue did not report this", so making them None would break those
         guards to fix nothing (CLAUDE.md: check reachability before fixing).
+
+        AND IT ASKED ONCE. Reporting the failure honestly still left the guard
+        disarmed, which is the half that was deferred: naming a gap is not
+        closing one. `_verify_order_fill` asks this same venue the same shape
+        of question twenty lines earlier and retries three times at 1.5s, so a
+        blip that costs the order check nothing took the position check — and
+        with it the overshoot guard — out for the whole life of the trade. It
+        retries now, on both non-confirming states and for the two different
+        reasons `position_read_needs_another_look` sets out; `found` still
+        costs exactly one round trip.
+
+        WHAT THAT COSTS, SAID PLAINLY. In `execute()` this read runs BEFORE
+        `_place_sl_tp` — deliberately, so a flatten cannot orphan a stop
+        (`_guard_fill_leverage` exists because the other fill paths cannot do
+        it in that order) — so a failing read now delays stop placement by up
+        to `(max_attempts - 1) * delay`, three seconds at the defaults, on a
+        position that does not yet have one. That is the trade: three seconds
+        of a tracked position relying on local SL/TP monitoring, against a
+        safety control that otherwise does not run at all and a `cost_usd`
+        recorded at a leverage nobody checked. It is only ever paid on the
+        failure path, and in the `absent` case it is not a cost at all — the
+        alternative is placing a stop for a position the code has just decided
+        does not exist.
         """
-        result: dict = {
-            "confirmed": False,
-            # Absent until a read proves otherwise; the `except` overwrites it.
-            "state": "absent",
-            "exchange_qty": 0.0,
-            "exchange_entry": 0.0,
-            "mark_price": 0.0,
-            "unrealized_pnl": 0.0,
-            "margin": 0.0,
-            "leverage": 0,
-        }
+        result: dict = dict(
+            _UNANSWERED_POSITION_READ,
+            # How many times the venue was actually asked, so a reader can tell
+            # "gave up immediately" from "looked three times over three
+            # seconds". Absent-vs-once is the distinction this whole method is
+            # about; it applies to the method's own effort too. The loop below
+            # always runs at least once, so this initial 0 never survives.
+            attempts=0,
+        )
+        # COERCED INSIDE A GUARD, because this method's contract is that it
+        # never raises: it runs after capital is committed, and a bad argument
+        # must not become the reason a filled position goes unmanaged. Before
+        # the retry every statement here was already inside the try below.
+        #
+        # TWO GUARDS, NOT ONE. The first draft coerced both in one `try`, so an
+        # unusable `delay` also reset `attempts` to 1 — an argument about how
+        # LONG to wait silently cancelling the decision about whether to look
+        # again, which is the safety half. Its own test caught it.
+        #
+        # AND `is None`, NOT FALSINESS. The first version wrote
+        # `float(delay or 0.0)` and `int(max_attempts or 1)`, and the honesty
+        # ratchet failed the commit on it: `or-zero-coerce` in this file went
+        # 100 -> 101. Neither was a measurement — a delay of None genuinely is
+        # "no gap" — so it was the shape without the defect, which is exactly
+        # the case the gate exists to make somebody LOOK at. The explicit form
+        # is the house rule anyway and reads better than the hit would have.
         try:
-            positions = await exchange.fetch_positions([symbol])
-            for p in (positions or []):
-                if not isinstance(p, dict):
-                    continue
-                p_symbol = p.get("symbol", "")
-                contracts = float(p.get("contracts", 0) or 0)
-                p_side = str(p.get("side", "")).lower()
-                expected_side = "long" if expected_direction == "LONG" else "short"
-                if p_symbol == symbol and contracts > 0 and p_side == expected_side:
-                    result["confirmed"] = True
-                    result["state"] = "found"
-                    result["exchange_qty"] = contracts
-                    result["exchange_entry"] = float(p.get("entryPrice", 0) or 0)
-                    result["mark_price"] = float(p.get("markPrice", 0) or 0)
-                    result["unrealized_pnl"] = float(p.get("unrealizedPnl", 0) or 0)
-                    result["margin"] = float(p.get("initialMargin", 0) or p.get("collateral", 0) or 0)
-                    result["leverage"] = int(float(p.get("leverage", 0) or 0))
-                    logger.info("Position VERIFIED on exchange: %s %s qty=%.6f entry=%.4f",
-                                expected_direction, symbol, contracts, result["exchange_entry"])
-                    return result
-        except Exception as exc:
-            # NOBODY LOOKED. Distinct from the loop finishing with no match,
-            # which is the venue answering that it holds no such position.
-            result["state"] = "unreadable"
-            logger.warning("Position verification failed for %s: %s", symbol, exc)
+            attempts = 1 if max_attempts is None else max(1, int(max_attempts))
+        except (TypeError, ValueError):
+            attempts = 1
+        try:
+            gap = 0.0 if delay is None else max(0.0, float(delay))
+        except (TypeError, ValueError):
+            gap = 0.0
+        for attempt in range(attempts):
+            # THE LAST ATTEMPT'S ANSWER IS THE ANSWER, so the answer fields
+            # reset rather than accumulating. A read that raised and then
+            # answered "no position" is an absence — the venue has now spoken.
+            # One that answered and then raised is a reading we never settled,
+            # and `unreadable` is the honest word for that: it is the state
+            # whose card sends the operator to look, and it records the guard
+            # skip. Resetting all of them rather than just `state` keeps the
+            # dict coherent structurally instead of by argument.
+            #
+            # AND THAT WIDER RESET IS NOT OBSERVABLE TODAY — said plainly
+            # because a mutation reverting it to `result["state"] = "absent"`
+            # SURVIVES the round, and the next reader should not spend an hour
+            # writing the test that would kill it. The numbers are written only
+            # under a match, and a match exits the loop, so nothing can carry
+            # them into a later attempt. It buys the case where the policy
+            # changes: a `found` that retried would otherwise return
+            # `confirmed: True` beside `state: "absent"`. The policy mutation
+            # that would expose it IS killed, by the round-trip count. The
+            # identical-looking reset in the `except` below is a different
+            # matter — that one IS load-bearing and its mutation dies.
+            result.update(_UNANSWERED_POSITION_READ)
+            result["attempts"] = attempt + 1
+            try:
+                positions = await exchange.fetch_positions([symbol])
+                for p in (positions or []):
+                    if not isinstance(p, dict):
+                        continue
+                    p_symbol = p.get("symbol", "")
+                    contracts = float(p.get("contracts", 0) or 0)
+                    p_side = str(p.get("side", "")).lower()
+                    expected_side = "long" if expected_direction == "LONG" else "short"
+                    if p_symbol == symbol and contracts > 0 and p_side == expected_side:
+                        result["confirmed"] = True
+                        result["state"] = "found"
+                        result["exchange_qty"] = contracts
+                        result["exchange_entry"] = float(p.get("entryPrice", 0) or 0)
+                        result["mark_price"] = float(p.get("markPrice", 0) or 0)
+                        result["unrealized_pnl"] = float(p.get("unrealizedPnl", 0) or 0)
+                        result["margin"] = float(p.get("initialMargin", 0) or p.get("collateral", 0) or 0)
+                        result["leverage"] = int(float(p.get("leverage", 0) or 0))
+                        logger.info("Position VERIFIED on exchange: %s %s qty=%.6f entry=%.4f",
+                                    expected_direction, symbol, contracts, result["exchange_entry"])
+                        break
+            except Exception as exc:
+                # NOBODY LOOKED. Distinct from the loop finishing with no match,
+                # which is the venue answering that it holds no such position.
+                #
+                # RESET FIRST, because the raise can land MID-WRITE. `confirmed`
+                # is the first field the match branch sets and the float
+                # conversions come after it, so an entryPrice of "n/a" — or any
+                # value the venue passes through unnormalised — leaves
+                # `confirmed: True` beside `state: "unreadable"` and a
+                # half-filled row. `leverage_went_unverified` reads
+                # `not confirmed`, so that pair audits nothing; `execute()` then
+                # takes the `if position_confirmed:` branch, and `leverage` is
+                # one of the fields that never got written, so the mismatch
+                # check silently does not run. A partial read claiming
+                # confirmation is the same defect this method is named for,
+                # one level in.
+                result.update(_UNANSWERED_POSITION_READ)
+                result["state"] = "unreadable"
+                logger.warning("Position verification failed for %s (attempt "
+                               "%d/%d): %s", symbol, attempt + 1, attempts, exc)
+            # The one place the retry rule lives. `found` breaks here rather
+            # than returning above, so the policy decides every exit.
+            if not position_read_needs_another_look(
+                    result["state"], attempt, attempts):
+                break
+            await asyncio.sleep(gap)
         return result
 
     async def _verify_position_closed(
@@ -5592,15 +5750,21 @@ class LiveExecutor:
                 # computed from the REQUESTED leverage, so `cost_usd` holds a
                 # margin nobody verified. A silent skip here is how a 20x fill
                 # against a 5x target survives a guard written to catch it.
+                # OMIT rather than claim: a caller or double that predates the
+                # counter has no attempt count, and "failed 1 time(s)" invented
+                # from a missing field is the shape this file is about.
+                _reads = pos_verify.get("attempts")
+                _reads = int(_reads) if isinstance(_reads, int) and _reads > 0 else None
+                _reads_note = f" after {_reads} read(s)" if _reads else ""
                 audit(trade_log,
                       f"Leverage NOT VERIFIED on fill for {idea.asset}: the "
-                      f"position read failed, so the overshoot guard did not "
-                      f"run and margin is recorded at the requested "
-                      f"{int(leverage)}x",
+                      f"position read failed{_reads_note}, so the overshoot "
+                      f"guard did not run and margin is recorded at the "
+                      f"requested {int(leverage)}x",
                       action="leverage_unverified_on_fill", result="UNREADABLE",
                       level=logging.WARNING,
                       data={"trade_id": idea.id, "symbol": idea.asset,
-                            "requested": int(leverage)})
+                            "requested": int(leverage), "reads": _reads})
 
             # Recalculate cost with verified data
             raw_cost = fill_price * filled_qty
