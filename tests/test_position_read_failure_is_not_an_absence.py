@@ -340,6 +340,33 @@ class TestItAsksTheRightNumberOfTimes:
         assert venue.calls == 1
         assert got["attempts"] == 1
 
+    @pytest.mark.parametrize("bad", ["three", object(), [2]])
+    def test_an_unusable_budget_does_not_raise_into_a_filled_position(self, bad):
+        """This method's contract is that it NEVER raises — it runs after
+        capital is committed, and `_leverage_overshoot_guard` says in as many
+        words that a guard which raises must not become the reason a filled
+        position goes unmanaged. Before the retry, every statement in here was
+        inside the try; `int(max_attempts)` is the first that was not.
+        """
+        venue = _Empty()
+        got = _probe(venue, max_attempts=bad)
+        assert got["state"] == "absent"
+        assert venue.calls == 1
+
+    @pytest.mark.parametrize("bad", ["soon", object(), None])
+    def test_an_unusable_gap_does_not_raise_either(self, bad):
+        """`asyncio.sleep("soon")` raises, and it would do so between two
+        attempts — after the first read has already failed."""
+        venue = _Raises()
+        got = _probe(venue, max_attempts=2, delay=bad)
+        assert got["state"] == "unreadable"
+        assert venue.calls == 2, (
+            "a bad gap swallowed the retry instead of being coerced away")
+
+    def test_a_negative_gap_is_not_passed_to_sleep(self):
+        got = _probe(_Raises(), max_attempts=2, delay=-5)
+        assert got["attempts"] == 2
+
     def test_it_does_not_sleep_after_the_last_attempt(self, monkeypatch):
         """A trailing sleep is invisible in the result and costs 1.5s on every
         failed fill — the case that is already slow and already alarming."""
@@ -415,6 +442,27 @@ class TestTheLastAnswerIsTheAnswer:
         assert got["leverage"] == 20, "the second entry overwrote the first"
         assert got["exchange_qty"] == 3.0
         assert got["exchange_entry"] == 5.0
+
+    def test_the_shared_blank_is_never_written_through(self):
+        """`_UNANSWERED_POSITION_READ` is module-level and reset into `result`
+        on every attempt. `result = _UNANSWERED_POSITION_READ` would look
+        identical at the call site and poison every later read in the process
+        with the last position's numbers — including a stale `confirmed: True`
+        for a venue that has not been asked."""
+        from bot.core.live_executor import _UNANSWERED_POSITION_READ as BLANK
+        before = dict(BLANK)
+        _probe(_Holds(leverage=20))
+        _probe(_Raises())
+        assert BLANK == before, f"the blank was mutated: {BLANK}"
+        assert "attempts" not in BLANK, (
+            "the counter must not live in the blank — it is the one field that "
+            "has to survive a reset")
+
+    def test_no_two_reads_share_a_result_dict(self):
+        got_a = _probe(_Holds(leverage=20))
+        got_b = _probe(_Empty())
+        assert got_a["confirmed"] is True and got_b["confirmed"] is False
+        assert got_a["leverage"] == 20 and got_b["leverage"] == 0
 
     def test_a_late_confirmation_carries_the_venues_numbers(self):
         """Not just the state: a stale zero-filled result behind a `found`

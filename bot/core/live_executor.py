@@ -410,6 +410,23 @@ def stop_replacement_note(stop_loss: Any, take_profit: Any,
 #: an empty answer "closed".
 _VENUE_SETTLE_SECONDS = 1.5
 
+#: The "nobody has answered yet" half of a position read — everything except
+#: the attempt counter, which must survive across attempts. `margin` and
+#: `leverage` are 0 rather than None on purpose: every reader already gates
+#: them behind `> 0`, which is the correct reading of "the venue did not report
+#: this", so making them None would break those guards to fix nothing.
+_UNANSWERED_POSITION_READ: dict = {
+    "confirmed": False,
+    # Absent until a read proves otherwise; the `except` overwrites it.
+    "state": "absent",
+    "exchange_qty": 0.0,
+    "exchange_entry": 0.0,
+    "mark_price": 0.0,
+    "unrealized_pnl": 0.0,
+    "margin": 0.0,
+    "leverage": 0,
+}
+
 # F-07 FIX: Persistence file for live positions
 _POSITIONS_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "live_positions.json"
@@ -2543,31 +2560,43 @@ class LiveExecutor:
         alternative is placing a stop for a position the code has just decided
         does not exist.
         """
-        result: dict = {
-            "confirmed": False,
-            # Absent until a read proves otherwise; the `except` overwrites it.
-            "state": "absent",
+        result: dict = dict(
+            _UNANSWERED_POSITION_READ,
             # How many times the venue was actually asked, so a reader can tell
             # "gave up immediately" from "looked three times over three
             # seconds". Absent-vs-once is the distinction this whole method is
-            # about; it applies to the method's own effort too.
-            "attempts": 0,
-            "exchange_qty": 0.0,
-            "exchange_entry": 0.0,
-            "mark_price": 0.0,
-            "unrealized_pnl": 0.0,
-            "margin": 0.0,
-            "leverage": 0,
-        }
-        attempts = max(1, int(max_attempts or 1))
+            # about; it applies to the method's own effort too. The loop below
+            # always runs at least once, so this initial 0 never survives.
+            attempts=0,
+        )
+        # COERCED INSIDE A GUARD, because this method's contract is that it
+        # never raises: it runs after capital is committed, and a bad argument
+        # must not become the reason a filled position goes unmanaged. Before
+        # the retry every statement here was already inside the try below.
+        #
+        # TWO GUARDS, NOT ONE. The first draft coerced both in one `try`, so an
+        # unusable `delay` also reset `attempts` to 1 — an argument about how
+        # LONG to wait silently cancelling the decision about whether to look
+        # again, which is the safety half. Its own test caught it.
+        try:
+            attempts = max(1, int(max_attempts or 1))
+        except (TypeError, ValueError):
+            attempts = 1
+        try:
+            gap = max(0.0, float(delay or 0.0))
+        except (TypeError, ValueError):
+            gap = 0.0
         for attempt in range(attempts):
-            # THE LAST ATTEMPT'S ANSWER IS THE ANSWER, so `state` resets rather
-            # than accumulating. A read that raised and then answered "no
-            # position" is an absence — the venue has now spoken. One that
-            # answered and then raised is a reading we never settled, and
-            # `unreadable` is the honest word for that: it is the state whose
-            # card sends the operator to look, and it records the guard skip.
-            result["state"] = "absent"
+            # THE LAST ATTEMPT'S ANSWER IS THE ANSWER, so the answer fields
+            # reset rather than accumulating. A read that raised and then
+            # answered "no position" is an absence — the venue has now spoken.
+            # One that answered and then raised is a reading we never settled,
+            # and `unreadable` is the honest word for that: it is the state
+            # whose card sends the operator to look, and it records the guard
+            # skip. Resetting all of them rather than just `state` keeps the
+            # dict coherent structurally instead of by argument — today only
+            # `state` can go stale, and only because `found` exits the loop.
+            result.update(_UNANSWERED_POSITION_READ)
             result["attempts"] = attempt + 1
             try:
                 positions = await exchange.fetch_positions([symbol])
@@ -2601,7 +2630,7 @@ class LiveExecutor:
             if not position_read_needs_another_look(
                     result["state"], attempt, attempts):
                 break
-            await asyncio.sleep(delay)
+            await asyncio.sleep(gap)
         return result
 
     async def _verify_position_closed(
