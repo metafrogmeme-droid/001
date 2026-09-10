@@ -269,3 +269,41 @@ def position_presence(positions) -> dict:
         return {"state": "unreadable",
                 "detail": f"{unreadable} position row(s) stated no size"}
     return {"state": "flat", "detail": "venue lists no exposure on this symbol"}
+
+
+def rows_for_side(rows, symbol: str, side: str) -> list:
+    """The venue rows that could be ``symbol``/``side`` — unreadable included.
+
+    A companion to `position_presence` rather than a replacement: that function
+    answers "is there exposure in this list", and a close verification needs
+    "is there exposure still on MY side". Pre-filtering and then asking is the
+    composition; hand-rolling the whole reading is how
+    `_verify_position_closed` ended up with the exact expression this module's
+    docstring quotes as the defect.
+
+    A ROW IS DROPPED ONLY WHEN IT IS DEFINITELY SOMEBODY ELSE'S. A row whose
+    symbol or side the venue did not state is KEPT, because dropping it would
+    silently turn "we could not tell whose this is" into "our side is flat" —
+    the same absent-reads-as-a-measurement move one field over. Non-dict rows
+    are kept for the same reason: `position_presence` is the thing that gets to
+    call them unreadable.
+    """
+    # The same type guard `position_presence` opens with, and for a sharper
+    # reason here: `for row in "not a list"` iterates CHARACTERS, so a string
+    # payload would come back as a list of ten unreadable rows rather than
+    # nothing. Its own test caught that.
+    if not isinstance(rows, (list, tuple)):
+        return []
+    kept = []
+    for row in rows:
+        if not isinstance(row, dict):
+            kept.append(row)
+            continue
+        row_symbol = row.get("symbol")
+        if row_symbol is not None and row_symbol != symbol:
+            continue
+        row_side = row.get("side")
+        if row_side is not None and str(row_side).lower() != str(side).lower():
+            continue
+        kept.append(row)
+    return kept

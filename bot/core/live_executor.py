@@ -47,7 +47,7 @@ from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, order_status,
-    pending_cancel_verdict, position_presence,
+    pending_cancel_verdict, position_presence, read_amount, rows_for_side,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
@@ -2713,22 +2713,98 @@ class LiveExecutor:
             result["failure_stage"] = order_check.get("failure_stage", "close_order_unconfirmed")
 
         # Step 2: Verify position is gone/reduced on exchange
+        #
+        # THREE THINGS WERE WRONG WITH THIS READ, AND IT IS THE ONE THAT BOOKS
+        # THE CLOSE. `confirmed=True` here is the only route to it, and the
+        # caller states the stakes in as many words: "Booking a close that did
+        # NOT happen is not recoverable -- that is the asymmetry this branch is
+        # built on."
+        #
+        #  1. It hand-rolled `float(p.get("contracts", 0) or 0) > 0`, which is
+        #     the EXACT expression `position_presence`'s own docstring quotes as
+        #     the defect: "reads a row that states no size as a row with NO
+        #     POSITION ... and callers act on that False by deleting local
+        #     tracking". `contracts: null` therefore read as flat and booked the
+        #     close. That function is imported into this file already.
+        #  2. It waited 1.0s, where `_VENUE_SETTLE_SECONDS` is the interval this
+        #     same book is documented to need — and that constant's own docstring
+        #     names THIS case: "the close's 25227 branch reads the same book and
+        #     needs the same patience before it may call an empty answer
+        #     'closed'." A second, shorter copy of a threshold is a second answer.
+        #  3. It believed the first flat answer. The 25227 branch five hundred
+        #     lines below reads flat, disbelieves it, sleeps the constant,
+        #     re-reads, and audits UNSETTLED_NOT_CLOSED when the position
+        #     reappears — because a guard flattening straight after entry "can
+        #     get 25227 and an empty book for its OWN unsettled position".
+        #     Two answers to one question, in one file, about one venue.
+        expected_side = "long" if direction == "LONG" else "short"
+
+        def _residual(rows) -> float:
+            """Contracts still open on this symbol and side; 0.0 if none."""
+            for p in rows_for_side(rows, symbol, expected_side):
+                qty = read_amount(p, "contracts") if isinstance(p, dict) else None
+                if qty is not None and abs(qty) > 0:
+                    return abs(qty)
+            return 0.0
+
         try:
-            await asyncio.sleep(1.0)  # Brief delay for exchange settlement
+            await asyncio.sleep(_VENUE_SETTLE_SECONDS)
             positions = await exchange.fetch_positions([symbol])
-            expected_side = "long" if direction == "LONG" else "short"
-            for p in (positions or []):
-                if not isinstance(p, dict):
-                    continue
-                p_side = str(p.get("side", "")).lower()
-                contracts = float(p.get("contracts", 0) or 0)
-                if p.get("symbol") == symbol and p_side == expected_side and contracts > 0:
-                    result["remaining_qty"] = contracts
+            presence = position_presence(rows_for_side(positions, symbol, expected_side))
+
+            if presence["state"] == "unreadable":
+                # A row we could not size is not an absence of exposure. This
+                # used to fall through the loop and book the close.
+                result["confirmed"] = False
+                result["failure_stage"] = "book_unread"
+                logger.warning("Post-close book UNREADABLE for %s (%s) — not "
+                               "treating the close as verified", symbol,
+                               presence["detail"])
+                return result
+
+            if presence["state"] == "present":
+                result["remaining_qty"] = _residual(positions)
+                result["confirmed"] = False
+                result["failure_stage"] = "position_still_open"
+                logger.warning("Position still open after close: %s %s remaining=%.6f",
+                               direction, symbol, result["remaining_qty"])
+                return result
+
+            # Flat. WHETHER THAT SETTLES IT DEPENDS ON WHAT STEP 1 SAW.
+            # A CONFIRMED fill is an independent reading that agrees: a
+            # reduceOnly close cannot fill against a position that is not there
+            # (it answers 25227/31008 instead), so filled + flat is two sources
+            # saying the same thing and one read is enough — no latency added to
+            # the ordinary close.
+            #
+            # An UNCONFIRMED fill is the dangerous shape, and it is exactly the
+            # 25227 one: the close may have been rejected, the flat book is then
+            # the SOLE evidence, and a position opened moments ago has not
+            # necessarily reached the book yet. Re-read before believing it.
+            if _fill_unconfirmed:
+                await asyncio.sleep(_VENUE_SETTLE_SECONDS)
+                positions = await exchange.fetch_positions([symbol])
+                second = position_presence(
+                    rows_for_side(positions, symbol, expected_side))
+                if second["state"] != "flat":
+                    result["remaining_qty"] = _residual(positions)
                     result["confirmed"] = False
-                    result["failure_stage"] = "position_still_open"
-                    logger.warning("Position still open after close: %s %s remaining=%.6f",
-                                   direction, symbol, contracts)
+                    result["failure_stage"] = (
+                        "position_still_open" if second["state"] == "present"
+                        else "book_unread")
+                    audit(trade_log,
+                          f"Close book read flat for {symbol} with an "
+                          f"unconfirmed fill, then read {second['state']} after "
+                          f"the settle window — it had not settled yet, not "
+                          f"closed",
+                          action="close_verify_unsettled",
+                          result="UNSETTLED_NOT_CLOSED",
+                          level=logging.WARNING,
+                          data={"symbol": symbol, "direction": direction,
+                                "second_state": second["state"],
+                                "remaining": result["remaining_qty"]})
                     return result
+
             # Position not found — fully closed. This is now the ONLY route to
             # confirmed=True, and it is a real reading either way: the book no
             # longer holds the position, so the close completed even when the
