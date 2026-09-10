@@ -2604,7 +2604,9 @@ class LiveExecutor:
             # them into a later attempt. It buys the case where the policy
             # changes: a `found` that retried would otherwise return
             # `confirmed: True` beside `state: "absent"`. The policy mutation
-            # that would expose it IS killed, by the round-trip count.
+            # that would expose it IS killed, by the round-trip count. The
+            # identical-looking reset in the `except` below is a different
+            # matter — that one IS load-bearing and its mutation dies.
             result.update(_UNANSWERED_POSITION_READ)
             result["attempts"] = attempt + 1
             try:
@@ -2631,6 +2633,20 @@ class LiveExecutor:
             except Exception as exc:
                 # NOBODY LOOKED. Distinct from the loop finishing with no match,
                 # which is the venue answering that it holds no such position.
+                #
+                # RESET FIRST, because the raise can land MID-WRITE. `confirmed`
+                # is the first field the match branch sets and the float
+                # conversions come after it, so an entryPrice of "n/a" — or any
+                # value the venue passes through unnormalised — leaves
+                # `confirmed: True` beside `state: "unreadable"` and a
+                # half-filled row. `leverage_went_unverified` reads
+                # `not confirmed`, so that pair audits nothing; `execute()` then
+                # takes the `if position_confirmed:` branch, and `leverage` is
+                # one of the fields that never got written, so the mismatch
+                # check silently does not run. A partial read claiming
+                # confirmation is the same defect this method is named for,
+                # one level in.
+                result.update(_UNANSWERED_POSITION_READ)
                 result["state"] = "unreadable"
                 logger.warning("Position verification failed for %s (attempt "
                                "%d/%d): %s", symbol, attempt + 1, attempts, exc)

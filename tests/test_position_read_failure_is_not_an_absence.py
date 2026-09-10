@@ -102,6 +102,21 @@ class _HoldsTwo(_Counting):
                  "initialMargin": 0.25, "leverage": 3}]
 
 
+class _Unparseable(_Counting):
+    """A matching position whose numbers do not survive `float()`.
+
+    ccxt normally normalises these, but the raw payload is passed through on
+    fields it does not know, and `float("n/a")` raises AFTER the match branch
+    has already written `confirmed: True`.
+    """
+
+    async def fetch_positions(self, symbols):
+        self.calls += 1
+        return [{"symbol": "APT/USDT:USDT", "contracts": 3.0, "side": "long",
+                 "entryPrice": "n/a", "markPrice": 5.1, "unrealizedPnl": 0.3,
+                 "initialMargin": 0.75, "leverage": 20}]
+
+
 class _Sequence(_Counting):
     """Answers a scripted list of venues in order, repeating the last.
 
@@ -442,6 +457,25 @@ class TestTheLastAnswerIsTheAnswer:
         assert got["leverage"] == 20, "the second entry overwrote the first"
         assert got["exchange_qty"] == 3.0
         assert got["exchange_entry"] == 5.0
+
+    def test_a_raise_mid_write_does_not_leave_a_confirmation_behind(self):
+        """The narrow case that makes the wider reset load-bearing.
+
+        `confirmed` is the FIRST field the match branch sets and the float
+        conversions come after it, so a value the venue passed through
+        unnormalised raises with `confirmed: True` already written. The pair
+        `confirmed: True` + `state: "unreadable"` is worse than either alone:
+        `leverage_went_unverified` reads `not confirmed` so it audits nothing,
+        `execute()` takes the `if position_confirmed:` branch, and `leverage`
+        is one of the fields that never got written — so the mismatch check
+        silently does not run, off a read that half failed.
+        """
+        got = _probe(_Unparseable())
+        assert got["state"] == "unreadable"
+        assert got["confirmed"] is False, (
+            "a read that raised part-way through still claims a confirmed "
+            "position")
+        assert got["exchange_qty"] == 0.0 and got["leverage"] == 0
 
     def test_the_shared_blank_is_never_written_through(self):
         """`_UNANSWERED_POSITION_READ` is module-level and reset into `result`
