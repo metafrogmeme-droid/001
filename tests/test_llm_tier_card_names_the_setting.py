@@ -114,14 +114,39 @@ class TestTheCardHandsOverANextStep:
         body = self._card(monkeypatch, self.SERVED)
         assert "serve that model on the host" in body
 
-    def test_it_still_says_trading_is_unaffected(self, monkeypatch):
+    def test_it_still_says_decisions_are_unaffected(self, monkeypatch):
         """The most important sentence on the card, and the easiest to lose.
 
         Without it the operator reads an LLM fault as a trading fault and goes
         looking in the wrong subsystem — the 37-timed-out-ticks lesson.
         """
         body = self._card(monkeypatch, self.SERVED)
-        assert "Trading is UNAFFECTED" in body
+        assert "Decisions are UNAFFECTED" in body
+
+    def test_but_it_does_not_claim_the_fault_is_free(self, monkeypatch):
+        """It said "Trading is UNAFFECTED", full stop, and that was too broad.
+
+        A 404 is not an auth error, so the analyzer's handler condemns nothing
+        (only `looks_like_auth_error` marks a key) and every call to this tier
+        pays the failed round trip before the fallback one. The operator who
+        reads "unaffected" and closes the card is the one whose scans are
+        timing out on a per-symbol dead hop.
+        """
+        body = self._card(monkeypatch, self.SERVED)
+        assert "failed round trip" in body
+        assert "candidate" in body
+
+    def test_and_it_does_not_claim_to_be_the_cause_either(self, monkeypatch):
+        """A heuristic is never a verdict — including a plausible one.
+
+        Nothing here measured that this hop is why a scan was slow. Naming it
+        as the cause would be the same over-broad claim in the other
+        direction, on the card an operator uses to decide where to look.
+        """
+        body = self._card(monkeypatch, self.SERVED)
+        assert "not a verdict" in body
+        for overclaim in ("is why scans", "causes the", "the cause of"):
+            assert overclaim not in body
 
     def test_an_empty_served_list_does_not_invent_a_menu(self, monkeypatch):
         """The venue answered with nothing; that is a reading, not an absence
