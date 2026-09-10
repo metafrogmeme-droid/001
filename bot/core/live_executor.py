@@ -2594,8 +2594,17 @@ class LiveExecutor:
             # and `unreadable` is the honest word for that: it is the state
             # whose card sends the operator to look, and it records the guard
             # skip. Resetting all of them rather than just `state` keeps the
-            # dict coherent structurally instead of by argument — today only
-            # `state` can go stale, and only because `found` exits the loop.
+            # dict coherent structurally instead of by argument.
+            #
+            # AND THAT WIDER RESET IS NOT OBSERVABLE TODAY — said plainly
+            # because a mutation reverting it to `result["state"] = "absent"`
+            # SURVIVES the round, and the next reader should not spend an hour
+            # writing the test that would kill it. The numbers are written only
+            # under a match, and a match exits the loop, so nothing can carry
+            # them into a later attempt. It buys the case where the policy
+            # changes: a `found` that retried would otherwise return
+            # `confirmed: True` beside `state: "absent"`. The policy mutation
+            # that would expose it IS killed, by the round-trip count.
             result.update(_UNANSWERED_POSITION_READ)
             result["attempts"] = attempt + 1
             try:
