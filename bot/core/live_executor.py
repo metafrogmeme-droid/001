@@ -2338,8 +2338,19 @@ class LiveExecutor:
                 # is not a leverage that was fine, and the audit trail has to be
                 # able to tell them apart afterwards.
                 if verdict["decision"] == "unknown":
-                    logger.info("Leverage unverified on %s fill for %s: %s",
-                                context, pos.symbol, verdict["why"])
+                    # The read count belongs here for the same reason it
+                    # belongs in execute()'s audit: "unverified" after one try
+                    # and after three over three seconds are different
+                    # operational facts, and this is the only trace these three
+                    # paths leave. Omitted rather than defaulted when the
+                    # result carries no counter.
+                    _reads = verify.get("attempts")
+                    _reads_note = (f" after {int(_reads)} read(s)"
+                                   if isinstance(_reads, int) and _reads > 0
+                                   else "")
+                    logger.info("Leverage unverified on %s fill for %s%s: %s",
+                                context, pos.symbol, _reads_note,
+                                verdict["why"])
                 return None
 
             want, got = int(intended_leverage), actual
@@ -2518,6 +2529,19 @@ class LiveExecutor:
         retries now, on both non-confirming states and for the two different
         reasons `position_read_needs_another_look` sets out; `found` still
         costs exactly one round trip.
+
+        WHAT THAT COSTS, SAID PLAINLY. In `execute()` this read runs BEFORE
+        `_place_sl_tp` — deliberately, so a flatten cannot orphan a stop
+        (`_guard_fill_leverage` exists because the other fill paths cannot do
+        it in that order) — so a failing read now delays stop placement by up
+        to `(max_attempts - 1) * delay`, three seconds at the defaults, on a
+        position that does not yet have one. That is the trade: three seconds
+        of a tracked position relying on local SL/TP monitoring, against a
+        safety control that otherwise does not run at all and a `cost_usd`
+        recorded at a leverage nobody checked. It is only ever paid on the
+        failure path, and in the `absent` case it is not a cost at all — the
+        alternative is placing a stop for a position the code has just decided
+        does not exist.
         """
         result: dict = {
             "confirmed": False,

@@ -36,6 +36,7 @@ read — the one a safety control depends on — had no patience at all.
 
 import asyncio
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
@@ -524,3 +525,43 @@ class TestTheAuditSaysHowHardItLooked:
         assert 'pos_verify.get("attempts", 1)' not in src
         assert "_reads_note" in src, (
             "the note is no longer conditional, so absence renders as a count")
+
+    def _guard_log(self, tmp_path, caplog, probe_result):
+        """`_guard_fill_leverage`'s unknown branch, driven.
+
+        `execute()` is one of TWO callers. The other covers the three fill
+        paths that had no verdict at all — a limit fill, a partial-fill
+        adoption, a drift→market fallback — and its one-line `logger.info` is
+        the only trace any of them leaves. A fix that landed in one caller and
+        not the other is the shape CLAUDE.md names about the assessor and the
+        renderer.
+        """
+        import logging
+        from unittest.mock import AsyncMock
+
+        from bot.core.live_executor import LiveExecutor as LE
+        ex = LE(state_dir=str(tmp_path))
+        ex._verify_position_exists = AsyncMock(return_value=probe_result)
+        pos = SimpleNamespace(symbol="APT/USDT:USDT", direction="SHORT",
+                              leverage=5, sl_order_id=None, tp_order_id=None)
+        with caplog.at_level(logging.INFO):
+            out = asyncio.run(ex._guard_fill_leverage(
+                object(), "t1", pos, 5, "limit fill"))
+        assert out is None, "an unreadable leverage must keep the position"
+        return caplog.text
+
+    def test_the_other_caller_reports_the_count_too(self, tmp_path, caplog):
+        text = self._guard_log(tmp_path, caplog, {
+            "confirmed": False, "state": "unreadable", "attempts": 3,
+            "leverage": 0, "exchange_entry": 0.0, "exchange_qty": 0.0})
+        assert "after 3 read(s)" in text, (
+            "the three fill paths still record 'unverified' with no measure of "
+            f"how hard anyone looked: {text!r}")
+
+    def test_the_other_caller_omits_it_when_absent(self, tmp_path, caplog):
+        text = self._guard_log(tmp_path, caplog, {
+            "confirmed": False, "leverage": 0,
+            "exchange_entry": 0.0, "exchange_qty": 0.0})
+        assert "Leverage unverified" in text, "the branch stopped logging"
+        assert "read(s)" not in text, (
+            f"a count was invented from a missing field: {text!r}")
