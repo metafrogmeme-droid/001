@@ -281,6 +281,61 @@ class TestTheStopSyncTakesOurSideRatherThanTheFirstRow:
         assert pos.stop_loss == 4.5 and pos.sl_order_id == "REAL-SL"
         assert pos.take_profit == 7.5 and pos.tp_order_id == "REAL-TP"
 
+    def _reconcile_verdict(self, rows, direction="LONG"):
+        """Did the sweep conclude the position is GONE from the venue?
+
+        `has_position` is a local, so it is read through its only observable
+        consequence: on `not has_position` the sweep takes the close path,
+        fails to get close data (mocked away), and stamps `_reconcile_retries`
+        before deferring. A position it still considers open is never stamped.
+        """
+        import asyncio
+
+        from bot.core.live_executor import LivePosition
+        ex = LiveExecutor()
+        ex._hedge_mode = True
+        pos = LivePosition(
+            trade_id="T1", symbol="APT/USDT", direction=direction,
+            entry_price=5.0, quantity=3.0, cost_usd=0.75,
+            stop_loss=4.0, take_profit=7.0, status="open")
+        ex._positions = {"T1": pos}
+        venue = AsyncMock()
+        venue.fetch_positions = AsyncMock(return_value=rows)
+        ex._get_exchange = AsyncMock(return_value=venue)
+        ex._save_positions = lambda *a, **k: None
+        ex._fetch_bitget_close_data = AsyncMock(return_value=None)
+        ex._is_duplicate_close_booking = lambda *a, **k: False
+        with patch.object(live_executor_mod, "_POSITIONS_FILE", "/dev/null"), \
+                patch.object(live_executor_mod.asyncio, "sleep", AsyncMock()):
+            asyncio.run(ex.reconcile_positions())
+        return getattr(pos, "_reconcile_retries", 0) > 0
+
+    def test_only_the_opposite_side_left_means_ours_is_gone(self):
+        """The property the hedge branch exists for, and nothing drove it.
+
+        A side-agnostic check sees the SHORT and concludes our long still
+        exists, so a closed long is never reconciled and its PnL is never
+        realized — which is what the comment above the branch says in as many
+        words. Dropping the side scoping SURVIVED the first mutation round
+        because every other test here asks the reading directly.
+        """
+        short_only = {"symbol": "APT/USDT:USDT", "side": "short",
+                      "contracts": 2.0, "info": {}}
+        assert self._reconcile_verdict([short_only]) is True, (
+            "a closed long was left open because a short remains on the same "
+            "symbol")
+
+    def test_our_own_side_still_present_is_not_reconciled(self):
+        ours = {"symbol": "APT/USDT:USDT", "side": "long",
+                "contracts": 3.0, "info": {}}
+        assert self._reconcile_verdict([ours]) is False
+
+    def test_an_unsized_row_on_our_side_is_not_reconciled_either(self):
+        """The two fixes meeting: side-scoped AND unreadable-keeps."""
+        unsized = {"symbol": "APT/USDT:USDT", "side": "long",
+                   "contracts": None, "info": {}}
+        assert self._reconcile_verdict([unsized]) is False
+
     def test_an_unsized_row_syncs_nothing_rather_than_zero(self):
         """It also must not sync FROM a row it could not size — and must not
         wipe what we already had."""
