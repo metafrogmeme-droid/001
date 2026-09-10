@@ -745,13 +745,40 @@ jobs:
       # before the day it is needed, and the day it is needed is an incident.
       # `reseal_totp_secrets.js` writes to the column holding a permanent second
       # factor and nothing here would have refused to ship a syntax error in it.
+      # ONE DIRECTORY SHORT, FOR THE THIRD TIME — so this stopped being a list.
+      # It globbed `*.js lib/*.js routes/*.js public/js/*.js scripts/*.js`, and
+      # `public/js/*.js` is not the browser's JS but the browser's TOP-LEVEL
+      # js. The i18n split put thirteen language chunks under
+      # `public/js/i18n/`, loaded at runtime as `'/js/i18n/' + lang + '.js'`;
+      # a syntax error in any one broke the site for THAT LANGUAGE ONLY, the
+      # quietest failure available because nobody testing in English sees it.
+      # `public/sw.js`, registered by index.html and dashboard.html, was
+      # unchecked for the same reason.
+      #
+      # A list is true when it is written; `find` is true afterwards. Both
+      # earlier versions of this defect (lib/+routes/ without scripts/, and
+      # totp_secret_at_rest.test.js sweeping two of three callers) were also a
+      # correct list that a later directory outgrew.
+      #
+      # THE PIPE IS THE PART THAT NEEDS THE CARE. `find | xargs node --check`
+      # reports XARGS's status, and GitHub's default shell is `bash -e`, not
+      # pipefail — so a find that fails hands xargs an empty stream, xargs
+      # exits 0, and the step passes green having compiled nothing. Hence
+      # pipefail, one enumeration reused (so the count and the compile cannot
+      # walk different sets), and a floor that refuses a suspiciously empty
+      # result. `node_modules` is the only exclusion: vendor bundles ship to
+      # users too, they all pass, and the reason first written for excluding
+      # them ("node --check rejects the ES module") was simply false —
+      # app/test/js_parse_coverage.test.js caught that and pins the property.
       - name: Parse — every script must at least compile
         working-directory: app
         run: |
-          for f in *.js lib/*.js routes/*.js public/js/*.js scripts/*.js; do
-            [ -f "$f" ] || continue
-            node --check "$f" || exit 1
-          done
+          set -o pipefail;
+          find . -name '*.js' -not -path './node_modules/*' -print0 > /tmp/app_js;
+          n=$(tr -dc '\0' < /tmp/app_js | wc -c);
+          echo "compiling $n JS file(s)";
+          [ "$n" -ge 200 ] || { echo "FAIL: only $n found — the enumeration is broken, not the tree"; exit 1; };
+          xargs -0 -n1 node --check < /tmp/app_js
 
       # SCA — the SAME ratchet token/ uses, pointed at this tree, rather than a
       # second copy to drift against. app/ carries 1 low advisory today, so a

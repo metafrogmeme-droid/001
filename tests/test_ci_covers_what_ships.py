@@ -121,8 +121,20 @@ def test_app_has_a_parse_gate():
     imported."""
     run = _run_of("Web app (express)", "parse")
     assert "node --check" in run
-    for tree in ("routes/", "lib/"):
-        assert tree in run, f"the parse gate does not cover app/{tree}"
+    # THE PROPERTY, NOT THE GLOB. This asserted the literals `routes/` and
+    # `lib/`, which pinned the remedy of the day rather than what it bought —
+    # so it failed the moment the list became a `find` covering strictly more,
+    # and said "the parse gate does not cover app/routes/" about a gate that
+    # had just started covering every .js in the tree. The same misfire, in
+    # the same week, as `totp_seed_audit.test.js` pinning `scripts/*.js`.
+    assert "find . -name '*.js'" in run, (
+        "the parse gate went back to a hand-written list. A list is true when "
+        "it is written: public/js/i18n/ and public/sw.js shipped unchecked "
+        "for exactly that reason.")
+    excluded = re.findall(r"-not -path '([^']+)'", run)
+    for tree in ("routes", "lib", "scripts", "public"):
+        assert not any(tree in p for p in excluded), (
+            f"app/{tree}/ is excluded from the parse gate: {excluded}")
 
 
 def test_app_has_a_dependency_ratchet():

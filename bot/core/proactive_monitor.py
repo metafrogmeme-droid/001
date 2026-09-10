@@ -80,6 +80,26 @@ def _host_of(url: str) -> str:
         return "the configured URL"
 
 
+def tier_model_env(tier: str) -> str:
+    """The env var naming a routed tier's model — e.g. ``LLM_TIER_SCAN_MODEL``.
+
+    One definition, read by the PROBE that decides the tier is broken and by
+    the CARD that tells the operator how to fix it. It was written only in the
+    probe, and the card said what was wrong without saying what to change:
+
+        The endpoint answers and the key works, but the model
+        <v14-real-14b> is not served there. It offers: ...
+
+    Perfect diagnosis, no remedy — while the two neighbouring branches of the
+    same card point at `scripts/cloudflared/README.md` and name both causes of
+    a refused key. `/vault`'s fix-hint work is the precedent: a card an
+    operator opens *because something is wrong* should name the thing to
+    change, and naming it from a second hand-written copy is how the name goes
+    stale (CLAUDE.md: a second copy of a map is a second answer).
+    """
+    return f"LLM_TIER_{str(tier or '').upper()}_MODEL"
+
+
 # ── Alert types ───────────────────────────────────────────────────────
 
 @dataclass
@@ -1505,7 +1525,7 @@ class ProactiveMonitor:
             return
         self._llm_probe_at = now
 
-        want = (os.environ.get(f"LLM_TIER_{tier.upper()}_MODEL") or "").strip()
+        want = (os.environ.get(tier_model_env(tier)) or "").strip()
         result: dict = {"state": "unreachable", "status": None, "tier": tier,
                         "model": want, "host": _host_of(url)}
         try:
@@ -1572,11 +1592,21 @@ class ProactiveMonitor:
         self._llm_alerted_state = state
 
         if state == "model_missing":
-            served = ", ".join(p.get("served") or []) or "none listed"
+            served_list = list(p.get("served") or [])
+            served = ", ".join(served_list) or "none listed"
+            # NAME THE THING TO CHANGE. The other two branches of this card do;
+            # this one described the fault exactly and left the operator to go
+            # and find the setting. Both remedies are stated because both are
+            # real and only the operator knows which they meant — retagging the
+            # host is right when the model was supposed to be there, and
+            # repointing the tier is right when it was not.
             why = (f"The endpoint answers and the key works, but the model "
                    f"<code>{p.get('model')}</code> is not served there.\n"
                    f"It offers: <code>{served}</code>.\n"
-                   "Every call to this tier will 404 while the endpoint looks healthy.")
+                   "Every call to this tier will 404 while the endpoint looks "
+                   "healthy.\n"
+                   f"Fix: set <code>{tier_model_env(tier)}</code> to one of "
+                   "those, or serve that model on the host.")
         elif state == "forbidden":
             why = ("The endpoint is reachable and REFUSED the key "
                    f"(HTTP {p.get('status')}).\n"

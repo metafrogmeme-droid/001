@@ -452,6 +452,22 @@ test('the CI parse gate compiles scripts/ too', () => {
   // repo keeps recording, one directory over.
   const app = ci.slice(ci.indexOf('name: Web app (express)'));
   const step = app.slice(app.indexOf('Parse — every script must at least compile'));
-  assert.match(step.slice(0, 400), /scripts\/\*\.js/,
-    'app/scripts/ is not compiled by CI');
+  const body = step.slice(0, 1200);
+  // THE PROPERTY, NOT THE GLOB. This asserted the literal `scripts/*.js`,
+  // which pinned the REMEDY of the day rather than the thing it bought — so
+  // it went red when the list was replaced by a `find` that covers strictly
+  // more, and reported "app/scripts/ is not compiled by CI" about a gate that
+  // had just started compiling it along with 689 other files. A guard that
+  // cannot tell "covered by an explicit glob" from "covered by an enumeration
+  // of everything" is pinning the wrong noun.
+  assert.match(body, /node --check/, 'the parse gate compiles nothing');
+  assert.match(body, /find \. -name '\*\.js'/,
+    'the parse gate went back to a hand-written list; app/scripts/ is one '
+    + 'rename away from falling out of it again');
+  const excluded = [...body.matchAll(/-not -path '([^']+)'/g)].map(m => m[1]);
+  assert.ok(!excluded.some(p => /scripts/.test(p)),
+    `app/scripts/ is excluded from the parse gate: ${excluded.join(', ')}`);
+  // And the file this test exists for is still there to be compiled.
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'scripts',
+    'reseal_totp_secrets.js')), 'the operator-run backfill script moved');
 });
