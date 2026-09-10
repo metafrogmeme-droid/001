@@ -509,6 +509,60 @@ def close_pct(exit_price, entry_price, direction, leverage):
     return pct, pct * int(leverage or 1)
 
 
+def entry_verify_line(confirmed: Any, position_confirmed: Any,
+                      failure_stage: Any, pos_state: Any) -> str:
+    """The 'Verified:' line on the card an operator reads after a fill.
+
+    Pure, and separate from the card, because the state it reports could not be
+    driven while it was three inline branches inside a 60-line formatter — and
+    the branch that mattered did not exist.
+
+    IT HAD TWO POSITION OUTCOMES AND NEEDS THREE. `position_confirmed=False`
+    covered both "the venue answered and holds no such position" and "the read
+    raised", and both printed *position check pending* — a phrase that says
+    "this will settle". After an order that FILLED, neither of those is
+    pending:
+
+      absent      the fill did not become a position. Something is wrong NOW.
+      unreadable  nobody looked, so the leverage-overshoot guard did not run
+                  (`_lev_mismatch` is set only under `if position_confirmed:`)
+                  and `cost_usd` holds the margin the bot intended rather than
+                  the one the venue took.
+
+    An unknown `pos_state` (an older caller, or a test double built before this
+    field existed) falls back to the previous wording rather than inventing a
+    verdict — it is genuinely the case that we cannot tell which of the two it
+    was, and saying so is the honest answer.
+    """
+    if not confirmed:
+        return f"- Verified: ⚠️ UNCONFIRMED ({failure_stage})"
+    if position_confirmed:
+        return "- Verified: ✅ CONFIRMED (order + position)"
+    if pos_state == "absent":
+        return ("- Verified: 🚨 order confirmed, but the venue reports NO "
+                "POSITION for it — check the venue before trading again")
+    if pos_state == "unreadable":
+        return ("- Verified: ⚠️ order confirmed, position COULD NOT BE READ — "
+                "leverage was not verified, so the overshoot guard did not run")
+    return "- Verified: ✅ order confirmed, ⚠️ position check pending"
+
+
+def leverage_went_unverified(pos_state: Any, position_confirmed: Any) -> bool:
+    """True when a fill's actual leverage was never read from the venue.
+
+    The predicate rather than the branch, because what it decides is invisible:
+    `execute()` sets `_lev_mismatch` only under `if position_confirmed:`, and
+    `_leverage_overshoot_guard` opens with `if _lev_mismatch is not None:`, so
+    this condition SILENTLY disarms the guard. Nothing downstream changes shape
+    — no exception, no different card, no missing field — which is why it wants
+    a name, a caller, and a test of its own.
+
+    Only `unreadable` counts. A venue that ANSWERED and holds no position is a
+    different and louder problem, and it is not a leverage question at all.
+    """
+    return (not position_confirmed) and pos_state == "unreadable"
+
+
 def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
     """``(margin_usd, notional_usd)`` for a position — None where unrecorded.
 
@@ -2383,15 +2437,42 @@ class LiveExecutor:
 
         Returns dict with:
           confirmed: bool — True if position found with contracts > 0
+          state: str — "found" / "absent" / "unreadable" (see below)
           exchange_qty: float — actual quantity on exchange
           exchange_entry: float — exchange-reported entry price
           mark_price: float — current mark price
           unrealized_pnl: float — current unrealized PnL
           margin: float — margin used
           leverage: int — actual leverage set on exchange
+
+        THREE ANSWERS, NOT TWO. `confirmed=False` used to mean both "the venue
+        answered and holds no such position" and "the read raised", because the
+        `except` below returns the same zero-filled dict the happy path starts
+        from. Those dicts were byte-identical, and after an order that FILLED
+        they are opposite events: the first says the fill did not become a
+        position, the second says nobody looked.
+
+        What that cost is not cosmetic. `execute()` sets `_lev_mismatch` only
+        inside `if position_confirmed:`, and `_leverage_overshoot_guard` opens
+        with `if _lev_mismatch is not None:` — so ONE failed `fetch_positions`
+        turns the whole leverage-overshoot guard into a no-op. The live
+        incident it exists for (Bitget's sticky per-symbol setting filling a 5x
+        target at 20x) would then be neither detected, audited nor flattened,
+        and `cost = raw_cost / leverage` would record the margin the bot
+        INTENDED rather than the one the venue took — four times too large at
+        that ratio, on the field the published return is now computed against.
+        The card said `⚠️ position check pending`, which reads as "it will
+        settle".
+
+        `margin` and `leverage` stay 0-on-absent deliberately: every reader
+        already gates them behind `> 0`, which is the correct reading of "the
+        venue did not report this", so making them None would break those
+        guards to fix nothing (CLAUDE.md: check reachability before fixing).
         """
-        result = {
+        result: dict = {
             "confirmed": False,
+            # Absent until a read proves otherwise; the `except` overwrites it.
+            "state": "absent",
             "exchange_qty": 0.0,
             "exchange_entry": 0.0,
             "mark_price": 0.0,
@@ -2410,6 +2491,7 @@ class LiveExecutor:
                 expected_side = "long" if expected_direction == "LONG" else "short"
                 if p_symbol == symbol and contracts > 0 and p_side == expected_side:
                     result["confirmed"] = True
+                    result["state"] = "found"
                     result["exchange_qty"] = contracts
                     result["exchange_entry"] = float(p.get("entryPrice", 0) or 0)
                     result["mark_price"] = float(p.get("markPrice", 0) or 0)
@@ -2420,6 +2502,9 @@ class LiveExecutor:
                                 expected_direction, symbol, contracts, result["exchange_entry"])
                     return result
         except Exception as exc:
+            # NOBODY LOOKED. Distinct from the loop finishing with no match,
+            # which is the venue answering that it holds no such position.
+            result["state"] = "unreadable"
             logger.warning("Position verification failed for %s: %s", symbol, exc)
         return result
 
@@ -4925,7 +5010,7 @@ class LiveExecutor:
                            sl_id: Any, tp_id: Any, trailing_st: Any, confirmed: Any,
                            position_confirmed: Any, verify: dict, exchange_fees: float,
                            _lev_mismatch: Optional[tuple[int, int]], _lev_close_failed: bool,
-                           _slip_warn: str = "",
+                           _slip_warn: str = "", _pos_state: Any = None,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
@@ -4944,13 +5029,10 @@ class LiveExecutor:
         if trailing_st:
             trail_info = "\n- Trailing: ✅ armed (activates at 1R)"
 
-        # Verification status line
-        if confirmed and position_confirmed:
-            verify_line = "- Verified: ✅ CONFIRMED (order + position)"
-        elif confirmed:
-            verify_line = "- Verified: ✅ order confirmed, ⚠️ position check pending"
-        else:
-            verify_line = f"- Verified: ⚠️ UNCONFIRMED ({verify.get('failure_stage', 'pending')})"
+        # Verification status line — THREE position outcomes, not two.
+        verify_line = entry_verify_line(
+            confirmed, position_confirmed,
+            verify.get("failure_stage", "pending"), _pos_state)
 
         fee_line = ""
         if exchange_fees > 0:
@@ -5501,6 +5583,24 @@ class LiveExecutor:
                                     "actual": int(pos_verify["leverage"])})
                     position.leverage = pos_verify["leverage"]
                     leverage = pos_verify["leverage"]
+            elif leverage_went_unverified(
+                    pos_verify.get("state"), position_confirmed):
+                # THE GUARD BELOW CANNOT RUN, AND THAT HAS TO BE ON THE RECORD.
+                # `_lev_mismatch` stays None, so `_leverage_overshoot_guard`
+                # returns immediately — the position keeps whatever leverage
+                # the venue actually applied, unexamined, and `cost` below is
+                # computed from the REQUESTED leverage, so `cost_usd` holds a
+                # margin nobody verified. A silent skip here is how a 20x fill
+                # against a 5x target survives a guard written to catch it.
+                audit(trade_log,
+                      f"Leverage NOT VERIFIED on fill for {idea.asset}: the "
+                      f"position read failed, so the overshoot guard did not "
+                      f"run and margin is recorded at the requested "
+                      f"{int(leverage)}x",
+                      action="leverage_unverified_on_fill", result="UNREADABLE",
+                      level=logging.WARNING,
+                      data={"trade_id": idea.id, "symbol": idea.asset,
+                            "requested": int(leverage)})
 
             # Recalculate cost with verified data
             raw_cost = fill_price * filled_qty
@@ -5580,7 +5680,8 @@ class LiveExecutor:
             return self._entry_filled_card(
                 idea, side, leverage, is_futures, fill_price, filled_qty, cost, order_id,
                 sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
-                exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn)
+                exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
+                pos_verify.get("state"))
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
