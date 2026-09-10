@@ -2619,25 +2619,62 @@ class LiveExecutor:
             result["attempts"] = attempt + 1
             try:
                 positions = await exchange.fetch_positions([symbol])
-                for p in (positions or []):
+                expected_side = "long" if expected_direction == "LONG" else "short"
+                # A ROW WE COULD NOT SIZE IS NOT AN ABSENCE, AND THIS METHOD
+                # ALREADY HAD THE WORD FOR IT. `contracts` was read with
+                # `float(p.get("contracts", 0) or 0)`, so `contracts: null`
+                # scored 0.0, matched nothing, and the loop finished with
+                # `state` still "absent" — the 🚨 "the venue reports NO
+                # POSITION for it" card, the overshoot guard silently skipped,
+                # and `leverage_went_unverified` False so not even an audit
+                # line. The retry this method grew cannot help either: a row
+                # that is consistently unsized is a stable wrong answer.
+                #
+                # `rows_for_side` is the scoping and `read_amount` the
+                # null-preserving size, the same two `position_presence` uses,
+                # so the entry read and the close read now answer the same
+                # question the same way.
+                _unreadable_rows = 0
+                for p in rows_for_side(positions, symbol, expected_side):
                     if not isinstance(p, dict):
+                        _unreadable_rows += 1
                         continue
-                    p_symbol = p.get("symbol", "")
-                    contracts = float(p.get("contracts", 0) or 0)
-                    p_side = str(p.get("side", "")).lower()
-                    expected_side = "long" if expected_direction == "LONG" else "short"
-                    if p_symbol == symbol and contracts > 0 and p_side == expected_side:
-                        result["confirmed"] = True
-                        result["state"] = "found"
-                        result["exchange_qty"] = contracts
-                        result["exchange_entry"] = float(p.get("entryPrice", 0) or 0)
-                        result["mark_price"] = float(p.get("markPrice", 0) or 0)
-                        result["unrealized_pnl"] = float(p.get("unrealizedPnl", 0) or 0)
-                        result["margin"] = float(p.get("initialMargin", 0) or p.get("collateral", 0) or 0)
-                        result["leverage"] = int(float(p.get("leverage", 0) or 0))
-                        logger.info("Position VERIFIED on exchange: %s %s qty=%.6f entry=%.4f",
-                                    expected_direction, symbol, contracts, result["exchange_entry"])
-                        break
+                    qty = read_amount(p, "contracts")
+                    if qty is None:
+                        _unreadable_rows += 1
+                        continue
+                    if abs(qty) <= 0:
+                        continue
+                    # Sized, and on our side. Only a row that STATES both its
+                    # symbol and its side may be adopted as ours — its numbers
+                    # become the position record, and "there is exposure here"
+                    # is a weaker claim than "these are its figures".
+                    if p.get("symbol") != symbol or str(p.get("side", "")).lower() != expected_side:
+                        _unreadable_rows += 1
+                        continue
+                    contracts = abs(qty)
+                    result["confirmed"] = True
+                    result["state"] = "found"
+                    result["exchange_qty"] = contracts
+                    result["exchange_entry"] = float(p.get("entryPrice", 0) or 0)
+                    result["mark_price"] = float(p.get("markPrice", 0) or 0)
+                    result["unrealized_pnl"] = float(p.get("unrealizedPnl", 0) or 0)
+                    result["margin"] = float(p.get("initialMargin", 0) or p.get("collateral", 0) or 0)
+                    result["leverage"] = int(float(p.get("leverage", 0) or 0))
+                    logger.info("Position VERIFIED on exchange: %s %s qty=%.6f entry=%.4f",
+                                expected_direction, symbol, contracts, result["exchange_entry"])
+                    break
+                else:
+                    # No row was adoptable. If any of them were rows we could
+                    # not read, that is not the venue saying the fill produced
+                    # nothing — it is nobody having looked, which is the state
+                    # this method already reports and audits.
+                    if _unreadable_rows:
+                        result["state"] = "unreadable"
+                        logger.warning(
+                            "Position verification for %s: %d row(s) could not "
+                            "be read — not calling that an absent position",
+                            symbol, _unreadable_rows)
             except Exception as exc:
                 # NOBODY LOOKED. Distinct from the loop finishing with no match,
                 # which is the venue answering that it holds no such position.
@@ -11465,29 +11502,48 @@ class LiveExecutor:
                         [ccxt_symbol],
                         params=self._venue.futures_params(),
                     )
-                    if self._hedge_mode:
-                        # Hedge mode: the account can hold BOTH a long and a short
-                        # on the same symbol at once. A side-agnostic check would
-                        # see the OPPOSITE side's position and conclude ours still
-                        # exists, so a closed long is never reconciled while a short
-                        # remains (its PnL never realized). Match the tracked side.
-                        # Fail-safe: if ccxt doesn't report a usable side, treat it
-                        # as present (broad check) so we never falsely close a live
-                        # position. The downstream real-close-data requirement
-                        # backstops this either way.
-                        _want = pos.direction.lower()
-
-                        def _present(p):
-                            if abs(float(p.get("contracts", 0) or 0)) <= 0:
-                                return False
-                            _side = (p.get("side") or "").lower()
-                            return _side == _want or _side not in ("long", "short")
-
-                        has_position = any(_present(p) for p in positions)
-                    else:
-                        has_position = any(
-                            abs(float(p.get("contracts", 0) or 0)) > 0 for p in positions
-                        )
+                    # Hedge mode: the account can hold BOTH a long and a short
+                    # on the same symbol at once. A side-agnostic check would
+                    # see the OPPOSITE side's position and conclude ours still
+                    # exists, so a closed long is never reconciled while a short
+                    # remains (its PnL never realized). Match the tracked side.
+                    # Fail-safe: if ccxt doesn't report a usable side, treat it
+                    # as present (broad check) so we never falsely close a live
+                    # position. The downstream real-close-data requirement
+                    # backstops this either way.
+                    #
+                    # THAT FAIL-SAFE WAS WRITTEN FOR ONE FIELD AND THE LINE
+                    # ABOVE IT CONTRADICTED IT ON ANOTHER. An unreadable SIDE
+                    # was treated as present, exactly as the comment says; an
+                    # unreadable SIZE — `float(p.get("contracts", 0) or 0)`,
+                    # where `contracts: null` is 0.0 — returned False, so the
+                    # sweep concluded the position was gone. Same row, two
+                    # fields, opposite handling, with the correct rule already
+                    # written down here. The non-hedge branch had neither guard.
+                    #
+                    # The backstop is real but BOUNDED: real close data is
+                    # required, retried three times a tick and deferred for ten
+                    # ticks — and then the close is booked anyway, under a
+                    # comment asserting "The position IS gone from the venue".
+                    # That sentence is derived from this variable, so a row
+                    # nobody could size ends as a booked close on a live
+                    # position that is no longer tracked.
+                    #
+                    # `rows_for_side` turns out to BE the rule this comment
+                    # states: it drops a row only when its side is stated and
+                    # different, so ours-or-ambiguous is exactly what survives.
+                    # `position_presence` then supplies the third answer, and
+                    # anything but a confident `flat` keeps the position.
+                    _rows = (rows_for_side(positions, ccxt_symbol,
+                                           pos.direction.lower())
+                             if self._hedge_mode else positions)
+                    _presence = position_presence(_rows)
+                    has_position = _presence["state"] != "flat"
+                    if _presence["state"] == "unreadable":
+                        logger.warning(
+                            "Reconcile: %s book UNREADABLE (%s) — keeping the "
+                            "position rather than booking a close nobody could "
+                            "verify", pos.symbol, _presence["detail"])
 
                     if not has_position:
                         # ── Duplicate-close hardening (ops tip): serialize with
@@ -11743,29 +11799,51 @@ class LiveExecutor:
                         # no longer ambiguous; resume normal local monitoring.
                         self._recovered_from_closing.discard(pos.trade_id)
                         # Position still on exchange — sync SL/TP from exchange data
-                        for ep in positions:
-                            if abs(float(ep.get("contracts", 0) or 0)) > 0:
-                                info = ep.get("info", {})
-                                ex_sl = float(info.get("stopLoss") or 0)
-                                ex_tp = float(info.get("takeProfit") or 0)
-                                ex_sl_id = info.get("stopLossId") or ""
-                                ex_tp_id = info.get("takeProfitId") or ""
-                                synced = False
-                                if ex_sl > 0 and pos.stop_loss != ex_sl:
-                                    pos.stop_loss = ex_sl
-                                    synced = True
-                                if ex_tp > 0 and pos.take_profit != ex_tp:
-                                    pos.take_profit = ex_tp
-                                    synced = True
-                                if ex_sl_id and pos.sl_order_id != ex_sl_id:
-                                    pos.sl_order_id = ex_sl_id
-                                    synced = True
-                                if ex_tp_id and pos.tp_order_id != ex_tp_id:
-                                    pos.tp_order_id = ex_tp_id
-                                    synced = True
-                                if synced:
-                                    self._save_positions()
-                                break
+                        #
+                        # SCOPED TO OUR SIDE, WHICH IT WAS NOT. This took the
+                        # FIRST row with size, from an unfiltered list, and
+                        # `fetch_positions([symbol])` in hedge mode returns
+                        # both sides — so with a long and a short open at once
+                        # the short's `stopLoss`, `takeProfit` and order ids
+                        # were written onto the long, whichever the venue
+                        # happened to list first. Three hundred lines above,
+                        # the branch that decides whether this position still
+                        # exists is entirely about matching the tracked side;
+                        # the branch that overwrites its stop was not.
+                        #
+                        # And the size read was the same hand-rolled
+                        # `or 0`, so an unsized row silently synced nothing —
+                        # leaving the local stop the monitor enforces diverged
+                        # from the venue's with no trace. `read_amount` makes
+                        # that a skip we can see rather than a zero.
+                        for ep in rows_for_side(positions, ccxt_symbol,
+                                                pos.direction.lower()):
+                            if not isinstance(ep, dict):
+                                continue
+                            _qty = read_amount(ep, "contracts")
+                            if _qty is None or abs(_qty) <= 0:
+                                continue
+                            info = ep.get("info", {})
+                            ex_sl = float(info.get("stopLoss") or 0)
+                            ex_tp = float(info.get("takeProfit") or 0)
+                            ex_sl_id = info.get("stopLossId") or ""
+                            ex_tp_id = info.get("takeProfitId") or ""
+                            synced = False
+                            if ex_sl > 0 and pos.stop_loss != ex_sl:
+                                pos.stop_loss = ex_sl
+                                synced = True
+                            if ex_tp > 0 and pos.take_profit != ex_tp:
+                                pos.take_profit = ex_tp
+                                synced = True
+                            if ex_sl_id and pos.sl_order_id != ex_sl_id:
+                                pos.sl_order_id = ex_sl_id
+                                synced = True
+                            if ex_tp_id and pos.tp_order_id != ex_tp_id:
+                                pos.tp_order_id = ex_tp_id
+                                synced = True
+                            if synced:
+                                self._save_positions()
+                            break
 
                 except Exception as exc:
                     logger.debug("Reconciliation error for %s: %s", pos.trade_id, exc)
