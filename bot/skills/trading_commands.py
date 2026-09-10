@@ -50,7 +50,7 @@ from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
-from bot.utils.leveraged_return import _leveraged_pnl_usd
+from bot.utils.leveraged_return import _leveraged_pnl_usd, position_leverage
 from bot.utils.logger import audit, system_log
 from bot.warroom.warroom_bot import render_emergency_stop as wr_emergency_stop
 from bot.warroom.warroom_bot import render_pause as wr_pause
@@ -611,8 +611,15 @@ class TradingCommands:
                 if cur and cur > 0 and p.entry_price > 0:
                     raw = ((cur - p.entry_price) if p.direction == "LONG"
                            else (p.entry_price - cur)) / p.entry_price
+                    # THE GUARD ABOVE COVERS THE PRICES AND NOT THE MARGIN.
+                    # `cost` is `cost_usd or 0`, so an ORPHAN — the position
+                    # whose margin the venue never reported — reached the
+                    # helper and came back 0.0, printing $0.00 directly under
+                    # the comment above forbidding exactly that. The helper is
+                    # three-valued now; this stays None and the card renders
+                    # the em dash it already knows how to render.
                     pnl_usd = _leveraged_pnl_usd(p.entry_price, cur, p.direction, cost, lev)
-                    pnl_pct = raw * 100 * lev
+                    pnl_pct = raw * 100 * lev if pnl_usd is not None else None
                 hold = ""
                 if getattr(p, "opened_at", None):
                     mins = int((now - p.opened_at).total_seconds() // 60)
@@ -1455,13 +1462,27 @@ class TradingCommands:
                         pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
-                    cost = pos.cost_usd if pos.cost_usd > 0 else pos.entry_price * pos.quantity
+                    # MARGIN AND NOTIONAL, SEPARATELY. `cost_usd if > 0 else
+                    # entry * qty` put the margin and a quantity twenty times
+                    # larger under one name, and `notional / cost` then read
+                    # that name as the margin — so for an ORPHAN, where
+                    # cost_usd is 0 and the fallback is the only route, it
+                    # divided the notional by itself and got 1.0x. At 1.0x the
+                    # ROE collapses to the raw price move, which is the
+                    # -0.13%-vs--2.56% incident `leveraged_return`'s docstring
+                    # is about. `position_leverage` answers None instead.
+                    _margin = pos.cost_usd if pos.cost_usd > 0 else None
                     notional = last_price * pos.quantity
-                    leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
-                    pnl_pct = pnl_pct_raw * leverage
+                    cost = _margin if _margin is not None else notional
+                    leverage = position_leverage(
+                        getattr(pos, 'leverage', 0), _margin, notional)
+                    pnl_pct = pnl_pct_raw * leverage if leverage is not None else None
                     # Dollar P&L on the SAME (leveraged) basis as pnl_pct — the old
                     # (last-entry)*quantity understated it by the leverage multiple.
-                    upnl_usd = _leveraged_pnl_usd(pos.entry_price, last_price, pos.direction, cost, leverage)
+                    upnl_usd = _leveraged_pnl_usd(
+                        pos.entry_price, last_price, pos.direction,
+                        _margin if _margin is not None else 0.0,
+                        leverage if leverage is not None else 0.0)
                     sl_dist = abs(last_price - pos.stop_loss) / last_price * 100 if last_price else 0
                     tp_dist = abs(pos.take_profit - last_price) / last_price * 100 if last_price else 0
                     risk_left = abs(last_price - pos.stop_loss) if pos.stop_loss else 0
@@ -1471,21 +1492,31 @@ class TradingCommands:
                     # was never read. Absent renders as "unknown"; zero renders
                     # as a claim.
                     _unread = _price_read is None
+
+                    def _r(v, n):
+                        """round(), but an absence stays an absence.
+
+                        These values became three-valued when
+                        `_leveraged_pnl_usd` stopped fabricating 0.0, and
+                        `round(None, 2)` raises — so a wrong number would have
+                        become a crashed card, which is worse.
+                        """
+                        return None if v is None else round(v, n)
                     positions_data.append({
                         "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
                         "direction": pos.direction,
                         "entry": round(pos.entry_price, 6),
                         "price_unavailable": _unread,
                         "current": None if _unread else round(last_price, 6),
-                        "pnl_pct": None if _unread else round(pnl_pct, 2),
-                        "pnl_usd": None if _unread else round(upnl_usd, 4),
+                        "pnl_pct": None if _unread else _r(pnl_pct, 2),
+                        "pnl_usd": None if _unread else _r(upnl_usd, 4),
                         "sl": round(pos.stop_loss, 6),
                         "tp": round(pos.take_profit, 6),
                         "sl_dist_pct": None if _unread else round(sl_dist, 2),
                         "tp_dist_pct": None if _unread else round(tp_dist, 2),
                         "size_usd": round(cost, 2),
                         "notional_usd": round(notional, 2),
-                        "leverage": round(leverage, 2),
+                        "leverage": _r(leverage, 2),
                         "rr_live": None if _unread else round(rr_live, 2),
                         "quantity": pos.quantity,
                         "comm_pct": CONFIG.risk.commission_pct,
