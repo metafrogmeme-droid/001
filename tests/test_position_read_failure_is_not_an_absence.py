@@ -24,47 +24,94 @@ entire leverage-overshoot guard into a no-op:
     settle".
 
 Three states now: `found` / `absent` / `unreadable`.
+
+AND THEN IT STILL ASKED ONCE, which is the half that was deferred and is the
+subject of the second half of this file. Reporting the gap honestly does not
+close it: after one failed `fetch_positions` the card said so, the audit said
+so, and the guard was still a no-op for the life of the position.
+`_verify_order_fill` asks the same venue the same shape of question twenty
+lines earlier in `execute()` and retries three times at 1.5s. The position
+read — the one a safety control depends on — had no patience at all.
 """
 
 import asyncio
+import inspect
 
 import pytest
 
 from bot.core.live_executor import (
+    _VENUE_SETTLE_SECONDS,
     LiveExecutor,
     entry_verify_line,
     leverage_went_unverified,
+    position_read_needs_another_look,
 )
 
 
-class _Raises:
+class _Counting:
+    """Base: every double records how many times the venue was asked."""
+
+    def __init__(self):
+        self.calls = 0
+
+
+class _Raises(_Counting):
     """The venue read fails — a timeout, a 429, an auth hiccup."""
 
     async def fetch_positions(self, symbols):
+        self.calls += 1
         raise RuntimeError("venue timeout")
 
 
-class _Empty:
+class _Empty(_Counting):
     """The venue answers, and holds no such position."""
 
     async def fetch_positions(self, symbols):
+        self.calls += 1
         return []
 
 
-class _Holds:
+class _Holds(_Counting):
     def __init__(self, leverage=20):
+        super().__init__()
         self._lev = leverage
 
     async def fetch_positions(self, symbols):
+        self.calls += 1
         return [{"symbol": "APT/USDT:USDT", "contracts": 3.0, "side": "long",
                  "entryPrice": 5.0, "markPrice": 5.1, "unrealizedPnl": 0.3,
                  "initialMargin": 0.75, "leverage": self._lev}]
 
 
-def _probe(exchange):
+class _Sequence(_Counting):
+    """Answers a scripted list of venues in order, repeating the last.
+
+    The retry cases are all "it was broken and then it wasn't", which needs a
+    double that CHANGES — a fixed one can only ever prove the terminal state.
+    """
+
+    def __init__(self, *stages):
+        super().__init__()
+        self._stages = list(stages)
+
+    async def fetch_positions(self, symbols):
+        stage = self._stages[min(self.calls, len(self._stages) - 1)]
+        self.calls += 1
+        return await stage.fetch_positions(symbols)
+
+
+def _probe(exchange, max_attempts=3, delay=0):
+    """`delay=0` by default: these drive the RULE, not the clock.
+
+    The real defaults are asserted separately, in
+    `TestTheDefaultsAreTheOnesClaimed` — a suite that quietly ran the
+    production timings would take a minute, and one that quietly ran different
+    ones would pin nothing.
+    """
     ex = LiveExecutor.__new__(LiveExecutor)
     return asyncio.run(LiveExecutor._verify_position_exists(
-        ex, exchange, "APT/USDT:USDT", "LONG"))
+        ex, exchange, "APT/USDT:USDT", "LONG",
+        max_attempts=max_attempts, delay=delay))
 
 
 class TestTheReadTellsTheThreeApart:
@@ -184,3 +231,243 @@ class TestTheGuardGapHasAName:
             "execute() no longer consults the predicate")
         assert "leverage_unverified_on_fill" in src, (
             "the disarmed guard would leave no audit trail")
+
+
+# ── and then it still asked once ─────────────────────────────────────
+
+
+class TestTheGuardComesBackWhenTheBlipPasses:
+    """The point of the retry, stated as the outcome rather than the mechanism.
+
+    Everything above makes a disarmed guard VISIBLE. None of it re-arms one.
+    """
+
+    def test_a_read_that_fails_then_works_verifies_the_leverage(self):
+        venue = _Sequence(_Raises(), _Raises(), _Holds(leverage=20))
+        got = _probe(venue)
+        assert got["state"] == "found"
+        assert got["confirmed"] is True
+        assert got["leverage"] == 20, (
+            "the venue's ACTUAL leverage — the number the overshoot guard "
+            "compares against the target, and the whole reason to look twice")
+        assert not leverage_went_unverified(got["state"], got["confirmed"]), (
+            "the guard is still disarmed after a read that eventually worked")
+
+    def test_a_book_that_lags_the_fill_is_not_a_missing_position(self):
+        """`absent` retries too, and this is why.
+
+        `_place_sl_tp` sleeps `_VENUE_SETTLE_SECONDS` before touching this same
+        position book — "Prevents error 31008 ('no position') on fast fills" —
+        and in `execute()` that sleep is four hundred lines BELOW this read. So
+        the read ran at the one moment the code under it treats as too early,
+        and a lagging book printed 🚨 NO POSITION about a position that was
+        about to have a stop placed on it.
+        """
+        venue = _Sequence(_Empty(), _Empty(), _Holds())
+        got = _probe(venue)
+        assert got["state"] == "found"
+        assert got["confirmed"] is True
+
+    def test_a_venue_that_is_genuinely_down_still_says_unreadable(self):
+        got = _probe(_Raises())
+        assert got["state"] == "unreadable"
+        assert got["confirmed"] is False
+        assert leverage_went_unverified(got["state"], got["confirmed"]), (
+            "the retry swallowed the finding it was built on top of")
+
+    def test_a_position_that_is_genuinely_gone_still_says_absent(self):
+        got = _probe(_Empty())
+        assert got["state"] == "absent"
+        assert got["confirmed"] is False
+
+
+class TestItAsksTheRightNumberOfTimes:
+    def test_a_confirmation_costs_exactly_one_round_trip(self):
+        """The money path must not pay for the failure path."""
+        venue = _Holds()
+        got = _probe(venue)
+        assert venue.calls == 1
+        assert got["attempts"] == 1
+
+    @pytest.mark.parametrize("venue_factory", [_Raises, _Empty])
+    def test_a_failure_uses_the_whole_budget_and_no_more(self, venue_factory):
+        venue = venue_factory()
+        got = _probe(venue, max_attempts=3)
+        assert venue.calls == 3
+        assert got["attempts"] == 3
+
+    def test_it_stops_the_moment_it_succeeds(self):
+        venue = _Sequence(_Raises(), _Holds())
+        _probe(venue, max_attempts=5)
+        assert venue.calls == 2, (
+            "it kept asking after the venue had answered — three more round "
+            "trips on the latency-sensitive path, for nothing")
+
+    def test_one_attempt_is_the_old_behaviour_exactly(self):
+        """The budget is a parameter, so the pre-retry behaviour stays
+        expressible — and stays asserted, because that is what every caller
+        that has not opted in would get."""
+        venue = _Raises()
+        got = _probe(venue, max_attempts=1)
+        assert venue.calls == 1
+        assert got["state"] == "unreadable"
+
+    @pytest.mark.parametrize("bad", [0, -3, None])
+    def test_a_nonsense_budget_still_asks_once(self, bad):
+        """`range(0)` would return the initial dict with `attempts: 0` — a
+        confident `absent` for a venue nobody asked. Floor of one."""
+        venue = _Empty()
+        got = _probe(venue, max_attempts=bad)
+        assert venue.calls == 1
+        assert got["attempts"] == 1
+
+    def test_it_does_not_sleep_after_the_last_attempt(self, monkeypatch):
+        """A trailing sleep is invisible in the result and costs 1.5s on every
+        failed fill — the case that is already slow and already alarming."""
+        from bot.core import live_executor as le
+
+        slept = []
+
+        async def _record(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(le.asyncio, "sleep", _record)
+        ex = LiveExecutor.__new__(LiveExecutor)
+        asyncio.run(LiveExecutor._verify_position_exists(
+            ex, _Raises(), "APT/USDT:USDT", "LONG",
+            max_attempts=3, delay=0.25))
+        assert slept == [0.25, 0.25], (
+            f"expected a gap BETWEEN attempts only, got {slept}")
+
+    def test_a_confirmation_sleeps_not_at_all(self, monkeypatch):
+        from bot.core import live_executor as le
+
+        slept = []
+
+        async def _record(seconds):
+            slept.append(seconds)
+
+        monkeypatch.setattr(le.asyncio, "sleep", _record)
+        ex = LiveExecutor.__new__(LiveExecutor)
+        asyncio.run(LiveExecutor._verify_position_exists(
+            ex, _Holds(), "APT/USDT:USDT", "LONG",
+            max_attempts=3, delay=0.25))
+        assert slept == []
+
+
+class TestTheLastAnswerIsTheAnswer:
+    """`state` resets per attempt, and the mixed orders are why.
+
+    Neither of these is a "flake" the loop can average away: they are two
+    different readings of the same venue, and only one of them is current.
+    """
+
+    def test_raised_then_answered_no_is_an_absence(self):
+        """The venue has now spoken. Reporting `unreadable` would suppress a
+        real 🚨 on the grounds that an earlier attempt broke."""
+        got = _probe(_Sequence(_Raises(), _Empty()))
+        assert got["state"] == "absent"
+
+    def test_answered_no_then_raised_is_unreadable(self):
+        """The reverse is NOT symmetric, and the asymmetry is deliberate.
+
+        `absent` is the one reading we retried BECAUSE we distrusted it — a
+        book that lags a fresh fill answers exactly that way. Having then
+        failed to get a settled second look, the honest word is that we never
+        settled it, and it is also the safer of the two: `unreadable` sends
+        the operator to look and records the guard skip, where `absent` would
+        assert a missing position on evidence we deliberately doubted.
+        """
+        got = _probe(_Sequence(_Empty(), _Raises()))
+        assert got["state"] == "unreadable"
+        assert leverage_went_unverified(got["state"], got["confirmed"])
+
+    def test_a_late_confirmation_carries_the_venues_numbers(self):
+        """Not just the state: a stale zero-filled result behind a `found`
+        state is the same defect one field over."""
+        got = _probe(_Sequence(_Empty(), _Holds(leverage=7)))
+        assert got["leverage"] == 7
+        assert got["exchange_qty"] == 3.0
+        assert got["exchange_entry"] == 5.0
+        assert got["margin"] == 0.75
+
+
+class TestTheRetryRuleIsAskedRatherThanInlined:
+    """`position_read_needs_another_look` is a seam for the same reason
+    `leverage_went_unverified` is: what it decides leaves no trace. A loop that
+    silently stopped retrying looks exactly like one that never started."""
+
+    @pytest.mark.parametrize("state", ["absent", "unreadable"])
+    def test_both_non_confirming_states_get_another_look(self, state):
+        assert position_read_needs_another_look(state, 0, 3)
+
+    def test_a_confirmation_never_does(self):
+        assert not position_read_needs_another_look("found", 0, 3)
+
+    @pytest.mark.parametrize("state", ["absent", "unreadable", "found"])
+    def test_the_budget_is_respected_whatever_the_state(self, state):
+        assert not position_read_needs_another_look(state, 2, 3)
+
+    def test_a_budget_of_one_never_retries(self):
+        assert not position_read_needs_another_look("unreadable", 0, 1)
+
+    def test_an_unknown_state_is_treated_as_not_confirmed(self):
+        """Fail toward looking again. The cost is one round trip; the cost of
+        the other default is a safety control that does not run."""
+        assert position_read_needs_another_look(None, 0, 3)
+
+    def test_the_read_asks_the_predicate(self):
+        """Reachability. The drives above prove the RULE; only the caller can
+        show the rule is the one in force — which is the exact thing the
+        `_lev_mismatch` gap was, one level up.
+        """
+        from tests.source_scan import code_only
+        src = code_only(inspect.getsource(
+            LiveExecutor._verify_position_exists))
+        assert "position_read_needs_another_look(" in src, (
+            "the read grew its own retry condition; the policy and the loop "
+            "can now disagree about when to stop")
+
+
+class TestTheDefaultsAreTheOnesClaimed:
+    """Every drive above passes `delay=0`, so nothing else here would notice a
+    default of 60 seconds or of none at all."""
+
+    def test_three_attempts_matching_the_order_check(self):
+        sig = inspect.signature(LiveExecutor._verify_position_exists)
+        assert sig.parameters["max_attempts"].default == 3, (
+            "the position read and the order fill check no longer agree on "
+            "how patient to be with the same venue")
+        order_sig = inspect.signature(LiveExecutor._verify_order_fill)
+        assert (sig.parameters["max_attempts"].default
+                == order_sig.parameters["max_retries"].default)
+
+    def test_the_gap_is_the_settle_constant_this_file_already_has(self):
+        sig = inspect.signature(LiveExecutor._verify_position_exists)
+        assert sig.parameters["delay"].default == _VENUE_SETTLE_SECONDS, (
+            "a second copy of the venue-settle interval is a second answer")
+
+
+class TestTheAuditSaysHowHardItLooked:
+    """"Could not be read" after one try and after three over three seconds are
+    different operational facts, and the audit trail is where the difference is
+    recoverable afterwards."""
+
+    def test_the_count_reaches_the_audit(self):
+        from tests.source_scan import code_only
+        src = code_only(inspect.getsource(LiveExecutor))
+        assert 'pos_verify.get("attempts")' in src, (
+            "execute() no longer reads how many times the venue was asked")
+        assert '"reads": _reads' in src, (
+            "the count is rendered but not recorded; the forensic half is the "
+            "one that outlives the card")
+
+    def test_a_missing_count_is_omitted_rather_than_invented(self):
+        """A double or an older caller has no `attempts` field, and "failed 1
+        read(s)" manufactured from its absence is the shape this whole file is
+        about. OMIT is the second strategy in CLAUDE.md's table."""
+        from tests.source_scan import code_only
+        src = code_only(inspect.getsource(LiveExecutor))
+        assert 'pos_verify.get("attempts", 1)' not in src
+        assert "_reads_note" in src, (
+            "the note is no longer conditional, so absence renders as a count")
