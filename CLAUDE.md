@@ -90,6 +90,40 @@ token tooling). Those still need CI.
 > this repo spends most of its guard tests preventing; don't reintroduce it in
 > the dev loop.
 
+**A gate that COULD NOT CHECK is not a gate that failed, and the launcher was
+collapsing the two.** `ruff_gate.check_version` separates them deliberately and
+names the reader it separated them for — *"Exit 2, distinct from the 1 that
+means 'something really did grow', so a launcher reading truthiness still fails
+closed while a human reading the message learns which of the two happened."*
+`preflight.py` is that launcher, and it classified every step by `rc == 0`. So
+on 2026-09-11 its summary read **"3 gate(s) failed"** where one was a
+regression and two were silence: `requirements-ci.txt` pins ruff 0.11.13 / mypy
+1.15.0, this box resolved 0.15.8 / 1.19.1, and both whole-tree ratchets had
+been refusing for an unknown number of runs. It was read past twice before
+anybody looked at the per-gate list. **The bucket already existed** — a third
+state for "tool is not installed" whose line already said *"that is not a
+pass"* and whose `main()` already returned 2 — and nothing else was ever routed
+into it. `Outcome.ok` is `True`/`False`/**`None`** now, because there is no
+honest boolean for "nothing was measured", and the versions are read ONCE, up
+front, before any gate runs: each gate refusing for itself is correct and is
+also how it goes unread.
+
+**Mapping every `rc == 2` to "could not check" would be the same defect in a
+new place.** Steps come out of `ci.yml` verbatim and 2 means whatever each tool
+says it means; only the three scripts that document that vocabulary
+(`ruff_gate`, `mypy_gate`, `honesty_gate`) are taken at their word, and
+`tests/test_preflight_names_what_it_could_not_check.py` DRIVES each one to
+prove it rather than grepping for the literal.
+
+**And "install the pinned version" was the wrong instruction.** Both pinned
+builds were already installed; a `/root/.local/bin` copy simply came first on
+`PATH`, so `pip install ruff==0.11.13` reported success and moved nothing. The
+reading searches the rest of `PATH` for a correctly-pinned copy and says
+*shadowed, not missing* when it finds one — and `install_hint` omits a tool it
+would be pointless to reinstall. `scripts/toolchain.py` is the one reading;
+`ruff_gate` and `mypy_gate` had byte-identical copies of it and `preflight`
+needed a third.
+
 **Do not** substitute a bare `pytest`. The suite runs through
 `scripts/ci_test_gate.py`, which enforces `tests/known_failures.txt` — a
 baseline entry that starts *passing* is a hard failure, so stale entries
@@ -932,6 +966,20 @@ DISPLAY, and the two were the same function until something finally called it;
 > a blind spot manufactures exactly the accusation it exists to prevent**, so
 > the sweep now reads every `.py` in the tree and entry points are excluded by
 > their `__main__` guard.
+>
+> **A third blind spot, and the sentence above did not prevent it either.** The
+> bare-import pattern was `^\s*import\s+([\w.,\s]+)` and `\s` matches NEWLINES,
+> so a run of consecutive `import` lines was captured as ONE blob —
+> `'json\nimport re\nimport sys…'` — recorded as a single "module name" that
+> matches nothing. **Every bare `import X` after the first in its block was
+> invisible**, and had been for the life of the sweep. It stayed hidden because
+> `bot/` reaches its siblings as `from bot.x import y`, which the other pattern
+> handles; `scripts/` has no `__init__.py`, so a bare sibling import is the only
+> spelling available there, and the first module to rely on it
+> (`scripts/toolchain.py`, imported by `ruff_gate`, `mypy_gate` and `preflight`)
+> was accused on its first run. Two rules now: one line, one import; and a bare
+> `import X` from `D/f.py` also reaches `D/X.py` **when that file exists** —
+> inventing the importer would be a false acquittal, which is the quiet one.
 
 **Registration is not reachability, and it is a fourth granularity.** Module,
 module-level def, method — and then the thing that dispatches. `permission_for()`

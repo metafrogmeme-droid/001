@@ -30,6 +30,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple, Optional
+
+import toolchain
 
 try:
     import yaml
@@ -39,6 +42,44 @@ except ImportError:  # pragma: no cover - trivially environment-dependent
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+#: Gates that document exit 2 as "I could not check", distinct from the 1 that
+#: means "I checked and something grew". `ruff_gate.check_version` says so in
+#: as many words — "a launcher reading truthiness still fails closed while a
+#: human reading the message learns which of the two happened" — and THIS is
+#: that launcher. It classified every non-zero the same way, so a stale
+#: analyser landed in `failed` beside a real regression and the summary read
+#: "3 gate(s) failed" when one was a regression and two were silence.
+#:
+#: The list is narrow on purpose. Mapping every rc==2 to "could not check"
+#: would be an inference about a vocabulary rather than a reading of one: these
+#: steps come out of ci.yml verbatim and 2 means whatever each tool says it
+#: means. `tests/test_preflight_names_what_it_could_not_check.py` pins that
+#: every script named here really does exit 2 for that reason.
+CANNOT_CHECK_EXIT = 2
+CANNOT_CHECK_GATES = ("ruff_gate.py", "mypy_gate.py", "honesty_gate.py")
+
+
+class Outcome(NamedTuple):
+    """What happened to one gate — three states, not two.
+
+    `unchecked` is the third: a gate that could not run (tool absent) or could
+    not compare (analyser version ≠ the one the baseline was recorded with) has
+    produced NO measurement. Reporting that as a failure is loud but wrong, and
+    reporting it as a pass is the defect this whole script exists to prevent.
+    `reason` exists so the summary can say which, because "could not check" and
+    "not installed" send an operator to different fixes.
+    """
+    name: str
+    #: True passed, False failed, **None** nothing was measured. A mutation
+    #: flipping this to True for an unchecked gate survived the first round,
+    #: because every reader guards on `unchecked` first and never looks — which
+    #: is exactly how a meaningless value sits in a field until somebody reads
+    #: it. There is no honest boolean for "did not run", so it does not carry one.
+    ok: Optional[bool]
+    secs: float
+    unchecked: bool
+    reason: str = ""
 
 #: Jobs this can genuinely run on a dev box. Everything else is named in the
 #: summary rather than silently omitted — "all gates green" while quietly
@@ -185,7 +226,26 @@ def main() -> int:
     if purged:
         print(f"cleared {purged} __pycache__ dir(s) — CI starts cold, so this does too")
 
-    results: list[tuple[str, bool, float, bool]] = []
+    # Read the analyser versions BEFORE anything runs. The gates each discover
+    # this for themselves and refuse one at a time, which is correct and is also
+    # how it stays unread: by the time the two CANNOT CHECK lines scroll past,
+    # they look like two of the failures. Said once, up front, it is a condition
+    # of the box rather than a verdict on the tree.
+    stale = [c for c in (toolchain.comparability(t)
+                         for t in toolchain.VERSION_PINNED_TOOLS)
+             if not c.comparable]
+    if stale:
+        print("\n\033[33mTOOLCHAIN — the whole-tree ratchets cannot check on "
+              "this box:\033[0m")
+        for c in stale:
+            print(f"  {c.describe()}")
+        hint = toolchain.install_hint(stale)
+        if hint:
+            print(f"  Fix: {hint}")
+        print("  Until then those gates report CANNOT CHECK, which is neither a "
+              "pass nor a failure.")
+
+    results: list[Outcome] = []
     SHELL_BUILTINS = ("set", "if", "for", "while", "cd", "export", "true")
     for name, cmd, wd in plan:
         tool = cmd.split()[0]
@@ -199,7 +259,8 @@ def main() -> int:
             # Absent is not passing. Say so and keep going, so one missing
             # tool does not hide the state of everything after it.
             print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
-            results.append((name, False, 0.0, True))
+            results.append(Outcome(name, None, 0.0, True,
+                                   f"{tool!r} is not installed"))
             continue
         print(f"\n\033[36m▶ {name}\033[0m\n  $ ({wd}) {_flatten(cmd)}")
         t0 = time.monotonic()
@@ -218,22 +279,34 @@ def main() -> int:
         # in this tree still has to justify itself.
         rc = subprocess.call(cmd, shell=True, cwd=ROOT / wd,  # nosec B602
                              executable="/bin/bash", env=_env)
-        results.append((name, rc == 0, time.monotonic() - t0, False))
+        secs = time.monotonic() - t0
+        # A gate that documents exit 2 as "could not check" is taken at its
+        # word. Every other non-zero is a failure, including a 2 from anything
+        # not on that list.
+        gate = next((g for g in CANNOT_CHECK_GATES if g in cmd), None)
+        if rc == CANNOT_CHECK_EXIT and gate is not None:
+            results.append(Outcome(name, None, secs, True,
+                                   f"{gate} could not check — see its message above"))
+        else:
+            results.append(Outcome(name, rc == 0, secs, False))
 
     print("\n" + "─" * 68)
-    failed = [r for r in results if not r[1] and not r[3]]
-    skipped = [r for r in results if r[3]]
-    for name, ok, secs, skip in results:
-        mark = "\033[33m?\033[0m" if skip else ("\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m")
-        print(f"{mark} {name}  ({secs:.1f}s)")
+    failed = [r for r in results if r.ok is False]
+    unchecked = [r for r in results if r.unchecked]
+    for r in results:
+        mark = ("\033[33m?\033[0m" if r.ok is None
+                else ("\033[32m✓\033[0m" if r.ok else "\033[31m✗\033[0m"))
+        why = f"  — {r.reason}" if r.unchecked and r.reason else ""
+        print(f"{mark} {r.name}  ({r.secs:.1f}s){why}")
     if args.fast:
         print("\n\033[33m--fast omitted the network gates; run without it before pushing.\033[0m")
-    if skipped:
-        print(f"\n\033[33m{len(skipped)} gate(s) could not run — that is not a pass.\033[0m")
+    if unchecked:
+        print(f"\n\033[33m{len(unchecked)} gate(s) could not check — that is "
+              f"not a pass, and it is not a failure either.\033[0m")
     if failed:
         print(f"\n\033[31m{len(failed)} gate(s) failed.\033[0m")
         return 1
-    if skipped:
+    if unchecked:
         return 2
     # NOT "this is what CI will run". It is what CI will run MINUS the jobs
     # below, and a summary that rounds that up to "everything" is the same

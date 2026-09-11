@@ -176,7 +176,13 @@ def test_a_toolchain_mismatch_is_not_reported_as_a_regression(
     distinctly from the 1 that means something really grew.
     """
     mod = _load_gate(script)
-    monkeypatch.setattr(mod, "_running", lambda _tool: "0.0.0-not-the-pinned-one")
+    # `_running` used to live on each gate, in byte-identical copies. It is
+    # `toolchain.running` now — one reading, shared with `preflight`, which
+    # needed the same fact to say up front that the ratchets cannot check.
+    # The property under test is unchanged: a mismatch is exit 2, not exit 1.
+    import toolchain
+    monkeypatch.setattr(toolchain, "running",
+                        lambda _tool: "0.0.0-not-the-pinned-one")
     with pytest.raises(SystemExit) as excinfo:
         mod.check_version(name)
     assert excinfo.value.code == 2, (

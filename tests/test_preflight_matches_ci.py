@@ -178,11 +178,36 @@ def test_no_gate_needing_an_absent_toolchain_is_attempted():
 
 # ── the honesty rules ─────────────────────────────────────────────────────
 
-def test_a_missing_tool_is_not_a_pass():
+def test_a_missing_tool_is_not_a_pass(monkeypatch, capsys):
+    """Re-pointed, not relaxed.
+
+    The last line matched the literal ``"if skipped:\n        return 2"``, so it
+    broke on the commit that renamed that variable to `unchecked` — while the
+    property it guards ("a gate that did not run must not exit 0") was never in
+    question. A code shape is not the property; the exit code is. Driven now.
+    """
     assert "Absent is not passing" in SRC
-    assert "that is not a pass" in SRC
-    # and it must not exit 0 in that case
-    assert "if skipped:\n        return 2" in SRC
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import preflight
+    import toolchain
+    monkeypatch.setattr(preflight, "steps",
+                        lambda fast: [("A gate", "definitely-not-a-real-tool --go", ".")])
+    monkeypatch.setattr(preflight, "purge_pycache", lambda: 0)
+    monkeypatch.setattr(preflight, "uncovered", lambda: [])
+    monkeypatch.setattr(toolchain, "comparability",
+                        lambda t: toolchain.Comparability(t, "1.0.0", "1.0.0"))
+    monkeypatch.setattr(sys, "argv", ["preflight.py"])
+
+    rc = preflight.main()
+    said = capsys.readouterr().out
+    assert rc == 2, "a gate that never ran exited as though the run were clean"
+    assert "All local gates green" not in said
+    # Asserted on the OUTPUT, not the source. It was `"that is not a pass" in
+    # SRC` and broke when the print re-wrapped mid-phrase — a scan matching a
+    # sentence that had only changed line. What the operator reads is the thing
+    # worth pinning.
+    assert "not a pass" in said
 
 
 def test_an_empty_plan_is_an_error_not_a_clean_run():
