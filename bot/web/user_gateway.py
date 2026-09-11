@@ -2820,6 +2820,11 @@ def _compile_policy_preview(engine, text: str) -> dict:
         "human_readable": ip.human_readable(policy),
         "rules": policy.get("rules", []),
         "warnings": policy.get("warnings", []),
+        # compile_nl's own notes. It raises one when a clause was AMBIGUOUS and
+        # therefore yielded no rule — "only trade btc not eth" sets no symbol
+        # restriction rather than one that permits ETH — and a refusal nobody
+        # is shown is the silent half of the defect it replaced.
+        "notes": [n for n in (parsed.get("matched") or []) if str(n).startswith("note:")],
         "policy_id": policy.get("policy_id", ""),
     }
 

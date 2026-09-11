@@ -90,6 +90,74 @@ def _base_symbol(sym: Any) -> str:
     return s
 
 
+#: An allow-list clause ENDS AT ITS CLAUSE. The previous pattern was
+#: `only\s+(?:trade\s+)?([a-z0-9,\s/and]+?)(?:\.|,\s*(?:never|keep|max|min|and
+#: stop)|$)` and had two ways to get an operator's restriction wrong, both
+#: driven in `tests/test_only_trade_stops_at_its_clause.py`:
+#:
+#:   WIDENED. The capture class held `\s`, which matches NEWLINES, and the
+#:   negation terminator required a preceding COMMA. So "only trade btc\nnever
+#:   trade eth" ran the capture to end-of-string and yielded
+#:   ['BTC','ETH','NEVER','TRADE'] — the operator's own negation granting the
+#:   symbol they forbade, on a list `evaluate_policy` enforces with
+#:   `if asset not in val`. Nothing downstream catches it: `compile_policy`
+#:   clamps NUMERIC rules only, so that they "can only tighten", and passes
+#:   symbol lists through untouched.
+#:
+#:   VANISHED, which is the quieter one. "only trade btc\nmax 2% per trade"
+#:   matched NOTHING — `%` is outside the class, so no terminator was reachable
+#:   — and the allow-list was silently absent rather than wrong. A restriction
+#:   that disappears leaves no junk behind to notice.
+#:
+#: Horizontal whitespace only, so a newline ends the clause; the negation and
+#: cap words end it with or without a comma; and the first character must be a
+#: symbol character so the capture cannot open on spaces. `:` is in the class
+#: because `BTC/USDT:USDT` is the form this product prints everywhere, and
+#: `_base_symbol` already reduces it — without it an operator pasting the
+#: symbol exactly as shown got NO allow-list at all, the vanishing mode again
+#: on the likeliest phrasing. That half predates this fix.
+_ONLY_SYMBOLS = re.compile(
+    r"only[ \t]+(?:trade[ \t]+)?([a-z0-9][a-z0-9,/: \t]*?)"
+    r"[ \t]*(?:[.;\n]|,?[ \t]*(?:never|keep|max|min|no|avoid|and[ \t]+stop|stop)\b|$)"
+)
+
+#: Separators INSIDE the clause. `and`/`or` need word boundaries: the previous
+#: split was `[,\s]+|and`, which also cut a symbol that merely contains "and".
+#: `/` is deliberately NOT a separator even though it is in the capture class —
+#: it is how a pair is written, and `_base_symbol` reduces "btc/usdt" to "BTC".
+#: A first draft split on it and produced ['BTC','ETH','USDT'] for
+#: "only trade btc/usdt and eth/usdt", quietly allowing the quote currency.
+_SYM_SPLIT = re.compile(r"[,\s]+|\band\b|\bor\b")
+
+#: Words that mean the sentence is doing MORE than listing symbols. Their
+#: presence inside the clause makes the clause AMBIGUOUS, and an ambiguous
+#: clause does not become a confident allow-list.
+#:
+#: ENUMERATING NEGATIONS AS TERMINATORS DOES NOT GENERALISE, and the first
+#: version of this fix tried. It handled "never" and got
+#: "only trade btc not eth"      -> BTC, ETH
+#: "only trade btc except eth"   -> BTC, ETH, EXCEPT
+#: "only trade btc but not eth"  -> BTC, ETH
+#: — every miss a silent widening of a whitelist on a guardian surface, which
+#: is an arms race against English dressed up as a parser. So the rule is not
+#: "recognise every negation"; it is **a clause this parser cannot fully
+#: account for yields no rule, and says so**. Guard, not omit: the operator is
+#: told to put the exclusion in its own sentence, rather than handed a policy
+#: that permits what they just forbade.
+_AMBIGUOUS_IN_CLAUSE = frozenset({
+    "not", "no", "never", "except", "excepting", "excluding", "exclude",
+    "without", "but", "dont", "don't", "avoid", "apart", "besides", "unless",
+    "minus", "ignore", "ignoring", "skip", "nothing", "none",
+})
+
+#: Words the grammar itself uses as glue. They are dropped from the token list
+#: rather than making the clause ambiguous — "and"/"or" are separators and
+#: "trade" is part of the phrasing this pattern already consumes.
+_NOT_A_SYMBOL = frozenset({
+    "only", "trade", "trades", "trading", "and", "or", "the", "just", "all",
+})
+
+
 def _canon(rules: list[dict], meta: dict) -> str:
     """Canonical JSON for hashing — order-independent, whitespace-stable."""
     norm = sorted(
@@ -427,14 +495,27 @@ def compile_nl(text: str) -> dict:
         add({"type": "allowed_symbols", "value": list(_MAJORS)},
             f"only majors ({', '.join(_MAJORS)})")
     else:
-        m = re.search(r"only\s+(?:trade\s+)?([a-z0-9,\s/and]+?)"
-                      r"(?:\.|,\s*(?:never|keep|max|min|and stop)|$)", t)
+        m = _ONLY_SYMBOLS.search(t)
         if m:
-            syms = [_base_symbol(s) for s in re.split(r"[,\s]+|and", m.group(1)) if _base_symbol(s)]
-            syms = [s for s in syms if 2 <= len(s) <= 6]
-            if syms:
-                add({"type": "allowed_symbols", "value": sorted(set(syms))},
-                    f"only {', '.join(sorted(set(syms)))}")
+            raw = [s for s in _SYM_SPLIT.split(m.group(1)) if s.strip()]
+            unclear = sorted({w for w in (s.strip().lower() for s in raw)
+                              if w in _AMBIGUOUS_IN_CLAUSE})
+            if unclear:
+                # An allow-list is a RESTRICTION. Emitting a narrower reading of
+                # an ambiguous sentence is how "only trade btc not eth" came to
+                # permit ETH; emitting nothing WITHOUT SAYING SO is the other
+                # half of the same defect. So: no rule, and a note.
+                matched.append(
+                    f"note: '{', '.join(unclear)}' in “only …” is ambiguous — "
+                    f"no symbol restriction was set. Put the exclusion in its "
+                    f"own sentence (e.g. “only trade btc. never eth”).")
+            else:
+                syms = [_base_symbol(s) for s in raw if _base_symbol(s)]
+                syms = [s for s in syms
+                        if 2 <= len(s) <= 6 and s.lower() not in _NOT_A_SYMBOL]
+                if syms:
+                    add({"type": "allowed_symbols", "value": sorted(set(syms))},
+                        f"only {', '.join(sorted(set(syms)))}")
 
     # blocked: "no memecoins / avoid DOGE / never trade X"
     if re.search(r"no\s*meme|avoid\s*meme|no\s*shitcoin", t):
