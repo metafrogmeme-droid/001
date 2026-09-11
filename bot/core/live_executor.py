@@ -48,6 +48,7 @@ from bot.core.venues import get_venue
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, order_status,
     pending_cancel_verdict, position_presence, read_amount, rows_for_side,
+    stop_attached,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
@@ -10798,54 +10799,24 @@ class LiveExecutor:
                   data={"symbol": bitget_symbol, "response": str(result)[:300]})
             return None
 
-    async def _sync_sl_tp_from_exchange(self, pos: LivePosition) -> bool:
-        """Read SL/TP order IDs directly from the exchange position data.
-
-        Uses v2 Get All Positions endpoint which returns:
-          takeProfit, stopLoss, takeProfitId, stopLossId
-
-        Updates the local LivePosition in-place.
-        Returns True if SL/TP info was updated.
-        """
-        try:
-            exchange = await self._get_exchange()
-            ccxt_sym = self._venue.swap_symbol(pos.symbol)
-            positions = await exchange.fetch_positions(
-                [ccxt_sym], params=self._venue.futures_params())
-
-            for p in positions:
-                if abs(float(p.get("contracts", 0) or 0)) <= 0:
-                    continue
-                info = p.get("info", {})
-
-                # v2 position data includes SL/TP info directly
-                tp_price = float(info.get("takeProfit") or 0)
-                sl_price = float(info.get("stopLoss") or 0)
-                tp_id = info.get("takeProfitId") or ""
-                sl_id = info.get("stopLossId") or ""
-
-                updated = False
-                if tp_price > 0 and pos.take_profit != tp_price:
-                    pos.take_profit = tp_price
-                    updated = True
-                if sl_price > 0 and pos.stop_loss != sl_price:
-                    pos.stop_loss = sl_price
-                    updated = True
-                if tp_id and pos.tp_order_id != tp_id:
-                    pos.tp_order_id = tp_id
-                    updated = True
-                if sl_id and pos.sl_order_id != sl_id:
-                    pos.sl_order_id = sl_id
-                    updated = True
-
-                if updated:
-                    self._save_positions()
-                    logger.info("Synced SL/TP from exchange for %s: SL=%s TP=%s",
-                                pos.symbol, sl_price or "none", tp_price or "none")
-                return updated
-        except Exception as exc:
-            logger.debug("_sync_sl_tp_from_exchange failed for %s: %s", pos.symbol, exc)
-        return False
+    # `_sync_sl_tp_from_exchange` WAS HERE, AND IT WAS A SECOND ANSWER.
+    #
+    # It read SL/TP prices and order ids off the venue's position row and wrote
+    # them onto the local record. `reconcile_positions` does the same job on
+    # every sweep and is the copy with a caller; this one had none anywhere in
+    # the tree, tests included, and `docs/DEEP_AUDIT_2026.md` recorded exactly
+    # that in 2026-06 — "fully implemented but never called (dead self-heal
+    # path)" — where it sat unactioned.
+    #
+    # Keeping it would have meant fixing it, because it carried both of the
+    # defects its live twin was just cured of: it took the FIRST sized row from
+    # an UNFILTERED list, so in hedge mode it wrote the short's stop, take
+    # profit and order ids onto the long; and it sized that row with
+    # `float(p.get("contracts", 0) or 0)`, so an unsized row silently synced
+    # nothing. A second copy of a reading is a second answer — the rule this
+    # repo has now paid for over the provider→env map three times — and the
+    # right number of copies of a WRONG one is zero. Anything that wants this
+    # behaviour should call the twin, not revive this.
 
     async def _stop_live_on_exchange(self, pos: "LivePosition") -> Optional[bool]:
         """Whether the exchange position currently carries a live stop-loss.
@@ -10855,18 +10826,48 @@ class LiveExecutor:
         Used by the periodic self-heal to avoid cancel-then-replacing a
         HEALTHY v3 combined stop (audit HIGH): _place_sl_tp cancels existing
         plan orders before placing, so re-placing a working stop opens a
-        naked window every cycle. Gate re-placement on a POSITIVE False."""
+        naked window every cycle. Gate re-placement on a POSITIVE False.
+
+        IT ANSWERED THE QUESTION OFF WHATEVER ROW CAME FIRST. The loop read an
+        UNFILTERED list, so three inputs produced a confident verdict about a
+        position the row was not describing:
+
+          - hedge mode returns BOTH sides for one symbol, so a naked short was
+            told it was protected by the long's stop — and a protected short
+            was told it was naked, which is the cancel-then-replace this branch
+            exists to prevent, fired on a healthy stop;
+          - a row whose size the venue did not state was skipped by the same
+            `or 0` this file has now fixed four times, handing the question to
+            the next row along — the other side's;
+          - the symbol was never checked at all. `fetch_positions([sym])` is a
+            REQUEST filter, and `exchange_sync`'s own UTA fallback exists
+            because this venue returns rows nobody asked for.
+
+        Three hundred lines up, the branch that decides whether a position is
+        still open is entirely about matching the tracked side. The branch that
+        decides whether it still has a STOP was not.
+
+        And every unreadable stop field came out False — see `stop_attached`,
+        which is the reading this docstring had been describing since before it
+        was true."""
         try:
             exchange = await self._get_exchange()
             ccxt_sym = self._venue.swap_symbol(pos.symbol)
             positions = await exchange.fetch_positions(
                 [ccxt_sym], params=self._venue.futures_params())
-            for p in positions:
-                if abs(float(p.get("contracts", 0) or 0)) <= 0:
+            for p in rows_for_side(positions, ccxt_sym,
+                                   (pos.direction or "").lower()):
+                if not isinstance(p, dict):
                     continue
-                info = p.get("info", {}) or {}
-                return float(info.get("stopLoss") or 0) > 0
-            return None  # no matching open position on the exchange
+                qty = read_amount(p, "contracts")
+                if qty is None or abs(qty) <= 0:
+                    continue
+                return stop_attached(p.get("info"))
+            # No row on OUR side we could size: the venue may be flat, may have
+            # answered about somebody else, or may not have stated a size. None
+            # of those is "the stop is gone", which is the only answer that
+            # tears a live stop down.
+            return None
         except Exception as exc:
             logger.debug("_stop_live_on_exchange check failed for %s: %s",
                          pos.symbol, exc)
@@ -11027,10 +11028,33 @@ class LiveExecutor:
         exchange: open plan/trigger orders for the symbol (classic two-order
         SL/TP live here) PLUS the position-attached stopLossId / takeProfitId.
 
-        Returns the union set on success, or None when the exchange could not be
-        queried at all (BOTH sources errored) — the caller then trusts the stored
-        IDs as before (fail-open), so a transient query failure never triggers a
-        spurious re-placement."""
+        Returns the union set when BOTH sources answered, or None otherwise —
+        the caller then trusts the stored IDs (fail-open), so a query failure
+        never triggers a spurious re-placement.
+
+        IT USED TO BE `plan_ok or pos_ok`, AND THE DOCSTRING SAID SO — "None
+        when the exchange could not be queried at all (BOTH sources errored)".
+        Honest about the code and wrong about the question. A set is evidence
+        that a leg is GONE only if it is complete, and `_missing_classic_legs`
+        reads absence from this set as exactly that. So one failed
+        `fetch_open_orders` — where the classic legs actually live — returned
+        the position-attached ids alone, which on an account using plan orders
+        is the empty set, and both legs were reported missing. The caller
+        re-places, `_place_sl_tp` cancels before it places, and a healthy pair
+        is torn down and rebuilt: the same naked window the v3 branch six lines
+        up exists to prevent, through the door nobody checked.
+
+        A PARTIAL READ COLLAPSES TO None, and that is not a shortcut. Partial
+        with both stored ids found means nothing needed doing; partial with one
+        missing cannot support the verdict. Both outcomes are "do not re-place",
+        so there is no third behaviour for a third value to buy.
+
+        This is also strictly kinder to a venue whose plan-order query is not
+        supported at all: under the old rule that fetch failed every cycle, the
+        stored ids were never in the position-id set, and the pair was
+        cancel-then-replaced on EVERY self-heal pass for the life of the
+        position. Fail-open costs a missed repair, with the local price monitor
+        still underneath it; fail-closed costs the stop itself."""
         try:
             exchange = await self._get_exchange()
         except Exception as exc:
@@ -11066,8 +11090,11 @@ class LiveExecutor:
             pos_ok = True
         except Exception as exc:
             logger.debug("position fetch failed for %s: %s", pos.symbol, exc)
-        if not (plan_ok or pos_ok):
-            return None  # couldn't verify either source → fail-open
+        if not (plan_ok and pos_ok):
+            # One source short is not a smaller answer, it is a different
+            # question: absence from a partial set is not absence from the
+            # venue, and absence is the only thing this set is read for.
+            return None
         return ids
 
     async def verify_and_fix_sltp(self) -> None:

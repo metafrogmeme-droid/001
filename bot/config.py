@@ -2425,6 +2425,17 @@ class AppConfig:
     # thinner, so their floor stays lower ($5k unchanged).
     min_crypto_volume_usd: float = _env_float_bounded("MIN_CRYPTO_VOLUME_USD", 1_500_000, 0, 1e12)
     min_tradfi_volume_usd: float = _env_float_bounded("MIN_TRADFI_VOLUME_USD", 5_000, 0, 1e12)
+    # TURNOVER A VOLUME SPIKE HAS TO CLEAR TO BE BELIEVED — a DIFFERENT
+    # question from the two floors above, which decide what is worth scanning.
+    # Those are 300x apart by asset class, and `_detect_volume_spike` was
+    # gated only by them: a Stock/ETF perp just over 5,000 doubles its 24h
+    # turnover on a few thousand dollars of trades and pages for it. This one
+    # is flat across classes on purpose — "did real money change hands" does
+    # not vary by asset class — and 0 restores the old every-multiple
+    # behaviour. See market_scanner._detect_volume_spike and, for the same
+    # shape on collapses, black_swan._MIN_BAR_NOTIONAL.
+    min_spike_notional_usd: float = _env_float_bounded(
+        "MIN_SPIKE_NOTIONAL_USD", 250_000, 0, 1e12)
     # Which market's 24h volume gates the CRYPTO universe in all_markets:
     # "futures" (default) measures the USDT-FUTURES perp — the market this
     # bot actually trades — and admits perp-only listings (no spot pair).

@@ -9,8 +9,14 @@ was never re-placed.
 
 When CONFIG.execution.verify_classic_sltp_on_restart is ON, each distinct
 classic leg is verified against the exchange's live orders and the SL/TP pair is
-re-placed if either is gone (placement cancels survivors first). Default OFF
-keeps restart behaviour byte-identical.
+re-placed if either is gone (placement cancels survivors first).
+
+THIS FILE SAID "Default OFF keeps restart behaviour byte-identical" AND THE
+DEFAULT IS ON. `bot/config.py:1898` reads `_env_bool(..., True)` under a comment
+saying "Default ON — recommended for live money". Nothing about the tests below
+depended on the claim, which is how it survived; it mattered because it made
+the partial-read defect in `_live_protective_order_ids` read like an opt-in
+hazard when it is on every live box by default.
 """
 
 import asyncio
@@ -85,15 +91,44 @@ class TestLiveProtectiveOrderIds:
             SimpleNamespace(symbol="BTC/USDT")))
         assert ids is None
 
-    def test_partial_success_returns_set(self):
-        # Plan fetch fails but position fetch works → authoritative (not None).
+    def test_a_partial_read_is_not_an_authoritative_one(self):
+        """RE-POINTED, NOT RELAXED, and the word in the old comment is the
+        finding: it asserted that one of two sources made the set
+        "authoritative (not None)". This set is read for exactly one thing —
+        `_missing_classic_legs` treats absence from it as a leg that is GONE —
+        and absence from a partial set is not absence from the venue.
+
+        The classic legs live in the PLAN orders. So a failed
+        `fetch_open_orders` beside a working `fetch_positions` returned the
+        position-attached ids alone, which on a plan-order account is the empty
+        set: both legs reported missing, the pair re-placed, and `_place_sl_tp`
+        cancels before it places — the healthy pair torn down and rebuilt, with
+        a naked window in between. That is the audit-HIGH failure the v3 branch
+        six lines up was written to prevent, reached through the other branch,
+        under a flag that defaults ON (`bot/config.py`: "Default ON —
+        recommended for live money").
+
+        None keeps the stored ids trusted, which is what this whole feature
+        does when it is switched off. A missed repair still has the local price
+        monitor under it; a torn-down stop has nothing.
+        """
         ex = _exchange(plan_raises=True,
                        positions=[{"info": {"stopLossId": "S1"}}])
         ids = asyncio.run(self._exec(ex)._live_protective_order_ids(
             SimpleNamespace(symbol="BTC/USDT")))
-        assert ids == {"S1"}
+        assert ids is None
+
+    def test_the_other_half_of_the_pair_is_not_authoritative_either(self):
+        ex = _exchange(plans=[{"id": "P1"}], pos_raises=True)
+        ids = asyncio.run(self._exec(ex)._live_protective_order_ids(
+            SimpleNamespace(symbol="BTC/USDT")))
+        assert ids is None
 
     def test_empty_but_queried_is_empty_set_not_none(self):
+        """The property the change must NOT break: both sources answered and
+        found nothing, which is a reading — the legs really are gone and the
+        pair really should be re-placed. A gate that can never say `missing`
+        is honest and useless."""
         ids = asyncio.run(self._exec(_exchange())._live_protective_order_ids(
             SimpleNamespace(symbol="BTC/USDT")))
         assert ids == set()

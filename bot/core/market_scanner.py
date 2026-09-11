@@ -797,14 +797,42 @@ class MarketScanner:
     # ── Internal helpers ─────────────────────────────────────────
 
     def _detect_volume_spike(self, symbol: str, current_vol: float) -> bool:
-        """True if current volume is >2x the rolling average."""
+        """True if turnover is >2x its rolling average AND large enough to mean it.
+
+        A SPIKE NEEDS LIQUIDITY TO SPIKE FROM, and this is the mirror of the
+        note `black_swan._MIN_BAR_NOTIONAL` already carries about collapses:
+        a ratio over a baseline of nothing is arithmetically correct and means
+        nothing. Here the only floor was `min_vol` in `_process_ticker`, and
+        that answers a DIFFERENT QUESTION — "is this symbol worth scanning at
+        all" — on a scale set per asset class:
+
+            MIN_CRYPTO_VOLUME_USD   1,500,000
+            MIN_TRADFI_VOLUME_USD       5,000
+
+        Three hundred times apart, and the low one is where the tokenised
+        equities live. A Stock or ETF perp sitting just over its listing floor
+        doubles its 24h turnover on a few thousand dollars of trades — one
+        modest order — and every such symbol then pages. Reported live: an
+        overnight channel taking 60+ volume and anomaly messages, the named
+        symbols being NFLX, DFEN and DIASTOCK.
+
+        One number cannot answer both questions. The listing floor decides what
+        is scanned; this one decides whether a multiple of it is worth
+        believing, and it is deliberately flat across asset classes because the
+        question — "did real money change hands" — does not vary by class.
+
+        Tuneable rather than hard-coded: the right floor depends on the
+        universe an operator scans, and `0` restores the previous behaviour
+        for anyone who wants every multiple.
+        """
         # Note: rapid rescans may dampen spike detection as recent high volumes
         # are included in the baseline. This is acceptable for the 5-min scan interval.
         with self._lock:
             history = self._volume_history.setdefault(symbol, [])
             if len(history) >= 3:
                 avg = sum(history) / len(history)
-                is_spike = current_vol > avg * 2.0
+                is_spike = (current_vol > avg * 2.0
+                            and current_vol >= CONFIG.min_spike_notional_usd)
             else:
                 is_spike = False
             history.append(current_vol)

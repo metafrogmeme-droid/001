@@ -303,15 +303,25 @@ class TestProactiveMonitor:
         assert len(self.monitor._dedup_cache) <= 201  # pruned to ~101
 
     def test_alerted_signals_pruning(self):
+        """RE-POINTED, NOT RELAXED — and this test is why the bug survived.
+
+        Its comment claimed the eviction "evicts the oldest ~250 entries
+        (keeps recent ones)". The store was a `set`, which has no insertion
+        order, so `list(a_set)[:250]` dropped an ARBITRARY half — the newest
+        key included. The assertion below used to read `0 < len < 510`, which
+        is true of oldest-eviction, newest-eviction and random-eviction alike,
+        so it could not tell the claim from its opposite.
+
+        Bounding is still checked; the ORDER the old comment promised is now
+        checked too. Pruning moved to the write site (`_remember_once`), which
+        is where the cap can be enforced without every caller remembering to.
+        """
         for i in range(510):
-            self.monitor._alerted_signals.add(f"sig_{i}")
-        alert = Alert(
-            alert_type="TEST", severity="INFO",
-            title="Test", body="test")
-        self.monitor._mark_sent(alert)
-        # Pruning now evicts the oldest ~250 entries when the set exceeds 500
-        # (keeps recent ones) instead of clearing the whole set.
-        assert 0 < len(self.monitor._alerted_signals) < 510
+            self.monitor._remember_once(self.monitor._alerted_signals, f"sig_{i:03d}")
+        signals = self.monitor._alerted_signals
+        assert 0 < len(signals) <= 500
+        assert "sig_509" in signals, "the newest key must survive eviction"
+        assert "sig_000" not in signals, "the oldest key must be the one evicted"
 
     def test_stop(self):
         self.monitor._running = True
