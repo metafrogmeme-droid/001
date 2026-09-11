@@ -11028,10 +11028,33 @@ class LiveExecutor:
         exchange: open plan/trigger orders for the symbol (classic two-order
         SL/TP live here) PLUS the position-attached stopLossId / takeProfitId.
 
-        Returns the union set on success, or None when the exchange could not be
-        queried at all (BOTH sources errored) — the caller then trusts the stored
-        IDs as before (fail-open), so a transient query failure never triggers a
-        spurious re-placement."""
+        Returns the union set when BOTH sources answered, or None otherwise —
+        the caller then trusts the stored IDs (fail-open), so a query failure
+        never triggers a spurious re-placement.
+
+        IT USED TO BE `plan_ok or pos_ok`, AND THE DOCSTRING SAID SO — "None
+        when the exchange could not be queried at all (BOTH sources errored)".
+        Honest about the code and wrong about the question. A set is evidence
+        that a leg is GONE only if it is complete, and `_missing_classic_legs`
+        reads absence from this set as exactly that. So one failed
+        `fetch_open_orders` — where the classic legs actually live — returned
+        the position-attached ids alone, which on an account using plan orders
+        is the empty set, and both legs were reported missing. The caller
+        re-places, `_place_sl_tp` cancels before it places, and a healthy pair
+        is torn down and rebuilt: the same naked window the v3 branch six lines
+        up exists to prevent, through the door nobody checked.
+
+        A PARTIAL READ COLLAPSES TO None, and that is not a shortcut. Partial
+        with both stored ids found means nothing needed doing; partial with one
+        missing cannot support the verdict. Both outcomes are "do not re-place",
+        so there is no third behaviour for a third value to buy.
+
+        This is also strictly kinder to a venue whose plan-order query is not
+        supported at all: under the old rule that fetch failed every cycle, the
+        stored ids were never in the position-id set, and the pair was
+        cancel-then-replaced on EVERY self-heal pass for the life of the
+        position. Fail-open costs a missed repair, with the local price monitor
+        still underneath it; fail-closed costs the stop itself."""
         try:
             exchange = await self._get_exchange()
         except Exception as exc:
@@ -11067,8 +11090,11 @@ class LiveExecutor:
             pos_ok = True
         except Exception as exc:
             logger.debug("position fetch failed for %s: %s", pos.symbol, exc)
-        if not (plan_ok or pos_ok):
-            return None  # couldn't verify either source → fail-open
+        if not (plan_ok and pos_ok):
+            # One source short is not a smaller answer, it is a different
+            # question: absence from a partial set is not absence from the
+            # venue, and absence is the only thing this set is read for.
+            return None
         return ids
 
     async def verify_and_fix_sltp(self) -> None:

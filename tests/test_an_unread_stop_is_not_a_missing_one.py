@@ -47,6 +47,16 @@ wrong. `stop_attached` is two-field: a positive price OR a non-empty
 `stopLossId` is a stop; the fields being PRESENT and empty is the venue
 reporting an unprotected position; only fields that are absent, or hold
 something unparseable, are a silence.
+
+AND ONE MUTATION SURVIVED BY BEING EQUIVALENT, which is worth separating from
+a survivor that is a gap. Replacing `stop_attached`'s ``if not
+isinstance(info, dict): return None`` with ``info = info if isinstance(info,
+dict) else {}`` survived — and it should have, because ``{}`` already answers
+None by every path below it. DELETING the guard, rather than respelling it,
+killed five tests. A surviving mutation is a question, not a verdict: the
+answer here was "the guard is covered and the mutation was a no-op", and the
+answer one case over (the or-zero size read) was a real hole. Both are written
+up below rather than only the one that cost a test.
 """
 
 import asyncio
@@ -55,7 +65,6 @@ import pytest
 
 from bot.core.live_executor import LiveExecutor
 from bot.core.order_state import stop_attached
-
 
 # ── the reading, driven directly ──────────────────────────────────────────
 
@@ -242,6 +251,29 @@ class TestAnUnreadableRowDoesNotHandOverTheQuestion:
     ])
     def test_nothing_we_can_size_is_never_a_missing_stop(self, tmp_path, rows):
         assert _ask(tmp_path, rows) is None
+
+    def test_a_junk_size_does_not_abort_the_rows_behind_it(self, tmp_path):
+        """WHAT `read_amount` BUYS HERE, and it took a surviving mutation to
+        find it. Restoring `float(p.get("contracts", 0) or 0)` changed no
+        verdict in any other case — null, blank and a real 0 all skip to the
+        same None either way — so the first draft of this file did not kill it.
+
+        The difference is that the old shape RAISES on a non-numeric size, and
+        the raise is caught 8 lines down by the method's own `except`, which
+        abandons the whole loop. So one junk row costs the answer that the row
+        BEHIND it was carrying. Two rows for one side is not exotic:
+        `exchange_sync` merges v3 rows in beside the ccxt ones by symbol+side
+        precisely because the venue under-reports, and a merge is where a
+        differently-shaped payload turns up.
+        """
+        sym = _swap(tmp_path)
+        rows = [
+            {"symbol": sym, "side": "short", "contracts": "n/a",
+             "info": {"stopLoss": "95.0", "stopLossId": "OURS"}},
+            {"symbol": sym, "side": "short", "contracts": 2.0,
+             "info": {"stopLoss": "95.0", "stopLossId": "OURS"}},
+        ]
+        assert _ask(tmp_path, rows, "SHORT") is True
 
     def test_a_raising_venue_is_not_a_missing_stop(self, tmp_path):
         lx = LiveExecutor(state_dir=str(tmp_path))
