@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from bot.proofofpnl.csf import make_fill
+from bot.proofofpnl.csf import make_fill, make_funding
 
 _DEFAULT_TIER = "cex_operator_signed"
 
@@ -50,6 +50,49 @@ def fills_from_ccxt_trades(trades: list[dict], *, venue: str = "bitget",
             fee=fee_cost, fee_ccy=fee_ccy,
             ts=int(t.get("timestamp") or 0), source_ref=source_ref,
             trust_tier=trust_tier,
+        ))
+    return out
+
+
+def funding_from_ccxt_history(entries: list[dict], *, markets: list[str],
+                              venue: str = "bitget",
+                              trust_tier: str = _DEFAULT_TIER) -> list[dict]:
+    """CCXT ``fetch_funding_history`` output → CSF funding records.
+
+    ``markets`` is the set of perpetual markets the caller ACTUALLY QUERIED, and
+    it is not optional. It is what separates "this window had no funding
+    settlements" from "nobody asked", which the entries alone cannot say — the
+    same distinction `orphan_position.py` carries as `orders_read`, and the one
+    `compute_metrics` refuses to guess. A queried market with no entries gets a
+    zero-amount record so the epoch can still reconcile; a market never queried
+    gets nothing, and `reconcile` then names it.
+
+    SIGN CONVENTION. CCXT reports ``amount`` from the account's point of view —
+    negative paid, positive received — and `make_funding` keeps it signed for
+    that reason. An entry with no usable ``amount`` yields an incomplete record
+    (amount=None) rather than a zero, so a venue that answers with a blank does
+    not read as a settlement that cost nothing.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    for e in entries or []:
+        market = str(e.get("symbol", ""))
+        seen.add(market)
+        ref = str(e.get("id") or f"{market}@{e.get('timestamp', 0)}")
+        out.append(make_funding(
+            venue=venue, venue_type="cex", market=market,
+            amount=e.get("amount"), ccy=str(e.get("code", "")),
+            ts=int(e.get("timestamp") or 0), source_ref=ref,
+            trust_tier=trust_tier,
+        ))
+    # Coverage: a market we queried and found nothing for is a MEASURED zero.
+    for market in markets or []:
+        if str(market) in seen:
+            continue
+        out.append(make_funding(
+            venue=venue, venue_type="cex", market=str(market),
+            amount=0, ccy="", ts=0,
+            source_ref=f"scanned:{market}", trust_tier=trust_tier,
         ))
     return out
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from bot.proofofpnl import erc8004
-from bot.proofofpnl.ingest_cex import fills_from_ccxt_trades
+from bot.proofofpnl.ingest_cex import fills_from_ccxt_trades, funding_from_ccxt_history
 from bot.proofofpnl.statement import build_epoch
 
 BUNDLE_FORMAT = "proof_of_pnl_bundle_v0"
@@ -73,6 +73,8 @@ def assemble_track_record(ccxt_trades: list[dict], *,
                           balance_ccy: str = "USDT",
                           range_start: int = 0,
                           range_end: int = 0,
+                          funding_entries: Optional[list[dict]] = None,
+                          funding_markets: Optional[list[str]] = None,
                           venue: str = "bitget",
                           trust_tier: str = "cex_operator_signed",
                           agent_address: Optional[str] = None,
@@ -90,8 +92,24 @@ def assemble_track_record(ccxt_trades: list[dict], *,
     credentials, no ``summary`` field).
     """
     fills = fills_from_ccxt_trades(ccxt_trades, venue=venue, trust_tier=trust_tier)
+
+    # FUNDING, and the reason it is two parameters rather than one. A perpetual
+    # pays funding whether or not anybody fetched it, so `compute_metrics`
+    # refuses to read an empty list as a zero — see `funding_applies`. What the
+    # records cannot say is which markets were QUERIED, and that is the only
+    # thing separating "this window had no settlements" from "nobody asked".
+    #
+    # `funding_markets` therefore carries coverage the way `orders_read` does in
+    # orphan_position.py. Passing neither is honest and reconciles the epoch to
+    # INCOMPLETE for a perp — which is what it was doing before this existed,
+    # only now it says funding is the reason instead of blaming an unreconciled
+    # balance on a possibly-omitted fill.
+    funding = funding_from_ccxt_history(
+        funding_entries or [], markets=funding_markets or [],
+        venue=venue, trust_tier=trust_tier)
+
     statement = build_epoch(
-        fills, account_ids=account_ids,
+        fills + funding, account_ids=account_ids,
         open_snapshot=_snapshot(open_balance, balance_ccy, range_start),
         close_snapshot=_snapshot(close_balance, balance_ccy, range_end),
         range_start=range_start, range_end=range_end,
