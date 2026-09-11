@@ -39,7 +39,7 @@ from bot.utils.paths import state_path
 from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and callers)
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
     RateLimiter, TelegramStream, _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE,
-    _chat_ret, _emit_event, _say, thinking_phrase,
+    _chat_ret, _emit_event, _say, reply_contract, thinking_phrase,
 )
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
@@ -1146,7 +1146,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
 
         "PERSONALITY:\n"
         "- Friendly and direct. Like texting a trading buddy.\n"
-        "- Keep answers short and actionable.\n"
         "- Use plain language. Say 'price is pulling back' not 'retracement to liquidity zone'.\n"
         "- If a setup looks bad, say so honestly. Don't force trades.\n"
         "- You protect the user's capital above all else.\n"
@@ -1155,27 +1154,23 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
 
         "HOW TO RESPOND:\n"
         "1. Figure out what they want (scan? trade? portfolio check? just chatting?)\n"
-        "2. If info is missing, ask one quick question\n"
+        "2. If something is missing, READ it if a tool can get it; ask the "
+        "user only when nothing can\n"
         "3. Give a clear answer with specific numbers when relevant\n"
         "4. If the setup is weak, say 'I'd skip this one' and explain why briefly\n"
-        "5. End with what to watch next\n\n"
-
-        "ANSWER LENGTH:\n"
-        "- Quick questions ('long or short?', 'safe?') = 2-4 lines\n"
-        "- Scans ('scan BTC', 'analyze SOL') = structured but concise, ~10-15 lines\n"
-        "- Trade plans = entry, SL, TP, and reasoning\n\n"
+        # There was a step 5, "End with what to watch next", and it is the same
+        # instruction as the "ALWAYS END WITH" line removed at the bottom of
+        # this prompt -- stated twice, three hundred characters apart, both
+        # unconditional. Removing one and leaving the other is how the five
+        # competing length rules accumulated in the first place. Whether a turn
+        # earns a closing line is the turn's own contract to say
+        # (`chat_runtime.reply_contract`), and `standard`'s says it plainly:
+        # only when the answer was about a market or an open position.
+        "\n"
 
         "WHEN EXPLAINING:\n"
         "  If the user sounds new, keep it simple. Explain terms briefly inline.\n"
         "  Example: 'Price swept below support (took out the stops) and bounced back.'\n\n"
-
-        "SCAN FORMAT — for full analysis requests:\n"
-        "  1. Quick verdict (bullish/bearish/choppy + what to do)\n"
-        "  2. What the chart shows (trend, key levels, structure)\n"
-        "  3. Momentum (RSI, volume, orderflow if relevant)\n"
-        "  4. Long scenario + Short scenario\n"
-        "  5. Setup quality (1-10)\n"
-        "  6. What to watch next\n\n"
 
         "STYLE:\n"
         "- Talk like a friend who happens to be good at trading.\n"
@@ -1183,7 +1178,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "- Never refer to yourself as 'the Claw.' Just say 'I' or speak naturally.\n"
         "- Use HTML formatting: <b>bold</b> for headers, <code>mono</code> for numbers.\n"
         "- No emoji overload. One or two per message max.\n"
-        "- Keep Quick Mode under 50 words, Full Scan under 300 words.\n"
         "- You remember the conversation. Build on what was discussed.\n\n"
 
         "TERMS you can use naturally (explain if user seems new):\n"
@@ -1195,9 +1189,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "- RSI stuck in no-man's land (40-60)\n"
         "- Late entry after a big move\n"
         "- Conflicting signals across timeframes\n"
-        "Just say 'I'd sit this one out' and explain briefly why.\n\n"
-
-        "ALWAYS END WITH: one clear thing to watch next.\n"
+        "Just say 'I'd sit this one out' and explain briefly why.\n"
+        # No "ALWAYS END WITH: one clear thing to watch next" here any more.
+        # It fired on every turn, including "what is leverage?" and "thanks",
+        # and a closing line that appears whether or not it means anything is
+        # one the reader learns to skip -- the lesson `boot_health.py` records
+        # about a warning that fires when nothing is wrong. Which turns earn
+        # it is now part of the turn's own contract (`reply_contract`).
     )
 
     # Public (anonymous website) chat: a STATIC, account-free system prompt.
@@ -1747,6 +1745,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         return_meta: bool = False,
                         images: list = None,
                         surface: str = "telegram",
+                        reply_mode: str = "",
                         on_event=None):
         """Send a free-text question to the LLM with multi-turn context.
 
@@ -1766,6 +1765,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         ``public=True`` serves an anonymous website visitor: a STATIC
         market-only system prompt with NO portfolio/position context and NO
         conversation history, and it can never reach the admin-only provider.
+
+        ``reply_mode`` is the turn's shape, from
+        `intent_router._detect_reply_mode` — one of quick / full_scan /
+        execution / bot / beginner / standard. It selects the ONE response
+        contract this turn carries (bot/skills/chat_runtime.py). Empty or
+        unknown means `standard`, which is a real mode rather than a stand-in
+        for a missing reading: a contract shapes how an answer reads and
+        asserts nothing to the user.
 
         ``surface`` names the transport ("telegram" or "web") and decides
         which read-only TOOLS the model is offered — the web's reachable set
@@ -1909,6 +1916,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 f"Translate all prose, labels and explanations into "
                 f"{_reply_lang_name}; keep ticker symbols (e.g. BTC), numeric "
                 f"values and code identifiers unchanged.")
+
+        # THE TURN'S ONE RESPONSE CONTRACT. Last, so it is the most recent
+        # instruction the model reads, and exactly one — the prompt used to
+        # carry five length rules at once and name two modes it never told the
+        # model it was in.
+        #
+        # `public` is passed, not just `reply_mode`: the two data-backed
+        # contracts ask for numbers, and the public prompt is the one with no
+        # ticker block, no portfolio and no history to source them from. The
+        # override is in chat_runtime.py beside the contracts it replaces.
+        system_prompt += reply_contract(reply_mode, public=public)
 
         # Build fallback chain: own key → chat tier → fallback providers → primary
         import os
@@ -2917,9 +2935,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # Ordinary messages come back byte-identical (see defang_if_flagged).
         from bot.guardian.firewall import defang_if_flagged
         _prompt_text, _ = defang_if_flagged(text, fw_verdict)
+        # `intent` was classified three hundred lines up and carried the
+        # turn's shape the whole way down here, where the prompt that names
+        # its vocabulary finally reads it.
         answer, _meta = await self._llm_chat(
             _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
             is_admin=_is_admin_caller, reply_lang=_reply_lang, return_meta=True,
+            reply_mode=getattr(intent, "reply_mode", ""),
             on_event=_stream.on_event if _stream is not None else None)
         # `_meta` is empty exactly when NO MODEL ANSWERED (the FAQ short-
         # circuit and every failure return). The web path refunds on that;

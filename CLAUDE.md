@@ -748,9 +748,21 @@ in the script tag. **Bump it in every page that references a changed bundle.**
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is
-indistinguishable from the code doing it, and this has produced four false
-failures. `tests/test_preflight_matches_ci.py` has a `tokenize`-based
-`code_only()` worth copying.
+indistinguishable from the code doing it, and this has produced five false
+failures. `tests/source_scan.py` is the shared `tokenize`-based `code_only()`
+— import it rather than copying it, as 47 test files already do.
+(`tests/test_preflight_matches_ci.py` still carries a private copy of the same
+twenty lines, which is the second-copy-is-a-second-answer shape sitting inside
+the advice against it.)
+
+**The fifth one is the argument for importing rather than copying.**
+`test_chat_runtime_split.py::test_the_runtime_is_a_leaf` asserted
+`"telegram_handler" not in src`, over raw source with the module docstring
+lopped off by `split('"""', 2)[2]` — and failed the day `chat_runtime.py` grew
+a COMMENT explaining why it is a leaf, which has to name the handler it was cut
+out of. The helper had been in the tree the whole time. A guard written before
+a helper exists does not notice when one arrives, so the trap survives in
+whichever scans predate the fix for it.
 
 Prefer exercising a property over matching text: run the function, drive the
 failure, assert the outcome. Source matching is for shapes a unit test cannot
@@ -1062,6 +1074,33 @@ gone*. Tests were never the only caller here — there was no caller at all.
 > different receiver of `recent` poisons the name anyway. A real-tree assertion
 > can pass for a reason unrelated to the rule. The guards are planted trees
 > where the rule is the only thing in play.
+
+**A value computed on every turn and read by nobody is the fifth
+granularity.** Module, module-level def, method, registration — and then a
+FIELD. `intent_router._detect_reply_mode` classifies every free-text message
+into six answer shapes with five regex sets, and `IntentResult.reply_mode` has
+carried the answer since it was written, read by nothing outside that module on
+any surface. Meanwhile `_CHAT_SYSTEM_PROMPT` named "Quick Mode" and "Full Scan"
+as though the model had been told which it was in, and carried five length rules
+that all applied at once — including on "thanks". No ratchet here can see this
+one: the module is imported, the function is called, the field is assigned, and
+the assignment is the last thing that ever happens to it. The reading was
+computed at `telegram_handler.py` line ~2616 and dropped three hundred lines
+above the `_llm_chat` call that names its vocabulary.
+
+**Wiring a dead value makes live whatever was guessing in its place.**
+`classify_rules`' social fast-exit hard-coded `reply_mode="standard"` where its
+three sibling returns all detect one — free while nothing read it, wrong the
+moment something did, because `_is_social_message` calls any message of three
+words or fewer social unless it carries a trading word ("grid bot", "dca
+logic") and matches a leading `bro|dude|mate`. And two of the six contracts ask
+for NUMBERS, on a product whose public chat is served from a static prompt with
+no ticker block: `needs_live_market_data` is False for "full analysis of ETH"
+and "trade plan for btc", so handing those contracts through would have put a
+scan skeleton and an entry/stop/target on the one surface that can source
+neither — reintroducing the thing `_public_chat_turn`'s gate exists to prevent,
+one layer underneath it. Before delivering a value that has never been
+delivered, ask what each of its possible values would MEAN at the destination.
 
 **Plant the state, assert what the card says.** `tests/test_surface_scenarios.py`
 and `app/test/engine_status_scenarios.test.js` hold the pattern: MUST_SAY,

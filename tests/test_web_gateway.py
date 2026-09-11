@@ -103,12 +103,24 @@ class FakeUsers:
 
 
 class FakeIntent:
-    def __init__(self, skill="", confidence=0.0):
+    #: Always present, so a test that pins a fixed intent still answers the
+    #: question `_chat_turn` asks. `getattr(intent, "reply_mode", "")` would
+    #: silently paper over a double that lacks it, which is the whole reason
+    #: the real value went unread for as long as it did.
+    reply_mode = ""
+
+    def __init__(self, skill="", confidence=0.0, text=""):
         self.skill = skill
         self.confidence = confidence
         self.kwargs = {}
         self.source = "rules"
         self.is_social = False
+        # The SKILL is faked here because these tests control routing; the
+        # answer SHAPE is not, because nothing in this file wants to control
+        # it and a hand-written mode would test the double instead of the wire.
+        if text:
+            from bot.nlp.intent_router import detect_reply_mode
+            self.reply_mode = detect_reply_mode(text)
 
     @property
     def matched(self):
@@ -150,13 +162,14 @@ class FakeHandler:
         self.users = FakeUsers(users, perms=perms, live=live)
         self._limiter = SimpleNamespace(allow=lambda uid: True)
         self.intent_router = SimpleNamespace(
-            classify_rules=lambda text: intent or FakeIntent())
+            classify_rules=lambda text: intent or FakeIntent(text=text))
         self.registry = SimpleNamespace(get=lambda name: (skills or {}).get(name))
         self.conversations = FakeConvos()
         self._allowlist = set(map(str, allowlist))
         self.llm_calls = []  # (question, user_id, is_admin, public)
         self.llm_profile_notes = []  # profile_note per _llm_chat call
         self.llm_reply_langs = []    # reply_lang per _llm_chat call
+        self.llm_reply_modes = []    # reply_mode per _llm_chat call
 
     def _allowlist_ids(self):
         return self._allowlist
@@ -166,10 +179,12 @@ class FakeHandler:
 
     async def _llm_chat(self, q, user_id="", user_name="", is_admin=False,
                         public=False, profile_note="", reply_lang="",
-                        return_meta=False, surface="telegram", on_event=None):
+                        return_meta=False, surface="telegram", reply_mode="",
+                        on_event=None):
         self.llm_calls.append((q, user_id, is_admin, public))
         self.llm_profile_notes.append(profile_note)
         self.llm_reply_langs.append(reply_lang)
+        self.llm_reply_modes.append(reply_mode)
         if return_meta:
             return "llm answer", {"provider": "runeclaw", "model": "runeclaw-v6"}
         return "llm answer"
@@ -960,6 +975,39 @@ async def test_chat_forwards_reply_lang_to_llm(monkeypatch):
                          headers=HDRS)
         assert r.status == 200
         assert handler.llm_reply_langs[-1] == ""
+
+
+async def test_chat_forwards_the_turns_shape_to_the_llm(monkeypatch):
+    """Through the real stack, not a stubbed request. The reply mode was
+    computed on every turn by the intent router and delivered to nothing; the
+    prompt meanwhile carried five length rules at once and named two modes the
+    model had never been told it was in."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users=AUTHED)
+    async with gateway_client(FakeEngine(), handler) as c:
+        for text, mode in (("explain what a liquidity sweep is", "beginner"),
+                           ("grid bot", "bot"),
+                           ("what is runeclaw", "standard")):
+            r = await c.post("/chat", json={"telegram_id": "7", "text": text},
+                             headers=HDRS)
+            assert r.status == 200
+            assert handler.llm_reply_modes[-1] == mode, text
+
+
+async def test_public_chat_forwards_the_turns_shape_it_detected(monkeypatch):
+    """The public path runs no skill resolution, so it has no IntentResult to
+    read a mode off -- and it is the surface the `beginner` turns arrive on."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    async with gateway_client(FakeEngine(), handler) as c:
+        r = await c.post("/chat/public",
+                         json={"text": "explain what a liquidity sweep is"},
+                         headers=HDRS)
+        assert r.status == 200
+        assert handler.llm_reply_modes[-1] == "beginner"
+        assert handler.llm_calls[-1][3] is True, (
+            "public must travel with the mode -- it selects the contract for a "
+            "surface that can source no number")
 
 
 async def test_public_chat_forwards_reply_lang(monkeypatch):
