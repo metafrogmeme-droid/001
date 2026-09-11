@@ -310,11 +310,13 @@ class ProactiveMonitor:
         self._last_regime: dict[str, str] = {}    # symbol -> last known regime
         self._last_cb_state: bool = False          # last circuit breaker state
         self._last_state: str = ""                 # last engine FSM state
-        self._alerted_signals: set = set()         # signal IDs already alerted
+        # Insertion-ORDERED (dict, not set) so the oldest really is the one
+        # evicted — see _remember_once. Membership tests are unchanged.
+        self._alerted_signals: dict = {}           # signal IDs already alerted
         # News stand-down PUSH: each fresh high-impact headline on a held asset
         # alerts EXACTLY once (the headline stays "fresh" for ~1h, so the generic
         # 5-min dedup would re-fire ~12×; this set is the once-only guard).
-        self._news_alerted: set = set()
+        self._news_alerted: dict = {}
         # Early-warning state (Tier 1a hardening): track the highest drawdown
         # tier already alerted (re-arms only after recovery), WS/health/balance
         # and warning-rate breaker last-states so each transition alerts once.
@@ -2343,7 +2345,7 @@ class ProactiveMonitor:
                 key = f"{url}|{sym}"
                 if key in self._news_alerted:
                     continue
-                self._news_alerted.add(key)
+                self._remember_once(self._news_alerted, key)
                 headline = _html.escape(rec.get("headline", "") or "")
                 src = _html.escape(rec.get("source", "") or "")
                 age_min = max(1, int(rec.get("age_sec", 0)) // 60)
@@ -2363,16 +2365,57 @@ class ProactiveMonitor:
                         "\U0001f449 /news — full radar"),
                     # Once-only via _news_alerted; dedup_key adds the 5-min floor.
                     dedup_key=f"news_standdown_{key}"))
-            # Keep the once-only set bounded across a long-running process.
-            if len(self._news_alerted) > 500:
-                self._news_alerted = set(list(self._news_alerted)[-250:])
         except Exception as exc:
             system_log.debug("news-standdown check failed: %s", exc)
         return alerts
 
+    @staticmethod
+    def _remember_once(seen: dict, key: str, cap: int = 500) -> None:
+        """Record `key` in an insertion-ordered once-only set, oldest evicted.
+
+        A DICT, NOT A SET, AND THAT IS THE ENTIRE POINT. Both call sites used a
+        `set` and both claimed to drop the oldest half:
+
+            to_remove = list(self._alerted_signals)[:250]      # volume spikes
+            self._news_alerted = set(list(self._news_alerted)[-250:])   # news
+
+        A set has no insertion order, so `list(a_set)` is hash order and each
+        of those dropped an ARBITRARY half. Driven: seeding 500 keys and adding
+        one more evicted the newest and spared 6 of the 10 oldest. The cost is
+        specific — every time the cap is crossed, a random half of the symbols
+        become eligible to alert again, including ones alerted seconds ago, so
+        the guard against repeats re-arms itself at random. That is a slow leak
+        of exactly the duplicates it exists to stop.
+
+        One implementation for both, because two copies of a rule are two
+        answers to it, and these two had already drifted into opposite slices
+        (`[:250]` vs `[-250:]`) of the same non-order.
+        """
+        seen[key] = None
+        if len(seen) > cap:
+            for old in list(seen)[:len(seen) - cap // 2]:
+                seen.pop(old, None)
+
     def _check_volume_spikes(self) -> list[Alert]:
-        """Alert when the scanner detects volume spikes."""
-        alerts = []
+        """One digest for every volume spike in this pass, not one card each.
+
+        THE ANOMALY PATH NEXT DOOR LEARNED THIS THREE TIMES AND THIS ONE NEVER
+        DID. `_check_black_swan` clusters into `_anomaly_digest`, caps cards
+        per tick, spends an hourly budget and attenuates a symbol whose
+        reference market is shut. This method had none of it: one immediate
+        Telegram card per spiking symbol, unbounded in width and in rate, with
+        the only suppression being a once-per-symbol set.
+
+        Reported live: 60+ overnight messages. The symbols were NFLX, DFEN and
+        DIASTOCK — tokenised equities, which is also what `_detect_volume_spike`
+        now carries a turnover floor for.
+
+        Clustered, not dropped: every symbol still appears, on one line, in one
+        message. A quiet channel must not be a claim that nothing moved — the
+        same rule `_anomaly_digest` states for anomalies.
+        """
+        alerts: list[Alert] = []
+        spiked: list[dict] = []
         try:
             # Check last scan results from the scanner cache
             if hasattr(self.engine, '_last_scan_signals'):
@@ -2381,7 +2424,11 @@ class ProactiveMonitor:
                         key = f"vol_spike_{sig.symbol}"
                         if key not in self._alerted_signals:
                             chg = f"{sig.change_pct_24h:+.1f}%" if sig.change_pct_24h else "N/A"
-                            vol_m = sig.volume_usd_24h / 1_000_000 if sig.volume_usd_24h else 0
+                            # None, not 0: the digest renders an em dash for a
+                            # turnover nobody could read, and 0.0M is a claim.
+                            vol_m = (sig.volume_usd_24h / 1_000_000
+                                     if isinstance(sig.volume_usd_24h, (int, float))
+                                     else None)
                             base = sig.symbol.split('/')[0] if '/' in sig.symbol else sig.symbol
 
                             # Direction hint from 24h change
@@ -2404,28 +2451,97 @@ class ProactiveMonitor:
                             else:
                                 vwap_str = "—"
 
-                            alerts.append(Alert(
-                                alert_type="VOLUME_SPIKE",
-                                severity="WARNING",
-                                title=f"Volume Spike: {sig.symbol}",
-                                body=(
-                                    f"\U0001f4a5 <b>VOLUME SPIKE — {sig.symbol}</b>\n"
-                                    "────────────────\n"
-                                    f"- Price: <code>${sig.price:,.2f}</code> ({chg})\n"
-                                    f"- 24h Volume: <code>${vol_m:,.1f}M</code>\n"
-                                    f"- RSI: {rsi_str}\n"
-                                    f"- vs VWAP: {vwap_str}\n"
-                                    f"- Bias: {direction}\n"
-                                    "────────────────\n"
-                                    f"\U0001f449 Say \"analyze {base}\" for full technical breakdown\n"
-                                    f"\U0001f449 Say \"chart {base}\" to view price chart"
-                                ),
-                                dedup_key=key,
-                            ))
-                            self._alerted_signals.add(key)
+                            spiked.append({
+                                "symbol": sig.symbol, "base": base, "chg": chg,
+                                "vol_m": vol_m, "price": sig.price,
+                                "rsi": rsi_str, "vwap": vwap_str,
+                                "direction": direction,
+                            })
+                            self._remember_once(self._alerted_signals, key)
+            if spiked:
+                alerts.append(self._volume_spike_digest(spiked))
         except Exception as exc:
             logger.debug("_check_volume_spikes error: %s", exc)
         return alerts
+
+    #: Spikes carded individually inside the digest before the tail collapses
+    #: to a name list. Six rows is about a phone screen; past that the detail
+    #: is not read and the message is just long.
+    _SPIKE_ROWS_IN_DIGEST = 6
+
+    @staticmethod
+    def _volume_spike_digest(spiked: list[dict]) -> Alert:
+        """One message for every spike this pass, loudest turnover first.
+
+        STABLE DEDUP KEY, and that is the half the previous attempt at
+        clustering anomalies got wrong — see `_anomaly_digest`, which records
+        it: a key carrying the membership changes on every pass during exactly
+        the event it is meant to suppress, so every digest reads as a first
+        sighting and no repeat window ever applies. The membership is
+        deliberately NOT in this key either.
+        """
+        # An unreadable turnover sorts LAST rather than as a zero. The honesty
+        # ratchet caught `float(d.get("vol_m") or 0.0)` here on the commit that
+        # added it — in the digest written to stop this very class of noise —
+        # and a missing figure sorting as break-even alongside a measured 0.0
+        # is the shape, even in a sort key: it decides which symbols get a card
+        # and which collapse into the tail count.
+        def _turnover(d: dict) -> tuple[int, float]:
+            v = d.get("vol_m")
+            if v is None:
+                return (1, 0.0)               # unknown: after everything known
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return (1, 0.0)
+            return (0, -f) if f == f else (1, 0.0)
+
+        rows = sorted(spiked, key=_turnover)
+        lines = []
+        for d in rows[:ProactiveMonitor._SPIKE_ROWS_IN_DIGEST]:
+            # GUARD AT THE BOUNDARY, not at each of four call sites — the
+            # `_fmt_price(None)` lesson. Making the SORT three-valued and
+            # leaving the RENDERER two-valued turns a wrong number into a
+            # broken card: `f"{None:,.1f}"` raises, and this whole message is
+            # inside the monitor's try/except, so the digest would vanish
+            # silently and take every spike in the pass with it.
+            known, neg = _turnover(d)
+            vol_txt = "\u2014" if known else f"${-neg:,.1f}M"
+            px = d.get("price")
+            px_txt = f"${px:,.4g}" if isinstance(px, (int, float)) else "\u2014"
+            lines.append(
+                f"- <b>{d['symbol']}</b> {d['direction']}\n"
+                f"  <code>{px_txt}</code> ({d['chg']}) · vol "
+                f"<code>{vol_txt}</code> · RSI {d['rsi']} · "
+                f"vs VWAP {d['vwap']}")
+        tail = rows[ProactiveMonitor._SPIKE_ROWS_IN_DIGEST:]
+        if tail:
+            names = ", ".join(d["symbol"] for d in tail[:14])
+            lines.append(f"<i>+{len(tail)} more: <code>{names}</code>"
+                         + ("\u2026" if len(tail) > 14 else "") + "</i>")
+        ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+        top = rows[0]
+        return Alert(
+            alert_type="VOLUME_SPIKE",
+            severity="WARNING",
+            title=f"Volume spikes: {len(rows)} symbol"
+                  f"{'' if len(rows) == 1 else 's'}",
+            body=(
+                "\U0001f4a5 <b>VOLUME SPIKE DIGEST</b>\n"
+                + "\u2500" * 16 + "\n"
+                f"- Symbols: <code>{len(rows)}</code>\n"
+                f"- As of: <code>{ts}</code>\n\n"
+                + "\n".join(lines) + "\n"
+                + "\u2500" * 16 + "\n"
+                "\u26a0\ufe0f OBSERVATIONS, not actions \u2014 nothing was traded, "
+                "moved or halted. Turnover above its own recent average is a "
+                "place to look, not a signal.\n"
+                f"\U0001f449 Say \"analyze {top['base']}\" for the loudest one\n"
+                "\U0001f449 /status \u2014 check engine state"
+            ),
+            # NOT keyed on the membership: that is the thing that churns.
+            dedup_key="vol_spike_DIGEST",
+        )
 
     def _check_black_swan(self) -> list[Alert]:
         """Alert on black-swan detector triggers.
@@ -2789,7 +2905,7 @@ class ProactiveMonitor:
                 if key in self._alerted_signals:
                     continue
                 # Mark seen once so a sub-threshold idea isn't re-evaluated each tick.
-                self._alerted_signals.add(key)
+                self._remember_once(self._alerted_signals, key)
                 # Only higher-conviction ideas message the operator; lower ones
                 # (0.60-0.70) still queue and trade, they just don't ping Telegram.
                 if float(getattr(idea, "confidence", 0.0) or 0.0) >= min_alert_conf:
@@ -2933,11 +3049,7 @@ class ProactiveMonitor:
             for k in sorted_keys[:100]:
                 del self._dedup_cache[k]
 
-        # Prune alerted signals set
-        if len(self._alerted_signals) > 500:
-            # Evict oldest half instead of clearing all
-            to_remove = list(self._alerted_signals)[:250]
-            self._alerted_signals -= set(to_remove)
+        # Once-only sets are bounded by _remember_once at the write site.
 
     # ── Dispatch ──────────────────────────────────────────────────
 
