@@ -307,3 +307,60 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
             continue
         kept.append(row)
     return kept
+
+
+#: What a venue writes into an optional field it has no value for. Distinct
+#: from a field it did not send at all, and from one holding something neither
+#: blank nor a number — see `stop_attached`. ``"0"`` is here for the ID only:
+#: as a PRICE it is a number the venue chose to state, and `read_amount`
+#: already reads it as the measured zero it is.
+_BLANK_FIELD = (None, "")
+
+
+def stop_attached(info) -> Optional[bool]:
+    """Does this position row carry a stop-loss? ``None`` when nobody can say.
+
+    THE THIRD VALUE IS THE WHOLE POINT, and it existed in the caller's
+    docstring before it existed in the reading. `_stop_live_on_exchange`
+    promises "True = a stop is attached; False = the exchange reports NO stop
+    (genuinely unprotected); None = could not verify", and computed all three
+    from ``float(info.get("stopLoss") or 0) > 0`` — an expression with two
+    outputs. Every way of not knowing (a null, a blank, a key the venue never
+    sent, no ``info`` at all) came out False, which that caller acts on by
+    CANCELLING the live stop and placing a new one. `_place_sl_tp` cancels
+    before it places, so a stop that was merely unreadable is torn down and
+    re-placed on every self-heal cycle, opening the naked window the whole
+    branch was written to close (audit HIGH). An unreadable field is the one
+    input that must not resolve to "unprotected".
+
+    THE ID IS THE SECOND WITNESS, and it is what keeps the fix from disabling
+    the cure. If a blank ``stopLoss`` were simply unreadable, a position that
+    genuinely has no stop would read None forever and never be repaired — the
+    gate would be honest and useless. So the reading is two-field: a positive
+    price OR a non-empty ``stopLossId`` is a stop; the fields being PRESENT and
+    empty is the venue reporting an unprotected position; only fields that are
+    absent, or hold something unparseable, are unreadable.
+
+    The same expression is fine three hundred lines up, where adoption asks
+    ``ex_sl > 0`` to decide whether to COPY a level — not knowing just means
+    the next rung of the ladder answers. Same shape, different question: there
+    it omits, here it was a verdict.
+    """
+    if not isinstance(info, dict):
+        return None
+    price = read_amount(info, "stopLoss")          # None for absent/blank/junk
+    raw_id = info.get("stopLossId")
+    sl_id = "" if raw_id in _BLANK_FIELD else str(raw_id).strip()
+    if sl_id == "0":                               # a sentinel, not an order
+        sl_id = ""
+    if (price is not None and price > 0) or sl_id:
+        return True
+    # Nothing says a stop IS attached. Whether that is a MEASUREMENT depends on
+    # whether the venue sent the fields at all: present-and-empty is a report,
+    # absent-or-unparseable is a silence.
+    stated_no_price = (price is not None and price == 0) or (
+        "stopLoss" in info and info["stopLoss"] in _BLANK_FIELD)
+    stated_no_id = "stopLossId" in info and not sl_id
+    if stated_no_price or stated_no_id:
+        return False
+    return None
