@@ -191,16 +191,48 @@ def test_a_blind_provider_never_claims_the_calendar_is_clear():
 
 
 def test_an_estimated_event_date_is_not_printed_as_a_confirmed_one():
-    """A heuristic is never a verdict — including a heuristic timestamp."""
-    eng = _Engine()
-    eng.macro_provider = _loaded_provider()
-    events = eng.macro_provider.get_upcoming_events(hours=24 * 365)
-    if not any(str(e.get("date_confidence", "")).lower() == "estimated"
-               for e in events):
-        pytest.skip("seed calendar carries no estimated dates to assert on")
+    """A heuristic is never a verdict — including a heuristic timestamp.
 
+    PLANTED, BECAUSE THE PRECONDITION AND THE ASSERTION USED TO MEASURE
+    DIFFERENT WINDOWS. The skip-guard asked the provider for
+    ``hours=24 * 365`` and skipped unless SOMETHING in the next year carried an
+    estimated date; `MacroBriefSkill` renders ``horizon_h = 24 * 7`` and lists
+    the first five. So the guard passed on an estimated event eleven months out
+    and the assertion then read a brief covering seven days, which is how this
+    failed on 2026-09-11 with every near-term event confirmed — on a tree where
+    nothing about macro had changed. It was a clock-dependent test: green on any
+    day an estimated date happened to land inside a week, red otherwise.
+
+    A test about "an estimated date must be MARKED" has no business depending on
+    whether today's real calendar contains one. The event is planted now, one
+    hour out so it cannot fall outside any horizon, and the seed calendar is
+    left to the tests that are actually about it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    eng = _Engine()
+    provider = _loaded_provider()
+    soon = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    class _WithEstimated:
+        event_count = provider.event_count
+
+        def get_upcoming_events(self, hours=168, **kw):
+            # The renderer reads `label`/`type`, `scheduled_utc` and
+            # `severity`/`impact` — a planted event that uses other names still
+            # satisfies the assertion while rendering "(time unknown)", which
+            # would make this test pass over a card nobody would ship.
+            return [{"type": "Planted Estimated Event",
+                     "scheduled_utc": soon.isoformat(),
+                     "severity": "HIGH", "date_confidence": "estimated"}]
+
+    eng.macro_provider = _WithEstimated()
     out = _run(MacroBriefSkill(), eng)
-    assert "~estimated" in out
+    assert "~estimated" in out, out
+    assert "Planted Estimated Event" in out, "the planted event never rendered"
+    assert "time unknown" not in out, (
+        "the planted event used field names the renderer does not read, so the "
+        "marker assertion passed over a line no operator would be shown")
 
 
 def test_a_source_that_answers_nothing_reports_unknown_not_empty():
