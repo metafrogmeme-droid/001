@@ -294,6 +294,11 @@ async def portfolio_walk_forward(
             "win_rate": res.win_rate,
             "max_dd_pct": res.max_drawdown_pct,
             "profit_factor": res.profit_factor,
+            # Carried so the runner can record OOS evidence to the validation
+            # gate without inventing a statistic. A fold that took no trade has
+            # a 0.0 here that nothing measured, so the runner averages only over
+            # folds whose `trades` is non-zero.
+            "sharpe": res.sharpe_ratio,
             "per_symbol": dict(pb.per_symbol),
             # Full OOS trade objects for pooled attribution across folds. The
             # runner merges these; excluded from any JSON dump (leading "_").

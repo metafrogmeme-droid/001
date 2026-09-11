@@ -200,6 +200,21 @@ def _curve_points(result, max_points: int = 300) -> list[dict]:
             for p in curve]
 
 
+def frozen_source(man: dict) -> str:
+    """The provenance stamp for a run that read a frozen snapshot.
+
+    ONE place builds it. `_load_bars` and `_run_portfolio` both load frozen
+    datasets, and only one of them used to write the answer down: the portfolio
+    path printed the hash to stdout and left `result.data_source` at its model
+    default, the string "unknown". docs/FROZEN_BENCHMARK.md promises the stamp
+    makes "every result self-describing about *which* frozen data it measured",
+    and the command that doc names as THE benchmark one-liner is a portfolio
+    run — so the promise was false on the one path anybody uses. A second copy
+    of a reading is a second answer; this is the reading.
+    """
+    return f"frozen_snapshot:{man['dataset_hash']}"
+
+
 async def _load_bars(args: argparse.Namespace, config) -> tuple[list, bool, str]:
     """Load OHLCV bars for a backtest. Returns (bars, used_synthetic, data_source).
 
@@ -229,7 +244,7 @@ async def _load_bars(args: argparse.Namespace, config) -> tuple[list, bool, str]
         bars = _tail_bars(bars, args)
         print(f"  Loaded {len(bars)} FROZEN bars for {config.symbol} from "
               f"{args.dataset} (dataset_hash={man['dataset_hash'][:12]}…)")
-        return bars, False, f"frozen_snapshot:{man['dataset_hash']}"
+        return bars, False, frozen_source(man)
 
     if args.csv:
         bars = DataLoader.from_csv(args.csv)
@@ -314,7 +329,27 @@ def _record_validations(result, used_synthetic: bool, data_source: str) -> None:
               "not real. Those strategies stay NEVER_TESTED.")
         return
 
-    trades = [t for t in (getattr(result, "trades", None) or [])
+    _safely_record(
+        "recording this run's result",
+        lambda: _record_validations_from(
+            getattr(result, "trades", None) or [],
+            sharpe=float(result.sharpe_ratio),
+            max_dd=float(result.max_drawdown_pct),
+            gate=get_validation_gate(),
+        ),
+    )
+
+
+def _record_validations_from(all_trades, *, sharpe: float, max_dd: float,
+                             gate, sharpe_label: str = "sharpe") -> None:
+    """Split trades by strategy_type and record one validation each.
+
+    Separated from `_record_validations` so the PORTFOLIO walk-forward path can
+    record the same way instead of growing a second copy of this split — it has
+    pooled OOS trades and a per-fold Sharpe rather than one BacktestResult, and
+    a second copy of a reading is a second answer.
+    """
+    trades = [t for t in all_trades
               if str(getattr(t, "setup", "") or "").strip()]
     if not trades:
         print("  Validation gate: NOT recorded — no trade carried a strategy_type.")
@@ -324,20 +359,119 @@ def _record_validations(result, used_synthetic: bool, data_source: str) -> None:
     for t in trades:
         by_setup.setdefault(str(t.setup).strip(), []).append(t)
 
-    gate = get_validation_gate()
     for setup, rows in sorted(by_setup.items()):
         wins = sum(1 for t in rows if float(getattr(t, "pnl_usd", 0.0) or 0.0) > 0)
         gate.record_validation(
             strategy_name=setup,
-            sharpe=float(result.sharpe_ratio),
-            max_drawdown=float(result.max_drawdown_pct),
+            sharpe=sharpe,
+            max_drawdown=max_dd,
             win_rate=(wins / len(rows)) if rows else 0.0,
             total_trades=len(rows),
             walk_forward_score=0.0,
         )
         print(f"  Validation gate: recorded '{setup}' "
-              f"({len(rows)} trades, sharpe {result.sharpe_ratio:.2f}) "
+              f"({len(rows)} trades, {sharpe_label} {sharpe:.2f}) "
               f"-> {gate.verdict(setup)}")
+
+
+def _safely_record(what: str, fn, *a, **kw) -> None:
+    """Run a validation-gate recording without letting it cost the run.
+
+    The gate is a SIDE-EFFECT on the way out; the report and the result file
+    are the deliverable. Both recorders used to be called before either was
+    produced, so a fault inside one discarded a finished backtest — minutes of
+    compute and, on the walk-forward path, the `--output` file this commit
+    exists to start writing.
+
+    It catches and SAYS SO rather than swallowing: omit, out loud. A silent
+    pass here would make "recorded nothing" and "could not record" look alike,
+    which is the distinction the gate's own three-valued verdict is built on.
+    """
+    try:
+        fn(*a, **kw)
+    except Exception as exc:                                       # noqa: BLE001
+        print(f"  Validation gate: NOT recorded — {what} raised ({exc}). "
+              "The run's own results are unaffected.")
+
+
+def _write_json(path: str, payload: dict) -> None:
+    """Write a result file and say so. One writer, so a path that accepts
+    `--output` cannot quietly not write one."""
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    print(f"  Results saved to {path}")
+
+
+def _record_walk_forward_validations(folds: list[dict], pooled: list,
+                                     data_source: str) -> None:
+    """Record the validation gate's evidence from a portfolio walk-forward.
+
+    The portfolio path never called the recorder at all, so the gate stayed
+    empty on the one command anybody runs on real frozen data — while
+    `bot/core/validation_gate.py`'s own docstring says "bot/backtest/runner.py
+    records automatically now, so the gate has data by the time anything asks
+    it", and `config.py` makes shadow mode's whole rationale "until the backtest
+    runner has populated the store".
+
+    THE SHARPE IS THE MEAN OVER FOLDS THAT TRADED, and it is labelled as that
+    rather than borrowing the single-run field name. A walk-forward has no
+    single Sharpe; folds that took no trade carry a 0.0 that was never measured,
+    and averaging those in would drag a real reading toward a fabricated one.
+    With no fold trading there is nothing to average, so nothing is recorded —
+    which leaves the strategy NEVER_TESTED, the true answer.
+    """
+    if data_source.startswith("synthetic"):
+        # The sibling recorder's most important line, repeated rather than
+        # assumed away: this branch cannot reach synthetic data today, and a
+        # guard that depends on that staying true is a guard that rots.
+        print(f"  Validation gate: NOT recorded — data_source={data_source} is "
+              "not real. Those strategies stay NEVER_TESTED.")
+        return
+    if not pooled:
+        print("  Validation gate: NOT recorded — no fold produced a trade.")
+        return
+    # A fold contributes OOS evidence only if it TRADED and reported BOTH
+    # statistics. The first draft wrote `int(f.get("trades") or 0)` and
+    # `float(f.get("max_dd_pct") or 0.0)`, and the honesty ratchet failed the
+    # commit on them — correctly for the second: an unreadable drawdown
+    # becoming 0.0 records "this strategy never drew down", the best value the
+    # field can carry, arrived at from no data, into a store an operator reads.
+    def _num(f, k):
+        v = f.get(k)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    def _traded(f) -> bool:
+        n = _num(f, "trades")
+        return n is not None and n > 0
+
+    traded = [f for f in folds
+              if _traded(f)
+              and _num(f, "sharpe") is not None
+              and _num(f, "max_dd_pct") is not None]
+    if not traded:
+        print("  Validation gate: NOT recorded — no fold both traded and "
+              "reported the statistics a validation is made of.")
+        return
+    sharpes = [_num(f, "sharpe") for f in traded]
+    dds = [_num(f, "max_dd_pct") for f in traded]
+    try:
+        from bot.core.validation_gate import get_validation_gate
+    except Exception:                                              # noqa: BLE001
+        return
+    print(f"  Validation gate: OOS evidence from {len(traded)} fold(s) "
+          f"(data_source={data_source})")
+    _safely_record(
+        "recording pooled OOS evidence",
+        lambda: _record_validations_from(
+            pooled,
+            sharpe=sum(sharpes) / len(sharpes),
+            max_dd=max(dds),
+            gate=get_validation_gate(),
+            sharpe_label="mean OOS sharpe",
+        ),
+    )
 
 
 async def _run_backtest(args: argparse.Namespace) -> None:
@@ -760,12 +894,21 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
         **_preset_gate_kwargs(args),
     )
     data = {}
+    # What data this run measured, in `_load_bars`'s vocabulary, and which of
+    # the requested symbols never made it in. Both travel with the result:
+    # a portfolio is defined by its universe, so a run over 7 of 10 symbols is
+    # a different measured system and the result has to be able to say so.
+    # No "unknown" default here: both branches below assign, and "unknown" is
+    # precisely the value this path used to ship. A dead default spelled like
+    # the defect is an invitation to re-introduce it.
+    dropped: list[tuple[str, str]] = []
     if getattr(args, "dataset", None):
         # Frozen snapshot: every A/B arm reads byte-identical bars. A requested
         # symbol missing from the snapshot is a hard error, never a silent skip —
         # dropping a symbol would change the universe and thus the measured system.
         from bot.backtest import snapshot as _snap
         man = _snap.load_manifest_multi(args.dataset)
+        data_source = frozen_source(man)
         print(f"\n  Portfolio backtest: {len(symbols)} symbols from FROZEN dataset "
               f"{args.dataset} (dataset_hash={man['dataset_hash'][:12]}…)")
         for sym in symbols:
@@ -777,19 +920,45 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
                 print(f"  ERROR: {exc}")
                 sys.exit(1)
     else:
+        data_source = "bitget_real"
         print(f"\n  Portfolio backtest: {len(symbols)} symbols, fetching {args.limit} bars each...")
         for sym in symbols:
+            # The rule four lines up — "dropping a symbol would change the
+            # universe and thus the measured system" — was stated for the frozen
+            # branch and broken here. A raising fetch printed "skipped"; a fetch
+            # that merely returned NOTHING fell through `if bars:` and the
+            # `except` alike and vanished with no line at all. Both are recorded
+            # now, and under --strict-data (which --honest sets) both abort,
+            # because that flag's whole contract is that an automated run never
+            # silently measures something other than what it was asked to.
             try:
                 bars = await DataLoader.from_bitget(symbol=sym, timeframe=args.timeframe,
                                                     limit=args.limit)
-                if bars:
-                    data[sym] = bars
-                    print(f"  fetched {sym}: {len(bars)} REAL bars")
-            except Exception as exc:
-                print(f"  {sym}: fetch failed ({exc}) — skipped")
+            except Exception as exc:                                   # noqa: BLE001
+                bars, why = None, f"fetch failed ({exc})"
+            else:
+                why = "" if bars else "fetch returned no bars"
+            if bars:
+                data[sym] = bars
+                print(f"  fetched {sym}: {len(bars)} REAL bars")
+            else:
+                dropped.append((sym, why))
+                print(f"  {sym}: {why} — DROPPED from the universe")
+        if dropped and getattr(args, "strict_data", False):
+            print(f"  ❌  {len(dropped)} of {len(symbols)} symbols unavailable and "
+                  f"--strict-data is set: aborting rather than measuring a "
+                  f"different universe than the one requested.")
+            sys.exit(1)
     if not data:
         print("  ERROR: no data fetched for any symbol. Aborting.")
         sys.exit(1)
+    if dropped:
+        print(f"  ⚠️  UNIVERSE CHANGED: measuring {len(data)} of {len(symbols)} "
+              f"requested symbols. Missing: "
+              f"{', '.join(s for s, _ in dropped)}")
+    universe = {"requested": list(symbols),
+                "measured": list(data),
+                "dropped": [{"symbol": s, "reason": w} for s, w in dropped]}
 
     if args.walk_forward and args.walk_forward > 0:
         folds = await portfolio_walk_forward(data, config, n_folds=args.walk_forward)
@@ -800,13 +969,46 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
             print(f"  fold {f['fold']}: {f['trades']:>3} trades  ret {f['return_pct']:+6.2f}%  "
                   f"win {f['win_rate']:.0%}  maxDD {f['max_dd_pct']:5.2f}%  PF {f['profit_factor']:.2f}")
         rets = [f["return_pct"] for f in folds]
-        print(f"  => profitable folds {prof}/{len(folds)} | mean OOS ret "
-              f"{sum(rets)/len(rets):+.2f}% | worst {min(rets):+.2f}%")
+        # Every fold can be skipped (`portfolio_walk_forward` drops a fold whose
+        # symbols all have <= lookback_size bars), and `sum(rets)/len(rets)` on
+        # an empty list is a ZeroDivisionError out of the benchmark command, not
+        # a result. No folds ran is also not 0.00% — it is nothing measured.
+        mean_oos = (sum(rets) / len(rets)) if rets else None
+        if rets:
+            print(f"  => profitable folds {prof}/{len(folds)} | mean OOS ret "
+                  f"{mean_oos:+.2f}% | worst {min(rets):+.2f}%")
+        else:
+            print("  => NO FOLD RAN — every fold had too few bars after warmup. "
+                  "Nothing was measured; this is not a 0.00% result.")
         # Pool every fold's OOS trades so the attribution buckets run on the
         # full breaker-reset-per-fold sample (a single full-window pass halts on
         # the circuit breaker after a few losses — too thin to diagnose).
         pooled = [t for f in folds for t in f.get("_trades", [])]
         print(_pooled_attribution_report(pooled, label=f"{args.walk_forward}-fold OOS pooled"))
+        if args.output:
+            # This branch used to `return` here, so `-o` was accepted and wrote
+            # NOTHING — silently, on the exact command docs/FROZEN_BENCHMARK.md
+            # names as the benchmark one-liner. The published baseline could
+            # therefore drift from what the code produces with no artefact left
+            # behind to notice it, which is what happened.
+            _write_json(args.output, {
+                "mode": "portfolio_walk_forward",
+                "folds_requested": args.walk_forward,
+                "folds_run": len(folds),
+                "profitable_folds": prof,
+                "mean_oos_return_pct": mean_oos,
+                "worst_oos_return_pct": min(rets) if rets else None,
+                "pooled_trades": len(pooled),
+                "data_source": data_source,
+                "universe": universe,
+                "commission_pct": config.commission_pct,
+                "slippage_pct": config.slippage_pct,
+                "fill_mode": config.fill_mode,
+                "folds": [{k: v for k, v in f.items() if not k.startswith("_")}
+                          for f in folds],
+            })
+        # Last, deliberately: the deliverables above must already be on disk.
+        _record_walk_forward_validations(folds, pooled, data_source)
         return
 
     pb = PortfolioBacktester(config, symbols=list(data))
@@ -814,6 +1016,15 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
         result = await pb.run(data)
     finally:
         pb.cleanup()
+    # The stamp the doc promises. Without it the saved JSON carried the model
+    # default "unknown" — a result that cannot say which data produced it, on
+    # the path whose entire purpose is that every A/B arm reads identical bars.
+    result.data_source = data_source
+    # Derived from the one provenance reading rather than a literal False, so
+    # it cannot rot if a synthetic path is ever added to this branch. The gate's
+    # most important rule is that synthetic runs record nothing.
+    _record_validations(result, used_synthetic=data_source.startswith("synthetic"),
+                        data_source=data_source)
     print(_format_result_summary(result))
     print("  Per-symbol breakdown:")
     for sym, row in sorted(pb.per_symbol.items()):
@@ -822,14 +1033,11 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
     print(_attribution_report(result))
     print(_narrative(result, pb.per_symbol))
     if args.output:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump({**result.model_dump(mode="json", exclude={"equity_curve", "trades"}),
-                       "per_symbol": pb.per_symbol,
-                       "equity_curve_points": _curve_points(result)},
-                      f, indent=2, default=str)
-        print(f"  Results saved to {args.output}")
+        _write_json(args.output, {
+            **result.model_dump(mode="json", exclude={"equity_curve", "trades"}),
+            "per_symbol": pb.per_symbol,
+            "universe": universe,
+            "equity_curve_points": _curve_points(result)})
 
 
 async def _run_walk_forward(args: argparse.Namespace) -> None:

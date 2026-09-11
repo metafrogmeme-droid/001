@@ -177,15 +177,41 @@ def test_snapshot_refuses_empty_dataset(tmp_path, monkeypatch):
 
 # ── runner wiring ───────────────────────────────────────────────────────
 
-def test_runner_exposes_dataset_flag_and_routes_through_snapshot():
+def test_runner_exposes_dataset_flag_and_routes_through_snapshot(monkeypatch):
+    """Re-pointed, not relaxed.
+
+    This grepped `_load_bars` for the literal ``"frozen_snapshot:"``. The label
+    now comes from `runner.frozen_source`, because `_run_portfolio` was building
+    its own copy of the same string — so the scan failed on the commit that
+    removed the duplication it existed to protect against. The property it was
+    protecting is that a `--dataset` run is LABELLED as frozen and carries the
+    manifest's hash, and that is driven here rather than matched.
+
+    Its own comment already claimed "both the single/walk-forward loader and the
+    portfolio loader" — and it checked one of them for the label. The portfolio
+    half is driven in
+    `tests/test_the_benchmark_command_records_what_it_measured.py`.
+    """
     from bot.backtest import runner
+    from bot.backtest.models import BacktestConfig
     ns = runner.build_parser().parse_args(["--dataset", "some/dir"])
     assert ns.dataset == "some/dir"
-    # Both the single/walk-forward loader and the portfolio loader must consult
-    # the snapshot module when --dataset is set (not the live exchange).
-    assert "snapshot" in inspect.getsource(runner._load_bars)
-    assert "frozen_snapshot:" in inspect.getsource(runner._load_bars)
+    # The portfolio loader must reach the snapshot module, not the live exchange.
     assert "load_symbol" in inspect.getsource(runner._run_portfolio)
+
+    man = {"dataset_hash": "c" * 64, "timeframe": "1h"}
+    monkeypatch.setattr(snap, "load_manifest_multi", lambda d: man)
+    monkeypatch.setattr(snap, "load_symbol_multi", lambda d, s, m: [object()] * 5)
+
+    async def _explode(**kw):                      # a frozen run must not fetch
+        raise AssertionError("--dataset must not reach the exchange")
+    monkeypatch.setattr(DataLoader, "from_bitget", _explode)
+
+    _bars, used_synthetic, source = asyncio.run(runner._load_bars(
+        ns, BacktestConfig(symbol="BTC/USDT:USDT", timeframe="1h")))
+    assert used_synthetic is False
+    assert source == f"frozen_snapshot:{man['dataset_hash']}"
+    assert source == runner.frozen_source(man)     # one reading, both callers
 
 
 # ── the keystone: determinism of the frozen A/B ─────────────────────────
