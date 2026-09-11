@@ -41,6 +41,17 @@ portfolio — the one-liner benchmark above. The run stamps
 `data_source=frozen_snapshot:<dataset_hash>` so every result is self-describing
 about *which* frozen data it measured.
 
+That sentence was false for the portfolio path until 2026-09-11, which is to say
+false for the one-liner it describes. `_run_portfolio` had its own inline
+snapshot loader instead of calling `_load_bars`, printed the hash to stdout, and
+left `result.data_source` at the model default — the string `unknown`. Both
+loaders now derive the stamp from one function (`runner.frozen_source`), because
+two readings of "which data is this" are two answers. The saved result also
+names the **universe**: requested symbols, measured symbols, and any that were
+dropped with the reason. A portfolio is defined by its universe, so a run over
+7 of 10 symbols is a different measured system and the file has to be able to
+say so — under `--strict-data` (which `--honest` sets) it refuses to run at all.
+
 ### Why committed?
 
 The cloud execution environment is ephemeral — containers are reclaimed and the
@@ -110,6 +121,39 @@ override-able via `BACKTEST_TIME_STOP=0` / `--commission`).
 
 **+0.49% OOS / PF 1.24 is the current baseline — every future A/B beats this
 number, not the +0.31% one above.**
+
+> **⚠️ Superseded — that number does not reproduce, and nothing re-derived it.**
+> Re-run on 2026-09-11, same command, same `dataset_hash=8dbe73514ce8…`:
+>
+> ```
+> python -m bot.backtest.runner --dataset benchmark/majors_1h --honest --walk-forward 6
+> ```
+>
+> | | claimed above | reproduced 2026-09-11 |
+> |---|---:|---:|
+> | Mean OOS return | **+0.49%** | **−0.38%** |
+> | Profitable folds | — | **1 / 6** |
+> | Pooled OOS trades | 152 | **112** |
+> | Pooled net / PF | −$540 · 0.67 | **−$226.86 · 0.63** |
+>
+> The data did not move — the manifest hash is the one this doc names. The
+> CODE did, which is what a frozen snapshot is *for*: it holds the data still so
+> a delta is attributable to the change. At least one fidelity layer landed after
+> that table and was never re-baselined against it — `--honest` also enables
+> `BACKTEST_SYMBOL_LOSS_STREAK` now, and this document's own
+> "Per-strategy-type … fidelity layer added; unmeasurable here" section is where
+> that was noticed and not followed up.
+>
+> **The reason it could drift unseen is fixed in the same commit as this note.**
+> The command above is a PORTFOLIO run, and `_run_portfolio` accepted `-o` and
+> wrote **nothing** — so no run of the benchmark ever left an artefact to compare
+> against. It writes one now, carrying `data_source`, the fold table, the pooled
+> count and the universe it measured. Re-baseline from a written file, not from
+> a number typed into prose.
+>
+> This supersedes the arithmetic, not the method: the four-arm A/B above is still
+> the right way to isolate a fidelity gap, and each arm was a real measurement of
+> its own tree.
 
 ## Where the bleed is (pooled OOS attribution)
 
