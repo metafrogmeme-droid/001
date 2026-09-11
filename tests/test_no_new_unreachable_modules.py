@@ -103,7 +103,11 @@ def _imported_names(src: str, rel_path: str = "") -> set:
     below: the rule needed a test, not another paragraph.
     """
     names = set()
-    for m in re.finditer(r"^\s*import\s+([\w.,\s]+)", src, re.M):
+    # `[\w.,\s]+` matched NEWLINES, so a block of consecutive `import` lines was
+    # captured as ONE blob — `'json\nimport re\nimport sys\n…'` — and every bare
+    # `import X` after the first in its block was recorded as part of a name
+    # matching nothing. Horizontal whitespace only; one line, one import.
+    for m in re.finditer(r"^[ \t]*import[ \t]+([\w.,][\w., \t]*)", src, re.M):
         for part in m.group(1).split(","):
             part = part.strip().split(" as ")[0].strip()
             if part:
@@ -133,6 +137,28 @@ def _imported_names(src: str, rel_path: str = "") -> set:
 
     for m in re.finditer(r"[\"']((?:bot|scripts)\.[\w.]+)[\"']", src):
         names.add(m.group(1))
+
+    # THE THIRD BLIND SPOT, AND THE SAME ONE AGAIN.
+    #
+    # `scripts/` has no `__init__.py`, so it is not a package: a script run as
+    # `python3 scripts/ruff_gate.py` gets `scripts/` as sys.path[0], and a bare
+    # `import toolchain` there resolves to `scripts/toolchain.py`. Recorded as
+    # the bare name `toolchain`, it matched neither candidate key
+    # (`scripts.toolchain`, `scripts/toolchain.py`), so a module three entry
+    # points import was reported as reachable only from tests — the accusation
+    # this file exists to prevent, made for the third time, by the mechanism its
+    # own docstring warns about twice.
+    #
+    # A bare `import X` from `D/f.py` also reaches `D/X.py` when that file
+    # exists. Both spellings are added, never instead of the bare one: a
+    # same-named top-level package elsewhere is still a real import.
+    if rel_path.endswith(".py") and "/" in rel_path:
+        here = rel_path.rsplit("/", 1)[0]
+        for bare in {n.split(".")[0] for n in list(names) if "." not in n}:
+            sibling = f"{here}/{bare}.py"
+            if (REPO / sibling).exists():
+                names.add(sibling)
+                names.add(sibling[:-3].replace("/", "."))
     return names
 
 
@@ -251,6 +277,56 @@ def test_relative_imports_count_as_reachability():
             "bot/core/engine.py instantiates — calling it unreachable is the "
             "detector accusing live code again")
 
+
+
+def test_every_import_in_a_block_is_recorded_not_just_the_first():
+    """THE THIRD BLIND SPOT, and the same failure a third time.
+
+    The bare-import pattern was ``^\\s*import\\s+([\\w.,\\s]+)`` and ``\\s`` matches
+    NEWLINES, so a run of consecutive `import` lines was captured as a single
+    blob — ``'json\\nimport re\\nimport sys\\n…'`` — recorded as one "module name"
+    that matches nothing. Every bare `import X` after the first in its block
+    was therefore invisible to the sweep.
+
+    It stayed hidden because `bot/` reaches its siblings as `from bot.x import
+    y`, which the OTHER pattern handles. `scripts/` does not: it has no
+    `__init__.py`, so a bare sibling import is the only spelling available
+    there, and the first module to rely on it was accused on its first run.
+    """
+    src = "import json\nimport re\nimport toolchain\nimport sys\n"
+    names = _imported_names(src, "scripts/ruff_gate.py")
+    for bare in ("json", "re", "toolchain", "sys"):
+        assert bare in names, f"{bare} was swallowed by the line above it"
+
+
+def test_a_bare_sibling_import_counts_as_reachability():
+    """`scripts/` is not a package, so `import toolchain` inside
+    `scripts/ruff_gate.py` resolves to `scripts/toolchain.py` — that is how
+    Python resolves it when the script is run, sys.path[0] being the script's
+    own directory. Recorded as the bare name alone it matched neither candidate
+    key, so a module three entry points import read as test-only."""
+    names = _imported_names("import toolchain\n", "scripts/ruff_gate.py")
+    assert "scripts/toolchain.py" in names
+    assert "scripts.toolchain" in names
+    assert "toolchain" in names, (
+        "the bare name must survive too — a same-named top-level package "
+        "elsewhere is still a real import")
+
+
+def test_a_bare_import_with_no_sibling_file_is_not_invented():
+    """The other direction. `import json` in `scripts/` must not be recorded as
+    `scripts/json.py`, which does not exist — a checker that invents importers
+    acquits the modules it exists to accuse, and a false acquittal is the quiet
+    one."""
+    names = _imported_names("import json\n", "scripts/ruff_gate.py")
+    assert "scripts/json.py" not in names
+    assert "scripts.json" not in names
+
+
+def test_the_real_tree_still_reaches_toolchain():
+    """A planted-tree assertion can pass for a reason unrelated to the rule, so
+    this one is checked against the tree that actually ships."""
+    assert "scripts/toolchain.py" not in unreachable_modules()
 
 def test_absolute_imports_still_work():
     """The relative fix must not have cost the ordinary case."""
