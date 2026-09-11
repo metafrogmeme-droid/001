@@ -34,10 +34,22 @@ def published(tmp_path, monkeypatch):
     # honestly "published" — which is what lets the card carry reputation
     # ("backed"); without snapshots it reconciles INCOMPLETE and the card is
     # unbacked by design.
+    # `funding_markets` IS NOT DECORATION HERE. These fills are on
+    # BTC/USDT:USDT — a perpetual — and a perp pays funding whether or not
+    # anybody fetched it, so an epoch with no funding coverage at all now
+    # reconciles to INCOMPLETE and the card is honestly `unbacked`. Naming the
+    # market as queried, with no entries returned, is the ingestor saying it
+    # LOOKED and found no settlements: a measurement, not an assumption.
+    #
+    # Before funding existed as a record this fixture published anyway, and the
+    # balances below are what made that look right — they reconcile to the
+    # fills' +20 exactly, which is only true because this synthetic epoch really
+    # did pay no funding. The statement just had no way to say so.
     bundle = assemble_track_record(
         [_trade("a1", "buy", 100.0, 1_700_000_001_000),
          _trade("a2", "sell", 120.0, 1_700_000_002_000)],
         account_ids=["operator"], agent_address=_ADDR,
+        funding_entries=[], funding_markets=["BTC/USDT:USDT"],
         open_balance="1000", close_balance="1020",
         range_start=_TS - 100000, range_end=_TS)
     return publish_now(bundle, published_at_ts=_TS, store=store)

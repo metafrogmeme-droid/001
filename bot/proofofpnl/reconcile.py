@@ -24,7 +24,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
-from bot.proofofpnl.csf import _dec, compute_metrics, fill_is_complete
+from bot.proofofpnl.csf import (
+    _dec,
+    compute_metrics,
+    fill_is_complete,
+    funding_applies,
+    funding_is_complete,
+    split_records,
+)
 
 # Default reconciliation tolerance (quote units). The balance delta should equal
 # fills-net-PnL exactly for a flat→flat epoch; a few cents of slack absorbs
@@ -32,8 +39,23 @@ from bot.proofofpnl.csf import _dec, compute_metrics, fill_is_complete
 DEFAULT_TOLERANCE = Decimal("0.01")
 
 
-def completeness(fills: list[dict]) -> tuple[bool, list[str]]:
-    """(ok, reasons). ok only if there is ≥1 fill and every fill is metrics-complete."""
+def completeness(records: list[dict]) -> tuple[bool, list[str]]:
+    """(ok, reasons). ok only if there is ≥1 fill and every record is complete.
+
+    FUNDING GETS ITS OWN REASON, AND THAT IS THE POINT. Before funding was
+    carried at all, a perp epoch failed the balance-delta check below instead:
+    the signed close-open delta includes funding, `fills_net_pnl` did not, and
+    the residual WAS the funding. Driven, a round trip paying $3.20 reconciled
+    with residual -3.200 against a $0.01 tolerance.
+
+    So the epoch did not publish a false proof — but the reason it gave was the
+    selective-omission alarm, the one this module's docstring reserves for "a
+    dishonest operator could sign only winning trades and drop the losers". A
+    structural gap firing the fraud alarm is the corollary this repo states as
+    "a heuristic is never a verdict": the check ruled out reconciliation, and
+    then named a cause it had not established.
+    """
+    fills, funding = split_records(records)
     if not fills:
         return False, ["no fills"]
     reasons = []
@@ -41,10 +63,22 @@ def completeness(fills: list[dict]) -> tuple[bool, list[str]]:
         if not fill_is_complete(f):
             missing = [k for k in ("price", "qty", "fee") if _dec(f.get(k)) is None]
             reasons.append(f"{f.get('source_ref', '?')}: missing {', '.join(missing)}")
+    for fr in funding:
+        if not funding_is_complete(fr):
+            reasons.append(f"{fr.get('source_ref', '?')}: funding amount not stated "
+                           f"by the venue")
+    if funding_applies(fills) and not funding:
+        markets = sorted({str(f.get("market")) for f in fills
+                          if ":" in str(f.get("market", ""))})
+        reasons.append(
+            "funding never fetched for perpetual market(s) "
+            f"{', '.join(markets)} — an epoch holding a perp has a funding cost "
+            "whether or not it was measured; an ingestor that scanned and found "
+            "none records a zero-amount funding entry to say so")
     return (len(reasons) == 0), reasons
 
 
-def reconcile(fills: list[dict],
+def reconcile(records: list[dict],
               open_balance: Optional[object],
               close_balance: Optional[object],
               tolerance: Decimal = DEFAULT_TOLERANCE) -> dict:
@@ -59,17 +93,25 @@ def reconcile(fills: list[dict],
     for any record whose only balances live in an untrusted ``summary``)."""
     reasons: list[str] = []
 
-    ok, why = completeness(fills)
+    ok, why = completeness(records)
     if not ok:
         reasons.extend(why)
 
-    metrics = compute_metrics(fills)
-    fills_net = _dec(metrics["net_pnl"]) or Decimal(0)
+    metrics = compute_metrics(records)
+    # `net_pnl` is None when funding was not measured; `completeness` has
+    # already said so by name. Reconciling against a number that silently
+    # dropped a real cost would re-manufacture the misleading residual this
+    # change exists to remove, so the balance check is skipped rather than run
+    # on a figure known to be incomplete.
+    net = _dec(metrics["net_pnl"])
+    fills_net = net if net is not None else Decimal(0)
 
     ob, cb = _dec(open_balance), _dec(close_balance)
     balance_delta = None
     residual = None
-    if ob is None or cb is None:
+    if net is None:
+        pass                       # cause already named; no residual to compute
+    elif ob is None or cb is None:
         reasons.append("missing signed open/close balance snapshot (no summary allowed)")
     else:
         balance_delta = cb - ob

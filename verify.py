@@ -98,12 +98,18 @@ def verify_statement_full(stmt: dict, *, offline: bool = False, fetch_receipt=No
         diffs.append("statement has no fills")
         return False, diffs, "unattributed"
 
-    # 1) Per-fill hash re-computation.
+    # 1) Per-record hash re-computation. Funding records hash over their own
+    #    fields and carry `funding_hash`; `record_hash` is the one door, so a
+    #    funding cost is re-derived by the verifier exactly as a fill is. A
+    #    statement carrying funding it did not bind would be a cost nobody
+    #    checks, which is the shape this whole change is about.
     for f in fills:
-        want = f.get("fill_hash")
-        got = csf.fill_hash(f)
+        is_f = csf.is_funding(f)
+        want = f.get("funding_hash") if is_f else f.get("fill_hash")
+        got = csf.record_hash(f)
         if want != got:
-            diffs.append(f"fill_hash mismatch @ {f.get('source_ref')}: {want} != {got}")
+            kind = "funding_hash" if is_f else "fill_hash"
+            diffs.append(f"{kind} mismatch @ {f.get('source_ref')}: {want} != {got}")
 
     # 2) Merkle root.
     root_want = stmt.get("merkle_root")
