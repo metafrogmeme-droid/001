@@ -46,9 +46,9 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.order_state import (
-    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, flatten_outcome, order_status,
-    pending_cancel_verdict, position_presence, read_amount, rows_for_side,
-    stop_attached,
+    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, first_reading,
+    flatten_outcome, order_status, pending_cancel_verdict, position_presence,
+    read_amount, rows_for_side, stop_attached,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 
@@ -3122,34 +3122,39 @@ class LiveExecutor:
                 # as primary source, with ccxt's entryPrice as fallback.
                 # RULE: exchange numbers are the only truth, no exceptions.
                 info = p.get("info", {})
-                entry_price = float(
-                    info.get("openPriceAvg")
-                    or p.get("entryPrice")
-                    or info.get("averageOpenPrice")
-                    or 0
-                )
-                margin = float(
-                    info.get("margin")
-                    or info.get("im")
-                    or p.get("initialMargin")
-                    or p.get("collateral")
-                    or 0
-                )
-                leverage = int(float(
-                    info.get("leverage")
-                    or p.get("leverage")
-                    or 1
-                ))
-                # Quantity: prefer raw exchange totalQty/available over ccxt contracts
-                quantity = float(
-                    info.get("totalQty")
-                    or info.get("available")
-                    or contracts
-                )
-                ts = p.get("timestamp")
-                if ts:
-                    opened_at = datetime.fromtimestamp(ts / 1000, tz=UTC)
+                # EVERY ONE OF THESE WAS AN `or` CHAIN ENDING IN A LITERAL, so
+                # a venue row that under-reported produced entry 0, margin 0
+                # and leverage 1 — written into the durable record, where
+                # every later surface reads them as measurements. See
+                # `first_reading`; `_unread` is what the venue did not state.
+                _entry = first_reading((info, "openPriceAvg"), (p, "entryPrice"),
+                                       (info, "averageOpenPrice"))
+                _margin = first_reading((info, "margin"), (info, "im"),
+                                        (p, "initialMargin"), (p, "collateral"))
+                _leverage = first_reading((info, "leverage"), (p, "leverage"))
+                _qty = first_reading((info, "totalQty"), (info, "available"))
+                _ts = read_amount(p, "timestamp")
+
+                _unread = [n for n, v in (
+                    ("entry_price", _entry), ("margin", _margin),
+                    ("leverage", _leverage), ("opened_at", _ts)) if v is None]
+
+                entry_price = _entry if _entry is not None else 0.0
+                margin = _margin if _margin is not None else 0.0
+                # 0, not 1. The schema default means "unset", and
+                # `position_leverage` derives from margin/notional when it sees
+                # one — a stored 1 is a claim the position is unlevered, which
+                # is the fabrication `orphan_position.py` names.
+                leverage = int(_leverage) if _leverage is not None else 0
+                # Quantity: prefer raw exchange totalQty/available over ccxt
+                # contracts. `contracts` is already a read_amount reading here.
+                quantity = _qty if _qty is not None else contracts
+                if _ts is not None:
+                    opened_at = datetime.fromtimestamp(_ts / 1000, tz=UTC)
                 else:
+                    # Still now() — trade_id is built from it and the schema
+                    # field is non-Optional — but "opened_at" is in `_unread`,
+                    # so nothing downstream has to read this as an age.
                     opened_at = datetime.now(UTC)
 
                 trade_id = f"TI-adopted-{raw_sym.replace('/', '-')}-{int(opened_at.timestamp())}"
@@ -3168,6 +3173,21 @@ class LiveExecutor:
                     status="open",
                     origin="adopted",
                 )
+                if _unread:
+                    # PROVENANCE, the same runtime-marker shape as `unprotected`
+                    # and `sl_tp_source` above: which fields the venue did NOT
+                    # state, so a reader can tell a recorded 0 from a hole. The
+                    # schema fields stay non-Optional — `orphan_position.py`
+                    # already refuses to print an absent leverage or age, and
+                    # this is what lets those guards fire again instead of
+                    # being handed a fabricated 1x and a now() timestamp.
+                    setattr(lp, "adoption_unread", tuple(_unread))
+                    audit(trade_log,
+                          f"ADOPTED {raw_sym}: venue did not state "
+                          f"{', '.join(_unread)} — recorded as unknown, not as zero",
+                          action="adopt_position", result="PARTIAL_PAYLOAD",
+                          data={"trade_id": trade_id, "symbol": raw_sym,
+                                "unread": list(_unread)})
 
                 # Read SL/TP directly from v2 position data (exchange is source of truth)
                 info = p.get("info", {})
@@ -3295,6 +3315,30 @@ class LiveExecutor:
                                         "sl": lp.stop_loss, "tp": lp.take_profit})
                     except Exception as _don_exc:
                         logger.debug("adoption level inheritance skipped: %s", _don_exc)
+
+                # THE SILENCE WAS HERE, AND IT IS THE LOUD PATH THAT WAS SKIPPED.
+                # Both guards carry `and entry_price > 0`, correctly — a 3%
+                # default off an entry of 0 is a stop at 0. But the whole
+                # `if need_sl or need_tp:` block below holds _place_sl_tp, its
+                # retry AND the UNPROTECTED alert, so an unreadable entry took
+                # none of them: the position was adopted with no stop, no
+                # attempt to place one, and nothing said so. The one case where
+                # nothing could be read is the one case that reported nothing.
+                if _entry is None and lp.stop_loss <= 0:
+                    setattr(lp, "unprotected", True)
+                    logger.critical(
+                        "UNPROTECTED ADOPTED POSITION (%s %s): the venue stated no "
+                        "entry price, so no safety stop could be sized — position "
+                        "adopted with NO stop. Manual intervention required: place "
+                        "a stop on the venue.", sym, side)
+                    audit(trade_log,
+                          f"ADOPTED position UNPROTECTED: no entry price from the "
+                          f"venue for {raw_sym}, safety stop could not be sized — "
+                          f"manual intervention required",
+                          action="adopt_safety_sltp", result="UNPROTECTED_UNREADABLE",
+                          data={"trade_id": trade_id, "symbol": raw_sym,
+                                "unread": list(_unread)})
+                    self._record_warning("adopt_unprotected")
 
                 # If SL or TP missing, calculate safety defaults (3% SL, 6% TP)
                 need_sl = lp.stop_loss <= 0 and entry_price > 0

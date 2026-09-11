@@ -353,22 +353,28 @@ def test_the_filter_is_actually_reached():
     mutation, and it is the defect the whole repository is organised against:
     a control that works, reached by nothing.
 
-    `_check_black_swan` needs a live engine with a populated detector to run,
-    so the call site is checked structurally. That is the narrow case source
-    scanning is for — a guard being REACHED, which is a property of the caller
-    and invisible from inside the function.
-    """
-    from tests.source_scan import code_only
-    import pathlib
+    DRIVEN NOW, NOT SCANNED. This was `assert "return [a for a in alerts if
+    self._bs_is_news(a)]" in body` — the right property pinned to one exact
+    spelling of one line, so splitting that return into two statements failed
+    it while the filter was still applied. The docstring claimed
+    `_check_black_swan` "needs a live engine", and the tests directly above
+    this one had been building it with `__new__` all along.
 
-    src = code_only(pathlib.Path("bot/core/proactive_monitor.py").read_text(encoding="utf-8"))
-    body = src[src.index("def _check_black_swan"):src.index("def _severity_tier")]
-    assert "_bs_is_news" in body, (
-        "_check_black_swan no longer passes its alerts through _bs_is_news — "
-        "every anomaly re-pages on the 5-minute dedup cooldown again")
-    # and it must filter the RETURN, not merely mention the name somewhere
-    assert "return [a for a in alerts if self._bs_is_news(a)]" in body, (
-        "_bs_is_news is referenced but not applied to the returned alerts")
+    Two passes over an unchanged severe condition: the first is a first
+    sighting and pages, the second is inside BLACK_SWAN_SEVERE_REPEAT and must
+    not. That is what the scan was standing in for, and it cannot pass against
+    a filter that is present but unreached.
+    """
+    m = ProactiveMonitor.__new__(ProactiveMonitor)
+    m.engine = _engine([
+        _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98, action="HALT_NEW_TRADES"),
+    ])
+    first = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
+    assert len(first) == 1, "a first sighting must page"
+    second = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
+    assert second == [], (
+        "an unchanged severe condition re-paged on the next pass — "
+        "_bs_is_news is not reached from _check_black_swan's return")
 
 
 def test_the_filter_cannot_take_the_alert_system_down_with_it():
@@ -427,3 +433,108 @@ def test_the_card_renders_once_not_sixteen_times():
             f"the header repeats {a.body.count('ANOMALY')} times in {a.title!r}")
         assert a.body.count("─" * 16) == 2, (
             "a card lost or multiplied its separator rules")
+
+
+# ── the hourly budget, and what it used to be spent on ────────────────────
+
+class TestTheBudgetIsChargedForWhatIsSent:
+    """A STANDING CONDITION DRAINED THE WHOLE ALLOWANCE IN FOUR MINUTES.
+
+    `apply_hourly_budget` assigned `self._bs_card_times` at BUILD time and
+    `_bs_is_news` runs on this method's RETURN — afterwards. A severe condition
+    that persists is rebuilt on every 30-second tick, so it was charged every
+    tick and sent about once per BLACK_SWAN_SEVERE_REPEAT. Eight charges at
+    eight per hour is four minutes; for the remaining 56 the room was zero and
+    every genuinely NEW severe anomaly was demoted to the "+N more" line.
+
+    That inverts what the budget is for. It exists so a market-wide event
+    cannot page fifty times; it was instead letting the FIRST condition of the
+    hour lock out every condition behind it — and lowering the number would
+    have made that strictly worse, not better.
+    """
+
+    def test_an_unchanged_condition_is_charged_once_not_once_per_pass(self):
+        m = ProactiveMonitor.__new__(ProactiveMonitor)
+        m.engine = _engine([
+            _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98, action="HALT_NEW_TRADES"),
+        ])
+        for _ in range(10):
+            m._check_black_swan()
+        assert len(m._bs_card_times) == 1, (
+            f"ten passes over one unchanged condition charged "
+            f"{len(m._bs_card_times)} against the hourly budget")
+
+    def test_a_new_condition_still_pages_behind_a_standing_one(self):
+        """THE COST, END TO END. Under the old charge the budget was gone and
+        this card became a name in the overflow line."""
+        m = ProactiveMonitor.__new__(ProactiveMonitor)
+        standing = _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98,
+                       action="HALT_NEW_TRADES")
+        m.engine = _engine([standing])
+        for _ in range(20):          # 10 minutes of ticks at the old rate
+            m._check_black_swan()
+        m.engine = _engine([
+            standing,
+            _an("BTC/USDT:USDT", "VOLUME_COLLAPSE", 0.95, action="HALT_NEW_TRADES"),
+        ])
+        crit = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
+        keys = {a.dedup_key for a in crit}
+        assert any("BTC" in k for k in keys), (
+            "a new severe condition was locked out by a standing one's repeats")
+
+    def test_the_overflow_line_does_not_draw_on_the_budget(self):
+        """It is one rate-limited message about N conditions, not a card each —
+        charging it would let breadth eat the allowance for depth.
+
+        EXACT, because `<= _SEVERE_CARDS_PER_HOUR` was not: nine conditions
+        produce three cards under the per-tick cap plus one overflow line, and
+        both 3 and 4 clear a cap of six. The mutation that charged the overflow
+        survived that assertion.
+        """
+        m = ProactiveMonitor.__new__(ProactiveMonitor)
+        m.engine = _engine([
+            _an(f"S{i}/USDT:USDT", "SPREAD_WIDENING", 0.9, action="HALT_NEW_TRADES")
+            for i in range(9)
+        ])
+        out = m._check_black_swan()
+        cards = [a for a in out
+                 if a.severity == "CRITICAL" and a.dedup_key != "bs_overflow"]
+        overflow = [a for a in out if a.dedup_key == "bs_overflow"]
+        assert overflow, "nine severe conditions must produce an overflow line"
+        assert len(m._bs_card_times) == len(cards), (
+            f"charged {len(m._bs_card_times)} for {len(cards)} card(s) beside "
+            f"{len(overflow)} overflow line(s) — the overflow was charged")
+
+    def test_the_allowance_recovers_once_the_window_passes(self):
+        """A budget that never prunes is a budget spent once and gone.
+
+        The prune was covered by nothing: every test above runs inside a single
+        window, so replacing the filter with `list(_budget)` changed no result.
+        Seeded with charges older than the window, a pass must drop them and
+        still page.
+        """
+        import time as _time
+        m = ProactiveMonitor.__new__(ProactiveMonitor)
+        stale = _time.time() - ProactiveMonitor._SEVERE_BUDGET_WINDOW - 60
+        m._bs_card_times = [stale] * ProactiveMonitor._SEVERE_CARDS_PER_HOUR
+        m.engine = _engine([
+            _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98, action="HALT_NEW_TRADES"),
+        ])
+        crit = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
+        assert crit, "an exhausted-but-expired allowance must not still block"
+        assert all(t > stale for t in m._bs_card_times), (
+            "charges older than the window were carried forward")
+
+
+def test_the_budget_leaves_room_behind_one_persisting_condition():
+    """WHY SIX AND NOT FOUR. BLACK_SWAN_SEVERE_REPEAT (900s) caps ONE unchanged
+    condition at four cards an hour, so the budget is denominated in
+    conditions. Four would be exactly one — a single standing anomaly starving
+    every other symbol for the rest of the hour, which is the failure this
+    commit removes. Six leaves a persisting condition plus two new ones.
+    """
+    per_hour = ProactiveMonitor._SEVERE_CARDS_PER_HOUR
+    repeats_per_hour = 3600 // ProactiveMonitor.BLACK_SWAN_SEVERE_REPEAT
+    assert per_hour > repeats_per_hour, (
+        f"{per_hour}/hour is at most one persisting condition "
+        f"({repeats_per_hour} cards/hour) with nothing left for a new one")

@@ -276,7 +276,23 @@ class ProactiveMonitor:
     # exists for: a market-wide move escalates dozens of conditions at once.
     # Escalations sort to the front and spend the budget first, which is the
     # bounded version of the same priority.
-    _SEVERE_CARDS_PER_HOUR = 8
+    # SIX, AND THE ORDERING FIX IS WHAT MAKES THE NUMBER MEAN ANYTHING.
+    # Until the charge moved past the news filter this allowance was spent in
+    # four minutes by one standing condition, so no value of it governed what
+    # an operator saw — a smaller one simply locked out new conditions sooner.
+    #
+    # Charged at send, the arithmetic is legible. BLACK_SWAN_SEVERE_REPEAT
+    # (900s) caps ONE unchanged condition at 4 cards an hour, so this budget
+    # is denominated in conditions: 8 was two of them, 6 is one persisting
+    # condition plus two new ones, and 4 would be exactly one — a single
+    # standing anomaly starving every other symbol for the rest of the hour,
+    # which is the failure mode just removed. Six is the smallest value that
+    # still leaves room behind a persisting condition.
+    #
+    # It bounds DISTINCT conditions, not noise from one: persistence is the
+    # repeat window's job. If a night is still loud with this at 6, the lever
+    # is BLACK_SWAN_SEVERE_REPEAT, not this.
+    _SEVERE_CARDS_PER_HOUR = 6
     _SEVERE_BUDGET_WINDOW = 3600
 
     def __init__(self, engine) -> None:
@@ -2616,12 +2632,36 @@ class ProactiveMonitor:
             # above: `test_anomaly_credibility` builds this class with
             # `__new__` to exercise `_check_black_swan` without an engine, and
             # a missing attribute here would raise inside the alert path.
+            #
+            # THE BUDGET USED TO BE CHARGED HERE AND SPENT ON NOTHING. This
+            # line assigned `self._bs_card_times` at BUILD time, and the
+            # repeat filter (`_bs_is_news`, on this method's return) runs
+            # AFTERWARDS. A standing severe condition is rebuilt on every
+            # 30-second tick, so it was charged every tick and sent about once
+            # per BLACK_SWAN_SEVERE_REPEAT — driven: one unchanged condition
+            # drained the whole 8/hour allowance in FOUR MINUTES, of which one
+            # card actually reached the operator. For the remaining 56 minutes
+            # `room` was 0, so every genuinely NEW severe anomaly was demoted
+            # to the "+N more" line and never got a card.
+            #
+            # That inverts the budget's purpose. It exists to stop a
+            # market-wide event from paging fifty times; it was instead
+            # letting the FIRST condition of the hour lock out every one after
+            # it, and lowering the number would have made that strictly worse.
+            #
+            # The window is pruned here (cheap, and `shown` needs the room
+            # count) but the CHARGE is committed at the bottom of this method,
+            # against the cards that survived the news filter.
             _budget = getattr(self, "_bs_card_times", None)
             if _budget is None:
                 _budget = []
-            shown, _more, self._bs_card_times = apply_hourly_budget(
-                shown, _more, _budget, time.time(),
+            _now_ts = time.time()
+            _fresh = [t for t in _budget
+                      if _now_ts - t < self._SEVERE_BUDGET_WINDOW]
+            shown, _more, _ = apply_hourly_budget(
+                shown, _more, _fresh, _now_ts,
                 self._SEVERE_CARDS_PER_HOUR, self._SEVERE_BUDGET_WINDOW)
+            self._bs_card_times = _fresh
             for key, group in shown:
                 alert_obj = max(group, key=lambda a: float(a.severity))
                 kind = getattr(alert_obj.anomaly_type, "value", alert_obj.anomaly_type)
@@ -2704,7 +2744,19 @@ class ProactiveMonitor:
                 alerts.append(self._anomaly_digest(mild))
         except Exception as exc:
             logger.debug("_check_black_swan error: %s", exc)
-        return [a for a in alerts if self._bs_is_news(a)]
+        out = [a for a in alerts if self._bs_is_news(a)]
+        # CHARGE THE BUDGET FOR WHAT IS ACTUALLY SENT. See the note at the
+        # apply_hourly_budget call: charging at build time spent the whole
+        # allowance on cards the repeat filter then suppressed, so the first
+        # standing condition of the hour locked out every new one behind it.
+        # The overflow line is not a per-condition card and is rate-limited on
+        # its own dedup key, so it does not draw on this.
+        _charged = sum(1 for a in out
+                       if a.severity == "CRITICAL" and a.dedup_key != "bs_overflow")
+        if _charged:
+            self._bs_card_times = (
+                getattr(self, "_bs_card_times", None) or []) + [time.time()] * _charged
+        return out
 
     @staticmethod
     def _anomaly_digest(mild: list) -> Alert:

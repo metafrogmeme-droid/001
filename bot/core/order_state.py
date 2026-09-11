@@ -317,6 +317,41 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
 _BLANK_FIELD = (None, "")
 
 
+def first_reading(*sources) -> Optional[float]:
+    """The first ``(payload, key)`` pair that yields a measurement, else None.
+
+    ADOPTION BUILT ITS WHOLE RECORD OUT OF `or` CHAINS, and an `or` chain ends
+    in a literal::
+
+        entry_price = float(info.get("openPriceAvg") or p.get("entryPrice")
+                            or info.get("averageOpenPrice") or 0)
+        margin      = float(info.get("margin") or info.get("im")
+                            or p.get("initialMargin") or p.get("collateral") or 0)
+        leverage    = int(float(info.get("leverage") or p.get("leverage") or 1))
+
+    Every rung is a genuine fallback and the last one is not: it is the value
+    the field takes when NO source stated it. So a venue row that under-reports
+    produced an entry price of 0, a margin of 0 and a leverage of 1 — each
+    written into the durable local record, where every later surface reads them
+    as things somebody measured.
+
+    `bot/formatters/orphan_position.py` was hardened against exactly two of
+    these ("the age `0.0` renders as '0m'", "absent leverage printed `1x`"), and
+    its guards cannot fire once the WRITER has filled the hole: an absent
+    leverage stored as 1 is indistinguishable from a spot position, and a
+    renderer that refuses to invent has nothing left to refuse.
+
+    `or` is also wrong one rung earlier, not just at the end: a measured 0.0 is
+    falsy, so a venue that truthfully reports a zero is skipped in favour of the
+    next source. `read_amount` is null-preserving and keeps it.
+    """
+    for payload, key in sources:
+        val = read_amount(payload, key)
+        if val is not None:
+            return val
+    return None
+
+
 def stop_attached(info) -> Optional[bool]:
     """Does this position row carry a stop-loss? ``None`` when nobody can say.
 
