@@ -14,7 +14,25 @@ jobs:
   test:
     name: Lint + tests (baseline gate)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # THE JOB WAS ALLOWED LESS TIME THAN IT TAKES, and the symptom read as a
+    # flake. PR #324 and #326 both showed `Cancelled after 20m` on this job —
+    # #326 ran 20m28s against `timeout-minutes: 20` — with every other job
+    # green. Nothing failed: GitHub cut the job at the wall, so a re-run
+    # reproduces it and "push again" cures it only when the run happens to
+    # land under the line.
+    #
+    # Measured rather than guessed. `scripts/ci_test_gate.py` alone is the
+    # whole budget — 1186s and 1145s on two independent local runs, 19.8 and
+    # 19.1 minutes — and the other ten steps in this job add ~74s. So the job
+    # needs ~21 minutes and was given 20.
+    #
+    # RAISED, NOT TRIMMED. The suite really does take this long; splitting
+    # tests out of the gate or dropping them to duck under the line would buy
+    # a green tick by measuring less, which is the defect this repo spends its
+    # guard tests preventing. A timeout is a backstop against a HANG, and 35
+    # still is one: it is 1.7x the measured runtime, so a genuinely stuck job
+    # is caught while an honest one finishes.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
