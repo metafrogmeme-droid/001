@@ -50,7 +50,11 @@ from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
-from bot.utils.leveraged_return import _leveraged_pnl_usd
+from bot.utils.leveraged_return import (
+    _leveraged_pnl_usd,
+    _leveraged_return_pct,
+    position_leverage,
+)
 from bot.utils.logger import audit, system_log
 from bot.warroom.warroom_bot import render_emergency_stop as wr_emergency_stop
 from bot.warroom.warroom_bot import render_pause as wr_pause
@@ -431,22 +435,41 @@ class TradingCommands:
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
                 tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
-                lev = getattr(p, 'leverage', 10)
-                cost = getattr(p, 'cost_usd', 0) or 0
+                # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
+                # as fact on the row ("LONG BTC 10x") and multiplied into the
+                # percent below, so a record that never carried a leverage
+                # showed a tenfold return beside a confident multiple.
+                # Defaults of None, not 0: `getattr(p, 'cost_usd', 0)` is the
+                # absent-field-is-zero shape, and `position_leverage` already
+                # reads None/0/negative as "not recorded".
+                _margin = getattr(p, 'cost_usd', None)
+                _qty = getattr(p, 'quantity', None)
+                _notional = (p.entry_price * _qty
+                             if p.entry_price > 0 and isinstance(_qty, (int, float))
+                             and _qty > 0 else None)
+                lev = position_leverage(getattr(p, 'leverage', None), _margin, _notional)
+                lev_str = f" {lev:.0f}x" if lev else ""
+                cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
 
                 # Calculate uPnL
                 cur = current_prices.get(p.symbol, 0)
                 upnl_str = ""
                 pnl_pct_str = ""
-                if cur > 0 and p.entry_price > 0:
-                    if p.direction == "LONG":
-                        upnl = (cur - p.entry_price) / p.entry_price * cost
-                        pnl_pct = (cur - p.entry_price) / p.entry_price * 100 * lev
-                    else:
-                        upnl = (p.entry_price - cur) / p.entry_price * cost
-                        pnl_pct = (p.entry_price - cur) / p.entry_price * 100 * lev
-                    sign = "+" if upnl >= 0 else ""
-                    upnl_str = f"- uPnL: <code>{sign}${upnl:,.2f}</code> ({sign}{pnl_pct:.1f}%)\n"
+                # AND THE DOLLAR HERE WAS UNLEVERAGED WHILE THE PERCENT WAS NOT.
+                # `(cur - entry) / entry * cost` is the price move on the
+                # MARGIN — the exact pairing `_leveraged_pnl_usd` was written
+                # to end ("a leveraged % can never sit beside an unleveraged $
+                # again"), still live in this list builder because the fix was
+                # applied to the card paths and this row was not one of them.
+                # A 20x position showed a +2.0% beside a $0.05 that belonged
+                # to a +0.1% move.
+                if cur > 0 and p.entry_price > 0 and lev is not None:
+                    upnl = _leveraged_pnl_usd(p.entry_price, cur, p.direction, cost, lev)
+                    pnl_pct = _leveraged_return_pct(p.entry_price, cur, p.direction, lev)
+                    if upnl is not None and pnl_pct is not None:
+                        sign = "+" if upnl >= 0 else ""
+                        upnl_str = (f"- uPnL: <code>{sign}${upnl:,.2f}</code> "
+                                    f"({sign}{pnl_pct:.1f}%)\n")
 
                 cur_str = f"- Current: <code>${cur:,.4f}</code>\n" if cur > 0 else ""
 
@@ -481,7 +504,7 @@ class TradingCommands:
                     trail_block = "\n".join(_pt.format_trail_read(_read)) + "\n"
 
                 lines.append(
-                    f"{dir_icon} <b>{p.direction} {sym_display}</b> {lev}x\n"
+                    f"{dir_icon} <b>{p.direction} {sym_display}</b>{lev_str}\n"
                     f"- Entry: <code>${p.entry_price:,.4f}</code>\n"
                     f"{cur_str}"
                     f"- Size: <code>${cost:,.2f}</code> | Qty: <code>{p.quantity:.6f}</code>\n"
@@ -503,8 +526,21 @@ class TradingCommands:
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
                 tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
-                lev = getattr(p, 'leverage', 10)
-                cost = getattr(p, 'cost_usd', 0) or 0
+                # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
+                # as fact on the row ("LONG BTC 10x") and multiplied into the
+                # percent below, so a record that never carried a leverage
+                # showed a tenfold return beside a confident multiple.
+                # Defaults of None, not 0: `getattr(p, 'cost_usd', 0)` is the
+                # absent-field-is-zero shape, and `position_leverage` already
+                # reads None/0/negative as "not recorded".
+                _margin = getattr(p, 'cost_usd', None)
+                _qty = getattr(p, 'quantity', None)
+                _notional = (p.entry_price * _qty
+                             if p.entry_price > 0 and isinstance(_qty, (int, float))
+                             and _qty > 0 else None)
+                lev = position_leverage(getattr(p, 'leverage', None), _margin, _notional)
+                lev_str = f" {lev:.0f}x" if lev else ""
+                cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
 
                 # Distance to fill
                 cur = current_prices.get(p.symbol, 0)
@@ -541,7 +577,7 @@ class TradingCommands:
                     f"{dir_icon} <b>{p.direction} {sym_display}</b> \u2014 Limit Order\n"
                     f"- Limit: <code>${p.entry_price:,.4f}</code>\n"
                     f"{cur_line}"
-                    f"- Size: <code>${cost:,.2f}</code> | Lev: {lev}x\n"
+                    f"- Size: <code>${cost:,.2f}</code>{' | Lev:' + lev_str if lev_str else ''}\n"
                     f"- SL: <code>{sl_str}</code>\n"
                     f"- TP: <code>{tp_str}</code>\n"
                     f"{age_str}"
@@ -602,17 +638,38 @@ class TradingCommands:
                 # No exchange client is the same fact as a failed ticker:
                 # we do not know the current price.
                 cur = await _last(p.symbol) if exchange else None
-                lev = getattr(p, "leverage", 10) or 1
-                cost = getattr(p, "cost_usd", 0) or 0
+                # `lev` WAS `getattr(p, "leverage", 10) or 1`, which invents a
+                # leverage TWICE from one line: a missing attribute became 10x
+                # and a recorded 0 became 1x. The card prints that number as
+                # fact — "| 10x" — and multiplies the return by it, so a
+                # position nobody could size rendered a tenfold ROE beside a
+                # confident multiple. `position_leverage` derives it from the
+                # margin and the notional and answers None when it cannot.
+                _margin = getattr(p, "cost_usd", None)
+                _qty = getattr(p, "quantity", None)
+                _notional = (p.entry_price * _qty
+                             if p.entry_price > 0 and isinstance(_qty, (int, float))
+                             and _qty > 0 else None)
+                lev = position_leverage(getattr(p, "leverage", None), _margin, _notional)
+                cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
                 # None means unreadable and the card renders "—". Omit, never
                 # invent: a fabricated 0.00% is worse than an absent one,
                 # because it looks like a measurement.
+                #
+                # THE GUARD BELOW COVERED THE PRICES AND NOT THE MARGIN. `cost`
+                # was `cost_usd or 0`, so an ORPHAN — the position whose margin
+                # the venue never reported — reached the helper and came back
+                # 0.0, printing $0.00 directly under the comment above
+                # forbidding exactly that.
                 pnl_usd = pnl_pct = None
-                if cur and cur > 0 and p.entry_price > 0:
-                    raw = ((cur - p.entry_price) if p.direction == "LONG"
-                           else (p.entry_price - cur)) / p.entry_price
-                    pnl_usd = _leveraged_pnl_usd(p.entry_price, cur, p.direction, cost, lev)
-                    pnl_pct = raw * 100 * lev
+                if cur and cur > 0 and p.entry_price > 0 and lev is not None:
+                    pnl_usd = _leveraged_pnl_usd(
+                        p.entry_price, cur, p.direction, cost, lev)
+                    # Both from the same pair of helpers, so the percent cannot
+                    # be on one basis while the dollar is on another — the
+                    # whole reason this leaf exists.
+                    pnl_pct = _leveraged_return_pct(
+                        p.entry_price, cur, p.direction, lev)
                 hold = ""
                 if getattr(p, "opened_at", None):
                     mins = int((now - p.opened_at).total_seconds() // 60)
@@ -1455,13 +1512,27 @@ class TradingCommands:
                         pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
-                    cost = pos.cost_usd if pos.cost_usd > 0 else pos.entry_price * pos.quantity
+                    # MARGIN AND NOTIONAL, SEPARATELY. `cost_usd if > 0 else
+                    # entry * qty` put the margin and a quantity twenty times
+                    # larger under one name, and `notional / cost` then read
+                    # that name as the margin — so for an ORPHAN, where
+                    # cost_usd is 0 and the fallback is the only route, it
+                    # divided the notional by itself and got 1.0x. At 1.0x the
+                    # ROE collapses to the raw price move, which is the
+                    # -0.13%-vs--2.56% incident `leveraged_return`'s docstring
+                    # is about. `position_leverage` answers None instead.
+                    _margin = pos.cost_usd if pos.cost_usd > 0 else None
                     notional = last_price * pos.quantity
-                    leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
-                    pnl_pct = pnl_pct_raw * leverage
+                    cost = _margin if _margin is not None else notional
+                    leverage = position_leverage(
+                        getattr(pos, 'leverage', 0), _margin, notional)
+                    pnl_pct = pnl_pct_raw * leverage if leverage is not None else None
                     # Dollar P&L on the SAME (leveraged) basis as pnl_pct — the old
                     # (last-entry)*quantity understated it by the leverage multiple.
-                    upnl_usd = _leveraged_pnl_usd(pos.entry_price, last_price, pos.direction, cost, leverage)
+                    upnl_usd = _leveraged_pnl_usd(
+                        pos.entry_price, last_price, pos.direction,
+                        _margin if _margin is not None else 0.0,
+                        leverage if leverage is not None else 0.0)
                     sl_dist = abs(last_price - pos.stop_loss) / last_price * 100 if last_price else 0
                     tp_dist = abs(pos.take_profit - last_price) / last_price * 100 if last_price else 0
                     risk_left = abs(last_price - pos.stop_loss) if pos.stop_loss else 0
@@ -1471,21 +1542,31 @@ class TradingCommands:
                     # was never read. Absent renders as "unknown"; zero renders
                     # as a claim.
                     _unread = _price_read is None
+
+                    def _r(v, n):
+                        """round(), but an absence stays an absence.
+
+                        These values became three-valued when
+                        `_leveraged_pnl_usd` stopped fabricating 0.0, and
+                        `round(None, 2)` raises — so a wrong number would have
+                        become a crashed card, which is worse.
+                        """
+                        return None if v is None else round(v, n)
                     positions_data.append({
                         "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
                         "direction": pos.direction,
                         "entry": round(pos.entry_price, 6),
                         "price_unavailable": _unread,
                         "current": None if _unread else round(last_price, 6),
-                        "pnl_pct": None if _unread else round(pnl_pct, 2),
-                        "pnl_usd": None if _unread else round(upnl_usd, 4),
+                        "pnl_pct": None if _unread else _r(pnl_pct, 2),
+                        "pnl_usd": None if _unread else _r(upnl_usd, 4),
                         "sl": round(pos.stop_loss, 6),
                         "tp": round(pos.take_profit, 6),
                         "sl_dist_pct": None if _unread else round(sl_dist, 2),
                         "tp_dist_pct": None if _unread else round(tp_dist, 2),
                         "size_usd": round(cost, 2),
                         "notional_usd": round(notional, 2),
-                        "leverage": round(leverage, 2),
+                        "leverage": _r(leverage, 2),
                         "rr_live": None if _unread else round(rr_live, 2),
                         "quantity": pos.quantity,
                         "comm_pct": CONFIG.risk.commission_pct,

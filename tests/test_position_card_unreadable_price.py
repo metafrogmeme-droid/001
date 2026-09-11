@@ -133,19 +133,39 @@ def test_no_exchange_client_is_the_same_fact_as_a_failed_ticker():
         "because the fetch failed, are the same thing to the reader")
 
 
-def test_the_card_is_handed_none_rather_than_a_fabricated_zero():
-    src = _handler_src()
+def _card_block() -> str:
+    """The card-building region, COMMENTS STRIPPED.
+
+    This was a raw `src[i:i + 1400]` over the un-stripped source, so prose
+    counted against the window: adding explanatory comments above the code
+    pushed the assertions out of the slice and both tests failed on a tree
+    where the code they check was untouched, sitting a few hundred characters
+    lower. "Strip comments first" is this repo's own rule for source scans and
+    the reason is usually the opposite one (a comment that QUOTES the string it
+    forbids); this is the same hazard from the other side.
+
+    AND `code_only` ALONE DOES NOT FIX IT. It replaces comments with SPACES so
+    byte offsets still line up, which is exactly right for locating a line and
+    exactly wrong for a fixed-size window: the blanks go on consuming the
+    budget. The blank lines have to go too, and then 1400 characters buys 1400
+    characters of actual code.
+    """
+    from tests.source_scan import code_only
+    src = "\n".join(ln for ln in code_only(_handler_src()).split("\n")
+                    if ln.strip())
     i = src.index("cur = await _last(p.symbol) if exchange else None")
-    block = src[i:i + 1400]
+    return src[i:i + 1400]
+
+
+def test_the_card_is_handed_none_rather_than_a_fabricated_zero():
+    block = _card_block()
     assert "pnl_usd = pnl_pct = None" in block
-    assert "if cur and cur > 0 and p.entry_price > 0:" in block, (
+    assert "if cur and cur > 0 and p.entry_price > 0" in block, (
         "cur is now Optional[float]; a bare `cur > 0` would raise on None")
 
 
 def test_the_stop_distances_survive_an_unknown_price():
-    src = _handler_src()
-    i = src.index("cur = await _last(p.symbol) if exchange else None")
-    block = src[i:i + 1400]
+    block = _card_block()
     assert "if (cur and cur > 0 and p.stop_loss > 0)" in block
     assert "if (cur and cur > 0 and p.take_profit > 0)" in block
 

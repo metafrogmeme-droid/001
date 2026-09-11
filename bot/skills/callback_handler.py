@@ -49,7 +49,11 @@ from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM
 from bot.skills.scan_skill import callback_confirm_reject as _scan_callback
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import SUPPORTED_LANGS, get_user_lang, set_user_lang, t
-from bot.utils.leveraged_return import _leveraged_pnl_usd, _leveraged_return_pct
+from bot.utils.leveraged_return import (
+    _leveraged_pnl_usd,
+    _leveraged_return_pct,
+    position_leverage,
+)
 from bot.utils.logger import audit, system_log
 from bot.utils.user_store import is_vouchable
 from bot.warroom.warroom_bot import render_emergency_stop as wr_emergency_stop
@@ -844,7 +848,13 @@ class CallbackHandler:
                     _sl = pos_match.stop_loss
                     _tp = pos_match.take_profit
                     _opened = pos_match.opened_at
-                    _cost = pos_match.cost_usd if pos_match.cost_usd > 0 else _entry * _qty
+                    # Margin when the venue recorded one, None when it did not
+                    # — the two must not share a name (see `position_leverage`).
+                    # `_cost` keeps the old margin-or-notional value for the fee
+                    # estimates below, which are on the NOTIONAL and were
+                    # already reading it that way.
+                    _margin = pos_match.cost_usd if pos_match.cost_usd > 0 else None
+                    _cost = _margin if _margin is not None else _entry * _qty
                     _sl_oid = pos_match.sl_order_id
                     _tp_oid = pos_match.tp_order_id
                 else:
@@ -855,7 +865,10 @@ class CallbackHandler:
                     _sl = pos_match.stop_loss
                     _tp = pos_match.take_profit
                     _opened = pos_match.opened_at
-                    _cost = _entry * _qty
+                    # The paper book is unlevered, so notional IS the margin
+                    # here — a real reading rather than a stand-in.
+                    _margin = _entry * _qty
+                    _cost = _margin
                     _sl_oid = None
                     _tp_oid = None
 
@@ -864,7 +877,11 @@ class CallbackHandler:
                     pnl_pct = -pnl_pct
                 sz = _cost
                 exit_notional = _qty * last_px
-                pnl_usd = 0.0  # real leveraged value set below once leverage is known
+                # None, not 0.0. A placeholder break-even that a later branch
+                # may fail to overwrite is the shape this whole change is
+                # about, and it also made mypy infer `float` for a name that
+                # is now three-valued.
+                pnl_usd = None
                 d_emoji = "\U0001f7e2" if _dir == "LONG" else "\U0001f534"
                 pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
                 sl_dist = abs(last_px - _sl) / last_px * 100 if last_px else 0
@@ -875,17 +892,26 @@ class CallbackHandler:
                 reward_left = abs(_tp - last_px) if _tp else 0
                 rr_live = reward_left / risk_left if risk_left > 0 else 0
 
-                # Leverage — prefer stored value from position, fall back to notional/cost
+                # Leverage — prefer the stored value, else derive it from the
+                # MARGIN, else say so.
+                #
+                # The fallback here was `notional_now / sz`, and `sz` came from
+                # `cost_usd if cost_usd > 0 else _entry * _qty` — margin, or
+                # the notional, under one name. So it was right exactly when
+                # `cost_usd > 0`, which is exactly when a stored leverage is
+                # also present and the fallback is never reached; and for the
+                # ORPHAN, the one case that does reach it, it divided the
+                # notional by itself and returned 1.0x. At 1.0x the ROE below
+                # collapses to the raw price move — the -0.13%-beside--2.56%
+                # incident `leveraged_return`'s docstring was written about,
+                # coming back through the basis rather than the formula.
                 notional_now = _qty * last_px
-                if is_live_pos and getattr(pos_match, 'leverage', 0) and pos_match.leverage > 1:
-                    leverage = float(pos_match.leverage)
-                else:
-                    _stored_lev = getattr(pos_match, 'leverage', 0) if not is_live_pos else 0
-                    leverage = float(_stored_lev) if _stored_lev and _stored_lev > 1 else (notional_now / sz if sz > 0 else 1.0)
+                leverage = position_leverage(
+                    getattr(pos_match, 'leverage', 0), _margin, notional_now)
 
                 # Real leveraged dollar P&L (was _qty×price-delta, which understated
                 # it by the leverage multiple for a margin-based quantity).
-                pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, sz, leverage)
+                pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, _margin, leverage)
                 # ...and put the PERCENT on the same basis as that dollar.
                 #
                 # It was computed ~50 lines above as a raw price move, because
@@ -900,7 +926,23 @@ class CallbackHandler:
                 # driving sl_dist/tp_dist/R:R, which are genuinely price-based
                 # and must NOT be multiplied by leverage.
                 pnl_pct = _leveraged_return_pct(_entry, last_px, _dir, leverage)
-                pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
+                # BOTH ARE THREE-VALUED NOW, and `None >= 0` RAISES in Python
+                # rather than quietly picking a side — which is the one mercy
+                # in this language and the reason this had to be handled
+                # rather than left to fall through. A card that cannot state a
+                # return says so; it does not paint a colour. Colour is a
+                # claim: green here reads "in profit", and an unknown gets the
+                # muted one.
+                _priced = pnl_pct is not None and pnl_usd is not None
+                pnl_emoji = (("\U0001f7e2" if pnl_pct >= 0 else "\U0001f534")
+                             if _priced else "⚪")
+                # ONE rendering, read from three places below. Repeating the
+                # conditional at each would be three chances to forget it, and
+                # forgetting it is a TypeError on a live card rather than a
+                # wrong number — `{None:+.2f}` raises.
+                _pnl_str = (f"{pnl_pct:+.2f}% (${pnl_usd:+,.2f})" if _priced
+                            else "return unknown — no margin on record for this "
+                                 "position")
 
                 # Fee calculations
                 comm_pct = CONFIG.risk.commission_pct
@@ -915,8 +957,9 @@ class CallbackHandler:
                 funding_rate = 0.01
                 funding_paid = sz * (funding_rate / 100.0) * funding_sessions
 
-                # Net PNL after all fees
-                net_pnl = pnl_usd - total_fees - funding_paid
+                # Net PNL after all fees — and no net of an unknown gross.
+                net_pnl = (pnl_usd - total_fees - funding_paid) if _priced else None
+                _net_str = f"${net_pnl:+,.2f}" if net_pnl is not None else "\u2014"
 
                 # Hold time display
                 if hold_hours < 1:
@@ -937,17 +980,20 @@ class CallbackHandler:
                     tp_tag = "bot-managed"
 
                 mode_tag = " LIVE" if is_live_pos else ""
-                lev_str = f" | {leverage:.0f}x" if leverage > 1 else ""
+                # `leverage` is three-valued now and `None > 1` RAISES —
+                # mypy caught this as a type error and it is a live crash on
+                # the card, not a complaint about annotations.
+                lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
 
                 lines = [
                     f"<b>{html.escape(pair)}</b>{mode_tag}",
-                    f"{d_emoji} {_dir} | {pnl_emoji} {pnl_pct:+.2f}% (${pnl_usd:+,.2f})",
+                    f"{d_emoji} {_dir} | {pnl_emoji} {_pnl_str}",
                     "",
                     f"Entry <code>{_entry:,.6f}</code> / Now <code>{last_px:,.6f}</code>",
                     f"Size <code>${sz:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {rr_live:.1f}x",
                     f"SL <code>{_sl:,.6f}</code> ({sl_dist:.1f}%) {sl_tag}",
                     f"TP <code>{_tp:,.6f}</code> ({tp_dist:.1f}%) {tp_tag}",
-                    f"Net PnL <code>${net_pnl:+,.2f}</code> (fees ${total_fees + funding_paid:.2f})",
+                    f"Net PnL <code>{_net_str}</code> (fees ${total_fees + funding_paid:.2f})",
                 ]
 
                 # Add market context on one line if available
@@ -1018,7 +1064,7 @@ class CallbackHandler:
                     # Send the styled position card as a photo with buttons
                     mode_tag = "LIVE" if is_live_pos else "PAPER"
                     cap = (f"<b>{html.escape(pair)}</b> {mode_tag}\n"
-                           f"{d_emoji} {_dir} | {pnl_emoji} {pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
+                           f"{d_emoji} {_dir} | {pnl_emoji} {_pnl_str}")
                     await self._send_photo(update, pos_card_png, cap, reply_markup=kb)
                     # Also send chart below if available
                     if chart_png:
@@ -1031,7 +1077,7 @@ class CallbackHandler:
                     await self._send(update, card_text, edit=True)
                     cap = (f"<b>{html.escape(pair)}</b> · 1h\n"
                            f"Entry <code>{_entry:,.6f}</code> | Now <code>{last_px:,.6f}</code>\n"
-                           f"{pnl_emoji} {pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
+                           f"{pnl_emoji} {_pnl_str}")
                     await self._send_photo(update, chart_png, cap, reply_markup=kb)
                 else:
                     await self._send(update, "\n".join(lines), edit=True, reply_markup=kb)

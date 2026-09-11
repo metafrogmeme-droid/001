@@ -39,15 +39,32 @@ def test_short_direction_sign():
     assert _leveraged_pnl_usd(100, 105, "SHORT", 10, 5) == -2.5
 
 
-def test_missing_leverage_falls_back_to_1x():
-    assert _leveraged_pnl_usd(100, 90, "LONG", 10, 0) == -1.0
-    assert _leveraged_pnl_usd(100, 90, "LONG", 10, None) == -1.0
+def test_missing_leverage_is_unknown_rather_than_1x():
+    """THIS ASSERTED `== -1.0`, and the fallback it pinned was reached only
+    where it was wrong.
+
+    A leverage of 0 or None is "nobody recorded one". Rendering that as 1x
+    makes the ROE collapse to the raw price move — the -0.13%-beside--2.56%
+    incident this module's docstring is about — and the dollar shrink by the
+    same multiple. 1.0 is also a REAL leverage, so a caller could not tell an
+    unlevered position from an unreadable one.
+
+    A genuine 1x still reads 1x: `position_leverage` derives it from
+    notional / margin, which is 1.0 for an unlevered position.
+    """
+    assert _leveraged_pnl_usd(100, 90, "LONG", 10, 0) is None
+    assert _leveraged_pnl_usd(100, 90, "LONG", 10, None) is None
+    # ...and a stated 1x is still a measurement.
+    assert _leveraged_pnl_usd(100, 90, "LONG", 10, 1) == -1.0
 
 
 def test_guards_non_positive_inputs():
-    assert _leveraged_pnl_usd(0, 95, "LONG", 10, 5) == 0.0
-    assert _leveraged_pnl_usd(100, 0, "LONG", 10, 5) == 0.0
-    assert _leveraged_pnl_usd(100, 95, "LONG", 0, 5) == 0.0
+    """Was `== 0.0`. 0.0 is a real, measured break-even and must not stand in
+    for an input nobody could read — the rule the two REALIZED helpers in the
+    same module already followed."""
+    assert _leveraged_pnl_usd(0, 95, "LONG", 10, 5) is None
+    assert _leveraged_pnl_usd(100, 0, "LONG", 10, 5) is None
+    assert _leveraged_pnl_usd(100, 95, "LONG", 0, 5) is None
 
 
 def test_all_live_card_paths_use_the_helper():

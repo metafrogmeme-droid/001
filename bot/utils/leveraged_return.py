@@ -24,8 +24,57 @@ from __future__ import annotations
 from typing import Optional
 
 
+def _finite(value: object) -> Optional[float]:
+    """The value as a float, or None when it is absent or not a measurement."""
+    if value is None:
+        return None
+    try:
+        f = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):   # NaN / inf
+        return None
+    return f
+
+
+def position_leverage(stored: object, margin_usd: object,
+                      notional_usd: object) -> Optional[float]:
+    """A position's leverage — or None when it cannot be read.
+
+    THE FALLBACK IT REPLACES WAS ONLY EVER EXERCISED IN THE CASE WHERE IT WAS
+    WRONG. `callback_handler` derived leverage as `notional_now / sz`, where
+    `sz` came from `cost_usd if cost_usd > 0 else entry * qty` — margin, or
+    the NOTIONAL, under one name. So:
+
+        cost_usd > 0   sz is the margin    notional / margin = the leverage ✓
+        cost_usd == 0  sz is the notional  notional / notional ≈ 1.0        ✗
+
+    and the second row is the ORPHAN — the position whose margin the venue
+    never told us, which is precisely when a stored leverage is missing too
+    and the fallback is reached at all. A derivation that is correct only when
+    it is unnecessary.
+
+    What that printed is the incident in this module's own docstring, arriving
+    through a different door: at 1.0x the ROE collapses to the raw price move,
+    so the detail card rendered `-0.13%` where the position had actually moved
+    `-2.56%` on its margin. The fix there was to put the percent and the dollar
+    on one basis; this is the basis itself going missing.
+
+    None rather than 1.0, because 1.0x is a real leverage — a spot position has
+    it — and a caller must be able to tell "unlevered" from "nobody could say".
+    """
+    stored_f = _finite(stored)
+    if stored_f is not None and stored_f > 1:
+        return stored_f
+    margin = _finite(margin_usd)
+    notional = _finite(notional_usd)
+    if margin is None or notional is None or margin <= 0 or notional <= 0:
+        return None
+    return notional / margin
+
+
 def _leveraged_return_pct(entry: float, last: float, direction: str,
-                          leverage: float) -> float:
+                          leverage: object) -> Optional[float]:
     """Return on MARGIN (ROE) — the partner of `_leveraged_pnl_usd` below.
 
     The dollar got a helper on 2026-07-xx precisely so "a leveraged % can never
@@ -45,16 +94,32 @@ def _leveraged_return_pct(entry: float, last: float, direction: str,
     site cannot pick one basis for the dollar and the other for the percent.
     Same guard clauses and same leverage convention as the dollar helper, so
     they cannot disagree about an unusable input either.
+
+    IT ANSWERED 0.0 ON AN UNUSABLE INPUT, and the justification below this
+    module's realized helpers — "unrealized readings whose callers guard
+    upstream" — was checked from outside the file and is half true.
+    `trading_commands` guards the two prices and then hands over
+    `getattr(p, "cost_usd", 0) or 0`, so an unrecorded margin reached the
+    dollar helper and came back 0.0, two lines under that caller's own
+    comment: "None means unreadable and the card renders '—'. Omit, never
+    invent: a fabricated 0.00% is worse than an absent one, because it looks
+    like a measurement." A claim about callers can only be checked from
+    outside; this one had not been.
+
+    None now, matching the two realized helpers at the bottom, and 0.0 is left
+    to mean what it says: a measured break-even.
     """
     if entry <= 0 or last <= 0:
-        return 0.0
+        return None
+    lev = _finite(leverage)
+    if lev is None or lev <= 0:
+        return None
     raw = ((last - entry) / entry) if direction == "LONG" else ((entry - last) / entry)
-    lev = leverage if (leverage and leverage > 0) else 1.0
     return raw * lev * 100.0
 
 
 def _leveraged_pnl_usd(entry: float, last: float, direction: str,
-                       cost_usd: float, leverage: float) -> float:
+                       cost_usd: object, leverage: object) -> Optional[float]:
     """Real unrealized USD P&L for a leveraged futures position.
 
     = price-move-fraction × leverage × margin  (equivalently: ROE × margin, or
@@ -63,25 +128,20 @@ def _leveraged_pnl_usd(entry: float, last: float, direction: str,
     showing a −28.6% ROE reported just −$0.43 instead of the real −$4.3. The
     percentage (ROE) and the dollar were on different bases; this puts them on the
     same one so a leveraged % can never sit beside an unleveraged $ again.
+
+    `cost_usd <= 0` is the ORPHAN — a position whose margin the venue never
+    reported — so it takes None rather than 0.0 for the reason
+    `realized_margin_return_pct` gives at length: 0.0 is a real, measured
+    break-even and must not stand in for a quantity nobody recorded.
     """
-    if entry <= 0 or last <= 0 or cost_usd <= 0:
-        return 0.0
+    margin = _finite(cost_usd)
+    if entry <= 0 or last <= 0 or margin is None or margin <= 0:
+        return None
+    lev = _finite(leverage)
+    if lev is None or lev <= 0:
+        return None
     raw = ((last - entry) / entry) if direction == "LONG" else ((entry - last) / entry)
-    lev = leverage if (leverage and leverage > 0) else 1.0
-    return raw * lev * cost_usd
-
-
-def _finite(value: object) -> Optional[float]:
-    """The value as a float, or None when it is absent or not a measurement."""
-    if value is None:
-        return None
-    try:
-        f = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if f != f or f in (float("inf"), float("-inf")):   # NaN / inf
-        return None
-    return f
+    return raw * lev * margin
 
 
 def realized_margin_return_pct(net_pnl: object,
@@ -111,14 +171,20 @@ def realized_margin_return_pct(net_pnl: object,
     +26.62% while $1.89 net on $7.44 of margin is +25.40%, the 1.22-point gap
     being exactly its $0.09 of fees over that margin.
 
-    NOTE THE CONVENTION DIFFERENCE from the two helpers above, which answer 0.0
-    on an unusable input. Those are unrealized readings whose callers guard
-    upstream. This one is a realized verdict published to a public channel and
-    a share sheet, where 0.0 is a real, measured break-even and must not stand
-    in for "the margin was never recorded" — the position whose margin is
-    missing is the ORPHAN, precisely the one nobody can vouch for. A
-    non-positive margin is unreadable rather than infinite, so it takes the
-    same answer.
+    THERE USED TO BE A CONVENTION DIFFERENCE HERE, and this paragraph asserted
+    it: the two helpers above answered 0.0 on an unusable input because they
+    are "unrealized readings whose callers guard upstream". That was a claim
+    about CALLERS, made from inside the file, and it can only be checked from
+    outside — where it turned out to be half true. `trading_commands` guards
+    the prices and then passes `cost_usd or 0`, so an unrecorded margin came
+    back as a rendered $0.00. Both helpers answer None now and the whole module
+    keeps one convention.
+
+    The reasoning that was right here is the reasoning that spread: 0.0 is a
+    real, measured break-even and must not stand in for "the margin was never
+    recorded" — the position whose margin is missing is the ORPHAN, precisely
+    the one nobody can vouch for. A non-positive margin is unreadable rather
+    than infinite, so it takes the same answer.
     """
     pnl = _finite(net_pnl)
     margin = _finite(margin_usd)

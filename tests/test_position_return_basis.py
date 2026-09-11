@@ -104,19 +104,38 @@ def test_direction_is_respected():
 def test_the_two_helpers_agree_about_an_unusable_input():
     """They must not disagree about what a missing leverage or price MEANS.
 
-    Both treat a non-positive leverage as 1.0 — deliberately the same
-    convention, deliberately verified together. This is the one place a
-    manufactured default is acceptable, and only because the alternative is two
-    helpers that quietly diverge on the same bad input.
+    THE ARGUMENT THIS DOCSTRING USED TO MAKE HAS BEEN OVERTAKEN, and by its
+    own terms. It read: "Both treat a non-positive leverage as 1.0 —
+    deliberately the same convention ... This is the one place a manufactured
+    default is acceptable, and only because the alternative is two helpers that
+    quietly diverge on the same bad input."
+
+    The stated justification was AGREEMENT, not 1.0 — and two helpers that both
+    answer None agree just as exactly, without manufacturing anything. So the
+    property survives and the default does not: a leverage of 0 is "nobody
+    recorded one", 1.0 is a real leverage a spot position has, and rendering
+    the first as the second collapses the ROE to the raw price move, which is
+    the incident the whole module exists for.
+
+    Still verified together, for the original reason.
     """
     for lev in (0, None, -5):
+        assert ret_pct(ENTRY, MARK, DIRECTION, lev) is None, lev
+        assert pnl_usd(ENTRY, MARK, DIRECTION, MARGIN, lev) is None, lev
+    # A stated leverage still agrees across both, which is the property the
+    # original assertion was really protecting.
+    for lev in (1, 3, 20):
         pct = ret_pct(ENTRY, MARK, DIRECTION, lev)
         usd = pnl_usd(ENTRY, MARK, DIRECTION, MARGIN, lev)
         assert abs((pct / 100.0) * MARGIN - usd) < 1e-9, lev
-    # An unusable PRICE is zero from both, not a fabricated move.
+    # An unusable PRICE is unknown from both, not a fabricated move and not a
+    # fabricated break-even.
     for bad_entry, bad_mark in ((0, MARK), (ENTRY, 0), (-1, MARK)):
-        assert ret_pct(bad_entry, bad_mark, DIRECTION, LEV) == 0.0
-        assert pnl_usd(bad_entry, bad_mark, DIRECTION, MARGIN, LEV) == 0.0
+        assert ret_pct(bad_entry, bad_mark, DIRECTION, LEV) is None
+        assert pnl_usd(bad_entry, bad_mark, DIRECTION, MARGIN, LEV) is None
+    # And an unrecorded MARGIN is unknown from the dollar — the orphan case
+    # that reached a caller's card as $0.00 under its own comment forbidding it.
+    assert pnl_usd(ENTRY, MARK, DIRECTION, 0, LEV) is None
 
 
 def test_the_helpers_are_neighbours_so_they_cannot_drift_apart():
@@ -145,7 +164,14 @@ def test_the_detail_card_routes_through_the_helper():
         "nothing calls leaves the card exactly as broken as it was")
     # The rescale must come AFTER the dollar is computed, because that is where
     # leverage is finally known; before it, leverage is not yet resolved.
-    usd_call = src.index("pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, sz, leverage)")
+    #
+    # THE ARGUMENT MOVED FROM `sz` TO `_margin` and this literal moved with it.
+    # `sz` was `cost_usd if cost_usd > 0 else _entry * _qty` — the margin, or
+    # the notional under the same name — and handing that to a helper whose
+    # parameter is called `cost_usd` is the conflation `position_size_basis`
+    # was written to end one file over. What this test actually protects is
+    # the ORDER, so it is re-anchored rather than relaxed.
+    usd_call = src.index("pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, _margin, leverage)")
     pct_call = src.index("pnl_pct = _leveraged_return_pct(_entry, last_px, _dir, leverage)")
     assert usd_call < pct_call, (
         "the percent is rescaled before leverage is resolved — it would be "
