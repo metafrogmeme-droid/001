@@ -47,6 +47,7 @@ import pytest
 from bot.formatters.onboarding import skill_unavailable_notice
 from bot.nlp.intent_router import IntentRouter
 from bot.nlp.skill_memory import skill_failure_memory, skill_unavailable_memory
+from bot.skills.chat_runtime import ACT_INTENTS
 from bot.skills.skill_registry import build_default_registry
 
 REPO = Path(__file__).resolve().parents[1]
@@ -164,6 +165,12 @@ def test_no_intent_can_fall_through_to_the_chat_model():
         # Handled by name in the handler: an `intent.skill == "x"` branch or a
         # membership dict like `scan_modes`…
         if f'"{skill}"' in handler:
+            continue
+        # …or by membership in the runtime leaf's ACT_INTENTS tuple, which the
+        # handler tests against (`intent.skill in ACT_INTENTS`). The names live
+        # in chat_runtime so the web branch and this one cannot drift; read the
+        # tuple rather than requiring the literals to be copied here.
+        if skill in ACT_INTENTS and "intent.skill in ACT_INTENTS" in handler:
             continue
         # …or by one of the prefix branches above.
         if any(skill.startswith(p) for p in prefixes):

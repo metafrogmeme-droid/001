@@ -610,6 +610,24 @@ nothing until tapped) is the entry door, read off the code before it was named.
 And the corollary sweep found `/sell`, a trader's command, telling the trader
 to run `/liveclose`.
 
+**Run the router over what a trader actually types, and read the table.**
+Forty-seven realistic messages, and seven came back with a confident wrong
+card. "set stop loss at 2900" and "change my take profit" were the positions
+card, off the bare Portfolio-keyword rule (`loss`, `profit`) — a request to ACT
+answered with a read card and no sentence, which the reader takes as
+confirmation as easily as confusion. "cancel my order" was the orders card,
+same silence. "why was my trade rejected" was the positions card, because the
+generic `my trades?` rule sits fifty lines above the `whynot` rule whose own
+comment says it "MUST be registered before" — before a *different* rule. And
+"order status" was the ENGINE card, off a bare `status` alternative that fired
+on any sentence holding the word. `cancel_order` and `modify_position` are
+routed actions beside `close_position` now, through one `act_intent_notice`;
+the modify one names NO door, because nothing in the product changes a stop on
+an open position — a notice that named a command would be the `/vault` hint
+shape again. A table of phrases is a test that finds what a grep for a rule
+cannot: the rule that answers is decided by ORDER, and order is invisible from
+any one rule.
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

@@ -131,36 +131,78 @@ _CHAT_NO_TOOLS_RULE = (
 #: (`chat.js appendSetupAction`, `dashboard.js ticketForm`); and /liveclose
 #: is deliberately NOT named — admin-only, and it closes unconfirmed.
 _CHAT_CANNOT_ACT_RULE = (
-    "- You cannot place, modify or close trades or orders from this chat, and "
-    "no tool here can. If asked to, say so and name the door. To OPEN a "
-    "trade: in Telegram, /trade (e.g. /trade long ETH 3000 sl 2900 tp 3300) "
-    "shows a card and places nothing until Confirm is tapped; on the web, the "
-    "trade ticket or the 'Trade this' button under a setup does the same. To "
-    "CLOSE one: open the position on the positions card and tap Close. Never "
-    "say a trade was placed, changed or closed unless a tool result in THIS "
-    "turn says so.\n"
+    "- You cannot place, modify, cancel or close trades or orders from this "
+    "chat, and no tool here can. If asked to, say so and name the door. To "
+    "OPEN a trade: in Telegram, /trade (e.g. /trade long ETH 3000 sl 2900 tp "
+    "3300) shows a card and places nothing until Confirm is tapped; on the "
+    "web, the trade ticket or the 'Trade this' button under a setup does the "
+    "same. To CLOSE a position or CANCEL a pending order: open it on the "
+    "positions card and tap Close or Cancel. A stop or target on an open "
+    "position cannot be changed by any command — say so plainly. Never say a "
+    "trade was placed, changed, cancelled or closed unless a tool result in "
+    "THIS turn says so.\n"
 )
+
+#: The routed ACTION intents: `intent_router` names them, neither transport
+#: dispatches them, and both answer with `act_intent_notice`. A request to
+#: act on a surface that cannot act meets a door and never a narrator.
+ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position")
+ACT_KIND: dict[str, str] = {
+    "close_position": "close", "cancel_order": "cancel", "modify_position": "modify",
+}
+
+_ACT_WORDING: dict[str, dict[str, str]] = {
+    # verb phrase for the refusal, the door, and the closing claim
+    "close": {"cannot": "I don't close positions from chat",
+              "what": "position", "button": "Close",
+              "claim": "Nothing has been closed."},
+    "cancel": {"cannot": "I don't cancel orders from chat",
+               "what": "order", "button": "Cancel",
+               "claim": "Nothing has been cancelled."},
+}
+
+
+def act_intent_notice(kind: str, symbol: str | None = None,
+                      surface: str = "telegram") -> str:
+    """What a routed request to act is told, on both surfaces.
+
+    One function so the Telegram card, the web reply and the prompt rule
+    above name the same door in the same words. Every notice ends by saying
+    nothing acted, because a routed request that silently shows a list reads
+    as "it did not understand me" — and a request to act that is answered at
+    all must say whether anything acted.
+
+    `modify` has NO door: nothing in the product changes a stop or target on
+    an open position, so the notice says that rather than naming a command
+    that does not exist. An unknown kind raises — a notice for an action
+    nobody designed is a narration.
+    """
+    if kind == "modify":
+        where = ("are below" if surface != "web"
+                 else "are on the positions card in Telegram")
+        return ("I can't change a stop or target from chat, and there is no "
+                "command that does: RUNECLAW manages SL/TP on the positions it "
+                f"opens. Your positions and their current protection {where}. "
+                "Nothing has been changed.")
+    w = _ACT_WORDING[kind]
+    if surface == "web":
+        what = f"your {symbol} {w['what']}" if symbol else f"a {w['what']}"
+        admin = (" (an admin can also use <code>/liveclose TRADE_ID</code>)"
+                 if kind == "close" else "")
+        return (f"{w['cannot']}, and nothing here can. "
+                f"{'Closing' if kind == 'close' else 'Cancelling'} {what} is done "
+                "from the positions card in Telegram: open the "
+                f"{w['what']} and tap <b>{w['button']}</b>{admin}. {w['claim']}")
+    which = f"the {symbol} one" if symbol else "the one you mean"
+    rows = "positions" if kind == "close" else "pending orders"
+    return (f"{w['cannot']}, and nothing in this conversation can. Your {rows} "
+            f"are below \u2014 open {which} and tap <b>{w['button']}</b>. "
+            f"{w['claim']}")
 
 
 def close_intent_notice(symbol: str | None = None, surface: str = "telegram") -> str:
-    """What a routed close request is told, on both surfaces.
-
-    One function so the Telegram card, the web reply and the prompt rule
-    above name the same door in the same words. It ends by saying nothing
-    was closed, because a routed request that silently shows a list reads
-    as "it did not understand me" — and a request to act that is answered
-    at all must say whether anything acted.
-    """
-    if surface == "web":
-        what = f"your {symbol} position" if symbol else "a position"
-        return (f"I don't close positions from chat, and nothing here can. Closing "
-                f"{what} is done from the positions card in Telegram: open the "
-                "position and tap <b>Close</b> (an admin can also use "
-                "<code>/liveclose TRADE_ID</code>). Nothing has been closed.")
-    which = f"the {symbol} one" if symbol else "the one you mean"
-    return ("I don't close positions from chat, and nothing in this conversation "
-            f"can. Your positions are below \u2014 open {which} and tap <b>Close</b>. "
-            "Nothing has been closed.")
+    """The close notice — `act_intent_notice("close", …)`, kept by name."""
+    return act_intent_notice("close", symbol, surface)
 
 
 _CHAT_TOOLS_RULE = (

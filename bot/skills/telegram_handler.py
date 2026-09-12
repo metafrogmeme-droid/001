@@ -40,9 +40,9 @@ from bot.core.live_executor import position_size_basis
 # globals; tests/test_chat_runtime_split.py pins both halves.
 from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and callers)
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
-    RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE, _CHAT_NO_TOOLS_RULE,
-    _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say, close_intent_notice,
-    reply_contract, thinking_phrase,
+    ACT_INTENTS, ACT_KIND, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
+    _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
+    act_intent_notice, close_intent_notice, reply_contract, thinking_phrase,
 )
 from bot.nlp.intent_router import symbol_mentioned
 # The second slice: the Guardian command group is a mixin the handler class
@@ -2870,9 +2870,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # sentence saying so and saying nothing was closed, because a
             # routed request that silently shows a list reads as "it did not
             # understand me".
-            if intent.skill == "close_position":
-                await self._send(update, close_intent_notice(
-                    symbol_mentioned(intent.raw_text), surface="telegram"))
+            # `cancel_order` and `modify_position` are the same shape one
+            # action over: the Cancel button is on the same card's pending
+            # rows, and a stop change has no door at all, which the notice
+            # says instead of naming one.
+            if intent.skill in ACT_INTENTS:
+                await self._send(update, act_intent_notice(
+                    ACT_KIND[intent.skill], symbol_mentioned(intent.raw_text),
+                    surface="telegram"))
                 await self._cmd_open_positions(update, ctx)
                 return
 
