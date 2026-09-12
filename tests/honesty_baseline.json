@@ -2,7 +2,7 @@
   "_comment": "Per-file counts of the shapes CLAUDE.md tabulates for 'unreadable is never zero'. A RATCHET: a file may only go DOWN, and a file that improves must be re-recorded in the same commit, same rule as known_failures.txt. A hit is a place to LOOK -- most are not defects. Regenerate with scripts/honesty_gate.py --update.",
   "_coverage": "Python only, bot/ and scripts/ only, five of the eight shapes. See the module docstring for what is NOT covered and why.",
   "rules_fingerprint": "bec62b1ec1827252",
-  "total": 762,
+  "total": 760,
   "counts": {
     "complement-count": {
       "bot/core/red_team.py": 1
@@ -62,7 +62,7 @@
       "bot/backtest/runner.py": 5,
       "bot/backtest/walk_forward.py": 4,
       "bot/core/analyzer.py": 7,
-      "bot/core/engine.py": 22,
+      "bot/core/engine.py": 21,
       "bot/core/exchange_sync.py": 4,
       "bot/core/live_executor.py": 3,
       "bot/core/metrics.py": 4,
@@ -109,7 +109,7 @@
       "bot/core/analyzer.py": 7,
       "bot/core/arb_tracker.py": 2,
       "bot/core/catalog_watch.py": 1,
-      "bot/core/engine.py": 39,
+      "bot/core/engine.py": 38,
       "bot/core/exchange_credentials.py": 5,
       "bot/core/exchange_sync.py": 8,
       "bot/core/flag_status.py": 1,

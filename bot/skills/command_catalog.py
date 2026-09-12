@@ -108,6 +108,7 @@ GROUPS: List[Group] = [
     ("💼 Portfolio & record", "user", [
         ("portfolio", "equity, positions and win rate"),
         ("performance", "your PnL and trade stats"),
+        ("postmortem", "post-mortem of one closed trade — /postmortem [SYMBOL or trade id]"),
         ("networth", "cross-venue net worth snapshot"),
         ("exposure", "net per-asset exposure"),
         ("risk", "risk status and circuit breaker"),
@@ -410,7 +411,7 @@ DESC_ZH: Dict[str, str] = {
     "eventrisk": "單一標的的宏觀事件風險 — /eventrisk BTC",
     "funding": "跨交易所即時資金費率", "fundingscan": "年化資金費率，多交易所",
     "arb": "資金費率套利模擬追蹤", "rwa": "代幣化實體資產雷達", "crossasset": "跨資產相關性背景",
-    "portfolio": "權益、持倉與勝率", "performance": "你的損益與交易統計",
+    "portfolio": "權益、持倉與勝率", "performance": "你的損益與交易統計", "postmortem": "單筆已平倉交易的覆盤",
     "networth": "跨平台淨資產快照", "exposure": "各資產淨曝險", "risk": "風險狀態與熔斷器",
     "enforcing": "目前哪些控制會攔下一筆交易",
     "signals": "各交易對訊號統計", "rejected": "被風控攔下的訊號", "journal": "每週交易日誌",

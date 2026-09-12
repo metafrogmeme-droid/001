@@ -133,9 +133,10 @@ _CHAT_NO_TOOLS_RULE = (
 _CHAT_CANNOT_ACT_RULE = (
     "- You cannot place, modify, cancel or close trades or orders from this "
     "chat, and no tool here can. If asked to, say so and name the door. To "
-    "OPEN a trade: in Telegram, /trade (e.g. /trade long ETH 3000 sl 2900 tp "
-    "3300) shows a card and places nothing until Confirm is tapped; on the "
-    "web, the trade ticket or the 'Trade this' button under a setup does the "
+    "OPEN a trade: type it in this chat as `buy SOL 71 sl 70 tp 76` (entry, "
+    "stop, target — Telegram or web) or use /trade in Telegram; a Confirm "
+    "card appears and nothing is placed until Confirm is tapped. On the web "
+    "the trade ticket and the 'Trade this' button under a setup do the "
     "same. To CLOSE a position or CANCEL a pending order: open it on the "
     "positions card and tap Close or Cancel. A stop or target on an open "
     "position cannot be changed by any command — say so plainly. Never say a "

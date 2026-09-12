@@ -208,7 +208,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 762 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 760 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -627,6 +627,62 @@ an open position — a notice that named a command would be the `/vault` hint
 shape again. A table of phrases is a test that finds what a grep for a rule
 cannot: the rule that answers is decided by ORDER, and order is invisible from
 any one rule.
+
+**A promise on the welcome card is a claim about a tool that has to exist.**
+The web chat's first message promises "a post-mortem of any trade" and the
+dashboard has an "Ask AI" button for it; every phrasing of that request reached
+the model with two prices and a P&L, so the thesis was inferred from the price
+path and told back as the bot's reasoning. The record holds more: the caller's
+closed position carries the plan, the outcome, the strategy and signal type,
+the hold time and the origin, and the journal entry carries the regime and —
+when the close was scored at entry — the confidence and signals.
+`trade_postmortem` reads both, says what is absent (an adopted position's
+dataclass defaults are not a thesis; a stored exit of `0.0` is not a fill; a
+stop of 0 makes R unknown, not 0R), and ends by telling the model to reason
+from the listed fields only. **Building it found the journal had recorded
+`exit_price=0.0` for every live close**: the engine read `exit_price`, the
+paper Trade's name for a field a LivePosition calls `close_price`, and the
+guard over it drove a fake that carried both names. And the journal's own R
+is not printed: it divides by the PRICE distance per unit and negates it for
+shorts (the follow-up), so the leaf computes R over dollar risk itself.
+
+**The review of that fix found nine more, and seven were the shapes tabulated
+above, written into the code that exists to prevent them.** A limit order that
+never filled is appended to the closed book with `pnl_usd=0.0` and no exit, and
+the reader took the newest row: "post-mortem of my last trade" right after a
+lapsed limit printed `Net P&L $+0.00 · Realized R: +0.00R · Return on margin:
++0.00% at 10x · Held 0.3h` — a measured break-even on capital that was never
+deployed, handed to a model then told to reason only from those fields.
+`never_filled` reads BOTH non-fill vocabularies, because there are three
+(`close_reason.NON_FILL_CLOSE_REASONS`, `trade_filter.NON_TRADE_CLOSE_REASONS`,
+`live_stats.NON_TRADE_REASONS`), each documented as the one definition, and
+they differ by three words; consolidating them is filed, not done. The
+close-reason gate accepted a bare identifier, so every exchange-reconciled
+reason — `TP HIT (exchange)`, `SL HIT (inferred)`, `TRAILING SL HIT` — rendered
+as "not recorded": an absence manufactured from a value on record, on the one
+field that most explains a close. The skill read `viewer_executor`
+unconditionally, which with per-user live OFF is the shared operator executor
+for every caller, so on a paper deployment a stranger's "review my last trade"
+was answered with the operator's most recent live close, in dollars, while
+their own paper closes read "No closed trades on your account"; it branches on
+`CONFIG.is_live()` like its two siblings under the same permission, and the
+card names the book it read. The journal is one store whose ids are not unique
+across accounts (`TI-adopted-{SYM}-{second}`), so an entry is attached only when
+it DESCRIBES the position — symbol, direction, P&L — and records its owner from
+here on. The router's free modifier slot accepted `position`, sending "review
+my open position" off the positions card to a reader of closed rows; the symbol
+was read from anywhere in the text, so "why did you enter near the top" attached
+NEAR/USDT and wrote it into the user's recall — it is read from the question's
+object slots now, and a ticker is a word written differently from its
+neighbours. And the card ended with an instruction to the model, printed to the
+human who ran `/postmortem`; the model-directed sentence lives in the tool's
+description, where the model reads. **Two of the nine were in the guard written
+for the review's own shape**: a raising resolver folded into "No linked exchange
+account", and a `None` check the suite could not tell from its absence — the
+tests that shipped with the draft passed under both mutations. Fifteen mutations
+now, each killed, and the paper margin the return divides by is DERIVED for a
+paper row (the paper book defines it as `entry × quantity / leverage`) and read
+for a live one, never the other way round.
 
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
@@ -1089,7 +1145,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 31 registered skills now: `/eventrisk` and
+reached. The backlog is **5** of 32 registered skills now: `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;

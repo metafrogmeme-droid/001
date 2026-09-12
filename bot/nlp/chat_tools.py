@@ -49,6 +49,12 @@ _SYMBOL_PARAM = {
     "description": ("Trading pair such as BTC/USDT. A bare ticker like BTC is "
                     "accepted and read as the USDT perpetual."),
 }
+_TRADE_ID_PARAM = {
+    "type": "string",
+    "description": ("A trade id as shown on the positions card or the journal, "
+                    "e.g. TI-live-1. Optional — omit to go by symbol or take "
+                    "the most recent close."),
+}
 _COUNT_PARAM = {
     "type": "integer",
     "description": "How many rows to return (1-20).",
@@ -149,6 +155,19 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "The caller's most recent closed trades, newest first.",
         _schema({"count": _COUNT_PARAM})),
     ChatTool(
+        "trade_postmortem",
+        "A post-mortem of ONE of the caller's closed trades, read from the "
+        "record: the plan (entry, stop, target, planned R), the outcome "
+        "(exit, net P&L, realized R, return on margin, hold time, close "
+        "reason), the strategy and signal type, and the journal's thesis at "
+        "entry (regime, confidence, signals) when it was recorded. By symbol "
+        "(its latest close), by trade id, or the most recent close. Use it "
+        "for 'why did you enter', 'what went wrong', 'review my last trade' "
+        "— never reason about a closed trade from prices alone. Reason only "
+        "from the fields it returns: anything marked not recorded is unknown "
+        "— say so rather than supplying it.",
+        _schema({"symbol": _SYMBOL_PARAM, "trade_id": _TRADE_ID_PARAM})),
+    ChatTool(
         "compliance_status",
         "Restricted jurisdictions and a summary of the consent ledger."),
 )
@@ -243,6 +262,12 @@ def _kwargs_for(name: str, args: dict) -> tuple[dict, Optional[str]]:
             out["count"] = max(1, min(20, int(args["count"])))
         except (TypeError, ValueError):
             pass
+    if "trade_id" in props and args.get("trade_id") not in (None, ""):
+        from bot.core.trade_postmortem import valid_trade_id
+        tid = valid_trade_id(args.get("trade_id"))
+        if tid is None:
+            return {}, "That is not a trade id I can look up."
+        out["trade_id"] = tid
     return out, None
 
 

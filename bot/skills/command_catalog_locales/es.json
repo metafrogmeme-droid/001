@@ -158,7 +158,8 @@
     "yield": "radar de rendimiento de activos ociosos (solo lectura)",
     "idleyield": "escaneo de la mejor tasa entre fuentes",
     "stake": "pon los stables ociosos en Earn flexible",
-    "unstake": "rescata de Earn al margen de trading"
+    "unstake": "rescata de Earn al margen de trading",
+    "postmortem": "autopsia de una operación cerrada — /postmortem [SÍMBOLO o id de la operación]"
   },
   "menu": {
     "start": "👋 Regístrate y mira cómo están las cosas",

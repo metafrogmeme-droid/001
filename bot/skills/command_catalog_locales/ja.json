@@ -158,7 +158,8 @@
     "yield": "遊休資産の利回りレーダー（読み取り専用）",
     "idleyield": "ソース横断の最良レートスキャン",
     "stake": "遊休ステーブルをフレキシブルEarnへ",
-    "unstake": "Earnから取引証拠金へ戻す"
+    "unstake": "Earnから取引証拠金へ戻す",
+    "postmortem": "決済済みトレード1件の検死 — /postmortem [銘柄またはトレードID]"
   },
   "menu": {
     "start": "👋 登録して現在の状況を見る",

@@ -135,12 +135,17 @@ class _Registry:
     def __init__(self):
         self.executed: list[str] = []
         self.dispatched: list[str] = []
+        #: the kwargs of each dispatch, in order — a command that dispatches
+        #: a skill for its words is pinned on WHAT it handed over, not only
+        #: on the name (the post-mortem command reads symbol vs trade id).
+        self.dispatch_kwargs: list[dict] = []
 
     def get(self, name):
         return _Skill(name, self.executed) if name in SKILL_PERMISSION else None
 
     async def dispatch(self, name, engine, **kwargs):
         self.dispatched.append(name)
+        self.dispatch_kwargs.append(dict(kwargs))
         return "dispatched"
 
 
@@ -392,6 +397,9 @@ class TestTheTableDoesNotDrift:
             # it to the positions card. A real skill now, so it routes to
             # itself here and is a chat tool on both surfaces.
             "get_orders": "portfolio",
+            # /postmortem is @guard("portfolio") — one of the caller's own
+            # closed trades, off the book get_portfolio describes.
+            "trade_postmortem": "portfolio",
         }
 
     def test_halt_reaches_no_chat_transport(self):

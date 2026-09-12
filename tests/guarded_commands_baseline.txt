@@ -58,6 +58,7 @@ _cmd_pause
 _cmd_performance
 _cmd_playbook
 _cmd_portfolio
+_cmd_postmortem
 _cmd_proposals
 _cmd_quant
 _cmd_rejected

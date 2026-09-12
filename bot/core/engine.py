@@ -479,6 +479,21 @@ def loss_cooldown_reason(trades, now, cooldown_seconds) -> "str | None":
     return None
 
 
+def _journal_exit_price(pos) -> float:
+    """The close price to journal: `close_price` (LivePosition), else
+    `exit_price` (the paper Trade's name), else the journal's 0.0 — which the
+    post-mortem reader treats as not recorded, never as a fill. Module-level
+    so it reads the same for a stub engine as for the real one."""
+    for name in ("close_price", "exit_price"):
+        v = getattr(pos, name, None)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -1252,7 +1267,12 @@ class RuneClawEngine:
                     direction=str(getattr(pos, "direction", "") or ""),
                     strategy_type=getattr(pos, "strategy_type", "") or "",
                     entry_price=float(getattr(pos, "entry_price", 0) or 0),
-                    exit_price=float(getattr(pos, "exit_price", 0) or 0),
+                    # `close_price` is the LivePosition field; `exit_price` is
+                    # the paper Trade's name for it. Reading only the second
+                    # journaled exit=0.0 for EVERY live close — the attribute
+                    # does not exist on a LivePosition, so getattr answered its
+                    # default — under a test whose fake carried both names.
+                    exit_price=_journal_exit_price(pos),
                     stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
                     take_profit=float(getattr(pos, "take_profit", 0) or 0),
                     pnl=float(_jpnl),
@@ -1260,6 +1280,7 @@ class RuneClawEngine:
                     holding_hours=_hold,
                     exit_reason=str(getattr(pos, "close_reason", "") or ""),
                     venue=_venue,
+                    user_id=str(user_id or ""),
                 )
         except Exception as _j_exc:
             logger.debug("Journal record skipped for live close: %s", _j_exc)

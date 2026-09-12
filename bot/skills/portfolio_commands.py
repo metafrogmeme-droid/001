@@ -800,6 +800,39 @@ class PortfolioCommands:
         await self._send(update, result)
 
     @guard("portfolio")
+    async def _cmd_postmortem(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/postmortem [SYMBOL | TRADE_ID] — one closed trade of yours, read
+        from the record; no argument means your most recent close.
+
+        The `trade_postmortem` skill is DISPATCHED for its words rather than
+        rendered here, so the web's permission for the skill is measured
+        against this guard (test_web_and_scan_authorization). A trade id is
+        recognised before a symbol is guessed from it: `t-eth-1` names a
+        trade, and the symbol reader would happily find ETH in it.
+        """
+        from bot.core.trade_postmortem import valid_trade_id
+        from bot.nlp.intent_router import symbol_from_token
+        args = list(getattr(ctx, "args", None) or [])
+        arg = str(args[0]).strip() if args else ""
+        kwargs: dict = {}
+        if arg:
+            # A bare ticker is a ticker by this command's own grammar, on the
+            # list or not: `/postmortem HYPE` used to fall through to the
+            # trade-id branch because the free-text reader will not read an
+            # unknown all-caps token without a command word beside it.
+            sym = symbol_from_token(arg)
+            if sym:
+                kwargs["symbol"] = sym
+            elif valid_trade_id(arg):
+                kwargs["trade_id"] = valid_trade_id(arg)
+            else:
+                await self._send(update, "Usage: <code>/postmortem [SYMBOL or trade id]</code>")
+                return
+        result = await self.registry.dispatch("trade_postmortem", self.engine,
+                                              user_id=self._get_tg_id(update), **kwargs)
+        await self._send(update, result)
+
+    @guard("portfolio")
     async def _cmd_performance(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Performance summary — per-user."""
         user_id = self._get_tg_id(update)

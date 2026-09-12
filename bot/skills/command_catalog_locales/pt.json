@@ -158,7 +158,8 @@
     "yield": "radar de rendimento de ativos parados (só leitura)",
     "idleyield": "análise da melhor taxa entre fontes",
     "stake": "colocar stables parados em Earn flexível",
-    "unstake": "resgatar de Earn para a margem de trading"
+    "unstake": "resgatar de Earn para a margem de trading",
+    "postmortem": "autópsia de uma operação fechada — /postmortem [SÍMBOLO ou id da operação]"
   },
   "menu": {
     "start": "👋 Registe-se e veja o ponto da situação",

@@ -158,7 +158,8 @@
     "yield": "유휴 자산 수익 레이더(읽기 전용)",
     "idleyield": "소스 통합 최고 금리 스캔",
     "stake": "유휴 스테이블을 유연 Earn에 예치",
-    "unstake": "Earn에서 거래 증거금으로 회수"
+    "unstake": "Earn에서 거래 증거금으로 회수",
+    "postmortem": "청산된 거래 1건의 부검 — /postmortem [심볼 또는 거래 ID]"
   },
   "menu": {
     "start": "👋 등록하고 현재 상황 보기",

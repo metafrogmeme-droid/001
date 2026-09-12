@@ -655,6 +655,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("gates", self._cmd_gates), ("readiness", self._cmd_readiness),
             ("backtest", self._cmd_backtest), ("walkforward", self._cmd_walkforward),
             ("journal", self._cmd_journal), ("costs", self._cmd_costs),
+            ("postmortem", self._cmd_postmortem),
             ("run", self._cmd_run), ("learn", self._cmd_learn),
             ("patterns", self._cmd_patterns), ("proposals", self._cmd_proposals),
             ("optimize", self._cmd_optimize), ("help", self._cmd_help),

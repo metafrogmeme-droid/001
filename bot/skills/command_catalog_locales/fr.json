@@ -158,7 +158,8 @@
     "yield": "radar de rendement des actifs inactifs (lecture seule)",
     "idleyield": "scan du meilleur taux toutes sources",
     "stake": "placer les stables inactifs en Earn flexible",
-    "unstake": "retirer d'Earn vers la marge de trading"
+    "unstake": "retirer d'Earn vers la marge de trading",
+    "postmortem": "autopsie d'un trade clôturé — /postmortem [SYMBOLE ou id du trade]"
   },
   "menu": {
     "start": "👋 S'inscrire et voir où en sont les choses",
