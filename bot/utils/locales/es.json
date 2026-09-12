@@ -14,6 +14,7 @@
   "chat_deadline": "Dejé de esperar antes de que ningún modelo respondiera: es un tiempo de espera agotado por mi parte, no una respuesta, y no se analizó nada. Inténtalo de nuevo en un momento o usa un comando concreto como /scan o /positions.",
   "chat_empty_completions": "El modelo respondió pero no devolvió nada: todos los proveedores volvieron vacíos, lo que apunta a un problema de modelo o de prompt, no de conexión. Tu clave y tu endpoint están bien. Prueba /llmstatus para ver el último error, o un comando concreto como /scan o /positions.",
   "chat_unavailable": "Ahora mismo me cuesta pensar: la IA no está disponible temporalmente. Inténtalo de nuevo en un minuto.",
+  "chat_public_fallback": "La IA en vivo no está disponible ahora mismo, así que no puedo responder con libertad, pero las respuestas integradas siguen funcionando, y solo en inglés: “What is RUNECLAW?”, “How does it manage risk?”, “What is a liquidity sweep?”, “How does leverage work?”, “Which exchanges are supported?”. Inicia sesión y conecta un exchange para tener escaneos de mercado en vivo, tu propia cartera y análisis conversacional completo.",
   "chat_public_scan_gate": "⚔️ Un escaneo real necesita el feed de datos en vivo, y este chat público no lo tiene; no voy a inventar precios ni niveles.<br><br><b>Inicia sesión (gratis)</b> y ejecutaré el escáner real con datos de mercado actuales.<br><br><a href=\"/dashboard\">Iniciar sesión →</a>",
   "chat_thinking_0": "<i>Mirando el gráfico...</i>",
   "chat_thinking_1": "<i>Comprobando la configuración...</i>",

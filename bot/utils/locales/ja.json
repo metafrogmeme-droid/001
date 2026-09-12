@@ -14,6 +14,7 @@
   "chat_deadline": "どのモデルも答える前に待つのをやめました。これは私側のタイムアウトであって回答ではなく、何も分析されていません。少ししてから再試行するか、/scan や /positions のような個別のコマンドを使ってください。",
   "chat_empty_completions": "モデルは応答しましたが何も返しませんでした。すべてのプロバイダーが空で戻ってきたので、接続ではなくモデルかプロンプトの問題です。キーとエンドポイントは正常です。/llmstatus で最後のエラーを確認するか、/scan や /positions のような個別のコマンドを試してください。",
   "chat_unavailable": "今はうまく考えられません。AIが一時的に利用できない状態です。1分ほど待ってから再試行してください。",
+  "chat_public_fallback": "ライブ AI に現在接続できないため、自由に回答することができません。ただし組み込みの回答は引き続き利用でき、英語での質問にのみ対応します：“What is RUNECLAW?”, “How does it manage risk?”, “What is a liquidity sweep?”, “How does leverage work?”, “Which exchanges are supported?”。ログインして取引所を接続すると、ライブの市場スキャン、ご自身のポートフォリオ、完全な対話型分析が利用できます。",
   "chat_public_scan_gate": "⚔️ 本当のスキャンにはライブデータフィードが必要ですが、この公開チャットにはありません。価格や水準を作り上げることはしません。<br><br><b>サインイン（無料）</b>すれば、現在の市場データで本物のスキャナーを実行します。<br><br><a href=\"/dashboard\">サインイン →</a>",
   "chat_thinking_0": "<i>チャートを見ています...</i>",
   "chat_thinking_1": "<i>セットアップを確認中...</i>",

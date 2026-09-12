@@ -14,6 +14,7 @@
   "chat_deadline": "Ik ben gestopt met wachten voordat een model antwoordde: dat is een time-out aan mijn kant, geen antwoord, en er is niets geanalyseerd. Probeer het zo opnieuw, of gebruik een specifiek commando zoals /scan of /positions.",
   "chat_empty_completions": "Het model antwoordde maar gaf niets terug: elke provider kwam leeg terug, wat wijst op een model- of promptprobleem en niet op de verbinding. Je sleutel en endpoint zijn in orde. Probeer /llmstatus voor de laatste fout, of een specifiek commando zoals /scan of /positions.",
   "chat_unavailable": "Ik heb op dit moment moeite met nadenken: de AI is tijdelijk niet beschikbaar. Probeer het over een minuut opnieuw.",
+  "chat_public_fallback": "De live-AI is op dit moment niet bereikbaar, dus ik kan niet vrij antwoorden, maar de ingebouwde antwoorden werken nog steeds, en alleen in het Engels: “What is RUNECLAW?”, “How does it manage risk?”, “What is a liquidity sweep?”, “How does leverage work?”, “Which exchanges are supported?”. Log in en koppel een exchange voor live marktscans, je eigen portefeuille en volledige conversationele analyse.",
   "chat_public_scan_gate": "⚔️ Een echte scan heeft de live datafeed nodig, en deze openbare chat heeft die niet; ik verzin geen prijzen of niveaus.<br><br><b>Log in (gratis)</b> en ik draai de echte scanner op actuele marktdata.<br><br><a href=\"/dashboard\">Inloggen →</a>",
   "chat_thinking_0": "<i>Even naar de grafiek kijken...</i>",
   "chat_thinking_1": "<i>De setup controleren...</i>",
