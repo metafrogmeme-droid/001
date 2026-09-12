@@ -26,7 +26,6 @@ reads as "it did not understand me".
 """
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, patch
 
@@ -130,11 +129,14 @@ class TestTelegram:
 # ── the web: the door, never the model ─────────────────────────────────────
 
 def test_the_web_answers_with_the_door_before_any_alias_or_skill():
-    gw = pytest.importorskip("bot.web.user_gateway", reason="web gateway needs aiohttp")
-    src = code_only(inspect.getsource(gw))
-    branch = src.index('intent.skill == "close_position"')
-    assert branch < src.index("_INTENT_ALIASES = {"), "the close branch must come before the alias lookup"
-    assert "close_intent_notice(" in src
+    from pathlib import Path
+    src = code_only(Path("bot/web/user_gateway.py").read_text())
+    # The branch became a membership test when cancel and modify joined it
+    # (`ACT_INTENTS`, chat_runtime); close is still the first name in it.
+    from bot.skills.chat_runtime import ACT_INTENTS
+    assert "close_position" in ACT_INTENTS
+    branch = src.index("intent.skill in ACT_INTENTS")
+    assert branch < src.index("_INTENT_ALIASES = {")
 
 
 class TestTheNotice:
@@ -157,7 +159,7 @@ class TestTheNotice:
 
 def test_the_live_prompt_states_it_cannot_act():
     assert _CHAT_CANNOT_ACT_RULE in th.TelegramHandler._CHAT_SYSTEM_PROMPT
-    assert "cannot place, modify or close trades or orders" in _CHAT_CANNOT_ACT_RULE
+    assert "cannot place, modify, cancel or close trades or orders" in _CHAT_CANNOT_ACT_RULE
     assert "unless a tool result in THIS turn says so" in _CHAT_CANNOT_ACT_RULE
 
 

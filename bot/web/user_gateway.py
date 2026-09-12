@@ -505,11 +505,12 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # A close request has no web door and must never reach the model, which
     # holds no tool that acts and would otherwise narrate one. The notice is
     # the runtime leaf's, so this reply and the Telegram card cannot drift.
-    if intent.matched and intent.confidence >= 0.8 and intent.skill == "close_position":
+    from bot.skills.chat_runtime import ACT_INTENTS, ACT_KIND, act_intent_notice
+    if intent.matched and intent.confidence >= 0.8 and intent.skill in ACT_INTENTS:
         from bot.nlp.intent_router import symbol_mentioned
-        from bot.skills.chat_runtime import close_intent_notice
         return web.json_response({
-            "reply_html": close_intent_notice(symbol_mentioned(intent.raw_text), surface="web"),
+            "reply_html": act_intent_notice(ACT_KIND[intent.skill],
+                                            symbol_mentioned(intent.raw_text), surface="web"),
             "intent": intent.skill})
     if intent.matched and intent.confidence >= 0.8:
         # Router intents whose skills exist only as Telegram command handlers:

@@ -403,6 +403,27 @@ _rule(_CLOSE_LEAD
       r"|sell\s+(?:my|the|this)\s+\S+\s+(?:positions?|trades?)\b)",
       "close_position",
       explanation="Wants a position closed — routed to the positions card, never dispatched")
+# A stop or target change. There is NO door for it — no command, no button,
+# no executor method changes SL/TP on an open position — so the honest
+# answer says so. Registered here rather than lower because "set stop LOSS"
+# and "take PROFIT" matched the bare Portfolio-keyword rule below and came
+# back as the positions card, silently.
+_rule(_CLOSE_LEAD
+      + r"(?:(?:set|move|change|update|adjust|raise|lower|tighten|widen|trail|edit|modify)\s+"
+      r"(?:(?:my|the|this|that|a)\s+)?(?:[A-Za-z0-9/:]+\s+)?"
+      r"(?:stops?(?:[\s-]?loss)?|sl|take[\s-]?profit|tp|targets?\s+(?:on|for|to|at))\b"
+      r"|(?:stop(?:[\s-]?loss)?|sl|take[\s-]?profit|tp|target)\s+(?:to|at)\s+\$?\d)",
+      "modify_position",
+      explanation="Wants a stop or target changed — no chat door exists; routed to the positions card")
+# A resting order. The Cancel button on the positions card's pending-order
+# row is the door (`close_position` cancels the limit for a pending_fill);
+# "cancel my order" was reaching the orders CARD with no sentence.
+_rule(_CLOSE_LEAD
+      + r"(?:(?:cancel|kill|pull|remove|delete|withdraw)\s+(?:(?:my|the|this|that|all|all my|every|all of my)\s+)?"
+      r"(?:[A-Za-z0-9/:]+\s+)?(?:orders?|limits?|limit orders?|pending(?: orders?)?|entry|trades?)\b"
+      r"|cancel\s+(?:it|that|this|them|everything)\s*[!.]*\s*$)",
+      "cancel_order",
+      explanation="Wants an order cancelled — routed to the positions card's Cancel button, never dispatched")
 
 # --- Scan / market overview ---
 # RUNECLAW natural language triggers — scan modes
@@ -499,7 +520,15 @@ _rule(rf"^\s*(?:check|look at|thoughts on|opinion on|view on|what about|how abou
       "analyze_asset", needs_symbol=True, explanation="Bare asset enquiry")
 
 # --- Portfolio ---
-_rule(r"\b(my (positions?|portfolio|book|trades?|holdings?|balance|equity)|show (my )?portfolio|check (my )?pnl|how.?s my (portfolio|pnl))\b",
+# `^(?!\s*why\b)`: a "why" question about the book is not a request for the
+# card. "why was my trade rejected" matched `my trade` HERE, fifty lines above
+# the `whynot` rule whose own comment says it must come first; "why did my
+# trade close" has its answer in the model's RECENT CLOSED TRADES block
+# (`closed via …`), which this card does not carry. And "status of my ETH
+# trade" is a question about the book, not the engine.
+_rule(r"^(?!\s*why\b).*?\b(my (positions?|portfolio|book|trades?|holdings?|balance|equity)"
+      r"|show (my )?portfolio|check (my )?pnl|how.?s my (portfolio|pnl)"
+      r"|status of (my |the )?(\w+ )?(trades?|positions?))\b",
       "get_portfolio", explanation="Portfolio status request")
 _rule(r"\b(open positions?|what.?s open|current (positions?|trades?))\b",
       "get_portfolio", explanation="Open positions request")
@@ -509,7 +538,8 @@ _rule(r"\b(portfolio|balance|equity|pnl|profit|loss|p&l)\b",
       "get_portfolio", explanation="Portfolio keyword")
 
 # --- Orders ---
-_rule(r"\b(open orders?|pending orders?|limit orders?|my orders?|show orders?|active orders?|order book|what.?s pending)\b",
+_rule(r"\b(open orders?|pending orders?|limit orders?|my orders?|show orders?|active orders?|order book|what.?s pending"
+      r"|order status|status of (my |the )?(\w+ )?orders?)\b",
       "get_orders", explanation="Open/pending orders on exchange")
 
 # --- Risk ---
@@ -523,7 +553,12 @@ _rule(r"\b(how.?s (the )?risk|risk level|am i safe)\b",
       "check_risk", explanation="Risk inquiry")
 
 # --- Status / dashboard ---
-_rule(r"\b(bot (status|state)|engine (status|state)|show (me )?dashboard|system status|is .{0,5}bot (running|alive|on)|status|dashboard)\b",
+# The bare `status|dashboard` alternative fired on any sentence holding the
+# word: "order status" and "what's the status of my ETH trade" got the ENGINE
+# card. Bare now means the message IS the word, with the usual lead-ins; a
+# status question about the book is the book's rule, above.
+_rule(r"\b(bot (status|state)|engine (status|state)|show (me )?(the )?dashboard|system status|is .{0,5}bot (running|alive|on))\b"
+      r"|^\s*(?:what'?s (?:the )?|what is (?:the )?|show (?:me )?(?:the )?|the )?(?:status|dashboard)\s*[?!.]*$",
       "status", explanation="System status request")
 
 # --- Journal ---
@@ -565,7 +600,7 @@ _rule(r"\b(bot playbook|playbook|execution logic|run the playbook)\b",
 # Deliberately NOT needs_symbol: the skill defaults to the most-recent
 # recorded rejection (and names it), and a needs_symbol rule would demote
 # the common bare "why no trade?" to a 0.5-confidence partial.
-_rule(r"\b(why (no|not a?) trade|why (was|did) .{0,24}(reject|skip|filter)"
+_rule(r"\b(why (no|not a?) trade|why (was|did) .{0,24}(reject|skip|filter)\w*"
       r"|why didn.?t (you|it|the bot) (trade|enter|take|buy|sell)"
       r"|whynot|explain the (rejection|skip))\b",
       "whynot", explanation="Rejection explainer request")
