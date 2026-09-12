@@ -142,6 +142,15 @@ _CHAT_CANNOT_ACT_RULE = (
     "position cannot be changed by any command — say so plainly. Never say a "
     "trade was placed, changed, cancelled or closed unless a tool result in "
     "THIS turn says so.\n"
+    "- You also cannot halt, pause, stop or resume the trading engine from "
+    "this chat, and no tool here can. If asked to, say so and name the door: "
+    "in Telegram, /halt halts every account at once (operator only), /pause "
+    "pauses the caller's own account where per-user trading is on (/resume "
+    "restarts it), /emergency_stop asks first and then halts every account "
+    "and, on a live deployment only, closes every open live position, and "
+    "/reset clears a halt. On the web, the Controls panel's Emergency stop "
+    "and Pause act on the caller's own agent. Never say the bot was halted, "
+    "paused, stopped or resumed unless a tool result in THIS turn says so.\n"
 )
 
 #: The routed ACTION intents: `intent_router` names them, neither transport
@@ -204,6 +213,140 @@ def act_intent_notice(kind: str, symbol: str | None = None,
 def close_intent_notice(symbol: str | None = None, surface: str = "telegram") -> str:
     """The close notice — `act_intent_notice("close", …)`, kept by name."""
     return act_intent_notice("close", symbol, surface)
+
+
+#: The routed HALT intents `intent_router` names. `halt`, `emergency_stop`
+#: and `pause` are routed to their guarded Telegram commands
+#: (DANGEROUS_SKILLS); `halt_ambiguous` — a bare stop/kill/pause with nothing
+#: named — is dispatched nowhere and answered with the door on both surfaces.
+#: The web dispatches none of them and answers all four with its own doors.
+HALT_INTENTS: tuple[str, ...] = ("halt", "halt_ambiguous", "emergency_stop", "pause")
+
+
+def emergency_stop_claim(live: bool | None) -> str:
+    """What /emergency_stop DOES, true for the deployment it is said on.
+
+    Its flatten is `flatten_all_positions`, whose first statement is
+    `if not CONFIG.is_live(): return results` — on a paper deployment the
+    command halts and clears queued ideas and closes NOTHING, while four
+    surfaces (this notice, the web reply, the prompt bullet, the halt card)
+    said it "closes every open position". Three outcomes: live, paper, and a
+    mode nobody read, which names the halt and qualifies the flatten.
+    """
+    if live is True:
+        return ("<code>/emergency_stop</code> asks first, then halts every account "
+                "and closes every open live position the bot tracks.")
+    if live is False:
+        return ("<code>/emergency_stop</code> asks first, then halts every account "
+                "and clears queued ideas — on this paper deployment it closes "
+                "nothing; the paper book stays open and monitored.")
+    return ("<code>/emergency_stop</code> asks first, then halts every account "
+            "and, on a live deployment, closes every open live position.")
+
+
+def _telegram_halt_door(scope: str | None, live: bool | None) -> str:
+    """The door THIS caller can walk through, by control scope
+    (`TelegramHandler._control_scope`): "shared" is the operator, "own" a
+    caller with a per-user engine, "" a caller with neither — a refusal,
+    not a no-op — and None a scope nobody could read. A door named to
+    somebody who cannot open it is the /vault hint shape."""
+    if scope == "shared":
+        return ("To halt every account, type <code>halt the bot</code> or "
+                "<code>/halt</code>: it takes effect at once with no confirmation, "
+                f"and <code>/reset</code> clears it. {emergency_stop_claim(live)}")
+    if scope == "own":
+        return ("To pause your own account's trading, use <code>/pause</code>: new "
+                "entries stop, open positions stay managed, and <code>/resume</code> "
+                "restarts it. Halting every account is the operator's "
+                "<code>/halt</code>.")
+    if scope == "":
+        return ("There is no engine control you can run from here: "
+                "<code>/halt</code> and <code>/pause</code> stop the engine for every "
+                "account on this deployment and are the operator's to run.")
+    return ("The doors are <code>/halt</code> (every account; the operator's, no "
+            "confirmation) and <code>/pause</code> (your own account, where per-user "
+            f"trading is on; <code>/resume</code> restarts it). "
+            f"{emergency_stop_claim(live)}")
+
+
+def _halted_claim(engine_state: str | None) -> str:
+    """What THIS message did and, when it was read, what the engine is doing.
+
+    "Nothing has been halted." was a statement about the WORLD, and false the
+    moment the breaker was already tripped by something else — the state the
+    guard test plants. The message halted nothing; the engine may well be
+    halted, and an operator reading the card is told which, with the cause,
+    so they do not re-trip it blind. `engine_state` is "running",
+    "halted[:cause]" or None (could not be read), from the caller.
+    """
+    if engine_state is None:
+        return "This message halted nothing."
+    if engine_state == "running":
+        return "This message halted nothing; the engine is running."
+    cause = engine_state.split(":", 1)[1].strip() if ":" in engine_state else ""
+    why = f" (breaker tripped: {cause})" if cause else ""
+    return (f"This message halted nothing — the engine is already halted{why}; "
+            "<code>/reset</code> clears it.")
+
+
+_WEB_HALT_DOOR = (
+    "To stop YOUR agent: the Controls panel's <b>Emergency stop</b> disables live "
+    "trading, pauses your agent and queues a close of your open live positions; "
+    "its <b>Pause</b> toggle routes your confirmed trades to paper instead. "
+    "Halting EVERY account is the operator's Telegram command: <code>/halt</code> "
+    "takes effect at once with no confirmation. ")
+
+
+def halt_intent_notice(kind: str, surface: str = "telegram", verb: str | None = None, *,
+                       live: bool | None = None, scope: str | None = None,
+                       engine_state: str | None = None) -> str:
+    """What a routed halt-shaped message is told when it is NOT dispatched.
+
+    Telegram answers only the bare verb (`halt_ambiguous`): a stop-word with
+    nothing named is too easy to send by accident for a switch that stops
+    every account, and `_cmd_halt` has no confirmation. The three real
+    intents are routed to their guarded commands there, so a sentence for
+    them from here would be a narration — that call RAISES. The web
+    dispatches nothing and names ITS OWN doors — the dashboard's Emergency
+    stop and Pause act on the caller's agent — beside the operator's
+    Telegram command; its first draft said "nothing here can" on a page
+    with an Emergency-stop button. `live` picks the true /emergency_stop
+    claim; `scope` picks the Telegram door this caller can open;
+    `engine_state` lets the closing sentence say the engine is ALREADY
+    halted rather than claim the world is running. `verb` is the rule's own
+    vocabulary, never free input; None is worded as a stop-word, never as a
+    default verb.
+    """
+    if kind not in HALT_INTENTS:
+        raise KeyError(kind)
+    bare = (f"a bare <code>{verb}</code> with nothing named" if verb is not None
+            else "a stop-word with nothing named")
+    if surface == "web":
+        lead = (f"I wouldn't act on {bare} anywhere — too easy to send by accident "
+                "for a switch that stops every account. "
+                if kind == "halt_ambiguous" else "")
+        return (f"{lead}I don't halt trading from the web chat, and nothing here "
+                f"can. {_WEB_HALT_DOOR}{emergency_stop_claim(live)} "
+                f"{_halted_claim(engine_state)}")
+    if kind != "halt_ambiguous":
+        raise KeyError(kind)
+    return (f"I don't halt trading on {bare} — too easy to send by accident for a "
+            "switch that stops every account — and nothing in this conversation "
+            f"has acted on it. {_telegram_halt_door(scope, live)} "
+            f"{_halted_claim(engine_state)}")
+
+
+def forwarded_halt_notice(engine_state: str | None = None) -> str:
+    """A halt-shaped message that arrived FORWARDED, on Telegram.
+
+    A forward carries somebody else's words under the forwarder's authority:
+    the operator forwarding "halt the bot" from a group to the bot reached
+    `_cmd_halt` as their own request, unconfirmed. Never dispatched; the
+    sentence says why and what did not happen.
+    """
+    return ("That was a forwarded message, not your own request, and I don't act "
+            "on forwarded text: a halt is the operator's own sentence, typed by "
+            f"them. If you mean it, type it yourself. {_halted_claim(engine_state)}")
 
 
 _CHAT_TOOLS_RULE = (

@@ -752,13 +752,23 @@ def render_resume(retrip_warning: str = "", scope: str = "shared",
 # render_emergency_stop
 # ═════════════════════════════════════════════════════════════════
 
-def render_emergency_stop() -> Dict[str, Any]:
+def render_emergency_stop(live: Optional[bool] = None) -> Dict[str, Any]:
+    """The confirm card. ``live`` decides the flatten claim: the command's
+    flatten runs on live accounts only, so "Close all open positions" was
+    false on every paper deployment, on the card that asks "Are you sure?".
+    None (mode not read) qualifies the claim rather than asserting it."""
+    if live is True:
+        close = "  \u2718 Close all open live positions\n"
+    elif live is False:
+        close = "  \u2718 Close NO positions (paper mode \u2014 the paper book stays open)\n"
+    else:
+        close = "  \u2718 Close open positions (live accounts only)\n"
     text = (
         f"{_header(chr(0x26D4), 'EMERGENCY STOP')}\n\n"
         f"  {_BAD} This will <b>immediately</b>:\n\n"
         "<pre>"
         "  \u2718 Cancel all pending orders\n"
-        "  \u2718 Close all open positions\n"
+        + close +
         "  \u2718 Trip circuit breaker\n"
         "  \u2718 Halt all scanning"
         "</pre>\n\n"

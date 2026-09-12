@@ -1825,7 +1825,7 @@ class TradingCommands:
         if not self._is_operator(update):
             await self._refuse_shared_control(update, "emergency_stop")
             return
-        rendered = wr_emergency_stop()
+        rendered = wr_emergency_stop(live=CONFIG.is_live())
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u26d4 CONFIRM STOP", callback_data="emergency_confirm"),
              InlineKeyboardButton("\u21a9\ufe0f Cancel", callback_data="emergency_cancel")],

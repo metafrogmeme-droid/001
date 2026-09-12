@@ -505,12 +505,30 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # A close request has no web door and must never reach the model, which
     # holds no tool that acts and would otherwise narrate one. The notice is
     # the runtime leaf's, so this reply and the Telegram card cannot drift.
-    from bot.skills.chat_runtime import ACT_INTENTS, ACT_KIND, act_intent_notice
+    from bot.skills.chat_runtime import ACT_INTENTS, ACT_KIND, HALT_INTENTS, act_intent_notice, halt_intent_notice
     if intent.matched and intent.confidence >= 0.8 and intent.skill in ACT_INTENTS:
         from bot.nlp.intent_router import symbol_mentioned
         return web.json_response({
             "reply_html": act_intent_notice(ACT_KIND[intent.skill],
                                             symbol_mentioned(intent.raw_text), surface="web"),
+            "intent": intent.skill})
+    # A halt has NO web CHAT door — `halt` is deliberately absent from
+    # WEB_CHAT_SKILLS — and the 403 that used to answer it carried a
+    # reply_html the client never renders (chat.js shows "Error:
+    # skill_not_web_enabled" on any non-2xx). Name the doors instead, before
+    # any alias or registry lookup: the dashboard's own Emergency stop and
+    # Pause controls act on the caller's agent, and the operator's Telegram
+    # /halt on every account. The first draft said "nothing here can" on a
+    # page with an Emergency-stop button.
+    if intent.matched and intent.confidence >= 0.8 and intent.skill in HALT_INTENTS:
+        from bot.nlp.intent_router import halt_verb
+        try:
+            _live: "bool | None" = bool(CONFIG.is_live())
+        except Exception:
+            _live = None
+        return web.json_response({
+            "reply_html": halt_intent_notice(intent.skill, surface="web",
+                                             verb=halt_verb(intent.raw_text), live=_live),
             "intent": intent.skill})
     if intent.matched and intent.confidence >= 0.8:
         # Router intents whose skills exist only as Telegram command handlers:
