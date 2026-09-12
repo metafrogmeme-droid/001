@@ -58,6 +58,13 @@ def _stub(*, is_live: bool, live_open_positions=None, paper_open_positions=None)
         # (equity, source). "live" when live, "paper" otherwise.
         resolve_display_equity_sync=lambda uid: (
             100.0, "live" if is_live else "paper"),
+        # The builder reads ONE per-caller view (executor + cached balance).
+        # Deliberately not a getattr fallback in the builder: a stub without
+        # it produces the "could not be read" defaults, never the operator's
+        # book, and three grounding tests failing was the honest signal.
+        live_view=lambda uid: {"scope": "operator", "executor": executor,
+                               "balance": {"total": 100.0}, "total": 100.0,
+                               "age_s": 1.0},
     )
     conversations = SimpleNamespace(build_context_prompt=lambda *a, **kw: "")
     ns = SimpleNamespace(

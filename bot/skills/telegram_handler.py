@@ -333,6 +333,88 @@ def _live_positions_block(executor, marks: dict | None = None) -> str:
     return out
 
 
+def _live_account_absence(user_id: str) -> str:
+    """WHY the engine mapped this caller to no account: ``"absent"`` (never
+    linked — /connect is an invitation), ``"unreadable"`` (linked, and the
+    stored keys will not decrypt — a different sentence and a different
+    remedy; the /exchange lesson) or ``"unresolved"`` (the store could not
+    be asked, or it says readable and the engine still bound no executor).
+    Never raises, and an exception here is not "absent": a status read must
+    not take the prompt down, and it must not dress a fault as a clean bill.
+    """
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+        state = get_credential_store().credential_state(user_id)
+    except Exception:
+        return "unresolved"
+    return state if state in ("absent", "unreadable") else "unresolved"
+
+
+#: The door to a linked account, per surface. A slash command told to a web
+#: caller is a door painted on a wall: the web chat cannot run /connect, and
+#: the dashboard has its own step — Account -> "Connect an exchange" (API
+#: keys), which is also where the key state is shown. Telegram and the
+#: operator's API bridge get the commands. Keyed by the transport the turn
+#: arrived on (`_llm_chat`'s ``surface``), never guessed from the id.
+_LINK_DOOR: dict[str, dict[str, str]] = {
+    "web": {"link": "the dashboard's Account > Connect an exchange step links "
+                    "exchange keys",
+            "state": "the dashboard's Account > API keys page shows the key "
+                     "state, and re-entering the keys there replaces them"},
+    "telegram": {"link": "/connect links exchange keys",
+                 "state": "/exchange shows the key state, and re-linking with "
+                          "/connect replaces them"},
+}
+
+
+def _no_live_account_block(absence: str, surface: str = "telegram") -> tuple[str, str]:
+    """``(portfolio_summary, positions_detail)`` for a LIVE caller with no
+    account to describe. Pure: the words for each absence and nothing else.
+
+    None of the three says "none right now" — that is what a READ flat book
+    says, and none of these was read. `viewer_executor` answers None for an
+    unlinked user and for one whose keys stopped decrypting alike; the model
+    must be told which, because "you hold nothing" is true of the first and
+    a fabrication for the second. Every branch names BOTH sections so neither
+    the paper book nor another account's book can fill the gap. The door it
+    names is the SURFACE's own (`_LINK_DOOR`): a web caller is sent to the
+    dashboard step, never to a slash command the web chat cannot run.
+    """
+    door = _LINK_DOOR.get(surface, _LINK_DOOR["telegram"])
+    if absence == "absent":
+        summary = ("no linked live account — no equity, P&L, win rate or trade "
+                   f"count of this user's is on record here; {door['link']}")
+        detail = (
+            "\n\nACTIVE POSITIONS: none can be reported — no exchange account is "
+            "linked for this user, so there are no positions, orders, closed "
+            "trades, P&L or equity of theirs to describe. Do not reference any "
+            "open position, and never describe another account's positions or "
+            "balance as theirs. If they ask about their positions or money, say "
+            f"no exchange account is linked and that {door['link']}."
+            "\n\nRECENT CLOSED TRADES: none on record for this user (no linked "
+            "live account).")
+    elif absence == "unreadable":
+        summary = ("linked account could not be read — this user's stored "
+                   "exchange keys could not be decrypted, so equity, P&L, win "
+                   "rate and trade count are unknown, not zero")
+        detail = (
+            "\n\nACTIVE POSITIONS: could not be read — this user's linked exchange "
+            "keys could not be decrypted, so their account was NOT read. Do not "
+            "reference any open position and do not say they hold nothing: "
+            "positions, closed trades, P&L and equity are all unread. If they "
+            f"ask, say their linked keys could not be read, that {door['state']}."
+            "\n\nRECENT CLOSED TRADES: could not be read for the same reason.")
+    else:
+        summary = ("could not be resolved just now — do not quote an equity, P&L, "
+                   "win rate or trade count; say the account could not be confirmed")
+        detail = (
+            "\n\nACTIVE POSITIONS: could not be read — this user's account could "
+            "not be resolved just now. Do not reference any open position and do "
+            "not say they hold nothing; say the account could not be confirmed."
+            "\n\nRECENT CLOSED TRADES: could not be read.")
+    return summary, detail
+
+
 from telegram import (
     BotCommand,
     BotCommandScopeChat,
@@ -1524,12 +1606,25 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 "any symbol not listed you do NOT know the current price — say "
                 "so and offer to run a scan. Never recall a price from memory.")
 
-    def _build_chat_system_prompt(self, user_id: str, user_name: str = "") -> str:
-        """Build a personalized system prompt with user context."""
+    def _build_chat_system_prompt(self, user_id: str, user_name: str = "",
+                                  surface: str = "telegram") -> str:
+        """Build a personalized system prompt with user context.
+
+        ``surface`` is the transport the turn arrived on ("telegram", "web",
+        "api"); it chooses which door a caller with no linked account is told
+        (`_LINK_DOOR`) and nothing else.
+        """
         base = self._CHAT_SYSTEM_PROMPT
 
         # Inject user-specific context
-        portfolio_summary = ""
+        # NOT "" either, for the reason positions_detail gives below: this
+        # string becomes "Current portfolio: ..." in the context block and an
+        # EMPTY one is OMITTED (conversation_store: `if portfolio_summary:`),
+        # so any fault in the block handed the model no statement about the
+        # portfolio at all — and it filled the gap from history.
+        portfolio_summary = (
+            "could not be read just now — do not quote an equity, P&L, win "
+            "rate or trade count; say the portfolio could not be confirmed")
         engine_state = ""
         # NOT "". The whole block below sits inside a broad `except
         # Exception`, so ANY error in it silently drops this section — and the
@@ -1547,18 +1642,46 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             state = user_portfolio.snapshot()
 
             is_live = CONFIG.is_live()
-            executor = self.engine.live_executor if is_live else None
+            # ONE reading of which account this caller may VIEW — executor and
+            # cached balance together — so the equity sentence, ACTIVE
+            # POSITIONS and RECENT CLOSED TRADES below cannot describe two
+            # accounts. This read `self.engine.live_executor`, so under
+            # PER_USER_LIVE_ENABLED every caller's prompt listed the OPERATOR's
+            # positions, stops, closes, P&L and equity; GetPortfolioSkill and
+            # /positions had already been cured through viewer_executor.
+            # No getattr fallback to live_executor: an engine without the seam
+            # fails into the "could not be read" defaults above, never into
+            # the operator's book. `{}` rather than None so every read below
+            # is a `.get` (mypy: an Optional here is not indexable).
+            _lv: dict = self.engine.live_view(user_id) if is_live else {}
+            executor = _lv.get("executor")
+            _closed_unread = False
 
-            # LIVE FIX: use real equity and live executor stats in LIVE mode
-            if is_live:
+            if is_live and executor is None:
+                # No account to describe: say WHICH absence, in words the
+                # model repeats. "none right now" is what a READ flat book
+                # says, and neither of these was read.
+                portfolio_summary, positions_detail = _no_live_account_block(
+                    _live_account_absence(user_id), surface)
+            elif is_live and executor is not None:
                 # Truthful equity for the AI context: never feed the model the
                 # paper $10k baseline in LIVE mode — if the balance is unknown,
                 # say so, so the AI can't tell the user a fabricated figure.
-                _eq_val, _eq_src = self.engine.resolve_display_equity_sync(user_id)
-                eq_display = _eq_val
+                # The balance is the one belonging to the book described below
+                # (the view's), with its age; a figure nobody read recently
+                # enough to state is worded, not quoted.
+                eq_display = _lv.get("total")
+                _eq_age = _lv.get("age_s")
                 # Use live executor stats (actual exchange trades)
-                live_closed_all = executor.closed_positions if executor else []
-                live_open = executor.open_positions if executor else []
+                live_closed_all = executor.closed_positions
+                # A pending_fill record is an unfilled limit order, not a
+                # position (_live_positions_block says so and excludes it);
+                # this count said "3 open positions" above a block saying none.
+                live_open = [p for p in executor.open_positions
+                             if getattr(p, "status", "") != "pending_fill"]
+                # An unreadable closed-trade store arrives as an empty (or
+                # PARTIAL) list; GetPortfolioSkill already reads this flag.
+                _closed_unread = bool(getattr(executor, "closed_trades_read_failed", False))
                 # Exclude adopted orphan trades and never-filled orders (canceled/
                 # expired/price_drift/rejected close at $0 PnL) from stats.
                 from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_pane
@@ -1593,8 +1716,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 total_fees = sum(float(t.commission) for t in _fee_rows)
                 _fee_ctx = (f"${total_fees:.2f}" if _fee_rows or not live_closed
                             else "not measurable")
-                _eq_ctx = (f"~${eq_display:,.2f}" if eq_display is not None
-                           else "unavailable (live balance temporarily unreadable)")
+                _eq_ctx = (
+                    f"~${eq_display:,.2f} (exchange balance as read {_eq_age:.0f}s ago)"
+                    if eq_display is not None and _eq_age is not None
+                    else "unavailable (no live balance has been read recently "
+                         "enough to state — do not quote a figure)")
                 portfolio_summary = (
                     f"{len(live_open)} open positions, "
                     f"equity {_eq_ctx}, "
@@ -1605,6 +1731,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                        if _ws["unscored"] else "")
                     + f", total trades {total_trades}"
                 )
+                if _closed_unread:
+                    # An empty list from a store that failed to load is not a
+                    # record of zero trades, and every figure above was
+                    # computed from it.
+                    portfolio_summary = (
+                        f"{len(live_open)} open positions, equity {_eq_ctx}, "
+                        "closed-trade records could not be read — net PnL, fees, "
+                        "win rate and trade count are UNKNOWN, not zero")
             else:
                 # The live branch above was carefully cured of exactly this,
                 # under a comment saying a manufactured zero "does not just
@@ -1678,7 +1812,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _marks_fn = getattr(self, "_chat_marks", None)
                 positions_detail = _live_positions_block(
                     executor, _marks_fn() if callable(_marks_fn) else None)
-            elif user_portfolio.open_positions:
+            # `not is_live` on both paper arms: a live caller with no account
+            # keeps the _no_live_account_block text and never falls into the
+            # paper rows or into "none right now", which is what a READ flat
+            # book says.
+            elif not is_live and user_portfolio.open_positions:
                 pos_lines = []
                 for pos in user_portfolio.open_positions:
                     # THE WORST PLACE TO INVENT A NUMBER. This text is the
@@ -1716,7 +1854,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "\n\nACTIVE POSITIONS (live data):\n" +
                     "\n".join(pos_lines)
                 )
-            else:
+            elif not is_live:
                 positions_detail = (
                     "\n\nACTIVE POSITIONS: none right now. Do not reference "
                     "any open position -- if the user asks about a specific "
@@ -1724,7 +1862,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 )
 
             # Inject recent closed trades
-            if is_live and executor:
+            if is_live and executor and _closed_unread:
+                positions_detail += (
+                    "\n\nRECENT CLOSED TRADES (live): could not be read — the "
+                    "closed-trade records failed to load. Do not say there were "
+                    "none and do not quote a P&L.")
+            elif is_live and executor:
                 # Use live executor closed trades (actual exchange fills)
                 # Filter out canceled/expired limit orders (never-filled, $0 PnL)
                 from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _ntr
@@ -1743,7 +1886,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "\n\nRECENT CLOSED TRADES (live):\n" +
                         "\n".join(trade_lines)
                     )
-            else:
+            elif not is_live:
                 recent_trades = user_portfolio.trade_history[-5:]
                 if recent_trades:
                     trade_lines = []
@@ -1854,14 +1997,29 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         queue is empty or unreadable.
         """
         try:
-            ideas = list(getattr(self.engine, "pending_ideas", None) or [])
+            all_ideas = list(getattr(self.engine, "pending_ideas", None) or [])
         except Exception:
             return ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
                     "not say the queue is empty — you do not know what is in "
                     "it.")
+        # The queue is GLOBAL and a manual idea (/trade, the web ticket) is
+        # somebody's proposal — under multi-user it is as often another
+        # user's, with their symbol, entry and stop, and the only ownership
+        # record is the web's `proposers` map, which this block cannot read.
+        # Describe the bot's own scanner queue; count the rest without a
+        # single field, because a count is not a leak and silence would make
+        # "none queued" a lie.
+        manual = [i for i in all_ideas if getattr(i, "source", "") == "manual"]
+        ideas = [i for i in all_ideas if getattr(i, "source", "") != "manual"]
+        _manual_note = (
+            f"\n  (plus {len(manual)} manually proposed idea(s) awaiting their "
+            "proposer's confirmation — not listed here; they may be another "
+            "user's, so do not describe or count them as this user's)"
+            if manual else "")
         if not ideas:
-            return ("\n\nPENDING TRADE IDEAS: none queued right now. The bot "
-                    "is not about to place anything.")
+            return ("\n\nPENDING TRADE IDEAS: none queued by the bot right now. "
+                    "The bot is not about to place anything on its own."
+                    + _manual_note)
         rows = []
         for idea in ideas[:8]:
             try:
@@ -1884,8 +2042,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "rendered. Do not describe them.")
         _more = (f"\n  ...and {len(ideas) - len(rows)} more"
                  if len(ideas) > len(rows) else "")
-        return ("\n\nPENDING TRADE IDEAS (queued, awaiting confirmation — "
-                "NOT open positions):\n" + "\n".join(rows) + _more)
+        return ("\n\nPENDING TRADE IDEAS (the bot's own queue, awaiting "
+                "confirmation — NOT open positions):\n" + "\n".join(rows)
+                + _more + _manual_note)
 
     async def _llm_chat(self, question: str, user_id: str = "",
                         user_name: str = "",
@@ -1978,7 +2137,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # boundary is the execution gate).
             system_prompt = self._build_chat_system_prompt(
                 user_id,
-                user_name=_sanitize_chat_input(user_name) if user_name else user_name)
+                user_name=_sanitize_chat_input(user_name) if user_name else user_name,
+                surface=surface)
             # Agent profile (whitelisted words only): lets the agent tailor
             # tone/examples to the user's own risk preference and watchlist.
             # Advisory context only; it changes nothing about gates or

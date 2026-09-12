@@ -43,7 +43,7 @@ def _stub(cost: CostTracker):
     return SimpleNamespace(
         engine=engine,
         conversations=_Conversations(),
-        _build_chat_system_prompt=lambda user_id, user_name="": "system prompt",
+        _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": "system prompt",
         _is_admin=lambda update: False,
     )
 

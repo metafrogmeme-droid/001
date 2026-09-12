@@ -99,6 +99,12 @@ def _make_engine(monkeypatch):
     eng.ws_feed = object()
     eng.slippage = object()
     eng._on_live_position_closed = lambda pos: None
+    # The swap invalidates the operator balance cache (it was the old
+    # venue's), so the harness carries what that invalidation touches.
+    eng._live_balance_cache = {"total": 4242.42}
+    eng._live_balance_cache_ts = 12345.0
+    eng._user_live_balance_cache = {}
+    eng._user_live_balance_cache_ts = {}
     return eng
 
 
@@ -107,6 +113,8 @@ def test_switch_venue_happy_path(monkeypatch):
     old = eng.live_executor
     res = asyncio.run(eng.switch_venue("hyperliquid"))
     assert res.startswith("switched")
+    # the cached balance belonged to the OLD venue and must not survive the swap
+    assert eng._live_balance_cache == {} and eng._live_balance_cache_ts == 0.0
     assert eng.live_executor is not old
     assert eng.live_executor._venue.id == "hyperliquid"
     # the four wiring lines from engine __init__ were re-run

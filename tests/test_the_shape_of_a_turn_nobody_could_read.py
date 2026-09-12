@@ -224,7 +224,7 @@ def test_the_prompt_a_spanish_reader_gets_says_no_shape_was_read():
     stub = SimpleNamespace(
         engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_C(),
-        _build_chat_system_prompt=lambda uid, user_name="": _CHAT_NO_TOOLS_RULE,
+        _build_chat_system_prompt=lambda uid, user_name="", surface="telegram": _CHAT_NO_TOOLS_RULE,
         _PUBLIC_CHAT_SYSTEM_PROMPT=H._PUBLIC_CHAT_SYSTEM_PROMPT,
         _is_admin=lambda u: False,
         _note_chat_llm_failure=lambda reason="": None,

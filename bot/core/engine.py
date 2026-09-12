@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import math
 import time
 from datetime import datetime
 from bot.compat import UTC
@@ -419,6 +420,31 @@ def _of_snapshot_path() -> str:
 
 #: How far back a close counts as belonging to "this tick".
 COOLDOWN_LOOKBACK_SECONDS = 120
+
+
+def _read_balance_total(bal) -> Optional[float]:
+    """The ``total`` of a balance dict as a READING, not a number.
+
+    None when there is no dict, no ``total`` key, a ``None`` value or a value
+    that is not a number — and a NaN or an infinity counts as not a number:
+    ``float("nan")`` is what ``str`` pollution or a broken parse produces, and
+    quoting it to the model as "equity ~$nan (as read 5s ago)" is the exact
+    shape this reading exists to remove. ``0.0`` is kept: an empty account is
+    a measured $0.00, and ``.get("total", 0.0)`` made an unread one print the
+    same. (Not ``_balance_total`` — exchange_credentials already has one of
+    those, per currency, and a second function under that name is a second
+    answer.)
+    """
+    if not bal:
+        return None
+    raw = bal.get("total")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def loss_cooldown_reason(trades, now, cooldown_seconds) -> "str | None":
@@ -1020,6 +1046,58 @@ class RuneClawEngine:
             return None
         return self._live_balance_cache
 
+    def live_view(self, user_id: str = "", max_age_s: float = 900.0) -> dict:
+        """The live account THIS caller may VIEW, with its cached balance — one reading.
+
+        ``{"scope": "operator" | "own" | "none", "executor": LiveExecutor | None,
+           "balance": dict | None, "total": float | None, "age_s": float | None}``
+
+        The chat prompt builds its equity sentence, ACTIVE POSITIONS and RECENT
+        CLOSED TRADES from this single reading, so the three can never describe
+        two accounts. ``viewer_executor`` is the isolation guard: under per-user
+        live a caller the engine does not map to an account is ``"none"`` — never
+        the operator's book, which is what ``self.engine.live_executor`` in the
+        prompt builder handed every caller. The balance is the balance OF THE
+        BOOK BEING DESCRIBED: the operator cache when the executor is the
+        operator's, this user's own cache otherwise, each age-gated the way
+        ``live_balance_cached`` gates the operator's (never stamped -> None,
+        older than ``max_age_s`` -> None). ``total`` is ``_read_balance_total``
+        of the balance, so ``{"total": None}`` and a dict with no ``total`` read
+        as unavailable, not $0.00. ``age_s`` is set iff ``balance`` is.
+
+        Sync and cache-only, because the prompt builder cannot await. The
+        per-user cache is filled only by the async card/confirm paths and cleared
+        on every close, so ``"own"`` with ``balance None`` is the ORDINARY state
+        for a linked user — callers word it; they do not zero it. The
+        system-context exception for ``""``/``"auto"`` lives in
+        ``resolve_display_equity_sync``; the prompt builder never asks this
+        with an empty id (the portfolio registry refuses one first).
+        """
+        ex = self.viewer_executor(user_id)
+        if ex is None:
+            return {"scope": "none", "executor": None, "balance": None,
+                    "total": None, "age_s": None}
+        if ex is self.live_executor:
+            bal = self.live_balance_cached(max_age_s)
+            age = (time.monotonic() - self._live_balance_cache_ts
+                   if bal is not None else None)
+            return {"scope": "operator", "executor": ex, "balance": bal,
+                    "total": _read_balance_total(bal), "age_s": age}
+        key = str(user_id)
+        bal = self._user_live_balance_cache.get(key)
+        ts = self._user_live_balance_cache_ts.get(key, 0.0)
+        # Mirrors live_balance_cached: ts <= 0 is "never stamped" and must be
+        # its own check (monotonic's epoch is unspecified — see that method).
+        if not bal or ts <= 0.0:
+            return {"scope": "own", "executor": ex, "balance": None,
+                    "total": None, "age_s": None}
+        age = time.monotonic() - ts
+        if age > max_age_s:
+            return {"scope": "own", "executor": ex, "balance": None,
+                    "total": None, "age_s": None}
+        return {"scope": "own", "executor": ex, "balance": bal,
+                "total": _read_balance_total(bal), "age_s": age}
+
     def _invalidate_live_balance_cache(self) -> None:
         """Force a fresh balance fetch on the next equity check."""
         self._live_balance_cache = {}
@@ -1044,12 +1122,19 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return None
         ex = self._executor_for(user_id)
-        # Operator path: per-user off, or operator/admin/auto/unattended, or the
-        # user has no own keys (executor fell back to operator).
+        # Operator path: per-user off, or auto/unattended, or the user has no
+        # own keys (executor fell back to operator). Decided by EXECUTOR
+        # IDENTITY, not by `_is_operator_user`: an operator who linked their
+        # own keys trades on their own executor (`_executor_for` says so),
+        # and the balance that sizes and describes that order is that
+        # account's. The old `or self._is_operator_user(user_id)` clause
+        # fetched the operator balance for them while nothing ever wrote
+        # their own cache, so `live_view` — which reads the cache OF THE
+        # BOOK it describes — answered "equity unavailable" for that operator
+        # forever, however fresh the venue read was.
         if (ex is self.live_executor
                 or not getattr(CONFIG, "per_user_live_enabled", False)
-                or not user_id or user_id in ("auto", "")
-                or self._is_operator_user(user_id)):
+                or not user_id or user_id in ("auto", "")):
             return await self.get_live_equity()
         key = str(user_id)
         now = time.monotonic()
@@ -1084,11 +1169,12 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return None, None
         ex = self._executor_for(user_id)
+        # Executor identity decides, as in get_user_live_equity: the recheck
+        # sizes and counts against the account the order will EXECUTE on.
         per_user = (
             ex is not self.live_executor
             and getattr(CONFIG, "per_user_live_enabled", False)
             and bool(user_id) and user_id not in ("auto", "")
-            and not self._is_operator_user(user_id)
         )
         if not per_user:
             # Operator path — preserves the exact prior behaviour.
@@ -2234,6 +2320,12 @@ class RuneClawEngine:
         for k in [k for k in list(self._balance_view_executors)
                   if k == uid or k.endswith(f"/{uid}")]:
             self._balance_view_executors.pop(k, None)
+        # And the balance READ THROUGH the executor just dropped: a /connect
+        # that swaps keys, or a /disconnect, leaves a cached total that
+        # belongs to the previous account, and live_view would quote it —
+        # with a fresh-looking age — as this user's equity for up to 900s.
+        self._user_live_balance_cache.pop(uid, None)
+        self._user_live_balance_cache_ts.pop(uid, None)
 
     async def switch_venue(self, venue_id: str) -> str:
         """Hot-swap the shared operator executor onto another trading venue.
@@ -2279,6 +2371,11 @@ class RuneClawEngine:
             new_exec._ws_feed = self.ws_feed
             new_exec._slippage_tracker = getattr(self, "slippage", None)
             self.live_executor = new_exec
+            # The cached balance is the OLD venue's. /setexchange invalidates
+            # here; this path did not, so every reader of the operator cache
+            # (the chat prompt, /twin, the website sync) quoted the previous
+            # venue's total, age-stamped as fresh, until the next fetch.
+            self._invalidate_live_balance_cache()
         except Exception as exc:
             if prev_override_needed_rollback:
                 try:
@@ -2307,9 +2404,23 @@ class RuneClawEngine:
         operator and, under per-user live trading, must link their own keys.
         """
         uid = str(user_id)
+        configured = False
         for raw in (CONFIG.telegram.chat_id, CONFIG.telegram.admin_ids):
-            if raw and uid in {s.strip() for s in str(raw).split(",") if s.strip()}:
+            ids = {s.strip() for s in str(raw or "").split(",") if s.strip()}
+            configured = configured or bool(ids)
+            if uid in ids:
                 return True
+        # api_bridge runs its chat turn under the literal "operator" when no
+        # TELEGRAM_CHAT_ID is seeded (its own comment: "a bridge with no
+        # seeded operator still needs ONE stable identity"). It is the
+        # operator's console, so under per-user live that sentinel must view
+        # the operator book — otherwise the bridge is told "no linked live
+        # account" for the account the bot is trading. Recognised ONLY when
+        # no operator id is configured at all: a Telegram id is numeric and
+        # the web admits numeric or `web:` ids, so nothing else can present
+        # the word, and a deployment that names its operator never needs it.
+        if uid == "operator" and not configured:
+            return True
         store = getattr(self, "_user_store", None)
         if store is not None:
             try:
@@ -2902,14 +3013,32 @@ class RuneClawEngine:
     ) -> Tuple[Optional[float], str]:
         """Sync counterpart of :meth:`resolve_display_equity` (cache-only).
 
-        For sync call sites (e.g. building the chat system prompt) that cannot
-        await a fresh fetch. In LIVE mode it reads the live-balance cache only;
-        an empty cache yields ``(None, "unavailable")`` rather than paper $10k.
+        ``source`` is ``"live"``, ``"paper"``, ``"unavailable"`` (LIVE, but no
+        balance fresh enough to state — an unstamped or stale cache, or a dict
+        whose ``total`` is missing or None) or ``"no_account"`` (LIVE under
+        per-user live, and this caller has no account to view — never the
+        operator's figure). ``user_id`` ``""``/``"auto"`` is the SYSTEM context
+        — the website sync and the dashboard pusher describe the operator
+        account — and routes to the operator cache exactly as
+        ``get_user_live_equity`` routes those two ids; every other id routes
+        through ``live_view``.
+
+        It read ``self._live_balance_cache.get("total", 0.0)``: the operator's
+        dict for every caller, no age gate, and absent-is-zero on the one number
+        the chat prompt quotes as "equity".
         """
         if CONFIG.is_live():
-            if self._live_balance_cache:
-                return self._live_balance_cache.get("total", 0.0), "live"
-            return None, "unavailable"
+            total: Optional[float]
+            if not user_id or user_id == "auto":
+                total = _read_balance_total(self.live_balance_cached())
+            else:
+                view = self.live_view(user_id)
+                if view["scope"] == "none":
+                    return None, "no_account"
+                total = view["total"]
+            if total is None:
+                return None, "unavailable"
+            return total, "live"
         portfolio = self.user_portfolios.get(user_id) if user_id else self.portfolio
         return portfolio.snapshot().equity_usd, "paper"
 

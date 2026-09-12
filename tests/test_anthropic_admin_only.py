@@ -126,7 +126,7 @@ class TestChatFallbackChainAdminGate:
         return SimpleNamespace(
             engine=SimpleNamespace(cost=CostTracker()),
             conversations=SimpleNamespace(get_recent_as_llm_messages=lambda *a, **kw: []),
-            _build_chat_system_prompt=lambda user_id, user_name="": "sys",
+            _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": "sys",
         )
 
     def test_non_admin_chat_never_falls_back_to_anthropic(self, monkeypatch):

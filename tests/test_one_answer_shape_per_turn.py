@@ -312,7 +312,7 @@ def _llm_stub():
     return SimpleNamespace(
         engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_Conversations(),
-        _build_chat_system_prompt=lambda user_id, user_name="": (
+        _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": (
             "BASE PROMPT\n" + _CHAT_NO_TOOLS_RULE + "\nPERSONALITY"),
         _PUBLIC_CHAT_SYSTEM_PROMPT=TelegramHandler._PUBLIC_CHAT_SYSTEM_PROMPT,
         _is_admin=lambda update: False,

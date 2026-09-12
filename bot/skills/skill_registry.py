@@ -648,22 +648,40 @@ class CheckRiskSkill(BaseSkill):
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         mode = kwargs.get("mode", "risk")
+        user_id = str(kwargs.get("user_id", "") or "")
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        cb = engine.risk.circuit_breaker_active
+        # THIS caller's breaker and streak. `engine.risk` is the shared
+        # operator engine; under per-user live a linked user has their own
+        # (`risk_for`), and the card said TRIPPED/CLEAR about the wrong one.
+        # Per-user off, or an engine without the seam, is the shared engine,
+        # byte-identical to before.
+        _risk_for = getattr(engine, "risk_for", None)
+        risk = _risk_for(user_id) if (user_id and callable(_risk_for)) else engine.risk
+        cb = risk.circuit_breaker_active
         gate = entry_gate(engine)
-        streak = engine.risk.consecutive_losses
+        streak = risk.consecutive_losses
         cost = engine.cost.snapshot()
 
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
+            # The book THIS caller may view, through the same isolation guard
+            # GetPortfolioSkill and the chat prompt read. This was
+            # `engine.live_executor` — the operator's positions, exposure and
+            # realized P&L, in dollars, on the risk card of every stranger
+            # whose "what's my risk" the chat model answered with this tool.
+            executor = engine.viewer_executor(user_id)
+            if executor is None:
+                return (f"\U0001f6e1 <b>RISK DASHBOARD</b> (LIVE)\n{SEP}\n\n"
+                        "No linked live account — no equity, exposure, "
+                        "positions or realized P&L of yours is on record "
+                        "here. Use <code>/connect</code> to link your "
+                        "exchange keys.")
             # `live_eq if live_eq > 0 else state.equity_usd` was the second
             # door onto the paper book: an unreadable live balance fell
             # through to the PAPER snapshot, so fixing the engine helper alone
             # would have changed nothing here. None travels.
-            display_equity = await engine.get_effective_equity_async(
-                kwargs.get("user_id", ""))
-            executor = engine.live_executor
+            display_equity = await engine.get_effective_equity_async(user_id)
             live_open = executor.open_positions
             live_closed = executor.closed_positions
             total_exp = sum(lp.cost_usd for lp in live_open)
@@ -2944,9 +2962,21 @@ class PlaybookSkill(BaseSkill):
         lines.append("- Exchange: <code>Bitget</code>")
 
         # LIVE FIX: show real exchange equity in LIVE mode
-        if CONFIG.is_live():
-            display_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            executor = engine.live_executor
+        _user_id = str(kwargs.get("user_id", "") or "")
+        # The book THIS caller may view (viewer_executor), as on the risk and
+        # portfolio cards: `engine.live_executor` printed the operator's
+        # equity, exposure, closed trades and open positions to any caller.
+        # `is_live` is read ONCE for both live sections below so the
+        # "LIVE EXECUTION" figures and "ACTIVE POSITIONS (LIVE)" cannot
+        # describe two books.
+        is_live = CONFIG.is_live()
+        executor = engine.viewer_executor(_user_id) if is_live else None
+        if is_live and executor is None:
+            lines.append("- Equity: <code>no linked live account</code>")
+            lines.append("- Open Positions: <code>none of yours on record — "
+                         "use /connect to link exchange keys</code>")
+        elif is_live and executor is not None:
+            display_equity = await engine.get_effective_equity_async(_user_id)
             live_pos = executor.open_positions
             live_open_count = len(live_pos)
             total_exposure = executor.total_exposure_usd
@@ -2960,12 +2990,14 @@ class PlaybookSkill(BaseSkill):
             # "0% utilised" is the reassuring end of the range.
             utilization_pct = (total_exposure / display_equity * 100
                                if display_equity else None)
-            # Age-gated (engine.live_balance_cached): the direct cache read
-            # showed an hours-old "Available" as current when venue fetches
-            # kept failing. Unknown renders as "unavailable", never $0.00 —
-            # zero reads as "no margin left", a different (alarming) claim.
-            _bal_fn = getattr(engine, "live_balance_cached", None)
-            _bal = _bal_fn() if callable(_bal_fn) else None
+            # Age-gated, and the balance OF THE BOOK ABOVE (engine.live_view):
+            # the direct cache read showed an hours-old "Available" as current
+            # when venue fetches kept failing, and it was the OPERATOR's
+            # cache whoever asked. Unknown renders as "unavailable", never
+            # $0.00 — zero reads as "no margin left", a different (alarming)
+            # claim.
+            _view_fn = getattr(engine, "live_view", None)
+            _bal = (_view_fn(_user_id) or {}).get("balance") if callable(_view_fn) else None
             free_bal = _bal.get("free") if isinstance(_bal, dict) else None
 
             lines.append(f"- Equity: <code>{_money(display_equity)}</code>")
@@ -2974,7 +3006,12 @@ class PlaybookSkill(BaseSkill):
                             else "unavailable") + "</code>")
             lines.append(f"- Open Positions: <code>{live_open_count}</code>")
             lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>")
-            lines.append(f"- Utilization: <code>{utilization_pct:.1f}%</code>")
+            # `{utilization_pct:.1f}` raised TypeError on the None the line
+            # above it deliberately produces — the card crashed on exactly
+            # the unread-equity case it was written to word.
+            lines.append("- Utilization: <code>"
+                         + (f"{utilization_pct:.1f}%" if utilization_pct is not None
+                            else "unavailable (equity unread)") + "</code>")
             # An em-dash where nothing could be priced. This card already
             # qualifies its denominator with "(N trades)"; printing $+0.00
             # beside "(0 trades)" made the pair read as a measured flat book.
@@ -2989,15 +3026,25 @@ class PlaybookSkill(BaseSkill):
         else:
             lines.append(f"- Equity: <code>{_money(state.equity_usd)}</code>")
             lines.append(f"- Open Positions: <code>{state.open_positions}</code>")
+            # The PAPER book's daily P&L. It was printed under the live
+            # equity too — a paper figure beneath a real balance, on a card
+            # headed "LIVE" — so it stays on the paper card only.
+            lines.append(f"- Daily PnL: <code>{_money(state.daily_pnl, sign=True)}</code>")
 
-        lines.append(f"- Daily PnL: <code>{_money(state.daily_pnl, sign=True)}</code>")
         lines.append("- Trailing Stop: <code>Active (shared logic)</code>")
         lines.append("")
 
         # ── Section 5: Active Positions ──
-        # LIVE FIX: in LIVE mode, show positions from LiveExecutor
-        if CONFIG.is_live():
-            live_positions = engine.live_executor.open_positions
+        # LIVE FIX: in LIVE mode, show positions from THIS caller's executor
+        # (the one resolved above). A live caller with NO account gets the
+        # absence said again here, never the paper arm below: a paper book
+        # printed under "LIVE" for a live caller is the prompt builder's
+        # "paper arms reachable when live" mutant, one card over.
+        if is_live and executor is None:
+            lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
+            lines.append(f"  {_NEU} <i>none of yours on record — no linked live account</i>")
+        elif is_live and executor is not None:
+            live_positions = executor.open_positions
             if live_positions:
                 # Fetch fresh prices for unrealized PnL (route by asset category)
                 live_prices: dict[str, float] = {}

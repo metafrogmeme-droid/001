@@ -1148,6 +1148,15 @@ def _chat_facade():
     return _chat_handler
 
 
+def _bridge_identity() -> str:
+    """The user id the bridge's chat turn runs under — see `chat` below."""
+    chat_id = str(CONFIG.telegram.chat_id or "").strip()
+    if chat_id:
+        return chat_id
+    admins = [s.strip() for s in str(CONFIG.telegram.admin_ids or "").split(",") if s.strip()]
+    return admins[0] if admins else "operator"
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest,
                _token: str = Depends(require_dashboard_token),
@@ -1173,8 +1182,13 @@ async def chat(req: ChatRequest,
         lang = ""
     # The operator's Telegram id keys their portfolio and their memory; a
     # bridge with no seeded operator still needs ONE stable identity so the
-    # conversation has somewhere to live.
-    user_id = str(CONFIG.telegram.chat_id or "").strip() or "operator"
+    # conversation has somewhere to live. It must also be an identity the
+    # engine's VIEW policy recognises as the operator, or under per-user
+    # live the prompt describes "no linked live account" for the account the
+    # bot is trading on: the first admin id when TELEGRAM_CHAT_ID is unset,
+    # and the literal "operator" only when neither is configured — which
+    # `_is_operator_user` accepts in exactly that case and no other.
+    user_id = _bridge_identity()
     try:
         return await ask(_chat_facade(), question, user_id=user_id,
                          is_admin=True, reply_lang=lang, surface="api")

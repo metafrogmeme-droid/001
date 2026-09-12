@@ -112,8 +112,16 @@ class TestTheReadersUseIt:
         assert self._direct_reads("bot/core/web_reports.py") == []
 
     def test_skill_registry_reads_through_the_gate(self):
+        # The registry's one balance reader (the playbook's "Available") reads
+        # `engine.live_view(user_id)["balance"]` now — the balance OF THE BOOK
+        # the card describes, age-gated through live_balance_cached for the
+        # operator's and the per-user stamp for a linked user's. A scan for
+        # the older literal alone would call that read ungated.
         src = code_only(open("bot/skills/skill_registry.py", encoding="utf-8").read())
-        assert "live_balance_cached" in src
+        # (`getattr(engine, "live_view", None)`: the playbook is driven by
+        # engine stubs without the seam, and an absent seam is "unavailable",
+        # never the raw cache.)
+        assert "live_balance_cached" in src or '"live_view"' in src
         assert self._direct_reads("bot/skills/skill_registry.py") == []
 
     def test_telegram_handler_reads_through_the_gate(self):

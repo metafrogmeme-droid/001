@@ -79,14 +79,25 @@ class TestGetUserLiveEquity:
         finally:
             p.stop()
 
-    async def test_operator_user_uses_operator_balance(self):
+    async def test_operator_user_uses_the_balance_of_the_executor_their_order_runs_on(self):
+        # Executor identity decides, not the operator flag. This test used to
+        # plant an operator whose `_executor_for` answered a DIFFERENT
+        # executor and assert the operator balance — sizing an order against
+        # an account it would not execute on, and leaving that operator's own
+        # balance cache unwritten so live_view said "equity unavailable"
+        # forever. An operator resolved to the operator executor still gets
+        # the operator balance; one with own keys gets their own account's.
         p = _cfg(per_user=True)
         eng = _engine()
         eng._is_operator_user = lambda uid: True
-        eng._executor_for = lambda uid: _FakeExec(balance={"total": 5.0})
+        eng._executor_for = lambda uid: eng.live_executor
         try:
-            # Operator/admin trades the operator account → operator balance.
             assert await eng.get_user_live_equity("admin1") == {"total": 10_000.0}
+            assert "admin1" not in eng._user_live_balance_cache
+            own = _FakeExec(balance={"total": 5.0})
+            eng._executor_for = lambda uid: own
+            assert await eng.get_user_live_equity("admin1") == {"total": 5.0}
+            assert eng._user_live_balance_cache["admin1"] == {"total": 5.0}
         finally:
             p.stop()
 
