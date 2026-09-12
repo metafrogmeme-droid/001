@@ -618,6 +618,26 @@ def position_read_needs_another_look(state: Any, attempt: int,
     return attempt < max_attempts - 1
 
 
+def restore_provenance(pos: Any, pdata: dict) -> None:
+    """Re-attach the runtime markers `_save_positions` wrote for a position.
+
+    The markers are ABSENT on a position they do not apply to — adoption
+    `setattr`s them only when there is something to say, and every reader
+    goes through `getattr(pos, name, default)` — so a restored record must
+    look exactly like a fresh one: set only what was recorded, never a
+    default. A record written before these keys existed restores as it
+    always did.
+    """
+    src = pdata.get("sl_tp_source")
+    if src:
+        setattr(pos, "sl_tp_source", str(src))
+    unread = pdata.get("adoption_unread")
+    if unread:
+        setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
+    if pdata.get("unprotected") is True:
+        setattr(pos, "unprotected", True)
+
+
 def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
     """``(margin_usd, notional_usd)`` for a position — None where unrecorded.
 
@@ -11272,6 +11292,19 @@ class LiveExecutor:
                     "limit_order_id": pos.limit_order_id,
                     "atr_at_entry": pos.atr_at_entry,
                     "close_reason": pos.close_reason,
+                    # PROVENANCE SURVIVES A RESTART. `origin` is a schema
+                    # field and the three markers are the runtime attributes
+                    # adoption sets; none of the four was written here, and
+                    # `_load_positions` built every record as an "executed"
+                    # position with no marker — so one restart turned an
+                    # adopted position whose entry the venue never stated
+                    # into a bot-opened one whose entry is $0.0000, on the
+                    # card and in the chat prompt alike. A marker that is not
+                    # persisted is a marker for one process lifetime.
+                    "origin": pos.origin,
+                    "sl_tp_source": getattr(pos, "sl_tp_source", None),
+                    "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
+                    "unprotected": bool(getattr(pos, "unprotected", False)),
                 }
             path = Path(self._positions_file)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -11352,7 +11385,9 @@ class LiveExecutor:
                         limit_order_id=pdata.get("limit_order_id"),
                         atr_at_entry=float(pdata.get("atr_at_entry", 0)),
                         close_reason=pdata.get("close_reason"),
+                        origin=pdata.get("origin") or "executed",
                     )
+                    restore_provenance(self._positions[tid], pdata)
                 source_label = "backup" if source == bak_path else "disk"
                 if self._positions:
                     audit(trade_log, f"Loaded {len(self._positions)} live positions from {source_label}",

@@ -208,7 +208,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 774 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 770 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -539,6 +539,30 @@ card, because the operator who needs it is the one who does not know it exists.
 done.** Five of those ten PRs came from auditing the previous one. `/portfolio`
 still had the defect `/open_positions` had just been cured of. A `theater.js`
 value flowed through three renderings and fixing two left the third.
+
+**A fix that lands on the card and not in the model's evidence has not landed
+on the chat.** Adoption records `0.0` for an entry or margin the venue did not
+state and names the unread fields in `adoption_unread`; `/positions` was taught
+to read the marker, and the chat prompt's ACTIVE POSITIONS row — which the web
+chat builds through the same `_llm_chat` — went on handing the model
+`entry $0.0000, size $0.00, lev 0x, SL $0.0000, TP $0.0000`, plus an
+`unrealized ($+0.00)` computed from a quantity nothing had checked. Each is a
+number the model repeats in a sentence that sounds considered. The row is
+`_live_position_row` now, every field three-valued in WORDS (a dash is a gap
+the model fills), and both return bases carry their names from the card's own
+helpers, because the same position read `+5.00%` in chat and `+50.00%` on the
+card and neither said which question it answered. **And a runtime marker that
+is not persisted is a marker for one process lifetime**: `_save_positions`
+wrote none of `origin`, `sl_tp_source`, `adoption_unread`, `unprotected`, so
+one restart turned that adopted position into a bot-opened one with an entry
+of `$0.0000` on every surface at once. **And the sibling row ten lines
+down had the ghost-close shape**: RECENT CLOSED TRADES did
+`exit_px = t.close_price or t.entry_price`, so a close whose exit could not be
+read — booked `close_price=None`, `pnl_usd=None`, `fill_source="unread"`, and
+restored from disk as `0.0` — was told to the model as having exited *at its
+entry*, beside the `PnL not recorded` the same block had just written for it.
+Fixing the positions row and leaving that one would have been "fixing two left
+the third" inside a single prompt.
 
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
