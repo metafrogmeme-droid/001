@@ -555,7 +555,10 @@ card and neither said which question it answered. **And a runtime marker that
 is not persisted is a marker for one process lifetime**: `_save_positions`
 wrote none of `origin`, `sl_tp_source`, `adoption_unread`, `unprotected`, so
 one restart turned that adopted position into a bot-opened one with an entry
-of `$0.0000` on every surface at once. **And the sibling row ten lines
+of `$0.0000` on every surface at once — and `strategy_type` / `signal_type`
+were the same shape one field over: unwritten, so every scalp came back a
+"swing" for its time-stop (2h → 24h) and trailing rule, and every close after
+a restart was attributed to the default signal type. **And the sibling row ten lines
 down had the ghost-close shape**: RECENT CLOSED TRADES did
 `exit_px = t.close_price or t.entry_price`, so a close whose exit could not be
 read — booked `close_price=None`, `pnl_usd=None`, `fill_source="unread"`, and

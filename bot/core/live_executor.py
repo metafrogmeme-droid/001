@@ -11305,6 +11305,17 @@ class LiveExecutor:
                     "sl_tp_source": getattr(pos, "sl_tp_source", None),
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
+                    # THE STRATEGY THAT SIZED THE EXIT RULES. Neither key was
+                    # written, and `_load_positions` built every record with
+                    # the dataclass defaults — so one restart turned a scalp
+                    # into a "swing" for the time-stop (2h -> 24h, see
+                    # get_time_close_hours) and the trailing rule (scalp
+                    # trailing OFF, swing ON), and attributed every close
+                    # after it to the default signal type in closed_trade_row.
+                    # `_load_closed_trades` restored both for CLOSED trades
+                    # all along; the open store never did.
+                    "strategy_type": pos.strategy_type,
+                    "signal_type": pos.signal_type,
                 }
             path = Path(self._positions_file)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -11386,6 +11397,12 @@ class LiveExecutor:
                         atr_at_entry=float(pdata.get("atr_at_entry", 0)),
                         close_reason=pdata.get("close_reason"),
                         origin=pdata.get("origin") or "executed",
+                        # A record written before these keys existed carries
+                        # no strategy to recover; the dataclass defaults are
+                        # the same silent claim they always were, stated here
+                        # rather than left to the constructor.
+                        strategy_type=str(pdata.get("strategy_type") or "swing"),
+                        signal_type=str(pdata.get("signal_type") or "momentum_confluence"),
                     )
                     restore_provenance(self._positions[tid], pdata)
                 source_label = "backup" if source == bak_path else "disk"
