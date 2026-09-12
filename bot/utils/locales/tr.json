@@ -14,6 +14,7 @@
   "chat_deadline": "Herhangi bir model yanıt vermeden beklemeyi bıraktım: bu benim tarafımdaki bir zaman aşımı, bir yanıt değil ve hiçbir şey analiz edilmedi. Birazdan tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın.",
   "chat_empty_completions": "Model yanıt verdi ama hiçbir şey döndürmedi: tüm sağlayıcılar boş döndü; bu bağlantı değil, model ya da prompt sorunudur. Anahtarınız ve uç noktanız sorunsuz. Son hata için /llmstatus deneyin ya da /scan veya /positions gibi belirli bir komut kullanın.",
   "chat_unavailable": "Şu anda düşünmekte zorlanıyorum: yapay zekâ geçici olarak kullanılamıyor. Bir dakika sonra tekrar deneyin.",
+  "chat_public_fallback": "Canlı yapay zekâya şu anda ulaşılamıyor, bu yüzden serbestçe yanıt veremiyorum; ancak yerleşik yanıtlar hâlâ çalışıyor ve yalnızca İngilizce sorularda: “What is RUNECLAW?”, “How does it manage risk?”, “What is a liquidity sweep?”, “How does leverage work?”, “Which exchanges are supported?”. Giriş yapıp bir borsa bağladığınızda canlı piyasa taramaları, kendi portföyünüz ve tam sohbet tabanlı analiz açılır.",
   "chat_public_scan_gate": "⚔️ Gerçek bir tarama canlı veri akışına ihtiyaç duyar ve bu herkese açık sohbette o yok; fiyat ya da seviye uydurmayacağım.<br><br><b>Giriş yapın (ücretsiz)</b>, gerçek tarayıcıyı güncel piyasa verisiyle çalıştırayım.<br><br><a href=\"/dashboard\">Giriş yap →</a>",
   "chat_thinking_0": "<i>Grafiğe bakıyorum...</i>",
   "chat_thinking_1": "<i>Kurulumu kontrol ediyorum...</i>",

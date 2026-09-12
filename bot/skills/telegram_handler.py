@@ -2000,7 +2000,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "RUNECLAW is, how it manages risk, leverage, liquidity "
                     "sweeps, and which exchanges are supported."),
                     None, return_meta)
-            return _chat_ret(public_fallback(), None, return_meta)
+            # `_ui`, the same reading its admin sibling three lines up
+            # uses. The two halves of this branch now differ only in
+            # what they say, not in whether the reader is spoken to in
+            # their own language.
+            return _chat_ret(public_fallback(_ui), None, return_meta)
 
         # Budget guard: refuse to spend once the shared daily LLM budget is
         # exhausted, mirroring analyzer.py's guard for trade-thesis calls.

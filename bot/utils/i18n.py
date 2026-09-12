@@ -222,6 +222,40 @@ _STRINGS: dict[str, dict[str, str]] = {
                "unavailable. Try again in a minute."),
         "zh": "我現在有點想不清楚 — AI 暫時無法使用。請一分鐘後再試。",
     },
+    # The VISITOR's half of the "no model is reachable" branch. Its admin
+    # sibling (`chat_no_model_admin`, above) is localized and says plainly that
+    # the model is not connected; this one was an English literal in
+    # bot/core/faq_kb.py that said neither — it opened "I'm RUNECLAW, the AI
+    # trading agent. I can walk you through the essentials", presenting a
+    # degraded state as the normal offering. Not leaking config (the reason
+    # given in the code) is not the same as saying nothing is wrong, and
+    # `chat_unavailable` two keys up already tells a visitor the AI is down.
+    #
+    # ONE PARAGRAPH, no line breaks. This string reaches BOTH surfaces through
+    # `_llm_chat`, and they disagree about breaks: the web assigns the reply to
+    # `innerHTML` (so `\n` renders as a space) while Telegram honours `\n` and
+    # not `<br>`. The text it replaces used `\n\n` and bullets, so on the web it
+    # had always run together into one line.
+    #
+    # The five starter questions stay in ENGLISH inside every translation, and
+    # that is the honest part rather than an oversight: the built-in answers
+    # exist only in English and match only English triggers, so translating the
+    # suggestions would offer a visitor five questions that this branch — which
+    # fires precisely because no model is reachable — cannot answer. Each
+    # non-English entry says so.
+    "chat_public_fallback": {
+        "en": ("The live AI isn't reachable right now, so I can't answer "
+               "freely — but these built-in answers still work: “What is "
+               "RUNECLAW?”, “How does it manage risk?”, “What is a liquidity "
+               "sweep?”, “How does leverage work?”, “Which exchanges are "
+               "supported?”. Sign in and connect an exchange for live market "
+               "scans, your own portfolio and full conversational analysis."),
+        "zh": ("即時 AI 目前無法連線，所以我沒辦法自由回答 — 但內建的答案仍然"
+               "可用，且僅限英文提問：“What is RUNECLAW?”、“How does it manage "
+               "risk?”、“What is a liquidity sweep?”、“How does leverage work?”、"
+               "“Which exchanges are supported?”。登入並連接交易所，即可使用即時"
+               "市場掃描、你自己的投資組合與完整的對話式分析。"),
+    },
     "chat_public_scan_gate": {
         "en": ("⚔️ A real scan needs the live data feed, and this "
                "public chat doesn't have one — I won't invent prices or "
