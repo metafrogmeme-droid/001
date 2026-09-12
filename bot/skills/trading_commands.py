@@ -755,7 +755,11 @@ class TradingCommands:
         await self._send(update,
             "\u274c <b>Spot trading is disabled</b>\n\n"
             "RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at 5x leverage).\n\n"
-            "Use <code>/liveclose TRADE_ID</code> to close a futures position.")
+            # The door a trader can actually open. This said /liveclose, which
+            # is admin-only and closes with no confirmation — the same wrong
+            # door the chat notice (chat_runtime.close_intent_notice) avoids.
+            "To close a futures position, open it on <code>/positions</code> "
+            "and tap <b>Close</b>.")
 
     @guard("portfolio")
     async def _cmd_paper(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

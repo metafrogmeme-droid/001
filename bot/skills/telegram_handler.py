@@ -40,9 +40,11 @@ from bot.core.live_executor import position_size_basis
 # globals; tests/test_chat_runtime_split.py pins both halves.
 from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and callers)
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
-    RateLimiter, TelegramStream, _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE,
-    _chat_ret, _emit_event, _say, reply_contract, thinking_phrase,
+    RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE, _CHAT_NO_TOOLS_RULE,
+    _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say, close_intent_notice,
+    reply_contract, thinking_phrase,
 )
+from bot.nlp.intent_router import symbol_mentioned
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
@@ -1290,6 +1292,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "- Only cite specific entry/SL/TP/PnL numbers that appear in this "
         "prompt's ACTIVE POSITIONS / RECENT CLOSED TRADES sections. Never "
         "make numbers up to sound complete.\n"
+        # The boundary the PUBLIC prompt has always stated and this one never
+        # did — on the surface with the money. One constant, in the runtime
+        # leaf, beside the notice a routed close request gets, so the rule,
+        # the card and the web reply name the same door.
+        + _CHAT_CANNOT_ACT_RULE
         # The prompt half of the Doji fix. `_chat_ret` enforces it structurally
         # for the replies that ignore this anyway; asking first costs one
         # bullet and lowers how often the guard has to fire.
@@ -2852,6 +2859,21 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
             if intent.skill == "status":
                 await self._cmd_status(update, ctx)
+                return
+
+            # ── Close intent → the positions card, NEVER a close ──
+            # "close my ETH" has no honest free-text door: /liveclose is
+            # admin-only, takes a trade id and closes with no confirmation,
+            # and the chat model holds no tool that acts (and would narrate
+            # one). The owner-checked Close button on the position's card is
+            # the door, so the card is what a close request gets — with a
+            # sentence saying so and saying nothing was closed, because a
+            # routed request that silently shows a list reads as "it did not
+            # understand me".
+            if intent.skill == "close_position":
+                await self._send(update, close_intent_notice(
+                    symbol_mentioned(intent.raw_text), surface="telegram"))
+                await self._cmd_open_positions(update, ctx)
                 return
 
             # ── Dangerous intents → their GUARDED command (H3) ──

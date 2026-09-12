@@ -148,6 +148,13 @@ def _is_social_message(text: str) -> bool:
     return False
 
 
+def symbol_mentioned(text: str) -> Optional[str]:
+    """The asset a message names, or None — `_extract_symbol` for callers
+    outside this module (the close-intent notice names the position it is
+    about, when the user did)."""
+    return _extract_symbol(text)
+
+
 def detect_reply_mode(text: str) -> str:
     """The turn's shape, for a caller with no IntentResult to hand.
 
@@ -372,6 +379,30 @@ _rule(r"\b(be (a bit |a little |way |much )?more aggressive|"
 _rule(r"\b((back to|go) (normal|balanced|default)( risk| mode)?|"
       r"balanced (mode|stance|risk)|reset (the )?(risk|stance|mode))\b",
       "stance_balanced", explanation="Wants the balanced default posture")
+
+# --- Close a position: ROUTED, never dispatched ---
+# "close my ETH" had no rule, so it fell through to the chat model — which
+# holds read-only tools, was never told it cannot act, and is guarded against
+# fabricated `[skill] result:` BLOCKS only; a prose "Done, I closed it" passes.
+# This is a routing intent like `help` and `status`, not a registered skill:
+# Telegram answers with the positions card, whose owner-checked Close button
+# is the only honest free-text-adjacent door (/liveclose is admin-only, takes
+# a TRADE ID and closes with no confirmation — the wrong door), and the web
+# names that door. Anchored to the START so it claims IMPERATIVES — "close my
+# ETH", "exit the BTC long", "flatten everything" — and leaves "should I close
+# my BTC?" and "how do I close a trade?" to the model, which is who answers
+# advice. Registered before the portfolio rules because `my positions?` would
+# otherwise take "close my position" first.
+_CLOSE_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|can u|go ahead and|i want to|"
+               r"i'd like to|i need to|let's|lets|just|now)\s+)*")
+_rule(_CLOSE_LEAD
+      + r"(?:(?:close|exit|flatten|unwind|liquidate)\s+(?:(?:my|the|this|that|all|all my|every|all of my)\s+)?"
+      r"(?:[A-Za-z0-9/:]+\s+)?(?:positions?|trades?|longs?|shorts?)\b"
+      r"|(?:close|exit|flatten|unwind|get out of)\s+(?:my\s+|the\s+)?[A-Za-z][A-Za-z0-9/:]{1,12}"
+      r"(?:\s+now|\s+please)?\s*[!.]*\s*$"
+      r"|sell\s+(?:my|the|this)\s+\S+\s+(?:positions?|trades?)\b)",
+      "close_position",
+      explanation="Wants a position closed — routed to the positions card, never dispatched")
 
 # --- Scan / market overview ---
 # RUNECLAW natural language triggers — scan modes

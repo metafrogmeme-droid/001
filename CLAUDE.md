@@ -591,6 +591,25 @@ every caller (the operator-book leak `GetPortfolioSkill` records fixing one
 skill over), and its classifier read ccxt's `type` alone, so every Bitget plan
 stop sat under "Other" at `@ $0.0000`.
 
+**A request to act, on a surface that cannot act, must meet a door and never
+a narrator.** "close my ETH" had no router rule, so it reached the chat model
+— which holds read-only tools, was never told it cannot act (the PUBLIC prompt
+has always said "You canNOT place, propose, size or modify any trade"; the
+LIVE one, the surface with the money, said nothing), and is guarded against
+fabricated `[skill] result:` BLOCKS only, so a prose "Done, I closed it" passed
+untouched. `close_position` is a routed intent now, like `help` and `status`,
+not a skill: Telegram answers with the positions card, whose owner-checked
+Close button is the only honest door (`/liveclose` is admin-only, takes a
+trade id and closes unconfirmed — the wrong door for free text), the web
+names that door, and the live prompt states what the public one always did.
+The notice ends "Nothing has been closed", because a request to act that is
+answered at all must say whether anything acted. **The rule names BOTH doors**
+— its first draft named only the close one, so "buy ETH" would have been sent
+to the positions card's Close button; `/trade` (a Confirm card that places
+nothing until tapped) is the entry door, read off the code before it was named.
+And the corollary sweep found `/sell`, a trader's command, telling the trader
+to run `/liveclose`.
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live
