@@ -116,6 +116,53 @@ _CHAT_NO_TOOLS_RULE = (
     "executed when nothing did. If a fresh scan is needed, say so in your "
     "own words.\n\n"
 )
+#: The boundary the LIVE prompt never stated. The public prompt has always
+#: said "You canNOT place, propose, size or modify any trade"; the live one —
+#: the surface with the money — said nothing, so a user typing "close my ETH"
+#: reached a model with no tool that acts and no rule against narrating one.
+#: The fabrication guard (`bot/nlp/fabricated_tool_calls.py`) strips the
+#: `[skill] result:` block shape; a prose "Done, closed" is not that shape.
+#:
+#: Both doors, because a rule that names only the close door sends "buy ETH"
+#: to the positions card. Each claim was read off the code: /trade renders a
+#: Confirm/Cancel card and `register_manual_idea` places nothing
+#: (`trading_commands._cmd_trade`); the web's trade ticket and the "Trade
+#: this" button under a setup both go through /api/trade/propose -> confirm
+#: (`chat.js appendSetupAction`, `dashboard.js ticketForm`); and /liveclose
+#: is deliberately NOT named — admin-only, and it closes unconfirmed.
+_CHAT_CANNOT_ACT_RULE = (
+    "- You cannot place, modify or close trades or orders from this chat, and "
+    "no tool here can. If asked to, say so and name the door. To OPEN a "
+    "trade: in Telegram, /trade (e.g. /trade long ETH 3000 sl 2900 tp 3300) "
+    "shows a card and places nothing until Confirm is tapped; on the web, the "
+    "trade ticket or the 'Trade this' button under a setup does the same. To "
+    "CLOSE one: open the position on the positions card and tap Close. Never "
+    "say a trade was placed, changed or closed unless a tool result in THIS "
+    "turn says so.\n"
+)
+
+
+def close_intent_notice(symbol: str | None = None, surface: str = "telegram") -> str:
+    """What a routed close request is told, on both surfaces.
+
+    One function so the Telegram card, the web reply and the prompt rule
+    above name the same door in the same words. It ends by saying nothing
+    was closed, because a routed request that silently shows a list reads
+    as "it did not understand me" — and a request to act that is answered
+    at all must say whether anything acted.
+    """
+    if surface == "web":
+        what = f"your {symbol} position" if symbol else "a position"
+        return (f"I don't close positions from chat, and nothing here can. Closing "
+                f"{what} is done from the positions card in Telegram: open the "
+                "position and tap <b>Close</b> (an admin can also use "
+                "<code>/liveclose TRADE_ID</code>). Nothing has been closed.")
+    which = f"the {symbol} one" if symbol else "the one you mean"
+    return ("I don't close positions from chat, and nothing in this conversation "
+            f"can. Your positions are below \u2014 open {which} and tap <b>Close</b>. "
+            "Nothing has been closed.")
+
+
 _CHAT_TOOLS_RULE = (
     "- You have TOOLS in this conversation (they are listed in the API tool "
     "definitions). When the answer depends on the user's account, positions, "
