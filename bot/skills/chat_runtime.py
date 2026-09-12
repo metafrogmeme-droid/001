@@ -27,7 +27,7 @@ import threading
 import time
 from collections import defaultdict
 
-from bot.utils.i18n import t
+from bot.utils.i18n import chat_language_name, t
 from bot.utils.logger import audit, system_log
 
 logger = logging.getLogger(__name__)
@@ -245,7 +245,41 @@ _PUBLIC_REPLY_CONTRACTS: dict[str, str] = {
 }
 
 
-def reply_contract(mode: str = "", public: bool = False) -> str:
+#: `standard` IS THE FALLTHROUGH, and that is the whole of this reading.
+#: `_detect_reply_mode` tries five regex sets in order and returns `standard`
+#: when none of them fires — no pattern produces the word, which
+#: `tests/test_the_shape_of_a_turn_nobody_could_read.py` pins by driving every
+#: branch. So the same value carries two different facts:
+#:
+#:   in English   — the five had a fair chance and none matched, which is a
+#:                  real reading: this is a general question;
+#:   in any other — the patterns are English and could not have matched
+#:   language      whatever was typed, so nothing was measured at all.
+#:
+#: Asserting "answer in 3-8 lines, add a closing what-to-watch line only if…"
+#: off the second one is a shape claimed from no evidence, on thirteen of the
+#: fourteen languages this product ships in. It is the quiet half of the defect
+#: this module already fixed loudly: absent rendered as a measurement.
+#:
+#: A POSITIVE MATCH IS STILL TRUSTED in every language. "scan BTC" typed by a
+#: Spanish reader really did match `_SCAN_PATTERNS`, and a match is evidence
+#: wherever it happens; only the fallthrough is empty.
+_UNREAD_CONTRACT = (
+    "THIS TURN: the shape of this question was NOT classified. The detector "
+    "that picks an answer shape reads English patterns, this turn is in "
+    "another language, and it fell through rather than measuring anything — "
+    "so no length or structure is being prescribed here, because none was "
+    "read. Match the answer to what was actually asked: a one-line question "
+    "gets a one-line answer, a request for a full analysis gets sections, "
+    "somebody who sounds new gets terms defined inline. Everything else "
+    "holds — any number you cannot source from a block in this prompt is one "
+    "you leave out, not one you estimate, and a closing 'what to watch' line "
+    "is earned only when the answer was about a market or an open position."
+)
+
+
+def reply_contract(mode: str = "", public: bool = False,
+                   reply_lang: str = "") -> str:
     """The one response contract for this turn.
 
     Unknown or empty falls back to `standard` rather than to nothing: a turn
@@ -256,10 +290,22 @@ def reply_contract(mode: str = "", public: bool = False) -> str:
     contract rather than suppressing one — see `_PUBLIC_REPLY_CONTRACTS`. A
     visitor who asks for a scan still gets an answer; what they do not get is
     a document shaped like a reading nobody took.
+
+    ``reply_lang`` is the language the model has been told to answer in, and
+    it decides whether the FALLTHROUGH means anything — see
+    `_UNREAD_CONTRACT`. The test is `chat_language_name`, which is already the
+    reading `_llm_chat` uses to decide whether to issue a LANGUAGE directive
+    at all: it answers "" for English, for empty, and for a code it does not
+    know — exactly the cases where the reply comes back in English and the
+    English detector therefore had a fair chance. Reusing it rather than
+    writing a second language test is the rule `winrate-bar.js` states about
+    `MIN_RATED`: a second copy of a threshold is a second answer.
     """
     key = str(mode or "").strip().lower()
     if key not in _REPLY_CONTRACTS:
         key = DEFAULT_REPLY_MODE
+    if key == DEFAULT_REPLY_MODE and chat_language_name(reply_lang):
+        return "\n\nHOW LONG AND WHAT SHAPE\n" + _UNREAD_CONTRACT + "\n"
     body = _PUBLIC_REPLY_CONTRACTS[key] if (
         public and key in _PUBLIC_REPLY_CONTRACTS) else _REPLY_CONTRACTS[key]
     return "\n\nHOW LONG AND WHAT SHAPE\n" + body + "\n"
