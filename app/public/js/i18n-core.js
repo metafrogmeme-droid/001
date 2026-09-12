@@ -577,6 +577,11 @@
     "dd.ct_trade_this": { en: "Trade this" },
     "dd.ct_read_chart": { en: "📎 Read a chart" },
     "dd.ct_cancel": { en: "Cancel" },
+    "dd.ct_chip_what_is": { en: "What is RUNECLAW?" },
+    "dd.ct_chip_risk": { en: "How does it manage risk?" },
+    "dd.ct_chip_sweep": { en: "What is a liquidity sweep?" },
+    "dd.ct_chip_leverage": { en: "How does leverage work?" },
+    "dd.ct_chip_venues": { en: "Which exchanges are supported?" },
     "a11y.main": { en: "Main" },
     "a11y.open_menu": { en: "Open menu" },
     "a11y.close": { en: "Close" },
@@ -1837,7 +1842,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0331c883","zh":"9848ee10","pt":"a5bbb8d2","fr":"f8105ddb","de":"ad4d6b53","nl":"0f8b2c3b","ja":"207ad028","ko":"539ff795","ru":"98709bbc","tr":"fdb7be33","it":"96898208","hi":"b6ecd6ba","ar":"49b09e33"};
+  var CHUNKS = {"es":"b06021bb","zh":"f830b6c5","pt":"8afa93f4","fr":"dbbbf504","de":"55de097b","nl":"56d3314d","ja":"cb569fa4","ko":"2584164d","ru":"31b985e5","tr":"13f44568","it":"cddb190c","hi":"a53f3a58","ar":"da9190bb"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

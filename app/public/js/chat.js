@@ -331,10 +331,20 @@
   // Suggestion chips — quick prompts that mirror the Telegram quick actions.
   // Shown when the conversation is fresh; hidden once the user is chatting.
   // Anonymous visitors get market/education prompts only (no account actions).
+  // A chip's text is BOTH the label and the message it sends, which is why the
+  // public five carry a key and the signed-in list does not. Localising a
+  // public chip is all upside: the visitor reads their own language, sends it,
+  // and the model answers in it (the FAQ correctly defers, because its triggers
+  // are English — see bot/core/faq_kb.py). Localising a signed-in chip would
+  // send translated text to a rule router that parses ENGLISH, silently
+  // downgrading a skill dispatch to generic chat, so those stay English until
+  // label and payload are separated.
   const CHIP_PROMPTS = PUBLIC ? [
-    'What is RUNECLAW?', 'How does it manage risk?',
-    'What is a liquidity sweep?', 'How does leverage work?',
-    'Which exchanges are supported?',
+    { key: 'dd.ct_chip_what_is', en: 'What is RUNECLAW?' },
+    { key: 'dd.ct_chip_risk', en: 'How does it manage risk?' },
+    { key: 'dd.ct_chip_sweep', en: 'What is a liquidity sweep?' },
+    { key: 'dd.ct_chip_leverage', en: 'How does leverage work?' },
+    { key: 'dd.ct_chip_venues', en: 'Which exchanges are supported?' },
   ] : [
     // Pro-desk workflow: brief -> find conviction -> execute -> review.
     'Give me a market briefing', "What's the highest-conviction setup right now?",
@@ -366,8 +376,20 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip chat-chip';
-      b.textContent = p;
-      b.addEventListener('click', () => { send(p); });
+      if (typeof p === 'string') {
+        b.textContent = p;
+      } else {
+        // `data-i18n` so RCI18N.apply() re-translates this button when the
+        // reader switches language mid-session — the chips are built once, on
+        // open, so without it they would keep the language they were rendered
+        // in while every marked-up string on the page changed around them.
+        b.setAttribute('data-i18n', p.key);
+        b.textContent = T(p.key, p.en);
+      }
+      // Read at CLICK time, not captured at build time. The label and the
+      // message are then the same string by construction and cannot drift —
+      // including across the language switch above, which rewrites the label.
+      b.addEventListener('click', () => { send(b.textContent); });
       chipsEl.appendChild(b);
     });
   }

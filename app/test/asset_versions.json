@@ -40,8 +40,8 @@
     "sha": "80eb4148dded43a9"
   },
   "js/chat.js": {
-    "v": 31,
-    "sha": "5601758e69d569e2"
+    "v": 32,
+    "sha": "afb18fa3dc90cf93"
   },
   "js/creds-gate-model.js": {
     "v": 1,
@@ -104,8 +104,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 139,
-    "sha": "9008e42b763fb3b1"
+    "v": 140,
+    "sha": "a79a1b2a1f7503b5"
   },
   "js/icons.js": {
     "v": 5,
