@@ -101,9 +101,14 @@ async def test_missing_order_id_treated_as_unverifiable():
 
 
 def test_cmd_orders_uses_resolver_not_guesswork():
+    """The read moved to bot/core/open_orders.py; the command asks it, and it
+    is the read that resolves a desync rather than guessing."""
+    from bot.core import open_orders
     from bot.skills.telegram_handler import TelegramHandler
     src = inspect.getsource(TelegramHandler._cmd_orders)
-    assert "_resolve_desync_orders" in src
+    assert "open_orders_for(" in src
+    assert "read_open_orders(" in inspect.getsource(open_orders.open_orders_for)
+    assert "resolve_desync_orders(" in inspect.getsource(open_orders.read_open_orders)
     assert "They may have" not in src        # the old guessing text is gone
 
 

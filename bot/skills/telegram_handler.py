@@ -325,7 +325,9 @@ def _live_positions_block(executor, marks: dict | None = None) -> str:
                 + "\n".join(plines)
                 + "\nNever describe these as open positions or as "
                 "something the user is holding. They may already have been "
-                "cancelled or expired; /orders asks the exchange.")
+                "cancelled or expired; the get_orders tool asks the exchange "
+                "(so does /orders) -- call it before telling the user what "
+                "is resting.")
     return out
 
 

@@ -38,7 +38,8 @@ class TestSynthOrder:
 
     def test_tolerates_missing_fields(self):
         o = H._synth_order_from_tracked(SimpleNamespace())
-        assert o["type"] == "limit" and o["price"] == 0 and o["datetime"] == ""
+        # An absent price is not a price of zero: the row prints "unread".
+        assert o["type"] == "limit" and o["price"] is None and o["datetime"] == ""
 
 
 class TestReconcile:

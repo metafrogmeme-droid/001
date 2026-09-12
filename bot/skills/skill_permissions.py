@@ -73,6 +73,14 @@ SKILL_PERMISSION: dict[str, str] = {
     # /daily_report are both @guard("journal") — and absent from
     # WEB_CHAT_SKILLS below, which is where reachability is decided.
     "trade_journal": "journal",
+    # /orders is @guard("portfolio"), the permission `get_portfolio` already
+    # reuses: the same account, one column over (what is RESTING rather than
+    # what is HELD). The intent router had named `get_orders` for months
+    # while no such skill was registered — Telegram special-cased the name
+    # to the command, the web aliased it to `get_portfolio`, and the chat
+    # tool catalogue had nothing. Derived from the decorator, like every
+    # entry above; the web set below picks it up by construction.
+    "get_orders": "portfolio",
     # `halt` IS the fact and it is deliberately in no transport's set. See
     # DANGEROUS_SKILLS.
     "halt": "halt",

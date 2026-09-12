@@ -854,6 +854,43 @@ class CheckRiskSkill(BaseSkill):
 # PORTFOLIO
 # ══════════════════════════════════════════════════════════════
 
+class GetOrdersSkill(BaseSkill):
+    """Open and pending orders as the exchange reports them, for the caller's
+    OWN account.
+
+    THE ROUTER NAMED THIS SKILL FOR MONTHS AND NOTHING ANSWERED TO IT.
+    `intent_router` sends "my open orders", "what's pending", "my limit
+    orders" to `get_orders`; Telegram special-cased that to /orders, the web
+    aliased it to `get_portfolio` (a positions card, for a question about
+    orders), and no chat tool could ask the exchange at all — the prompt's
+    own words were "/orders asks the exchange", to a model that cannot run a
+    slash command. One registered skill, one permission (the one /orders is
+    guarded with), and every surface reaches the same read.
+
+    Three outcomes, and the third is the point: the exchange's list, the
+    exchange's NONE, and an exchange that did not answer — said in words
+    that rule out "no orders", because a model handed an empty list would
+    tell the user nothing is resting.
+    """
+    name = "get_orders"
+    description = "Open/pending orders as the exchange reports them"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.core.open_orders import open_orders_for, render_open_orders_html
+        # /orders reads once for its PNG card and hands the reading in, then
+        # DISPATCHES this skill for the text — so the command's words are
+        # this skill's words, and the Telegram guard on /orders is the
+        # reference point the web permission is measured against.
+        reading = kwargs.get("reading")
+        if reading is None:
+            reading = await open_orders_for(engine, kwargs.get("user_id", "") or "")
+        out = render_open_orders_html(reading)
+        if reading.notes:
+            out = ("\U0001f50e <b>Pending order status</b>\n" + "\n".join(reading.notes)
+                   + "\n\n" + out)
+        return out
+
+
 class GetPortfolioSkill(BaseSkill):
     name = "get_portfolio"
     description = "Portfolio with PnL waterfall"
@@ -3319,7 +3356,7 @@ def build_default_registry() -> SkillRegistry:
 
     registry = SkillRegistry()
     for cls in (ScanMarketSkill, AnalyzeAssetSkill, CheckRiskSkill,
-                ExecutePaperTradeSkill, GetPortfolioSkill, ExplainTradeSkill,
+                ExecutePaperTradeSkill, GetPortfolioSkill, GetOrdersSkill, ExplainTradeSkill,
                 RunBacktestSkill, RejectedTradesSkill, HaltSkill,
                 WalkForwardSkill, MacroCalendarSkill, TradeJournalSkill,
                 CostBreakdownSkill, RunStrategySkill,

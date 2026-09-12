@@ -86,6 +86,15 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "trade PnL and win rate. Call this for any question about their money, "
         "positions or performance rather than recalling an earlier turn."),
     ChatTool(
+        "get_orders",
+        "The caller's OPEN and PENDING ORDERS as the exchange reports them right "
+        "now: resting limit orders with distance to fill, stop-loss and take-"
+        "profit trigger orders, reconciled against the bot's own pending records. "
+        "Call this for any question about open, pending or limit orders. ACTIVE "
+        "POSITIONS in the prompt lists positions, not orders, and its UNFILLED "
+        "LIMIT ORDERS section is the bot's own record, unconfirmed — this tool "
+        "is what asks the exchange."),
+    ChatTool(
         "check_risk",
         "Current risk status: drawdown against the limit, exposure, circuit "
         "breaker, whether new entries are halted and why."),

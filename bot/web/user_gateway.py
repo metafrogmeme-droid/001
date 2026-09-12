@@ -505,12 +505,15 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     if intent.matched and intent.confidence >= 0.8:
         # Router intents whose skills exist only as Telegram command handlers:
         # map them to the closest registered skill so a web ask ACTS instead
-        # of degrading to generic chat.
+        # of degrading to generic chat. `get_orders` LEFT this map: it aliased
+        # a question about ORDERS to the POSITIONS card, so "show my open
+        # orders" answered "no positions" over resting limits. It is a
+        # registered skill now and routes to itself.
         _INTENT_ALIASES = {
             "scan_swing": "scan_market", "scan_scalp": "scan_market",
             "scan_intraday": "scan_market", "scan_deep": "scan_market",
             "scan_full": "scan_market",
-            "status": "get_portfolio", "get_orders": "get_portfolio",
+            "status": "get_portfolio",
         }
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
         skill = tg_handler.registry.get(skill_name)
