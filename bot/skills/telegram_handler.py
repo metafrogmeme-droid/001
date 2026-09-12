@@ -1926,7 +1926,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # contracts ask for numbers, and the public prompt is the one with no
         # ticker block, no portfolio and no history to source them from. The
         # override is in chat_runtime.py beside the contracts it replaces.
-        system_prompt += reply_contract(reply_mode, public=public)
+        # `reply_lang` RAW, not `_ui`. The question this answers is whether
+        # the model will answer in English, and `ui_lang` answers a different
+        # one — which of the fourteen DICTIONARY languages to use — so the two
+        # disagree wherever the model speaks a language the dictionary lacks.
+        # Polish is the live case: `ui_lang('pl')` is 'en' because there is no
+        # Polish dictionary, while `chat_language_name('pl')` is 'Polish' and
+        # the model is duly told to answer in it. Passing `_ui` would have
+        # handed a Polish reader the English fallthrough as though it were a
+        # reading.
+        system_prompt += reply_contract(reply_mode, public=public,
+                                        reply_lang=reply_lang)
 
         # Build fallback chain: own key → chat tier → fallback providers → primary
         import os
