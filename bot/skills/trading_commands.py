@@ -36,15 +36,20 @@ import asyncio
 import html
 import logging
 import time
-from datetime import datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from bot.compat import UTC
 from bot.config import CONFIG
-from bot.formatters.rich_cards import display_symbol, position_watch_line, render_open_positions
+from bot.core.open_orders import (
+    open_orders_for,
+    reconcile_open_orders,
+    render_open_orders_html,
+    resolve_desync_orders,
+    synth_order_from_tracked,
+)
+from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import thesis_prose
 from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
@@ -1124,344 +1129,98 @@ class TradingCommands:
 
     @staticmethod
     def _synth_order_from_tracked(p) -> dict:
-        """Build a ccxt-order-shaped dict from a bot-tracked pending_fill position.
-
-        Lets a bot-tracked pending limit flow through the same rendering path as
-        a real exchange order when the exchange query can't see it.
-        """
-        side = "buy" if getattr(p, "direction", "") == "LONG" else "sell"
-        opened = getattr(p, "opened_at", None)
-        return {
-            "id": getattr(p, "trade_id", "") or "",
-            "symbol": getattr(p, "symbol", "") or "",
-            "type": "limit",
-            "side": side,
-            "price": getattr(p, "entry_price", 0) or 0,
-            "amount": getattr(p, "quantity", 0) or 0,
-            "remaining": getattr(p, "quantity", 0) or 0,
-            "filled": 0,
-            "status": "open",
-            "triggerPrice": 0,
-            "datetime": opened.isoformat() if opened is not None else "",
-        }
+        """See bot/core/open_orders.py — kept as a name two suites drive."""
+        return synth_order_from_tracked(p)
 
     @staticmethod
     def _reconcile_open_orders(exchange_orders, tracked_pending, per_symbol_orders):
-        """Decide what /openorders should display, reconciling the live exchange
-        query with the bot's own tracked pending_fill orders.
-
-        Returns ``(orders, desync)`` where ``desync`` is True when the exchange
-        reports nothing but the bot is still tracking pending limit(s) — i.e. the
-        bot-tracked records are being surfaced and should carry a warning.
-
-        Priority:
-          1. account-wide exchange result, if non-empty (source of truth);
-          2. else, if the bot tracks nothing pending, genuinely empty;
-          3. else, the per-symbol re-fetch result, if it found anything;
-          4. else, the bot-tracked records, flagged as a possible desync.
-        """
-        if exchange_orders:
-            return list(exchange_orders), False
-        if not tracked_pending:
-            return [], False
-        if per_symbol_orders:
-            return list(per_symbol_orders), False
-        return [TradingCommands._synth_order_from_tracked(p) for p in tracked_pending], True
+        """See bot/core/open_orders.py — kept as a name two suites drive."""
+        return reconcile_open_orders(exchange_orders, tracked_pending, per_symbol_orders)
 
     async def _resolve_desync_orders(self, exchange, tracked_pending):
-        """Resolve an open-orders desync definitively instead of guessing.
-
-        When fetch_open_orders (account-wide AND per-symbol) shows nothing
-        but the bot still tracks pending limits, the truth is one
-        fetch_order call away: open-order queries exclude filled/cancelled
-        orders BY DESIGN, so "exchange shows nothing" usually just means
-        "it filled seconds ago" (live case 2026-07-13: a SHORT limit below
-        market — marketable, cannot rest — showed as a scary desync when
-        it had simply filled). Query each tracked order by id and report
-        what actually happened.
-
-        Returns ``(notes, synth_orders)``: human-readable resolution lines,
-        and ccxt-shaped dicts for records that still merit rendering as
-        open (order genuinely resting, or status unverifiable).
-        """
-        notes: list = []
-        synths: list = []
-        for p in tracked_pending:
-            oid = getattr(p, "limit_order_id", None)
-            sym = display_symbol(getattr(p, "symbol", ""))
-            side = getattr(p, "direction", "") or "?"
-            order = None
-            status = None
-            if oid:
-                try:
-                    order = await exchange.fetch_order(oid, p.symbol)
-                    status = (order.get("status") or "").lower()
-                except Exception:
-                    status = None
-            if status in ("closed", "filled"):
-                avg = float((order.get("average") or order.get("price") or 0)
-                            if order else 0)
-                notes.append(
-                    f"✅ {side} {sym} limit <b>FILLED</b>"
-                    + (f" @ ${avg:,.4f}" if avg > 0 else "")
-                    + " — the bot books the fill on its next check tick.")
-            elif status in ("canceled", "cancelled", "rejected", "expired"):
-                notes.append(
-                    f"❌ {side} {sym} limit <b>{status.upper()}</b> on the "
-                    "exchange — the bot clears it on its next check tick.")
-            elif status == "open":
-                # Genuinely resting — the open-orders queries missed it.
-                synths.append(self._synth_order_from_tracked(p))
-            else:
-                synths.append(self._synth_order_from_tracked(p))
-                notes.append(
-                    f"⚠️ {side} {sym}: order status could not be verified — "
-                    "possible desync; the bot reconciles on its next tick.")
-        return notes, synths
+        """See bot/core/open_orders.py — kept as a name two suites drive."""
+        return await resolve_desync_orders(exchange, tracked_pending)
 
     @guard("portfolio")
     async def _cmd_orders(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show open/pending orders on Bitget exchange."""
+        """Show open/pending orders as the exchange reports them.
 
-        await self._send(update, "<i>Fetching open orders from Bitget...</i>")
+        One read (`open_orders_for`, the caller's OWN account), then the
+        `get_orders` SKILL is dispatched for the text with that reading handed
+        in — so the words on this card are the words the web and the chat
+        tool get, and this guard is the reference point the web permission
+        for `get_orders` is measured against
+        (tests/test_web_and_scan_authorization.py derives it from exactly
+        this dispatch). The PNG card is this command's add-on, built from the
+        same reading.
 
-        try:
-            exchange = await self.engine.live_executor._get_exchange()
-
-            # Fetch all open orders (limit orders, trigger orders, SL/TP)
-            open_orders = await exchange.fetch_open_orders(
-                params={"productType": "USDT-FUTURES"})
-
-            # Reconcile with the bot's own tracked pending limit orders.
-            # /livepositions reads these from live_executor._positions; the
-            # account-wide query above can miss them (Bitget's no-symbol futures
-            # order query is unreliable), which makes the two commands disagree.
-            # When that happens, retry per-symbol, and if the exchange still
-            # shows nothing, surface the bot-tracked orders with a desync warning
-            # instead of flatly reporting "none".
-            try:
-                tracked_pending = [
-                    p for p in self.engine.live_executor._positions.values()
-                    if getattr(p, "status", "") == "pending_fill"
-                ]
-            except Exception:
-                tracked_pending = []
-
-            per_symbol_orders: list = []
-            if not open_orders and tracked_pending:
-                seen_ids: set = set()
-                for _p in tracked_pending:
-                    try:
-                        _per = await exchange.fetch_open_orders(_p.symbol)
-                    except Exception:
-                        _per = []
-                    for _o in (_per or []):
-                        _oid = _o.get("id", "")
-                        if _oid not in seen_ids:
-                            seen_ids.add(_oid)
-                            per_symbol_orders.append(_o)
-
-            open_orders, _desync = self._reconcile_open_orders(
-                open_orders, tracked_pending, per_symbol_orders)
-
-            if _desync:
-                # Don't guess ("may have filled or been cancelled — verify
-                # on Bitget"): fetch each tracked order by id and say what
-                # actually happened. Filled/cancelled orders drop out of the
-                # open-orders rendering — they are not open.
-                notes, still_open = await self._resolve_desync_orders(
-                    exchange, tracked_pending)
-                open_orders = still_open
-                if notes:
-                    await self._send(update,
-                        "🔎 <b>Pending order status</b>\n\n"
-                        + "\n".join(notes))
-
-            if not open_orders:
-                await self._send(update,
-                    "<b>Open Orders</b>\n\n"
-                    "No pending orders on Bitget right now.\n\n"
-                    "<i>Tip: Use the \"Limit\" button when confirming a trade to set a custom limit price.</i>")
-                return
-
-            # Group by type
-            limit_orders = []
-            sl_orders = []
-            tp_orders = []
-            other_orders = []
-
-            from bot.config import CONFIG
-            expire_sec = CONFIG.limit_orders.expire_seconds
-            now_utc = datetime.now(UTC)
-
-            for o in open_orders:
-                otype = (o.get("type") or "").lower()
-                sym = display_symbol(o.get("symbol", ""))
-                side = (o.get("side") or "").upper()
-                price = float(o.get("price") or 0)
-                amount = float(o.get("amount") or o.get("remaining") or 0)
-                trigger = float(o.get("triggerPrice") or o.get("stopPrice") or 0)
-                filled = float(o.get("filled") or 0)
-                status = o.get("status", "open")
-                oid = o.get("id", "")[:12]
-                created = o.get("datetime", "")[:16] if o.get("datetime") else ""
-
-                # Calculate time remaining until expiry
-                ttl_str = ""
-                raw_dt = o.get("datetime") or ""
-                if raw_dt and otype == "limit":
-                    try:
-                        from datetime import datetime as _dt
-                        created_dt = _dt.fromisoformat(raw_dt.replace("Z", "+00:00"))
-                        age_sec = (now_utc - created_dt).total_seconds()
-                        remaining = max(0, expire_sec - age_sec)
-                        if remaining <= 0:
-                            ttl_str = " | \u23f0 expiring..."
-                        else:
-                            hrs = int(remaining // 3600)
-                            mins = int((remaining % 3600) // 60)
-                            if hrs > 0:
-                                ttl_str = f" | \u23f0 {hrs}h {mins}m left"
-                            else:
-                                ttl_str = f" | \u23f0 {mins}m left"
-                    except Exception:
-                        pass
-
-                entry = {
-                    "sym": sym, "side": side, "price": price,
-                    "trigger": trigger, "amount": amount, "filled": filled,
-                    "status": status, "oid": oid, "created": created, "type": otype,
-                    "ttl_str": ttl_str,
-                }
-
-                if "stop" in otype or "loss" in otype:
-                    sl_orders.append(entry)
-                elif "take" in otype or "profit" in otype:
-                    tp_orders.append(entry)
-                elif otype == "limit":
-                    limit_orders.append(entry)
-                else:
-                    other_orders.append(entry)
-
-            lines = [f"<b>Open Orders ({len(open_orders)})</b>", ""]
-
-            # Fetch current prices for distance-to-fill calculation
-            limit_syms = list({o["sym"] for o in limit_orders}) if limit_orders else []
-            limit_prices_map: dict[str, float] = {}
-            if limit_syms:
-                try:
-                    # Map display symbols back to exchange symbols for ticker fetch
-                    _raw_syms = list({
-                        raw_o.get("symbol", "") for raw_o in open_orders
-                        if display_symbol(raw_o.get("symbol", "")) in limit_syms
-                    })
-                    if _raw_syms:
-                        _tickers = await exchange.fetch_tickers(_raw_syms)
-                        for _s, _t in _tickers.items():
-                            limit_prices_map[display_symbol(_s)] = float(_t.get("last") or 0)
-                except Exception:
-                    pass
-
-            if limit_orders:
-                lines.append(f"<b>\U0001f4cb Limit Orders ({len(limit_orders)}):</b>")
-                lines.append("")
-                for o in limit_orders:
-                    d_icon = "\U0001f7e2" if o["side"] == "BUY" else "\U0001f534"
-                    dir_label = "LONG" if o["side"] == "BUY" else "SHORT"
-                    fill_str = f" ({o['filled']:.4f} filled)" if o["filled"] > 0 else ""
-                    cur_price = limit_prices_map.get(o["sym"], 0)
-
-                    lines.append(f"{d_icon} <b>{o['sym']} {dir_label}</b> \u2014 Limit Order")
-                    lines.append(f"  \U0001f4cd Limit: <code>${o['price']:,.4f}</code>{fill_str}")
-                    if cur_price > 0:
-                        dist = ((cur_price - o['price']) / cur_price) * 100
-                        fill_hint = "\u2b07\ufe0f" if (o["side"] == "BUY" and cur_price > o['price']) else (
-                            "\u2b06\ufe0f" if (o["side"] != "BUY" and cur_price < o['price']) else "\u2705")
-                        lines.append(f"  \U0001f4b2 Current: <code>${cur_price:,.4f}</code>  {fill_hint} {dist:+.2f}% to fill")
-                    lines.append(f"  \U0001f4b0 Qty: <code>{o['amount']:.4f}</code>{o['ttl_str']}")
-                    lines.append(f"  ID: <code>{o['oid']}</code>")
-                    if o['created']:
-                        lines.append(f"  \u23f3 Placed: {o['created']}")
-                    lines.append("")
-
-            if sl_orders:
-                lines.append(f"<b>Stop-Loss Orders ({len(sl_orders)}):</b>")
-                for o in sl_orders:
-                    trigger_str = f"trigger ${o['trigger']:,.4f}" if o['trigger'] > 0 else ""
-                    lines.append(
-                        f"  \U0001f6d1 <b>{o['sym']}</b> {o['side']} {trigger_str}")
-                lines.append("")
-
-            if tp_orders:
-                lines.append(f"<b>Take-Profit Orders ({len(tp_orders)}):</b>")
-                for o in tp_orders:
-                    trigger_str = f"trigger ${o['trigger']:,.4f}" if o['trigger'] > 0 else ""
-                    lines.append(
-                        f"  \U0001f3af <b>{o['sym']}</b> {o['side']} {trigger_str}")
-                lines.append("")
-
-            if other_orders:
-                lines.append(f"<b>Other ({len(other_orders)}):</b>")
-                for o in other_orders:
-                    lines.append(
-                        f"  <b>{o['sym']}</b> {o['side']} {o['type']} "
-                        f"@ <code>${o['price']:,.4f}</code>")
-                lines.append("")
-
-            lines.append("<i>Source: Bitget USDT-M Futures</i>")
-
-            # ── Render orders card image ──
-            card_sent = False
-            try:
-                from bot.formatters.signal_card import render_orders_card
-                all_display_orders = limit_orders + sl_orders + tp_orders + other_orders
-                card_data = []
-                for o in all_display_orders[:6]:
-                    cur_price = limit_prices_map.get(o["sym"], 0)
-                    dist = ((cur_price - o['price']) / cur_price * 100) if cur_price > 0 and o['price'] > 0 else 0
-                    card_data.append({
-                        "sym": o["sym"],
-                        "side": o["side"],
-                        "price": o["price"],
-                        "current_price": cur_price,
-                        "amount": o["amount"],
-                        "ttl_str": o.get("ttl_str", ""),
-                        "oid": o["oid"],
-                        "created": o.get("created", ""),
-                        "type": o["type"],
-                        "dist_pct": dist,
-                    })
-                now_str = datetime.now(UTC).strftime('%H:%M UTC')
-                card_png = render_orders_card(card_data, timestamp=now_str)
-                if card_png:
-                    import io as _io
-                    buf = _io.BytesIO(card_png)
-                    buf.name = "orders.png"
-                    chat_id = str(update.effective_chat.id) if update.effective_chat else ""
-                    if chat_id:
-                        await update.get_bot().send_photo(
-                            chat_id=int(chat_id), photo=buf,
-                            caption=f"\U0001f4cb <b>Open Orders</b> — {now_str}",
-                            parse_mode="HTML")
-                        card_sent = True
-            except Exception as exc:
-                system_log.warning("Orders card render failed: %s", exc)
-
-            if not card_sent:
-                await self._send(update, "\n".join(lines))
-            # Always send text as well for copy-paste of IDs
-            if card_sent:
-                # Send compact text with order IDs only
-                id_lines = ["<b>Order IDs</b> (for cancel):"]
-                for o in all_display_orders[:6]:
-                    dir_l = "LONG" if o["side"] == "BUY" else "SHORT"
-                    id_lines.append(f"  {o['sym']} {dir_l} — <code>{o['oid']}</code>")
-                await self._send(update, "\n".join(id_lines))
-
-        except Exception as exc:
-            logger.error(f"Orders fetch error: {exc}", exc_info=True)
+        Two things changed on the way. THE ACCOUNT: this read
+        `self.engine.live_executor` — the operator's book — for every caller,
+        the leak `GetPortfolioSkill` records having fixed with
+        `viewer_executor`; the resolver lives in the read now. THE THIRD
+        OUTCOME: an unreadable order book is said to be unreadable, in words
+        that rule out "no orders".
+        """
+        uid = str(update.effective_user.id) if update.effective_user else ""
+        await self._send(update, "<i>Fetching open orders from the exchange...</i>")
+        reading = await open_orders_for(self.engine, uid)
+        if reading.unavailable == "unreadable":
+            logger.error("Orders fetch error: %s", reading.error_kind)
+        text = await self.registry.dispatch("get_orders", self.engine,
+                                            user_id=uid, reading=reading)
+        if reading.state != "read":
+            await self._send(update, text)
+            return
+        if reading.notes:
             await self._send(update,
-                f"\U0001f534 <b>Failed to fetch orders:</b> <code>{_safe_exc_text(exc)}</code>")
+                "\U0001f50e <b>Pending order status</b>\n\n" + "\n".join(reading.notes))
+            text = render_open_orders_html(reading)
+
+        # ── Render orders card image ──
+        # Rows whose price the venue did not state stay OUT of the PNG (its
+        # renderer prints a float, and 0.0 there is the defect the seam
+        # exists to stop) and the text goes out beside the card when any
+        # row was left off it, so nothing resting goes unshown.
+        card_sent = False
+        priced = [o for o in reading.orders if o["price"] is not None and o["price"] > 0]
+        try:
+            from bot.formatters.signal_card import render_orders_card
+            card_data = []
+            for o in priced[:6]:
+                cur = reading.prices.get(o["sym"])
+                dist = ((cur - o["price"]) / cur * 100) if cur is not None and cur > 0 else 0
+                card_data.append({
+                    "sym": o["sym"], "side": o["side"], "price": o["price"],
+                    "current_price": cur if cur is not None else 0,
+                    "amount": o["amount"] if o["amount"] is not None else 0,
+                    "ttl_str": o.get("ttl_str", ""), "oid": o["oid"],
+                    "created": o.get("created", ""), "type": o["type"],
+                    "dist_pct": dist,
+                })
+            now_str = reading.read_at.strftime('%H:%M UTC')
+            card_png = render_orders_card(card_data, timestamp=now_str) if card_data else None
+            if card_png:
+                import io as _io
+                buf = _io.BytesIO(card_png)
+                buf.name = "orders.png"
+                chat_id = str(update.effective_chat.id) if update.effective_chat else ""
+                if chat_id:
+                    await update.get_bot().send_photo(
+                        chat_id=int(chat_id), photo=buf,
+                        caption=f"\U0001f4cb <b>Open Orders</b> \u2014 {now_str}",
+                        parse_mode="HTML")
+                    card_sent = True
+        except Exception as exc:
+            system_log.warning("Orders card render failed: %s", exc)
+        if not card_sent or len(priced[:6]) < len(reading.orders):
+            await self._send(update, text)
+        if card_sent:
+            # Compact text with order IDs for copy-paste into cancel
+            id_lines = ["<b>Order IDs</b> (for cancel):"]
+            for o in priced[:6]:
+                dir_l = "LONG" if o["side"] == "BUY" else "SHORT"
+                id_lines.append(f"  {o['sym']} {dir_l} \u2014 <code>{o['oid']}</code>")
+            await self._send(update, "\n".join(id_lines))
 
     @guard("portfolio")
     async def _cmd_open_positions(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

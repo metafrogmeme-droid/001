@@ -386,6 +386,12 @@ class TestTheTableDoesNotDrift:
             # kept it dark was recorded as a COST objection, and cost is the
             # tier gate's job: `quant_analyze` is `pro` there, beside deepscan.
             "quant_analyze": "analyze",
+            # /orders is @guard("portfolio") — the same account get_portfolio
+            # describes, one column over. The router had named `get_orders`
+            # for months with nothing registered under it; the web aliased
+            # it to the positions card. A real skill now, so it routes to
+            # itself here and is a chat tool on both surfaces.
+            "get_orders": "portfolio",
         }
 
     def test_halt_reaches_no_chat_transport(self):

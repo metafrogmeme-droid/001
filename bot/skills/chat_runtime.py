@@ -119,8 +119,9 @@ _CHAT_NO_TOOLS_RULE = (
 _CHAT_TOOLS_RULE = (
     "- You have TOOLS in this conversation (they are listed in the API tool "
     "definitions). When the answer depends on the user's account, positions, "
-    "PnL, risk state, costs, the macro calendar, what is moving, or why a "
-    "trade was rejected, CALL the tool and answer from what it returns. A "
+    "open or pending orders, PnL, risk state, costs, the macro calendar, what "
+    "is moving, or why a trade was rejected, CALL the tool and answer from "
+    "what it returns. A "
     "tool's output is a measurement; your memory of an earlier turn is not — "
     "positions close and prices move. Earlier assistant turns may contain "
     "blocks like '[get_portfolio] result: ...': those were written by the "

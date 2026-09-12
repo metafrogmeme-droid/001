@@ -208,7 +208,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 770 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 762 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -563,6 +563,30 @@ restored from disk as `0.0` — was told to the model as having exited *at its
 entry*, beside the `PnL not recorded` the same block had just written for it.
 Fixing the positions row and leaving that one would have been "fixing two left
 the third" inside a single prompt.
+
+**A router rule that names a skill nobody registered is a door painted on a
+wall, and each transport had painted its own.** `intent_router` had sent "my
+open orders", "what's pending" and "my limit orders" to `get_orders` since the
+rule was written, and no skill answered to the name: Telegram special-cased it
+to `/orders` (worked), the web ALIASED it to `get_portfolio` — a question about
+ORDERS answered with the POSITIONS card, "no positions" over resting limits —
+and the chat model held no tool that asks the exchange while its own prompt
+told it "`/orders` asks the exchange", a slash command a model cannot run.
+Aliasing a question to the nearest answer is a confident wrong answer, and a
+prompt that names a command to a model is a deflection dressed as help. The
+read is `bot/core/open_orders.py` now — one seam every surface asks, with the
+venue's NONE and a venue that did not answer kept apart (the second is RAISED,
+never an empty list) — and `get_orders` is a registered skill under the
+permission `/orders` is guarded with, a chat tool on both surfaces. `/orders`
+reads once and DISPATCHES the skill for its words, which is not a nicety:
+`test_web_and_scan_authorization` measures the web's permission for a skill
+against the Telegram guard that dispatches it, and a command that renders the
+same seam directly gives the invariant nothing to compare — it refused the
+first draft for exactly that. Two more
+fell out of the extraction: `/orders` read `self.engine.live_executor` for
+every caller (the operator-book leak `GetPortfolioSkill` records fixing one
+skill over), and its classifier read ccxt's `type` alone, so every Bitget plan
+stop sat under "Other" at `@ $0.0000`.
 
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
@@ -1025,7 +1049,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 30 registered skills now: `/eventrisk` and
+reached. The backlog is **5** of 31 registered skills now: `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;
