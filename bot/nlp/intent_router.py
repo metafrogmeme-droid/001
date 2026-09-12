@@ -148,6 +148,16 @@ def _is_social_message(text: str) -> bool:
     return False
 
 
+def detect_reply_mode(text: str) -> str:
+    """The turn's shape, for a caller with no IntentResult to hand.
+
+    Public chat never runs skill resolution — an anonymous visitor has no
+    account to dispatch against — so it had no `IntentResult` and therefore no
+    mode, on exactly the turns (`bot`, `beginner`) the modes were written for.
+    """
+    return _detect_reply_mode(text)
+
+
 def _detect_reply_mode(text: str) -> str:
     """Detect the appropriate reply mode for the user's message.
 
@@ -620,7 +630,25 @@ class IntentRouter:
                 raw_text=text,
                 is_social=True,
                 explanation="Social/greeting message — route to conversational chat",
-                reply_mode="standard",
+                # DETECTED, not asserted. This branch is about ROUTING (no
+                # skill runs) and it was also answering a different question:
+                # it hard-coded the answer SHAPE to `standard` while the other
+                # three returns all detect one. That cost nothing while nothing
+                # read `reply_mode`; it costs a wrong contract now that the
+                # prompt does.
+                #
+                # `_is_social_message` is much wider than "hello". It calls any
+                # message of three words or fewer social unless it carries a
+                # trading word, and it matches a leading `bro|dude|mate|fam`,
+                # so "grid bot", "dca logic" and "bro can you explain a sweep"
+                # all arrive here -- an automation question and a beginner
+                # question, told to answer in the general shape.
+                #
+                # Nothing is lost on the messages the branch is FOR: every
+                # actually-social phrasing detects as `standard` on its own
+                # (tests/test_one_answer_shape_per_turn.py drives the list), so
+                # this substitutes a reading for a guess that agreed with it.
+                reply_mode=_detect_reply_mode(text),
             )
 
         symbol = _extract_symbol(text)

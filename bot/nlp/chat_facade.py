@@ -29,6 +29,7 @@ import asyncio
 from typing import Any, Optional
 
 from bot.nlp.conversation_store import ConversationStore
+from bot.nlp.intent_router import detect_reply_mode
 from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN, sanitize_chat_input
 from bot.skills.telegram_handler import TelegramHandler
 
@@ -86,6 +87,14 @@ async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
     answer, meta = await handler._llm_chat(
         sanitize_chat_input(text), user_id=user_id, user_name=user_name,
         is_admin=is_admin, public=public, reply_lang=reply_lang,
+        # The FOURTH general-chat surface, and the one with no router in front
+        # of it at all: an external program hands `ask()` a sentence, so there
+        # is no `IntentResult` here any more than on public chat. Detected from
+        # the same reading the other three use, or a caller reaching the one
+        # chat brain through the one documented door would be the only caller
+        # whose turn had no shape -- which is how `reply_mode` went unread on
+        # every surface for as long as it did.
+        reply_mode=detect_reply_mode(text),
         return_meta=True, surface=surface)
     tools = [str(t.get("name", "")) for t in (meta or {}).get("tools", [])]
     if remember:

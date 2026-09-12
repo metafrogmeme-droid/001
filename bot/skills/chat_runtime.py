@@ -133,6 +133,139 @@ _CHAT_TOOLS_RULE = (
 )
 
 
+#: THE RESPONSE CONTRACT FOR ONE TURN, and the rule is the one
+#: `_CHAT_TOOLS_RULE` states about itself two blocks up: exactly one of these
+#: is in the prompt on any turn, so the model is never told two answer shapes
+#: at once.
+#:
+#: It was told five. `_CHAT_SYSTEM_PROMPT` carried "Keep answers short and
+#: actionable", "Quick questions = 2-4 lines", "Scans = ~10-15 lines", "Keep
+#: Quick Mode under 50 words, Full Scan under 300 words" and a six-section
+#: SCAN FORMAT — every one of them, on every turn, including "thanks". It also
+#: named "Quick Mode" and "Full Scan" as though the model knew which it was in.
+#:
+#: IT COULD HAVE KNOWN. `intent_router._detect_reply_mode` classifies every
+#: free-text message into one of these six modes with five regex sets, and
+#: `IntentResult.reply_mode` has carried the answer since it was written --
+#: read by NOTHING outside that module, on any surface. The value was computed
+#: at `telegram_handler.py` line ~2616, sat in a local, and was dropped three
+#: hundred lines before the `_llm_chat` call that names its vocabulary.
+#:
+#: The numbers below are the prompt's OWN numbers. Nothing here is a new
+#: opinion about length; the change is that exactly one of them now applies.
+_REPLY_CONTRACTS: dict[str, str] = {
+    "quick": (
+        "THIS TURN: a short, direct question. Lead with the answer in the "
+        "first sentence, then at most one line of why. Under 50 words, 2-4 "
+        "lines, no headers, no sections. Do not add a closing prompt."
+    ),
+    "full_scan": (
+        "THIS TURN: a full analysis was asked for. Use these six headings, in "
+        "order, and keep the whole reply under 300 words:\n"
+        "  1. Verdict — bullish / bearish / choppy, and what to do\n"
+        "  2. Structure — trend, key levels\n"
+        "  3. Momentum — RSI, volume, order flow if relevant\n"
+        "  4. Long scenario / Short scenario\n"
+        "  5. Setup quality, 1-10\n"
+        "  6. What to watch next\n"
+        "Any number you cannot source from a block in this prompt is one you "
+        "leave out, not one you estimate."
+    ),
+    "execution": (
+        "THIS TURN: they are asking to act. Give entry, stop, target, the "
+        "size basis, and the ONE condition that would invalidate it — each on "
+        "its own line, under 120 words. Every price must come from a block in "
+        "this prompt; if one is missing, say which and stop rather than "
+        "completing the plan with an estimate. End with what to watch."
+    ),
+    "bot": (
+        "THIS TURN: about AUTOMATION — bot settings, DCA or grid logic, or "
+        "whether a setup suits an automated entry. Answer in RULES and "
+        "PARAMETERS (what triggers, what sizes, what stops it), not as a "
+        "discretionary market call. Under 150 words. Name any parameter you "
+        "could not read rather than supplying a typical value for it."
+    ),
+    "beginner": (
+        "THIS TURN: they sound new. One idea per sentence, and define each "
+        "term inline the first time it appears ('swept the lows — took out "
+        "the stops sitting under support'). No stacked jargon. Under 150 "
+        "words. End with the single next thing they should look at."
+    ),
+    "standard": (
+        "THIS TURN: answer the question that was asked, in 3-8 lines. Add a "
+        "closing 'what to watch' line ONLY if the answer was about a market "
+        "or an open position — on anything else it is filler, and a line "
+        "that appears whether or not it means anything is one the reader "
+        "learns to skip."
+    ),
+}
+
+#: The mode used when none was supplied. It is a REAL mode, not a stand-in for
+#: a missing measurement: the contract shapes how an answer reads and asserts
+#: nothing to the user, so defaulting costs no honesty. That is why this may
+#: default where a price or a P&L may not.
+DEFAULT_REPLY_MODE = "standard"
+
+#: THE TWO MODES WHOSE CONTRACT IS A REQUEST FOR NUMBERS. `full_scan` asks for
+#: six sections of structure and momentum; `execution` asks for an entry, a
+#: stop and a target. Both are answerable only where a reading can be sourced.
+DATA_BACKED_MODES = frozenset({"full_scan", "execution"})
+
+#: ...AND PUBLIC CHAT HAS NO READING TO SOURCE. `_llm_chat(public=True)` serves
+#: an anonymous visitor from a STATIC prompt: no portfolio, no positions, and
+#: no live ticker block. `_public_chat_turn` already refuses the scan-shaped
+#: asks its router predicate catches — but that predicate is about LIVE MARKET
+#: DATA and the mode is about ANSWER SHAPE, and the two disagree on real
+#: sentences: `needs_live_market_data` says False for "full analysis of ETH"
+#: and for "trade plan for btc", both of which detect as a data-backed mode.
+#:
+#: So handing the base contract to the public path would put a six-heading
+#: scan skeleton, or an entry/stop/target, into the prompt on the ONE surface
+#: that cannot source a single number — which is the thing the public gate
+#: exists to prevent, reintroduced one layer under it. The override says the
+#: same thing the gate says, in the model's voice, for the phrasings the
+#: predicate does not reach.
+_PUBLIC_REPLY_CONTRACTS: dict[str, str] = {
+    "full_scan": (
+        "THIS TURN: a full analysis was asked for, and you have NO live market "
+        "feed on this page. Say that in your first line — plainly, once, not "
+        "as an apology. Then give what you actually have: which signals a scan "
+        "reads and why, in under 150 words. Print no headings, no scores and "
+        "no levels; an empty scan skeleton reads as an analysis that found "
+        "nothing. Close by telling them a signed-in account gets the live one."
+    ),
+    "execution": (
+        "THIS TURN: they are asking for a trade plan, and you can neither read "
+        "a price nor place an order from this page. Say so in your first line. "
+        "Do NOT print an entry, a stop, a target or a size, including as an "
+        "example — a number in that shape is read as a plan whatever it is "
+        "labelled. Under 150 words: explain how the plan WOULD be built, then "
+        "point them to signing in and connecting their own exchange keys."
+    ),
+}
+
+
+def reply_contract(mode: str = "", public: bool = False) -> str:
+    """The one response contract for this turn.
+
+    Unknown or empty falls back to `standard` rather than to nothing: a turn
+    with no contract is a turn back under the five-at-once prompt this
+    replaced.
+
+    ``public`` is the anonymous-website surface, and it SELECTS a different
+    contract rather than suppressing one — see `_PUBLIC_REPLY_CONTRACTS`. A
+    visitor who asks for a scan still gets an answer; what they do not get is
+    a document shaped like a reading nobody took.
+    """
+    key = str(mode or "").strip().lower()
+    if key not in _REPLY_CONTRACTS:
+        key = DEFAULT_REPLY_MODE
+    body = _PUBLIC_REPLY_CONTRACTS[key] if (
+        public and key in _PUBLIC_REPLY_CONTRACTS) else _REPLY_CONTRACTS[key]
+    return "\n\nHOW LONG AND WHAT SHAPE\n" + body + "\n"
+
+
+
 async def _emit_event(on_event, event: dict) -> None:
     """Deliver one streaming event to a listener that may be sync or async.
     A listener observes a reply; it is never allowed to break one."""

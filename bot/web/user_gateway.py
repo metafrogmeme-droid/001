@@ -650,6 +650,9 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         is_admin=_is_admin,
         profile_note=profile_note, reply_lang=reply_lang, return_meta=True,
         surface="web",
+        # `intent` was classified above and carried the turn's shape; the
+        # prompt that names its vocabulary reads it now.
+        reply_mode=getattr(intent, "reply_mode", ""),
         **({"on_event": on_event} if on_event is not None else {}))
     # `meta` is empty exactly when NO MODEL ANSWERED — `_chat_ret` builds it
     # from `cfg`, which is None on the FAQ short-circuit and on every failure
@@ -798,10 +801,19 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
             "reply_html": t("chat_public_scan_gate", ui_lang(reply_lang)),
             "intent": "public_scan_gate"})
 
+    from bot.nlp.intent_router import detect_reply_mode
     from bot.nlp.sanitize import sanitize_chat_input
     answer = await tg_handler._llm_chat(
         sanitize_chat_input(text), user_id="", user_name="",
         is_admin=False, public=True, reply_lang=reply_lang,
+        # Detected here rather than read off an intent, because this path has
+        # no intent to read: an anonymous visitor has no account to dispatch a
+        # skill against, so `_public_chat_turn` never builds an `IntentResult`.
+        # `_llm_chat` resolves it against `public=True`, which is what keeps a
+        # scan-shaped ask off a surface with no feed -- the gate above refuses
+        # the phrasings its router predicate catches, and the contract answers
+        # the ones it does not ("full analysis of ETH" is False there).
+        reply_mode=detect_reply_mode(text),
         **({"on_event": on_event} if on_event is not None else {}))
     return web.json_response({"reply_html": answer, "intent": "chat"})
 

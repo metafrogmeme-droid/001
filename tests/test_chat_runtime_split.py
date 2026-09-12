@@ -92,11 +92,19 @@ def test_the_brain_stays_where_its_seams_are():
 
 
 def test_the_runtime_is_a_leaf():
-    src = inspect.getsource(rt)
-    assert "telegram_handler" not in src.split('"""', 2)[2], "no import back into the handler"
+    # code_only, not the raw source. This scanned raw text with the module
+    # docstring lopped off by `split('"""', 2)[2]`, so the first COMMENT to
+    # explain WHY the runtime is a leaf -- which has to name the handler it
+    # was cut out of -- failed the test that forbids importing it. Fifth time
+    # this repo has hit "a comment that quotes the string it forbids is
+    # indistinguishable from the code doing it"; the helper for it has existed
+    # in tests/source_scan.py the whole time.
+    from tests.source_scan import code_only
+    src = code_only(inspect.getsource(rt))
+    assert "telegram_handler" not in src, "no import back into the handler"
     assert "bot.core.engine" not in src
     assert "from bot.config" not in src, "no CONFIG here — the brain's patches would miss it"
-    for line in src.splitlines():
+    for line in inspect.getsource(rt).splitlines():
         if line.startswith(("from ", "import ")):
             assert "telegram" not in line, line
 
