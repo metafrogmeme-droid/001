@@ -617,6 +617,16 @@ RULES: list[Rule] = [
                                                  # ratio — market microstructure, no account
             "api_bridge.py:GET /patterns/{symbol}",
             "api_bridge.py:GET /insight/{symbol}",
+            # The SAME two handlers, registered a second time with the symbol
+            # as a query param. A slash-bearing symbol (`BTC/USDT`) cannot
+            # travel as a path segment: the ASGI server percent-decodes the
+            # path before Starlette matches, so `/insight/BTC%2FUSDT` arrives
+            # as two segments and reaches the StaticFiles mount instead. Same
+            # function, same public market data, same validation — the guard
+            # keys on METHOD+path, so one decorator per path needs one entry
+            # per path.
+            "api_bridge.py:GET /patterns",
+            "api_bridge.py:GET /insight",
             "api_bridge.py:GET /platform-url",   # a configured public URL
             # Legacy path redirects — one handler, no data.
             "api_bridge.py:GET /warroom", "api_bridge.py:GET /warroom.html",

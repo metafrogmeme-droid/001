@@ -1507,6 +1507,55 @@ Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.
 
+## A URL is a surface, and a slash in a path segment does not survive a hop
+
+**Every symbol this product names has a slash in it, and two panels sent the
+one URL shape that never arrives.** `app/routes/insight.js` and
+`app/routes/patterns.js` each built
+`${BOT_API_URL}/<route>/${encodeURIComponent(sym)}` — a percent-encoded
+`BTC%2FUSDT` as a PATH SEGMENT. Measured live on 2026-09-13, same host, same
+minute: `/patterns/BTCUSDT` → **200 with a real read**,
+`/patterns/BTC%2FUSDT` → **404 carrying the WEBSITE'S HTML**. `fetchJSON`
+then failed to parse the HTML and the panel showed a 502, which reads as
+*the bridge is down* about a bridge answering every other request correctly.
+
+**"The proxy in front of it" was the first guess and driving it disproved
+that.** The ASGI server percent-decodes the path into `scope["path"]` BEFORE
+Starlette matches, so `/insight/BTC%2FUSDT` arrives as a two-segment
+`/insight/BTC/USDT` and no `/{route}/{symbol}` route can match it — no tunnel
+required, and it has never worked over HTTP. Nor does it 404 cleanly:
+`api_bridge` mounts `StaticFiles` at `''`, which matches EVERYTHING, so the
+caller is handed the website. That mount is why the symptom was an
+unparseable body rather than a readable error, and it is the half the first
+draft of the guard missed — that guard asked whether the matched route had an
+`.endpoint`, which a `Mount` does not, so it passed while the mount was
+matching happily. **A guard that acquits on a missing ATTRIBUTE where it
+meant to acquit on a missing MATCH is the quiet kind of wrong.**
+
+**The lesson was already written down fifteen lines above the defect.**
+`insight.js` carries a comment saying its own inbound route takes the symbol
+as a query param "because several hosting proxies (including the live
+deployment's) reject the %2F an encoded-slash path segment needs, 404ing at
+the edge before Express ever sees the request". That is this defect,
+diagnosed, for the INBOUND edge — and nobody asked whether the call the same
+file makes OUTBOUND had the same shape. *Ask which OTHER surface makes the
+same claim* applies to a fix's own file.
+
+**No test could see it because no fixture did ROUTING.** `deepscan.test.js`
+keyed its stub on `decodeURIComponent(url.pathname)` deliberately, under a
+comment saying "the real bridge (Starlette) decodes the path param, so match
+on the decoded path here too" — half right, and the missing half is the whole
+defect: it decodes, and THEN it matches, and the match fails.
+`insight_route.test.js` matched `startsWith('/insight/')`, which no router
+does. Both stubs decode and then re-match now, and answer HTML on a
+two-segment path exactly as the deployed stack does. Driven, the old URL
+fails four tests across the two suites.
+The bridge takes the symbol **both** ways — the path form is not removed,
+because inside the compose network there is no edge and an old caller must
+not break — and the query form gains a case a path segment cannot have, an
+ABSENT symbol, which falls to the same `_SYMBOL_RE` that rejects every other
+junk value rather than to a default ticker.
+
 ## Verifying a deploy
 
 `/api/version` carries two content hashes, computed by `app/lib/version.js`.

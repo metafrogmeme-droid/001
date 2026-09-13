@@ -372,6 +372,57 @@ def test_the_status_seam_it_names_exists_and_both_surfaces_read_it():
     assert '"status"' not in src[i:src.index("}", i)]
 
 
+
+def test_the_url_shape_it_names_is_the_shape_both_routes_send():
+    """"The bridge takes the symbol both ways" and the web sends the query
+    form — both halves driven, because this defect was one line copied twice
+    and a guard reading only one file would have acquitted the other."""
+    import os
+    import re as _re
+    import secrets
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "a slash in a path segment does not survive a hop" in flat
+    assert "The bridge takes the symbol **both** ways" in flat
+
+    os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
+    from fastapi.routing import APIRoute
+    from starlette.routing import Match
+
+    import api_bridge
+
+    def _reaches(path, api_only=False):
+        scope = {"type": "http", "method": "GET", "path": path,
+                 "root_path": "", "headers": []}
+        return any(r.matches(scope)[0] is Match.FULL
+                   for r in api_bridge.app.routes
+                   if not api_only or isinstance(r, APIRoute))
+
+    for route in ("insight", "patterns"):
+        assert _reaches(f"/{route}"), f"the query form of /{route} is missing"
+        assert _reaches(f"/{route}/BTCUSDT"), "the path form was removed"
+        # What the decoded slash actually delivers, and why the query form
+        # exists. NOT "matches nothing" — a StaticFiles mount at '' matches
+        # everything, which is WHY the caller got HTML instead of a 404 body
+        # it could read. The first draft of this assertion asked whether the
+        # resolved route had an `.endpoint`, which the Mount does not, so it
+        # passed while the Mount was matching happily: a guard acquitting on
+        # a missing attribute rather than on a missing match.
+        assert not _reaches(f"/{route}/BTC/USDT", api_only=True)
+        assert _reaches(f"/{route}/BTC/USDT"), (
+            "something still matches it — the static mount, and that is the "
+            "point: the caller gets a web page where JSON was expected")
+
+    # And no web route puts a slash-bearing symbol back in a path segment.
+    for rel in ("app/routes/insight.js", "app/routes/patterns.js"):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        code = _re.sub(r"//[^\n]*", "",
+                       _re.sub(r"/\*.*?\*/", "", src, flags=_re.S))
+        for m in _re.finditer(r"\$\{BOT_API_URL\}([^`]*)", code):
+            seg = m.group(1).split("?")[0]
+            assert "${" not in seg, f"{rel} interpolates into a path segment"
+
+
 # ── F-15 ──────────────────────────────────────────────────────────────────
 
 def test_no_secret_or_address_is_committed_in_it():

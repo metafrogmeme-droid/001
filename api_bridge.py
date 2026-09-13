@@ -900,8 +900,26 @@ async def blackswan_status():
         }
 
 
+# ── WHY EACH OF THESE TAKES THE SYMBOL TWO WAYS ────────────────────────────
+#
+# A symbol in this product is `BTC/USDT` — it contains a slash. As a PATH
+# segment it has to travel percent-encoded (`BTC%2FUSDT`), and the edge in
+# front of this process decodes `%2F` back to `/` BEFORE it matches a path,
+# so the request arrives as `/insight/BTC/USDT`, matches no route, and is
+# answered by whatever the edge falls through to. Measured against the live
+# tunnel on 2026-09-13: `/patterns/BTCUSDT` answered 200 with a real read,
+# `/patterns/BTC%2FUSDT` answered the WEBSITE'S HTML 404 — the bridge never
+# saw it. `app/routes/insight.js` had already learned this for its own
+# inbound edge and says so in a comment; the lesson was not carried to the
+# call it makes OUTBOUND to here, which is the surface that broke.
+#
+# So the symbol may also arrive as a QUERY param, where a slash is ordinary.
+# The path form stays for callers already using it — inside the compose
+# network there is no edge and it works fine.
+#
+@app.get("/patterns")
 @app.get("/patterns/{symbol}")
-async def patterns(symbol: str, timeframe: str = "1h", limit: int = 100, _rl: None = Depends(_require_rate_limit)):
+async def patterns(symbol: str = "", timeframe: str = "1h", limit: int = 100, _rl: None = Depends(_require_rate_limit)):
     """Detect chart patterns and candlestick patterns for a symbol."""
     if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
 
@@ -949,8 +967,10 @@ async def patterns(symbol: str, timeframe: str = "1h", limit: int = 100, _rl: No
 
 # ── Emergency halt ──────────────────────────────────────────────
 
+# Same two-way symbol as /patterns above, for the same measured reason.
+@app.get("/insight")
 @app.get("/insight/{symbol}")
-async def insight(symbol: str, timeframe: str = "1h", limit: int = 200,
+async def insight(symbol: str = "", timeframe: str = "1h", limit: int = 200,
                   _rl: None = Depends(_require_rate_limit)):
     """Consolidated decision picture for the dashboard: scored S/R levels,
     FVGs, liquidity pools, premium/discount, regime, the signed per-voter

@@ -92,6 +92,19 @@ function validateSymbol(sym) {
 // proxies (including the live deployment's) reject the %2F an encoded-slash
 // path segment needs, 404ing at the edge before Express ever sees the request.
 // The legacy /:symbol path form is kept below for old cached clients.
+// The symbol goes UP as a query param too, and that is the whole fix for a
+// live outage. `BTC/USDT` contains a slash; as a path segment it must be
+// percent-encoded, and the edge in front of the bridge decodes `%2F` back to
+// `/` before it matches a path — so `${BOT_API_URL}/{route}/BTC%2FUSDT`
+// arrived as a two-segment path, matched nothing, and came back as the
+// WEBSITE'S HTML 404. `fetchJSON` then failed to parse it and the panel
+// showed a 502, which reads as "the bridge is down" about a bridge that was
+// answering every other request correctly. Measured 2026-09-13: `BTCUSDT`
+// 200 with real data, `BTC%2FUSDT` 404 HTML, same host, same second.
+//
+// The comment fifteen lines above this one already recorded this exact trap
+// for the INBOUND edge and fixed it the same way. Asking which other surface
+// makes the same claim is the step that was skipped.
 async function insightHandler(req, res, rawSym) {
   try {
     const sym = String(rawSym || '').toUpperCase();
@@ -100,7 +113,7 @@ async function insightHandler(req, res, rawSym) {
     if (!/^(1m|5m|15m|30m|1h|2h|4h|6h|12h|1d|1w)$/.test(tf)) return res.status(400).json({ error: 'Invalid timeframe' });
     const limit = Math.min(parseInt(req.query.limit) || 200, 500);
     const r = await cached(`insight_${sym}_${tf}_${limit}`, 30000, () =>
-      fetchJSON(`${BOT_API_URL}/insight/${encodeURIComponent(sym)}?timeframe=${tf}&limit=${limit}`)
+      fetchJSON(`${BOT_API_URL}/insight?symbol=${encodeURIComponent(sym)}&timeframe=${tf}&limit=${limit}`)
     )();
     if (r.status !== 200) {
       const detail = r.data && r.data.detail;

@@ -49,9 +49,22 @@ test.before(async () => {
   // patterns.js reads BOT_API_URL at module load, so ordering matters.
   bridge = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
-    // The proxy sends the symbol %2F-encoded; the real bridge (Starlette)
-    // decodes the path param, so match on the decoded path here too.
-    const reply = bridgeReplies[decodeURIComponent(url.pathname)];
+    // THIS STUB MODELS THE EDGE, not Starlette. In-process, Starlette decodes
+    // `%2F` straight back into the path param and everything works — which is
+    // exactly why a stub written to imitate Starlette could not see the live
+    // defect. The proxy in front of the real bridge decodes FIRST and then
+    // matches a route, so a symbol carried in a path segment arrives as two
+    // segments, matches nothing, and comes back as the website's HTML 404.
+    // Keyed by the whole decoded path AND the symbol query param, so the
+    // route may use either and only the shape that survives the hop passes.
+    const decoded = decodeURIComponent(url.pathname);
+    if (decoded.split('/').filter(Boolean).length > 1) {
+      res.writeHead(404, { 'Content-Type': 'text/html' })
+         .end('<!DOCTYPE html><html><title>Not found</title></html>');
+      return;
+    }
+    const sym = url.searchParams.get('symbol');
+    const reply = bridgeReplies[sym ? `${decoded}/${sym}` : decoded];
     if (!reply) { res.writeHead(404).end(JSON.stringify({ detail: 'no data' })); return; }
     res.writeHead(reply.status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(reply.body));

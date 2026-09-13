@@ -25,8 +25,22 @@ function startMockBridge() {
   return new Promise((resolve) => {
     mockBridge = http.createServer((req, res) => {
       seen.push({ url: req.url });
+      // THE MOCK MODELS THE EDGE, and the old one could not. A plain mock
+      // answers whatever path it is handed, so `/insight/BTC%2FUSDT` looked
+      // fine here for as long as the route built it — while in front of the
+      // real bridge sits a proxy that DECODES `%2F` before matching a path,
+      // turning that into a two-segment `/insight/BTC/USDT` that matches no
+      // route and falls through to the website's HTML 404. A test whose
+      // fixture cannot reproduce the hop cannot see a defect in the hop.
+      const decodedPath = decodeURIComponent((req.url || '').split('?')[0]);
+      if (decodedPath.split('/').filter(Boolean).length > 1) {
+        res.statusCode = 404;
+        res.setHeader('Content-Type', 'text/html');
+        res.end('<!DOCTYPE html><html><title>Not found</title></html>');
+        return;
+      }
       res.setHeader('Content-Type', 'application/json');
-      if (req.url.startsWith('/insight/')) {
+      if (decodedPath === '/insight') {
         res.end(JSON.stringify({
           symbol: 'BTC/USDT', timeframe: '1h', price: 65000, atr: 400,
           regime: 'TREND_UP', confluence: 0.62,
@@ -74,15 +88,20 @@ test.after(() => {
   if (mockBridge) mockBridge.close();
 });
 
-test('proxies a valid request and encodes the symbol slash upstream', async () => {
+test('sends the symbol upstream as a QUERY param, not a path segment', async () => {
   seen.length = 0;
   const r = await request('/api/insight/' + encodeURIComponent('BTC/USDT') + '?timeframe=1h&limit=200');
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.data.confluence, 0.62);
   assert.strictEqual(r.data.cvd.cum_delta_usd, 125000);
   assert.strictEqual(seen.length, 1);
-  // Slash arrives at the bridge percent-encoded, tf + limit forwarded verbatim.
-  assert.match(seen[0].url, /^\/insight\/BTC%2FUSDT\?timeframe=1h&limit=200$/);
+  // The symbol is a QUERY param upstream, tf + limit forwarded verbatim. The
+  // slash is still encoded — in a query value that is ordinary and survives
+  // every hop; it is the PATH SEGMENT form that the edge decodes and loses.
+  assert.match(seen[0].url,
+    /^\/insight\?symbol=BTC%2FUSDT&timeframe=1h&limit=200$/);
+  assert.ok(!seen[0].url.startsWith('/insight/'),
+    'a path segment carrying the symbol is the shape that 404s at the edge');
 });
 
 test('accepts ccxt timeframe 15m but rejects Bitget granularity 15min', async () => {
