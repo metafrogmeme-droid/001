@@ -21,6 +21,7 @@ sys.path.insert(0, ".")
 from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
+from bot.core.live_readiness import mode_label
 from bot.core.market_scanner import MarketScanner
 from bot.core.analyzer import Analyzer
 from bot.core.order_flow import OrderFlowAnalyzer
@@ -417,7 +418,7 @@ async def test_multi_asset_scan():
 
 async def main():
     header("RUNECLAW Live Data Integration Test")
-    print(f"  {DIM}Exchange: Bitget  |  Mode: {'SIMULATION' if CONFIG.simulation_mode else 'LIVE'}  |  "
+    print(f"  {DIM}Exchange: Bitget  |  Mode: {mode_label()}  |  "
           f"Balance: ${CONFIG.paper_balance_usd:,.0f}{RESET}")
     print(f"  {DIM}{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}{RESET}")
 

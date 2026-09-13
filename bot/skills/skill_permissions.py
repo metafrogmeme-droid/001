@@ -94,6 +94,21 @@ SKILL_PERMISSION: dict[str, str] = {
 # rather than by remembering.
 WEB_CHAT_SKILLS: frozenset[str] = frozenset(SKILL_PERMISSION) - {"halt", "trade_journal"}
 
+#: Routed intents the web answers from a READING rather than a registered
+#: skill, and the permission each needs.
+#:
+#: DERIVED, like every entry above: the permission is the one on the `@guard`
+#: of the Telegram command that answers the same question. `status` is here
+#: because the web used to ALIAS it to `get_portfolio` — a question about the
+#: engine answered with the account card, and gated by the `portfolio`
+#: permission rather than its own. `pending` holds neither, but `help` and
+#: `status` are not held by the same roles, so answering a routed intent
+#: ABOVE the permission check (which is where the unavailable notice sits)
+#: would remove the gate entirely.
+WEB_ROUTED_PERMISSION: dict[str, str] = {
+    "status": "status",
+}
+
 # Skills a chat transport must never `execute()` directly, whatever the
 # caller's role says.
 #

@@ -400,14 +400,38 @@ GATEWAY = REPO / "bot" / "web" / "user_gateway.py"
 
 
 def _web_aliases() -> dict:
-    src = GATEWAY.read_text()
-    block = src[src.index("_INTENT_ALIASES"):src.index("skill_name = _INTENT_ALIASES")]
-    return dict(re.findall(r'"(\w+)":\s*"(\w+)"', block))
+    """The `_INTENT_ALIASES` literal, read as a literal.
+
+    It used to be a regex over everything between the assignment and the first
+    USE of the name — which held only the dict until a routed `status` branch
+    was written between them, and then also held
+    `record_routed_turn(..., surface="web", skill="status")` and a
+    `json_response({..., "intent": "status"})`. The extractor reported
+    `skill -> status`, `surface -> web` and `intent -> status` as ALIASES, and
+    `test_no_web_intent_can_fall_through_to_the_chat_model` reads this map to
+    decide an intent is reachable: a stray `"x": "y"` anywhere below the dict
+    acquits an intent `x` that in fact reaches nothing but the LLM. A false
+    acquittal, in the guard against exactly that.
+    """
+    import ast
+
+    tree = ast.parse(GATEWAY.read_text())
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "_INTENT_ALIASES"
+                        for t in node.targets)):
+            return dict(ast.literal_eval(node.value))
+    raise AssertionError("_INTENT_ALIASES is not a plain assignment any more")
 
 
-def test_the_alias_extractor_sees_the_map():
+def test_the_alias_extractor_sees_the_map_and_ONLY_the_map():
     al = _web_aliases()
-    assert len(al) >= 5 and al.get("status"), f"only parsed {al}"
+    # The five scan modes are the map. `status` LEFT it — it is a routed
+    # intent with its own permission now, not an alias onto the account card.
+    assert set(al) == {"scan_scalp", "scan_swing", "scan_intraday",
+                       "scan_deep", "scan_full"}, al
+    for stray in ("skill", "surface", "intent", "reply_html"):
+        assert stray not in al, f"{stray} is not an alias; the reader overran"
 
 
 def test_no_web_intent_can_fall_through_to_the_chat_model():

@@ -194,6 +194,15 @@ def test_scan_confirm_checks_live_permission():
 # these two files were the entire structural coverage of authorisation.
 
 
+#: Routed intents the web answers itself -> the seam that answers them, so
+#: the invariant below can find the guarded Telegram command that renders the
+#: SAME reading. Keyed by intent because that is what `_WEB_SKILL_PERMISSION`
+#: is keyed by.
+ROUTED_INTENT_SEAM = {
+    "status": "status_card_text",
+}
+
+
 def _telegram_skill_permissions() -> dict[str, set[str]]:
     """{skill: permissions that reach it on Telegram}, transitively.
 
@@ -244,7 +253,37 @@ def _telegram_skill_permissions() -> dict[str, set[str]]:
     for name, (perms, _, _) in fns.items():
         for skill in (reachable(name) if perms else ()):
             out.setdefault(skill, set()).update(perms)
+
+    # A routed intent the web answers from a SEAM rather than a registered
+    # skill has no `dispatch("name")` to find, which is the tension the
+    # `get_orders` slice recorded: "a command that renders the same seam
+    # directly gives the invariant nothing to compare". So the seam is what is
+    # compared — every guarded Telegram function that reaches it — and the
+    # entry is keyed by the intent so the loop below needs no special case.
+    def reaches(name, depth=3, seen=None):
+        seen = set() if seen is None else seen
+        if depth < 0 or name in seen or name not in fns:
+            return set()
+        seen.add(name)
+        _p, _s, callees = fns[name]
+        return set(callees).union(*(reaches(c, depth - 1, seen) for c in callees)) \
+            if callees else set()
+
+    for intent, seam in ROUTED_INTENT_SEAM.items():
+        for name, (perms, _, _) in fns.items():
+            if perms and seam in reaches(name):
+                out.setdefault(intent, set()).update(perms)
     return out
+
+
+def test_every_routed_intent_the_web_answers_has_a_seam_to_compare():
+    """Two tables, one fact. A routed intent added to `WEB_ROUTED_PERMISSION`
+    without a seam here is reachable from the web and compared against
+    nothing — the silent half of this file's own failure mode."""
+    from bot.skills.skill_permissions import WEB_ROUTED_PERMISSION
+
+    assert set(WEB_ROUTED_PERMISSION) == set(ROUTED_INTENT_SEAM), (
+        set(WEB_ROUTED_PERMISSION) ^ set(ROUTED_INTENT_SEAM))
 
 
 def _roles_holding(permission: str) -> set[str]:

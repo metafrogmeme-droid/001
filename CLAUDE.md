@@ -567,6 +567,63 @@ entry*, beside the `PnL not recorded` the same block had just written for it.
 Fixing the positions row and leaving that one would have been "fixing two left
 the third" inside a single prompt.
 
+**"Is the bot running?" is a question about the ENGINE, and the web answered it
+with the account card.** `_INTENT_ALIASES` mapped `status` to `get_portfolio`
+and dispatched it at confidence 1.0, so five phrasings of an engine question
+got a card that makes no halt, breaker, tick, drawdown, mode or market-bias
+claim of any kind — and was gated under the `portfolio` permission rather than
+its own. That is `get_orders` one intent over: aliasing a question to the
+nearest answer is a confident wrong answer. There was no seam to answer it
+with, which is the "when there is no seam, make one" case; `status_card_text`
+is `/status`'s reading and both surfaces render it, `surface` keying only the
+DOORS, because `/venue` is a command a web caller cannot run.
+
+**The reading itself was mixing two accounts in one Capital block.** It read
+the CALLER's equity one line above the OPERATOR's executor, so a viewer saw
+their own equity beside somebody else's open-position count — and Daily PnL
+was a single ratio spanning two books, the operator's dollars over the
+caller's equity: `$4242 / $555` prints **+764.3%** on a card headed by a
+daily-loss cap. `live_view(user_id)` is the reading, and `scope: none` is
+"unavailable", never `0` — a flat book is a measurement and no book is not.
+A website signup is auto-provisioned `paper`, which HOLDS `status`, so the
+permission check is the only thing between a stranger and that card: the
+routed branch goes THROUGH `_web_skill_denied`, never above it.
+`WEB_ROUTED_PERMISSION` is where the fact lives, and
+`test_web_and_scan_authorization` compares a routed intent against the guarded
+command that renders the same SEAM — the tension `get_orders` recorded, that
+"a command that renders the same seam directly gives the invariant nothing to
+compare".
+
+**Writing that branch broke a guard by moving code NEAR it.** `_web_aliases`
+read `_INTENT_ALIASES` with a regex over everything between the assignment and
+the first USE of the name — which held only the dict until the routed `status`
+branch was written between them. It then also held
+`record_routed_turn(..., surface="web", skill="status")` and a
+`json_response({..., "intent": "status"})`, and reported `skill → status`,
+`surface → web` and `intent → status` as ALIASES.
+`test_no_web_intent_can_fall_through_to_the_chat_model` reads that map to
+decide an intent is reachable, so a stray `"x": "y"` anywhere below the dict
+acquits an intent `x` that reaches nothing but the LLM — a false acquittal
+inside the guard against exactly that. It is `ast.literal_eval` on the literal
+now. A scan bounded by "the next place this name appears" is bounded by
+nothing; the same shape as slicing a function body with `indexOf`.
+
+**Three more cards were announcing LIVE on an account that places nothing, and
+the guard written for that shape had been green for months.**
+`mode = "PAPER" if CONFIG.simulation_mode else "⚠️ LIVE"` cannot answer IDLE
+(sim off, live never armed) or UNKNOWN, and it was in `CheckRiskSkill._status`
+— a card reachable from web chat and fed to the LLM as engine state — plus
+`ProScanSkill`, `PlaybookSkill`, `/version`, `live_test.py` and the BOOT
+BANNER, which printed `Mode: LIVE` directly above its own
+`Live Trading: DISABLED`. The guard forbade three exact literals and scanned
+ONE file, `bot/skills/telegram_handler.py`, which the sites left during the
+handler split. **Wrong file AND wrong literal** — the live spelling carries a
+warning emoji, so even in the right file none of the three would have matched.
+It is an AST shape over the whole tree now, with a four-value `mode_badge` the
+status card and the three skills share, and an allow-list whose stale entries
+fail. The headline's `| Bitget` went the same way: a venue name nobody read,
+printed three sections above the real one.
+
 **And a turn the user can SEE that the model cannot is a hole exactly where the
 answer was.** `bot/nlp/skill_memory.py` exists for that shape — its docstring
 says the model is "told an answer exists and not what it was, which is the one
@@ -575,8 +632,8 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Twenty-eight call sites across the two entry points, covering
-eighteen kinds of branch — the stance card, the paywall refusal, the scan card,
+never happened. Thirty call sites across the two entry points today, one on
+every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
 block, the clarifying QUESTION (the one reply the next turn is certainly an

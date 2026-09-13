@@ -275,39 +275,134 @@ def test_an_unreadable_config_never_reads_as_live():
     assert mode_label(HalfBroken()) == "UNKNOWN"
 
 
-def test_no_status_surface_still_derives_live_from_simulation_mode_alone():
-    """Write the assertion, then re-run the search.
+#: Two-valued mode derivations that are NOT a status claim, each with why.
+#: Two-way, like `known_failures.txt`: an entry that stops matching any
+#: expression must be deleted in the commit that made it stale.
+MODE_SHAPE_ALLOWED = {
+    "bot/core/live_readiness.py": "mode_label's own module — the reading, and "
+                                  "the fallback inside it IS three-valued",
+}
 
-    Three sites had this shape and a fourth already did it correctly. A new
-    copy is the defect returning, so it is checked structurally rather than
-    left to whoever adds the next status card.
+
+def _two_valued_mode_sites(root):
+    r"""Every `<str> if <...>simulation_mode else <str>` in the tree.
+
+    AST, not three exact literals. The previous guard forbade
+    `'PAPER' if CONFIG . simulation_mode else 'LIVE'` and two siblings, and
+    scanned ONE file — `bot/skills/telegram_handler.py`, which the sites left
+    during the handler split. Wrong file AND wrong literal: the live spelling
+    carries a warning emoji (`"⚠️ LIVE"`), so even in the right file
+    none of the three would have matched. A checker with a blind spot
+    manufactures exactly the acquittal it exists to prevent.
+
+    The shape is the thing: a conditional on the simulation flag ALONE whose
+    two branches are both strings. `is_live()` needs the arm flag and the chat
+    allow-list too, so that expression cannot answer IDLE or UNKNOWN.
     """
-    import io
-    import tokenize
+    import ast
+
+    hits = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(("tests/", "site/", "app/")):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:                      # not ours to judge
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.IfExp):
+                continue
+            test = node.test
+            if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                test = test.operand
+            if not (isinstance(test, ast.Attribute)
+                    and test.attr == "simulation_mode"):
+                continue
+            if not (isinstance(node.body, ast.Constant)
+                    and isinstance(node.orelse, ast.Constant)
+                    and isinstance(node.body.value, str)
+                    and isinstance(node.orelse.value, str)):
+                continue
+            hits.append((rel, node.lineno, ast.unparse(node)))
+    return hits
+
+
+def test_no_status_surface_still_derives_the_mode_from_simulation_mode_alone():
+    """Write the assertion, then re-run the search — over the whole tree.
+
+    Three sites had this shape when the rule was written. By the time anyone
+    looked again there were five, in three files the guard did not read, and
+    the guard was green throughout: `CheckRiskSkill._status` (a card reachable
+    from web chat and fed to the LLM as engine state), `ProScanSkill`,
+    `PlaybookSkill`, `/version`, and the BOOT BANNER — which printed
+    `Mode: LIVE` directly above its own `Live Trading: DISABLED`.
+    """
     from pathlib import Path
 
-    src = Path(__file__).resolve().parents[1] / "bot" / "skills" / "telegram_handler.py"
-    # Strip comments and docstrings: this file's own comments quote the old
-    # expressions to explain them, and a scan cannot tell those from code.
-    out, prev_type = [], tokenize.INDENT
-    for tok in tokenize.generate_tokens(io.StringIO(src.read_text()).readline):
-        if tok.type == tokenize.COMMENT:
-            continue
-        if tok.type == tokenize.STRING and prev_type in (
-                tokenize.INDENT, tokenize.NEWLINE, tokenize.NL, tokenize.DEDENT):
-            continue
-        out.append(tok.string)
-        prev_type = tok.type if tok.type != tokenize.NL else prev_type
-    code = " ".join(out)
+    root = Path(__file__).resolve().parents[1]
+    bad = [(f, ln, src) for f, ln, src in _two_valued_mode_sites(root)
+           if f not in MODE_SHAPE_ALLOWED]
+    assert bad == [], (
+        "these derive the trading mode from simulation_mode alone:\n  "
+        + "\n  ".join(f"{f}:{ln}  {src}" for f, ln, src in bad)
+        + "\n\nis_live() needs the arm flag and the chat allow-list too, so this "
+          "expression cannot answer IDLE (sim off, live never armed) or UNKNOWN "
+          "(the config could not be read). Use live_readiness.mode_label(), and "
+          "mode_badge() if you want the badge.")
 
-    for bad in ('"LIVE" if not CONFIG . simulation_mode',
-                '"SIM" if CONFIG . simulation_mode else "LIVE"',
-                '"PAPER" if CONFIG . simulation_mode else "LIVE"'):
-        assert bad not in code, (
-            f"a status surface derives the trading mode from simulation_mode "
-            f"alone again ({bad!r}). is_live() needs the arm flag and the chat "
-            "allow-list too — use live_readiness.mode_label()."
-        )
+
+def test_the_mode_shape_allow_list_has_no_stale_entry():
+    """A stale entry is a rule that quietly stopped applying."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    seen = {f for f, _ln, _src in _two_valued_mode_sites(root)}
+    stale = [f for f in MODE_SHAPE_ALLOWED if f not in seen]
+    assert stale == [], stale
+
+
+def test_the_shape_scan_would_catch_the_spelling_the_old_guard_missed():
+    """Guards the guard, on a planted tree where the rule is the only thing in
+    play — including the emoji spelling three live sites used and the three
+    forbidden literals did not cover."""
+    import tempfile
+    from pathlib import Path
+
+    planted = (
+        'CONFIG = None\n'
+        'def a():\n'
+        '    return "PAPER" if CONFIG.simulation_mode else "⚠️ LIVE"\n'
+        'def b():\n'
+        '    return "LIVE" if not CONFIG.simulation_mode else "PAPER"\n'
+        'def ok():\n'
+        '    return "LIVE" if can_live and not CONFIG.simulation_mode else "PAPER"\n'
+        'def also_ok():\n'
+        '    return mode_label()\n'
+    )
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "bot").mkdir()
+        (root / "bot" / "card.py").write_text(planted, encoding="utf-8")
+        (root / "tests").mkdir()
+        (root / "tests" / "t.py").write_text(
+            'x = "PAPER" if CONFIG.simulation_mode else "LIVE"\n', encoding="utf-8")
+        hits = _two_valued_mode_sites(root)
+    assert [(f, ln) for f, ln, _s in hits] == [("bot/card.py", 3),
+                                               ("bot/card.py", 5)], hits
+
+
+def test_one_badge_map_serves_every_card():
+    """`mode_badge` is the rendering of `mode_label`, and it has to have all
+    four values: a two-valued badge is how an IDLE real account printed LIVE."""
+    from bot.formatters.rich_cards import mode_badge
+
+    seen = {m: mode_badge(m) for m in ("LIVE", "PAPER", "IDLE", "UNKNOWN")}
+    assert len(set(seen.values())) == 4, seen
+    assert "LIVE" in seen["LIVE"] and "PAPER" in seen["PAPER"]
+    assert "not armed" in seen["IDLE"]
+    # An unknown word is not quietly rendered as one of the other three.
+    assert mode_badge("something-new") == seen["UNKNOWN"]
 
 
 def test_the_status_badge_does_not_paint_an_idle_real_account_as_paper():

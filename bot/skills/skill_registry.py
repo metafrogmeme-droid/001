@@ -17,7 +17,8 @@ from pathlib import Path
 from bot.compat import UTC
 from typing import Any, Optional
 
-from bot.formatters.rich_cards import display_symbol
+from bot.core.live_readiness import mode_label
+from bot.formatters.rich_cards import display_symbol, mode_badge
 from bot.formatters.thesis_text import provenance_tag, thesis_prose
 
 from bot.config import CONFIG
@@ -748,7 +749,11 @@ class CheckRiskSkill(BaseSkill):
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
                 display_pnl, display_win_rate, gate=None, dd=(None, None, 0.0)):
-        mode = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
+        # Two-valued off `simulation_mode` alone announced LIVE on an
+        # IDLE real account — sim off, live never armed — on a card fed
+        # to the LLM as engine state. `mode_label` is the reading and
+        # `mode_badge` the one rendering of it.
+        mode = mode_badge(mode_label())
         cb_s = gate_words(gate)
         macro = engine.macro_calendar.evaluate()
         macro_icons = {
@@ -2380,7 +2385,7 @@ class ProScanSkill(BaseSkill):
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
         cb = engine.risk.circuit_breaker_active
-        sim = "PAPER" if CONFIG.simulation_mode else "\u26a0\ufe0f LIVE"
+        sim = mode_badge(mode_label())
 
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
@@ -2981,7 +2986,7 @@ class PlaybookSkill(BaseSkill):
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
         gate = entry_gate(engine)
-        sim = "PAPER" if CONFIG.simulation_mode else "⚠️ LIVE"
+        sim = mode_badge(mode_label())
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
         lines: list[str] = []

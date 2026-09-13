@@ -572,21 +572,19 @@ def test_the_paywall_reason_survives_the_tier_code_family(monkeypatch):
 
 
 def test_the_web_alias_records_the_skill_that_ran(monkeypatch):
-    """`_INTENT_ALIASES` sends `status` to `get_portfolio` and every `scan_*`
-    to `scan_market`, so recording `intent.skill` attributes the card to a tool
-    that was never called — the Telegram scan branch's misattribution, one
-    transport over. (The ALIAS itself is a separate defect: a question about
-    the engine answered with the positions card. That is the next slice.)"""
+    """`_INTENT_ALIASES` sends every `scan_*` to `scan_market`, so recording
+    `intent.skill` attributes the card to a tool that was never called — the
+    Telegram scan branch's misattribution, one transport over."""
     store = ConversationStore()
     ug, handler = _web(monkeypatch, store)
     handler.registry = SimpleNamespace(get=lambda n: SimpleNamespace(
-        execute=AsyncMock(return_value="<b>Portfolio</b> equity $100")))
+        execute=AsyncMock(return_value="<b>BTC</b> 62k")))
     handler.users.permission_denial = lambda uid, perm: None
-    _web_turn(ug, handler, "status")
+    _web_turn(ug, handler, "deep scan")
     rec = "\n".join(m.content for m in store.get_recent("4242", limit=10)
                      if m.role == "assistant")
-    assert "[get_portfolio] result:" in rec, rec
-    assert "[status]" not in rec
+    assert "[scan_market] result:" in rec, rec
+    assert "[scan_deep]" not in rec
 
 
 def test_the_streaming_door_records_through_the_same_turn(monkeypatch):

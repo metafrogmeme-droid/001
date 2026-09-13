@@ -370,16 +370,25 @@ async def test_scan_swing_aliases_to_registered_scan_market(monkeypatch):
         assert handler.llm_calls == []
 
 
-async def test_status_aliases_to_get_portfolio(monkeypatch):
+async def test_status_is_answered_by_the_status_card_not_the_portfolio(monkeypatch):
+    """It ALIASED to `get_portfolio` — a question about the engine answered
+    with the account card, which makes no engine claim at all."""
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     port = FakeSkill()
     handler = FakeHandler(users=AUTHED,
                           intent=FakeIntent("status", 1.0),
                           skills={"get_portfolio": port})
+
+    async def _card(user_id, lang="en", *, surface="telegram"):
+        return f"<b>Engine</b> for {user_id} via {surface}"
+
+    handler.status_card_text = _card
     async with gateway_client(FakeEngine(), handler) as c:
         r = await c.post("/chat",
                          json={"telegram_id": "7", "text": "bot status"},
                          headers=HDRS)
         assert r.status == 200
-        assert (await r.json())["reply_html"] == "<b>skill reply</b>"
-        assert len(port.calls) == 1
+        body = await r.json()
+        assert body["intent"] == "status"
+        assert "<b>Engine</b> for 7 via web" == body["reply_html"]
+        assert port.calls == [], "the account card answered it again"

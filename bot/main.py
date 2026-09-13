@@ -21,6 +21,7 @@ import sys
 
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
+from bot.core.live_readiness import mode_label
 from bot.skills.skill_registry import build_default_registry
 from bot.skills.telegram_handler import TelegramHandler
 from bot.utils.build_info import short as build_short
@@ -45,7 +46,11 @@ def _banner() -> str:
         # but not provenance is answering every question except the one that
         # was wrong.
         f"  Build: {build_short()}\n"
-        f"  Mode: {'SIMULATION' if CONFIG.simulation_mode else 'LIVE'}\n"
+        # Two-valued off the flag alone, printed directly above
+        # "Live Trading: DISABLED": the banner an operator reads at deploy
+        # said LIVE about an account that places nothing, and contradicted
+        # itself one line down.
+        f"  Mode: {mode_label()}\n"
         f"  Live Trading: {'ENABLED' if CONFIG.live_trading_enabled else 'DISABLED'}\n"
         f"  Bitget environment: {bitget_env}\n"
         f"  Paper Balance: ${CONFIG.paper_balance_usd:,.2f}\n"

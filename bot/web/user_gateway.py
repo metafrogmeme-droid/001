@@ -51,7 +51,11 @@ from bot.nlp.skill_memory import (
     skill_result_memory,
     skill_unavailable_memory,
 )
-from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
+from bot.skills.skill_permissions import (
+    SKILL_PERMISSION,
+    WEB_CHAT_SKILLS,
+    WEB_ROUTED_PERMISSION,
+)
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
 from bot.utils.paths import env_state_path
@@ -153,6 +157,9 @@ def _is_admin_id(tg_handler, tg_id: str) -> bool:
 _WEB_SKILL_PERMISSION: dict[str, str] = {
     name: SKILL_PERMISSION[name] for name in sorted(WEB_CHAT_SKILLS)
 }
+# Routed intents the web answers itself still go through the SAME gate. A
+# question answered above the permission check is a question with no gate.
+_WEB_SKILL_PERMISSION.update(WEB_ROUTED_PERMISSION)
 
 
 #: The `error` codes `_web_skill_denied` answers with, as a sentence the next
@@ -181,7 +188,8 @@ def _denial_reason(code: str) -> str:
     return _DENIAL_REASON.get(code, "a gate on this surface refused it")
 
 
-def _web_skill_denied(tg_handler, tg_id: str, skill_name: str):
+def _web_skill_denied(tg_handler, tg_id: str,
+                      skill_name: str) -> "web.Response | None":
     """None when this caller may run `skill_name` from the web, else a response.
 
     Two checks the web path was missing entirely:
@@ -591,8 +599,39 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             "scan_swing": "scan_market", "scan_scalp": "scan_market",
             "scan_intraday": "scan_market", "scan_deep": "scan_market",
             "scan_full": "scan_market",
-            "status": "get_portfolio",
         }
+        # `status` LEFT this map. It aliased a question about the ENGINE —
+        # is it running, is the breaker tripped, is the loop alive — to the
+        # account card, which carries no halt, breaker, tick or drawdown
+        # claim of any kind, and gated it under `portfolio` rather than its
+        # own permission. Aliasing a question to the nearest answer is a
+        # confident wrong answer; `get_orders` is the same lesson one intent
+        # over. It reads `status_card_text` now, the seam /status renders.
+        if intent.skill == "status":
+            denied = _web_skill_denied(tg_handler, tg_id, "status")
+            if denied is not None:
+                _why = _denial_reason(
+                    str(json.loads(denied.text or "{}").get("error", "")))
+                record_routed_turn(tg_handler.conversations, tg_id, text,
+                                   "status", not_run_memory("status", _why),
+                                   surface="web")
+                return denied
+            try:
+                _card = await tg_handler.status_card_text(
+                    tg_id, _ui_lang(reply_lang), surface="web")
+            except Exception:
+                tg_handler.conversations.append(
+                    tg_id, "assistant", skill_failure_memory("status"),
+                    metadata={"skill": "status", "surface": "web",
+                              "failed": True})
+                from bot.skills.chat_runtime import skill_failure_notice
+                return web.json_response(
+                    {"reply_html": skill_failure_notice("status"),
+                     "intent": "status"}, status=200)
+            record_routed_turn(tg_handler.conversations, tg_id, text, "status",
+                               skill_result_memory("status", _card),
+                               surface="web", skill="status")
+            return web.json_response({"reply_html": _card, "intent": "status"})
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
         skill = tg_handler.registry.get(skill_name)
         if skill:

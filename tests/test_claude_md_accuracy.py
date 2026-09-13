@@ -205,7 +205,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Twenty-eight call sites across the two entry points", DOC)
+    m = re.search(r"Thirty call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -215,7 +215,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 28, f"CLAUDE.md says twenty-eight; the two entry points have {n}"
+    assert n == 30, f"CLAUDE.md says thirty; the two entry points have {n}"
 
 
 def test_the_four_records_it_names_all_exist_and_differ():
@@ -230,6 +230,34 @@ def test_the_four_records_it_names_all_exist_and_differ():
     for name in ("skill_result_memory", "routed_answer_memory",
                  "card_shown_memory", "not_run_memory", "record_routed_turn"):
         assert name in DOC and hasattr(sm, name)
+
+
+def test_the_two_valued_mode_shape_it_describes_is_really_gone():
+    """The claim is checkable, so it is checked: every site the paragraph
+    names reads `mode_label`, and the guard reads the whole tree."""
+    assert "Wrong file AND wrong literal" in DOC
+    from tests.test_live_readiness import MODE_SHAPE_ALLOWED, _two_valued_mode_sites
+
+    hits = _two_valued_mode_sites(ROOT)
+    assert [h for h in hits if h[0] not in MODE_SHAPE_ALLOWED] == []
+    guard = (ROOT / "tests" / "test_live_readiness.py").read_text(encoding="utf-8")
+    assert "root.rglob" in guard and "ast.IfExp" in guard
+
+
+def test_the_status_seam_it_names_exists_and_both_surfaces_read_it():
+    import inspect
+
+    from bot.skills.start_commands import StartCommands
+    from bot.web import user_gateway as ug
+
+    assert "status_card_text" in DOC
+    assert hasattr(StartCommands, "status_card_text")
+    assert "status_card_text" in inspect.getsource(StartCommands._cmd_status)
+    assert "status_card_text" in inspect.getsource(ug._chat_turn)
+    # ...and the alias it replaced is gone.
+    src = inspect.getsource(ug._chat_turn)
+    i = src.index("_INTENT_ALIASES = {")
+    assert '"status"' not in src[i:src.index("}", i)]
 
 
 # ── F-15 ──────────────────────────────────────────────────────────────────

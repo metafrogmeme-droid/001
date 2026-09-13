@@ -125,7 +125,11 @@ class StartCommands:
         from bot import __version__
 
         from bot.utils.build_info import short as build_short
-        mode = "LIVE" if CONFIG.is_live() else ("PAPER" if CONFIG.simulation_mode else "IDLE")
+        # `mode_label()` spelled out by hand, missing its fourth value: a
+        # config read that RAISES answered PAPER here and UNKNOWN there. A
+        # second copy of a reading is a second answer.
+        from bot.core.live_readiness import mode_label
+        mode = mode_label()
         # `__version__` is hand-maintained and has read "0.1.0" since the repo
         # was created, so /version answered "which code is running?" with a
         # constant. The build line is the part that can actually differ between
@@ -761,9 +765,21 @@ class StartCommands:
             system_log.warning("/status: macro calendar unreadable: %s", exc)
             return t("val_bias_unread", "en")
 
-    @guard("status")
-    async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        user_id = self._get_tg_id(update)
+    async def status_card_text(self, user_id: str, lang: str = "en", *,
+                               surface: str = "telegram") -> str:
+        """The engine-status card as text — the reading BOTH surfaces render.
+
+        There was no seam, so the web could not answer "is the bot running?"
+        at all and aliased the intent to `get_portfolio`: a question about the
+        engine answered with the account card, which carries no halt, breaker,
+        tick or drawdown claim of any kind. Aliasing a question to the nearest
+        answer is a confident wrong answer, which is the lesson `get_orders`
+        is already written up for one intent over.
+
+        `surface` keys only the DOORS. A card that names a command is claiming
+        the command does something, and `/venue` is a door painted on a wall
+        for a web caller.
+        """
         # Show per-user equity in status
         user_portfolio = self.engine.user_portfolios.get(user_id)
         state = user_portfolio.snapshot()
@@ -795,8 +811,17 @@ class StartCommands:
         # the status card renders "unavailable" rather than the paper baseline.
         if real_account:
             equity, _eq_source = await self.engine.resolve_display_equity(user_id)
-            executor = self.engine.live_executor
-            open_count = len(executor.open_positions)
+            # The book THIS CALLER may view, not the operator's. `equity` was
+            # already per-caller one line up while these two were read off
+            # `engine.live_executor`, so a viewer saw their own equity beside
+            # the OPERATOR's open count — and Daily PnL below was a single
+            # ratio spanning two accounts, the operator's dollars over the
+            # caller's equity. `live_view` is the reading built for this.
+            # None is a real answer: "no account this caller may view" is not
+            # "zero positions", and /status is held by `viewer` and `paper`.
+            executor = self.engine.live_view(user_id).get("executor")
+            open_count = (len(executor.open_positions)
+                          if executor is not None else None)
             # BUGFIX: closed_positions is ALL closed trades ever, so summing it
             # made "Daily PnL" an all-time cumulative figure that never reset.
             # Filter to positions closed TODAY (UTC) so it's genuinely daily.
@@ -806,11 +831,13 @@ class StartCommands:
             # $0.00; the second rendered as "⚪ 0.00%" beside a "/ +5.0% limit",
             # a measured flat day manufactured from no measurement.
             from bot.formatters.realized_totals import realized_totals as _rt_daily
-            _today_closed = [t for t in (executor.closed_positions or [])
+            _today_closed = [t for t in ((executor.closed_positions or [])
+                                         if executor is not None else [])
                              if _closed_on_utc_date(t, _today)]
             _daily = _rt_daily(_today_closed)
             daily_pnl = (round(_daily["net"], 2)
-                         if _daily["net"] is not None else None)
+                         if executor is not None and _daily["net"] is not None
+                         else None)
         else:
             equity = state.equity_usd if hasattr(state, "equity_usd") else 10_000.0
             open_count = state.open_positions
@@ -863,6 +890,17 @@ class StartCommands:
                          else (daily_pnl / equity * 100.0)
                          if equity and equity > 0 else None)
 
+        # The venue of the book being described — read once, used by the
+        # headline and the switch line, so the two cannot disagree.
+        _venue_name = None
+        try:
+            _vx = self.engine.live_view(user_id).get("executor")
+            _venue_name = (getattr(getattr(_vx, "_venue", None),
+                                   "display_name", None)
+                           if _vx is not None else None)
+        except Exception:
+            _venue_name = None
+
         # Loop liveness for the card. The stall VERDICT comes from the
         # watchdog's own predicate, not from the age — time inside a declared
         # sleep or a failure backoff is healthy waiting, and calling that a
@@ -880,7 +918,7 @@ class StartCommands:
             max_drawdown=drawdown_limit,
             market_bias=_bias,
             pending_ideas=len(self.engine.pending_ideas) if hasattr(self.engine, "pending_ideas") else 0,
-            lang=self._lang(update),
+            lang=lang,
             # Seconds since the engine last STARTED a tick. None when the
             # engine has not ticked yet (documented monotonic None-sentinel)
             # — the card then omits the line rather than printing a zero.
@@ -901,6 +939,10 @@ class StartCommands:
             # and sends the reader to /status, so /status has to be able to
             # answer. It could not, so the alert guessed a subsystem.
             tick_error=getattr(self.engine, "_last_tick_error", None),
+            # The venue the card describes, read off the same executor as
+            # everything else on it. The headline said "Bitget" whatever the
+            # account routed to.
+            venue=_venue_name,
         )
         # A red headline with no reason sends the operator hunting. Name the
         # blocker. The warning-rate breaker in particular had no operator
@@ -929,7 +971,7 @@ class StartCommands:
         # wakes someone. Inline here, the remedy lived on a screen you had to
         # go and open while the alert named only the phase that died.
         _budget = analyze_budget_line(
-            getattr(self.engine, "_analyze_capacity", None), self._lang(update))
+            getattr(self.engine, "_analyze_capacity", None), lang)
         if _budget:
             msg += f"\n{_budget}"
         # Which classes the sweep left out on purpose. Read off the scanner,
@@ -937,7 +979,7 @@ class StartCommands:
         # renderer says nothing for None.
         _skipped = session_skip_line(
             getattr(getattr(self.engine, "scanner", None), "_session_dropped", None),
-            self._lang(update))
+            lang)
         if _skipped:
             msg += f"\n{_skipped}"
         # Venue visibility: which exchange live orders route to right now
@@ -946,9 +988,17 @@ class StartCommands:
         # still routes to a venue, and that is worth seeing before arming.
         if real_account:
             try:
-                _v = self.engine.live_executor._venue
-                msg += (f"\n🏦 Venue: <b>{_v.display_name}</b> "
-                        f"({_v.quote}-margined) — /venue to switch")
+                # The viewer's own venue, and the switch door only where it
+                # exists: /venue is a Telegram admin command, so naming it to
+                # a web caller is the `/vault` hint shape — a card claiming a
+                # command does something for a reader who cannot run it.
+                _vex = self.engine.live_view(user_id).get("executor")
+                _v = _vex._venue if _vex is not None else None
+                if _v is not None:
+                    msg += (f"\n🏦 Venue: <b>{_v.display_name}</b> "
+                            f"({_v.quote}-margined)"
+                            + (" — /venue to switch" if surface == "telegram"
+                               else ""))
             except Exception:
                 pass
         # Strangle visibility: when the soft loss-streak gate is latched the
@@ -974,9 +1024,17 @@ class StartCommands:
             _mon = getattr(self, "monitor", None)
             _down = monitor_checks_line(
                 _mon.check_failures() if _mon is not None else None,
-                self._lang(update))
+                lang)
             if _down:
                 msg += f"\n{_down}"
         except Exception:
-            msg += f"\n{t('fmt_monitor_checks_unread', self._lang(update))}"
-        await self._send(update, msg, reply_markup=_KB_WARROOM)
+            msg += f"\n{t('fmt_monitor_checks_unread', lang)}"
+        return msg
+
+    @guard("status")
+    async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._send(update,
+                         await self.status_card_text(self._get_tg_id(update),
+                                                     self._lang(update)),
+                         reply_markup=_KB_WARROOM)
+

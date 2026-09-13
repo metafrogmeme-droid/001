@@ -65,7 +65,9 @@ def test_status_reads_the_bias_through_the_seam():
     # start-here mixin, and a scan of one file reads the move as the seam
     # no longer being read.
     code = "\n".join(_code_only(p) for p in handler_sources())
-    i = code.find("async def _cmd_status")
+    # The card's READING moved into `status_card_text` when the web needed
+    # to answer the same question; `_cmd_status` is four lines that send it.
+    i = code.find("async def status_card_text")
     body = code[i:code.find("async def ", i + 10)]
     assert "self . _status_market_bias ( )" in body, "/status must read the bias through the seam"
     assert "macro_calendar . evaluate ( )" not in body, "the bare, unguarded calendar read is back"

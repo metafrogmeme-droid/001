@@ -293,7 +293,7 @@ class TestEverySurfaceReadsTheOneHelper:
 
     @pytest.mark.parametrize("anchor,name", [
         ("def _banner(", "the banner"),
-        ("async def _cmd_status(", "/status"),
+        ("async def status_card_text(", "/status"),
         ("async def _cmd_risk(", "/risk"),
     ])
     def test_the_other_surfaces_route_through_it_too(self, anchor, name):
