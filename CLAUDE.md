@@ -887,6 +887,39 @@ and an EMPTY calendar — NORMAL, not stale, because exhaustion means it HAD
 events — is the one case that flag exists for.
 (`tests/test_the_macro_card_reads_what_the_gate_reads.py`.)
 
+**A record with no age is read as current, and the memory layer had three
+of them.** `Message.to_llm_message` returned `{"role", "content"}` and dropped
+the timestamp, so a `[get_portfolio] result:` recorded on Monday reached the
+model on Friday shaped exactly like one recorded a second ago, under a rule
+that says a tool's output is a measurement — it is, of that moment, and the
+moment was the one thing the history did not carry. The rolling summary was
+the assistant's own undated paraphrase injected verbatim on every turn
+("Previous conversation summary: the user holds ETH"), never checked for the
+`[skill] result:` block shape the fabrication guard exists for — the turns it
+folds are full of that shape and the note-writer is a sampler — and compaction
+re-dated it to the user's last message. And the recall line ("Last discussed
+asset: NEAR/USDT") was `_extract_symbol` run over the whole sentence, the same
+reader the post-mortem slice had already caught attaching NEAR to "why did you
+enter near the top", recorded as a fact about the user with no count and no
+date. Every turn older than a minute carries its age now; a tool record says
+`[recorded 3 d ago — as of then, not now]` on its own line, so the marker stays
+where its readers anchor; and the stamp is the MEASUREMENT — the verdict (call
+the tool again) is the prompt rule's, because a two-minute-old snapshot called
+stale by the store would be a threshold pretending to be a fact. A time the
+record does not hold is said, never computed from the loader's `0`: that reads
+"56 y ago", a confident number about a moment nobody recorded. The note is
+dated when written, keeps its date through a restart and a compaction, is cut
+at the first tool-result block (and not written at all when nothing else
+survives), and the prompt frames it as unverified with its age. A recall is a
+MENTION, read from a word written as a ticker — `$X`, `X/USDT`, caps inside a
+lowercase sentence, or a name that is not also English — with its count and
+its age; `AMBIGUOUS_TICKER_WORDS` lists the known tickers that are English
+words, and a shouted sentence carries no case signal at all. Three mutations
+survived the first round, and each named a case the tests had described in
+prose and never planted: a user turn carrying a `skill` key, an all-caps word
+nobody lists (`RSI`), and a shouted sentence holding an ambiguous ticker.
+(`tests/test_memory_carries_its_age.py`.)
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

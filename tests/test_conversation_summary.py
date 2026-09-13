@@ -37,8 +37,10 @@ def test_pruned_turns_wait_for_a_summary_and_are_handed_out_once():
     assert [m.content for m in store.get_recent("u", limit=10)] == [
         "turn 2", "turn 3", "turn 4", "turn 5"]
     pending = store.take_pending_summary("u")
-    assert pending == [{"role": "user", "content": "turn 0"},
-                       {"role": "assistant", "content": "turn 1"}]
+    assert [(m["role"], m["content"]) for m in pending] == [
+        ("user", "turn 0"), ("assistant", "turn 1")]
+    # Each pruned turn carries the date it was said, for the note-writer.
+    assert all(m["at"].endswith(" UTC") for m in pending)
     assert store.take_pending_summary("u") == [], "handed out exactly once"
 
 
@@ -109,7 +111,7 @@ def test_an_empty_summary_clears_the_note(tmp_path):
     store.set_summary("u", "wrong note")
     store.set_summary("u", "")
     assert store.get_context("u").summary == ""
-    assert "Previous conversation summary" not in store.build_context_prompt("u")
+    assert "Memory note" not in store.build_context_prompt("u")
     assert ConversationStore(persist_path=path).get_context("u").summary == ""
 
 

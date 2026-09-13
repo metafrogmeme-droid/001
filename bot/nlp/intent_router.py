@@ -257,6 +257,53 @@ def postmortem_symbol(text: str) -> Optional[str]:
     return None
 
 
+#: Known tickers that are also ordinary English words. `_extract_symbol`
+#: reads them from anywhere in a sentence, which is how "why did you enter
+#: near the top" put NEAR/USDT in a user's recall. Written AS a ticker ($LINK,
+#: LINK/USDT, LINK inside a lowercase sentence) each is still read; the bare
+#: lowercase word is prose.
+AMBIGUOUS_TICKER_WORDS = frozenset({
+    "near", "etc", "op", "link", "ton", "dot", "ray", "sand", "mana", "gala",
+    "render", "apt", "fil", "ron", "vet", "algo", "uni", "atom", "arb", "bonk",
+})
+
+
+def mentioned_symbol(text: str) -> Optional[str]:
+    """The asset a message MENTIONS, for the user's recall, or None.
+
+    The recall line is a claim about the user ("last discussed asset: NEAR"),
+    so it is read only from a word written as a ticker — `$X`, `X/USDT`, or a
+    known ticker in caps inside a sentence that is not itself shouted — or
+    from a coin name or a known ticker that is not also an English word
+    (`AMBIGUOUS_TICKER_WORDS`). Nothing comes from the command-word fallback
+    `_extract_symbol` keeps for dispatch, where an unknown token beside
+    "analyze" is worth a guess because the caller can ask which asset; a
+    recall cannot ask.
+    """
+    if not text:
+        return None
+    explicit = re.search(r"\$?([A-Za-z]{2,10})/(?:USDT|USD|USDC|PERP)\b", text, re.IGNORECASE)
+    if explicit:
+        return _validate_symbol(f"{explicit.group(1).upper()}/USDT")
+    dollar = re.search(r"\$([A-Za-z]{2,10})\b", text)
+    if dollar:
+        return _validate_symbol(f"{dollar.group(1).upper()}/USDT")
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    shouted = bool(words) and all(w.isupper() for w in words)
+    if not shouted:
+        for w in re.findall(r"\b[A-Z]{2,10}\b", text):
+            lw = w.lower()
+            if lw in _NAME_TO_TICKER or lw in _KNOWN_SYMBOLS:
+                return _validate_symbol(f"{_NAME_TO_TICKER.get(lw, w)}/USDT")
+    for w in words:
+        lw = w.lower()
+        if lw in _NAME_TO_TICKER:
+            return _validate_symbol(f"{_NAME_TO_TICKER[lw]}/USDT")
+        if lw in _KNOWN_SYMBOLS and lw not in AMBIGUOUS_TICKER_WORDS:
+            return _validate_symbol(f"{lw.upper()}/USDT")
+    return None
+
+
 def detect_reply_mode(text: str) -> str:
     """The turn's shape, for a caller with no IntentResult to hand.
 
