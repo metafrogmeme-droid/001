@@ -1408,7 +1408,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         from bot.core.live_readiness import mode_label
         mode = mode_label()
         cb_s = "paused" if cb else ("unknown" if _g["unknown"] else "running")
-        macro_s = macro.state.value.replace("_", " ").lower()
+        # `macro_state_words`: an exhausted or unreadable calendar is named,
+        # not printed as the "blackout" (or fail-open "normal") it reports.
+        from bot.macro.calendar import macro_state_words
+        macro_s = macro_state_words(macro).lower()
         return f"{mode} | {open_pos} open | {cb_s} | macro: {macro_s}"
 
     def _footer(self) -> str:

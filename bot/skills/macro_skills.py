@@ -224,7 +224,9 @@ class MacroBriefSkill(BaseSkill):
                 ctx = ctx_fn()
                 risk_state = getattr(ctx, "risk_state", "UNKNOWN")
                 severity = getattr(ctx, "severity", "")
-                multiplier = getattr(ctx, "size_multiplier", 1.0)
+                # No 1.0 default: an unreadable size multiplier is not "full
+                # size" (the sibling card below already reads it this way).
+                multiplier = _present(ctx, "size_multiplier")
                 explanation = getattr(ctx, "explanation", "")
                 is_stale = getattr(ctx, "is_stale", False)
                 is_blind = getattr(ctx, "is_blind", False)
@@ -343,9 +345,8 @@ class CheckEventRiskSkill(BaseSkill):
 
         source = provider or calendar
 
-        # Try v2 macro provider get_context() first, then check_risk() fallback
+        # The v2 macro provider's get_context() is the one door.
         ctx_fn = _safe_getattr(source, "get_context")
-        check_fn = _safe_getattr(source, "check_risk")
 
         if ctx_fn and callable(ctx_fn):
             try:
@@ -382,31 +383,18 @@ class CheckEventRiskSkill(BaseSkill):
                 lines.append(f"\n<i>{explanation}</i>")
             return "\n".join(lines)
 
-        elif check_fn and callable(check_fn):
-            try:
-                result = check_fn(symbol)
-            except Exception as exc:
-                return f"Error checking risk for {symbol}: {exc}"
-
-            severity = getattr(result, "severity", _safe_getattr(result, "get", lambda k, d=None: d)("severity", "N/A"))
-            window = getattr(result, "window", _safe_getattr(result, "get", lambda k, d=None: d)("window", "none"))
-            multiplier = getattr(result, "size_multiplier", _safe_getattr(result, "get", lambda k, d=None: d)("size_multiplier", 1.0))
-            explanation = getattr(result, "explanation", _safe_getattr(result, "get", lambda k, d=None: d)("explanation", ""))
-
-            lines = [
-                f"{_html_bold('Event Risk')} — {symbol}",
-                f"Severity:        <code>{severity}</code>",
-                f"Window:          <code>{window}</code>",
-                f"Size multiplier: <code>{multiplier}</code>",
-                f"Explanation:     {explanation}",
-            ]
-            return "\n".join(lines)
-
-        # Fallback: no check_risk method.
+        # There is no second door. A `check_risk()` fallback stood here with
+        # `size_multiplier` defaulting to 1.0 — FULL SIZE for an unreadable
+        # multiplier, the fail-open direction on a control whose job is to
+        # shrink positions before a print — and no source in the tree defines
+        # `check_risk`: MacroEventProvider has `get_context`, MacroCalendar has
+        # `evaluate`. A branch that cannot run cannot be driven, and its
+        # default was wrong for the day something grew the method.
         return (
             f"{_html_bold('Event Risk')} — {symbol}\n"
-            "Macro source has no <code>check_risk()</code> method. "
-            "Ensure the v2 macro provider is wired."
+            "Macro source has no <code>get_context()</code> method — the entry "
+            "gate's macro reading cannot be produced from it. Ensure the v2 "
+            "macro provider is wired."
         )
 
 

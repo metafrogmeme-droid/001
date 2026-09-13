@@ -161,11 +161,19 @@ class MacroCalendar:
         return self._next_after(self._now_fn()) is None
 
     def evaluate(self) -> MacroStateSnapshot:
-        """Compute the current macro risk state. Fail-closed: exceptions → BLACKOUT."""
+        """Compute the current macro risk state. Fail-closed: exceptions → BLACKOUT,
+        marked ``unreadable`` so a reader can tell the crash from an exhausted
+        schedule (both are BLACKOUT) and from a real event window."""
         try:
             return self._evaluate_inner()
         except Exception:
-            return MacroStateSnapshot(state=MacroRiskState.BLACKOUT)
+            return MacroStateSnapshot(state=MacroRiskState.BLACKOUT, unreadable=True)
+
+    def has_events(self) -> bool:
+        """Whether ANY event is loaded. An empty calendar evaluates NORMAL — a
+        confident all-clear from no data — and is not `stale` (exhaustion means
+        it HAD events); the reader has to ask this separately."""
+        return bool(self._events)
 
     def _evaluate_inner(self) -> MacroStateSnapshot:
         now = self._now_fn()
@@ -258,3 +266,28 @@ class MacroCalendar:
             "et": utc_dt.astimezone(ET).strftime(fmt) + " ET",
             "ams": utc_dt.astimezone(AMS).strftime(fmt) + " AMS",
         }
+
+
+def macro_state_words(snap, has_events: "bool | None" = None) -> str:
+    """The macro state as ONE reading, with the condition behind it, for every
+    surface that prints it — the chat card, the risk status pane, the header
+    strip and /status each rendered ``snap.state`` alone, so an exhausted
+    schedule read "Blackout" (fail-closed) or "Normal" (fail-open) with nothing
+    saying that no future event remains, and a crashed evaluation read
+    "Blackout" with no reason. ``has_events`` is the calendar's own answer
+    (`has_events()`); None means nobody asked, and an empty calendar's NORMAL
+    is then left as it is rather than accused.
+    """
+    try:
+        label = str(getattr(snap.state, "value", snap.state)).replace("_", " ").title()
+    except Exception:
+        return "Unread (the macro state could not be read)"
+    if getattr(snap, "unreadable", False):
+        return f"{label} (calendar evaluation FAILED — nothing was measured; fail-closed)"
+    if getattr(snap, "stale", False):
+        return (f"{label} (calendar EXHAUSTED — every scheduled event is in the past, "
+                "no future event remains to gate against; regenerate the schedule)")
+    if has_events is False:
+        return f"{label} (no calendar loaded — no events on the schedule at all)"
+    return label
+
