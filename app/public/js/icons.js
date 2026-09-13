@@ -8,11 +8,14 @@
 (function () {
   const SPRITE = `
 <svg id="icon-sprite" style="display:none" aria-hidden="true">
-  <symbol id="brand-mark" viewBox="0 0 32 32">
-    <circle cx="16" cy="16" r="12.5" fill="none" stroke="var(--gold)" stroke-width="1.3" opacity=".55"/>
-    <circle cx="16" cy="16" r="9" fill="none" stroke="var(--info)" stroke-width="1.1" opacity=".55"/>
-    <text x="16" y="21.5" font-family="Georgia,serif" font-size="17" fill="var(--gold-bright)" text-anchor="middle" stroke="none">ᐱ</text>
-    <circle cx="16" cy="5.2" r="1.5" fill="var(--up)" stroke="none"/>
+  <!-- The rune-R. One contour, in scripts/brand_mark.py, which also emits
+       both favicons, the marketing site's header mark and the PNG app icons.
+       It replaced a Unicode syllabic set
+       in Georgia: a glyph a font does not carry renders as tofu, silently,
+       and only on machines nobody tested on. currentColor so the brand rule
+       keeps theming it from --gold and keeps its drop-shadow halo. -->
+  <symbol id="brand-mark" viewBox="9.5 4 13.1 24">
+    <path d="M9.5 4 18.6 4 22.6 8.6 22.6 10.2 16.2 16.2 22.6 28 18.1 28 13.1 18.4 13.1 28 9.5 28ZM13.1 7.4 17.7 7.4 19.3 9.2 19.3 9.9 15.3 13.7 13.1 13.7Z" fill="currentColor" fill-rule="evenodd" stroke="none"/>
   </symbol>
   <symbol id="icon-home" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/></g></symbol>
   <symbol id="icon-radar" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 12 18 6"/></g></symbol>

@@ -108,8 +108,8 @@
     "v": 140
   },
   "js/icons.js": {
-    "sha": "45185741065c21cc",
-    "v": 5
+    "sha": "8d0275ac65342f24",
+    "v": 6
   },
   "js/intent-model.js": {
     "sha": "d288c395a7e14720",
@@ -228,8 +228,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "fca3b4d78f8c1563",
-    "v": 38
+    "sha": "b364180da2d29b41",
+    "v": 39
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",

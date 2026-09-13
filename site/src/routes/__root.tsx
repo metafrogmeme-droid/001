@@ -39,15 +39,17 @@ const NAV = [
 function Wordmark() {
   return (
     <span className="inline-flex items-center gap-2.5">
-      {/* The hex rune mark, inline SVG — no network request, scales cleanly,
-          and inherits currentColor so it cannot drift from the accent. */}
-      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" className="text-accent">
+      {/* The rune-R, inline SVG — no network request, scales cleanly, and
+          inherits currentColor so it cannot drift from the accent. The
+          contour is generated: scripts/brand_mark.py emits this same `d` into
+          both favicons, the platform sprite and the PNG app icons, and
+          tests/test_brand_mark_is_one_geometry.py fails if any of them
+          drifts. A logo redrawn per surface is one logo per surface. */}
+      <svg width="12" height="22" viewBox="9.5 4 13.1 24" aria-hidden="true" className="text-accent">
         <path
-          d="M12 1.6 21 6.8v10.4L12 22.4 3 17.2V6.8z"
-          fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"
+          d="M9.5 4 18.6 4 22.6 8.6 22.6 10.2 16.2 16.2 22.6 28 18.1 28 13.1 18.4 13.1 28 9.5 28ZM13.1 7.4 17.7 7.4 19.3 9.2 19.3 9.9 15.3 13.7 13.1 13.7Z"
+          fill="currentColor" fillRule="evenodd"
         />
-        <path d="M9 16V8h3.4a2.6 2.6 0 0 1 0 5.2H9.6L14 16" fill="none"
-          stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span
         className="font-[family-name:var(--font-brand)] text-[17px] font-bold tracking-[0.1em]"
