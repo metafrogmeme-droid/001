@@ -421,7 +421,7 @@ GATEWAY = REPO / "bot" / "web" / "user_gateway.py"
 
 
 def _web_aliases() -> dict:
-    """The `_INTENT_ALIASES` literal, read as a literal.
+    """The map the gateway actually uses — ASKED, not parsed.
 
     It used to be a regex over everything between the assignment and the first
     USE of the name — which held only the dict until a routed `status` branch
@@ -436,16 +436,36 @@ def _web_aliases() -> dict:
     """
     import ast
 
+    from bot.nlp.skill_doors import web_scan_aliases
+
     tree = ast.parse(GATEWAY.read_text())
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Assign)
+        if not (isinstance(node, ast.Assign)
                 and any(isinstance(t, ast.Name) and t.id == "_INTENT_ALIASES"
                         for t in node.targets)):
-            return dict(ast.literal_eval(node.value))
+            continue
+        # THIRD READER OF THE SAME LITERAL, and the literal is gone. The map
+        # was written out in three places that answered three different ways,
+        # so it became one derivation in `skill_doors` — and this extractor,
+        # hardened twice against reading too MUCH of the source, then failed
+        # because there was nothing left to read. A scan cannot see a map that
+        # is computed, which is the whole reason to compute it.
+        #
+        # The assignment is still checked, and it is checked for the right
+        # thing: that the gateway DERIVES rather than restates. A dict literal
+        # coming back here is a fourth copy, and it fails.
+        assert not isinstance(node.value, ast.Dict), (
+            "_INTENT_ALIASES is a literal again — that is the fourth copy of "
+            "a map that already answered three ways")
+        assert ast.unparse(node.value) == "web_scan_aliases()", \
+            ast.unparse(node.value)
+        return dict(web_scan_aliases())
     raise AssertionError("_INTENT_ALIASES is not a plain assignment any more")
 
 
 def test_the_alias_extractor_sees_the_map_and_ONLY_the_map():
+    """The overrun this guards against is gone with the literal, and what
+    replaced it is the thing worth pinning: the gateway reads one table."""
     al = _web_aliases()
     # The five scan modes are the map. `status` LEFT it — it is a routed
     # intent with its own permission now, not an alias onto the account card.

@@ -613,6 +613,24 @@ def _rule(pattern: str, skill: str, needs_symbol: bool = False, explanation: str
     ))
 
 
+def routed_skill_names() -> set[str]:
+    """Every skill name some rule in this module can emit.
+
+    Public because the capability card has to know which of the things it
+    advertises a caller can actually ASK FOR in words, and the alternative was
+    a hand-written list somewhere else — which is the shape that gave this repo
+    three disagreeing copies of the scan dispatch. Derived from the table, so a
+    rule added tomorrow is in the answer without anybody remembering.
+
+    The names are the ROUTER's, not always the skill that finally runs:
+    `scan_deep` is a name no registry knows. `skill_doors.dispatches_to` is the
+    mapping, and it is deliberately not applied here — this function answers
+    what the ROUTER emits, and conflating the two is how the third copy got
+    its wrong rows.
+    """
+    return {skill for _pattern, skill, _needs, _why in _INTENT_RULES}
+
+
 # "RISK ON" / "RISK OFF" as a STANCE, not as the noun. The bare alternative
 # matched anywhere in a sentence, so "event risk on eth" — a read-only
 # question about macro exposure — opened the card that PROPOSES trading more
@@ -703,9 +721,6 @@ HALT_BARE_VERB = re.compile(
     r"|shut\s*down|shut\s+it\s+down)"
     r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
     r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$", re.IGNORECASE)
-#: Whole-message ACTION rules: a message that IS one of these is never
-#: social, whatever thanks or greeting it also carries (the social gate
-#: consults this before its unanchored thanks pattern).
 #: "What can you do?" — a whole-message question about the PRODUCT, not small
 #: talk. The bare tokens (`help`, `commands`, `menu`) already routed; every
 #: phrasing a person actually uses did not. Driven: `what can you do` was eaten
@@ -718,22 +733,52 @@ HALT_BARE_VERB = re.compile(
 #: `how (does|do) (this|it|you) work` only, never a bare "how does X work":
 #: "how does funding work" is a question about the market and belongs to the
 #: model that can explain it.
+#:
+#: WIDENED, because the first version answered fifteen of thirty realistic
+#: phrasings and the other fifteen reached a tool-less model that improvises
+#: the product's own feature list — the failure this rule exists to prevent.
+#: Driven corpus: "what can you help me with", "what are you capable of",
+#: "what tools do you have", "how can you help", "what else can you do",
+#: "list what you can do" and "what does this bot do" all matched NOTHING.
+#:
+#: AND A TRAILING "thanks" DEFEATED EVERY ONE OF THEM. The social gate does
+#: consult this rule before its unanchored politeness pattern — but the rule
+#: is anchored at `$`, so "what can you do thanks" matched no rule to consult
+#: and fell through as small talk. That is the trailing-politeness trap this
+#: file records fixing for the halt rules one slice earlier, in a new spelling
+#: ten lines away: the lead was allowed and the TAIL was not.
 CAPABILITY_ASK = re.compile(
-    r"^\s*(?:(?:so|ok|okay|hey|hi|yo)[,\s]+)?"
+    r"^\s*(?:(?:so|ok|okay|hey|hi|yo|erm|um)[,\s]+)*"
     r"(?:"
-    r"what\s+(?:can|do)\s+you\s+do(?:\s+for\s+me)?"
-    r"|what\s+(?:are\s+you\s+able\s+to\s+do|can\s+this\s+(?:bot|thing)\s+do)"
+    r"what\s+(?:can|do)\s+you\s+(?:actually\s+|even\s+)?do(?:\s+for\s+me)?"
+    r"|what\s+else\s+can\s+you\s+do"
+    r"|what\s+(?:are\s+you\s+able\s+to\s+do|are\s+you\s+capable\s+of)"
+    r"|what\s+can\s+(?:this|the)\s+(?:bot|thing|agent)\s+do"
+    r"|what\s+does\s+(?:this|the)\s+(?:bot|thing|agent)\s+do"
     r"|what\s+(?:are\s+your|other)\s+(?:capabilities|features)"
+    r"|what\s+(?:features|tools|capabilities)\s+do\s+you\s+have"
+    r"|what\s+can\s+you\s+(?:help|show)(?:\s+me)?(?:\s+with)?"
     r"|what\s+can\s+i\s+ask(?:\s+you)?(?:\s+for)?"
+    r"|what\s+should\s+i\s+ask(?:\s+you)?"
     r"|what\s+do\s+you\s+offer"
-    r"|show\s+me\s+what\s+you\s+can\s+do"
+    r"|how\s+can\s+you\s+help(?:\s+me)?"
+    r"|(?:show|tell|list)\s+(?:me\s+)?what\s+you\s+can\s+do"
     r"|capabilities|features"
     r"|how\s+(?:does|do)\s+(?:this|it|you)\s+work"
     r"|(?:i'?m|im)\s+new[,.]?\s*what\s+(?:now|next|do\s+i\s+do)"
     r"|/help"
     r")"
+    # The politeness TAIL. Anchored rules that forbid it read a courteous
+    # question as small talk, which is the one reading a courteous question
+    # never deserves.
+    r"(?:[\s,]+(?:please|pls|plz|thanks|thx|ty|mate|bro|dude|lol|here))*"
     r"\s*[?!.]*\s*$", re.IGNORECASE)
 
+#: Whole-message ACTION rules: a message that IS one of these is never social,
+#: whatever thanks or greeting it also carries (the social gate consults this
+#: tuple before its own unanchored politeness pattern). The doc-comment used to
+#: sit twenty lines up, above `CAPABILITY_ASK`, where an insertion had orphaned
+#: it onto the wrong name.
 _ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
                           HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB,
                           CAPABILITY_ASK)
@@ -1124,13 +1169,29 @@ _rule(r"\b(open positions?|what.?s open|current (positions?|trades?))\b",
       "get_portfolio", explanation="Open positions request")
 _rule(r"\b(pos+i[st]+ions?|posistions?)\b",
       "get_portfolio", explanation="Positions request (typo-tolerant)")
-_rule(r"\b(portfolio|balance|equity|pnl|profit|loss|p&l)\b",
-      "get_portfolio", explanation="Portfolio keyword")
-
 # --- Orders ---
+# ABOVE the bare Portfolio keyword rule, and that order is the fix.
+#
+# Underneath it, the capability card's OWN `get_orders` row — "your resting
+# limit orders and stop/take-profit triggers, as the exchange reports them" —
+# routed to `get_portfolio` at confidence 1.0, because the keyword rule below
+# matches the bare word `profit` INSIDE "take-profit" and got there first. A
+# caller typing the sentence the card invited them to type was handed the
+# POSITIONS card with no sentence: "no positions" over resting limits, which
+# is the exact defect CLAUDE.md records as fixed when `get_orders` stopped
+# being aliased to `get_portfolio` on the web. It was fixed at the alias and
+# reintroduced by rule ORDER, which is invisible from either rule alone —
+# `whynot`'s own comment ("MUST be registered before") is this lesson, and it
+# named a different rule.
+#
+# Specific before generic: every alternative here is a multi-word phrase about
+# ORDERS, so nothing it claims was ever the keyword rule's to answer.
 _rule(r"\b(open orders?|pending orders?|limit orders?|my orders?|show orders?|active orders?|order book|what.?s pending"
       r"|order status|status of (my |the )?(\w+ )?orders?)\b",
       "get_orders", explanation="Open/pending orders on exchange")
+
+_rule(r"\b(portfolio|balance|equity|pnl|profit|loss|p&l)\b",
+      "get_portfolio", explanation="Portfolio keyword")
 
 # --- Risk ---
 # RUNECLAW risk triggers

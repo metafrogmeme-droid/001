@@ -297,9 +297,11 @@ def test_a_status_reading_that_raises_is_not_answered_with_a_card(monkeypatch):
 def test_status_left_the_alias_table(monkeypatch):
     """Guards the guard: every assertion above passes trivially if the intent
     stopped reaching the branch at all."""
-    import inspect
+    # ASKED, not parsed. This read the literal between the braces, so the
+    # day three disagreeing copies of that map became one derivation in
+    # `skill_doors`, the guard failed on its own scanning rather than on
+    # anything about `status`. A scan cannot see a map that is computed,
+    # which is the whole reason to compute it.
+    from bot.nlp.skill_doors import web_scan_aliases
 
-    from bot.web import user_gateway as ug
-    src = inspect.getsource(ug._chat_turn)
-    i = src.index("_INTENT_ALIASES = {")
-    assert '"status"' not in src[i:src.index("}", i)]
+    assert "status" not in web_scan_aliases()

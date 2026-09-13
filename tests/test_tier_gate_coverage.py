@@ -93,10 +93,27 @@ def test_every_gated_skill_dispatch_is_behind_the_gate():
 
 def test_the_pro_scan_alias_still_resolves():
     """`pro_scan` is dispatched but sold as `premium_scan`; if that mapping
-    breaks, the test above silently stops checking the scan commands."""
+    breaks, the test above silently stops checking the scan commands.
+
+    ASKED, not grepped. This read `'dispatch("pro_scan"' in src`, and the
+    handler stopped naming the skill in a literal the day the scan dispatch
+    became one table in `skill_doors` — it was three copies answering three
+    ways, and the handler reads the table now. A grep for a literal cannot
+    see a dispatch that is looked up, which is the whole reason to look it up;
+    what it was really asking is which skill the timeframe scan modes RUN, and
+    that is a question the table answers.
+    """
+    from bot.nlp.skill_doors import SCAN_DISPATCH, dispatches_to
+
     assert "premium_scan" in tg.FEATURE_MIN_TIER
+    ran = {dispatches_to(i, "telegram") for i in SCAN_DISPATCH}
+    assert "pro_scan" in ran, (
+        f"pro_scan is no longer dispatched on telegram ({sorted(ran)}) — "
+        "update SKILL_TO_FEATURE")
+    # ...and the handler really reads that table rather than deciding itself.
     src = HANDLER.read_text()
-    assert 'dispatch("pro_scan"' in src, "pro_scan is no longer dispatched — update SKILL_TO_FEATURE"
+    assert "dispatches_to(intent.skill" in src, \
+        "the handler decides the scan skill again; this guard is blind to it"
 
 
 def test_both_tiers_actually_buy_something():

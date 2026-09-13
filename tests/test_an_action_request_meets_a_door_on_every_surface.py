@@ -210,7 +210,11 @@ def test_the_web_answers_every_action_intent_before_any_alias_or_skill():
     from pathlib import Path
     src = code_only(Path("bot/web/user_gateway.py").read_text())
     branch = src.index("intent.skill in ACT_INTENTS")
-    assert branch < src.index("_INTENT_ALIASES = {")
+    # NOT `"_INTENT_ALIASES = {"`. That map is one derivation from
+    # `skill_doors` now — it was three copies answering three ways — so the
+    # literal is gone and only the assignment is left. The claim here was
+    # always about ORDER, and the assignment is what it orders against.
+    assert branch < src.index("_INTENT_ALIASES =")
     assert "act_intent_notice(" in src
 
 

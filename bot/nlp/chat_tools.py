@@ -214,10 +214,16 @@ def skill_reach(users, user_id: str, surface: str,
     second answer, and this one decides what a caller is told the product can
     do.
 
-    The reasons are the three fixes, not one: `role` (ask an admin), `plan`
-    (upgrade) and `surface` (use Telegram for that one). An unreadable role
-    counts as `role`, because a role that cannot be read is not a role that
-    holds the permission — the same direction `tools_for` already failed in.
+    The reasons are the FIXES, not one: `role` (ask an admin), `plan`
+    (upgrade), `surface` (use Telegram for that one), `wallet` (link or verify
+    one) and `unreadable` (nothing to do — the bot could not check). Every
+    withholding fails CLOSED; what the reason buys is that a caller during an
+    outage is not sent to an admin for a role they already hold.
+
+    ``users is None`` and an empty ``user_id`` are `unreadable` too, and that
+    is the half that was silent: they used to return `([], {})`, and a card
+    built from zero-and-zero says "I cannot reach any of my read tools for
+    you" with no reason at all.
 
     `DANGEROUS_SKILLS` is not withheld and not counted. Those are not features
     this caller is missing; they are things chat does not do at all, and the
@@ -228,7 +234,27 @@ def skill_reach(users, user_id: str, surface: str,
     def _mark(reason: str) -> None:
         withheld[reason] = withheld.get(reason, 0) + 1
 
+    # NOT `return [], withheld`. That answered ZERO reachable and ZERO
+    # withheld, so the card printed "Right now I cannot reach any of my read
+    # tools for you." and stopped — a confident negative about this caller's
+    # access, assembled from a store nobody asked. It is the same event as the
+    # `except` below (nothing was read) arriving one step earlier, and it gets
+    # the same word: an absent store and an unidentified caller are both
+    # "could not be checked", never "you have nothing".
+    #
+    # Counted over the same filter the loop uses, so the number the card
+    # prints is the number of capabilities that WOULD have been considered —
+    # a count of `names` would include the dangerous and the permission-less,
+    # which are not withheld from anybody.
     if users is None or not user_id:
+        for name in names:
+            perm = permission_for(name)
+            if perm is None or name in DANGEROUS_SKILLS:
+                continue
+            if surface == "web" and name not in WEB_CHAT_SKILLS:
+                _mark("surface")
+                continue
+            _mark("unreadable")
         return [], withheld
     out: list[str] = []
     for name in names:
@@ -243,27 +269,60 @@ def skill_reach(users, user_id: str, surface: str,
                 _mark("role")
                 continue
         except Exception:
-            # An unreadable role is not a role that holds the permission.
-            _mark("role")
+            # STILL WITHHELD — an unreadable role is not a role that holds the
+            # permission, and that direction is deliberate. What changed is the
+            # WORD: this used to mark `role`, so a store that was DOWN and a
+            # role that was genuinely short produced byte-identical cards and a
+            # trader read "24 more need a role you do not have yet. Your role
+            # here is trader." during an outage. Fail closed, say which.
+            _mark("unreadable")
             continue
-        if not _tier_allows(users, user_id, name):
-            _mark("plan")
+        _ok, _why = _tier_verdict(users, user_id, name)
+        if not _ok:
+            _mark(_why)
             continue
         out.append(name)
     return out, withheld
 
 
-def _tier_allows(users, user_id: str, skill_name: str) -> bool:
-    """The $RCLAW tier gate, mirrored from the two dispatch sites. Both of
-    them let a gate BUG through rather than take the transport down, and so
-    does this; a gate VERDICT is honoured."""
+#: The tier gate's own reason vocabulary, mapped to the card's buckets.
+#: `tier_gate.check_user`'s docstring is explicit that these must not be
+#: collapsed — "you have not staked enough" and "we could not check your
+#: stake" are different messages, and conflating them tells someone holding
+#: 100,000 $RCLAW to go and stake more during an RPC outage. `_tier_allows`
+#: discarded the reason entirely, so all six denials printed "need a higher
+#: plan"; three of them were not about the plan at all.
+_TIER_BUCKET: dict[str, str] = {
+    "insufficient": "plan",        # genuinely short of the required tier
+    "no_wallet": "wallet",         # nothing linked — a different fix
+    "unverified": "wallet",        # linked but unproven — a different fix again
+    "bad_wallet": "wallet",        # stored value is not an address
+    "misconfigured": "unreadable",  # an operator fault, not the caller's
+    "unavailable": "unreadable",   # RPC/infra — nobody could check
+}
+
+
+def _tier_verdict(users, user_id: str, skill_name: str) -> tuple[bool, str]:
+    """``(allowed, bucket)`` from the $RCLAW tier gate.
+
+    Mirrored from the two dispatch sites: both let a gate BUG through rather
+    than take the transport down, and so does this. A gate VERDICT is honoured
+    — and now so is its REASON, which is the half that was thrown away.
+
+    An unknown reason buckets to `unreadable` rather than `plan`: this card
+    would rather say it could not check than name a remedy it cannot justify,
+    and a reason added to the gate tomorrow lands in the honest bucket by
+    default instead of the flattering one.
+    """
     try:
         from bot.token import tier_gate
-        allowed, _reason = tier_gate.check_user(users, user_id, skill_name)
-        return bool(allowed)
+        allowed, reason = tier_gate.check_user(users, user_id, skill_name)
+        if allowed:
+            return True, ""
+        return False, _TIER_BUCKET.get(str(reason), "unreadable")
     except Exception as exc:
         system_log.debug("chat tool tier gate check skipped: %s", exc)
-        return True
+        return True, ""
 
 
 def _normalise_symbol(raw) -> Optional[str]:

@@ -98,6 +98,69 @@ def test_no_model_is_reported_as_none_not_as_a_model():
     assert last.metadata == {"surface": "api", "answered_by": "none"}
 
 
+def test_the_capability_ask_is_answered_from_the_table_and_not_by_the_model():
+    """The surface that offers NO tools was improvising a feature list.
+
+    `test_it_offers_the_model_no_tools` above states the premise and stops
+    there. The consequence is that "what can you do" reached a model with no
+    catalogue in front of it — the `skill_unavailable_notice` failure through a
+    third door, on the surface an external PROGRAM reads and quotes.
+    """
+    seen: dict = {}
+    h = _answering(chat_facade.headless_handler(_engine()), "improvised", {}, seen)
+    for text in ("what can you do", "capabilities", "help", "what can i ask"):
+        out = _run(chat_facade.ask(h, text, user_id="111", is_admin=True))
+        assert "What I can do for you" in out["reply_html"], text
+        assert "I run no tools" in out["reply_html"], text
+        assert "Telegram bot or the web app" in out["reply_html"], text
+        assert out["reply_html"] != "improvised", text
+        # `answered_by` is the field a caller reads to know a model spoke.
+        # A card is not a model's answer, and saying so is the same rule
+        # `no_model_is_reported_as_none` already applies to the FAQ path.
+        assert out["answered_by"] == "none", text
+        assert out["provider"] == "" and out["model"] == "" and out["tools"] == []
+    assert seen == {}, "a model ran for a question answered from a table"
+    # REMEMBERED, as a marker. The first draft of the branch returned above
+    # the `remember` block — so the turn left no trace and the next question
+    # ("which of those is best?") reached the model with a history in which
+    # nothing had been shown, which is the defect slice #95 exists to have
+    # removed, reintroduced by its own fix.
+    turns = [(m.role, m.content) for m in h.conversations.get_recent("111", limit=20)]
+    assert [r for r, _ in turns] == ["user", "assistant"] * 4, turns
+    assert turns[0][1] == "what can you do"
+    # The MARKER, not the card: its contents come from a table the model does
+    # not hold, so it says so rather than pretending to quote itself.
+    # Anchored at the head: a bare substring check passes the mutation #95
+    # records surviving its own first draft, `"NOT SHOWN, CONTENTS NOT
+    # RECORDED"` — a record claiming the card was NOT shown.
+    assert turns[1][1].startswith("[help] SHOWN, CONTENTS NOT RECORDED"), turns[1][1]
+    assert "NOT SHOWN" not in turns[1][1]
+    assert "UNAVAILABLE" not in turns[1][1]
+
+
+def test_a_public_capability_ask_is_remembered_nowhere():
+    """`ask(public=True)` is account-free by contract, and a card does not
+    change that — the same rule `a_public_turn_is_account_free` states for an
+    ordinary turn."""
+    h = _answering(chat_facade.headless_handler(_engine()), "x", {})
+    out = _run(chat_facade.ask(h, "what can you do", user_id="111", public=True))
+    assert "What I can do for you" in out["reply_html"]
+    assert h.conversations.get_recent("111", limit=10) == []
+
+
+def test_an_ordinary_question_still_reaches_the_model():
+    """The narrow claim: the branch above catches the capability ask and
+    nothing else. One that swallowed every turn would pass every assertion in
+    the test above."""
+    seen: dict = {}
+    h = _answering(chat_facade.headless_handler(_engine()), "a real answer",
+                   {"provider": "gemini", "model": "gemini-3.5-flash"}, seen)
+    out = _run(chat_facade.ask(h, "how is BTC?", user_id="111"))
+    assert out["reply_html"] == "a real answer"
+    assert out["answered_by"] == "model"
+    assert seen["question"] == "how is BTC?"
+
+
 def test_a_public_turn_is_account_free_and_remembered_nowhere():
     seen: dict = {}
     h = _answering(chat_facade.headless_handler(_engine()), "answer",

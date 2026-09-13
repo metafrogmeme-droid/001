@@ -537,14 +537,20 @@ def test_no_router_intent_falls_to_the_unavailable_notice_today():
     import inspect
 
     from bot.nlp.intent_router import _INTENT_RULES
+    from bot.nlp.skill_doors import web_scan_aliases
     from bot.skills.chat_runtime import ACT_INTENTS, HALT_INTENTS
     from bot.skills.skill_registry import build_default_registry
     from bot.web import user_gateway as ug
 
     src = inspect.getsource(ug._chat_turn)
     registry = build_default_registry()
-    i = src.index("_INTENT_ALIASES = {")
-    aliased = src[i:src.index("}", i)]
+    # ASKED, not parsed. This used to `src.index("_INTENT_ALIASES = {")` and
+    # read the literal between the braces — so the day the map became a
+    # derivation from `skill_doors` (one table, three disagreeing copies
+    # before it), the ratchet failed on its own scanning rather than on
+    # anything about reachability. A scan cannot see a map that is computed,
+    # which is the whole reason to compute it.
+    aliased = set(web_scan_aliases())
     unhandled = []
     for _pattern, skill, _needs, _why in _INTENT_RULES:
         if not skill or registry.get(skill) is not None:
@@ -553,7 +559,7 @@ def test_no_router_intent_falls_to_the_unavailable_notice_today():
             continue          # answered by the door notices
         if skill.startswith("stance_"):
             continue          # answered by the stance reply
-        if f'"{skill}"' in aliased or f'if intent.skill == "{skill}"' in src:
+        if skill in aliased or f'if intent.skill == "{skill}"' in src:
             continue          # an alias, or a branch of its own
         unhandled.append(skill)
     assert sorted(set(unhandled)) == [], sorted(set(unhandled))
