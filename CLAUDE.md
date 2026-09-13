@@ -684,6 +684,77 @@ now, each killed, and the paper margin the return divides by is DERIVED for a
 paper row (the paper book defines it as `entry × quantity / leverage`) and read
 for a live one, never the other way round.
 
+**The model's evidence was the operator's book, for every caller, on both
+surfaces.** `_build_chat_system_prompt` did `executor = self.engine.live_executor
+if is_live else None`, and every live read under it — the equity sentence, the
+stats, ACTIVE POSITIONS, RECENT CLOSED TRADES — described the operator's
+account to whoever asked, Telegram and web alike, while `GetPortfolioSkill` and
+`/positions` had each been cured through `viewer_executor` a PR earlier: the
+fix that lands on the card and not in the model's evidence, again. Beside it
+`resolve_display_equity_sync` ignored `user_id` on its live branch, read
+`_live_balance_cache` with no age gate although `live_balance_cached` exists
+for exactly that, and `.get("total", 0.0)` printed an unread balance as a live
+`$0.00`. `engine.live_view(user_id)` is the one reading — the executor this
+caller may VIEW and the cached balance OF THAT BOOK, age-gated three ways — and
+the builder reads it once, with no `getattr` fallback to `live_executor`: an
+engine without the seam fails into "could not be read", never into the
+operator's book, and a test plants exactly that engine. A caller the engine
+maps to no account is told WHICH absence — never linked, keys that will not
+decrypt, or a store that could not be asked — because "none right now" is what
+a READ flat book says and none of these was read; an exception in that reading
+is "unresolved", never "absent". Two more fell out: `portfolio_summary = ""`
+was OMITTED by the context builder on any fault, so the model got no portfolio
+sentence at all and filled it from history, and an unreadable closed-trade
+store printed `net PnL $+0.00 … total trades 0`. The system-context callers
+(`""`/`"auto"`: the website sync, the dashboard pusher) keep the operator
+figure and are age-gated now, so a cache older than 900s publishes
+"unavailable" rather than an hours-old number — which is what
+`live_balance_cached` was written for.
+
+**A clock near zero hid the stale branch from its own test.** `time.monotonic()`
+starts near zero on a freshly booted host, so "an hour ago" planted as
+`monotonic() - 3600` was NEGATIVE on this box and read as never-stamped: the
+stale case exercised the wrong branch, and a mutation that made a stale balance
+fall back to the operator's cache survived 44 green tests. `live_balance_cached`'s
+own docstring names that trap for the code; the tests were standing in it. They
+pin the engine's clock a million seconds from boot now, and the mutation dies.
+
+**The review of that fix found the same claim on five more surfaces, and the
+tests it shipped with had let four of them through.** `check_risk` and
+`playbook` — chat TOOLS, the ones the model calls for "what's my risk" — still
+did `executor = engine.live_executor`, so a stranger's tool call answered with
+the operator's equity, exposure, positions and realized P&L in dollars while the
+prompt beside it had just been cured; `viewer_executor` is the door there too,
+and the playbook's utilization line crashed on the very `None` its neighbour
+had just produced. `get_user_live_equity` short-circuited on
+`_is_operator_user`, while `_executor_for` places an operator's order on their
+OWN executor when they linked keys: the operator balance was fetched for an
+order that executes elsewhere, and nothing ever wrote that operator's own
+cache, so `live_view` — which reads the cache OF THE BOOK it describes — said
+"equity unavailable" for them forever. Executor identity decides, on the fetch
+and on the pre-execution recheck. Two caches survived what invalidated them:
+a /connect or /disconnect dropped the executor and kept the balance read
+through it, and /venue swapped the operator executor and kept the old venue's
+total, age-stamped as fresh. The no-account block named `/connect` and
+`/exchange` to WEB callers — a door painted on a wall, one surface over — so
+the words are keyed by the transport the turn arrived on. And PENDING TRADE
+IDEAS listed the GLOBAL queue, so under multi-user another user's manual
+proposal reached this user's model with its symbol, entry and stop; manual
+ideas are counted, never described. **Four of those passed the shipped tests
+because the harness could not see them**: the credential-store stub answered
+the planted absence for ANY id, so the words never depended on who was asked;
+the linked-user scenario planted one position and a clean store on BOTH books,
+so a count or flag read off the operator's executor was indistinguishable;
+the unreadable closed store was driven with an empty list only, though the
+loader's own comment says the list may hold a PARTIAL parse (a builder honouring
+the flag only for an empty list printed the partial as the whole); and the
+context stub printed `Engine state:` unconditionally where production OMITS an
+empty section, so the one assertion naming it could not fail. A ""-caller test
+pinned a builder path production never takes — the portfolio registry refuses
+an empty id one line earlier — so the planted registry refuses one too. A
+symmetric fixture is a fixture that cannot tell the two books apart, and a
+stub that prints a label the code did not is a stub that cannot see silence.
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

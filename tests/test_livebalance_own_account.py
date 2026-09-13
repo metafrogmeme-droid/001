@@ -22,6 +22,8 @@ def _engine():
     eng.ws_feed = None
     eng._user_executors = {}
     eng._balance_view_executors = {}
+    eng._user_live_balance_cache = {}
+    eng._user_live_balance_cache_ts = {}
     return eng
 
 

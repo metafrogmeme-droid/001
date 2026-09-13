@@ -533,7 +533,7 @@ def _stub(with_tools: bool):
     ns = SimpleNamespace(
         engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_Conversations(),
-        _build_chat_system_prompt=lambda user_id, user_name="": (
+        _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": (
             "system prompt\n" + _CHAT_NO_TOOLS_RULE + "PERSONALITY"),
         _is_admin=lambda update: False,
         _note_chat_llm_failure=lambda reason="": None,

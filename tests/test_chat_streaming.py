@@ -236,7 +236,7 @@ def _stub():
     return SimpleNamespace(
         engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_Conversations(),
-        _build_chat_system_prompt=lambda user_id, user_name="": "system prompt",
+        _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": "system prompt",
         _is_admin=lambda update: False,
         _note_chat_llm_failure=lambda reason="": None,
     )

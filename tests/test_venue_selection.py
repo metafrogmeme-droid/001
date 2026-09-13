@@ -477,9 +477,14 @@ def test_disconnect_drops_every_venue_executor_not_just_the_default():
     e._user_executors = {"alice": 1, "bybit/alice": 2, "okx/alice": 3, "bob": 4,
                          "bybit/bob": 5}
     e._balance_view_executors = {"alice": 1, "bybit/alice": 2}
+    e._user_live_balance_cache = {"alice": {"total": 1.0}, "bob": {"total": 2.0}}
+    e._user_live_balance_cache_ts = {"alice": 1.0, "bob": 1.0}
     e.invalidate_user_executor("alice")
     assert set(e._user_executors) == {"bob", "bybit/bob"}, (
         "a revoked user kept a live per-venue executor")
+    # ...and the balance read through the dropped executor goes with it;
+    # bob's stays.
+    assert set(e._user_live_balance_cache) == {"bob"} and set(e._user_live_balance_cache_ts) == {"bob"}
     assert e._balance_view_executors == {}
 
 

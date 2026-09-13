@@ -290,7 +290,7 @@ def test_the_no_model_branch_answers_a_visitor_in_their_language():
     stub = SimpleNamespace(
         engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
         conversations=_Conversations(),
-        _build_chat_system_prompt=lambda uid, user_name="": _CHAT_NO_TOOLS_RULE,
+        _build_chat_system_prompt=lambda uid, user_name="", surface="telegram": _CHAT_NO_TOOLS_RULE,
         _PUBLIC_CHAT_SYSTEM_PROMPT=H._PUBLIC_CHAT_SYSTEM_PROMPT,
         _is_admin=lambda u: False,
         _note_chat_llm_failure=lambda reason="": None,
