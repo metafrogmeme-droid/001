@@ -861,6 +861,61 @@ class UserStore:
                   action="user_max_margin", result="OK")
             return True
 
+    def anomaly_prefs(self, telegram_id: int | str) -> dict:
+        """This user's anomaly-alert scope and interval, with the defaults
+        filled in.
+
+        ALWAYS ANSWERS, including for a user this store has never seen: the
+        alert path runs on a timer and must not fail closed into silence, nor
+        open into the flood the defaults exist to stop. A stored value that
+        is not usable is dropped rather than honoured — `normalise_*` answer
+        None for junk, and the default is what a caller gets then, because a
+        corrupt row should not be able to widen the scope.
+        """
+        from bot.core.anomaly_scope import (
+            DEFAULT_INTERVAL_SEC,
+            SCOPE_HELD,
+            normalise_interval,
+            normalise_scope,
+        )
+
+        user = self.get(telegram_id) or {}
+        raw = user.get("anomaly_prefs") or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        return {
+            "scope": normalise_scope(raw.get("scope")) or SCOPE_HELD,
+            "interval": (normalise_interval(raw.get("interval"))
+                         or DEFAULT_INTERVAL_SEC),
+        }
+
+    def set_anomaly_prefs(self, telegram_id: int | str, *,
+                          scope: str | None = None,
+                          interval: int | None = None) -> bool:
+        """Set either dial, leaving the other alone. False if unknown user.
+
+        The caller normalises and refuses; this stores what it is given, so a
+        `None` here means "not being changed" rather than "clear it" — two
+        dials with independent defaults have no meaningful cleared state.
+        """
+        key = str(telegram_id)
+        with self._lock:
+            if key not in self._users:
+                return False
+            prefs = self._users[key].get("anomaly_prefs")
+            if not isinstance(prefs, dict):
+                prefs = {}
+            if scope is not None:
+                prefs["scope"] = scope
+            if interval is not None:
+                prefs["interval"] = int(interval)
+            self._users[key]["anomaly_prefs"] = prefs
+            self._save()
+            audit(system_log,
+                  f"Anomaly alert prefs for user {key}: {prefs}",
+                  action="user_anomaly_prefs", result="OK")
+            return True
+
     def sim_opt_in(self, telegram_id: int | str) -> bool:
         """Whether this user has opted into PAPER (sim) practice mode. When True
         (and PAPER_SIM_OPT_IN_ENABLED), their confirmed trades are simulated into

@@ -91,6 +91,7 @@
     "holdtime": "análisis del tiempo en posición",
     "costs": "desglose de costes de trading",
     "watch": "alertas proactivas para este chat",
+    "alerts": "alcance y frecuencia de las alertas de anomalías",
     "share": "guarda una nota que tu agente pueda usar",
     "mynotes": "las notas que has compartido",
     "agent": "la postura de tu agente, en lenguaje claro",

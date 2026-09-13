@@ -929,6 +929,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("llmab", self._cmd_llmab),
             # Proactive alerts
             ("watch", self._cmd_watch),
+            ("alerts", self._cmd_alerts),
             # Live trading commands
             ("golive", self._cmd_golive), ("livebalance", self._cmd_livebalance),
             ("livepositions", self._cmd_livepositions), ("liveclose", self._cmd_liveclose),

@@ -295,7 +295,7 @@ def catalogue_on_the_web() -> tuple[int, int, dict[str, str]]:
 def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     """A card that names a command is claiming the command does something."""
     named, nothing, hits = catalogue_on_the_web()
-    assert (named, nothing, len(hits)) == (90, 78, 12), (named, nothing, hits)
+    assert (named, nothing, len(hits)) == (91, 79, 12), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 
