@@ -245,17 +245,33 @@
     const s = v(syncTime, cache.scanOk, Date.now());
     set(s.text, s.cls, s.title);
   }
+  // WHICH ACCOUNT THE READER IS LOOKING AT, or that nobody could tell us —
+  // ONE reading, because three renderers answered it and only this one knew
+  // about the stale case. The hub strip's Mode tile and mission control's
+  // Mode chip both printed a confident PAPER over a payload whose own
+  // `stale` flag said the bot was never reached: `mode` is nulled by the
+  // server on that path now, and `'PAPER'` here would be the same claim
+  // rebuilt on the client.
+  //   'LIVE' | 'PAPER' | null  (null = unknown, print "MODE ?")
+  function readMode(pf) {
+    if (!pf) return null;
+    if (pf.stale && pf.source !== 'sync') return null;
+    if (pf.mode === 'LIVE' || pf.mode === 'MIXED') return 'LIVE';
+    if (pf.mode === 'PAPER') return 'PAPER';
+    return null;
+  }
+
   function updateModeChip(pf) {
     const el = document.getElementById('modeChip');
     if (!el || !pf) return;
     el.classList.remove('hidden');
-    if (pf.stale && pf.source !== 'sync') {
+    if (readMode(pf) === null) {
       // Bot unreachable and no live feed: mode is unknown — don't assert PAPER.
       el.textContent = 'MODE ?';
       el.className = 'chip chip--offline';
       return;
     }
-    const live = pf.mode === 'LIVE' || pf.mode === 'MIXED';
+    const live = readMode(pf) === 'LIVE';
     // LIVE mode but the balance can't be read: don't flash a confident "LIVE"
     // over an unavailable account — say so.
     if (live && pf.live_unavailable) {
@@ -878,7 +894,10 @@
         // rendered as a mission-control bar with no warning chip at all: the
         // absence of an alarm, which is how a reader takes "nothing is wrong".
         const unk = pos?.unknown_count || 0;
-        const mode = (pf?.mode) || (pos?.live ? 'LIVE' : 'PAPER');
+        // `pf?.mode || …` read an unknown mode as the positions feed's
+        // `live` flag and then printed PAPER for its absence too: two
+        // fallbacks, both landing on a claim.
+        const mode = readMode(pf) || (pf ? null : (pos?.live ? 'LIVE' : null));
         const paused = !!ctlR?.data?.paused;
         const stance = scanR?.circuit_breaker?.strategy_mode || null;
         const daily = pf?.daily_pnl;
@@ -888,7 +907,7 @@
             : `<div class="mc-chip${cls ? ' ' + cls : ''}">${inner}</div>`;
         };
         const cells = [];
-        cells.push(chip('#portfolio', 'Mode', `<span class="chip ${mode === 'LIVE' ? 'chip--live' : ''}">${mode === 'LIVE' ? 'LIVE' : 'PAPER'}</span>`));
+        cells.push(chip('#portfolio', 'Mode', `<span class="chip ${mode === 'LIVE' ? 'chip--live' : mode ? '' : 'chip--offline'}">${mode || 'MODE ?'}</span>`));
         if (stance) cells.push(chip('#engine', 'Stance', `<b>${esc(String(stance))}</b>`));
         cells.push(chip('#portfolio', 'Open', `<b>${openN}</b>`));
         if (unp > 0) cells.push(chip('#portfolio', '⚠️ Unprotected', `<b>${unp}</b>`, 'mc-chip--alert'));
@@ -7413,7 +7432,8 @@
       const stance = String(scan?.circuit_breaker?.strategy_mode || '').toLowerCase();
       const STANCE = { defensive: '🛡 Defensive', balanced: '⚔️ Balanced',
                        aggressive: '🔥 Aggressive', manual: '🧘 Manual' }[stance];
-      const live = pf && (pf.mode === 'LIVE' || pf.mode === 'MIXED');
+      const _mode = readMode(pf);
+      const live = _mode === 'LIVE';
       // A failed read is not an empty book. `getPortfolio` and `/api/alerts`
       // were caught to null above so one dead source cannot blank the strip;
       // counting a null as zero then printed "0 positions carried" over a
@@ -7427,7 +7447,7 @@
         ${tile('Engine', at ? (fresh ? '<span class="up">● LIVE</span>' : '<span class="chip chip--warn">STALE</span>') : '<span class="muted">OFFLINE</span>',
                at ? 'last scan ' + at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'no scan data')}
         ${tile('Stance', STANCE || '—', 'how the agent trades right now')}
-        ${tile('Mode', pf ? (live ? 'LIVE' : 'PAPER') : '—', 'equity ' + equity)}
+        ${tile('Mode', _mode === null ? (pf ? 'MODE ?' : '\u2014') : _mode, 'equity ' + equity)}
         ${tile('Open', nOpen == null ? '\u2014' : String(nOpen), nOpen == null ? 'positions unread' : nOpen === 1 ? 'position carried' : 'positions carried')}
         ${tile('Tripwires', armed == null ? '\u2014' : String(armed), armed == null ? 'alerts unread' : armed === 1 ? 'alert armed' : 'alerts armed')}
       </div>`;

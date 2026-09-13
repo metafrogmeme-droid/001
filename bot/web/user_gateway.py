@@ -586,8 +586,9 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                     tg_id, "assistant", skill_failure_memory(intent.skill),
                     metadata={"skill": intent.skill, "surface": "web",
                               "failed": True})
+                from bot.skills.chat_runtime import skill_failure_notice
                 return web.json_response(
-                    {"reply_html": "Something went wrong. Try again or use a command.",
+                    {"reply_html": skill_failure_notice(intent.skill),
                      "intent": intent.skill}, status=200)
             tg_handler.conversations.append(
                 tg_id, "assistant",

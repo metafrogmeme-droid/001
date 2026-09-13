@@ -21,6 +21,7 @@ pins both facts: the definitions live here, the names still resolve there.
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 import re
 import threading
@@ -220,6 +221,26 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     return (f"{w['cannot']}, and nothing in this conversation can. Your {rows} "
             f"are below \u2014 open {which} and tap <b>{w['button']}</b>. "
             f"{w['claim']}{rest}")
+
+
+def skill_failure_notice(skill: str) -> str:
+    """What the USER is told when a tool they asked for raised.
+
+    Both surfaces already write the honest sentence into MEMORY —
+    `skill_memory.skill_failure_memory`: "[get_portfolio] FAILED — the tool
+    raised an error and returned no result. Nothing was measured." — and then
+    told the person "Something went wrong. Try again or use a command.", which
+    names neither what was attempted nor that nothing was read. The model's
+    record was more honest than the human's screen.
+
+    Carries no detail from the exception, for the reason the memory version
+    gives: a driver message can hold a URL, a host or a config value, and this
+    goes straight to a user.
+    """
+    name = str(skill or "").strip() or "that tool"
+    return (f"I could not run <b>{_html.escape(name)}</b> — it raised an error and returned "
+            "nothing, so nothing was measured. Nothing about it is known from "
+            "this turn; ask again and I will retry it.")
 
 
 def close_intent_notice(symbol: str | None = None, surface: str = "telegram") -> str:

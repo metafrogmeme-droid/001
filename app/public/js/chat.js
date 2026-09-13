@@ -493,6 +493,57 @@
     });
   }
 
+  // WHAT THE READER IS TOLD WHEN A TURN DOES NOT PRODUCE AN ANSWER — one
+  // reading, so the branch that decides can be driven without a browser.
+  // Returns null when the response IS an answer.
+  //
+  //   kind      'rate' | 'unavailable' | 'stream' | 'gateway' | 'refusal' | 'error'
+  //   text      what the bubble says
+  //   retry     whether a Retry button is offered: only where trying again
+  //             could plausibly work. A refusal is a decision, and "Retry"
+  //             under it is a button that re-earns the same sentence.
+  //   cooldown  ms to disable Retry for, when the server named one
+  //
+  // Every branch of it used to sit inline in `send`, and two of them were
+  // wrong: `r.status === 502` answered a MID-STREAM failure with the
+  // deployment-pairing sentence, and `!r.ok` printed the server's raw error
+  // code ("Error: skill_not_web_enabled") under a Retry button.
+  function chatFailure(r) {
+    if (!r) return { kind: 'error', text: 'Network error.', retry: true };
+    if (r.status === 429) return { kind: 'rate', text: 'Rate limit hit — give it a few seconds.', retry: true, cooldown: 5000 };
+    if (r.status === 503) {
+      return { kind: 'unavailable', retry: false,
+               text: 'Chat isn\'t available on this deployment right now — please try again shortly.' };
+    }
+    // The stream's own failure, with the reason the SERVER gave.
+    if (r.streamed && !r.ok) {
+      return { kind: 'stream', retry: true,
+               text: esc(r.data?.error || 'The answer did not arrive.') };
+    }
+    if (r.data?.error === 'gateway_disabled' || (!r.ok && r.status === 502)) {
+      return { kind: 'gateway', retry: false, text: REFUSALS.gateway_disabled };
+    }
+    if (!r.ok && REFUSALS[r.data?.error]) {
+      return { kind: 'refusal', retry: false, text: REFUSALS[r.data.error] };
+    }
+    if (!r.ok) {
+      return { kind: 'error', retry: true,
+               text: `<b>Error:</b> ${esc(r.data?.detail || r.data?.error || 'chat unavailable')}` };
+    }
+    return null;
+  }
+
+  // WHAT A REFUSAL MEANS, in the visitor's words. These are decisions, not
+  // faults: the same request will be refused again, so none of them gets a
+  // Retry button, and none of them is printed as the raw code the server
+  // uses ("Error: skill_not_web_enabled" was a real bubble).
+  const REFUSALS = {
+    forbidden: 'That needs an account this chat is not signed in to.',
+    skill_not_web_enabled: 'That one only runs in Telegram — open the bot there and ask for it.',
+    live_not_enabled: 'Live trading is off on this account, so there is nothing to act on here.',
+    gateway_disabled: 'Chat isn\'t connected on this deployment yet — the operator is being notified.',
+  };
+
   // Append a bot error bubble with a one-tap Retry, and restore the user's
   // text to the composer so a failed turn never loses what they typed.
   function appendFailure(html, text, cooldownMs) {
@@ -578,6 +629,16 @@
     const dec = new TextDecoder();
     let buf = '';
     let final = null;
+    // THE SERVER SAYS WHY, AND NOBODY WAS LISTENING. `app/lib/gateway.js`
+    // writes `event: error` with the reason it knows — "Timed out waiting for
+    // the bot", "Chat unavailable", "Bot gateway error" — and this reader
+    // passed it to `onStreamEvent`, which handles delta/attempt/tool and
+    // drops everything else. The turn then ended with no `final`, took the
+    // synthetic 502 below, and the send path's 502 branch printed "Chat isn't
+    // connected on this deployment yet — the operator is being notified": a
+    // PAIRING diagnosis manufactured from a timeout, on the one surface that
+    // had been told the actual cause.
+    let streamError = null;
     const handle = (raw) => {
       let event = 'message';
       const dataLines = [];
@@ -589,6 +650,7 @@
       let data = null;
       try { data = JSON.parse(dataLines.join('\n')); } catch (e) { return; }
       if (event === 'final') final = data;
+      else if (event === 'error') streamError = (data && data.error) || null;
       else onEvent({ type: event, ...(data || {}) });
     };
     for (;;) {
@@ -599,7 +661,13 @@
       while ((i = buf.indexOf('\n\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 2); }
     }
     if (buf.trim()) handle(buf);
-    if (!final) return { ok: false, status: 502, data: { error: 'The stream ended before an answer arrived.' } };
+    if (!final) {
+      // `streamed: true` is what tells the send path this is the STREAM's own
+      // failure and not a gateway that could not be reached at all, so the
+      // reason the server gave is the reason shown.
+      return { ok: false, status: 502, streamed: true,
+               data: { error: streamError || 'The stream ended before an answer arrived.' } };
+    }
     const status = Number(final.status) || 200;
     return { ok: status >= 200 && status < 300, status, data: final.body || {} };
   }
@@ -706,20 +774,14 @@
       // Partial text from a turn that did not end in an answer is not an
       // answer: take it down before the failure line, never leave it standing.
       if (!(r.ok && r.data && !r.data.pending_trade) && live) { live.bubble.remove(); live = null; }
-      if (r.status === 429) appendFailure('Rate limit hit — give it a few seconds.', text, 5000);
-      else if (r.status === 503) {
-        appendMsg('bot', 'Chat isn\'t available on this deployment right now — please try again shortly.');
-        // Operator hint (console only — never surfaced to visitors): the bot
-        // user-gateway isn't reachable/configured.
-        console.warn('[chat] gateway 503 — set WEB_GATEWAY_SECRET (same on website + bot) and BOT_GATEWAY_URL, then redeploy both.');
+      const failure = chatFailure(r);
+      if (failure) {
+        // Operator hints stay in the console — never surfaced to visitors.
+        if (failure.kind === 'unavailable') console.warn('[chat] gateway 503 — set WEB_GATEWAY_SECRET (same on website + bot) and BOT_GATEWAY_URL, then redeploy both.');
+        if (failure.kind === 'gateway') console.warn('[chat] bot gateway rejected the shared secret — set the SAME WEB_GATEWAY_SECRET on the bot (env or admin /setgateway) and the website.');
+        if (failure.retry) appendFailure(failure.text, text, failure.cooldown);
+        else appendMsg('bot', failure.text);
       }
-      else if (r.data?.error === 'gateway_disabled' || r.status === 502) {
-        // Pairing problem between website and bot — an operator issue, not the
-        // visitor's. Say so plainly; keep the actionable detail in the console.
-        appendMsg('bot', 'Chat isn\'t connected on this deployment yet — the operator is being notified. Please check back soon.');
-        console.warn('[chat] bot gateway rejected the shared secret — set the SAME WEB_GATEWAY_SECRET on the bot (env or admin /setgateway) and the website.');
-      }
-      else if (!r.ok) appendFailure(`<b>Error:</b> ${esc(r.data?.detail || r.data?.error || 'chat unavailable')}`, text);
       else if (r.data.pending_trade) appendTradeCard(r.data.pending_trade);
       else {
         // Analysis / answer bubble, plus (when the skill surfaced a concrete

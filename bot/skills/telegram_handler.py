@@ -43,7 +43,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     ACT_INTENTS, ACT_KIND, HALT_INTENTS, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
-    thinking_phrase,
+    skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
 # The second slice: the Guardian command group is a mixin the handler class
@@ -3362,8 +3362,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         tg_id, "assistant", skill_failure_memory(intent.skill),
                         metadata={"skill": intent.skill, "failed": True})
                     system_log.debug("NL skill %s failed: %s", intent.skill, exc)
-                    await self._send(update,
-                        "Something went wrong. Try again or use a command.")
+                    # The MEMORY line one statement up names the tool and says
+                    # nothing was measured; the person was told neither.
+                    await self._send(update, skill_failure_notice(intent.skill))
                 return
 
             # ── The skill the router named cannot be run ──────────

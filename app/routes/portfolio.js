@@ -207,6 +207,13 @@ async function writeThrough(userId, pf) {
   }
 }
 
+// THE LAST THING WE STORED, and it is not a reading of the account. Every
+// caller below returns this when the bot could not be asked, and each one
+// stamped `mode: 'PAPER'` on the way out — a CLAIM about which account the
+// user is trading, manufactured from a failed read. A live user whose gateway
+// blipped saw their dashboard labelled PAPER. `stale: true` already travels
+// with it; the mode is `null` now, which is what "nobody could tell us" is,
+// and the header strip reads both.
 async function dbFallback(userId) {
   const [snaps] = await pool.execute(
     'SELECT equity FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1',
@@ -232,15 +239,17 @@ router.get('/', pfLimit, async (req, res) => {
       return res.json(await operatorPortfolio(userId));
     }
     if (!gateway.isConfigured()) {
+      // No gateway configured at all: there is no bot to have an account ON,
+      // so PAPER is the deployment's own state rather than a guess about it.
       const fb = await dbFallback(userId);
-      return res.json({ ...fb, mode: 'PAPER' });
+      return res.json({ ...fb, mode: 'PAPER', stale: false, unconfigured: true });
     }
     const ident = await resolveBotIdentity(req);
     const r = await gateway.getGateway(
       `/portfolio?telegram_id=${encodeURIComponent(ident.id)}`, 15000);
     if (r.status !== 200) {
       const fb = await dbFallback(userId);
-      return res.json({ ...fb, mode: 'PAPER' });
+      return res.json({ ...fb, mode: null });
     }
     const pf = r.data;
     try {
@@ -253,7 +262,7 @@ router.get('/', pfLimit, async (req, res) => {
     console.error('Portfolio proxy error:', err.stack || err.message);
     try {
       const fb = await dbFallback(userId);
-      return res.json({ ...fb, mode: 'PAPER' });
+      return res.json({ ...fb, mode: null });
     } catch (e) {
       return res.status(502).json({ error: 'Portfolio unavailable' });
     }
