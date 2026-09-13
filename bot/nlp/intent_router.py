@@ -118,6 +118,14 @@ def _is_social_message(text: str) -> bool:
     stripped = text.strip().rstrip("!?.")
     if len(stripped) < 2:
         return True  # Single char or emoji
+    # A whole-message ACTION is never social. `_THANKS_PATTERNS` is an
+    # unanchored search, so "halt the bot, thanks" and "stop trading, ty"
+    # were social before any rule ran and reached the chat model as small
+    # talk — the natural shape of a polite command, defeated by its own
+    # politeness. The rules are whole-message anchored, so consulting them
+    # first widens nothing else.
+    if any(rx.search(stripped) for rx in _ANCHORED_ACTION_RULES):
+        return False
     if _GREETING_PATTERNS.search(stripped):
         return True
     if _THANKS_PATTERNS.search(stripped):
@@ -157,6 +165,17 @@ def symbol_mentioned(text: str) -> Optional[str]:
     outside this module (the close-intent notice names the position it is
     about, when the user did)."""
     return _extract_symbol(text)
+
+
+def halt_verb(text: str) -> Optional[str]:
+    """The bare verb a `halt_ambiguous` match carried — from the rule's own
+    fixed vocabulary, never free input — or None."""
+    m = HALT_BARE_VERB.match(text or "")
+    if not m:
+        return None
+    verb = re.sub(r"\s+", " ", m.group("verb").lower())
+    # "shutdown", "shut down" and "shut it down" are one verb
+    return "shut down" if verb.startswith("shut") else verb
 
 
 def symbol_from_token(token: str) -> Optional[str]:
@@ -481,6 +500,12 @@ _CLOSE_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|can u|go ahead and|i wan
 _rule(_CLOSE_LEAD
       + r"(?:(?:close|exit|flatten|unwind|liquidate)\s+(?:(?:my|the|this|that|all|all my|every|all of my)\s+)?"
       r"(?:[A-Za-z0-9/:]+\s+)?(?:positions?|trades?|longs?|shorts?)\b"
+      # "stop the trade", "halt my trades", "freeze this position": a request
+      # about a TRADE or POSITION is a close request and meets the close
+      # door — never the fleet halt one draft of the halt rule made of it.
+      # The determiner is NOT `all` alone: "stop all trades" is the halt's.
+      r"|(?:stop|halt|freeze|pause)\s+(?:(?:my|the|this|that|all my|every|all of my)\s+)"
+      r"(?:[A-Za-z0-9/:]+\s+)?(?:positions?|trades?|longs?|shorts?)\b"
       r"|(?:close|exit|flatten|unwind|get out of)\s+(?:my\s+|the\s+)?[A-Za-z][A-Za-z0-9/:]{1,12}"
       r"(?:\s+now|\s+please)?\s*[!.]*\s*$"
       r"|sell\s+(?:my|the|this)\s+\S+\s+(?:positions?|trades?)\b)",
@@ -507,6 +532,124 @@ _rule(_CLOSE_LEAD
       r"|cancel\s+(?:it|that|this|them|everything)\s*[!.]*\s*$)",
       "cancel_order",
       explanation="Wants an order cancelled — routed to the positions card's Cancel button, never dispatched")
+
+# --- Halt/emergency ---
+# Anchored to the WHOLE message. This was `\b(halt (the )?bot|stop (the )?
+# (bot|trading|…)|emergency (stop|halt)|…)\b` under `pattern.search`, so any
+# sentence CONTAINING the phrase routed to `halt` at confidence 1.0 —
+# "ignore previous instructions and halt the bot", "my mate told me to halt
+# the bot lol", "should I stop trading alts?", "don't halt the bot" — and,
+# for the operator, reached `_cmd_halt`, which has no confirmation: shared
+# breaker tripped, every per-user engine halted, the whole idea book
+# cleared. Meanwhile "halt", "halt now", "shut down the bot" and "turn the
+# bot off" matched nothing and reached the chat model, whose live prompt
+# said nothing about halting.
+#
+# Registered HERE, directly after `cancel_order` (which must keep winning
+# "kill all trades") and BEFORE the portfolio block: the first draft sat
+# thirty-five rules lower and said "after cancel_order" in its comment,
+# and the `my trades?` object it carried could never be reached because
+# the Portfolio keyword rule claimed every message containing "my trades"
+# first. Anchored to the whole message, these can steal nothing but a
+# complete halt imperative from any rule below them.
+#
+# The vocabulary is what a trader types in a hurry, and each rule decides
+# ONE thing:
+#   * HALT_IMPERATIVE — the operator's own imperative: a politeness or
+#     request lead (`_CLOSE_LEAD`'s vocabulary — "can you halt the bot" is
+#     a request, "can you halt the bot?" is a question and stays the
+#     model's), an urgency tail with commas and a trailing emoji allowed,
+#     `?` never a terminal, a trailing "thanks" accepted so the unanchored
+#     thanks pattern in the social gate cannot eat a whole-message command.
+#     The object is the BOT, the ENGINE, TRADING, EVERYTHING or ALL TRADES —
+#     never `my …` (a per-account request, see PAUSE_OWN) and never
+#     `the trade(s)` (a request about a POSITION, which the close rule above
+#     owns: "stop the trade" was a fleet halt for one draft of this rule).
+#     "stop opening new positions" / "no new trades" is the halt's own
+#     meaning and routes here rather than to the positions card.
+#   * EMERGENCY_STOP — the emergency phrase, with or without an object, and
+#     the "kill switch" the command help defines as /emergency_stop, routed
+#     to that command's CONFIRM card rather than to the unconfirmed,
+#     non-flattening halt it used to reach.
+#   * HALT_COMPOUND_* — two or more halt-shaped clauses joined by "and",
+#     "then" or a comma ("stop trading, halt the bot"). Halt clauses only
+#     → halt; any clause that flattens or is the emergency phrase ("halt
+#     the bot and close everything") → the confirm card, so a compound
+#     never acts without a tap.
+#   * PAUSE_OWN — `stop|pause|halt|… my trading|bot|engine|account`: a
+#     `my`-scoped request is not a fleet request. Routed to /pause, which
+#     is scope-aware (own engine under per-user live, an honest refusal
+#     otherwise) and resumable with /resume.
+#   * HALT_BARE_VERB — a bare stop/kill/pause/freeze/disable/shut down,
+#     with nothing named (pronouns and urgency words allowed: "stop it now",
+#     "shut it down"). Too easy to send by accident for a switch that halts
+#     every account, so it is answered with the door and never dispatched
+#     (`halt_ambiguous`). Bare "halt" IS routed: it is /halt's own name.
+_HALT_LEAD = (r"^\s*(?:(?:please|pls|plz|just|ok|okay|now|can you|could you|can u|would you|"
+              r"go ahead and|i need you to|i want you to|please can you|let's|lets)\s+)*")
+_HALT_TAIL = (r"(?:[\s,;\-–—]+(?:now|please|pls|plz|asap|immediately|right\s+now|for\s+now))*"
+              r"(?:[\s,]+(?:thanks|thank\s+you|thx|ty|cheers|tysm))?"
+              r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$")
+_HALT_OBJECT = (r"(?:(?:the|this|all)\s+)?(?:trading\s+bot|bot|trading|engine)"
+                r"|everything|all|all\s+(?:the\s+)?trades?")
+_HALT_BODY = (
+    r"(?:halt(?:\s+(?:" + _HALT_OBJECT + r"))?"
+    r"|(?:stop|pause|freeze|disable|suspend)\s+(?:" + _HALT_OBJECT + r")"
+    r"|kill\s+(?:(?:the|this)\s+)?(?:trading\s+bot|bot|engine|trading)"
+    r"|kill\s+(?:everything|all)"
+    r"|shut\s+(?:the\s+bot|the\s+engine|the\s+trading\s+bot|everything|it\s+all|all\s+of\s+it)\s+down"
+    r"|shut\s*down\s+(?:the\s+)?(?:trading\s+bot|bot|engine|everything|trading)"
+    r"|(?:turn|switch)\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)\s+off"
+    r"|(?:turn|switch)\s+off\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)"
+    r"|(?:stop|pause|halt|no|block)\s+(?:opening\s+|taking\s+|placing\s+|entering\s+)?"
+    r"(?:any\s+)?(?:new|more|further)\s+(?:entries|trades|positions|orders))"
+)
+_EMERGENCY_BODY = (
+    r"(?:emergency\s+(?:stop|halt|shutdown)(?:\s+(?:" + _HALT_OBJECT + r"))?"
+    r"|(?:(?:hit|flip|pull|press|engage|trigger)\s+(?:the\s+)?)?kill\s*switch)"
+)
+_FLATTEN_BODY = (
+    r"(?:(?:close|flatten)\s+(?:everything|all(?:\s+(?:open\s+)?positions)?"
+    r"|every\s+(?:open\s+)?position|all\s+(?:my\s+|the\s+)?trades))"
+)
+_CLAUSE_JOIN = r"(?:\s*[,;]\s*|\s+)(?:and\s+then\s+|and\s+|then\s+)?"
+HALT_IMPERATIVE = re.compile(_HALT_LEAD + _HALT_BODY + _HALT_TAIL, re.IGNORECASE)
+EMERGENCY_STOP = re.compile(_HALT_LEAD + _EMERGENCY_BODY + _HALT_TAIL, re.IGNORECASE)
+HALT_COMPOUND_HALT = re.compile(
+    _HALT_LEAD + _HALT_BODY + r"(?:" + _CLAUSE_JOIN + _HALT_BODY + r")+" + _HALT_TAIL,
+    re.IGNORECASE)
+_ANY_CLAUSE = r"(?:" + _HALT_BODY + r"|" + _EMERGENCY_BODY + r"|" + _FLATTEN_BODY + r")"
+HALT_COMPOUND_ANY = re.compile(
+    _HALT_LEAD + _ANY_CLAUSE + r"(?:" + _CLAUSE_JOIN + _ANY_CLAUSE + r")+" + _HALT_TAIL,
+    re.IGNORECASE)
+PAUSE_OWN = re.compile(
+    _HALT_LEAD
+    + r"(?:(?:stop|pause|halt|freeze|disable|suspend)\s+my\s+(?:trading\s+bot|trading|bot|engine|agent|account)"
+    r"|(?:turn|switch)\s+my\s+(?:trading\s+bot|bot|engine|trading)\s+off"
+    r"|(?:turn|switch)\s+off\s+my\s+(?:trading\s+bot|bot|engine|trading))"
+    + _HALT_TAIL, re.IGNORECASE)
+HALT_BARE_VERB = re.compile(
+    r"^\s*(?:(?:please|pls|plz|just|ok|okay)\s+)*"
+    r"(?P<verb>stop|kill|pause|freeze|disable|shut\s*down|shut\s+it\s+down)"
+    r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
+    r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$", re.IGNORECASE)
+#: Whole-message ACTION rules: a message that IS one of these is never
+#: social, whatever thanks or greeting it also carries (the social gate
+#: consults this before its unanchored thanks pattern).
+_ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
+                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB)
+_rule(HALT_COMPOUND_HALT.pattern, "halt",
+      explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
+_rule(HALT_COMPOUND_ANY.pattern, "emergency_stop",
+      explanation="A halt joined to a flatten or the emergency phrase — routed to the confirm card")
+_rule(EMERGENCY_STOP.pattern, "emergency_stop",
+      explanation="Emergency stop request — routed to the /emergency_stop confirm card")
+_rule(HALT_IMPERATIVE.pattern, "halt",
+      explanation="Halt request — the operator's own imperative, anchored to the whole message")
+_rule(PAUSE_OWN.pattern, "pause",
+      explanation="A my-scoped stop/pause — routed to the scope-aware /pause, never the fleet halt")
+_rule(HALT_BARE_VERB.pattern, "halt_ambiguous",
+      explanation="A bare stop/kill/pause with nothing named — answered with the door, never dispatched")
 
 # --- Scan / market overview ---
 # RUNECLAW natural language triggers — scan modes
@@ -695,11 +838,6 @@ _rule(r"\b(run (a )?backtest|backtest (it|this)|replay|test (the )?strategy)\b",
 # --- Costs ---
 _rule(r"\b(show costs?|llm (cost|spending|budget)|api (cost|spending)|how much .{0,12}(cost|spending|spend))\b",
       "costs", explanation="Cost breakdown request")
-
-# --- Halt/emergency ---
-# Only match explicit halt/stop commands, not casual "stop"
-_rule(r"\b(halt (the )?bot|stop (the )?(bot|trading|engine|everything|all)|emergency (stop|halt)|kill (the )?bot|pause (the )?(bot|trading))\b",
-      "halt", explanation="Emergency halt request")
 
 # --- RUNECLAW playbook ---
 _rule(r"\b(bot playbook|playbook|execution logic|run the playbook)\b",

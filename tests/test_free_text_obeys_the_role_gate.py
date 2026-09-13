@@ -57,7 +57,6 @@ from __future__ import annotations
 
 import ast
 import pathlib
-import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -415,11 +414,15 @@ class TestTheTableDoesNotDrift:
         """Derived from the router's own rules. A new intent rule pointing at a
         real skill fails here until somebody declares its permission — which is
         the whole reason this file exists."""
-        src = ROUTER.read_text(encoding="utf-8")
-        code = "\n".join(ln.split("#", 1)[0] for ln in src.split("\n"))
-        emitted = set(re.findall(
-            r'_rule\(\s*r?["\'].*?["\']\s*,\s*["\']([a-z_0-9]+)["\']', code, re.S))
+        # AST, imported from the sibling suite rather than copied: the regex
+        # this replaced required a string-literal pattern argument and stopped
+        # seeing `_rule(HALT_IMPERATIVE.pattern, "halt", …)` the day the halt
+        # rules became compiled names — the one skill that halts every account
+        # fell out of this guard in silence (25 -> 24).
+        from tests.test_intent_routing_and_unavailable import _emitted_skills
+        emitted = _emitted_skills()
         assert len(emitted) > 15, f"only {len(emitted)} intent rules parsed — extractor broke"
+        assert {"halt", "emergency_stop", "halt_ambiguous", "pause"} <= emitted
 
         from bot.skills.skill_registry import build_default_registry
         registry = build_default_registry()

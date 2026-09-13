@@ -109,6 +109,14 @@ WEB_CHAT_SKILLS: frozenset[str] = frozenset(SKILL_PERMISSION) - {"halt", "trade_
 DANGEROUS_SKILLS: dict[str, str] = {
     # skill -> the TelegramHandler method that owns its authority
     "halt": "_cmd_halt",
+    # Typed "emergency stop" used to reach `_cmd_halt` — unconfirmed, and it
+    # does NOT flatten — while the command it names shows an operator-checked
+    # CONFIRM STOP card that does. The phrase gets the card.
+    "emergency_stop": "_cmd_emergency_stop",
+    # "pause my trading" / "stop my bot": a `my`-scoped request is not a
+    # fleet request. `_cmd_pause` is scope-aware — the caller's own engine
+    # under per-user live, an honest refusal otherwise — and resumable.
+    "pause": "_cmd_pause",
 }
 
 
