@@ -292,7 +292,11 @@ class ProactiveMonitor:
     # It bounds DISTINCT conditions, not noise from one: persistence is the
     # repeat window's job. If a night is still loud with this at 6, the lever
     # is BLACK_SWAN_SEVERE_REPEAT, not this.
-    _SEVERE_CARDS_PER_HOUR = 6
+    #: Read from the env so an operator can widen it without patching this
+    #: file. A bot box carrying a 3,349-line override to change one integer
+    #: is a file that will drift, and it did — it fell three methods behind
+    #: main and crashed on a method the override had deleted.
+    _SEVERE_CARDS_PER_HOUR = int(os.getenv("SEVERE_CARDS_PER_HOUR", "6") or 6)
     _SEVERE_BUDGET_WINDOW = 3600
 
     def __init__(self, engine) -> None:
@@ -1522,6 +1526,31 @@ class ProactiveMonitor:
     _LLM_TIERS = ("SCAN", "THESIS", "LEARNING", "CHAT")
     _SELF_HOSTED = ("runeclaw", "ollama")
 
+    @staticmethod
+    def _same_model(want: str, served: str) -> bool:
+        """Do these two names mean the same model to the endpoint?
+
+        Ollama's /v1/models reports full tags — `v14-real-14b:latest` — while
+        LLM_TIER_*_MODEL carries what an operator types, `v14-real-14b`.
+        Ollama resolves the bare name to `:latest` on every real call, so the
+        two ALWAYS disagree here and NEVER disagree in practice.
+
+        Compared as strings that is a permanent, unfalsifiable
+        `model_missing`. On 2026-09-11 this card had fired 227 consecutive
+        times against an endpoint answering every request, while the LLM
+        status card beside it read "Brain: healthy — LLM answering" and
+        counted 24 served calls. Two cards, one endpoint, opposite claims,
+        and the card that was wrong is the one that pages.
+
+        The tag is the last colon-separated piece of the FINAL path segment,
+        so `pbdes2022/humanoid-traders:v13-14b` keeps its repo path and only a
+        genuinely untagged name gains `:latest`.
+        """
+        def tagged(name: str) -> str:
+            name = (name or "").strip()
+            return name if ":" in name.rsplit("/", 1)[-1] else name + ":latest"
+        return bool(want) and tagged(want) == tagged(served)
+
     def _llm_origin(self) -> tuple[str, str, str]:
         """(base_url, api_key, tier_name) for a self-hosted tier, else ("","","").
 
@@ -1589,9 +1618,16 @@ class ProactiveMonitor:
                             try:
                                 body = await resp.json()
                                 served = {str(m.get("id", "")) for m in (body.get("data") or [])}
-                                if served and want not in served:
+                                if served and not any(
+                                        self._same_model(want, s) for s in served):
                                     result["state"] = "model_missing"
+                                    # BOTH numbers, because the list is CUT.
+                                    # Six of thirteen tags, alphabetical, read
+                                    # as the endpoint's whole store on
+                                    # 2026-09-11 and sent a morning chasing a
+                                    # second model registry that did not exist.
                                     result["served"] = sorted(served)[:6]
+                                    result["served_total"] = len(served)
                             except Exception:
                                 pass   # unreadable list is not evidence of absence
                     else:
@@ -1640,6 +1676,9 @@ class ProactiveMonitor:
         if state == "model_missing":
             served_list = list(p.get("served") or [])
             served = ", ".join(served_list) or "none listed"
+            total = int(p.get("served_total") or len(served_list))
+            more = (f" (first {len(served_list)} of {total}, alphabetical)"
+                    if total > len(served_list) else "")
             # NAME THE THING TO CHANGE. The other two branches of this card do;
             # this one described the fault exactly and left the operator to go
             # and find the setting. Both remedies are stated because both are
@@ -1648,7 +1687,7 @@ class ProactiveMonitor:
             # repointing the tier is right when it was not.
             why = (f"The endpoint answers and the key works, but the model "
                    f"<code>{p.get('model')}</code> is not served there.\n"
-                   f"It offers: <code>{served}</code>.\n"
+                   f"It offers{more}: <code>{served}</code>.\n"
                    "Every call to this tier will 404 while the endpoint looks "
                    "healthy.\n"
                    f"Fix: set <code>{tier_model_env(tier)}</code> to one of "
