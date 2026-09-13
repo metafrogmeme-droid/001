@@ -1021,6 +1021,52 @@ alone. (`tests/test_the_router_reads_what_a_trader_types.py`; the other four
 families of that corpus — timeframe scans, the performance record, macro
 shorthand and order phrasings — are filed, not fixed.)
 
+**The server said why the turn failed and the browser threw the sentence
+away, then diagnosed the deployment instead.** `app/lib/gateway.js` writes
+`event: error` into the chat stream with the reason it has — "Timed out
+waiting for the bot", "Chat unavailable", "Bot gateway error" — and the
+drawer's reader passed that frame to `onStreamEvent`, which handles
+delta/attempt/tool and silently drops anything else. The turn then ended with
+no `final`, took a synthetic 502, and the send path's `r.status === 502`
+branch printed *"Chat isn't connected on this deployment yet — the operator is
+being notified"*: a PAIRING DIAGNOSIS manufactured from a timeout, on the one
+surface that had been told the actual cause. Both failures arrive as 502 and
+only one of them is a fact about the deployment; `streamed: true` is what
+tells them apart. Beside it, `!r.ok` printed the server's raw code — a real
+bubble read **"Error: skill_not_web_enabled"** — under a Retry button that
+could only ever earn the same line again. A refusal is a decision: it gets a
+sentence and no Retry, and `chatFailure(r)` is the one reading, pure, so the
+branch that decides can be driven without a browser (it had been six inline
+`else if`s, and two of them were the defect).
+
+**PAPER is a claim about which account the reader is trading, and it was
+manufactured from a failed read in three places.** `routes/portfolio.js`'s
+`dbFallback` returns the last equity snapshot this database holds — a memory,
+not a reading — and every caller stamped `mode: 'PAPER'` on the way out, so a
+LIVE user whose gateway blipped had their dashboard relabelled with the one
+word that means "none of this is real money". `stale: true` already travelled
+with the payload, and `updateModeChip` read it and printed "MODE ?" — while
+the hub strip's Mode tile and mission control's Mode chip did not, so one
+payload said PAPER twice and unknown once. `readMode` is the one reading now
+and the payload nulls the mode it could not read. The exception is a
+deployment with NO gateway configured: there is no bot to have an account on,
+so PAPER there is the deployment's own state rather than a guess, and it says
+`stale: false` to prove it.
+
+**And the honest sentence was already being written — into the MODEL's
+memory, not onto the person's screen.** Both surfaces record
+`skill_failure_memory`: *"[get_portfolio] FAILED — the tool raised an error
+and returned no result. Nothing was measured."* — and then told the user
+*"Something went wrong. Try again or use a command."*, which names neither
+what was attempted nor that nothing was read. The model's record was more
+honest than the human's, on the same line of the same handler.
+`skill_failure_notice` is the one sentence for both, and it carries no detail
+from the exception for the reason the memory version gives: a driver message
+can hold a URL, a host or a config value, and this one goes straight to a
+user. (`app/test/chat_failure_says_what_failed.test.js`,
+`app/test/mode_is_not_asserted_from_a_failed_read.test.js`,
+`tests/test_a_failed_tool_is_named_to_the_person_too.py`.)
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live
@@ -1230,8 +1276,15 @@ in the script tag. **Bump it in every page that references a changed bundle.**
 
 Strip comments first. A comment that quotes the string it forbids is
 indistinguishable from the code doing it, and this has produced five false
-failures. `tests/source_scan.py` is the shared `tokenize`-based `code_only()`
-— import it rather than copying it, as 47 test files already do.
+failures — and one FALSE PASS, which is the quiet direction. A new JS guard
+asserted `/streamed: true/` against raw `chat.js`, and the comment two lines
+above that return explains the flag BY NAME: the mutation that deleted it from
+the code left the assertion matching the prose, and the round reported the
+guard green over the defect it was written for. `tests/source_scan.py` is the
+shared `tokenize`-based `code_only()` for Python — import it rather than
+copying it, as 47 test files already do — and `app/test/helpers/code_only.js`
+is the same thing for JS, which was already in the tree when that guard was
+written.
 (`tests/test_preflight_matches_ci.py` still carries a private copy of the same
 twenty lines, which is the second-copy-is-a-second-answer shape sitting inside
 the advice against it.)

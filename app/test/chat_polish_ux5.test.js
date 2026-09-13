@@ -29,7 +29,13 @@ test('mic failures are explained, not swallowed', () => {
 test('rate-limit Retry has a real cooldown, not an instant re-fail', () => {
   assert.match(chat, /function appendFailure\(html, text, cooldownMs\)/);
   assert.match(chat, /Retry in \$\{left\}s/);
-  assert.match(chat, /appendFailure\('Rate limit hit[^']*', text, 5000\)/);
+  // The cooldown moved into `chatFailure`, the one reading of a turn that
+  // produced no answer — and is DRIVEN there
+  // (chat_failure_says_what_failed.test.js asserts kind/retry/cooldown for
+  // every branch). What this file still locks is the wiring: the cooldown
+  // the decision returns is the one `appendFailure` is handed.
+  assert.match(chat, /kind: 'rate'[^}]*cooldown: 5000/);
+  assert.match(chat, /appendFailure\(failure\.text, text, failure\.cooldown\)/);
 });
 
 test('messages sent mid-turn queue (one slot) instead of vanishing', () => {
