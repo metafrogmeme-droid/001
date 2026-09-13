@@ -198,6 +198,40 @@ def test_it_does_not_tell_anyone_to_run_a_bare_pytest():
     assert not re.search(r"^\s*(?:\$ )?python3? -m pytest", DOC, re.M)
 
 
+def test_the_recorded_call_sites_are_the_number_it_claims():
+    """A number in prose is the part that rots first. Counted from the source
+    the claim is about, not from memory."""
+    import ast
+    import inspect
+    import textwrap
+
+    m = re.search(r"Twenty-eight call sites across the two entry points", DOC)
+    assert m, "the claim was reworded; recount it"
+    import bot.skills.telegram_handler as th
+    from bot.web import user_gateway as ug
+    tg = textwrap.dedent(inspect.getsource(th.TelegramHandler._handle_message))
+    web = inspect.getsource(ug._chat_turn)
+    n = sum(ast.unparse(c.func).endswith(("_remember_routed", "record_routed_turn"))
+            for src in (tg, web)
+            for c in ast.walk(ast.parse(src))
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
+    assert n == 28, f"CLAUDE.md says twenty-eight; the two entry points have {n}"
+
+
+def test_the_four_records_it_names_all_exist_and_differ():
+    from bot.nlp import skill_memory as sm
+
+    assert "Four records now" in DOC
+    heads = {sm.skill_result_memory("s", "x")[:30],
+             sm.routed_answer_memory("s", "x")[:30],
+             sm.card_shown_memory("s")[:30],
+             sm.not_run_memory("s", "x")[:30]}
+    assert len(heads) == 4, heads
+    for name in ("skill_result_memory", "routed_answer_memory",
+                 "card_shown_memory", "not_run_memory", "record_routed_turn"):
+        assert name in DOC and hasattr(sm, name)
+
+
 # ── F-15 ──────────────────────────────────────────────────────────────────
 
 def test_no_secret_or_address_is_committed_in_it():

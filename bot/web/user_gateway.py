@@ -43,7 +43,14 @@ from aiohttp import web
 
 from bot.config import CONFIG
 from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
-from bot.nlp.skill_memory import skill_failure_memory, skill_result_memory
+from bot.nlp.skill_memory import (
+    not_run_memory,
+    record_routed_turn,
+    routed_answer_memory,
+    skill_failure_memory,
+    skill_result_memory,
+    skill_unavailable_memory,
+)
 from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
@@ -146,6 +153,32 @@ def _is_admin_id(tg_handler, tg_id: str) -> bool:
 _WEB_SKILL_PERMISSION: dict[str, str] = {
     name: SKILL_PERMISSION[name] for name in sorted(WEB_CHAT_SKILLS)
 }
+
+
+#: The `error` codes `_web_skill_denied` answers with, as a sentence the next
+#: turn can use. A refusal is not a failure and not a missing tool, and which
+#: gate said no is the difference between "ask an admin" and "your session
+#: timed out" — so it travels, from the verdict rather than from a guess.
+_DENIAL_REASON: dict[str, str] = {
+    "skill_not_web_enabled": "it is not reachable from web chat at all",
+    "session_expired": "the caller's session is older than 24 hours and this "
+                       "one can move money",
+    "insufficient_permissions": "the caller's role does not hold the "
+                                "permission it needs",
+}
+
+
+def _denial_reason(code: str) -> str:
+    """The sentence for one `error` code, or an honest generic.
+
+    The tier branch answers `f"tier_{reason}"` — a FAMILY of codes, not one —
+    so a flat lookup would miss every paywall refusal and record the generic
+    while the user was told about their plan. Prefix-matched here rather than
+    by enumerating the reasons, which live in the tier gate.
+    """
+    if code.startswith("tier_"):
+        return "the caller's plan does not include it"
+    return _DENIAL_REASON.get(code, "a gate on this surface refused it")
 
 
 def _web_skill_denied(tg_handler, tg_id: str, skill_name: str):
@@ -476,8 +509,19 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             try:
                 result = await skill.execute(engine, user_id=tg_id, symbol=_sym)
             except Exception:
+                # The user turn was appended three lines up, so returning here
+                # left the history with a question and no answer — the exact
+                # gap skill_memory.py's docstring names as the one most likely
+                # to be filled in with something plausible. The two siblings
+                # under `if skill:` already record this; this branch predates
+                # them and was missed.
+                tg_handler.conversations.append(
+                    tg_id, "assistant", skill_failure_memory("analyze_asset"),
+                    metadata={"skill": "analyze_asset", "surface": "web",
+                              "failed": True})
+                from bot.skills.chat_runtime import skill_failure_notice
                 return web.json_response(
-                    {"reply_html": "Couldn't analyze that right now — try again.",
+                    {"reply_html": skill_failure_notice("analyze_asset"),
                      "intent": "analyze_asset"}, status=200)
             resp = {"reply_html": result, "intent": "analyze_asset"}
             setup = _setup_from_new_idea(engine, ideas_before)
@@ -493,26 +537,30 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     if intent.matched and intent.confidence >= 0.8 \
             and intent.skill.startswith("stance_"):
         _want = intent.skill.removeprefix("stance_")
-        return web.json_response({
-            "reply_html": (
-                f"Your <b>personal risk preference</b> lives on the Home view "
-                f"(the 🛡/⚖️/🔥 chips under <i>Your agent</i>) — set it to "
-                f"<b>{_html.escape(_want)}</b> there and I'll tailor how I talk "
-                f"to you. The engine's <b>global</b> stance is an operator "
-                f"control (admins: the stance buttons on Home, or /agent in "
-                f"Telegram)."),
-            "intent": intent.skill})
+        _stance_reply = (
+            f"Your <b>personal risk preference</b> lives on the Home view "
+            f"(the 🛡/⚖️/🔥 chips under <i>Your agent</i>) — set it to "
+            f"<b>{_html.escape(_want)}</b> there and I'll tailor how I talk "
+            f"to you. The engine's <b>global</b> stance is an operator "
+            f"control (admins: the stance buttons on Home, or /agent in "
+            f"Telegram).")
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           routed_answer_memory(intent.skill, _stance_reply),
+                           surface="web")
+        return web.json_response({"reply_html": _stance_reply,
+                                  "intent": intent.skill})
     # A close request has no web door and must never reach the model, which
     # holds no tool that acts and would otherwise narrate one. The notice is
     # the runtime leaf's, so this reply and the Telegram card cannot drift.
     from bot.skills.chat_runtime import ACT_INTENTS, ACT_KIND, HALT_INTENTS, act_intent_notice, halt_intent_notice
     if intent.matched and intent.confidence >= 0.8 and intent.skill in ACT_INTENTS:
         from bot.nlp.intent_router import symbol_mentioned
-        return web.json_response({
-            "reply_html": act_intent_notice(ACT_KIND[intent.skill],
-                                            symbol_mentioned(intent.raw_text), surface="web",
-                                            also_asked=bool(intent.kwargs.get("also_asked"))),
-            "intent": intent.skill})
+        _act = act_intent_notice(ACT_KIND[intent.skill],
+                                 symbol_mentioned(intent.raw_text), surface="web",
+                                 also_asked=bool(intent.kwargs.get("also_asked")))
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           routed_answer_memory(intent.skill, _act), surface="web")
+        return web.json_response({"reply_html": _act, "intent": intent.skill})
     # A halt has NO web CHAT door — `halt` is deliberately absent from
     # WEB_CHAT_SKILLS — and the 403 that used to answer it carried a
     # reply_html the client never renders (chat.js shows "Error:
@@ -527,10 +575,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             _live: "bool | None" = bool(CONFIG.is_live())
         except Exception:
             _live = None
-        return web.json_response({
-            "reply_html": halt_intent_notice(intent.skill, surface="web",
-                                             verb=halt_verb(intent.raw_text), live=_live),
-            "intent": intent.skill})
+        _door = halt_intent_notice(intent.skill, surface="web",
+                                   verb=halt_verb(intent.raw_text), live=_live)
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           routed_answer_memory(intent.skill, _door), surface="web")
+        return web.json_response({"reply_html": _door, "intent": intent.skill})
     if intent.matched and intent.confidence >= 0.8:
         # Router intents whose skills exist only as Telegram command handlers:
         # map them to the closest registered skill so a web ask ACTS instead
@@ -549,6 +598,18 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         if skill:
             denied = _web_skill_denied(tg_handler, tg_id, skill_name)
             if denied is not None:
+                # The Telegram role refusal records `not_run_memory`; this one
+                # answered with a 403 and wrote nothing, so "why did you
+                # ignore me?" reached the model with neither the ask nor the
+                # refusal. The REASON is read off the verdict the gate
+                # actually returned rather than guessed — `error` comes from a
+                # fixed vocabulary this function owns.
+                _why = _denial_reason(
+                    str(json.loads(denied.text or "{}").get("error", "")))
+                record_routed_turn(tg_handler.conversations, tg_id, text,
+                                   intent.skill,
+                                   not_run_memory(intent.skill, _why),
+                                   surface="web")
                 return denied
             audit(system_log, f"Web NL intent routed: '{text[:50]}' -> {intent.skill}",
                   action="web_intent_dispatch", result=intent.skill,
@@ -582,9 +643,15 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             except Exception:
                 # Same record as Telegram makes: a tool that raised is a fact,
                 # and an unrecorded failure is a hole the next turn fills in.
+                # `skill_name`, not `intent.skill`: the aliases above send
+                # `status` to `get_portfolio` and every `scan_*` to
+                # `scan_market`, so recording the router's name attributes the
+                # outcome to a tool that was never called — the same
+                # misattribution the Telegram scan branch carried one
+                # transport over.
                 tg_handler.conversations.append(
-                    tg_id, "assistant", skill_failure_memory(intent.skill),
-                    metadata={"skill": intent.skill, "surface": "web",
+                    tg_id, "assistant", skill_failure_memory(skill_name),
+                    metadata={"skill": skill_name, "surface": "web",
                               "failed": True})
                 from bot.skills.chat_runtime import skill_failure_notice
                 return web.json_response(
@@ -592,8 +659,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                      "intent": intent.skill}, status=200)
             tg_handler.conversations.append(
                 tg_id, "assistant",
-                skill_result_memory(intent.skill, result),
-                metadata={"skill": intent.skill, "surface": "web"})
+                skill_result_memory(skill_name, result),
+                metadata={"skill": skill_name, "surface": "web"})
             resp = {"reply_html": result, "intent": intent.skill}
             setup = _setup_from_new_idea(engine, ideas_before)
             if setup is not None:
@@ -612,11 +679,13 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # Someone asking a trading platform what it can do got a language
         # model's guess at its own command list.
         from bot.formatters.onboarding import skill_unavailable_notice
-        from bot.nlp.skill_memory import skill_unavailable_memory
-        tg_handler.conversations.append(
-            tg_id, "assistant", skill_unavailable_memory(intent.skill),
-            metadata={"skill": intent.skill, "surface": "web",
-                      "unavailable": True})
+        # The QUESTION was never recorded on this branch — only the answer.
+        # A history holding "there is no such tool" with nothing asking for it
+        # is the mirror of the hole above, and reads to the next turn as the
+        # assistant volunteering a refusal.
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           skill_unavailable_memory(intent.skill), surface="web",
+                           skill=intent.skill)
         audit(system_log,
               f"Web NL intent matched an unavailable skill: {intent.skill}",
               action="web_intent_unavailable", result="UNAVAILABLE",
@@ -631,11 +700,16 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # identically.
     from bot.core.news import looks_like_news_request
     if looks_like_news_request(text):
-        tg_handler.conversations.append(
-            tg_id, "assistant", "[news] radar digest",
-            metadata={"skill": "news", "surface": "web"})
-        return web.json_response(
-            {"reply_html": await tg_handler._news_digest_text(), "intent": "news"})
+        # `"[news] radar digest"` was `"executed successfully"` in new clothes:
+        # it told the model a digest happened and not one headline from it,
+        # which is the shape skill_memory.py exists to have deleted. The digest
+        # itself is what the user read, so it is what the history holds —
+        # truncated with the marker if it is long, never silently.
+        _news = await tg_handler._news_digest_text()
+        record_routed_turn(tg_handler.conversations, tg_id, text, "news",
+                           skill_result_memory("news", _news), surface="web",
+                           skill="news")
+        return web.json_response({"reply_html": _news, "intent": "news"})
 
     # Fallback: LLM chat — same append-around-call pattern as _handle_message.
     # Free-tier chat quota: bound the operator-funded xAI Grok budget. Only the

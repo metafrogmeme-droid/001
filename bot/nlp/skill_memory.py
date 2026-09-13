@@ -47,6 +47,8 @@ import html as _html
 import re
 from typing import Optional
 
+from bot.utils.logger import system_log
+
 #: The store persists `content[:2000]` (conversation_store.py:285, :351), so a
 #: record longer than that is silently shortened again on the way to disk and a
 #: restart quietly changes what the model remembers. The cap here leaves room
@@ -118,3 +120,107 @@ def skill_unavailable_memory(skill: str) -> str:
     return (f"[{skill}] UNAVAILABLE — this bot has no such tool wired up, so it "
             "was never run. Nothing was measured, and nothing about it can be "
             "answered from here.")
+
+
+def routed_answer_memory(intent: str, answer: object) -> str:
+    """The assistant turn to record for a reply the ROUTER produced itself.
+
+    DISTINCT FROM ``skill_result_memory`` on purpose, and the distinction is
+    the same one the three records above draw. A skill result is a
+    MEASUREMENT — the tool went and looked. A routed answer is the bot
+    speaking: a door ("nothing has been closed"), a refusal, a paywall, a
+    stance explanation. Recording one as the other would tell the next turn
+    that something was measured when nothing was, which is the shape this
+    module exists to keep out of the history.
+
+    It is recorded at all because the alternative is what every routed branch
+    did: record NOTHING. A turn the user can see on their screen and the model
+    cannot see at all is worse than a placeholder — the user says "why not?"
+    and the history contains neither the request nor the refusal, so the model
+    answers a question it has not been shown.
+    """
+    body = _plain(answer)
+    if body is None:
+        # A routed branch that replied with nothing is a defect in that
+        # branch, and saying so is more useful to the next turn than silence.
+        return (f"[{intent}] ANSWERED WITH NOTHING — the reply carried no "
+                "text. Nothing was said to the user.")
+    if len(body) > MEMORY_CAP:
+        return (f"[{intent}] answered (no tool ran; TRUNCATED — first "
+                f"{MEMORY_CAP} of {len(body)} characters; the rest is not "
+                f"recorded):\n" + body[:MEMORY_CAP])
+    return f"[{intent}] answered (no tool ran):\n{body}"
+
+
+def card_shown_memory(card: str) -> str:
+    """The assistant turn to record when a COMMAND answered and its text is
+    not available where the branch returns.
+
+    Several routed branches hand off to a guarded command handler
+    (``_cmd_help``, ``_cmd_status``, ``_cmd_orders``, ``_cmd_open_positions``)
+    which sends its own message — the card never passes through the caller, so
+    there is nothing to record with ``skill_result_memory``.
+
+    The honest record is not a placeholder. ``"[status] executed
+    successfully"`` is the exact string this module was written to delete, and
+    a marker that only NAMES the card is the same sentence in nicer clothes:
+    both tell the model an answer exists and leave it to supply one. This one
+    states the gap — the answer exists, its contents are NOT here — so the
+    model's honest continuation is "I do not have that in front of me" rather
+    than a reconstruction.
+
+    Upgrading a call site to the real text is strictly better, and each of
+    these commands is one text-returning seam away from it.
+    """
+    return (f"[{card}] SHOWN, CONTENTS NOT RECORDED — the {card} card was "
+            "sent to the user and its text is not in this transcript. Nothing "
+            "in it can be quoted, summarised or counted from here.")
+
+
+def not_run_memory(skill: str, reason: str) -> str:
+    """The assistant turn to record when a tool was REFUSED before it ran.
+
+    A refusal is not a failure and it is not an absence of tooling: the tool
+    exists, it was reachable, and a gate said no. The three read differently
+    to the next turn — a failure invites a retry, an absent tool does not, and
+    a refusal is answered by fixing the caller's tier or role — so they are
+    three records, not one.
+
+    The reason is written by the call site from its own gate, never taken from
+    a driver message or an exception: memory feeds the model and the model
+    writes to a user.
+    """
+    return (f"[{skill}] NOT RUN — {reason}. Nothing was measured, and no "
+            "result from it exists for this turn.")
+
+
+def record_routed_turn(store, user_id: str, text: str, intent: str,
+                       record: str, *, surface: str,
+                       skill: Optional[str] = None) -> None:
+    """Write the question and what answered it into the conversation store.
+
+    ONE implementation, called by both transports, because the alternative was
+    tried on the skill-dispatch path and the two copies already differ: the
+    web records `user` + result + recall, Telegram records `user` + result.
+    A second copy of this is a second answer about what the model remembers.
+
+    ``skill`` names the tool that actually RAN, when one did — ``scan_deep``
+    is routed to the ``deepscan`` skill, and recording the router's name for
+    it would attribute the output to a tool that was never called. It also
+    decides ``Message.is_tool_record()``, which is what puts the age stamp on
+    its own line instead of inline.
+
+    Memory is context, never a dependency: a store that raises must not be the
+    reason a reply the user already read fails to arrive.
+    """
+    meta: dict[str, object] = {"intent": intent, "surface": surface,
+                               "routed": True}
+    if skill:
+        meta["skill"] = skill
+    try:
+        store.append(user_id, "user", text,
+                     metadata={"intent": intent, "surface": surface})
+        store.append(user_id, "assistant", record, metadata=meta)
+    except Exception:
+        system_log.debug("routed turn not recorded for %s", intent,
+                         exc_info=True)
