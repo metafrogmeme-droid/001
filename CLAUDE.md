@@ -736,9 +736,116 @@ its counts survived only because every wrongly-aliased target happened to also
 be a registered skill. Reachability is computed THROUGH that mapping, so a row
 could be printed as reachable on the strength of a map no dispatcher used.
 `SCAN_DISPATCH` is the one table and all three readers ask it. That the two
-columns DISAGREE — a caller typing "deep scan" gets a 67-symbol sweep on
-Telegram and the shallow scan on the web, under a different paywall — is a real
-defect and a separate one; recording it is how it stops being invisible.
+columns DISAGREED — a caller typing "deep scan" got the full sweep on Telegram
+and the shallow scan on the web, under a different paywall — was recorded here
+as a real defect and a separate one, which is how it stopped being invisible;
+it is one column now, and the section below is what collapsing it cost.
+
+**ONE COLUMN, and five of the six things that had to change first were not
+the table.** Collapsing `SCAN_DISPATCH` to a single answer is a four-line edit
+and driving it first is what found the rest.
+
+**The paywall was keyed on the wrong noun, and the only copy of the
+difference lived in a test.** `tier_gate.check_user` takes a FEATURE and
+answers `(True, "ok")` for any name it does not know; the web passed it a
+SKILL. Eight of the nine paid skills are gated by COINCIDENCE — their two
+names happen to match — and `pro_scan` is sold as `premium_scan`, so it was
+free through web chat and a `check_user` call sat above it looking like a
+paywall. `tests/test_tier_gate_coverage.py` held `SKILL_TO_FEATURE =
+{"pro_scan": "premium_scan"}` with a comment saying the mapping "is the sort
+of thing that silently rots, so it is asserted rather than assumed" — asserted
+in a place no production caller can read, which is the rot. `feature_for` is
+the reading, both surfaces ask it, and the test asks it too. Widening the web
+to Telegram's engine would have made three of the five scan intents free.
+
+**A dispatch table that names the skill and not its ARGUMENTS is half a
+table.** Driven, `intent.kwargs` is `{}` for all five scan rules and all three
+scan skills are `execute(self, engine, **kwargs)`, so a retarget that carried
+only the name raises NOTHING: `ProScanSkill` does
+`MODE_CFG.get(mode, MODE_CFG["intraday"])`, and a scalp request would have
+rendered "RUNECLAW INTRADAY SCAN · Timeframe: 15M" with no marker of any kind.
+The kwargs ride in the table and `dispatch_kwargs` hands back a COPY, because
+the web `setdefault`s a budget onto what it gets and one turn's budget would
+otherwise become every later turn's.
+
+**A guard that derives its expectation from the table cannot see the table
+drift.** Every parity test here compares both dispatchers against
+`dispatch_kwargs(intent)` — so swapping `scan_swing`'s mode to `intraday`
+leaves them all green and the words quietly start meaning something else. It
+survived the first mutation round for exactly that reason. The anchor is the
+intent's OWN NAME and the card: `scan_<mode>` runs `mode=<mode>`, and the card
+carries that mode's label and timeframe.
+
+**`pro_scan`'s header was the OPERATOR's book, for every caller, and it is
+live on Telegram today.** `executor = engine.live_executor` one line under the
+CALLER's own equity, printing somebody else's open-position count and realized
+P&L in dollars. Five siblings had already been cured of precisely this
+(`check_risk`, `playbook`, `get_portfolio`, `/positions`, the chat prompt) and
+the scan header was missed — so aligning the web's dispatch would have added a
+second door to it. `viewer_executor` is the reading, `None` prints
+`not linked` rather than `Open: 0/5 · PnL: $+0.00` (two measurements about an
+account nobody looked at), and the realized total goes through
+`realized_totals` so an unpriced close is not a measured break-even. The
+fixture that finds this has to be ASYMMETRIC: plant the same numbers on both
+books and a card reading the wrong one is indistinguishable.
+
+**The web's HTTP deadline is shorter than the scan, and a routed skill emits
+no SSE frames.** 115 symbols through a `Semaphore(10)` is twelve sequential
+batches, so the worst case is 12 x 15s — past the 45s chat deadline, the 75s
+streaming one and nginx's 60s read timeout — and nothing resets an inactivity
+timer while a routed skill runs, so the caller was shown a DEPLOYMENT-PAIRING
+sentence manufactured from a timeout. The scan takes an optional `budget_sec`
+and returns the PARTIAL, labelled: `asyncio.wait` rather than `gather`,
+because a budget has to be able to STOP and `gather` either completes or
+raises — raising loses every symbol already read. `None` stays the default;
+Telegram's `/deepscan` already wraps the dispatch in its own timeout, and a
+caller who can afford the wait says so by not passing one.
+
+**`Scanned 40/115` alone reads as a finished sweep of a quiet market.** The
+row beneath it is the whole difference, so `Not reached 75 (time budget)` is
+kept apart from `Errors` (a symbol the budget ran out before is not a symbol
+that failed; folding them reports a healthy exchange as 75 errors) and printed
+ONLY when something really was left unreached. And "No actionable patterns
+detected" is a claim about the UNIVERSE: over a partial it is a claim about
+symbols nobody looked at, so it is scoped to what was read.
+
+**Building that found a THIRD bucket with no row at all.** A venue that
+answers with fewer candles than the detectors need — a fresh listing, a thin
+book — was counted as neither `scanned` nor an `error`, so
+`Scanned 92/115 · Errors 0` said a complete sweep had found nothing in
+twenty-three symbols nobody could measure. And two defects in the fix itself:
+`asyncio.wait` hands back a SET, so with `hits.sort` being stable the set's
+iteration order decided every tie and the same universe would rank differently
+run to run; and `cancel()` only REQUESTS cancellation, so the abandoned batch
+was still unwinding — holding its semaphore slot — when the next timeframe
+started. Walk the tasks in universe order, and await the cancellations.
+
+**THREE NOUNS, and the web had one name for all of them.** The skill that
+RUNS, the feature that is CHECKED, and the word the refusal SHOWS.
+`_token_gate_blocks` separates the last two in its own docstring — *"`mode` is
+only ever shown to the user; `feature` is what is actually checked"* — and
+the web passed `skill_name` to both, so a paywalled caller read **"Pro_scan
+scan is a staked-tier feature"**: an internal identifier, capitalised, in the
+sentence asking them to buy something. Fixing the GATE and not the SENTENCE
+would have made it "Premium_scan scan", which is the same defect one noun
+over, and the first draft of this slice did exactly that. `display` is the
+word Telegram shows, computed at the dispatch site from the same table, and
+it defaults to the skill name — which is what every caller without one has
+always had.
+
+**"67+ symbols" was in five places and the guard against it read one file.**
+`test_scan_coverage` forbids the literal `"Deep scan 67+ symbols"` in
+`telegram_handler.py`; that exact string has always been
+`DeepScanSkill.description` in `skill_registry.py` — the sentence handed to the
+MODEL as this tool's description and printed by the capability card. The
+universe is 115. The router's rule alternative was the literal `67 symbols?`,
+so the number the product prints TODAY reached nothing, while the number it
+printed years ago still did. `deepscan_universe_size()` is the one count, the
+rule takes any two-or-three digit one (somebody who learned the phrase from an
+older card still types the old number), and the guard is the SHAPE over the
+whole `bot/` tree rather than a list of stale strings — which immediately
+caught this slice's own first fix, where "67+ symbols" had been replaced by
+"115 symbols".
 
 **A second copy of a gate decided what the card promises.** `words_reach`
 unioned the static `CHAT_TOOLS` tuple, while the catalogue the model is

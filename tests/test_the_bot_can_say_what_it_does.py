@@ -607,20 +607,28 @@ def test_the_scan_dispatch_answers_no_bare_intent_name():
     """`row.get(surface, intent)` returned `scan_deep` — a router intent, not
     a skill — for any surface the row does not carry, so every downstream
     membership test silently missed."""
-    from bot.nlp.skill_doors import SCAN_DISPATCH, SURFACES, dispatches_to
+    from bot.nlp.skill_doors import SCAN_DISPATCH, dispatch_kwargs, dispatches_to
     from bot.skills.skill_registry import build_default_registry
 
     registry = build_default_registry()
     for intent, row in SCAN_DISPATCH.items():
-        for surface in SURFACES:
-            got = dispatches_to(intent, surface)
-            assert got != intent, (intent, surface)
-            if got:
-                assert registry.get(got) is not None, (intent, surface, got)
-            else:
-                assert surface not in row, (intent, surface)
-    # An intent the table does not name is its own skill — the ordinary case.
-    assert dispatches_to("get_portfolio", "web") == "get_portfolio"
+        got = dispatches_to(intent)
+        assert got != intent, intent
+        assert registry.get(got) is not None, (intent, got)
+        # THE ARGUMENTS ARE PART OF THE ANSWER. All three scan skills are
+        # `execute(self, engine, **kwargs)`, so a table naming the skill and
+        # not its kwargs dispatches `pro_scan` with no `mode` — and
+        # `MODE_CFG.get(mode, MODE_CFG["intraday"])` renders a SCALP ask as
+        # "RUNECLAW INTRADAY SCAN / Timeframe: 15M" with no marker at all.
+        kw = dispatch_kwargs(intent)
+        assert kw, intent
+        assert dispatch_kwargs(intent) is not row["kwargs"], (
+            f"{intent} hands out the table's own dict; one turn's mutation "
+            "would reach the next")
+    # An intent the table does not name is its own skill, with no kwargs —
+    # the ordinary case.
+    assert dispatches_to("get_portfolio") == "get_portfolio"
+    assert dispatch_kwargs("get_portfolio") == {}
 
 
 def test_every_askable_row_reaches_the_skill_it_describes():
@@ -654,7 +662,7 @@ def test_every_askable_row_reaches_the_skill_it_describes():
             got = router.classify_rules(SKILL_SAYS[name]).skill or ""
             if not got:
                 continue          # no rule: the chat tool is the door
-            if dispatches_to(got, surface) != name:
+            if dispatches_to(got) != name:
                 wrong.append((surface, name, got))
     assert wrong == [], wrong
 
@@ -760,22 +768,42 @@ def test_both_dispatchers_read_the_one_scan_table():
     from bot.skills import telegram_handler as th
     from bot.web import user_gateway as ug
 
-    for fn, wanted in ((ug._chat_turn, "web_scan_aliases"),
-                       (th.TelegramHandler._handle_message, "dispatches_to")):
+    # WHICH skill, and WITH WHICH ARGUMENTS. `intent.kwargs` is empty for
+    # every scan rule and all five skills take `**kwargs`, so a dispatcher
+    # that reads only the skill name answers a scalp with the INTRADAY card
+    # and raises nothing — which is why both readings are required here.
+    for fn, wanted in (
+        (ug._chat_turn, ("web_scan_aliases", "dispatch_kwargs")),
+        (th.TelegramHandler._handle_message, ("dispatches_to", "dispatch_kwargs")),
+    ):
         src = textwrap.dedent(inspect.getsource(fn))
         calls = {ast.unparse(c.func) for c in ast.walk(ast.parse(src))
                  if isinstance(c, ast.Call)}
-        assert wanted in calls, (fn.__qualname__, wanted)
-        # ...and no second copy beside it: a dict literal whose keys are the
-        # scan intents is the shape that was there.
+        for name in wanted:
+            # `from ... import dispatch_kwargs as _dispatch_kwargs` is still a
+            # read of the table, so the leading underscores are stripped.
+            assert any(c.lstrip("_") == name for c in calls), (
+                fn.__qualname__, name, sorted(calls))
+
+        # ...and no second copy beside it. The shape that was there is a dict
+        # literal keyed on the scan intents; what makes one a DISPATCH copy is
+        # its values — a skill name or a mode is an identifier, a waiting
+        # message is a sentence. `scan_thinking` keeps those keys and carries
+        # only prose, which is presentation and not a second answer.
         for node in ast.walk(ast.parse(src)):
             if not isinstance(node, ast.Dict):
                 continue
             keys = {k.value for k in node.keys
                     if isinstance(k, ast.Constant) and isinstance(k.value, str)}
-            assert not (keys & set(SCAN_DISPATCH)) or "scan_modes" in src[
-                max(0, src.find(ast.unparse(node)) - 80):
-                src.find(ast.unparse(node))], ast.unparse(node)[:120]
+            if not (keys & set(SCAN_DISPATCH)):
+                continue
+            named = {v.value for val in node.values for v in ast.walk(val)
+                     if isinstance(v, ast.Constant)
+                     and isinstance(v.value, str) and v.value.isidentifier()}
+            nested = any(isinstance(v, (ast.Dict, ast.Tuple, ast.List))
+                         for val in node.values for v in ast.walk(val))
+            assert not named and not nested, (
+                fn.__qualname__, sorted(named), ast.unparse(node)[:160])
 
 
 def test_a_row_with_no_door_at_all_says_so_rather_than_vanishing():

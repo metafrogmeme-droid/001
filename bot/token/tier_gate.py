@@ -92,7 +92,7 @@ NEVER_GATED: frozenset[str] = frozenset({
 _DEFAULT_FEATURE_MIN_TIER: dict[str, str] = {
     # pro — real compute per call
     "premium_scan": "pro",     # /scalp /intraday /swing
-    "deepscan": "pro",         # 67+ symbols
+    "deepscan": "pro",         # the full universe sweep
     "patterns": "pro",
     "analyze_asset": "pro",
     # /quant — a 150-bar fetch plus regime, GARCH, factor scoring and Hurst.
@@ -766,6 +766,37 @@ def _warn_wallet_balance_fallback() -> None:
         "again each time, so one position serves unlimited users for the cost of "
         "a transfer. Set RCLAW_STAKING_PROGRAM to grade on staked balance."
     )
+
+
+#: SKILL name -> the FEATURE it is sold as, for the one skill where they
+#: differ. `FEATURE_MIN_TIER` is keyed by FEATURE; eight of its nine keys are
+#: also the name of the skill that runs them, and the ninth is not:
+#: `premium_scan` is run by the skill `pro_scan`.
+#:
+#: A convention that holds eight times in nine is exactly why nobody checks
+#: the ninth — the `/setllm` ten-of-eleven shape. This map used to exist ONLY
+#: in `tests/test_tier_gate_coverage.py`, where production could not read it,
+#: so a caller passing the SKILL name got `FEATURE_MIN_TIER.get("pro_scan")
+#: -> None`, which `check_user` treats as UNGATED. Driven with the gate on and
+#: no wallet linked: every other gated skill answered `(False, 'no_wallet')`
+#: and `pro_scan` answered `(True, 'ok')`.
+#:
+#: Telegram never had the bug because `_token_gate_blocks` passes the FEATURE
+#: explicitly (`"deepscan" if _deep else "premium_scan"`). The web passes the
+#: SKILL, so it needs this reading, and so does anything else that gates by
+#: what it is about to DISPATCH.
+_SKILL_FEATURE: dict[str, str] = {"pro_scan": "premium_scan"}
+
+
+def feature_for(skill: str) -> str:
+    """The feature `skill` is sold as — itself, unless the two names differ.
+
+    Call this whenever the thing you hold is a SKILL name and the thing
+    `check_user` wants is a FEATURE. Answering `skill` unchanged is right for
+    the eight that share a name and is the reason the ninth went unnoticed;
+    the map above is the whole difference, in one place both surfaces read.
+    """
+    return _SKILL_FEATURE.get(skill, skill)
 
 
 def check_user(users, uid, feature: str) -> tuple[bool, str]:

@@ -1,6 +1,6 @@
 {
   "_comment": "Per-error-class mypy counts over the whole bot/ tree. A RATCHET: a class may only go DOWN. This is NOT the strict per-module gate in ci.yml, which fails on any error at all for the money modules. Regenerate with scripts/mypy_gate.py --update, and only alongside the commit that actually lowered it.",
-  "total": 597,
+  "total": 596,
   "files": 85,
   "counts": {
     "arg-type": 82,
@@ -13,7 +13,7 @@
     "index": 23,
     "list-item": 2,
     "method-assign": 1,
-    "misc": 18,
+    "misc": 17,
     "name-defined": 2,
     "no-any-return": 99,
     "no-redef": 3,

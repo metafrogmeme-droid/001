@@ -620,9 +620,14 @@ def test_the_paywall_reason_survives_the_tier_code_family(monkeypatch):
 
 
 def test_the_web_alias_records_the_skill_that_ran(monkeypatch):
-    """`_INTENT_ALIASES` sends every `scan_*` to `scan_market`, so recording
-    `intent.skill` attributes the card to a tool that was never called — the
-    Telegram scan branch's misattribution, one transport over."""
+    """Recording `intent.skill` attributes the card to a tool that was never
+    called — the Telegram scan branch's misattribution, one transport over.
+
+    The alias map is `skill_doors.SCAN_DISPATCH` now, so "deep scan" runs
+    `deepscan` on this surface too; what is pinned here is unchanged and is
+    the reason the record is worth pinning at all: the name written into the
+    transcript is the skill that RAN, and `scan_deep` — the router's name for
+    the sentence — must never be it, whichever skill the table names."""
     store = ConversationStore()
     ug, handler = _web(monkeypatch, store)
     handler.registry = SimpleNamespace(get=lambda n: SimpleNamespace(
@@ -631,7 +636,8 @@ def test_the_web_alias_records_the_skill_that_ran(monkeypatch):
     _web_turn(ug, handler, "deep scan")
     rec = "\n".join(m.content for m in store.get_recent("4242", limit=10)
                      if m.role == "assistant")
-    assert "[scan_market] result:" in rec, rec
+    from bot.nlp.skill_doors import dispatches_to
+    assert f"[{dispatches_to('scan_deep')}] result:" in rec, rec
     assert "[scan_deep]" not in rec
 
 

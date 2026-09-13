@@ -222,8 +222,8 @@ def _denial_reason(code: str) -> str:
     return _DENIAL_REASON.get(code, "a gate on this surface refused it")
 
 
-def _web_skill_denied(tg_handler, tg_id: str,
-                      skill_name: str) -> "web.Response | None":
+def _web_skill_denied(tg_handler, tg_id: str, skill_name: str,
+                      display: str = "") -> "web.Response | None":
     """None when this caller may run `skill_name` from the web, else a response.
 
     Two checks the web path was missing entirely:
@@ -253,10 +253,24 @@ def _web_skill_denied(tg_handler, tg_id: str,
              "error": "insufficient_permissions"}, status=403)
     try:
         from bot.token import tier_gate
-        allowed, reason = tier_gate.check_user(tg_handler.users, tg_id, skill_name)
+        # THE FEATURE, not the skill. `check_user` is keyed by FEATURE and
+        # answers (True, 'ok') for any name it does not know, so passing a
+        # SKILL name gated eight of the nine paid skills by coincidence — and
+        # left `pro_scan` (sold as `premium_scan`) completely free. Telegram
+        # passes the feature explicitly; this is the same reading, shared.
+        _feature = tier_gate.feature_for(skill_name)
+        allowed, reason = tier_gate.check_user(tg_handler.users, tg_id, _feature)
         if not allowed:
+            # THREE NOUNS, and only two of them were ever distinguished here.
+            # `_token_gate_blocks`'s own docstring: "`mode` is only ever shown
+            # to the user; `feature` is what is actually checked." The web had
+            # one name for both, so the sentence read "Pro_scan scan is a
+            # staked-tier feature" — the internal skill name, capitalised, in
+            # a refusal. `display` is the word Telegram shows for the same
+            # refusal; it defaults to the skill name, which is what every
+            # caller without one has always got.
             msg = (tier_gate.unavailable_message() if reason == "unavailable"
-                   else tier_gate.upgrade_message(skill_name))
+                   else tier_gate.upgrade_message(display or skill_name))
             return web.json_response({"reply_html": msg, "error": f"tier_{reason}"},
                                      status=402)
     except Exception as exc:  # never take the gateway down on a gate bug
@@ -446,6 +460,22 @@ async def handle_chat_stream(request: web.Request) -> web.StreamResponse:
     async def _turn(req: web.Request, on_event=None) -> web.Response:
         return await _chat_turn(req, on_event=on_event)
     return await _sse_turn(request, _turn)
+
+
+#: How long a routed skill may spend before the web's own deadline makes the
+#: answer worthless. `app/routes/chat.js` gives a non-streaming turn 45s
+#: (CHAT_TIMEOUT_MS) and a streamed one 75s, and a routed skill emits no SSE
+#: frames at all — so the stream is silent for its whole run and the absolute
+#: deadline applies either way. nginx's `/gateway/` block caps it lower still,
+#: at 60s.
+#:
+#: 30s leaves room for the rest of the turn inside the tightest of those. It
+#: is a BUDGET and not a timeout: `deepscan` stops where it is and returns the
+#: symbols it actually read, labelled as partial. Overrunning instead would
+#: hand the caller "Chat isn't connected on this deployment yet" — a pairing
+#: diagnosis manufactured from a slow scan, which is the exact sentence
+#: `chatFailure` was rewritten to stop printing over a timeout.
+_WEB_SCAN_BUDGET_SEC = 30.0
 
 
 async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
@@ -748,9 +778,30 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                                surface="web", skill="status")
             return web.json_response({"reply_html": _card, "intent": "status"})
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
+        # THE ARGUMENTS, from the same table as the skill. The web dispatched
+        # `**intent.kwargs`, and driven, `intent.kwargs` is `{}` for all five
+        # scan intents — so pointing the web at `pro_scan` without this would
+        # have run every scalp and swing request in its DEFAULT intraday mode
+        # and rendered "RUNECLAW INTRADAY SCAN / Timeframe: 15M" over a scalp
+        # ask, silently: the skills are `execute(self, engine, **kwargs)`, so
+        # a missing `mode` raises nothing at all.
+        from bot.nlp.skill_doors import dispatch_kwargs as _dispatch_kwargs
+        _routed_kwargs = {**intent.kwargs, **_dispatch_kwargs(intent.skill)}
+        # ...and a budget the TRANSPORT sets, not the table: the same intent
+        # on Telegram may take as long as `/deepscan` allows it. A skill that
+        # does not read `budget_sec` ignores it, which is why it is passed
+        # only to the one that does rather than to every routed skill.
+        if skill_name == "deepscan":
+            _routed_kwargs.setdefault("budget_sec", _WEB_SCAN_BUDGET_SEC)
+        # The word the REFUSAL shows, which is not the skill's name: Telegram
+        # says "Scalp scan is a staked-tier feature", off the same `mode` this
+        # dispatch carries. Empty for everything else, and the skill name is
+        # then what it has always shown.
+        _gate_word = str(_routed_kwargs.get("mode") or
+                         ("deep" if skill_name == "deepscan" else ""))
         skill = tg_handler.registry.get(skill_name)
         if skill:
-            denied = _web_skill_denied(tg_handler, tg_id, skill_name)
+            denied = _web_skill_denied(tg_handler, tg_id, skill_name, _gate_word)
             if denied is not None:
                 # The Telegram role refusal records `not_run_memory`; this one
                 # answered with a 403 and wrote nothing, so "why did you
@@ -793,7 +844,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             # be offered to the web as a one-tap "Trade this".
             ideas_before = set(getattr(engine, "_pending_ideas", {}) or {})
             try:
-                result = await skill.execute(engine, user_id=tg_id, **intent.kwargs)
+                result = await skill.execute(engine, user_id=tg_id,
+                                             **_routed_kwargs)
             except Exception:
                 # Same record as Telegram makes: a tool that raised is a fact,
                 # and an unrecorded failure is a hole the next turn fills in.
