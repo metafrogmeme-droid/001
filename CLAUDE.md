@@ -944,6 +944,83 @@ the check list both say Entry 100), and "target 2.50" on a two-dollar coin is
 a level, not a second target.
 (`tests/test_a_true_ratio_survives_a_multi_setup_reply.py`.)
 
+**A second corpus, 153 phrases, and 56 came back misrouted — the largest
+family being a model with no chart answering about a chart.** The first
+corpus (47 phrases) found the action requests answered with a read card; this
+one ran every ordinary way of asking to READ ONE ASSET. "give me a full
+analysis of BTC", "technical analysis of sol", "deep dive on eth", "chart for
+doge", "is BTC bullish", "what is the rsi on btc", "can u do a TA on avax",
+"whats the play on wif" — every one of them reached the chat model, which
+holds no analysis tool and says so in its own tool catalogue ("the model is
+told to say analyze BTC"). The verb-first rule knew `analy[sz]e|look at|check
+out`, the symbol-first rule needed its analysis term adjacent to the ticker,
+and the last-resort rule needed the message to END in "scan" or "analysis": a
+sentence that named the asset AND the read was the one shape nothing claimed.
+**And a message that IS a ticker was the worst of them**: `$HYPE` resolved to
+nothing, because the `$` branch required membership of the known list, so the
+social gate answered a ticker as small talk. A `$`-prefixed token is a ticker
+by its spelling — the argument `symbol_from_token` already makes.
+
+**The reverse failure was in the same file and cost more.** `look at the link
+I sent` dispatched an analysis of LINK/USDT at confidence 1.0 and wrote LINK
+into the user's recall, and `check out the near term` analysed NEAR. The
+symbol RESOLVING is precisely why `_names_a_non_asset` — which exists for
+"look at the docs" — was never consulted. `AMBIGUOUS_TICKER_WORDS` (the
+tickers that are also English words) is read by dispatch now as well as by
+the recall: written as a ticker it is one (`$LINK`, `LINK/USDT`, caps `LINK`,
+or lowercase with no determiner — "hows link looking"), and lowercase behind
+a determiner is the noun it looks like.
+
+**Two assets named is not one asset asked about.** `_extract_symbol` answers
+the FIRST symbol, which is right for a rule that carries one and wrong for
+deciding whether the message named more than the skill can answer: "analyze
+btc and eth" printed a BTC card, half the question rendered as the whole of
+it. `symbols_named` lists every distinct asset, and a needs-symbol rule that
+finds more than one asks WHICH — naming them, because a generic "which
+asset?" over "btc vs eth" reads as not having understood a question that was
+perfectly clear.
+
+**An action joined to a read lost the action, in both orders.** "close my ETH
+and scan the market" answered with a market scan and no sentence; "scan the
+market and close my eth" the same; "flatten everything and tell me my pnl"
+the same. The close rule's bare-ticker branch is anchored to the END of the
+message — correct for what it claims, and blind to a second clause. The
+compound rules reach into the middle of a sentence, so their object is
+narrowed to something written as an asset ("close the gap and move on" is an
+idiom, not a close), and the notice says the other ask has not been run,
+because one card answering a message with two requests reads as though both
+were handled. The halt block moved ABOVE the close block for the same
+question one size up: "close all positions and halt" is a flatten joined to a
+halt, and /emergency_stop's confirm card does both where the close notice
+answers one. The ordering test that pinned the old position was rewritten to
+DRIVE what it was protecting — "cancel my order" is still a cancel — rather
+than assert a rule index.
+
+**Three doors a read-only question was opening, or not opening at all.**
+`risk on` was an unanchored alternative of the stance rule, so "event risk on
+eth", "macro risk on sol" and "what's the risk on this trade" opened the card
+that PROPOSES trading more aggressively, at confidence 1.0 — the noun read as
+the posture. The modify rule's verb list had every way of MOVING a stop and
+no way of REMOVING one, so "remove my stop loss" fell to the bare Portfolio
+keyword rule and came back as the positions card with no sentence: a request
+to take protection off an open position, answered as a request to look. And
+"emergency" or "panic" with nothing named is not a verb, so the social gate
+greeted the two words most likely to be typed by an operator in trouble; they
+meet `halt_ambiguous`'s door now, dispatched nowhere, like a bare "stop".
+
+**The social gate's own vocabulary was the other half of it.** A message of
+three words or fewer with no symbol and no trading word is answered as small
+talk, and the list held none of what a trader types short: "win rate",
+"sharpe ratio", "profit factor", "biggest loser", "fees this month", "cpi
+tomorrow?", "api keys", "connect bitget", "what is rsi" — all greeted. The
+chart half of that list is not a copy: `_ANALYSIS_WORDS` is one list, read by
+the symbol-first rule that builds its pattern from it and by the gate that
+folds it into `trading_words`, because a term the rules know and the gate does
+not is a chart question answered with "hey!" and invisible from either side
+alone. (`tests/test_the_router_reads_what_a_trader_types.py`; the other four
+families of that corpus — timeframe scans, the performance record, macro
+shorthand and order phrasings — are filed, not fixed.)
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

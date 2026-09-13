@@ -263,7 +263,9 @@ def _request(handler, body, engine=None):
 @pytest.mark.parametrize("text,expected", [
     ("how does funding work", "beginner"),
     ("grid bot", "bot"),
-    ("full analysis of ETH", "full_scan"),
+    # A full-read ask that names NO asset: the public live-data gate has
+    # nothing to refuse, so the contract is what bounds the answer.
+    ("give me a full read", "full_scan"),
     ("what is runeclaw", "standard"),
 ])
 def test_public_chat_hands_the_turns_shape_to_the_model(text, expected):
@@ -275,6 +277,29 @@ def test_public_chat_hands_the_turns_shape_to_the_model(text, expected):
     resp = _run(ug._public_chat_turn(_request(handler, {"text": text})))
     assert json.loads(resp.text)["intent"] == "chat"
     assert rec.mode == expected
+
+
+@pytest.mark.parametrize("text", [
+    "full analysis of ETH", "technical analysis of sol", "chart for doge", "$HYPE",
+])
+def test_a_named_asset_is_refused_by_the_public_gate_not_answered_without_data(text):
+    """The gate catches what the public CONTRACT was covering for.
+
+    `needs_live_market_data` reads the ROUTER, and none of these phrasings
+    matched a rule: "full analysis of ETH" reached the model with a full_scan
+    contract on the one surface that has no feed, which is why the public
+    override had to strip the scan skeleton out of that contract in the first
+    place. They route to `analyze_asset` now, so the visitor gets the refusal
+    that names the reason instead of a scan-shaped answer with no numbers in
+    it. The override stays as the second line for whatever the gate still
+    misses.
+    """
+    from bot.web import user_gateway as ug
+    rec = _Recorder(meta=False)
+    handler = SimpleNamespace(_llm_chat=rec)
+    resp = _run(ug._public_chat_turn(_request(handler, {"text": text})))
+    assert json.loads(resp.text)["intent"] == "public_scan_gate", text
+    assert rec.calls == [], "the model must not run at all"
 
 
 def test_public_chat_detects_its_own_mode_because_it_has_no_intent():
