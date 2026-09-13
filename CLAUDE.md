@@ -920,6 +920,30 @@ prose and never planted: a user turn carrying a `skill` key, an all-caps word
 nobody lists (`RSI`), and a shouted sentence holding an ambiguous ticker.
 (`tests/test_memory_carries_its_age.py`.)
 
+**A guard that reads the first setup on the page and rewrites every ratio on
+it will falsify a true one, and log that it fixed a lie.** `rr_honesty` exists
+because a model prints a risk:reward its own levels contradict, and it read
+the FIRST entry/stop/target (`search`, not `finditer`) and then rewrote EVERY
+stated ratio to that number. A reply with two setups — a BTC long at 2.0 and
+an ETH short at 3.0, both true — came back with the second overwritten by the
+first's, and `_chat_ret` wrote `rr_corrected` on the audit stream: the surface
+built to be believed, recording a correction that was the only error on the
+page. A ladder of targets (TP1/TP2) had the same shape inside one setup, and a
+two-row table was read as its first row. A level stated with two distinct
+values is two trades — `AMBIGUOUS`, a third answer beside "the ratio" and
+"unreadable" — and no ratio on such a page is attributable to either, so the
+page is read one paragraph at a time, each against its own levels, and a table
+one ROW at a time against its own cells, the row's Side column deciding the
+direction and a Side that contradicts the geometry leaving the row alone rather
+than "corrected" from a guessed sign. A paragraph that still holds two setups
+is left exactly as written, wrong or not: nothing on it says which setup the
+ratio is for. The whole page is tried first, because splitting can only LOSE a
+correction, never attach one to the wrong trade. Two red herrings took the
+most care: a level repeated with the SAME value is one setup (the header and
+the check list both say Entry 100), and "target 2.50" on a two-dollar coin is
+a level, not a second target.
+(`tests/test_a_true_ratio_survives_a_multi_setup_reply.py`.)
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

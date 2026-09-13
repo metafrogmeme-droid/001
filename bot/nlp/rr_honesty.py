@@ -36,6 +36,17 @@ unreadable is left exactly as written, because "the model may be right and I
 cannot check" is a different state from "the model is wrong", and printing a
 correction derived from nothing would be the same defect wearing the
 opposite hat.
+
+ONE SETUP AT A TIME. The first version read the FIRST entry/stop/target on
+the page (`search`, not `finditer`) and rewrote EVERY stated ratio to that
+one number. A reply carrying two setups — a BTC long at 2.0 and an ETH short
+at 3.0, both true — came out with the second ratio overwritten by the first
+setup's, and an `rr_corrected` audit line saying a lie had been fixed. A
+level stated with two different values is two trades, not one trade read
+twice (`AMBIGUOUS`): no single ratio is attributable to the page, so the
+page is read one paragraph at a time, each against its own levels, and a
+table one ROW at a time, each against its own cells. A ladder of targets
+(TP1/TP2) is the same ambiguity inside one setup.
 """
 
 from __future__ import annotations
@@ -66,6 +77,30 @@ _RE_DIR = re.compile(r"(?:direction|Direction)\s*[:\s]\s*(LONG|SHORT)", re.IGNOR
 #: A separator row in a pipe table: "------|-----------|------|-----".
 _RE_TABLE_SEP = re.compile(r"^[\s|:\-]+$")
 
+#: More than one trade's levels on the page — two setups, a ladder of
+#: targets, a multi-row table: no single ratio can be attributed to any of
+#: them. `computed_ratio` answers None for it (cannot check), and
+#: `correct_stated_rr` reads each paragraph, and each table row, on its own.
+AMBIGUOUS = object()
+
+#: A ladder of targets in one setup: "TP1 … TP2 …", "target 2", "take profit
+#: 2". A ladder has more than one reward per risk, and a stated ratio names
+#: its rung or does not, so no one number can be checked against it. The
+#: digit must not start a price ("target 2.50" on a $2 coin is a level).
+_RE_LADDER = re.compile(r"\b(?:TP|target|take[\s_]?profit)[\s_-]*[2-9](?![.,]?\d)\b",
+                        re.IGNORECASE)
+
+#: Where one setup ends and the next begins, for the paragraph-by-paragraph
+#: read: a blank line, or a heading line — markdown `#`, a line that is only
+#: bold text, or "Setup 2" / "Trade 2" / "Idea 2". Over-splitting can only
+#: LOSE a correction (a paragraph without a full triple is left alone), never
+#: attach one to the wrong setup, which is why the whole page is tried first.
+_RE_SEG = re.compile(
+    r"(\n[ \t]*\n"
+    r"|\n(?=[ \t]*(?:#{1,6}[ \t]|\*\*[^\n*]+\*\*[ \t]*\n"
+    r"|(?:setup|trade|idea|scenario|option)[ \t]*#?\d+\b)))",
+    re.IGNORECASE)
+
 
 def _cells(line: str):
     return [c.strip() for c in line.strip().strip("|").split("|")]
@@ -77,50 +112,103 @@ def _cell_num(cell: str):
     return _num(m.group(1)) if m else None
 
 
-def _levels_from_table(text: str):
-    """(entry, sl, tp) from a pipe table whose labels are in a header ROW.
+def _table_columns(head):
+    """Column indexes of a header row, or None when it is not a levels
+    table. ``ladder`` is True when more than one target column exists."""
+    def col(*keys):
+        for j, c in enumerate(head):
+            if any(k in c for k in keys):
+                return j
+        return None
 
-    The label regexes above look for a label adjacent to its number. A table
-    puts every label on one line and every value on another, so adjacency is
-    gone and each of them reads the header text as its number-that-isn't.
-    Columns are matched by POSITION, which is the only thing that actually
-    ties a header cell to a value cell:
+    i_e, i_s, i_t = col("entry"), col("stop"), col("take profit", "target")
+    if i_e is None or i_s is None or i_t is None:
+        return None
+    return {"entry": i_e, "sl": i_s, "tp": i_t,
+            "dir": col("direction", "side"),
+            "ladder": sum(1 for c in head if "take profit" in c or "target" in c) > 1}
+
+
+def _row_levels(cols, cells):
+    """(entry, sl, tp, direction) from one value row; None for a level the
+    row does not hold. Direction is the row's own cell when the table has
+    that column, else None (the caller may read a Direction line)."""
+    if max(cols["entry"], cols["sl"], cols["tp"]) >= len(cells):
+        return None, None, None, None
+    d = None
+    if cols["dir"] is not None and cols["dir"] < len(cells):
+        m = re.search(r"\b(LONG|SHORT)\b", cells[cols["dir"]], re.IGNORECASE)
+        d = m.group(1).upper() if m else None
+    return (_cell_num(cells[cols["entry"]]), _cell_num(cells[cols["sl"]]),
+            _cell_num(cells[cols["tp"]]), d)
+
+
+def _table_rows(lines, i):
+    """The value rows under header line ``i``: (line_index, cells) for every
+    pipe line up to the first line without a pipe, separators skipped."""
+    rows = []
+    for k in range(i + 1, len(lines)):
+        nxt = lines[k]
+        if "|" not in nxt:
+            break
+        if _RE_TABLE_SEP.match(nxt):
+            continue
+        rows.append((k, _cells(nxt)))
+    return rows
+
+
+def _levels_from_table(text: str):
+    """(entry, sl, tp, direction) from a pipe table whose labels are in a
+    header ROW; None when there is no such table, a needed column is missing
+    or a cell holds no number — never a partial reading; AMBIGUOUS when the
+    table has more than one value row (two trades) or more than one target
+    column (a ladder).
+
+    The label regexes look for a label adjacent to its number. A table puts
+    every label on one line and every value on another, so adjacency is gone
+    and each of them reads the header text as its number-that-isn't. Columns
+    are matched by POSITION, which is the only thing that actually ties a
+    header cell to a value cell:
 
         Entry   | Stop Loss | Take Profit | R:R
         --------|-----------|-------------|-----
         $59,500 | $58,500   | $61,000     | 1:1.70
-
-    Returns None when there is no such table, when a needed column is
-    missing, or when a cell holds no number — never a partial reading.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if "|" not in line:
             continue
-        head = [c.lower() for c in _cells(line)]
-
-        def col(*keys):
-            for j, c in enumerate(head):
-                if any(k in c for k in keys):
-                    return j
-            return None
-
-        i_e, i_s, i_t = col("entry"), col("stop"), col("take profit", "target")
-        if i_e is None or i_s is None or i_t is None:
+        cols = _table_columns([c.lower() for c in _cells(line)])
+        if cols is None:
             continue
-        # The value row is the next line carrying pipes that is not a rule.
-        for nxt in lines[i + 1:i + 4]:
-            if "|" not in nxt:
-                continue
-            if _RE_TABLE_SEP.match(nxt):
-                continue
-            vals = _cells(nxt)
-            if max(i_e, i_s, i_t) >= len(vals):
-                return None
-            e, s, t = (_cell_num(vals[i_e]), _cell_num(vals[i_s]),
-                       _cell_num(vals[i_t]))
-            return None if None in (e, s, t) else (e, s, t)
+        rows = _table_rows(lines, i)
+        if cols["ladder"] or len(rows) > 1:
+            return AMBIGUOUS
+        if not rows:
+            return None
+        e, s, t, d = _row_levels(cols, rows[0][1])
+        return None if None in (e, s, t) else (e, s, t, d)
     return None
+
+
+def _distinct(nums):
+    return sorted({n for n in nums if n is not None})
+
+
+def _prose_levels(text: str):
+    """(entry, sl, tp) from labelled levels in prose; None when one is
+    missing or unreadable; AMBIGUOUS when a level is stated with more than
+    one distinct value — the page describes more than one trade, and the
+    first triple on it is not "the" setup. A level repeated with the SAME
+    value (the header and the check list both say Entry 100) is one level."""
+    es = _distinct(_num(m.group(1)) for m in _RE_ENTRY.finditer(text))
+    ss = _distinct(_num(m.group(1)) for m in _RE_SL.finditer(text))
+    ts = _distinct(_num(m.group(1)) for m in _RE_TP.finditer(text))
+    if not (es and ss and ts):
+        return None
+    if len(es) > 1 or len(ss) > 1 or len(ts) > 1:
+        return AMBIGUOUS
+    return es[0], ss[0], ts[0]
 
 _LABEL = r"Risk[:\s_-]?Reward(?:\s+ratio)?|R:R|R/R|RISK[_ ]REWARD"
 
@@ -199,42 +287,22 @@ def _num(s: str):
         return None
 
 
-def computed_ratio(text: str):
-    """The risk:reward the text's own levels imply, or None if unreadable.
+def _ratio(entry, sl, tp, direction):
+    """reward / risk for ONE set of levels, or None when it cannot be read.
 
-    None is a real answer here and is treated as one by every caller: it
-    means the claim cannot be checked, not that it is wrong.
+    Direction is inferred only when the geometry is unambiguous — target and
+    stop on opposite sides of entry. Guessing a direction would make up the
+    sign of every number downstream.
     """
-    # A pipe table is tried FIRST. Its header row contains the words the
-    # label regexes hunt for, so leaving it to them means they match the
-    # header and read whatever number follows it on the page — a wrong
-    # reading rather than no reading, which is the worse of the two.
-    table = _levels_from_table(text)
-    if table is not None:
-        entry, sl, tp = table
-    else:
-        m_e = _RE_ENTRY.search(text)
-        m_s = _RE_SL.search(text)
-        m_t = _RE_TP.search(text)
-        if not (m_e and m_s and m_t):
-            return None
-        entry, sl, tp = _num(m_e.group(1)), _num(m_s.group(1)), _num(m_t.group(1))
     if entry is None or sl is None or tp is None:
         return None
-
-    m_dir = _RE_DIR.search(text)
-    direction = m_dir.group(1).upper() if m_dir else None
     if direction is None:
-        # Infer only when the geometry is unambiguous — target and stop on
-        # opposite sides of entry. Guessing a direction would make up the
-        # sign of every number downstream.
         if tp > entry > sl:
             direction = "LONG"
         elif tp < entry < sl:
             direction = "SHORT"
         else:
             return None
-
     if direction == "LONG":
         risk, reward = entry - sl, tp - entry
     else:
@@ -244,32 +312,67 @@ def computed_ratio(text: str):
     return round(reward / risk, 2)
 
 
-def correct_stated_rr(text: str):
-    """Replace ratios the text's own levels contradict. Returns (text, n).
+def levels(text: str):
+    """ONE trade's levels on the page — (entry, sl, tp, direction or None) —
+    or None when they cannot be read, or AMBIGUOUS when the page holds more
+    than one trade's (two setups, a multi-row table, a target ladder).
 
-    `n` is how many statements were corrected — 0 when the text made no
-    ratio claim, when its levels are unreadable, or when the claim already
-    agrees with them.
+    A pipe table is tried FIRST. Its header row contains the words the label
+    regexes hunt for, so leaving it to them means they match the header and
+    read whatever number follows it on the page — a wrong reading rather
+    than no reading, which is the worse of the two.
     """
     if not text:
-        return text, 0
-    actual = computed_ratio(text)
-    if actual is None:
-        return text, 0
+        return None
+    table = _levels_from_table(text)
+    if table is AMBIGUOUS:
+        return AMBIGUOUS
+    if table is not None:
+        entry, sl, tp, direction = table
+    else:
+        prose = _prose_levels(text)
+        if prose is None or prose is AMBIGUOUS:
+            return prose
+        entry, sl, tp = prose
+        direction = None
+    if _RE_LADDER.search(text):
+        return AMBIGUOUS
+    if direction is None:
+        m_dir = _RE_DIR.search(text)
+        direction = m_dir.group(1).upper() if m_dir else None
+    return entry, sl, tp, direction
 
+
+def computed_ratio(text: str):
+    """The risk:reward the text's own levels imply, or None if unreadable —
+    or if the text holds more than one trade's levels, because a ratio the
+    page states is then attributable to none of them in particular.
+
+    None is a real answer here and is treated as one by every caller: it
+    means the claim cannot be checked, not that it is wrong.
+    """
+    lv = levels(text)
+    if lv is None or lv is AMBIGUOUS:
+        return None
+    return _ratio(*lv)
+
+
+def _wrong(stated, actual):
+    """True only for a plausible ratio that disagrees with the levels."""
+    if stated is None:
+        return False
+    if not _PLAUSIBLE[0] <= stated <= _PLAUSIBLE[1]:
+        return False
+    return abs(stated - actual) > TOLERANCE
+
+
+def _correct_prose(text: str, actual: float):
+    """Rewrite the prose ratio shapes that disagree with ``actual``."""
     corrected = 0
-
-    def _wrong(stated):
-        """True only for a plausible ratio that disagrees with the levels."""
-        if stated is None:
-            return False
-        if not _PLAUSIBLE[0] <= stated <= _PLAUSIBLE[1]:
-            return False
-        return abs(stated - actual) > TOLERANCE
 
     def _repl(m):
         nonlocal corrected
-        if not _wrong(_num(m.group("ratio"))):
+        if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
         # The "1:" prefix is kept when the model used it, so a corrected
@@ -278,34 +381,38 @@ def correct_stated_rr(text: str):
 
     def _repl_pre(m):
         nonlocal corrected
-        if not _wrong(_num(m.group("ratio"))):
+        if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
         return f"{m.group('pre') or ''}{actual:.2f}{m.group('label')}"
 
     def _repl_quot(m):
         nonlocal corrected
-        if not _wrong(_num(m.group("ratio"))):
+        if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
         return f"{m.group('expr')}{actual:.2f}"
 
-    text, n_cells = _correct_table_rr(text, actual, _wrong)
-    corrected += n_cells
     text = _RE_STATED.sub(_repl, text)
     text = _RE_STATED_PRE.sub(_repl_pre, text)
     text = _RE_STATED_QUOT.sub(_repl_quot, text)
     return text, corrected
 
 
-def _correct_table_rr(text: str, actual: float, wrong):
-    """Rewrite an R:R column's value cell. Returns (text, n).
+def _correct_table_rr(text: str, actual):
+    """Rewrite R:R cells. Returns (text, n).
 
     A table cell holds the bare ratio — "1:1.70" with the label sitting in a
-    header row two lines up — so neither prose pattern can reach it. Column
-    is matched by position, same as the level reader, and only a cell that is
-    ENTIRELY a ratio is touched; anything else is left alone rather than
+    header row two lines up — so neither prose pattern can reach it. Columns
+    are matched by position, same as the level reader, and only a cell that
+    is ENTIRELY a ratio is touched; anything else is left alone rather than
     guessed at.
+
+    A row that carries its own entry/stop/target cells is checked against
+    ITS OWN levels — a two-row table is two trades, and the first row's
+    ratio is not the second's. A table with an R:R column and no level
+    columns is checked against ``actual``, the page's single setup, when the
+    page has one (``None`` when it does not: nothing is rewritten).
     """
     lines = text.splitlines()
     n = 0
@@ -318,23 +425,70 @@ def _correct_table_rr(text: str, actual: float, wrong):
                    or ("risk" in c and "reward" in c)), None)
         if rr is None:
             continue
-        for k in range(i + 1, min(i + 4, len(lines))):
+        cols = _table_columns(head)
+        if cols is not None and cols["ladder"]:
+            continue
+        for k, cells in _table_rows(lines, i):
             nxt = lines[k]
-            if "|" not in nxt or _RE_TABLE_SEP.match(nxt):
-                continue
             raw = nxt.split("|")
             off = 1 if nxt.lstrip().startswith("|") else 0
             idx = rr + off
             if idx >= len(raw):
-                break
+                continue
+            row_actual = _ratio(*_row_levels(cols, cells)) if cols is not None else actual
+            if row_actual is None:
+                continue
             cell = raw[idx]
             m = _RE_RR_CELL.fullmatch(cell.strip())
-            if not m or not wrong(_num(m.group("ratio"))):
-                break
+            if not m or not _wrong(_num(m.group("ratio")), row_actual):
+                continue
             lead = cell[:len(cell) - len(cell.lstrip())]
             trail = cell[len(cell.rstrip()):]
-            raw[idx] = f"{lead}{m.group('pre') or ''}{actual:.2f}{trail}"
+            raw[idx] = f"{lead}{m.group('pre') or ''}{row_actual:.2f}{trail}"
             lines[k] = "|".join(raw)
             n += 1
-            break
     return "\n".join(lines), n
+
+
+def _correct_segment(seg: str):
+    """Correct one paragraph against its own levels. Returns (seg, n).
+
+    A paragraph that itself holds more than one trade has only its table
+    rows corrected — each carries its own levels — and its prose ratios are
+    left exactly as written: they belong to one of two setups and nothing on
+    the page says which.
+    """
+    lv = levels(seg)
+    if lv is AMBIGUOUS:
+        return _correct_table_rr(seg, None)
+    # `computed_ratio`, not `_ratio(*lv)` inline: the public reading and the
+    # one the guard acts on have to be the same derivation, or the answer a
+    # caller can ask for is a second answer. It re-reads `levels` — a regex
+    # pass over one paragraph — and that is the price of there being one.
+    actual = computed_ratio(seg)
+    if actual is None:
+        return seg, 0
+    seg, n_cells = _correct_table_rr(seg, actual)
+    seg, n_prose = _correct_prose(seg, actual)
+    return seg, n_cells + n_prose
+
+
+def correct_stated_rr(text: str):
+    """Replace ratios the text's own levels contradict. Returns (text, n).
+
+    `n` is how many statements were corrected — 0 when the text made no
+    ratio claim, when its levels are unreadable, or when the claim already
+    agrees with them. A page holding more than one trade's levels is read
+    one paragraph at a time, each against its own levels; a paragraph whose
+    setup cannot be told apart from its neighbour's is left alone.
+    """
+    if not text:
+        return text, 0
+    if levels(text) is not AMBIGUOUS:
+        return _correct_segment(text)
+    parts = _RE_SEG.split(text)
+    total = 0
+    for j in range(0, len(parts), 2):
+        parts[j], n = _correct_segment(parts[j])
+        total += n
+    return "".join(parts), total
