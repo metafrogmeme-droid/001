@@ -600,6 +600,39 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             "scan_intraday": "scan_market", "scan_deep": "scan_market",
             "scan_full": "scan_market",
         }
+        # `help` is answered HERE and not from `_cmd_help`. Driven, of the 90
+        # commands that card names for a non-admin, 78 reach the tool-less
+        # chat model on the web and 12 reach a skill by incidental word
+        # matching (`/scan` lands on `analyze_asset`) — so reusing it would
+        # replace a false refusal ("that tool is not available on this bot
+        # right now") with a mostly-false answer. What this caller can ASK FOR
+        # is the honest version, and it is derived from the same table that
+        # decides reachability rather than written out.
+        #
+        # NOT gated, deliberately, and not in `WEB_ROUTED_PERMISSION`: every
+        # role including `pending` holds `help`, and `_cmd_help` carries no
+        # `@guard` for the same reason — somebody who cannot be told what the
+        # product does cannot ask for access to it.
+        if intent.skill == "help":
+            from bot.formatters.capabilities import capability_answer
+            from bot.nlp.chat_tools import skill_reach
+            _role = str((tg_handler.users.get(tg_id) or {}).get("role", "")
+                        if hasattr(tg_handler.users, "get") else "")
+            # The TABLE's own order, not alphabetical: it is authored in
+            # groups, and sorting scatters the account rows through the macro
+            # ones for no gain.
+            _can, _withheld = skill_reach(tg_handler.users, tg_id, "web",
+                                          list(SKILL_PERMISSION))
+            _card = capability_answer(_can, surface="web", role=_role,
+                                      withheld=_withheld)
+            # The MARKER, not the card: every line of it is derived from the
+            # model's own tool catalogue, which it already holds in full.
+            # Telegram records the same thing for the same reason.
+            from bot.nlp.skill_memory import card_shown_memory
+            record_routed_turn(tg_handler.conversations, tg_id, text, "help",
+                               card_shown_memory("help"), surface="web")
+            return web.json_response({"reply_html": _card, "intent": "help"})
+
         # `status` LEFT this map. It aliased a question about the ENGINE —
         # is it running, is the breaker tripped, is the loop alive — to the
         # account card, which carries no halt, breaker, tick or drawdown

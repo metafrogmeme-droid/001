@@ -3238,7 +3238,28 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # whether the engine was running. These are the two things it is
             # least excusable to improvise, and the commands already exist.
             if intent.skill == "help":
-                await self._cmd_help(update, ctx)
+                # A typed QUESTION gets an answer; the /help COMMAND keeps its
+                # 126-command reference. "What can you do?" answered with a
+                # catalogue is the shape of an answer rather than one, and the
+                # same card serves the web, where those commands are not doors
+                # at all.
+                from bot.formatters.capabilities import capability_answer
+                from bot.nlp.chat_tools import skill_reach
+                from bot.skills.skill_permissions import SKILL_PERMISSION
+                _role = str((self.users.get(tg_id) or {}).get("role", ""))
+                _can, _withheld = skill_reach(self.users, tg_id, "telegram",
+                                              list(SKILL_PERMISSION))
+                _cap = capability_answer(_can, surface="telegram", role=_role,
+                                         withheld=_withheld)
+                await self._send(update, _cap)
+                # The MARKER, not the card. Every line of that card is derived
+                # from the model's own tool catalogue, which it already holds
+                # in full — pasting 2,000 characters of it back into the
+                # history spends the model's context on something it can see
+                # directly. That is a judgement about cost, and it is only
+                # available because the marker is honest about what it leaves
+                # out; it is not licence to use one where the content is the
+                # evidence.
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("help"))
                 return

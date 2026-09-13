@@ -205,7 +205,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Thirty call sites across the two entry points", DOC)
+    m = re.search(r"Thirty-one call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -215,7 +215,41 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 30, f"CLAUDE.md says thirty; the two entry points have {n}"
+    assert n == 31, f"CLAUDE.md says thirty-one; the two entry points have {n}"
+
+
+def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
+    """The paragraph's own confession: the first draft wrote 79/10/5 from an
+    earlier walk and could not reproduce it. Read the claim OUT of the prose
+    and compare it to the drive, so a reworded sentence fails rather than
+    quietly carrying a stale number."""
+    from tests.test_the_bot_can_say_what_it_does import catalogue_on_the_web
+
+    m = re.search(r"`_cmd_help` names (\d+) slash\n?commands for a non-admin",
+                  DOC)
+    assert m, "the catalogue claim was reworded; recount it"
+    named, nothing, hits = catalogue_on_the_web()
+    assert int(m.group(1)) == named
+
+    m2 = re.search(r"(\d+) of the 90 reach the tool-less chat model and (\d+)\n?"
+                   r"reach a skill", DOC)
+    assert m2, "the fall-through claim was reworded; recount it"
+    assert (int(m2.group(1)), int(m2.group(2))) == (nothing, len(hits))
+    assert "`/scan`, whose whole job is the" in DOC
+    assert hits.get("scan") == "analyze_asset", hits
+
+
+def test_the_capability_answer_is_derived_from_the_permission_table():
+    """"a COLUMN on the permission table rather than a map in the renderer".
+
+    The claim is the EQUALITY, and it is the thing that makes the derivation
+    safe: a skill added later fails the table's own guard instead of vanishing
+    from the answer to "what can you do?".
+    """
+    from bot.skills.skill_permissions import SKILL_PERMISSION, SKILL_SAYS
+
+    assert "a COLUMN on the permission table rather than a map in the renderer" in DOC
+    assert set(SKILL_SAYS) == set(SKILL_PERMISSION)
 
 
 def test_the_four_records_it_names_all_exist_and_differ():

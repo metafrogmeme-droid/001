@@ -197,25 +197,60 @@ def tools_for(users, user_id: str, surface: str = "telegram") -> list[ChatTool]:
     transport with no role store) nothing is offered: a role that cannot be
     read is not a role that holds everything.
     """
+    allowed, _withheld = skill_reach(users, user_id, surface,
+                                     [t.name for t in CHAT_TOOLS])
+    by_name = {t.name: t for t in CHAT_TOOLS}
+    return [by_name[n] for n in allowed]
+
+
+def skill_reach(users, user_id: str, surface: str,
+                names) -> "tuple[list[str], dict[str, int]]":
+    """``(reachable, {reason: count})`` — the same walk `tools_for` does, with
+    the REASON kept instead of discarded.
+
+    One walk, two readers. `tools_for` answers "what may the model call" and
+    the capability card answers "what can I do for you", and those must not be
+    able to disagree about who reaches what — the second copy of a gate is a
+    second answer, and this one decides what a caller is told the product can
+    do.
+
+    The reasons are the three fixes, not one: `role` (ask an admin), `plan`
+    (upgrade) and `surface` (use Telegram for that one). An unreadable role
+    counts as `role`, because a role that cannot be read is not a role that
+    holds the permission — the same direction `tools_for` already failed in.
+
+    `DANGEROUS_SKILLS` is not withheld and not counted. Those are not features
+    this caller is missing; they are things chat does not do at all, and the
+    card says so in its own section.
+    """
+    withheld: dict[str, int] = {}
+
+    def _mark(reason: str) -> None:
+        withheld[reason] = withheld.get(reason, 0) + 1
+
     if users is None or not user_id:
-        return []
-    out: list[ChatTool] = []
-    for tool in CHAT_TOOLS:
-        perm = permission_for(tool.name)
-        if perm is None or tool.name in DANGEROUS_SKILLS:
+        return [], withheld
+    out: list[str] = []
+    for name in names:
+        perm = permission_for(name)
+        if perm is None or name in DANGEROUS_SKILLS:
             continue
-        if surface == "web" and tool.name not in WEB_CHAT_SKILLS:
+        if surface == "web" and name not in WEB_CHAT_SKILLS:
+            _mark("surface")
             continue
         try:
             if users.permission_denial(user_id, perm) is not None:
+                _mark("role")
                 continue
         except Exception:
             # An unreadable role is not a role that holds the permission.
+            _mark("role")
             continue
-        if not _tier_allows(users, user_id, tool.name):
+        if not _tier_allows(users, user_id, name):
+            _mark("plan")
             continue
-        out.append(tool)
-    return out
+        out.append(name)
+    return out, withheld
 
 
 def _tier_allows(users, user_id: str, skill_name: str) -> bool:

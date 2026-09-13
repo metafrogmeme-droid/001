@@ -624,6 +624,60 @@ status card and the three skills share, and an allow-list whose stale entries
 fail. The headline's `| Bitget` went the same way: a venue name nobody read,
 printed three sections above the real one.
 
+**"What can you do?" was answered by telling the caller the capability does not
+exist.** `help` classifies at confidence 1.0, no skill is registered under that
+name, so the web fell through to `skill_unavailable_notice` — *"I understood
+that as help, but that tool is not available on this bot right now"* — and
+`skill_unavailable_memory` wrote *"this bot has no such tool wired up"* into the
+model's own history, so the NEXT turn was answered by a model that had been told
+the product has no help. Both statements are false about the product; the
+capability had no door on that surface. **Reusing the Telegram card would have
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 90 slash
+commands for a non-admin and the web has no slash handling at all, so driven,
+typed as the card prints them, 78 of the 90 reach the tool-less chat model and 12
+reach a skill by incidental word matching — `/scan`, whose whole job is the
+universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
+a command is claiming the command does something, at ninety times the `/vault`
+hint's scale, and the signed-in prompt forbids the model from suggesting slash
+commands, so the 78 land on a model told not to give the answer the card just
+gave. The answer is what this caller can ASK FOR, in words, from `SKILL_SAYS` —
+a COLUMN on the permission table rather than a map in the renderer, because a
+map elsewhere is the `/setllm` ten-of-eleven shape and a skill added later would
+simply be missing from it. Withheld skills are COUNTED, NEVER NAMED, and the
+reason travels: *"a command you are refused looks exactly like a command that is
+broken"* is `_cmd_help`'s own argument for the first half, and the second half is
+that "ask an admin", "upgrade your plan" and "use Telegram for this one" are
+three different fixes, so one count cannot stand for all three. `skill_reach` is
+the one walk both readers take — `tools_for` answers *what may the model call*
+and the card answers *what can I do for you*, and a second copy of that gate
+would be a second answer about what the product does. It is ungated on purpose:
+`pending` holds `help` and nothing else, and somebody who cannot be told what
+the product does cannot ask for access to it.
+
+**The guard proved they AGREE and could not prove there is one walk.** The
+mutation that restored `tools_for`'s own copy of the permission loop passed the
+equality assertion, because a byte-identical copy agrees with every fixture and
+diverges on the first change to either — which is precisely what a second copy
+looks like from outside. It is driven now: patch the walk, and a `tools_for`
+that reads it answers what it said. Two more of the round were the same
+blindness. The `plan` reason was never recorded in any test, because the $RCLAW
+gate is OFF by default and a fixture that sets a tier string drives nothing —
+so the count the card renders was produced by no code under test. And dropping
+the rule's TAIL anchor changed no verdict in the whole corpus until decoys that
+OPEN with a capability phrase were in the table ("what can you do about my ETH
+position", "features i should turn on for scalping"): the halt rule's own lesson
+that a rule matching inside a sentence routes the sentence's subject as the
+command, arriving from the other end.
+
+> **And I could not reproduce my own measurement.** The first draft of this
+> slice wrote `79 / 10 / 5` into two docstrings and this file, from a walk taken
+> earlier in the session. Re-driving it before the commit gave 78 / 12, and the
+> "5 reach the WRONG engine" clause named three commands that do not do what it
+> said. `catalogue_on_the_web()` is the drive, `tests/test_claude_md_accuracy.py`
+> reads the numbers out of this paragraph and compares them to it, and the
+> lesson is the one two sections up with a number attached: a measurement you
+> remember is not a measurement.
+
 **And a turn the user can SEE that the model cannot is a hole exactly where the
 answer was.** `bot/nlp/skill_memory.py` exists for that shape — its docstring
 says the model is "told an answer exists and not what it was, which is the one
@@ -632,7 +686,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty call sites across the two entry points today, one on
+never happened. Thirty-one call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
