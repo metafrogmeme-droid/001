@@ -508,6 +508,7 @@ python -m bot.main --mode scan
 |---|---|
 | `/portfolio` | 權益、持倉與勝率 |
 | `/performance` | 你的損益與交易統計 |
+| `/postmortem` | 單筆已平倉交易的覆盤 |
 | `/networth` | 跨平台淨資產快照 |
 | `/exposure` | 各資產淨曝險 |
 | `/risk` | 風險狀態與熔斷器 |

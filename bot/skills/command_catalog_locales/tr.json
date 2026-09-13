@@ -158,7 +158,8 @@
     "yield": "atıl varlık getiri radarı (salt okunur)",
     "idleyield": "kaynaklar arası en iyi oran taraması",
     "stake": "atıl stabilcoinleri esnek Earn'e koyun",
-    "unstake": "Earn'den işlem teminatına geri çekin"
+    "unstake": "Earn'den işlem teminatına geri çekin",
+    "postmortem": "kapanmış tek bir işlemin otopsisi — /postmortem [SEMBOL veya işlem kimliği]"
   },
   "menu": {
     "start": "👋 Kaydolun ve durumu görün",

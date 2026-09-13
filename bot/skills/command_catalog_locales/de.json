@@ -158,7 +158,8 @@
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
     "idleyield": "Bestzins-Scan über alle Quellen",
     "stake": "ungenutzte Stables in flexibles Earn legen",
-    "unstake": "aus Earn zurück in die Handelsmargin holen"
+    "unstake": "aus Earn zurück in die Handelsmargin holen",
+    "postmortem": "Post-mortem eines geschlossenen Trades — /postmortem [SYMBOL oder Trade-ID]"
   },
   "menu": {
     "start": "👋 Registrieren und sehen, wie es steht",

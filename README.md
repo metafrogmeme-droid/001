@@ -555,6 +555,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 |---|---|
 | `/portfolio` | equity, positions and win rate |
 | `/performance` | your PnL and trade stats |
+| `/postmortem` | post-mortem of one closed trade — /postmortem [SYMBOL or trade id] |
 | `/networth` | cross-venue net worth snapshot |
 | `/exposure` | net per-asset exposure |
 | `/risk` | risk status and circuit breaker |

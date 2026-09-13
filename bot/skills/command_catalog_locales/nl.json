@@ -158,7 +158,8 @@
     "yield": "yield-radar voor inactieve activa (alleen-lezen)",
     "idleyield": "scan van het beste tarief over alle bronnen",
     "stake": "inactieve stables in flexibele Earn zetten",
-    "unstake": "Earn terughalen naar de handelsmarge"
+    "unstake": "Earn terughalen naar de handelsmarge",
+    "postmortem": "autopsie van één gesloten trade — /postmortem [SYMBOOL of trade-id]"
   },
   "menu": {
     "start": "👋 Registreer en zie hoe het ervoor staat",

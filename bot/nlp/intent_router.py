@@ -148,11 +148,94 @@ def _is_social_message(text: str) -> bool:
     return False
 
 
+#: Rules that carry the symbol when one is named and route without one.
+_SYMBOL_OPTIONAL = frozenset({"trade_postmortem"})
+
+
 def symbol_mentioned(text: str) -> Optional[str]:
     """The asset a message names, or None — `_extract_symbol` for callers
     outside this module (the close-intent notice names the position it is
     about, when the user did)."""
     return _extract_symbol(text)
+
+
+def symbol_from_token(token: str) -> Optional[str]:
+    """A symbol from ONE token the user typed where a symbol is expected —
+    `/postmortem HYPE`, `/postmortem eth/usdt` — or None. A bare ticker is a
+    ticker here by the command's own grammar, known to the list or not:
+    `_extract_symbol` needs a command word before it will read an unknown
+    all-caps token, so `/postmortem HYPE` read HYPE as a TRADE ID and looked
+    it up as one."""
+    t = str(token or "").strip().upper().lstrip("$")
+    if not re.fullmatch(r"[A-Z]{2,10}(?:/[A-Z]{2,10})?", t):
+        return None
+    if "/" not in t:
+        name = _NAME_TO_TICKER.get(t.lower())
+        t = f"{name or t}/USDT"
+    return _validate_symbol(t)
+
+
+#: Every word the post-mortem rule below can match on — a trigger word,
+#: however it is capitalised, is never the asset the question is about.
+_PM_TRIGGER_WORDS = frozenset({
+    "post", "mortem", "mortems", "postmortem", "postmortems", "debrief",
+    "autopsy", "review", "walk", "me", "through", "break", "down", "go", "over",
+    "why", "did", "you", "it", "the", "bot", "we", "enter", "open", "take",
+    "buy", "short", "long", "what", "went", "wrong", "with", "on", "in", "of",
+    "was", "thesis", "idea", "reasoning", "my", "that", "this", "our", "last",
+    "latest", "recent", "previous", "closed", "trade", "trades", "position",
+    "positions", "loss", "win", "entry", "and", "for", "to", "please",
+})
+
+#: The object slots a post-mortem question puts its asset in.
+_PM_NOUN = re.compile(r"\b(\$?[A-Za-z]{2,10}(?:/[A-Za-z]{2,10})?)\s+"
+                      r"(?:trade|position|loss|win|long|short|entry)\b")
+_PM_AFTER = re.compile(r"\b(?:enter(?:ed)?|open(?:ed)?|t(?:ake|ook)|b(?:uy|ought)|short(?:ed)?|long(?:ed)?"
+                       r"|on|of|with|in)\s+(?:the |my |a |that |this )?"
+                       r"(\$?[A-Za-z]{2,10}(?:/[A-Za-z]{2,10})?)\s*[?!.]*$")
+
+
+def postmortem_symbol(text: str) -> Optional[str]:
+    """The asset a post-mortem question is ABOUT, or None — read from the
+    slots such a question puts it in, never from anywhere in the message.
+
+    `_extract_symbol` reads the whole text and its known-ticker list holds
+    English words (near, etc, op, link, ton, dot, ray, sand, mana, gala,
+    render), so "why did you enter near the top" attached NEAR/USDT and the
+    skill answered a confident negative about a trade nobody named — and
+    both dispatch sites then recorded NEAR as a topic in the user's recall.
+    Its all-caps fallback fired on shouted prose ("WHAT WENT WRONG WITH THE
+    TRADE" -> WHAT/USDT). A ticker in a sentence is a word written
+    differently from its neighbours: `$X`, `X/USDT`, an all-caps token in a
+    sentence that is not itself all-caps, or a known name in the noun slot
+    ("my eth trade") or the object slot at the END of the question ("why did
+    you enter eth?"). "enter near the top" fills neither: `near` is followed
+    by more words, so it is prose.
+    """
+    if not text:
+        return None
+    explicit = re.search(r"\$?([A-Za-z]{2,10})/(?:USDT|USD|USDC|PERP)\b", text, re.IGNORECASE)
+    if explicit:
+        return _validate_symbol(f"{explicit.group(1).upper()}/USDT")
+    dollar = re.search(r"\$([A-Za-z]{2,10})\b", text)
+    if dollar:
+        return _validate_symbol(f"{dollar.group(1).upper()}/USDT")
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    shouted = bool(words) and all(w.isupper() for w in words)
+    if not shouted:
+        for w in re.findall(r"\b[A-Z]{2,10}\b", text):
+            # The rule's own trigger words are never its object: "POST
+            # MORTEM my last trade" is a shouted verb, not a $POST trade.
+            if w.lower() in _PM_TRIGGER_WORDS:
+                continue
+            return _validate_symbol(f"{_NAME_TO_TICKER.get(w.lower(), w)}/USDT")
+    for rx in (_PM_NOUN, _PM_AFTER):
+        m = rx.search(text)
+        if m:
+            tok = m.group(1).lstrip("$").split("/")[0].lower()
+            if tok in _NAME_TO_TICKER or tok in _KNOWN_SYMBOLS:
+                return _validate_symbol(f"{_NAME_TO_TICKER.get(tok, tok.upper())}/USDT")
+    return None
 
 
 def detect_reply_mode(text: str) -> str:
@@ -519,6 +602,35 @@ _rule(rf"^\s*(?:check|look at|thoughts on|opinion on|view on|what about|how abou
       rf"[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s*[?!.]*$",
       "analyze_asset", needs_symbol=True, explanation="Bare asset enquiry")
 
+# --- Post-mortem of a closed trade ---
+# "post-mortem of my last trade", "why did you enter ETH?", "what went wrong
+# with the SOL trade": the record holds the plan, the outcome and — when the
+# close was scored at entry — the thesis, and the skill reads it. Before the
+# portfolio block so "review my last trade" is not the positions card. Only
+# "why DID you enter": "why didn't you" is the rejection explainer below.
+# `position` only behind a PAST-TENSE modifier, and the free modifier slot
+# refuses open|current|live|active|pending|portfolio: "review my open
+# position" and "break down my current trade" are questions about the OPEN
+# book, and the first draft sent nine such phrasings to a skill that reads
+# closed rows only — answered with the most recent close, nothing on the
+# card saying the open position was never read. The asset itself is read by
+# `postmortem_symbol`, from the question's object slots, not the whole text.
+_TICKER_WORDS = "|".join(sorted(_KNOWN_SYMBOLS | set(_NAME_TO_TICKER)))
+_rule(r"\b(?:post.?mortems?|debrief|autopsy)\b(?!.*\b(?:market|week|day|session|month)\b)"
+      r"|\b(?:review|walk me through|break down|go over|debrief)\s+(?:my|the|that|this)\s+"
+      r"(?:(?:last|latest|recent|previous|closed)\s+(?:trade|position|loss|win)"
+      r"|(?!(?:open|current|live|active|pending|portfolio)\b)[A-Za-z0-9/:$]+\s+(?:trade|loss|win))\b"
+      r"|\bwhy did (?:you|it|the bot|we) (?:enter|open|take|buy|short|long|go long|go short)\b"
+      # "what went wrong with …" names a TRADE noun or an asset, or it is not
+      # ours: "what went wrong with the deploy" is a question for the model.
+      r"|\bwhat went wrong (?:with|on|in)\s+(?:my|the|that|this|our)\s+(?:(?:last|latest|recent|previous|closed)\s+)?"
+      r"(?:\S+\s+)?(?:trade|position|entry|long|short|loss|win)\b"
+      rf"|\bwhat went wrong (?:with|on|in)\s+(?:my |the |that |this )?"
+      rf"(?:\$?(?:{_TICKER_WORDS})(?:/usdt)?|(?-i:[A-Z]{{2,10}})(?:/USDT)?)\s*[?!.]*$"
+      rf"|\bwhat was the (?:thesis|idea|reasoning)\b"
+      rf"(?=.*\b(?:trade|position|entry|long|short|loss|win|\$?(?:{_TICKER_WORDS}))\b)",
+      "trade_postmortem", explanation="Post-mortem of a closed trade")
+
 # --- Portfolio ---
 # `^(?!\s*why\b)`: a "why" question about the book is not a request for the
 # card. "why was my trade rejected" matched `my trade` HERE, fifty lines above
@@ -723,6 +835,14 @@ class IntentRouter:
             m = pattern.search(text)
             if m:
                 kwargs = {}
+                # A symbol is OPTIONAL for these: "post-mortem of my last
+                # trade" names none and must still route, and "post mortem on
+                # the ETH trade" names one the skill should be handed — read
+                # from the question's object slots, not from anywhere in it.
+                if skill in _SYMBOL_OPTIONAL:
+                    slot = postmortem_symbol(text)
+                    if slot:
+                        kwargs["symbol"] = slot
                 if needs_symbol:
                     if symbol:
                         kwargs["symbol"] = symbol

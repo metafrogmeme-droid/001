@@ -70,6 +70,12 @@ class JournalEntry:
     tags: list = field(default_factory=list)  # "winner", "loser", "breakeven", "runner", etc.
 
     timestamp: float = 0.0
+    #: WHOSE trade. The journal is one store fed by every account's close
+    #: callback, and `find_trade` is by an id that is NOT unique across
+    #: accounts (`TI-adopted-{SYM}-{second}`), so an entry that knows its
+    #: owner is handed to that owner only. "" on every entry written before
+    #: this field existed — those are unattributed, not the caller's.
+    user_id: str = ""
 
 
 def r_multiple_for(entry_price: float, stop_loss: float, pnl: float,
@@ -177,6 +183,7 @@ class TradeJournal:
         holding_hours: float = 0.0,
         exit_reason: str = "",
         venue: str = "bitget",
+        user_id: str = "",
     ) -> JournalEntry:
         """Record a completed trade in the journal."""
         # R, or None when the risk it is a ratio of could not be read.
@@ -218,6 +225,7 @@ class TradeJournal:
             lessons=lessons,
             tags=tags,
             timestamp=time.time(),
+            user_id=str(user_id or ""),
         )
 
         self._entries.append(entry)
@@ -228,6 +236,32 @@ class TradeJournal:
 
         self._save()
         return entry
+    def find_trade(self, trade_id: str, *, user_id: Optional[str] = None):
+        """The entry recorded for ``trade_id``, or None.
+
+        By id, newest first, and by OWNER where the entry recorded one: the
+        caller must already own the id — it comes off the caller's own book
+        (`engine.viewer_executor` / their paper portfolio) — before it is
+        looked up here, and nothing searches this store by symbol or by
+        anything a user types. Ids are not unique across accounts (an
+        adopted position's id is symbol + a one-second timestamp), so an
+        entry carrying another account's ``user_id`` is never returned; an
+        entry that recorded no owner (every row written before the column
+        existed) is returned and left to the caller's own consistency check.
+        """
+        tid = str(trade_id or "")
+        if not tid:
+            return None
+        mine = str(user_id or "")
+        for e in reversed(self._entries):
+            if e.trade_id != tid:
+                continue
+            owner = str(getattr(e, "user_id", "") or "")
+            if owner and owner != mine:
+                continue
+            return e
+        return None
+
     def get_weekly_review(self, lookback_days: int = 7) -> dict:
         """Generate a weekly performance review summary."""
         cutoff = time.time() - (lookback_days * 86400)
@@ -397,7 +431,7 @@ class TradeJournal:
                     "vol": e.volatility, "conf": e.confidence,
                     "signals": e.signals_used, "exit_reason": e.exit_reason,
                     "lessons": e.lessons, "tags": e.tags, "ts": e.timestamp,
-                    "venue": e.venue,
+                    "venue": e.venue, "uid": e.user_id,
                 })
             with open(self._journal_file, "w") as f:
                 json.dump(data, f)
@@ -432,6 +466,7 @@ class TradeJournal:
                     # Absent on every entry written before venues existed, and
                     # those really are Bitget — a back-fill of a fact.
                     venue=d.get("venue", "bitget"),
+                    user_id=str(d.get("uid", "") or ""),
                 ))
             logger.info("Loaded %d journal entries", len(self._entries))
         except Exception as exc:

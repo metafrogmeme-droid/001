@@ -73,6 +73,9 @@ SKILL_PERMISSION: dict[str, str] = {
     # /daily_report are both @guard("journal") — and absent from
     # WEB_CHAT_SKILLS below, which is where reachability is decided.
     "trade_journal": "journal",
+    # /postmortem is @guard("portfolio"): ONE of the caller's own closed
+    # trades, read off the same book get_portfolio describes.
+    "trade_postmortem": "portfolio",
     # /orders is @guard("portfolio"), the permission `get_portfolio` already
     # reuses: the same account, one column over (what is RESTING rather than
     # what is HELD). The intent router had named `get_orders` for months

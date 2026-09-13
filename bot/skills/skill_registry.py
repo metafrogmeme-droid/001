@@ -1483,6 +1483,63 @@ class MacroCalendarSkill(BaseSkill):
 # JOURNAL
 # ══════════════════════════════════════════════════════════════
 
+class TradePostmortemSkill(BaseSkill):
+    """One closed trade of the caller's, read from the record and told
+    three-valued. `bot/core/trade_postmortem.py` is the seam; this resolves
+    the CALLER's book and hands the journal over, so a trade id can only ever
+    name a close the caller owns.
+
+    Which book is the same question GetPortfolioSkill and TradeJournalSkill
+    answer, and it is answered the same way: live mode reads the caller's
+    linked executor through the shared viewer resolver (never the operator's
+    book — the leak GetPortfolioSkill records fixing); anything else reads
+    the caller's own PAPER portfolio, the rows `/journal` renders. The first
+    draft read `viewer_executor` unconditionally, which with per-user live
+    OFF is the shared operator executor for every caller — so on a paper
+    deployment a stranger's "review my last trade" was answered with the
+    operator's most recent live close, dollars and all, while their own
+    paper closes were reported as "No closed trades on your account".
+
+    Three outcomes on the way to the book, not two: a resolver that RAISES
+    is told as could-not-read (the leaf's own sentence), and only a resolver
+    that answers None is told as no-linked-account. Folding the first into
+    the second manufactured a confident negative from a read that never
+    happened.
+    """
+    name = "trade_postmortem"
+    description = "Post-mortem of one closed trade"
+
+    async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        from bot.config import CONFIG
+        from bot.core.trade_postmortem import postmortem_for, render_postmortem, valid_trade_id
+        user_id = str(kwargs.get("user_id") or "")
+        symbol = kwargs.get("symbol") or None
+        raw_id = kwargs.get("trade_id")
+        trade_id = valid_trade_id(raw_id) if raw_id else None
+        if raw_id and trade_id is None:
+            return "\U0001f4cb That is not a trade id I can look up."
+        journal = getattr(engine, "journal", None)
+        if CONFIG.is_live() and hasattr(engine, "live_executor"):
+            try:
+                executor = engine.viewer_executor(user_id)
+            except Exception:
+                return render_postmortem("unreadable", None, book="live")
+            if executor is None:
+                return ("\U0001f4cb No linked live account on this user, so there "
+                        "are no live closes to post-mortem. Use <code>/connect</code> "
+                        "to link your exchange keys.")
+            return postmortem_for(executor, journal, symbol=symbol, trade_id=trade_id,
+                                  user_id=user_id, book_kind="live")
+        try:
+            portfolio = _get_portfolio(engine, user_id=user_id)
+        except Exception:
+            portfolio = None
+        if portfolio is None:
+            return render_postmortem("unreadable", None, book="paper")
+        return postmortem_for(portfolio, journal, symbol=symbol, trade_id=trade_id,
+                              user_id=user_id, book_kind="paper")
+
+
 class TradeJournalSkill(BaseSkill):
     name = "trade_journal"
     description = "Trade history"
@@ -3359,6 +3416,7 @@ def build_default_registry() -> SkillRegistry:
                 ExecutePaperTradeSkill, GetPortfolioSkill, GetOrdersSkill, ExplainTradeSkill,
                 RunBacktestSkill, RejectedTradesSkill, HaltSkill,
                 WalkForwardSkill, MacroCalendarSkill, TradeJournalSkill,
+                TradePostmortemSkill,
                 CostBreakdownSkill, RunStrategySkill,
                 LearningDashboardSkill, FeedbackSkill, PatternsSkill,
                 ProposalsSkill, OptimizationSkill, QuantAnalyzeSkill,
