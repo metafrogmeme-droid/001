@@ -173,7 +173,11 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
 
 /* ---- Brand ------------------------------------------------------------- */
 .brand { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-brand); font-weight: 700; font-size: 17px; letter-spacing: .10em; color: var(--text); white-space: nowrap; }
-.brand .brand-mark { width: 22px; height: 22px; color: var(--gold); filter: drop-shadow(0 0 6px rgba(63, 182, 255, .55)); }
+/* 12x22, not 22x22: the mark is a letterform (13.1 x 24 in its own units,
+   see scripts/brand_mark.py), and a square box around it renders as 9px of
+   glyph and 13px of gap before the wordmark. The disc that was here before
+   filled a square; this does not. */
+.brand .brand-mark { width: 12px; height: 22px; color: var(--gold); filter: drop-shadow(0 0 6px rgba(63, 182, 255, .55)); }
 /* Brand sub-line: the Command Core wordmark, steel + tracked-out like the art */
 .brand-sub { font-family: var(--font-data); font-size: 9px; letter-spacing: .34em; text-transform: uppercase; color: var(--steel); opacity: .85; margin-left: 2px; align-self: flex-end; padding-bottom: 2px; }
 @media (max-width: 520px) { .brand-sub { display: none; } }

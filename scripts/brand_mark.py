@@ -1,0 +1,232 @@
+"""The RUNECLAW rune-R — ONE geometry, shared by every place the mark appears.
+
+The mark is drawn as VECTORS in four files — both favicons, the `#brand-mark`
+symbol in `app/public/js/icons.js`, and the marketing site's inline header
+wordmark in `site/src/routes/__root.tsx` — and rasterised into three PNG app
+icons, two of which are copied into `website/` because that directory is served
+straight out of the checkout. A logo redrawn by hand once per surface is one
+logo per surface, and the drift is invisible until somebody puts two of them
+side by side — the same rule `honesty_vocabulary.json` states about a
+threshold. So the contour lives here once and everything else is emitted from
+it. `tests/test_brand_mark_is_one_geometry.py` holds the list and fails if any
+vector surface stops carrying exactly `path_d()`.
+
+It had already happened: the two favicons and the sprite drew the brand as a
+Unicode text glyph, while the marketing site drew a stroked hexagon with an "R"
+in it. Two different logos, neither aware of the other.
+
+Run it to regenerate:
+
+    python3 scripts/brand_mark.py
+
+THE TEXT GLYPH WAS A BUG, NOT A LOOK.  `&#5169;` (CANADIAN SYLLABICS A) set in
+Georgia renders as tofu on any machine whose font lacks it — no error, no
+console warning, and only on other people's machines.  The brand mark was one
+missing font away from a blank box.  Paths carry no such dependency.
+
+COVERAGE, STATED RATHER THAN IMPLIED.  `tests/test_brand_mark_is_one_geometry.py`
+drives `path_d()` and asserts each committed VECTOR surface carries exactly
+it, so those cannot drift.  The PNGs are generated output and are NOT re-derived
+in the suite — re-rasterising 1024x1024 in pure Python is minutes, not
+milliseconds.  Regenerate them with this script when the contour changes; a gate
+that claimed to check them would be a gate whose coverage is overstated.
+
+Straight lines only, so the scanline fill below reproduces the SVG exactly
+rather than approximating it.  Coordinates are in the 32x32 viewBox the favicon
+and the `#brand-mark` symbol already used, so every caller's sizing holds.
+"""
+
+from __future__ import annotations
+
+import math
+import struct
+import zlib
+from pathlib import Path
+
+# Outer contour, clockwise from the top-left of the stem.
+OUTER = [
+    (9.5, 4.0), (18.6, 4.0), (22.6, 8.6), (22.6, 10.2), (16.2, 16.2),
+    (22.6, 28.0), (18.1, 28.0), (13.1, 18.4), (13.1, 28.0), (9.5, 28.0),
+]
+# The bowl's counter — a hole, which is why every rendering needs evenodd.
+COUNTER = [
+    (13.1, 7.4), (17.7, 7.4), (19.3, 9.2), (19.3, 9.9), (15.3, 13.7), (13.1, 13.7),
+]
+
+MARK = "#7fc4ff"    # the mark itself, a shade above --gold-bright
+GLOW = "#3fb6ff"    # --gold: the halo in the reference art
+GROUND = "#0a0b10"  # --bg
+
+_MARK_RGB = (0x7F, 0xC4, 0xFF)
+_GLOW_RGB = (0x3F, 0xB6, 0xFF)
+_GROUND_RGB = (0x0A, 0x0B, 0x10)
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def bbox() -> tuple[float, float, float, float]:
+    """min-x, min-y, width, height of the contour. Derived, not typed twice."""
+    xs = [x for x, _ in OUTER]
+    ys = [y for _, y in OUTER]
+    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+
+def viewbox_tight() -> str:
+    """The viewBox for a mark set BESIDE TEXT, cropped to the contour itself.
+
+    The standalone icons keep the padded 32x32 square, because a favicon and an
+    app icon are square canvases and the padding is the design. A wordmark is
+    not: the rune-R is 13.1 wide and 24 tall, so in a 32x32 box rendered at
+    22px the glyph is 9px of a 22px element and the other 13px are empty — it
+    reads as a gap between the mark and RUNECLAW rather than as a lockup. The
+    mark that was here before was a 25-wide disc, which filled that box; a
+    letterform does not.
+    """
+    x, y, w, h = bbox()
+    return f"{x:g} {y:g} {w:g} {h:g}"
+
+
+def path_d() -> str:
+    """The mark as one SVG path. Needs `fill-rule="evenodd"` to cut the bowl."""
+    def poly(pts: list[tuple[float, float]]) -> str:
+        return "M" + " ".join(f"{x:g} {y:g}" for x, y in pts) + "Z"
+    return poly(OUTER) + poly(COUNTER)
+
+
+def inside(px: float, py: float) -> bool:
+    """Even-odd point-in-polygon across both contours."""
+    crossings = 0
+    for ring in (OUTER, COUNTER):
+        n = len(ring)
+        for i in range(n):
+            x1, y1 = ring[i]
+            x2, y2 = ring[(i + 1) % n]
+            if (y1 > py) != (y2 > py):
+                xh = x1 + (py - y1) * (x2 - x1) / (y2 - y1)
+                if px < xh:
+                    crossings += 1
+    return crossings % 2 == 1
+
+
+def favicon_svg() -> str:
+    """The standalone icon: dark ground, the reference art's halo, the mark.
+
+    The ground is not decoration. A favicon renders against browser chrome
+    nobody controls, so a bare mark on transparency sits on white as often as
+    on black — and this mark is a light blue.
+    """
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Generated by scripts/brand_mark.py — edit the contour there, not here. -->
+  <defs>
+    <radialGradient id="rc-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="{GLOW}" stop-opacity=".34"/>
+      <stop offset="100%" stop-color="{GLOW}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="{GROUND}"/>
+  <rect width="32" height="32" rx="7" fill="url(#rc-glow)"/>
+  <path d="{path_d()}" fill="{MARK}" fill-rule="evenodd"/>
+</svg>
+"""
+
+
+def brand_symbol_svg() -> str:
+    """The sprite symbol. `currentColor` so `.brand .brand-mark` keeps theming
+    it from `--gold` and keeps its drop-shadow halo."""
+    return (
+        f'  <symbol id="brand-mark" viewBox="{viewbox_tight()}">\n'
+        f'    <path d="{path_d()}" fill="currentColor" fill-rule="evenodd" stroke="none"/>\n'
+        '  </symbol>'
+    )
+
+
+def _png(path: Path, size: int, ss: int = 4, mark: float = 0.46) -> int:
+    """Rasterise the mark at `size`, `ss`x supersampled, onto the glow ground.
+
+    No rasteriser is installed on this box and shipping PNGs drawn by a
+    different hand from the SVG is exactly the drift this module exists to
+    prevent, so the fill is driven by `inside()` — the same contour the path is.
+
+    `mark` is the mark's height as a fraction of the canvas. The app icons take
+    the reference art's breathing room, which also clears the PWA maskable safe
+    zone (the centre 80%); the favicon fills its box instead, because 16 pixels
+    have no room to spare. Same geometry, two jobs.
+
+    RGB, NOT RGBA, AND THAT IS A REQUIREMENT RATHER THAN A SIZE CHOICE. The
+    Farcaster mini-app spec refuses an icon with an alpha channel, and
+    `app/test/farcaster_manifest.test.js` reads the colour-type byte out of
+    `app_icon_1024.png` to enforce it — the first draft of this rasteriser wrote
+    type 6 and that test caught it. A maskable PWA icon and an apple-touch-icon
+    both want a fully opaque square too, so nothing here has ever needed alpha.
+    """
+    w = h = size
+    px = bytearray(w * h * 3)
+    cx = cy = size / 2
+    for y in range(h):
+        for x in range(w):
+            d = math.hypot(x - cx, y - cy) / (size * 0.5)
+            g = max(0.0, 1.0 - d) ** 2.6 * 0.34
+            i = (y * w + x) * 3
+            for c in range(3):
+                px[i + c] = int(_GROUND_RGB[c] + (_GLOW_RGB[c] - _GROUND_RGB[c]) * g)
+
+    k = size / 32.0 * (mark / 0.75)
+    ox = size / 2 - 16 * k
+    oy = size / 2 - 16 * k
+    for y in range(h):
+        for x in range(w):
+            hits = 0
+            for sy in range(ss):
+                for sx in range(ss):
+                    if inside((x + (sx + 0.5) / ss - ox) / k, (y + (sy + 0.5) / ss - oy) / k):
+                        hits += 1
+            if not hits:
+                continue
+            a = hits / (ss * ss)
+            i = (y * w + x) * 3
+            for c in range(3):
+                px[i + c] = int(px[i + c] * (1 - a) + _MARK_RGB[c] * a)
+
+    raw = b"".join(b"\x00" + bytes(px[y * w * 3:(y + 1) * w * 3]) for y in range(h))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    out = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+    path.write_bytes(out)
+    return len(out)
+
+
+def main() -> None:
+    svg = favicon_svg()
+    for rel in ("app/public/favicon.svg", "site/public/favicon.svg"):
+        (REPO / rel).write_text(svg)
+        print(f"wrote {rel}")
+
+    pngs = []
+    for size in (256, 512, 1024):
+        name = f"app_icon_{size}.png"
+        n = _png(REPO / "app" / "public" / name, size)
+        pngs.append((name, n))
+        print(f"wrote app/public/{name}  {size}x{size}  {n / 1024:.1f} KB")
+
+    # `website/` is served straight out of the checkout (see site/vite.config.ts)
+    # and the two icons the prerender references live there rather than in
+    # site/public, so they are copied rather than built.
+    for size in (256, 512):
+        name = f"app_icon_{size}.png"
+        (REPO / "website" / name).write_bytes((REPO / "app" / "public" / name).read_bytes())
+        print(f"wrote website/{name}")
+
+    print("\nSprite symbol for app/public/js/icons.js:\n")
+    print(brand_symbol_svg())
+
+
+if __name__ == "__main__":
+    main()
