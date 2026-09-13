@@ -632,14 +632,14 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 90 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 91 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 78 of the 90 reach the tool-less chat model and 12
+typed as the card prints them, 79 of the 91 reach the tool-less chat model and 12
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
 hint's scale, and the signed-in prompt forbids the model from suggesting slash
-commands, so the 78 land on a model told not to give the answer the card just
+commands, so the 79 land on a model told not to give the answer the card just
 gave. The answer is what this caller can ASK FOR, in words, from `SKILL_SAYS` —
 a COLUMN on the permission table rather than a map in the renderer, because a
 map elsewhere is the `/setllm` ten-of-eleven shape and a skill added later would
@@ -1494,6 +1494,68 @@ NOT happen is not") pointed the other way. It did **not** need `Trade.pnl` to
 become Optional — `test_paper_pnl_default_is_safe.py` argues correctly against
 that, and its grounds cover the *default* rather than an invented price, so
 the two never conflicted. The whole chain had no test of any kind before this.
+
+**Four controls all bounded HOW MANY and none bounded WHETHER IT WAS YOURS.**
+The operator got four anomaly messages in fifteen minutes — a "+1 more severe"
+at 09:50, a digest naming eleven symbols at 10:02, a severe BNB/USDT spread
+card at 10:04, another "+1 more" at 10:05 — across WLFI, LAB, PENDLE, PUMP,
+RAVE, UNI, ATOM, BCH, BNB and XPL, and held none of them.
+`_SEVERE_CARDS_PER_TICK` caps how wide one burst is, `_SEVERE_CARDS_PER_HOUR`
+how many bursts an hour holds, `BLACK_SWAN_SEVERE_REPEAT` how often one
+unchanged condition repeats, and the digest batches the mild ones: four
+volume knobs over a feed whose input is `active_alerts`, the whole scanned
+universe. Nothing between the detector and the operator ever asked whether
+the symbol was one they had money in, so tuning any of those down only trades
+a real warning for a quieter flood of irrelevant ones — the reason the flood
+survived three previous rounds of tuning. `bot/core/anomaly_scope.py` is the
+reading: `scope` (`held` by default, `all` a choice somebody types) and
+`interval` (3600s), both per-operator, both settable with `/alerts`, applied
+once at `_check_black_swan`'s single entry point rather than at each of the
+card, digest and "+1 more" surfaces — a second copy of a filter is a second
+answer.
+
+**Unreadable is not empty, and here that rule decides the design rather than
+decorating it.** `held_symbols` answers **None** when the book cannot be read,
+never an empty set, and `scoped` then keeps every alert and says why in the
+message. A book that failed to read and rendered as "you hold nothing" would
+turn one broken position read into total silence on the surface whose entire
+job is to interrupt you — the most expensive direction this mistake has, and
+the direction a falsy check takes by default. A GENUINELY empty book is a real
+reading and does suppress, with its own sentence. The interval is a FLOOR and
+not a schedule: `is_due()` is True for a never-sent channel, because making the
+operator wait an hour for the first alert after a restart is the cure doing
+the disease's work, and a pass that SENDS nothing does not start the hour.
+
+**A dial that silences a surface makes every test of that surface a test of
+the dial.** `test_a_new_condition_still_pages_behind_a_standing_one` went red
+on this commit not because the repeat filter broke but because the interval
+got there first — its subject had become unreachable, so it had quietly become
+a test of something else. It neutralises the dial explicitly now and says why.
+And the first draft of the new suite rewound `_bs_last_message_at` to make an
+hour pass while leaving `_bs_last` where it was, which is not a state any
+clock can produce: two counters, one clock, and a test that moves one of them
+is testing an incoherent world.
+
+**The third thing asked for was "then direct message", and this slice does
+NOT deliver it — which is worth more written down than a one-field change
+would have been.** `audience="admin"` on the three anomaly constructors was
+built, driven and reverted. The argument for it was that `_dispatch`
+publishes a non-admin alert's TITLE to the public mind-stream, so unheld
+symbols were reaching a public feed. **They were not.** The titles are
+`f"Anomaly: {kind}"`, a fixed phrase, and `f"Anomaly digest: {len(all_syms)}
+symbols"` — a type, a phrase and a COUNT. No symbol has ever reached that
+feed, and a fix argued from a leak that does not exist is a fix with no
+reason. Beside that, `test_alert_audience.py` already holds a decision the
+other way, with its own reason: BLACK_SWAN must reach every watching chat
+because it "names the reader's own risk". The scope filter genuinely weakens
+that premise — these rows are now narrowed by ONE operator's book — but
+weakening a premise does not entitle you to overturn the decision it
+supports, and the honest version needs per-recipient scope, which does not
+exist. **A conditional audience would have defeated the guard rather than
+satisfied it**: `_alert_audiences()` reads the constructor by AST and treats
+any non-Constant `audience` as `"all"`, so an expression there records "all"
+while the runtime sends "admin" — a false acquittal inside the one test that
+owns the decision.
 
 ## Public-surface rules
 

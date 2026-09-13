@@ -165,6 +165,21 @@ class AlertsMonitor:
         # definition of admin rather than the monitor carrying a second copy.
         self.monitor.set_admin_fn(self._is_admin_id)
 
+        # The operator's anomaly dials, same injection shape and for the same
+        # reason: the monitor imports neither telegram nor the user store, so
+        # it asks rather than reads. The OPERATOR's row is the one that counts
+        # because these alerts go to the operator chats — a per-user version
+        # belongs with per-user alerting, which does not exist yet.
+        def _anomaly_prefs_fn() -> dict:
+            from bot.core.anomaly_scope import DEFAULT_INTERVAL_SEC, SCOPE_HELD
+            for cid in sorted(self.monitor._configured_operator_chats()):
+                got = self.users.anomaly_prefs(cid)
+                if got:
+                    return got
+            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+
+        self.monitor.set_anomaly_prefs_fn(_anomaly_prefs_fn)
+
         # Signal card image renderer — sends a styled PNG card for each signal
         _bot_ref = bot
         async def _signal_card_fn(chat_id: str, idea, rank: int = 1,

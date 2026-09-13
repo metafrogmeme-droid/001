@@ -91,6 +91,7 @@
     "holdtime": "analyse de la durée de détention",
     "costs": "détail des coûts de trading",
     "watch": "alertes proactives pour ce chat",
+    "alerts": "portée et fréquence des alertes d'anomalie",
     "share": "enregistrer une note que votre agent peut utiliser",
     "mynotes": "les notes que vous avez partagées",
     "agent": "la posture de votre agent, en langage clair",

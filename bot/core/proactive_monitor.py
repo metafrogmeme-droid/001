@@ -392,6 +392,34 @@ class ProactiveMonitor:
         for signal alerts. Optional — alerts work fine without it."""
         self._chart_fn = chart_fn
 
+    def set_anomaly_prefs_fn(self, prefs_fn) -> None:
+        """Inject the operator's anomaly dials, the way `set_admin_fn` injects
+        the role check — so this module keeps importing neither telegram nor
+        the user store.
+
+        Unset is not an error: the module defaults apply, which are the quiet
+        ones. A monitor wired without this still behaves the way an operator
+        who never touched the setting expects.
+        """
+        self._anomaly_prefs_fn = prefs_fn
+
+    def _anomaly_dials(self) -> dict:
+        """`{"scope", "interval"}`, defaults when nothing is wired or the read
+        fails. A fault must not widen the scope: the default IS the narrow
+        one, so falling back to it can only ever send less."""
+        from bot.core.anomaly_scope import DEFAULT_INTERVAL_SEC, SCOPE_HELD
+
+        fn = getattr(self, "_anomaly_prefs_fn", None)
+        if fn is None:
+            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+        try:
+            got = fn() or {}
+            return {"scope": got.get("scope") or SCOPE_HELD,
+                    "interval": int(got.get("interval") or DEFAULT_INTERVAL_SEC)}
+        except Exception as exc:
+            logger.debug("anomaly prefs read failed: %s", exc)
+            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+
     def set_admin_fn(self, admin_fn) -> None:
         """Register ``callable(chat_id) -> bool`` deciding who is an admin.
 
@@ -2574,12 +2602,52 @@ class ProactiveMonitor:
         alert's colour and the detector's own escalation cannot disagree.
         """
         alerts: list[Alert] = []
+        # Initialised BEFORE the try, not read out of `locals()` at the end:
+        # it is set inside the block and read after it, which is the exact
+        # shape that left `fw_verdict` undefined on the web gateway when
+        # something finally read it. The same mistake twice in one session is
+        # the one worth writing down.
+        _scope_note = ""
         try:
             from bot.core.black_swan import _HALT_SEVERITY
             if not hasattr(self.engine, "black_swan"):
                 return []
             raw_alerts = list(self.engine.black_swan.active_alerts)
             if not raw_alerts:
+                return []
+
+            # ── THE OPERATOR'S TWO DIALS, APPLIED ONCE ──────────────────────
+            # Here, before the severity split, because every message this
+            # method can produce — the severe cards, the "+N more" line and
+            # the digest — derives from `raw_alerts`. Filtering downstream
+            # would mean three filters and three chances to disagree.
+            #
+            # THE REPORT THAT CAUSED THIS: four messages in fifteen minutes
+            # across WLFI, LAB, PENDLE, PUMP, RAVE, UNI, ATOM, BCH, BNB and
+            # XPL, none of which the operator held. Every control this file
+            # already had bounds VOLUME — per tick, per hour, per repeat — and
+            # not one of them bounds RELEVANCE, so turning any of them down
+            # only trades a real warning for a quieter flood of irrelevant
+            # ones. `active_alerts` is the whole scanned universe and nothing
+            # between it and the operator had ever asked whether the symbol
+            # was one they had money in.
+            from bot.core.anomaly_scope import held_symbols, is_due, scoped
+
+            _dials = self._anomaly_dials()
+            _now_dial = time.time()
+            if not is_due(getattr(self, "_bs_last_message_at", None),
+                       _now_dial, _dials["interval"]):
+                # Nothing is LOST by waiting: `active_alerts` is a live set,
+                # so a condition still standing at the next due window is
+                # still reported then. The interval delays; it does not drop.
+                return []
+            _held = held_symbols(self.engine)
+            raw_alerts, _dropped, _scope_note = scoped(
+                raw_alerts, _held, _dials["scope"])
+            if not raw_alerts:
+                # Suppressed ENTIRELY by scope. Not a message: an operator who
+                # asked to hear only about their own book has not asked to be
+                # told hourly that the rest of the market exists.
                 return []
 
             # SPLIT ON THE ONLY LINE THAT CHANGES WHAT AN OPERATOR SHOULD DO.
@@ -2756,6 +2824,22 @@ class ProactiveMonitor:
         if _charged:
             self._bs_card_times = (
                 getattr(self, "_bs_card_times", None) or []) + [time.time()] * _charged
+
+        # THE INTERVAL IS CHARGED AGAINST WHAT IS SENT, not what was built —
+        # the same correction the card budget above records having needed. A
+        # pass whose every alert was suppressed by the repeat filter has not
+        # spoken to the operator, and starting their hour of quiet from it
+        # would be the cure doing the disease's job.
+        if out:
+            self._bs_last_message_at = time.time()
+            # What the scope removed, said ON the message that got through. A
+            # channel filtered to the operator's own book must say so, or a
+            # quiet hour is indistinguishable from a broken detector — the
+            # argument the digest's own footer already makes about severity.
+            note = _scope_note
+            if note:
+                for a in out:
+                    a.body = f"{a.body}\n\u2139\ufe0f {note}"
         return out
 
     @staticmethod

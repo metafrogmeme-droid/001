@@ -231,10 +231,16 @@ def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
     named, nothing, hits = catalogue_on_the_web()
     assert int(m.group(1)) == named
 
-    m2 = re.search(r"(\d+) of the 90 reach the tool-less chat model and (\d+)\n?"
+    # The total is read here too, never restated: a literal `90` in this
+    # pattern is a second copy of the number the line above just measured,
+    # and the second copy is what goes stale. It did — the sentence said
+    # "79 of the 91" while this regex still demanded "of the 90", so the
+    # guard failed on its own staleness rather than on the prose's.
+    m2 = re.search(r"(\d+) of the (\d+) reach the tool-less chat model and (\d+)\n?"
                    r"reach a skill", DOC)
     assert m2, "the fall-through claim was reworded; recount it"
-    assert (int(m2.group(1)), int(m2.group(2))) == (nothing, len(hits))
+    assert int(m2.group(2)) == named, "the sentence disagrees with itself"
+    assert (int(m2.group(1)), int(m2.group(3))) == (nothing, len(hits))
     assert "`/scan`, whose whole job is the" in DOC
     assert hits.get("scan") == "analyze_asset", hits
 
@@ -421,6 +427,143 @@ def test_the_url_shape_it_names_is_the_shape_both_routes_send():
         for m in _re.finditer(r"\$\{BOT_API_URL\}([^`]*)", code):
             seg = m.group(1).split("?")[0]
             assert "${" not in seg, f"{rel} interpolates into a path segment"
+
+def test_the_four_volume_controls_it_names_all_exist_and_bound_volume():
+    """"four volume knobs over a feed whose input is `active_alerts`".
+
+    A count in prose is the part that rots first, and this one is an
+    argument: the paragraph's whole case is that every EXISTING control is
+    about how many, so it is wrong the moment a fifth one appears or one of
+    the four turns out to bound something else. Each is read from the module
+    that holds it rather than from a list here.
+    """
+    import inspect
+
+    from bot.core import proactive_monitor as pm
+    from tests.source_scan import code_only
+
+    flat = re.sub(r"\s+", " ", DOC)
+    for name in ("_SEVERE_CARDS_PER_TICK", "_SEVERE_CARDS_PER_HOUR",
+                 "BLACK_SWAN_SEVERE_REPEAT"):
+        assert name in flat, name
+    src = code_only(inspect.getsource(pm))
+    assert "_SEVERE_CARDS_PER_TICK" in src and "_SEVERE_CARDS_PER_HOUR" in src
+    assert "BLACK_SWAN_SEVERE_REPEAT" in src
+    # ...and the input really is the whole scanned universe.
+    assert "active_alerts" in src and "active_alerts" in flat
+
+
+def test_the_two_dials_it_names_have_the_defaults_it_quotes():
+    from bot.core import anomaly_scope as sc
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "`scope` (`held` by default, `all` a choice somebody types)" in flat
+    assert "`interval` (3600s)" in flat
+    assert sc.SCOPE_HELD == "held" and sc.SCOPE_ALL == "all"
+    assert sc.DEFAULT_INTERVAL_SEC == 3600
+    # The default is the one a store with nothing recorded hands back.
+    assert sc.normalise_scope(None) is None, "junk is not a default"
+
+
+def test_the_three_valued_book_read_it_describes_is_really_three_valued():
+    """"answers None when the book cannot be read, never an empty set".
+
+    Driven, not scanned: the two absences have to be distinguishable from
+    outside, and a scan cannot tell `None` from `set()` at the call site.
+    """
+    from bot.core.anomaly_scope import SCOPE_HELD, held_symbols, scoped
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "answers **None** when the book cannot be read, never an empty set" in flat
+
+    class _Raises:
+        @property
+        def live_executor(self):
+            raise RuntimeError("venue down")
+
+    assert held_symbols(_Raises()) is None
+
+    class _Alert:
+        symbol = "WLFI/USDT"
+
+    alerts = [_Alert()]
+    kept_unreadable, dropped_unreadable, note_unreadable = scoped(
+        alerts, None, SCOPE_HELD)
+    kept_empty, dropped_empty, note_empty = scoped(alerts, set(), SCOPE_HELD)
+    assert kept_unreadable == alerts and dropped_unreadable == []
+    assert kept_empty == [] and dropped_empty == alerts
+    # Not merely DIFFERENT — a first draft asserted that and passed against a
+    # mutation that gave the unreadable book the empty book's sentence with a
+    # count of zero in front of it. Each note has to name its own case, and
+    # the unreadable one must not assert the thing nobody read.
+    assert "unreadable" in note_unreadable.lower()
+    assert "no open positions" not in note_unreadable
+    assert "no open positions" in note_empty
+    assert "unreadable" not in note_empty.lower()
+
+
+def test_the_interval_is_a_floor_and_not_a_schedule():
+    """"`is_due()` is True for a never-sent channel"."""
+    from bot.core.anomaly_scope import DEFAULT_INTERVAL_SEC, is_due
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "`is_due()` is True for a never-sent channel" in flat
+    assert is_due(None, 1_000_000.0, DEFAULT_INTERVAL_SEC) is True
+    assert is_due(1_000_000.0, 1_000_001.0, DEFAULT_INTERVAL_SEC) is False
+    assert is_due(1_000_000.0, 1_000_000.0 + DEFAULT_INTERVAL_SEC,
+               DEFAULT_INTERVAL_SEC) is True
+
+
+def test_the_neutralised_dial_it_describes_is_actually_neutralised():
+    """"It neutralises the dial explicitly now and says why."
+
+    The paragraph's claim is about a NAMED test, so the named test is read.
+    A test whose subject has become unreachable has quietly become a test of
+    something else, and the only durable record of that is in the test.
+    """
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "test_a_new_condition_still_pages_behind_a_standing_one" in flat
+    src = (ROOT / "tests" / "test_anomaly_alert_volume.py").read_text(
+        encoding="utf-8")
+    i = src.index("def test_a_new_condition_still_pages_behind_a_standing_one")
+    body = src[i:i + 2500]
+    assert "interval" in body, "the dial has to be named to be neutralised"
+
+
+
+def test_the_audience_it_says_it_did_not_change_really_did_not():
+    """The paragraph's claim is a NEGATIVE — the one kind that rots silently,
+    because nothing fails when somebody later makes the change it says was
+    not made. So it is driven: the titles carry no symbol, and BLACK_SWAN
+    still reaches every watching chat."""
+    import ast
+    import inspect
+
+    from bot.core import proactive_monitor as pm
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "this slice does NOT deliver it" in flat
+    assert "No symbol has ever reached that feed" in flat
+
+    auds, titles = [], []
+    for node in ast.walk(ast.parse(inspect.getsource(pm))):
+        if not (isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "Alert"):
+            continue
+        kw = {k.arg: k.value for k in node.keywords}
+        t = kw.get("alert_type")
+        if not (isinstance(t, ast.Constant) and t.value == "BLACK_SWAN"):
+            continue
+        a = kw.get("audience")
+        auds.append(a.value if isinstance(a, ast.Constant) else "all")
+        titles.append(ast.unparse(kw["title"]))
+
+    assert auds and set(auds) == {"all"}, auds
+    # The titles the public feed would receive: a type, a phrase, a count.
+    # None of them interpolates a symbol, which is the paragraph's evidence.
+    assert titles, "no BLACK_SWAN title found"
+    for t in titles:
+        assert "symbol" not in t.lower() or "len(" in t, t
 
 
 # ── F-15 ──────────────────────────────────────────────────────────────────

@@ -123,6 +123,36 @@ class AgentCommands:
         await self._send(update, "\n\n".join(lines), reply_markup=kb)
 
     @guard("scan")
+    async def _cmd_alerts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/alerts [all|held|every <N>h] — anomaly alert scope and cadence.
+
+        Guarded with `scan` rather than an admin permission: these are the
+        alerts the caller RECEIVES, and turning down your own notifications is
+        not an operator action. Same permission `/watch` carries, which is the
+        toggle next door.
+        """
+        from bot.core.anomaly_scope import held_symbols, parse_setting, settings_card
+
+        tg_id = self._get_tg_id(update)
+        scope, interval, err = parse_setting(ctx.args or [])
+        if err:
+            # A refusal, not a default. The whole point of this command is
+            # that an operator got something they did not ask for.
+            await self._send(update, f"\u26a0\ufe0f {err}")
+            return
+        if scope is not None or interval is not None:
+            if not self.users.set_anomaly_prefs(tg_id, scope=scope,
+                                                interval=interval):
+                await self._send(
+                    update,
+                    "\u26a0\ufe0f Could not save that — this account is not in "
+                    "the user store, so the setting would not survive a "
+                    "restart. Nothing was changed.")
+                return
+        prefs = self.users.anomaly_prefs(tg_id)
+        await self._send(update, settings_card(prefs, held_symbols(self.engine)))
+
+    @guard("scan")
     async def _cmd_watch(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/watch [on|off|status] — toggle proactive alerts for this chat."""
 

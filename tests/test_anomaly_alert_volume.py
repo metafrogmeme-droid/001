@@ -466,8 +466,18 @@ class TestTheBudgetIsChargedForWhatIsSent:
 
     def test_a_new_condition_still_pages_behind_a_standing_one(self):
         """THE COST, END TO END. Under the old charge the budget was gone and
-        this card became a name in the overflow line."""
+        this card became a name in the overflow line.
+
+        The INTERVAL dial is neutralised here on purpose. It is a second,
+        later limit on the same channel — one message an hour, the operator's
+        own setting — and leaving it at its default would suppress the second
+        pass by TIME and make this test's actual subject, the hourly card
+        BUDGET, unreachable. A test that stops exercising its subject because
+        another control got there first is a test that has quietly become
+        about something else. The interval has its own suite.
+        """
         m = ProactiveMonitor.__new__(ProactiveMonitor)
+        m.set_anomaly_prefs_fn(lambda: {"scope": "all", "interval": 60})
         standing = _an("GME/USDT:USDT", "SPREAD_WIDENING", 0.98,
                        action="HALT_NEW_TRADES")
         m.engine = _engine([standing])
@@ -477,6 +487,7 @@ class TestTheBudgetIsChargedForWhatIsSent:
             standing,
             _an("BTC/USDT:USDT", "VOLUME_COLLAPSE", 0.95, action="HALT_NEW_TRADES"),
         ])
+        m._bs_last_message_at = None     # see the docstring: time is not the subject
         crit = [a for a in m._check_black_swan() if a.severity == "CRITICAL"]
         keys = {a.dedup_key for a in crit}
         assert any("BTC" in k for k in keys), (
