@@ -567,6 +567,55 @@ entry*, beside the `PnL not recorded` the same block had just written for it.
 Fixing the positions row and leaving that one would have been "fixing two left
 the third" inside a single prompt.
 
+**And a turn the user can SEE that the model cannot is a hole exactly where the
+answer was.** `bot/nlp/skill_memory.py` exists for that shape — its docstring
+says the model is "told an answer exists and not what it was, which is the one
+prompt shape most likely to be filled in with something plausible" — and it was
+wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
+branch that answers above it returned without touching the store at all: a
+typed "deep scan" left no trace of the question OR the card, and "which of
+those is best?" then reached the model with a history in which the scan had
+never happened. Twenty-eight call sites across the two entry points, covering
+eighteen kinds of branch — the stance card, the paywall refusal, the scan card,
+orders, help, status, the close/cancel/modify door, a forwarded halt, the
+bare-verb door, the guarded dangerous commands, the role refusal, the firewall
+block, the clarifying QUESTION (the one reply the next turn is certainly an
+answer to), the quota refusal, the manual-trade hand-off, the unavailable
+fall-through, the news digest, and the five-return limit-price flow that
+CONFIRMS AND EXECUTES A TRADE. The web's news intercept was the same defect with a
+placeholder instead of silence: `"[news] radar digest"` says a digest happened
+and not one headline from it, which is `"executed successfully"` in new
+clothes, three modules from the docstring that deletes it. **Four records now,
+because four things happen and only one is a measurement** —
+`skill_result_memory` (a tool ran), `routed_answer_memory` (the router spoke;
+"no tool ran"), `card_shown_memory` (a command's card, "CONTENTS NOT
+RECORDED", so the model's honest continuation is *I do not have that in front
+of me* rather than a reconstruction) and `not_run_memory` (a gate said no,
+which is neither a failure inviting a retry nor an absent tool). The name
+recorded is the skill that RAN — `scan_deep` dispatches `deepscan` — and
+`record_routed_turn` writes both turns from one leaf, so the transports cannot
+drift about what the model remembers.
+
+**The guard for it had a blind spot in the quiet direction FOUR times, and
+every one was found by driving rather than reading.** Its first draft read only
+the `intent.confidence >= 0.8` block — the branches the slice started from —
+and passed while six others recorded nothing, including the trade one. Widened
+to the whole method, it ACQUITTED the quota refusal: the firewall pre-scan is a
+`try:` holding an `if` that records, and unparsing the `Try` node whole carried
+that record down to every later branch. Its SEND vocabulary was the three
+`_send` spellings, so the four branches that answer by handing the turn to a
+`_cmd_*` handler or the registry — help, status, orders, the manual-trade
+hand-off — read as answering NOTHING and could not be flagged however little
+they recorded; deleting any of their records left it green. And it matched the
+recorder as a SUBSTRING, so `(None) if True else self._remember_routed(...)`
+kept the literal and the guard, which is the `if False:` mutation this file
+names. A false accusation is loud and gets fixed; a false acquittal just sits
+there, which is the methods ratchet's own lesson one granularity up. The
+recorder is read as a STATEMENT now, the allow-list is four conditions each
+with its reason (not admitted, no transcript; a rate limit exists to do NO
+work), and a second test fails when an entry stops matching any branch — the
+`known_failures.txt` rule again.
+
 **A router rule that names a skill nobody registered is a door painted on a
 wall, and each transport had painted its own.** `intent_router` had sent "my
 open orders", "what's pending" and "my limit orders" to `get_orders` since the

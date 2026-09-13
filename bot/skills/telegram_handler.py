@@ -622,7 +622,9 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
-from bot.nlp.skill_memory import (skill_failure_memory, skill_result_memory,
+from bot.nlp.skill_memory import (card_shown_memory, not_run_memory,
+                                  record_routed_turn, routed_answer_memory,
+                                  skill_failure_memory, skill_result_memory,
                                   skill_unavailable_memory)
 from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG,
                               create_llm_client, fallback_chain, llm_complete,
@@ -2773,6 +2775,24 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "Merge with the existing note, drop what it makes redundant. Plain "
         "text, third person ('the user'), at most 120 words.")
 
+    def _remember_routed(self, tg_id: str, text: str, intent: str,
+                         record: str, *, skill: Optional[str] = None) -> None:
+        """Record a routed turn — the question AND what answered it.
+
+        Every branch above the skill dispatch used to return without touching
+        the store: the user turn is appended INSIDE `if skill:`, so a typed
+        "deep scan" left no trace of the question or the card. The next
+        message — "which of those is best?" — then reached the model with a
+        history in which the scan never happened, which is the one prompt
+        shape `bot/nlp/skill_memory.py` was written to remove, on the eleven
+        branches it was never wired into.
+
+        The web calls the same leaf with `surface="web"`, so the two
+        transports cannot drift about what the model remembers.
+        """
+        record_routed_turn(self.conversations, tg_id, text, intent, record,
+                           surface="telegram", skill=skill)
+
     async def _summarize_if_due(self, user_id: str, is_admin: bool = False) -> bool:
         """Fold the turns the store pruned into its rolling note. True when a
         note was written.
@@ -3015,11 +3035,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if fw_verdict and fw_verdict.get("risk") == "high" and \
                     getattr(CONFIG.risk, "guardian_firewall_block_high", False):
                 cats = ", ".join(fw_verdict.get("categories", [])[:3]) or "manipulation"
-                await self._send(update,
-                    "\U0001f6e1\ufe0f <b>Blocked by the Guardian firewall.</b>\n\n"
-                    "That message looked like a prompt-injection / unsafe-action "
-                    f"attempt (<i>{html.escape(cats)}</i>), so I won't act on it. "
-                    "Rephrase what you actually want and I'll help.")
+                _fw = ("\U0001f6e1\ufe0f <b>Blocked by the Guardian firewall.</b>\n\n"
+                       "That message looked like a prompt-injection / unsafe-action "
+                       f"attempt (<i>{html.escape(cats)}</i>), so I won't act on it. "
+                       "Rephrase what you actually want and I'll help.")
+                await self._send(update, _fw)
+                # The notice ASKS for a rephrase, so the rephrase is the next
+                # turn — and without this it reached the model with no trace
+                # of the refusal it was answering.
+                self._remember_routed(tg_id, text, "guardian_firewall",
+                                      routed_answer_memory("guardian_firewall", _fw))
                 return
         except Exception as _fw_exc:
             logger.debug("Firewall pre-scan skipped: %s", _fw_exc)
@@ -3049,7 +3074,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 idea = self.engine._pending_ideas.get(trade_id)
                 if not idea:
                     del self._pending_limit_input[caller_uid]
-                    await self._send(update, t('trade_expired_rescan', self._lang(update)))
+                    _gone = t('trade_expired_rescan', self._lang(update))
+                    await self._send(update, _gone)
+                    self._remember_routed(tg_id, text, "trade_confirm",
+                                          routed_answer_memory("trade_confirm", _gone))
                     return
 
                 old_price = idea.entry_price
@@ -3072,22 +3100,42 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     if not self._can_trade_live(caller_uid_str):
                         await self._send(update,
                             f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}")
+                        self._remember_routed(
+                            tg_id, text, "confirm_trade",
+                            not_run_memory("confirm_trade",
+                                           "this caller is not permitted to "
+                                           "trade live on this deployment"))
                         return
 
                 result = await self.engine.confirm_trade(trade_id, user_id=caller_uid)
                 await self._send(update, result)
+                # A turn that PLACES A TRADE recorded nothing at all, so "did
+                # that go through?" reached the model with the confirmation
+                # missing from its own history.
+                self._remember_routed(tg_id, text, "confirm_trade",
+                                      skill_result_memory("confirm_trade", result),
+                                      skill="confirm_trade")
                 return
 
             except ValueError:
                 # Not a valid number — cancel the limit input mode
                 if text.lower() in ("cancel", "no", "back", "nevermind"):
                     del self._pending_limit_input[caller_uid]
-                    await self._send(update, t("limit_input_cancelled", self._lang(update)))
+                    _cancelled = t("limit_input_cancelled", self._lang(update))
+                    await self._send(update, _cancelled)
+                    self._remember_routed(
+                        tg_id, text, "limit_price_input",
+                        routed_answer_memory("limit_price_input", _cancelled))
                     return
                 # Otherwise try to parse, maybe they typed something weird
-                await self._send(update,
-                    f"\u26a0\ufe0f <b>Invalid price:</b> <code>{html.escape(text[:30])}</code>\n\n"
-                    f"Type a number (e.g. <code>84.07</code>) or <code>cancel</code>.")
+                _bad = (f"\u26a0\ufe0f <b>Invalid price:</b> "
+                        f"<code>{html.escape(text[:30])}</code>\n\n"
+                        f"Type a number (e.g. <code>84.07</code>) or "
+                        f"<code>cancel</code>.")
+                await self._send(update, _bad)
+                self._remember_routed(
+                    tg_id, text, "limit_price_input",
+                    routed_answer_memory("limit_price_input", _bad))
                 return
 
         # ── Manual trade via natural language ──────────────────────
@@ -3104,6 +3152,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             update.message.text = f"/trade {_trade_text}"
             await self._cmd_trade(update, ctx)
             update.message.text = original_text  # restore
+            self._remember_routed(tg_id, text, "manual_trade",
+                                  card_shown_memory("trade confirmation"))
             return
 
         # ── Intent routing (Move 1) ──────────────────────────────
@@ -3123,6 +3173,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # so an unprivileged user gets the standard role refusal.
             if intent.skill.startswith("stance_"):
                 await self._propose_stance(update, intent.skill.removeprefix("stance_"))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("agent stance"))
                 return
 
             # ── Scan mode shortcuts ──────────────────────────────
@@ -3142,8 +3194,21 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 if await self._token_gate_blocks(
                     update, mode or "deep", "deepscan" if _deep else "premium_scan"
                 ):
+                    # A paywall is not a failure and not an absence: the scan
+                    # exists and a gate said no. Recorded as its own outcome,
+                    # or the next turn's "what did you find?" is answered from
+                    # a history in which the refusal never happened.
+                    self._remember_routed(
+                        tg_id, text, intent.skill,
+                        not_run_memory("deepscan" if _deep else "pro_scan",
+                                       "the caller's tier does not include it"))
                     return
                 await self._send(update, thinking_msg)
+                # The name RECORDED is the skill that ran, not the router's
+                # name for the sentence: `scan_deep` and `scan_full` both
+                # dispatch `deepscan`, and attributing the card to a tool that
+                # was never called is the same misattribution one level down.
+                _ran = "deepscan" if _deep else "pro_scan"
                 if intent.skill == "scan_deep":
                     result = await self.registry.dispatch("deepscan",
                         self.engine, timeframe="4h")
@@ -3154,11 +3219,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     result = await self.registry.dispatch("pro_scan",
                         self.engine, mode=mode, user_id=tg_id)
                 await self._send(update, result)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      skill_result_memory(_ran, result),
+                                      skill=_ran)
                 return
 
             # ── Orders intent → direct command ──
             if intent.skill == "get_orders":
                 await self._cmd_orders(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("orders"))
                 return
 
             # ── help / status → the real commands ──────────────────
@@ -3169,9 +3239,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # least excusable to improvise, and the commands already exist.
             if intent.skill == "help":
                 await self._cmd_help(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("help"))
                 return
             if intent.skill == "status":
                 await self._cmd_status(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("status"))
                 return
 
             # ── Close intent → the positions card, NEVER a close ──
@@ -3188,11 +3262,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # rows, and a stop change has no door at all, which the notice
             # says instead of naming one.
             if intent.skill in ACT_INTENTS:
-                await self._send(update, act_intent_notice(
+                _act = act_intent_notice(
                     ACT_KIND[intent.skill], symbol_mentioned(intent.raw_text),
                     surface="telegram",
-                    also_asked=bool(intent.kwargs.get("also_asked"))))
+                    also_asked=bool(intent.kwargs.get("also_asked")))
+                await self._send(update, _act)
                 await self._cmd_open_positions(update, ctx)
+                # BOTH halves, because the turn had two: the door, and a card
+                # whose rows are not in the transcript. Recording only the
+                # notice would leave the model free to describe positions it
+                # was never shown.
+                self._remember_routed(
+                    tg_id, text, intent.skill,
+                    routed_answer_memory(intent.skill, _act) + "\n"
+                    + card_shown_memory("open positions"))
                 return
 
             # ── A halt-shaped FORWARD is somebody else's sentence ──
@@ -3201,8 +3284,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # relayed to the bot — arrived here as the operator's own request
             # and reached `_cmd_halt` unconfirmed. Answered, never dispatched.
             if intent.skill in HALT_INTENTS and _is_forwarded(update.message):
-                await self._send(update, forwarded_halt_notice(
-                    _engine_halt_state(self.engine)))
+                _fwd = forwarded_halt_notice(_engine_halt_state(self.engine))
+                await self._send(update, _fwd)
+                self._remember_routed(
+                    tg_id, text, intent.skill,
+                    routed_answer_memory(intent.skill, _fwd))
                 return
 
             # ── A bare stop/kill/pause → the door, never the switch ──
@@ -3219,10 +3305,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     _scope: "str | None" = self._control_scope(update)[1]
                 except Exception:
                     _scope = None
-                await self._send(update, halt_intent_notice(
+                _door = halt_intent_notice(
                     "halt_ambiguous", surface="telegram", verb=halt_verb(intent.raw_text),
                     live=CONFIG.is_live(), scope=_scope,
-                    engine_state=_engine_halt_state(self.engine)))
+                    engine_state=_engine_halt_state(self.engine))
+                await self._send(update, _door)
+                self._remember_routed(
+                    tg_id, text, intent.skill,
+                    routed_answer_memory(intent.skill, _door))
                 return
 
             # ── Dangerous intents → their GUARDED command (H3) ──
@@ -3246,6 +3336,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             _owner = DANGEROUS_SKILLS.get(intent.skill)
             if _owner:
                 await getattr(self, _owner)(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory(intent.skill))
                 return
 
             # High-confidence match — dispatch to skill
@@ -3266,6 +3358,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     _role = (self.users.get(tg_id) or {}).get("role", "pending")
                     await self._send(update, permission_denied_notice(
                         _perm or intent.skill, _role, _denial, lang=self._lang(update)))
+                    self._remember_routed(
+                        tg_id, text, intent.skill,
+                        not_run_memory(intent.skill,
+                                       "the caller's role does not hold the "
+                                       "permission it needs"))
                     audit(system_log,
                           f"Free-text skill denied: {intent.skill}",
                           action="intent_denied", result="DENIED",
@@ -3379,9 +3476,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # not a measurement, and a chat model improvising over the gap is
             # the confident negative the rest of this codebase spends its
             # tests preventing. Say what happened instead.
-            self.conversations.append(
-                tg_id, "assistant", skill_unavailable_memory(intent.skill),
-                metadata={"skill": intent.skill, "unavailable": True})
+            # The QUESTION was never recorded here either — only the answer.
+            # A history holding "there is no such tool" with nothing asking
+            # for it reads to the next turn as the assistant volunteering a
+            # refusal, which is the mirror of the hole above and was found by
+            # the guard at the bottom of
+            # tests/test_a_routed_answer_is_in_the_transcript.py.
+            self._remember_routed(tg_id, text, intent.skill,
+                                  skill_unavailable_memory(intent.skill),
+                                  skill=intent.skill)
             audit(system_log, f"NL intent matched an unavailable skill: {intent.skill}",
                   action="intent_unavailable", result="UNAVAILABLE",
                   data={"skill": intent.skill, "confidence": intent.confidence})
@@ -3400,13 +3503,18 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             _named = symbols_named(intent.raw_text)
             if len(_named) > 1:
                 _list = ", ".join(f"<b>{html.escape(a)}</b>" for a in _named[:5])
-                await self._send(update,
-                    f"You named {len(_named)} assets ({_list}) and I read one at "
-                    "a time. Which should I start with?")
-                return
-            await self._send(update,
-                "What coin do you want me to look at?\n\n"
-                "Which asset? Say something like <i>\"scan BTC\"</i> or <i>\"check ETH\"</i>")
+                _which = (f"You named {len(_named)} assets ({_list}) and I read "
+                          "one at a time. Which should I start with?")
+            else:
+                _which = ("What coin do you want me to look at?\n\n"
+                          "Which asset? Say something like <i>\"scan BTC\"</i> "
+                          "or <i>\"check ETH\"</i>")
+            await self._send(update, _which)
+            # A QUESTION is the one reply the next turn is certainly an answer
+            # to, and neither half of it was recorded: "BTC" arrived at the
+            # model as a bare word with nothing asking for it.
+            self._remember_routed(tg_id, text, intent.skill,
+                                  routed_answer_memory(intent.skill, _which))
             return
 
         # ── News radar intercept ──────────────────────────────────
@@ -3419,7 +3527,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 await update.effective_chat.send_chat_action(ChatAction.TYPING)
             except Exception:
                 pass
-            await self._send(update, await self._news_digest_text())
+            _news = await self._news_digest_text()
+            await self._send(update, _news)
+            self._remember_routed(tg_id, text, "news",
+                                  skill_result_memory("news", _news),
+                                  skill="news")
             return
 
         # ── Fallback: AI chat ─────────────────────────────────────
@@ -3446,8 +3558,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             audit(system_log, "Telegram free-chat quota exhausted",
                   action="chat_quota", result="REFUSED",
                   data={"tier": _tier, "limit": _q.get("limit")})
-            await self._send(update, chat_quota.exhausted_notice(
-                _q, lang=self._lang(update), surface="telegram"))
+            _spent = chat_quota.exhausted_notice(
+                _q, lang=self._lang(update), surface="telegram")
+            await self._send(update, _spent)
+            self._remember_routed(
+                tg_id, text, "chat",
+                not_run_memory("chat", "the caller's free-question quota for "
+                                       "today is spent"))
             return
 
         # Store user message in conversation memory
