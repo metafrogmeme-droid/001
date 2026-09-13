@@ -26,6 +26,7 @@ from datetime import datetime
 from bot.compat import UTC
 from typing import Optional
 from bot.utils.paths import state_path
+from bot.utils.outbound import reply_safe
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import position_size_basis
 # The chat's runtime pieces that are not the handler — the per-user rate
@@ -1111,13 +1112,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # Audit F-15: scrub secrets from every outgoing message. Many handlers
         # interpolate raw str(exc) into replies; the logger redacts its own
         # output but the Telegram send path did not, so a credential-bearing
-        # ccxt/auth error could reach the chat unredacted. This is the single
-        # chokepoint for all outbound text.
-        if text:
-            try:
-                text = _redact_string(text)
-            except Exception:
-                pass
+        # ccxt/auth error could reach the chat unredacted.
+        #
+        # It called itself "the single chokepoint for all outbound text" and
+        # had stopped being one: with streaming on (the default) the model's
+        # answer goes out through `TelegramStream`, which returns above this
+        # method. `reply_safe` is the seam all three sites share now, and it
+        # knows the bot-token shape `_redact_string` does not.
+        text = reply_safe(text)
         # Determine the right send method based on context
         if edit and update.callback_query:
             method = update.callback_query.edit_message_text

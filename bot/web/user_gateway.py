@@ -58,6 +58,7 @@ from bot.skills.skill_permissions import (
 )
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
+from bot.utils.outbound import reply_safe
 from bot.utils.paths import env_state_path
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
@@ -83,6 +84,39 @@ def _secret() -> str:
     # restore or an admin /setgateway repair takes effect WITHOUT a restart.
     # Falls back to the import-time value so tests can monkeypatch module state.
     return os.environ.get("WEB_GATEWAY_SECRET", "") or _GATEWAY_SECRET
+
+
+@web.middleware
+async def outbound_redaction_middleware(request: web.Request, handler):
+    """THE outbound chokepoint for this transport. Telegram has had one since
+    the F-15 audit; the web relied on every producer scrubbing itself.
+
+    A MIDDLEWARE rather than a helper the seventeen `reply_html` returns each
+    call, because a chokepoint seventeen call sites must remember is not a
+    chokepoint — it is seventeen chances to forget, and a new route is the
+    eighteenth. This is the `_fmt_price(None)` rule: guard at the boundary and
+    new callers inherit the honest behaviour.
+
+    JSON bodies only, and deliberately so. A `StreamResponse` has no body to
+    rewrite here — its frames are scrubbed at `_sse_frame`, which is the one
+    place they are built — and a `FileResponse` is not text. Anything this
+    cannot read it leaves exactly as it found it: a scrub that can break a
+    response is worse than the defence in depth it buys.
+
+    `Content-Length` is reset by assigning `body`, which aiohttp recomputes.
+    """
+    resp = await handler(request)
+    try:
+        if (isinstance(resp, web.Response)
+                and (resp.content_type or "").endswith("json")
+                and resp.body):
+            raw = resp.body.decode("utf-8")
+            safe = reply_safe(raw)
+            if safe != raw:
+                resp.body = safe.encode("utf-8")
+    except Exception:
+        pass
+    return resp
 
 
 @web.middleware
@@ -331,8 +365,20 @@ def build_profile_note(profile) -> str:
 
 
 def _sse_frame(event: str, payload: dict) -> bytes:
-    return (f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-            ).encode("utf-8")
+    """One frame. Every streamed frame this transport sends is built here,
+    which is what makes it the right place to scrub — the streaming half of
+    Telegram's own gap, where `TelegramStream` bypassed `_send`.
+
+    The whole serialised frame goes through `reply_safe`, not just a field:
+    the payload's shape varies by event (`delta`, `tool`, `final`, `error`)
+    and naming the text field per event would be a list to keep in step with
+    the emitters. A scrub over `key=value` shapes and the bot-token pattern
+    cannot corrupt JSON — the replacement carries no quote, backslash or
+    brace — and the frame is built here rather than anywhere else, so a new
+    event kind inherits the scrub instead of having to remember it.
+    """
+    raw = (f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n")
+    return reply_safe(raw).encode("utf-8")
 
 
 async def _sse_turn(request: web.Request, turn) -> web.StreamResponse:
@@ -4287,7 +4333,12 @@ async def handle_health(request: web.Request) -> web.Response:
 
 def build_gateway(engine, tg_handler) -> web.Application:
     """Build the /gateway sub-app. Caller mounts it under the dashboard app."""
-    app = web.Application(middlewares=[secret_middleware])
+    # Order matters: aiohttp runs middlewares outermost-first, so the
+    # redactor must sit BEFORE the auth gate to wrap the responses the gate
+    # itself returns — `{"error": "gateway_disabled", "detail": "..."}` names
+    # an env var, and a refusal is outbound text like any other.
+    app = web.Application(
+        middlewares=[outbound_redaction_middleware, secret_middleware])
     app["engine"] = engine
     app["tg_handler"] = tg_handler
     app["proposers"] = {}

@@ -741,6 +741,63 @@ the vision path (wired and never driven) and that spelling.
 > outside monkeypatch's bookkeeping, the shape that leaked a gateway secret
 > into 40 later tests. It restores in a `finally`.
 
+**A chokepoint that stops being on the default path is a chokepoint in name
+only.** `_send`'s own comment has called itself "the single chokepoint for all
+outbound text" since the F-15 audit, and it was — until streaming. With
+`chat_streaming_enabled` at its default True the model's answer is delivered
+by `TelegramStream.finish()` and every provisional delta by `_maybe_edit()`,
+neither of which touches `_send`; `if _stream is not None and await
+_stream.finish(_final): return` sees to that. Only skill-result sends and the
+non-streaming fallback kept the scrub, so **the one reply most likely to echo
+something back out of the user's own message was the one reply nobody
+scrubbed**. And the web never had one at all: `_chat_turn` puts the answer
+straight into `reply_html`, `gateway.js::relay` passes the JSON through
+byte-for-byte, and `sanitizeBotHtml` is a MARKUP allowlist that does nothing
+whatever to a credential.
+
+`reply_safe` is the seam all of them share now, and where it goes is the whole
+design. On the web it is a **middleware** and the `_sse_frame` builder — one
+place for every JSON route and one for every streamed frame — rather than a
+helper the seventeen `reply_html` returns in `_chat_turn` each call, because a
+chokepoint seventeen call sites must remember is not a chokepoint; it is
+seventeen chances to forget, and a new route is the eighteenth. That is the
+`_fmt_price(None)` rule: guard at the boundary and new callers inherit the
+honest behaviour. Middleware ORDER is part of it — aiohttp runs them
+outermost-first, so the redactor sits before the auth gate, whose own refusal
+names an env var.
+
+**It knows one thing more than `_send` did, and that gap is the point.**
+`_redact_string` matches `key=value`; the Telegram BOT-TOKEN shape carries no
+`=` at all. `_safe_exc_text` in `bot/utils/exc_text.py` has scrubbed it since it
+was written and says in its own docstring that "the shared key=value redactor does
+not know it" — so the EXCEPTION path knew about the worst single secret in the
+process and the general outbound path did not. Two redactors side by side, one
+of them a copy that knew less. What it deliberately does NOT do is widen the
+vocabulary: `Authorization: Bearer …` still passes, and fixing that is its own
+slice, because a second vocabulary is a second answer — the rule
+`honesty_vocabulary.json` exists to state.
+
+**And a docstring was the entire defect in the third place.**
+`quant_skill._safe_reason` promised *"never a key, never a URL with a token"*
+over `" ".join(str(exc).split())[:120]` — a trim and a truncation, no
+redaction of any kind. It is a private copy of `_safe_exc_text` that had lost
+the only part that mattered, and the only thing between it and a chat bubble
+was `_send` on the one transport that can reach the skill.
+
+> **No live credential leak was reachable through the web, and the fix says
+> so.** Every web-reachable path carrying driver text already scrubs at its own
+> site. This is defence in depth, and the argument for it is that "every
+> producer remembers" is a property no test can check and no reviewer can
+> maintain. Overstating it would be the failure this file is about.
+>
+> **The fixture every "what did the bot say" suite uses cannot see the
+> chokepoint.** `test_a_halt_is_the_operators_own_sentence`'s `bot` REPLACES
+> `_send` with a stub that appends to a list, so a scrub deleted from `_send`
+> leaves all of them green — the first draft of this slice's own test used it
+> and passed against unscrubbed text. The real method is driven with a
+> stand-in `self` carrying the one attribute it reaches for. (The same fixture
+> also mocks `CONFIG`, so every boolean flag under it reads truthy.)
+
 **And a turn the user can SEE that the model cannot is a hole exactly where the
 answer was.** `bot/nlp/skill_memory.py` exists for that shape — its docstring
 says the model is "told an answer exists and not what it was, which is the one

@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
+from bot.utils.exc_text import _safe_exc_text
+
 # ── Compatibility shim: use pydantic if available, else plain dataclass ──────
 try:
     from pydantic import BaseModel, Field  # noqa: F401  (availability probe)
@@ -832,8 +834,22 @@ async def read_ohlcv(engine: Any, symbol: str, timeframe: str,
 
 
 def _safe_reason(exc: BaseException) -> str:
-    """A driver's message, trimmed — never a key, never a URL with a token."""
-    text = " ".join(str(exc).split())[:120]
+    """A driver's message, scrubbed and trimmed.
+
+    THE DOCSTRING WAS THE WHOLE DEFECT. It promised "never a key, never a URL
+    with a token" over `" ".join(str(exc).split())[:120]` — a trim and a
+    truncation and no redaction of any kind. A credential inside 120
+    characters came through verbatim, and the only thing standing between it
+    and a chat bubble was `_send` on the one transport that can reach this
+    skill.
+
+    `bot/utils/exc_text._safe_exc_text` does exactly what this claimed to,
+    and has since it was written: the Telegram bot-token shape, then the
+    shared key=value redactor, then HTML escaping — in that order, because
+    escaping first breaks the patterns the redactors match. This was a second
+    copy of it that had lost the only part that mattered.
+    """
+    text = " ".join(_safe_exc_text(exc, limit=120).split())
     return text or type(exc).__name__
 
 

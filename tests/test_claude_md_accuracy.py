@@ -290,6 +290,46 @@ def test_the_firewall_defaults_are_the_way_round_it_says():
     assert getattr(CONFIG.risk, "guardian_firewall_block_high", None) is False
 
 
+def test_the_outbound_seam_is_at_a_boundary_not_a_call_site_list():
+    """"a middleware and the `_sse_frame` builder — one place for every JSON
+    route and one for every streamed frame".
+
+    The claim is that new code inherits the scrub. That is only true while
+    the seam sits at the boundary, so it is counted rather than trusted: one
+    middleware, installed, and one scrub inside the frame builder.
+    """
+    import inspect
+
+    from bot.web import user_gateway as ug
+    from tests.source_scan import code_only
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "one place for every JSON route and one for every streamed frame" in flat
+    src = code_only(inspect.getsource(ug))
+    assert "middlewares=[outbound_redaction_middleware, secret_middleware]" in \
+        re.sub(r"\s+", " ", src), "the redactor must be installed, outermost"
+    frame = code_only(inspect.getsource(ug._sse_frame))
+    assert "reply_safe(" in frame, "every streamed frame is built here"
+    # And no chat reply may be scrubbed at its own call site instead: that is
+    # the list-of-seventeen this paragraph argues against.
+    turn = code_only(inspect.getsource(ug._chat_turn))
+    assert "reply_safe(" not in turn, (
+        "a per-return scrub is the shape the boundary replaced")
+
+
+def test_the_seam_knows_the_token_shape_the_old_one_did_not():
+    """The paragraph's sharpest claim, and the reason it is a named function
+    rather than an import of `_redact_string`."""
+    from bot.utils.logger import _redact_string
+    from bot.utils.outbound import reply_safe
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "the shared key=value redactor does not know it" in flat
+    tok = "bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    assert "1234567890:AAF" in _redact_string(tok), "the old scrub misses it"
+    assert "1234567890:AAF" not in reply_safe(tok)
+
+
 def test_the_four_records_it_names_all_exist_and_differ():
     from bot.nlp import skill_memory as sm
 
