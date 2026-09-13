@@ -661,19 +661,27 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # a question about ORDERS to the POSITIONS card, so "show my open
         # orders" answered "no positions" over resting limits. It is a
         # registered skill now and routes to itself.
-        _INTENT_ALIASES = {
-            "scan_swing": "scan_market", "scan_scalp": "scan_market",
-            "scan_intraday": "scan_market", "scan_deep": "scan_market",
-            "scan_full": "scan_market",
-        }
-        # `help` is answered HERE and not from `_cmd_help`. Driven, of the 90
-        # commands that card names for a non-admin, 78 reach the tool-less
-        # chat model on the web and 12 reach a skill by incidental word
-        # matching (`/scan` lands on `analyze_asset`) — so reusing it would
-        # replace a false refusal ("that tool is not available on this bot
-        # right now") with a mostly-false answer. What this caller can ASK FOR
-        # is the honest version, and it is derived from the same table that
-        # decides reachability rather than written out.
+        # DERIVED, not written out. This map, `telegram_handler`'s `scan_modes`
+        # and a test each held a copy and they answered DIFFERENTLY — and the
+        # capability card's reachability is computed from one of them, so a row
+        # could be printed as reachable on the strength of a mapping no
+        # dispatcher used. One table, in `skill_doors`, read by every reader.
+        from bot.nlp.skill_doors import web_scan_aliases
+        _INTENT_ALIASES = web_scan_aliases()
+        # `help` is answered HERE and not from `_cmd_help`. Driven, the great
+        # majority of the commands that card names for a non-admin reach the
+        # tool-less chat model on the web, and the few that reach a skill do
+        # it by incidental word matching (`/scan` lands on `analyze_asset`, a
+        # read of ONE asset) — so reusing it would replace a false refusal
+        # ("that tool is not available on this bot right now") with a
+        # mostly-false answer. What this caller can ASK FOR is the honest
+        # version, and it is derived from the same table that decides
+        # reachability rather than written out.
+        #
+        # The exact counts used to be written here and went stale; they live
+        # once, in `CLAUDE.md`, where a test reads them back out of the prose
+        # and compares them to the walk in
+        # `tests/test_the_bot_can_say_what_it_does.catalogue_on_the_web`.
         #
         # NOT gated, deliberately, and not in `WEB_ROUTED_PERMISSION`: every
         # role including `pending` holds `help`, and `_cmd_help` carries no
@@ -689,8 +697,16 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             # ones for no gain.
             _can, _withheld = skill_reach(tg_handler.users, tg_id, "web",
                                           list(SKILL_PERMISSION))
+            # THE MODEL'S REAL CATALOGUE, not the static tuple. Four of the
+            # card's rows have no router rule at all, so a chat tool is their
+            # only door — and `_chat_tools_for` is the only thing `_llm_chat`
+            # reads, applying two filters the tuple knows nothing about.
+            from bot.skills.telegram_handler import _chat_tools_for
+            _tools = {t.name for t in
+                      _chat_tools_for(tg_handler, tg_id, "web", False)}
             _card = capability_answer(_can, surface="web", role=_role,
-                                      withheld=_withheld)
+                                      withheld=_withheld, tools=_tools,
+                                      extras=_client_capabilities(body))
             # The MARKER, not the card: every line of it is derived from the
             # model's own tool catalogue, which it already holds in full.
             # Telegram records the same thing for the same reason.
@@ -1018,6 +1034,46 @@ async def handle_public_chat_stream(request: web.Request) -> web.StreamResponse:
     return await _sse_turn(request, _public_chat_turn)
 
 
+#: The most `client_capabilities` rows the card will print, and the longest
+#: any one of them may be. The web route sends its own intercept table's
+#: sentences (fifteen today, all short); these bounds exist because the field
+#: arrives in a request BODY, so it is caller-controlled text however trusted
+#: the caller. `capability_answer` escapes what it prints; this decides how
+#: much of it there can be.
+_MAX_CLIENT_CAPS = 40
+_MAX_CLIENT_CAP_LEN = 160
+
+
+def _client_capabilities(body) -> list[str]:
+    """What the CLIENT answers for itself, from `client_capabilities`.
+
+    `capability_answer(extras=...)` was built for exactly this — "capabilities
+    a surface knows about and this module cannot see", in its own docstring —
+    and for the life of the parameter nothing filled it: the intercept table
+    is in `app/routes/chat.js`, the card is Python, and the payload carried
+    telegram_id/name/text/profile/lang and nothing else. A socket with no
+    cable, so the card built to stop the bot overstating what it can do was
+    understating it by fifteen capabilities, on the one surface those
+    capabilities exist for.
+
+    Absent is ABSENT, never an assertion: a client that sends no field, or a
+    field of the wrong shape, contributes no rows, and the card says what it
+    always said. It is not an error, because Telegram is also a caller here
+    and has no intercepts at all.
+    """
+    raw = (body or {}).get("client_capabilities")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw[:_MAX_CLIENT_CAPS]:
+        if not isinstance(item, str):
+            continue
+        line = " ".join(item.split())[:_MAX_CLIENT_CAP_LEN].strip()
+        if line and line not in out:
+            out.append(line)
+    return out
+
+
 async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response:
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -1050,7 +1106,27 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
             "reply_html": t("chat_public_scan_gate", ui_lang(reply_lang)),
             "intent": "public_scan_gate"})
 
-    from bot.nlp.intent_router import detect_reply_mode
+    # THE CAPABILITY ASK IS ANSWERED HERE, not by a model with no catalogue.
+    #
+    # `_chat_tools_for` returns `[]` for `public or not user_id`, so every
+    # phrasing of "what can you do" on this surface reached `_llm_chat` with
+    # no tools and no list, and the answer was a feature list improvised from
+    # the static public prompt. That is exactly the failure the signed-in card
+    # was built to remove, one door over — and the router had already worked
+    # out the answer: `needs_live_market_data` above builds a full
+    # `IntentResult` internally and keeps only its boolean.
+    #
+    # Asked HERE rather than reusing that discarded result, because the
+    # discard is inside the predicate and reaching into it would make this
+    # branch depend on that function's internals. One classify, read for what
+    # it says.
+    from bot.nlp.intent_router import IntentRouter, detect_reply_mode
+    _pub_intent = IntentRouter().classify_rules(text)
+    if _pub_intent.skill == "help" and _pub_intent.confidence >= 0.8:
+        from bot.formatters.capabilities import toolless_capability_answer
+        return web.json_response({
+            "reply_html": toolless_capability_answer("public"),
+            "intent": "help"})
 
     # This surface had NO input-provenance gate at all — the weaker version of
     # the defect one route up, where a verdict was computed and applied to
@@ -1076,13 +1152,19 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
     answer = await tg_handler._llm_chat(
         _harden_pub(text, _pub_verdict), user_id="", user_name="",
         is_admin=False, public=True, reply_lang=reply_lang,
-        # Detected here rather than read off an intent, because this path has
-        # no intent to read: an anonymous visitor has no account to dispatch a
-        # skill against, so `_public_chat_turn` never builds an `IntentResult`.
-        # `_llm_chat` resolves it against `public=True`, which is what keeps a
-        # scan-shaped ask off a surface with no feed -- the gate above refuses
-        # the phrasings its router predicate catches, and the contract answers
-        # the ones it does not ("full analysis of ETH" is False there).
+        # Detected rather than read off `_pub_intent`, and the comment that
+        # used to sit here was FALSE: it said "`_public_chat_turn` never
+        # builds an `IntentResult`", three lines under a call that does. It
+        # built one inside `needs_live_market_data` and threw the skill away,
+        # which is how the capability ask went unanswered on this surface for
+        # as long as it did. What is true is that an anonymous visitor has no
+        # account to dispatch a skill AGAINST, so the classification is read
+        # for the two things it can honestly decide here (the scan gate and
+        # the capability card) and for nothing else. `_llm_chat` resolves the
+        # reply mode against `public=True`, which is what keeps a scan-shaped
+        # ask off a surface with no feed -- the gate above refuses the
+        # phrasings its router predicate catches, and the contract answers the
+        # ones it does not ("full analysis of ETH" is False there).
         reply_mode=detect_reply_mode(text),
         **({"on_event": on_event} if on_event is not None else {}))
     return web.json_response({"reply_html": answer, "intent": "chat"})

@@ -137,6 +137,42 @@ test('the routing table is the documented order', () => {
   ]);
 });
 
+test('every row says what it does, in words a person reads', () => {
+  // The third column is the cable for `capability_answer(extras=...)`. That
+  // parameter had no production caller for its whole life — its docstring
+  // says it exists for "the web client's own intercepts", which live HERE —
+  // so the card built to stop the bot overstating what it can do was
+  // understating it by every row below.
+  const says = chat.interceptSays();
+  assert.equal(says.length, chat.INTERCEPTS.length,
+    'a row grew a handler and no sentence; the card would omit it silently');
+  for (const [name, , text] of chat.INTERCEPTS) {
+    assert.equal(typeof text, 'string', name);
+    assert.ok(text.trim().length > 10, `${name}: "${text}"`);
+    // Written for a PERSON, not for the model and not for a developer: the
+    // card renders these beside `SKILL_SAYS` rows, which a sibling test in
+    // tests/test_the_bot_can_say_what_it_does.py holds to the same rule.
+    assert.ok(/^[a-z]/.test(text), `${name} should start lowercase: "${text}"`);
+    assert.ok(!/[<>]/.test(text), `${name} carries markup: "${text}"`);
+  }
+  assert.equal(new Set(says).size, says.length, 'two rows claim the same thing');
+});
+
+test('the turn carries what this client answers for itself', async () => {
+  reset();
+  const token = await newUser();
+  const r = await req('POST', '/api/chat', { token, body: { text: 'hello there' } });
+  assert.equal(r.status, 200);
+  const sent = posted.find((p) => p.path === '/chat');
+  assert.ok(sent, 'nothing reached the bot');
+  assert.deepEqual(sent.body.client_capabilities, chat.interceptSays());
+  // Sent on EVERY turn, not only a capability ask: this route does not
+  // classify the message, the bot does, and a field that only sometimes
+  // arrives is a field that is sometimes missing for reasons nobody can
+  // reconstruct.
+  assert.ok(sent.body.client_capabilities.length > 0);
+});
+
 test('a miss consults every intercept in order, then the model', async () => {
   reset();
   const token = await newUser();

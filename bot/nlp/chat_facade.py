@@ -80,6 +80,38 @@ async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
     exactly as it is on the website.
     """
     text = check_question(question)
+
+    # THE CAPABILITY ASK, ANSWERED BEFORE THE MODEL. A headless handler has
+    # `users = None` by design, so `_chat_tools_for` offers nothing and "what
+    # can you do" was improvised by a model holding no catalogue — the same
+    # defect the web's signed-in card was built to remove and public chat
+    # carried one door over. There is no router in front of this surface, so
+    # the classification is made here, and it decides exactly one thing.
+    #
+    # REMEMBERED, as a card marker. The first draft of this branch returned
+    # above the `remember` block with a comment claiming there was "no
+    # dispatcher here to record through" — which was wrong twice:
+    # `record_routed_turn` is a leaf, not a dispatcher, and the web branch
+    # already calls it for exactly this card. The consequence is the defect
+    # slice #95 exists to have removed, reintroduced by its own fix: driven,
+    # the turn left NO trace, so the next question ("which of those is best?")
+    # reached the model with a history in which nothing had been shown.
+    #
+    # The MARKER and not the card, for the web branch's reason: the contents
+    # are derived from a table, and a rendering filed as a measurement is the
+    # placeholder `skill_memory.py` was written to delete.
+    from bot.nlp.intent_router import IntentRouter
+    _intent = IntentRouter().classify_rules(text)
+    if _intent.skill == "help" and _intent.confidence >= 0.8:
+        from bot.formatters.capabilities import toolless_capability_answer
+        from bot.nlp.skill_memory import card_shown_memory, record_routed_turn
+        if user_id and not public:
+            record_routed_turn(handler.conversations, user_id, text, "help",
+                               card_shown_memory("help"), surface=surface)
+        return {"reply_html": toolless_capability_answer("api"),
+                "provider": "", "model": "", "tools": [],
+                "answered_by": "none"}
+
     remember = bool(user_id) and not public
     if remember:
         handler.conversations.append(

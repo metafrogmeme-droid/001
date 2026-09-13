@@ -744,6 +744,65 @@ async def test_public_chat_llm_only_no_account_no_registration(monkeypatch):
     assert engine.confirm_calls == []
 
 
+async def test_public_chat_answers_the_capability_ask_itself(monkeypatch):
+    """A visitor asking what the product does was answered by a model with no
+    catalogue.
+
+    `_chat_tools_for` returns `[]` for `public or not user_id`, so every
+    phrasing reached `_llm_chat` with no tools and no list, and the feature
+    list came back improvised — the failure the signed-in card was built to
+    remove, one door over. The router had already worked the answer out and
+    thrown it away: `needs_live_market_data` builds a full `IntentResult`
+    internally and keeps only its boolean, under a comment that says this
+    function "never builds an `IntentResult`".
+    """
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    engine = FakeEngine()
+    async with gateway_client(engine, handler) as c:
+        for text in ("what can you do", "capabilities", "help",
+                     "show me what you can do"):
+            r = await c.post("/chat/public", json={"text": text}, headers=HDRS)
+            assert r.status == 200, text
+            data = await r.json()
+            assert data["intent"] == "help", text
+            html = data["reply_html"]
+            assert "What I can do for you" in html, text
+            # The three things it says, and it says no more than these.
+            assert "I run no tools" in html, text
+            assert "What the product does" in html, text
+            assert "Sign in" in html, text
+            # It claims NOTHING about this visitor's access: there is no
+            # account to have read.
+            for never in ("Your role here is", "need a role you do not have",
+                          "could not be checked", "cannot reach any"):
+                assert never not in html, (text, never)
+    # NO model ran, on any of them. That is the whole point: the answer is a
+    # reading of the permission table, not a generation.
+    assert handler.llm_calls == [], handler.llm_calls
+    assert handler.users.register_calls == []
+    assert handler.conversations.appended == []
+
+
+async def test_public_chat_still_hands_ordinary_questions_to_the_model(monkeypatch):
+    """The narrow claim: the capability branch above intercepts the capability
+    ask and nothing else. A branch that swallowed every turn would satisfy
+    every assertion in the test above."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    engine = FakeEngine()
+    async with gateway_client(engine, handler) as c:
+        r = await c.post("/chat/public",
+                         json={"text": "what is a perpetual future?"},
+                         headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "chat"
+        assert data["reply_html"] == "llm answer"
+    assert len(handler.llm_calls) == 1
+    assert handler.llm_calls[0][3] is True  # public=True
+
+
 async def test_public_chat_ignores_trade_text(monkeypatch):
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     handler = FakeHandler(users={})

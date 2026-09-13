@@ -53,6 +53,17 @@ const STREAM_TIMEOUT_MS = 75000;
  * the sentence — and a table can be read by a test, which fourteen
  * consecutive early returns could not. None of the fourteen had one.
  *
+ * THE THIRD COLUMN IS WHAT THE CAPABILITY CARD SAYS. `capability_answer`
+ * takes an `extras` list for exactly this — "capabilities a surface knows
+ * about and this module cannot see", in its own words — and nothing had ever
+ * filled it: the intercept table is here, the card is Python, and the chat
+ * payload carried telegram_id/name/text/profile/lang and nothing else. A
+ * socket with no cable. So the card built to stop the bot OVERSTATING what it
+ * can do was understating it by every row below, on the one surface those
+ * rows exist for. The sentence lives beside the handler it describes, for the
+ * reason `SKILL_SAYS` is a column on the permission table rather than a map
+ * in a renderer.
+ *
  * WHAT A HIT DOES NOW. Answer here, AND record the exchange into the bot's
  * shared conversation memory (POST /gateway/chat/record). These used to
  * answer and vanish: "what's my net worth?" was answered by the web, and
@@ -65,49 +76,61 @@ const INTERCEPTS = [
   // "tell me when BTC drops below 100k" — alerts live in the WEB app (the
   // push channel is here), so handle them before the bot proxy. Evaluated
   // against public tickers; works even while the bot process is down.
-  ['alerts', (uid, text) => maybeHandleAlertChat(uid, text)],
+  ['alerts', (uid, text) => maybeHandleAlertChat(uid, text), 'a price alert you set here — "tell me when BTC drops below 100k"'],
   // "what if I'd taken every signal with $1k?" — replayed from the web's
   // own recorded trade history, no bot round-trip needed.
-  ['replay', (uid, text) => maybeHandleReplayChat(uid, text)],
+  ['replay', (uid, text) => maybeHandleReplayChat(uid, text), 'a replay of what every past signal would have made you'],
   // "show me this week's letter" — the weekly fund-style letter, composed
   // from recorded data in the web DB.
-  ['letter', (uid, text) => maybeHandleLetterChat(uid, text)],
+  ['letter', (uid, text) => maybeHandleLetterChat(uid, text), 'this week\'s fund-style letter, composed from the recorded data'],
   // "rwa radar" — read-only tokenized-asset sector snapshot from live tickers.
-  ['rwa', (uid, text) => maybeHandleRwaChat(uid, text)],
+  ['rwa', (uid, text) => maybeHandleRwaChat(uid, text), 'a tokenized-asset sector snapshot'],
   // "airdrops" / "testnets" — curated guided-only radar; the reply itself
   // restates the anti-sybil line so chat can never be read as offering
   // automated farming.
-  ['airdrops', (uid, text) => require('../lib/airdrops').maybeHandleAirdropChat(uid, text)],
+  ['airdrops', (uid, text) => require('../lib/airdrops').maybeHandleAirdropChat(uid, text), 'the airdrop and testnet radar — guided only, never farmed for you'],
   // "best venue for BTC" — funding-cost venue read; recommendations only.
-  ['venues', (uid, text) => require('../lib/venue_router').maybeHandleVenueRouterChat(uid, text)],
+  ['venues', (uid, text) => require('../lib/venue_router').maybeHandleVenueRouterChat(uid, text), 'which venue is cheapest to hold a position on, by funding cost'],
   // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot
   // with an explicit safety read. Never trades or launches.
-  ['meme', (uid, text) => require('../lib/meme').maybeHandleMemeChat(uid, text)],
+  ['meme', (uid, text) => require('../lib/meme').maybeHandleMemeChat(uid, text), 'an on-chain meme and AI-token snapshot with a safety read'],
   // "nft radar" / "opensea" — read-only collection floor/volume snapshot.
   // Never lists, bids, mints or trades.
-  ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text)],
+  ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text), "an NFT collection's floor price and volume"],
   // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
-  ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text)],
+  ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text), 'spot pairs and the spot/perp basis'],
   // "my wallet" — read-only mirror of the caller's SIWE-linked wallet.
-  ['wallet', (uid, text) => maybeHandleWalletChat(uid, text)],
+  ['wallet', (uid, text) => maybeHandleWalletChat(uid, text), 'a read of the wallet you signed in with'],
   // "my defi positions" / "health factor" — Aave/Lido/Uniswap read straight
   // from protocol contracts, with liquidation-risk warnings.
-  ['defi', (uid, text) => maybeHandleDefiChat(uid, text)],
+  ['defi', (uid, text) => maybeHandleDefiChat(uid, text), 'your Aave, Lido and Uniswap positions, with liquidation risk'],
   // "what's my total exposure?" — perp positions netted against wallet spot.
-  ['exposure', (uid, text) => maybeHandleExposureChat(uid, text)],
+  ['exposure', (uid, text) => maybeHandleExposureChat(uid, text), 'your total exposure — perp positions netted against wallet spot'],
   // "research PENDLE" — evidence dossier from trusted local + live sources.
-  ['research', (uid, text) => maybeHandleResearchChat(uid, text)],
+  ['research', (uid, text) => maybeHandleResearchChat(uid, text), 'an evidence dossier on one token'],
   // "net worth" — everything the user holds, everywhere, read-only. Needs
   // the resolved bot identity, so its own cheap pattern decides first and
   // the DB lookup only happens on a match.
   ['networth', async (uid, text, ident) => (
     /net ?worth|total (balance|holdings|equity)|balance across|everything i (own|hold)/i.test(text)
-      ? maybeHandleNetWorthChat(await ident(), uid, text) : null)],
+      ? maybeHandleNetWorthChat(await ident(), uid, text) : null), 'your net worth across every account and chain you have linked'],
   // "idle" / "best rate" / "earn more" — idle-asset yield optimizer.
   ['idleyield', async (uid, text, ident) => (
     /\bidle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn\b/i.test(text)
-      ? maybeHandleIdleYieldChat(await ident(), uid, text) : null)],
+      ? maybeHandleIdleYieldChat(await ident(), uid, text) : null), 'where your idle assets could be earning more'],
 ];
+
+/**
+ * What this client answers for itself, in words a person reads.
+ *
+ * Sent with every turn so the bot's capability card can name them. It is the
+ * table's OWN third column, so a row added above is carried without anybody
+ * editing here — and a row with no sentence is left out rather than named by
+ * its handler's variable name, which is not English.
+ */
+function interceptSays() {
+  return INTERCEPTS.map(([, , says]) => says).filter((s) => typeof s === 'string' && s.trim());
+}
 
 /**
  * Tell the bot's conversation memory about an answer the web gave itself.
@@ -211,6 +234,12 @@ async function chatTurn(req, res, { stream = false } = {}) {
       telegram_id: ident.id, name, text,
       ...(profile ? { profile } : {}),
       ...(lang ? { lang } : {}),
+      // The cable for `capability_answer(extras=...)`. Sent on every turn
+      // rather than only on a capability ask, because this route does not
+      // classify the message — the bot does — and a field the bot only
+      // sometimes receives is a field that is sometimes missing for reasons
+      // nobody can reconstruct.
+      client_capabilities: interceptSays(),
     };
     if (stream) return gateway.postGatewayStream('/chat/stream', payload, res, STREAM_TIMEOUT_MS);
     const r = await gateway.postGateway('/chat', payload, CHAT_TIMEOUT_MS);
@@ -247,4 +276,5 @@ router.get('/history', async (req, res) => {
 module.exports = router;
 // The routing table, readable by tests — see the note on INTERCEPTS.
 module.exports.INTERCEPTS = INTERCEPTS;
+module.exports.interceptSays = interceptSays;
 module.exports.rememberIntercept = rememberIntercept;

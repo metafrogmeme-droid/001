@@ -678,6 +678,170 @@ command, arriving from the other end.
 > lesson is the one two sections up with a number attached: a measurement you
 > remember is not a measurement.
 
+**THE CARD PROMISED A DOOR AND NOTHING CHECKED THERE WAS ONE.** That is the
+`/vault` hint shape with the sign flipped — there a card named a COMMAND that
+did nothing, here a card names a CAPABILITY and claims asking for it does
+something — and the review of the fix above found it in six places at once.
+Driven, six of the web card's twenty-three rows were reached by no router rule
+and no chat tool: `optimize`, `run_strategy`, `walk_forward` and
+`quant_analyze` on both surfaces, plus `deepscan` and `pro_scan` on the web,
+where every scan phrasing aliases to the shallow movers scan. The card's own
+words for `optimize` ("run a parameter optimisation over the recorded history")
+landed on `trade_journal` on Telegram and on a bare 403 on the web, one turn
+after the card invited the ask. `bot/nlp/skill_doors.py` is the door's address:
+`words_reach` is DERIVED from the router's own rule table and the caller's tool
+catalogue, so a rule added tomorrow moves a row without anybody editing the
+renderer, and `command_for` answers `None` rather than guessing a plausible
+command name.
+
+**A DOOR EXISTING IS NOT THE DOOR LEADING WHERE THE ROW SAYS, and the
+sharpest case was the card's own sentence.** `words_reach` proves a rule or a
+tool CLAIMS each row; it cannot see which skill the rule dispatches. Typed
+verbatim, the `get_orders` row — *"your resting limit orders and
+stop/take-profit triggers, as the exchange reports them"* — routed to
+`get_portfolio` at confidence 1.0, because the bare Portfolio keyword rule
+matches `profit` INSIDE "take-profit" and was registered first. The caller
+typed the sentence the card invited them to type and got the POSITIONS card
+with no sentence: "no positions" over resting limits, which is the defect this
+file records as fixed when `get_orders` stopped being aliased to
+`get_portfolio` on the web. **Fixed at the alias and reintroduced by rule
+ORDER**, which is invisible from either rule alone — `whynot`'s own comment
+("MUST be registered before") is this lesson, and it named a different rule.
+Specific before generic: every alternative in the orders rule is a multi-word
+phrase about orders, so nothing it claims was ever the keyword rule's. The
+guard types every askable row and fails on one that reaches a DIFFERENT skill;
+a row reaching NO rule is fine, because the model's tool catalogue is the
+second door.
+
+**Writing that module produced the same defect one layer down, and it was
+fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
+other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
+whole vocabulary plus every chat tool: **36 names including `halt`,
+`close_position` and `emergency_stop`**, on the function whose entire job is
+deciding what the card may promise. It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 33), because the
+unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
+names that are not skills at all. An unmeasured surface is neither "everything"
+nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
+returns `[]` for `public or not user_id` and the api bridge's handler has
+`users = None` by design — so both answer the empty set, and the public scan
+gate is a REFUSAL, which is not a door.
+
+**The scan dispatch was written three times and answered three ways.**
+`telegram_handler`'s `scan_modes` sent the two deep modes to `deepscan` and the
+three timeframe modes to `pro_scan`; `user_gateway`'s `_INTENT_ALIASES` sent
+all five to `scan_market`; and a test carried a third under a comment saying it
+was "copied from `_chat_turn`", which it was not — it agreed with neither, and
+its counts survived only because every wrongly-aliased target happened to also
+be a registered skill. Reachability is computed THROUGH that mapping, so a row
+could be printed as reachable on the strength of a map no dispatcher used.
+`SCAN_DISPATCH` is the one table and all three readers ask it. That the two
+columns DISAGREE — a caller typing "deep scan" gets a 67-symbol sweep on
+Telegram and the shallow scan on the web, under a different paywall — is a real
+defect and a separate one; recording it is how it stops being invisible.
+
+**A second copy of a gate decided what the card promises.** `words_reach`
+unioned the static `CHAT_TOOLS` tuple, while the catalogue the model is
+actually offered is `_chat_tools_for` — the only thing `_llm_chat` reads —
+which applies two filters the tuple knows nothing about
+(`CONFIG.llm.chat_tools_enabled`, `registry.get(name) is not None`) plus a bare
+`except: return []`. Four rows have no router rule at all, so a chat tool is
+their ONLY door: driven with chat tools switched off, the model held zero tools
+and the card still offered `proposals`, `rejected_trades`, `check_event_risk`
+and `macro_brief` under "Ask me in your own words". Both call sites pass the
+caller's real catalogue now; `tools=None` means *no caller* — the question is
+what the PRODUCT does — and is right only for the signed-out card.
+
+**ZERO REACHABLE AND ZERO WITHHELD IS NOT A READING.** `skill_reach` returned
+`([], {})` for an absent store or an empty caller id, and the card opened
+*"Right now I cannot reach any of my read tools for you"* — a confident
+negative about this caller's access, assembled from a store nobody asked. It is
+the same event as the `except` one branch down arriving a step earlier, and it
+gets the same word. The headline is three-valued now, and `surface` does not
+count toward it: "this only works in the Telegram bot" is a fact about the
+SKILL and holds for everybody, so a card carrying nothing but `surface` and
+`unreadable` counts has read nothing about the person it is talking to — which
+is how the first draft of that very fix still opened with the old sentence.
+
+**Two of the four chat doors never got the card, and the comment said the
+opposite.** `_public_chat_turn` handed every capability ask to a tool-less
+model, and so did `chat_facade.ask` (the api bridge and the MCP tool) — the
+improvised-feature-list failure the notice was written to prevent, arriving
+through two more doors. The router had already worked the answer out and thrown
+it away: `needs_live_market_data` builds a full `IntentResult` internally and
+keeps only its boolean, three lines above a comment asserting that
+`_public_chat_turn` "never builds an `IntentResult`". Both answer from the table
+now, and neither runs a model to do it.
+
+> **And my own fix reintroduced the defect one slice up.** The api branch
+> returned ABOVE `ask`'s `remember` block, under a comment I wrote claiming
+> there was "no dispatcher here to record through" — wrong twice, since
+> `record_routed_turn` is a leaf and the web branch already calls it for this
+> exact card. Driven, the turn left no trace, so "which of those is best?"
+> reached the model with a history in which nothing had been shown. That is
+> `skill_memory.py`'s whole subject, undone by a fix for its neighbour.
+
+**A parameter READ by the renderer and WRITTEN by nobody is the fifth
+granularity with the arrow reversed.** `capability_answer`'s `extras` exists,
+in its own docstring, for "the web client's own intercepts" — and for the life
+of the parameter its only supplier was the test written to guard it. The
+intercept table is in `app/routes/chat.js`, the card is Python, and the chat
+payload carried telegram_id/name/text/profile/lang and nothing else: a socket
+with no cable. So the card built to stop the bot OVERSTATING what it can do was
+understating it by all fifteen rows of that table, on the one surface those
+rows exist for — and no ratchet here can see it, because the module is
+imported and the function is called. The table has a third column now (the
+sentence, beside the handler it describes), `client_capabilities` rides every
+turn, and the Python side treats a missing or malformed field as ABSENT rather
+than as an error, because Telegram is a caller too and has no intercepts.
+
+**SEVEN guards indexed that map's literal, and consolidating it broke every
+one of them.** Four READ it —
+`test_no_router_intent_falls_to_the_unavailable_notice_today`,
+`test_the_status_seam_it_names_exists_and_both_surfaces_read_it`,
+`test_status_left_the_alias_table` and `_web_aliases` — and three anchored
+ORDER against it (`close_my_eth`, `an_action_request_meets_a_door`,
+`a_halt_is_the_operators_own_sentence` each assert their door branch sits
+above `src.index("_INTENT_ALIASES = {")`). Making one table out of three
+copies broke all seven on their own scanning rather than on anything they were
+guarding, which is the shape worth remembering: **a scan cannot see a map that
+is computed, and that is the whole reason to compute it.** The four readers
+ASK the table; the three anchors index the ASSIGNMENT, which is what they were
+really ordering against. An eighth, `test_the_pro_scan_alias_still_resolves`,
+grepped `'dispatch("pro_scan"'` in the handler and went the same way — it is
+driven off `SCAN_DISPATCH` now, which is the question it was really asking.
+
+> Three of the seven were found by the FULL gate and none by the suites the
+> slice had been running. Running a subset and reporting it as the whole is
+> the defect this repo spends most of its guard tests preventing, and it is
+> just as easy to do to yourself in the dev loop.
+
+**And one regex acquitted every command with an underscore.** `_SLASH_COMMAND`
+was `/[a-z]{2,}`, which stops at the underscore: seven catalogue commands
+carry one (`emergency_stop`, `open_positions`, `grant_live`, `revoke_live`,
+`set_tier`, `daily_report`, `latest_signal`), so `/emergency_stop` was checked
+as the string `/emergency`, which is not a command — a false ACQUITTAL in the
+web card's no-slash check and in `test_no_phrase_names_a_command`. A false
+accusation is loud; that one just sat there.
+
+**And the module written to answer "does a door exist" grew a function nothing
+called.** `doorless` was the shared definition and `capability_answer`
+recomputed the same set inline, so the one function in the slice whose name is
+the subject had no caller at all — `test_no_new_unreachable_functions` caught
+it on the full run, and no targeted suite could have. It is the renderer's one
+reading now.
+
+**Four copies of one measurement, and three of them were wrong.** The 91/79/12
+walk was written into `capabilities.py`'s docstring, `_chat_turn`'s comment,
+this file, and the test's own header. Only this file's copy stayed right, and
+only because `test_the_catalogue_numbers_are_the_numbers_a_drive_returns`
+reads the integers back out of the prose and compares them to a live walk. The
+day `/alerts` became the 91st command the other three went stale together —
+and the test's header still carried the retracted 79/10/5 three hundred lines
+above the function that confesses it could not reproduce them. The other three
+state the SHAPE and name the drive; a `<n> of the <m>` in any of them fails a
+guard now.
+
 **A detector whose finding is applied on one surface and not the other is not
 a control; it is telemetry with a good reputation.** `_chat_turn` called
 `engine.firewall_scan`, sealed the verdict to the tamper-evident chain, and

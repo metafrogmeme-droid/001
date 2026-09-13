@@ -15,6 +15,7 @@ points at exists, every rule it states is one the suite actually enforces.
 """
 
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -372,11 +373,78 @@ def test_the_status_seam_it_names_exists_and_both_surfaces_read_it():
     assert hasattr(StartCommands, "status_card_text")
     assert "status_card_text" in inspect.getsource(StartCommands._cmd_status)
     assert "status_card_text" in inspect.getsource(ug._chat_turn)
-    # ...and the alias it replaced is gone.
-    src = inspect.getsource(ug._chat_turn)
-    i = src.index("_INTENT_ALIASES = {")
-    assert '"status"' not in src[i:src.index("}", i)]
+    # ...and the alias it replaced is gone. ASKED, not parsed: this used to
+    # `src.index("_INTENT_ALIASES = {")` and read the literal between the
+    # braces, so the day that map became a derivation from `skill_doors` —
+    # which is the fix for three copies that answered three ways — the guard
+    # failed on its own scanning rather than on anything about `status`.
+    from bot.nlp.skill_doors import web_scan_aliases
 
+    assert "status" not in web_scan_aliases()
+
+
+
+def test_the_door_table_paragraph_names_numbers_a_drive_returns():
+    """Every countable claim in the capability-door section, driven.
+
+    The section above it exists because this repo wrote 79/10/5 from memory;
+    these are the numbers that would rot the same way, so each is read off the
+    code rather than off the prose.
+    """
+    from bot.nlp.chat_tools import CHAT_TOOLS
+    from bot.nlp.intent_router import routed_skill_names
+    from bot.nlp.skill_doors import SURFACES, UnknownSurface, dispatches_to, words_reach
+
+    flat = re.sub(r"\s+", " ", DOC)
+
+    # "36 names including `halt`, `close_position` and `emergency_stop`" — the
+    # fail-open answer, which is now unreachable because the surface is
+    # validated. It is measured by REMOVING the validation, not by trusting
+    # the sentence: the whole claim is about what the old branch returned.
+    assert "36 names including `halt`" in flat
+    old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
+    assert len(old) == 36, len(old)
+    assert {"halt", "close_position", "emergency_stop"} <= old
+    # "...than the one it modelled best (telegram, 33)"
+    assert "(telegram, 33)" in flat
+    tg = {dispatches_to(n, "telegram") for n in routed_skill_names()}
+    tg |= {t.name for t in CHAT_TOOLS}
+    tg.discard("")
+    assert len(tg) == 33, len(tg)
+    # ...and the unmeasured surface now refuses rather than answering either.
+    for bad in ("", "nonsense"):
+        with pytest.raises(UnknownSurface):
+            words_reach(bad)
+    for good in SURFACES:
+        words_reach(good)
+
+    # "the card still offered `proposals`, `rejected_trades`,
+    # `check_event_risk` and `macro_brief`" — the four whose ONLY door is a
+    # chat tool, so they must be named by no router rule.
+    four = {"proposals", "rejected_trades", "check_event_risk", "macro_brief"}
+    for name in four:
+        assert f"`{name}`" in DOC, name
+    assert not (four & routed_skill_names()), four & routed_skill_names()
+    assert four <= {t.name for t in CHAT_TOOLS}
+
+    # "seven catalogue commands carry one" — the underscore commands the
+    # slash extractor used to truncate.
+    from bot.skills.command_catalog import all_entries
+    under = sorted(c for c in all_entries() if "_" in c)
+    assert "seven catalogue commands carry one" in flat
+    assert len(under) == 7, under
+    for name in under:
+        assert f"`{name}`" in DOC, name
+
+    # "all fifteen rows of that table" — the web client's intercepts, counted
+    # in the JS file rather than restated here.
+    assert "fifteen rows of that table" in flat
+    js = (pathlib.Path(__file__).resolve().parent.parent
+          / "app" / "routes" / "chat.js").read_text()
+    block = js[js.index("const INTERCEPTS = ["):]
+    block = block[:block.index("\n];")]
+    rows = re.findall(r"^\s*\['([a-z]+)',", block, re.M)
+    assert len(rows) == 15, rows
 
 
 def test_the_url_shape_it_names_is_the_shape_both_routes_send():

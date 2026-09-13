@@ -3193,7 +3193,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # The same skills the /scalp /intraday /swing /deepscan commands
                 # dispatch, reached by typing words instead. Gating the commands
                 # and not this made the paywall a spelling test.
-                _deep = intent.skill in ("scan_deep", "scan_full")
+                #
+                # WHICH skill runs is read from `skill_doors.SCAN_DISPATCH`,
+                # not decided here. This block, `user_gateway`'s alias map and
+                # a test each carried a copy, they ANSWERED DIFFERENTLY, and
+                # the capability card is derived from one of them — so a row
+                # could be printed as reachable on the strength of a mapping no
+                # dispatcher used. A second copy of a map is a second answer.
+                from bot.nlp.skill_doors import dispatches_to
+                _ran = dispatches_to(intent.skill, "telegram")
+                _deep = _ran == "deepscan"
                 if await self._token_gate_blocks(
                     update, mode or "deep", "deepscan" if _deep else "premium_scan"
                 ):
@@ -3207,20 +3216,18 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                        "the caller's tier does not include it"))
                     return
                 await self._send(update, thinking_msg)
-                # The name RECORDED is the skill that ran, not the router's
+                # The name RECORDED is the skill that RAN, not the router's
                 # name for the sentence: `scan_deep` and `scan_full` both
                 # dispatch `deepscan`, and attributing the card to a tool that
                 # was never called is the same misattribution one level down.
-                _ran = "deepscan" if _deep else "pro_scan"
-                if intent.skill == "scan_deep":
-                    result = await self.registry.dispatch("deepscan",
-                        self.engine, timeframe="4h")
-                elif intent.skill == "scan_full":
-                    result = await self.registry.dispatch("deepscan",
-                        self.engine, timeframe="4h")
+                # `_ran` is that name, read off the table above, so the record
+                # and the dispatch cannot disagree about which tool answered.
+                if _deep:
+                    result = await self.registry.dispatch(
+                        _ran, self.engine, timeframe="4h")
                 else:
-                    result = await self.registry.dispatch("pro_scan",
-                        self.engine, mode=mode, user_id=tg_id)
+                    result = await self.registry.dispatch(
+                        _ran, self.engine, mode=mode, user_id=tg_id)
                 await self._send(update, result)
                 self._remember_routed(tg_id, text, intent.skill,
                                       skill_result_memory(_ran, result),
@@ -3241,8 +3248,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # whether the engine was running. These are the two things it is
             # least excusable to improvise, and the commands already exist.
             if intent.skill == "help":
-                # A typed QUESTION gets an answer; the /help COMMAND keeps its
-                # 126-command reference. "What can you do?" answered with a
+                # A typed QUESTION gets an answer; the /help COMMAND keeps
+                # its full reference. (No count here: this comment said "126"
+                # and the catalogue has not been 126 commands for a long time
+                # — a number in prose is the part that rots, and this one had
+                # already been wrong in four places at once.) "What can you
+                # do?" answered with a
                 # catalogue is the shape of an answer rather than one, and the
                 # same card serves the web, where those commands are not doors
                 # at all.
@@ -3252,8 +3263,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _role = str((self.users.get(tg_id) or {}).get("role", ""))
                 _can, _withheld = skill_reach(self.users, tg_id, "telegram",
                                               list(SKILL_PERMISSION))
+                # THE MODEL'S REAL CATALOGUE, not the static `CHAT_TOOLS`
+                # tuple: four card rows have no router rule at all, so a chat
+                # tool is their only door, and `_chat_tools_for` is the only
+                # thing `_llm_chat` reads.
+                _tools = {t.name for t in
+                          _chat_tools_for(self, tg_id, "telegram", False)}
                 _cap = capability_answer(_can, surface="telegram", role=_role,
-                                         withheld=_withheld)
+                                         withheld=_withheld, tools=_tools)
                 await self._send(update, _cap)
                 # The MARKER, not the card. Every line of that card is derived
                 # from the model's own tool catalogue, which it already holds

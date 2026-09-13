@@ -136,7 +136,11 @@ def test_the_web_answers_with_the_door_before_any_alias_or_skill():
     from bot.skills.chat_runtime import ACT_INTENTS
     assert "close_position" in ACT_INTENTS
     branch = src.index("intent.skill in ACT_INTENTS")
-    assert branch < src.index("_INTENT_ALIASES = {")
+    # NOT `"_INTENT_ALIASES = {"`. That map is one derivation from
+    # `skill_doors` now — it was three copies answering three ways — so the
+    # literal is gone and only the assignment is left. The claim here was
+    # always about ORDER, and the assignment is what it orders against.
+    assert branch < src.index("_INTENT_ALIASES =")
 
 
 class TestTheNotice:

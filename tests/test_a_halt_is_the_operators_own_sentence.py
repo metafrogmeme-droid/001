@@ -600,7 +600,10 @@ class TestWeb:
 
     def test_the_web_answers_halt_before_any_alias_or_skill(self):
         src = code_only((REPO / "bot" / "web" / "user_gateway.py").read_text(encoding="utf-8"))
-        assert src.index("intent.skill in HALT_INTENTS") < src.index("_INTENT_ALIASES = {")
+        # NOT `"_INTENT_ALIASES = {"`: that map became one derivation from
+        # `skill_doors` (it was three copies answering three ways), so only
+        # the assignment survives. The claim is about ORDER either way.
+        assert src.index("intent.skill in HALT_INTENTS") < src.index("_INTENT_ALIASES =")
         assert "halt_intent_notice(" in src
         # RED HERRING: the 403 still exists and still refuses — the fix moved
         # the ANSWER earlier; it did not open a door.
