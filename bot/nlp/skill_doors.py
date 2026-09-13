@@ -12,22 +12,23 @@ COMMAND that did nothing, here a card names a CAPABILITY and claims asking for
 it does something.
 
 THE SCAN DISPATCH WAS WRITTEN THREE TIMES AND ANSWERED THREE WAYS.
-`telegram_handler`'s `scan_modes` sends `scan_deep`/`scan_full` to `deepscan`
+`telegram_handler`'s `scan_modes` sent `scan_deep`/`scan_full` to `deepscan`
 and the three timeframe modes to `pro_scan`. `user_gateway`'s `_INTENT_ALIASES`
-sends ALL FIVE to `scan_market` — the shallow movers scan. And a test carried a
+sent ALL FIVE to `scan_market` — the shallow movers scan. And a test carried a
 third copy under a comment saying it was "copied from `_chat_turn`", which it
 was not: it agreed with neither, and the counts it computed survived only
 because every wrongly-aliased target happened to also be a registered skill.
 A second copy of a map is a second answer; this was a third.
 
-So the table lives here, once, and every reader asks it. The WEB row is
-recorded as it behaves TODAY — that the web runs a different engine behind a
-different paywall from Telegram for the same typed words is a real defect, but
-it is a separate one, and writing it down is how it stops being invisible.
+The table lives here once and every reader asks it — and it now has ONE
+column. It had two, recorded as the code behaved, with a note saying the
+disagreement was a real defect filed separately. This is that fix: the same
+typed words run the same skill with the same arguments behind the same
+paywall, whichever surface they arrive on.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TypedDict
 
 #: Surfaces this module knows about, and there are FOUR chat doors, not two.
 #:
@@ -65,42 +66,82 @@ class UnknownSurface(ValueError):
     so the caller is made to notice.
     """
 
-#: The five scan-mode intents, and the skill each surface actually dispatches.
+class ScanRow(TypedDict):
+    """One scan intent's dispatch: the skill, and the arguments it needs.
+
+    Typed rather than `dict[str, object]` so `row["kwargs"]` is a mapping to
+    every reader — the untyped version needed a `type: ignore` on the one line
+    that copies it, which is a silenced question about the shape of the table
+    this whole module exists to be the answer about.
+    """
+
+    skill: str
+    kwargs: dict[str, str]
+
+
+#: The five scan-mode intents: the skill each RUNS and the kwargs it needs.
 #:
-#: Read off the code, not from memory: `telegram_handler._handle_message`'s
-#: `scan_modes` block (the `_deep` branch picks `deepscan`, everything else
-#: `pro_scan`) and `user_gateway._chat_turn`'s alias map.
+#: ONE COLUMN. It had two — telegram and web — and they disagreed: the same
+#: typed words ran the full universe sweep on Telegram and the shallow scan
+#: on the web, behind a different paywall, decided only by which surface the
+#: caller happened to use. That is collapsed, so `surface` is no longer a
+#: parameter of this question at all; `words_reach` still narrows by surface,
+#: because whether a skill is REACHABLE there is a different question from
+#: which skill an intent runs.
 #:
-#: THE TWO COLUMNS DISAGREE AND THAT IS THE POINT. A caller typing "deep scan"
-#: gets a 67-symbol sweep on Telegram and the shallow movers scan on the web,
-#: under a different paywall. Recording it here makes it one fact two readers
-#: share instead of two facts that drift; fixing the disagreement is filed.
-SCAN_DISPATCH: dict[str, dict[str, str]] = {
-    "scan_deep": {"telegram": "deepscan", "web": "scan_market"},
-    "scan_full": {"telegram": "deepscan", "web": "scan_market"},
-    "scan_swing": {"telegram": "pro_scan", "web": "scan_market"},
-    "scan_scalp": {"telegram": "pro_scan", "web": "scan_market"},
-    "scan_intraday": {"telegram": "pro_scan", "web": "scan_market"},
+#: THE KWARGS ARE PART OF THE DISPATCH, and leaving them out is a silent
+#: defect rather than a loud one. Driven, `intent.kwargs` is `{}` for all five
+#: intents, and all three scan skills are `execute(self, engine, **kwargs)` —
+#: so a missing `mode` raises NOTHING. `ProScanSkill` does
+#: `MODE_CFG.get(mode, MODE_CFG["intraday"])`, so a scalp request would have
+#: rendered "RUNECLAW INTRADAY SCAN / Timeframe: 15M" with no marker of any
+#: kind. A dispatch table that names the skill and not its arguments is half a
+#: table.
+#:
+#: RECORDED, NOT FIXED: `scan_full`'s rule explains itself as "Full scan with
+#: patterns" and its waiting message says the same, and it runs the identical
+#: 4h sweep `scan_deep` does — `resolve_timeframes("all")` is what would make
+#: the word true, and it multiplies the sweep by the number of timeframes.
+#: That is a decision about what a paid scan costs, not a transcription, so
+#: this table reproduces what Telegram has always dispatched rather than
+#: quietly changing it. Written down is how it stops being invisible.
+SCAN_DISPATCH: dict[str, ScanRow] = {
+    "scan_deep": {"skill": "deepscan", "kwargs": {"timeframe": "4h"}},
+    "scan_full": {"skill": "deepscan", "kwargs": {"timeframe": "4h"}},
+    "scan_swing": {"skill": "pro_scan", "kwargs": {"mode": "swing"}},
+    "scan_scalp": {"skill": "pro_scan", "kwargs": {"mode": "scalp"}},
+    "scan_intraday": {"skill": "pro_scan", "kwargs": {"mode": "intraday"}},
 }
 
 
-def dispatches_to(intent: str, surface: str) -> str:
-    """The skill `intent` actually runs on `surface`.
+def dispatches_to(intent: str) -> str:
+    """The skill `intent` actually runs, on every surface.
 
     An intent this table does not name dispatches to ITSELF — that is the
     ordinary case and the table is only for the intents whose name is not the
     skill's. Returning the intent unchanged rather than None keeps every caller
     from having to spell the same fallback.
+
+    `surface` was a parameter here and is not one any more: it existed only to
+    pick between two columns that should never have differed.
     """
-    _require_surface(surface)
     row = SCAN_DISPATCH.get(intent)
     if not row:
         return intent
-    # NOT `row.get(surface, intent)`. A surface absent from the row would have
-    # answered `scan_deep` — a router intent name, not a skill, so every
-    # downstream membership test silently missed. The surfaces with no row are
-    # the ones that dispatch nothing, and `words_reach` never asks them.
-    return row[surface] if surface in row else ""
+    return row["skill"]
+
+
+def dispatch_kwargs(intent: str) -> dict[str, str]:
+    """The arguments `intent` must be dispatched WITH, or `{}`.
+
+    A fresh dict each call: these reach `skill.execute(**kwargs)` beside a
+    caller-supplied `user_id`, and a shared literal would let one turn's
+    mutation reach the next.
+    """
+    row = SCAN_DISPATCH.get(intent)
+    if not row:
+        return {}
+    return dict(row["kwargs"])
 
 
 def _require_surface(surface: str) -> None:
@@ -115,9 +156,12 @@ def web_scan_aliases() -> dict[str, str]:
 
     `user_gateway` built this inline and a test copied it wrongly. It is a
     derivation now, so a change to the table reaches both without anybody
-    remembering to edit a second place.
+    remembering to edit a second place. Since the columns collapsed this is
+    the SAME map Telegram dispatches — which is the whole point, and the
+    reason the name keeps "web" in it is that `user_gateway` is still its one
+    reader.
     """
-    return {k: v["web"] for k, v in SCAN_DISPATCH.items()}
+    return {k: dispatches_to(k) for k in SCAN_DISPATCH}
 
 
 def words_reach(surface: str, *,
@@ -165,7 +209,7 @@ def words_reach(surface: str, *,
         # is a reading; returning it for an unknown surface would be a guess,
         # which is why that case raises instead.
         return set()
-    out: set[str] = {dispatches_to(name, surface) for name in routed_skill_names()}
+    out: set[str] = {dispatches_to(name) for name in routed_skill_names()}
     out.discard("")
     if tools is None:
         from bot.nlp.chat_tools import CHAT_TOOLS

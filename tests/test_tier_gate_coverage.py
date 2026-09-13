@@ -36,12 +36,20 @@ import pytest
 import bot.token.tier_gate as tg
 from tests.source_scan import segment_reader
 
+#: Kept as the NAME the docstring below argues against reading alone — the
+#: handler is many files now, and `handler_sources()` is what this file walks.
+#: Its last reader was a grep for `dispatches_to(intent.skill` that the
+#: computed dispatch made meaningless: a scan cannot see a lookup, which is
+#: the whole reason the lookup exists.
 HANDLER = pathlib.Path(__file__).resolve().parent.parent / "bot" / "skills" / "telegram_handler.py"
 
 # Skill name as dispatched -> feature key as gated. They differ in exactly one
-# place (`pro_scan` is sold as `premium_scan`), and that mapping is the sort of
-# thing that silently rots, so it is asserted rather than assumed.
-SKILL_TO_FEATURE = {"pro_scan": "premium_scan"}
+# place (`pro_scan` is sold as `premium_scan`), and this file used to HOLD that
+# mapping — which is precisely how the web charged nobody for it: `check_user`
+# takes a FEATURE, the web gateway passed it a SKILL, `pro_scan` is not in
+# `FEATURE_MIN_TIER`, and the only copy of the difference lived in a test, so
+# no production caller could read it. `tier_gate.feature_for` is the reading
+# now and this file ASKS it.
 
 GATE_CALLS = ("_token_gate_blocks", "_pane_gate_blocks")
 
@@ -50,9 +58,17 @@ def _functions_dispatching_gated_skills():
     """Every file the handler class is made of, not HANDLER alone: the
     handler is being split into mixins, and a gated dispatch that moved into
     one would otherwise drop out of this check without a word."""
+    from bot.nlp.skill_doors import SCAN_DISPATCH
     from tests.source_scan import handler_sources
 
-    mapping = {**{k: k for k in tg.FEATURE_MIN_TIER}, **SKILL_TO_FEATURE}
+    # Every skill reachable through the computed scan dispatch. A function
+    # that calls `dispatches_to` dispatches whatever the table names, and
+    # there is no literal in it to grep for — which is the whole reason the
+    # table exists, and would otherwise drop the routed-words path (the one
+    # the docstring above says the paywall was a spelling test on) out of
+    # this check without a word.
+    computed = sorted({r["skill"] for r in SCAN_DISPATCH.values()})
+
     out = []
     for path in handler_sources():
         src = path.read_text()
@@ -66,7 +82,14 @@ def _functions_dispatching_gated_skills():
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             seg = seg_of(node) or ""
-            hit = sorted({mapping[n] for n in mapping if f'dispatch("{n}"' in seg})
+            named = {n for n in tg.FEATURE_MIN_TIER if f'dispatch("{n}"' in seg}
+            named |= {n for n in computed if f'dispatch("{n}"' in seg}
+            if "dispatches_to(" in seg:
+                named |= set(computed)
+            # A SKILL name is not a FEATURE key; ask the gate which it is
+            # sold as, and keep only the ones that are actually sold.
+            hit = sorted({tg.feature_for(n) for n in named
+                          if tg.feature_for(n) in tg.FEATURE_MIN_TIER})
             if hit:
                 out.append((node.name, hit, seg))
     return out
@@ -106,14 +129,19 @@ def test_the_pro_scan_alias_still_resolves():
     from bot.nlp.skill_doors import SCAN_DISPATCH, dispatches_to
 
     assert "premium_scan" in tg.FEATURE_MIN_TIER
-    ran = {dispatches_to(i, "telegram") for i in SCAN_DISPATCH}
+    ran = {dispatches_to(i) for i in SCAN_DISPATCH}
     assert "pro_scan" in ran, (
-        f"pro_scan is no longer dispatched on telegram ({sorted(ran)}) — "
-        "update SKILL_TO_FEATURE")
-    # ...and the handler really reads that table rather than deciding itself.
-    src = HANDLER.read_text()
-    assert "dispatches_to(intent.skill" in src, \
-        "the handler decides the scan skill again; this guard is blind to it"
+        f"pro_scan is no longer dispatched ({sorted(ran)}) — the gate's "
+        "`feature_for` map is now checking a skill nothing runs")
+    assert tg.feature_for("pro_scan") == "premium_scan"
+    # ...and every skill the table dispatches resolves to a feature the ladder
+    # actually sells. A skill whose feature is not in `FEATURE_MIN_TIER` is
+    # free, whatever the gate call around it looks like: that is exactly what
+    # the web was doing with `pro_scan`, through a gate that returned `ok`.
+    unsold = sorted(s for s in ran if tg.feature_for(s) not in tg.FEATURE_MIN_TIER)
+    assert not unsold, (
+        f"{unsold} are dispatched by the scan table and sold by nothing — "
+        "either add the feature or say in the table that they are free")
 
 
 def test_both_tiers_actually_buy_something():

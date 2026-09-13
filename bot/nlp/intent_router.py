@@ -954,8 +954,11 @@ _rule(r"\b(scalp(?: (?:scan|mode|trade))?|5m scan|quick scan|fast scan)\b",
       "scan_scalp", explanation="Scalp scan (5m)")
 _rule(r"\b(intraday(?: (?:scan|mode|trade))?|15m scan|day ?trade scan)\b",
       "scan_intraday", explanation="Intraday scan (15m)")
-_rule(r"\b(deep ?scan|full universe|scan (all|everything)|67 symbols?)\b",
-      "scan_deep", explanation="Deep scan (67+ symbols)")
+# `\d{2,3} symbols?` rather than the literal `67`: the universe was 67 when
+# that alternative was written and is larger now, and somebody who learned the
+# phrase from an older card still types the old number. Both are the same ask.
+_rule(r"\b(deep ?scan|full universe|scan (all|everything)|\d{2,3} symbols?)\b",
+      "scan_deep", explanation="Deep scan (full universe)")
 _rule(r"\b(full ?scan|complete scan|scan with patterns)\b",
       "scan_full", explanation="Full scan with patterns")
 # General scan triggers

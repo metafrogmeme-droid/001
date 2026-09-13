@@ -350,15 +350,30 @@ async def test_stance_intent_gets_honest_pointer_not_llm(monkeypatch):
         assert handler.llm_calls == []
 
 
-async def test_scan_swing_aliases_to_registered_scan_market(monkeypatch):
-    # scan_swing exists only as a Telegram command handler; on the web it
-    # must alias to the registered scan_market skill instead of degrading
-    # to generic LLM chat.
+async def test_scan_swing_reaches_the_skill_the_table_names(monkeypatch):
+    """`scan_swing` exists only as a Telegram command handler; on the web it
+    must reach a REGISTERED skill instead of degrading to generic LLM chat.
+
+    WHICH skill is `skill_doors.SCAN_DISPATCH`'s answer, and this test used to
+    spell `scan_market` — the web's own third copy of that mapping, which sent
+    all five modes to the shallow movers scan while Telegram ran two of them
+    through `deepscan` and three through `pro_scan`. Same words, different
+    engine, decided by which client you typed them into.
+
+    The ARGUMENTS are asserted beside the name for the reason the alignment
+    needed them: every scan skill is `execute(self, engine, **kwargs)` and
+    `intent.kwargs` is empty for all five rules, so a dispatcher that reads
+    the skill and not its mode answers a swing scan with the intraday card
+    and raises nothing.
+    """
+    from bot.nlp.skill_doors import dispatch_kwargs, dispatches_to
+
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     scan = FakeSkill()
+    ran = dispatches_to("scan_swing")
     handler = FakeHandler(users=AUTHED,
                           intent=FakeIntent("scan_swing", 1.0),
-                          skills={"scan_market": scan})
+                          skills={ran: scan})
     async with gateway_client(FakeEngine(), handler) as c:
         r = await c.post("/chat",
                          json={"telegram_id": "7", "text": "swing scan"},
@@ -367,6 +382,10 @@ async def test_scan_swing_aliases_to_registered_scan_market(monkeypatch):
         data = await r.json()
         assert data["reply_html"] == "<b>skill reply</b>"
         assert len(scan.calls) == 1
+        wanted = dispatch_kwargs("scan_swing")
+        assert wanted, "the table names no arguments for a timeframe scan"
+        for k, v in wanted.items():
+            assert scan.calls[0].get(k) == v, (k, scan.calls[0])
         assert handler.llm_calls == []
 
 

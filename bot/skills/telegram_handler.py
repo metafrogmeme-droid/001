@@ -3181,15 +3181,27 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── Scan mode shortcuts ──────────────────────────────
-            scan_modes = {
-                "scan_swing": ("swing", "<i>Checking the 4H chart...</i>"),
-                "scan_scalp": ("scalp", "\u26a1 <i>Scalp scan — 5M candles, tight zones...</i>"),
-                "scan_intraday": ("intraday", "\U0001f4ca <i>Intraday scan — 15M structure...</i>"),
-                "scan_deep": (None, "\u2694\ufe0f <i>Deep scanning 67+ symbols...</i>"),
-                "scan_full": (None, "\u2694\ufe0f <i>Full scan with patterns...</i>"),
+            # The WAITING message only. The mode this block used to carry
+            # beside it was a fourth copy of the dispatch map; it lives in
+            # `SCAN_DISPATCH` with the skill it belongs to, so the two cannot
+            # disagree about what a "scalp scan" runs.
+            #
+            # "67+ symbols" was wrong and had been for a while. A number in a
+            # message the user reads while waiting is a claim about how long
+            # the wait is, so it is COUNTED — writing the right number here
+            # would have been the same defect one universe change later, which
+            # is how this one got to be wrong.
+            from bot.skills.skill_registry import deepscan_universe_size
+            _n_sym = deepscan_universe_size()
+            scan_thinking = {
+                "scan_swing": "<i>Checking the 4H chart...</i>",
+                "scan_scalp": "\u26a1 <i>Scalp scan — 5M candles, tight zones...</i>",
+                "scan_intraday": "\U0001f4ca <i>Intraday scan — 15M structure...</i>",
+                "scan_deep": f"\u2694\ufe0f <i>Deep scanning {_n_sym} symbols...</i>",
+                "scan_full": "\u2694\ufe0f <i>Full scan with patterns...</i>",
             }
-            if intent.skill in scan_modes:
-                mode, thinking_msg = scan_modes[intent.skill]
+            if intent.skill in scan_thinking:
+                thinking_msg = scan_thinking[intent.skill]
                 # The same skills the /scalp /intraday /swing /deepscan commands
                 # dispatch, reached by typing words instead. Gating the commands
                 # and not this made the paywall a spelling test.
@@ -3200,11 +3212,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # the capability card is derived from one of them — so a row
                 # could be printed as reachable on the strength of a mapping no
                 # dispatcher used. A second copy of a map is a second answer.
-                from bot.nlp.skill_doors import dispatches_to
-                _ran = dispatches_to(intent.skill, "telegram")
-                _deep = _ran == "deepscan"
+                from bot.nlp.skill_doors import dispatch_kwargs, dispatches_to
+                _ran = dispatches_to(intent.skill)
+                _kw = dispatch_kwargs(intent.skill)
+                # The FEATURE the skill is sold as, read from `tier_gate`
+                # rather than spelled here. This was
+                # `"deepscan" if _deep else "premium_scan"` off a local
+                # `_deep = _ran == "deepscan"` — correct, and a
+                # second copy of the one mapping the web needed and did not
+                # have, which is why the web gated `pro_scan` under its own
+                # name (absent from FEATURE_MIN_TIER) and charged nobody.
+                from bot.token.tier_gate import feature_for as _feature_for
                 if await self._token_gate_blocks(
-                    update, mode or "deep", "deepscan" if _deep else "premium_scan"
+                    update, str(_kw.get("mode") or "deep"), _feature_for(_ran)
                 ):
                     # A paywall is not a failure and not an absence: the scan
                     # exists and a gate said no. Recorded as its own outcome,
@@ -3212,7 +3232,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     # a history in which the refusal never happened.
                     self._remember_routed(
                         tg_id, text, intent.skill,
-                        not_run_memory("deepscan" if _deep else "pro_scan",
+                        not_run_memory(_ran,
                                        "the caller's tier does not include it"))
                     return
                 await self._send(update, thinking_msg)
@@ -3222,12 +3242,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # was never called is the same misattribution one level down.
                 # `_ran` is that name, read off the table above, so the record
                 # and the dispatch cannot disagree about which tool answered.
-                if _deep:
-                    result = await self.registry.dispatch(
-                        _ran, self.engine, timeframe="4h")
-                else:
-                    result = await self.registry.dispatch(
-                        _ran, self.engine, mode=mode, user_id=tg_id)
+                # The ARGUMENTS come from the table too. They were written
+                # out here — `timeframe="4h"` and `mode=mode` — and the web
+                # had no equivalent at all, so aligning the skill names alone
+                # would have run every timeframe scan in pro_scan's default
+                # intraday mode, silently, because all three scan skills are
+                # `execute(self, engine, **kwargs)` and a missing `mode`
+                # raises nothing.
+                result = await self.registry.dispatch(
+                    _ran, self.engine, user_id=tg_id, **_kw)
                 await self._send(update, result)
                 self._remember_routed(tg_id, text, intent.skill,
                                       skill_result_memory(_ran, result),

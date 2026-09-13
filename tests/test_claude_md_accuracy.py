@@ -407,7 +407,7 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
     assert "(telegram, 33)" in flat
-    tg = {dispatches_to(n, "telegram") for n in routed_skill_names()}
+    tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
     assert len(tg) == 33, len(tg)
@@ -641,3 +641,83 @@ def test_no_secret_or_address_is_committed_in_it():
     for pat in (r"\bsk-[A-Za-z0-9]{16,}", r"SECRET\s*=\s*\S{8,}",
                 r"\b[a-z0-9-]+\.trycloudflare\.com"):
         assert not re.search(pat, DOC), f"secret-shaped text matched {pat}"
+
+
+# ── the scan-dispatch section ─────────────────────────────────────────────
+
+def test_the_scan_section_names_numbers_a_drive_returns():
+    """Every countable claim in the one-column section, read off the code.
+
+    The section's own subject is a count that was stale in five places, so a
+    count in THIS prose is the part most likely to rot next — the `<n> of the
+    <m>` rule one section up, applied to the paragraph that describes it.
+    """
+    import ast
+    import inspect
+
+    import bot.token.tier_gate as tg
+    from bot.nlp.skill_doors import SCAN_DISPATCH, dispatch_kwargs, dispatches_to
+    from bot.skills.skill_registry import DeepScanSkill, deepscan_universe_size
+
+    flat = re.sub(r"\s+", " ", DOC)
+
+    # "The universe is 115." / "115 symbols through a `Semaphore(10)`"
+    n = deepscan_universe_size()
+    assert f"The universe is {n}." in flat, n
+    assert f"{n} symbols through a `Semaphore(10)`" in flat, n
+
+    # "twelve sequential batches" — ceil(universe / semaphore), in words.
+    import textwrap
+
+    src = textwrap.dedent(inspect.getsource(DeepScanSkill.execute))
+    sem = next(int(c.value)
+               for node in ast.walk(ast.parse(src))
+               if isinstance(node, ast.Call)
+               and ast.unparse(node.func).endswith("Semaphore")
+               for c in node.args if isinstance(c, ast.Constant))
+    assert sem == 10, sem
+    assert -(-n // sem) == 12, -(-n // sem)
+    assert "twelve sequential batches" in flat
+
+    # "Eight of the nine paid skills are gated by COINCIDENCE ... and
+    # `pro_scan` is sold as `premium_scan`" — measured over the SKILLS (the
+    # domain `feature_for` is called on), not over the features, which map to
+    # themselves by construction and would make the claim vacuous.
+    from bot.skills.skill_permissions import SKILL_PERMISSION
+
+    sold = set(tg.FEATURE_MIN_TIER)
+    paid = {sk for sk in SKILL_PERMISSION if tg.feature_for(sk) in sold}
+    same = {sk for sk in paid if tg.feature_for(sk) == sk}
+    assert len(paid) == 9 and len(same) == 8, (sorted(paid), sorted(same))
+    assert sorted(paid - same) == ["pro_scan"], sorted(paid - same)
+    assert tg.feature_for("pro_scan") == "premium_scan"
+    assert "Eight of the nine paid skills" in flat
+
+    # "all five scan rules" / "all three scan skills"
+    assert len(SCAN_DISPATCH) == 5
+    assert len({dispatches_to(i) for i in SCAN_DISPATCH} | {"scan_market"}) == 3
+    assert "all five scan rules" in flat and "all three" in flat
+
+    # "swapping `scan_swing`'s mode to `intraday`" — both are real modes.
+    assert dispatch_kwargs("scan_swing") == {"mode": "swing"}
+    from bot.skills.skill_registry import ProScanSkill
+    assert {"swing", "intraday"} <= set(ProScanSkill.MODE_CFG)
+
+    # EVERY ILLUSTRATIVE COUNT, not only the two stated as facts. The section
+    # is about a universe size that was stale in five places, and a worked
+    # example teaches a stale denominator as confidently as a claim does —
+    # `Scanned 40/115` with `Not reached 75` beside it is arithmetic, and it
+    # stops being arithmetic the day a symbol is added.
+    section = DOC[DOC.index("**ONE COLUMN, and five of the six"):
+                  DOC.index("**A second copy of a gate decided")]
+    pairs = re.findall(r"Scanned (\d+)/(\d+)", section)
+    assert pairs, "the section stopped showing a Scanned row"
+    for read, total in pairs:
+        assert int(total) == n, (read, total, n)
+    # ...and each complement in the same section adds back up to the universe.
+    read_40 = int(pairs[0][0])
+    assert f"Not reached {n - read_40} (time budget)" in section, n - read_40
+    assert f"as {n - read_40} errors" in section, n - read_40
+    words = {23: "twenty-three", 24: "twenty-four", 22: "twenty-two"}
+    short = n - int(pairs[1][0])
+    assert words.get(short, str(short)) in section, (short, words.get(short))

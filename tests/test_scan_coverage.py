@@ -21,6 +21,8 @@ would have read a missing usage object as "this call was free".
 """
 from __future__ import annotations
 
+import pathlib
+
 from bot.skills.scan_coverage import (
     coverage,
     coverage_note,
@@ -167,9 +169,38 @@ class TestNoHardcodedUniverseCount:
         assert "full 67 symbols" not in src
         assert "full {len(UNIVERSE)} symbols" in src
 
-    def test_command_docstrings_carry_no_symbol_count(self):
+    def test_no_module_spells_the_universe_size_in_prose(self):
+        """WRONG FILE. This read `telegram_handler.py` alone and forbade
+        `"Deep scan 67+ symbols"` — a string that has never been in that file
+        and has been `DeepScanSkill.description` in `skill_registry.py` the
+        whole time, where it is the sentence handed to the MODEL as this
+        tool's description and printed by the capability card. A guard aimed
+        at one file cannot say anything about the others, and the literal it
+        named was sitting in one of them.
+
+        The rule is the shape, not a list of stale strings: a two-or-three
+        digit count immediately followed by "symbol(s)" is a measurement of
+        the universe written down, and the universe changes. Anything that
+        prints one must count it.
+        """
+        import re
+
+        # The universe is read off the code, never spelled here — this test
+        # would otherwise be one more copy of the number it exists to forbid.
+        from bot.config import TRADFI_PERPETUALS
+        from bot.skills.skill_registry import DEEPSCAN_UNIVERSE
         from tests.source_scan import code_only
-        src = code_only(
-            open("bot/skills/telegram_handler.py", encoding="utf-8").read())
-        for stale in ("Full 67-symbol scan", "Deep scan 67+ symbols"):
-            assert stale not in src, f"stale prose count: {stale}"
+
+        live = len(DEEPSCAN_UNIVERSE) + len(TRADFI_PERPETUALS)
+        assert live > 0
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        shape = re.compile(r"\b\d{2,3}\+? ?symbols?\b")
+        offenders = []
+        for path in sorted((root / "bot").rglob("*.py")):
+            src = code_only(path.read_text(encoding="utf-8"))
+            for hit in shape.findall(src):
+                offenders.append(f"{path.relative_to(root)}: {hit!r}")
+        assert not offenders, (
+            "these spell a universe size that is " + str(live) + " today:\n  "
+            + "\n  ".join(offenders))

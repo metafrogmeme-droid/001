@@ -11,6 +11,7 @@ import html as _html
 import json
 import math
 import re
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from bot.core.live_readiness import mode_label
 from bot.formatters.rich_cards import display_symbol, mode_badge
 from bot.formatters.thesis_text import provenance_tag, thesis_prose
 
-from bot.config import CONFIG
+from bot.config import CONFIG, TRADFI_PERPETUALS
 from bot.core.engine import RuneClawEngine
 from bot.utils.logger import audit, system_log
 
@@ -2389,15 +2390,32 @@ class ProScanSkill(BaseSkill):
 
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
-            scan_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-            executor = engine.live_executor
-            scan_open = len(executor.open_positions)
-            live_closed = executor.closed_positions
-            # `or 0` books every unpriced close as a measured break-even and
-            # prints the partial as a whole. The same file gets this right
-            # 600 lines down, with pnl_stats().
-            from bot.formatters.realized_totals import realized_totals as _rt_scan
-            scan_pnl = _rt_scan(live_closed)["net"]
+            _uid = str(kwargs.get("user_id", "") or "")
+            scan_equity = await engine.get_effective_equity_async(_uid)
+            # The book THIS caller may view, through the same isolation guard
+            # `check_risk`, `playbook`, `get_portfolio`, `/positions` and the
+            # chat prompt all read. This was `engine.live_executor` — the
+            # OPERATOR's open positions and realized P&L, in dollars, in the
+            # header of every caller's scan card, one line under the CALLER's
+            # own equity. Five siblings were cured of exactly this and the
+            # scan header was missed; it is reachable from Telegram today and
+            # the web retarget would have added a second door to it.
+            executor = engine.viewer_executor(_uid)
+            if executor is None:
+                # No book to describe is not a flat book. The scan itself does
+                # not need an account, so the card still runs — it says the
+                # header could not be read rather than printing zeros, which
+                # would read as "you hold nothing, you have made nothing".
+                scan_open = None
+                scan_pnl = None
+            else:
+                scan_open = len(executor.open_positions)
+                live_closed = executor.closed_positions
+                # `or 0` books every unpriced close as a measured break-even
+                # and prints the partial as a whole. The same file gets this
+                # right 600 lines down, with pnl_stats().
+                from bot.formatters.realized_totals import realized_totals as _rt_scan
+                scan_pnl = _rt_scan(live_closed)["net"]
         else:
             scan_equity = state.equity_usd
             scan_open = state.open_positions
@@ -2406,8 +2424,16 @@ class ProScanSkill(BaseSkill):
         header = (
             f"\u2694\ufe0f <b>RUNECLAW {cfg['label']}</b>\n{SEP}\n"
             f"  {sim}  \u2502  Equity: <code>{_money(scan_equity)}</code>\n"
-            f"  Open: <code>{scan_open}/{CONFIG.risk.max_open_positions}</code>"
-            f"  \u2502  PnL: <code>{_money(scan_pnl, sign=True)}</code>\n"
+            # `None` is a book that could not be read, never a zero: an
+            # unlinked caller printing `Open: 0/5 | PnL: $+0.00` is told two
+            # measurements about an account nobody looked at.
+            "  Open: <code>"
+            + (f"{scan_open}/{CONFIG.risk.max_open_positions}"
+               if scan_open is not None else "not linked")
+            + "</code>"
+            + "  \u2502  PnL: <code>"
+            + (_money(scan_pnl, sign=True) if scan_pnl is not None
+               else "not linked") + "</code>\n"
             f"  Timeframe: <code>{cfg['timeframe'].upper()}</code>"
             f"  \u2502  Scan Mode: <code>Swing-by-swing</code>\n"
         )
@@ -2941,7 +2967,9 @@ class WhyNotSkill(BaseSkill):
 
 
 # ══════════════════════════════════════════════════════════════
-# DEEPSCAN UNIVERSE — 67+ symbols
+# DEEPSCAN UNIVERSE — crypto spot; the TradFi perps are added to it
+# at scan time. Counted where it is printed, never spelled: this
+# comment said 67+ while the swept universe was nearly twice that.
 # ══════════════════════════════════════════════════════════════
 
 DEEPSCAN_UNIVERSE: list[str] = [
@@ -3300,10 +3328,27 @@ class PlaybookSkill(BaseSkill):
 # DEEPSCAN — comprehensive multi-timeframe scan
 # ══════════════════════════════════════════════════════════════
 
+def deepscan_universe_size() -> int:
+    """How many symbols a deep scan sweeps, counted.
+
+    One reading, because there were three spellings of it — this file's
+    `description`, the router's rule explanation and the Telegram waiting
+    message — and two were stale. A count in prose is the part that rots
+    first, and all three are claims made to the caller.
+    """
+    return len(DEEPSCAN_UNIVERSE) + len(TRADFI_PERPETUALS)
+
+
 class DeepScanSkill(BaseSkill):
     """Scan the full DEEPSCAN_UNIVERSE across multiple timeframes with chart patterns."""
     name = "deepscan"
-    description = "Deep scan 67+ symbols with chart patterns"
+    # DERIVED. This was the literal `"Deep scan 67+ symbols with chart
+    # patterns"` — the exact string `test_scan_coverage` forbids, sitting in
+    # the file that guard does not read (it scans `telegram_handler.py`, and
+    # the skill's description has always lived here). It is the sentence the
+    # MODEL is given for this tool and the one a capability card prints, so
+    # the stale count was being quoted to the caller by two surfaces.
+    description = f"Deep scan {deepscan_universe_size()} symbols with chart patterns"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         import numpy as np
@@ -3325,7 +3370,6 @@ class DeepScanSkill(BaseSkill):
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
         # Build full universe: crypto spot + TradFi perpetuals
-        from bot.config import TRADFI_PERPETUALS
         from bot.core.market_scanner import _classify_symbol as _cls_sym
         full_universe = list(DEEPSCAN_UNIVERSE) + list(TRADFI_PERPETUALS)
 
@@ -3340,6 +3384,36 @@ class DeepScanSkill(BaseSkill):
         hits: list[dict] = []
         errors = 0
         scanned = 0
+        # UNREACHED, kept apart from `errors` on purpose: a symbol the budget
+        # ran out before is not a symbol that failed, and a card that folded
+        # the two would report a healthy exchange as a wall of errors.
+        unreached = 0
+        # The venue answered with fewer candles than the detectors need. Not
+        # an error, not a reading — see the third bucket below.
+        too_short = 0
+
+        # AN OVERALL BUDGET, because the per-symbol `wait_for(15)` below is not
+        # one. The universe through a Semaphore(10) is twelve sequential
+        # batches, so the worst case is 12 x 15s = 180s with every fetch
+        # "succeeding" at its own timeout — measured, and more than the web's
+        # 45s chat deadline, more than its 75s streaming deadline and more
+        # than nginx's 60s /gateway/ read timeout. A routed skill emits no SSE
+        # frames, so nothing resets an inactivity timer while it runs and the
+        # caller is shown a DEPLOYMENT-PAIRING sentence manufactured from a
+        # timeout.
+        #
+        # `None` is unbounded and stays the default: Telegram's `/deepscan`
+        # wraps the dispatch in its own `wait_for(CONFIG.deepscan_timeout_sec)`
+        # and has done for a long time. A caller that can afford the wait says
+        # so by not passing a budget.
+        #
+        # Bound to a float ONCE. `kwargs.get` is `Any`, and every later use
+        # (the deadline, the sentence on the card) would otherwise re-coerce
+        # it — three chances for two of them to disagree about what "no
+        # budget" is.
+        _raw_budget = kwargs.get("budget_sec")
+        _budget: float | None = float(_raw_budget) if _raw_budget else None
+        _deadline = (time.monotonic() + _budget) if _budget else None
 
         # Parallel OHLCV fetch with rate limiting. The semaphore is shared across
         # timeframes so the whole (symbol × timeframe) sweep stays bounded.
@@ -3359,10 +3433,40 @@ class DeepScanSkill(BaseSkill):
 
         from bot.utils.candles import drop_forming_candle
         for _tf in tf_list:
-          fetch_results = await asyncio.gather(
-              *[_fetch_one(s, _tf) for s in full_universe],
-              return_exceptions=True,
-          )
+          # `asyncio.wait` rather than `gather`, because a budget has to be
+          # able to STOP: gather either completes or raises, and raising loses
+          # every symbol already scanned. What is wanted is the partial —
+          # honestly labelled — so the pending fetches are cancelled and
+          # counted rather than thrown away silently.
+          _tasks = [asyncio.ensure_future(_fetch_one(s, _tf))
+                    for s in full_universe]
+          _left = (None if _deadline is None
+                   else max(0.0, _deadline - time.monotonic()))
+          _done, _pending = await asyncio.wait(_tasks, timeout=_left)
+          for _t in _pending:
+              _t.cancel()
+          unreached += len(_pending)
+          if _pending:
+              # AWAITED. `cancel()` only REQUESTS cancellation; a task that is
+              # never awaited afterwards is still unwinding when this returns,
+              # still holding its semaphore slot and its open request. The
+              # next timeframe would then contend with the batch that was
+              # supposed to have been abandoned, and the loop teardown logs
+              # "Task was destroyed but it is pending".
+              await asyncio.gather(*_pending, return_exceptions=True)
+          # `asyncio.wait` hands back a SET, so iterating it orders the sweep
+          # by whichever fetch happened to finish first. `hits.sort` is stable,
+          # so that order decides every tie and the same universe would produce
+          # a different top-10 run to run. Walk the tasks in UNIVERSE order and
+          # keep the ones that finished.
+          fetch_results = []
+          for _t in _tasks:
+              if _t not in _done:
+                  continue
+              try:
+                  fetch_results.append(_t.result())
+              except Exception as _exc:      # noqa: BLE001 - mirrors gather
+                  fetch_results.append(_exc)
 
           for result in fetch_results:
             # Handle return_exceptions=True — skip any exceptions
@@ -3377,6 +3481,14 @@ class DeepScanSkill(BaseSkill):
             if ohlcv is None or len(ohlcv) < 30:
                 if ohlcv is None:
                     errors += 1
+                else:
+                    # A THIRD BUCKET, and it had no row. The venue answered
+                    # and the answer was too short to score (a fresh listing,
+                    # a thin book), which is neither an error nor a symbol
+                    # that was read — so a `Scanned` count beside `Errors 0`
+                    # said a complete sweep had found nothing in symbols
+                    # nobody could measure.
+                    too_short += 1
                 continue
 
             scanned += 1
@@ -3449,13 +3561,37 @@ class DeepScanSkill(BaseSkill):
         def _ds_kv(k: str, v: str, w: int = 22) -> str:
             dots = "\u00b7" * max(1, w - len(k) - len(str(v)))
             return f"  {k} {dots} {v}"
-        lines.append(_ds_kv("Scanned", f"{scanned}/{len(full_universe) * len(tf_list)}"))
+        _total = len(full_universe) * len(tf_list)
+        lines.append(_ds_kv("Scanned", f"{scanned}/{_total}"))
         lines.append(_ds_kv("Hits", str(len(hits))))
         lines.append(_ds_kv("Errors", str(errors)))
+        # THE PARTIAL SAYS IT IS ONE. A `Scanned` row alone reads as a
+        # complete sweep that found little; the row below is the difference
+        # between "the market is quiet" and "we ran out of time". Printed only
+        # when something really was left unreached, because a row that appears
+        # when nothing is wrong is how a reader learns to skip the next one.
+        if unreached:
+            lines.append(_ds_kv("Not reached", f"{unreached} (time budget)"))
+        if too_short:
+            lines.append(_ds_kv("Too little history", str(too_short)))
         lines.append("</pre>")
+        if unreached:
+            lines.append(
+                f"\u23f1 <i>Stopped at the {_budget or 0:.0f}s budget — "
+                f"{scanned} of {_total} symbols were read. "
+                f"The {unreached} not reached are unknown, not quiet.</i>")
+            lines.append("")
 
         if not top:
-            lines.append(f"\n  {_NEU} <i>No actionable patterns detected.</i>")
+            # "No actionable patterns detected" is a claim about the UNIVERSE.
+            # Over a partial sweep it is a claim about symbols nobody looked
+            # at — the confident negative this file's rule is named for — so
+            # the sentence is scoped to what was actually read.
+            lines.append(
+                f"\n  {_NEU} <i>No actionable patterns detected.</i>"
+                if not unreached else
+                f"\n  {_NEU} <i>No actionable patterns in the {scanned} read."
+                f" The {unreached} not reached are unknown.</i>")
             lines.append(f"\n<i>\U0001f551 {now}</i>")
             return "\n".join(lines)
 
