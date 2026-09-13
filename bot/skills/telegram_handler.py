@@ -3616,13 +3616,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # variable drives intent parsing and command routing above, and
         # rewriting it there would change what the bot thinks you asked for.
         # Ordinary messages come back byte-identical (see defang_if_flagged).
-        from bot.guardian.firewall import defang_if_flagged
-        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
+        #
+        # One seam, both transports. This was two statements here and the
+        # second one alone on the web, so the verdict the web had just sealed
+        # to the audit chain changed nothing about what its model read.
+        from bot.guardian.firewall import hardened_prompt
+        _prompt_text = hardened_prompt(text, fw_verdict)
         # `intent` was classified three hundred lines up and carried the
         # turn's shape the whole way down here, where the prompt that names
         # its vocabulary finally reads it.
         answer, _meta = await self._llm_chat(
-            _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
+            _prompt_text, user_id=tg_id, user_name=user_name,
             is_admin=_is_admin_caller, reply_lang=_reply_lang, return_meta=True,
             reply_mode=getattr(intent, "reply_mode", ""),
             on_event=_stream.on_event if _stream is not None else None)

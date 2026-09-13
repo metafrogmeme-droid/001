@@ -252,6 +252,44 @@ def test_the_capability_answer_is_derived_from_the_permission_table():
     assert set(SKILL_SAYS) == set(SKILL_PERMISSION)
 
 
+def test_the_seam_it_names_has_the_callers_it_claims():
+    """"the free-text, vision and public paths all read it".
+
+    `defang_if_flagged` having ONE caller is the defect this paragraph is
+    about, so a claim that a seam is shared must be counted, not remembered.
+    """
+    import ast
+    import inspect
+
+    from bot.web import user_gateway as ug
+    from tests.source_scan import code_only
+
+    # Whitespace-NORMALISED, because the claim wraps across two lines in the
+    # markdown and a wrapped phrase is not one substring — the "asserting a
+    # short string" misfire, in the present direction: the first draft of
+    # this pin failed on prose that was there.
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "the free-text, vision and public paths all read it" in flat
+    names = {"hardened_prompt", "_harden_v", "_harden_pub"}
+    calls = sum(
+        1 for n in ast.walk(ast.parse(code_only(inspect.getsource(ug))))
+        if isinstance(n, ast.Call)
+        and (n.func.id if isinstance(n.func, ast.Name)
+             else getattr(n.func, "attr", "")) in names)
+    assert calls >= 3, f"the web has {calls} caller(s) of the shared seam"
+
+
+def test_the_firewall_defaults_are_the_way_round_it_says():
+    """The paragraph corrects a comment that named the wrong half as off. If
+    the defaults ever flip, the correction becomes the new false statement."""
+    from bot.config import CONFIG
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "`guardian_firewall_enabled` defaults to **True**" in flat
+    assert getattr(CONFIG.risk, "guardian_firewall_enabled", None) is True
+    assert getattr(CONFIG.risk, "guardian_firewall_block_high", None) is False
+
+
 def test_the_four_records_it_names_all_exist_and_differ():
     from bot.nlp import skill_memory as sm
 

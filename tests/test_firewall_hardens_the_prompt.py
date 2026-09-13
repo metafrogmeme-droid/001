@@ -132,6 +132,18 @@ class TestItIsActuallyReached:
     The behaviour is covered by the classes above; this locks the WIRING —
     exactly the split CLAUDE.md prescribes for a guard being reached at its
     call site.
+
+    **AND IT WAS ONE FILE SHORT, for as long as it existed.** It reads
+    `telegram_handler.py` and says it "locks the WIRING" — of one transport.
+    The web gateway computed the same verdict, sealed it to the audit chain
+    and handed the model the raw text through the denylist alone, and nothing
+    here could see that. `tests/test_both_surfaces_harden_what_the_model_reads
+    .py` is the other half: it DRIVES both surfaces (and the public one, which
+    had no scan at all) rather than scanning either, because a scan cannot see
+    reachability, which is the one thing this class is being asked about.
+
+    What stays here is the pair of rules that are genuinely ABOUT this file —
+    the initialisation order, and that the ROUTED text is never rewritten.
     """
 
     def test_the_llm_path_hardens_before_it_prompts(self):
@@ -139,11 +151,15 @@ class TestItIsActuallyReached:
             encoding="utf-8")
         code = "\n".join(ln for ln in src.split("\n")
                          if not ln.strip().startswith("#"))
-        assert "defang_if_flagged(text, fw_verdict)" in code, (
+        # `hardened_prompt` is the shared seam: defang the verdict's finding,
+        # then the denylist. Telegram did the two in two statements and the
+        # web did only the second, which is why they are one call now.
+        assert "hardened_prompt(text, fw_verdict)" in code, (
             "the free-text LLM call must harden with the verdict the firewall "
             "just produced")
-        # And it must feed the SANITISER, not sit beside it unused.
-        assert re.search(r"_sanitize_chat_input\(\s*_prompt_text\s*\)", code), (
+        # And what it produces must be what reaches the model, not sit beside
+        # it unused — the shape of the original defect, one variable over.
+        assert re.search(r"_llm_chat\(\s*\n?\s*_prompt_text\b", code), (
             "the hardened text must be what reaches the model")
 
     def test_the_verdict_is_initialised_before_the_scan_can_fail(self):
@@ -163,14 +179,35 @@ class TestItIsActuallyReached:
         Rewriting it in place would change what the bot thinks you asked for —
         a hardening step that silently edits a trade instruction is a worse
         bug than the one being fixed.
+
+        **It was one spelling short.** The rule was a regex for `defang`,
+        so `text = hardened_prompt(...)` — the shared seam, the thing every
+        surface calls now — walked straight past it, and the mutation that
+        overwrote the routed text survived a green suite. A guard written
+        against ONE function name does not notice when the name changes; the
+        shape is the assignment, not the callee, so it is read as an AST over
+        BOTH surfaces rather than a regex over one.
         """
-        src = (REPO / "bot" / "skills" / "telegram_handler.py").read_text(
-            encoding="utf-8")
-        code = "\n".join(ln for ln in src.split("\n")
-                         if not ln.strip().startswith("#"))
-        assert not re.search(r"^\s*text\s*=\s*defang", code, re.M), (
-            "defang must produce a separate prompt string, never overwrite the "
-            "text the router reads")
+        import ast
+
+        from tests.source_scan import code_only
+
+        hardeners = {"defang", "defang_if_flagged", "hardened_prompt",
+                     "_harden_v", "_harden_pub"}
+        for rel in ("bot/skills/telegram_handler.py", "bot/web/user_gateway.py"):
+            tree = ast.parse(code_only((REPO / rel).read_text(encoding="utf-8")))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+                    continue
+                callee = (node.value.func.id
+                          if isinstance(node.value.func, ast.Name)
+                          else getattr(node.value.func, "attr", ""))
+                if callee not in hardeners:
+                    continue
+                for t in node.targets:
+                    assert not (isinstance(t, ast.Name) and t.id == "text"), (
+                        f"{rel}:{node.lineno} overwrites the text the router "
+                        "reads; hardening must produce a SEPARATE prompt string")
 
 
 class TestDefangItself:

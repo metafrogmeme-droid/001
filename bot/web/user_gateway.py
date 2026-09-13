@@ -440,8 +440,24 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # dispatch skills) exactly like Telegram, so the same input-provenance gate
     # applies here. Telemetry-first + fail-open: the engine records a FIREWALL
     # verdict to the tamper-evident chain and returns it; a message is only
-    # refused when the operator has opted into blocking HIGH verdicts. Default
-    # OFF (no scan) — this can never break a chat.
+    # refused when the operator has opted into blocking HIGH verdicts.
+    #
+    # `guardian_firewall_enabled` defaults to TRUE, so this scan really runs on
+    # a stock deploy; it is `guardian_firewall_block_high` that is off. This
+    # comment used to say "Default OFF (no scan)", which named the wrong half
+    # — and the half it named wrong is the one that makes the verdict matter,
+    # because for months the ONLY reader of `fw_verdict` here was the refusal
+    # branch that default keeps shut. The verdict is applied to the prompt at
+    # every LLM call below now, which is what the scan was for.
+    # Initialised BEFORE the try, or a scan that raises leaves the name
+    # undefined at the LLM call below and the whole turn dies with an
+    # UnboundLocalError. Telegram has carried `fw_verdict = None` above its
+    # own try since its fix; the web did not need it while nothing after the
+    # try read the name — which is the whole defect this change removes, so
+    # wiring the reader without this line reintroduces the crash it prevents.
+    # Found by driving a raising scan, not by reading; the first draft of this
+    # very fix shipped without it.
+    fw_verdict = None
     try:
         fw_verdict = engine.firewall_scan(text, source="web", user_id=tg_id)
         if fw_verdict and fw_verdict.get("risk") == "high" \
@@ -467,7 +483,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             return web.json_response({
                 "reply_html": "📷 Image analysis is available to the operator only.",
                 "intent": "vision_denied"})
-        from bot.nlp.sanitize import sanitize_chat_input as _san_v
+        # Same seam as the free-text path. The caption is user text on a turn
+        # that also carries an image, so it is exactly as steerable; and when
+        # the caption is empty `_q` is OUR OWN default, which the scan clears
+        # and the seam returns byte-identical.
+        from bot.guardian.firewall import hardened_prompt as _harden_v
         _q = text or (
             "Read this trading screenshot. If it's a chart, describe the "
             "structure, trend, key levels and any setup or risk you see. If "
@@ -477,7 +497,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             tg_id, "user", text or "[image]",
             metadata={"intent": "vision", "surface": "web"})
         answer, meta = await tg_handler._llm_chat(
-            _san_v(_q), user_id=tg_id, user_name=name,
+            _harden_v(_q, fw_verdict), user_id=tg_id, user_name=name,
             is_admin=True, profile_note=profile_note, reply_lang=reply_lang,
             return_meta=True, images=images)
         tg_handler.conversations.append(
@@ -817,7 +837,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                 _quota, lang=_ui_lang(reply_lang), surface="web"),
             "intent": "quota_exceeded", "quota": _quota}, status=200)
 
-    from bot.nlp.sanitize import sanitize_chat_input
+    # The scan's finding, then the denylist — the same seam Telegram reads.
+    # The RAW text is what goes to memory and to the router, exactly as on
+    # Telegram: hardening that rewrote the stored turn would change what a
+    # later turn thinks the user asked for.
+    from bot.guardian.firewall import hardened_prompt
     tg_handler.conversations.append(tg_id, "user", text,
                                     metadata={"intent": intent.skill or "chat",
                                               "surface": "web"})
@@ -825,7 +849,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # non-admin guard (operator Anthropic key stays admin-only) and the
     # fallback-chain gate in _llm_chat both key off this flag.
     answer, meta = await tg_handler._llm_chat(
-        sanitize_chat_input(text), user_id=tg_id, user_name=name,
+        hardened_prompt(text, fw_verdict), user_id=tg_id, user_name=name,
         is_admin=_is_admin,
         profile_note=profile_note, reply_lang=reply_lang, return_meta=True,
         surface="web",
@@ -981,9 +1005,30 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
             "intent": "public_scan_gate"})
 
     from bot.nlp.intent_router import detect_reply_mode
-    from bot.nlp.sanitize import sanitize_chat_input
+
+    # This surface had NO input-provenance gate at all — the weaker version of
+    # the defect one route up, where a verdict was computed and applied to
+    # nothing. It cannot act (no tools, no account, no dispatch), which is why
+    # it never got one; but it answers an anonymous visitor in the product's
+    # voice, and a smuggled role turn steers THAT just as well. The scan is
+    # pure regex and stdlib, so it costs a public request nothing measurable.
+    #
+    # Fail-open in the only direction that is safe: no engine on the app, or a
+    # scan that raises, leaves the verdict None — and `hardened_prompt` with a
+    # None verdict still runs the denylist, which is exactly what this path
+    # had before. It cannot come out worse than it went in.
+    _pub_engine = request.app.get("engine")
+    _pub_verdict = None
+    try:
+        if _pub_engine is not None:
+            _pub_verdict = _pub_engine.firewall_scan(
+                text, source="web_public", user_id="")
+    except Exception:
+        _pub_verdict = None
+
+    from bot.guardian.firewall import hardened_prompt as _harden_pub
     answer = await tg_handler._llm_chat(
-        sanitize_chat_input(text), user_id="", user_name="",
+        _harden_pub(text, _pub_verdict), user_id="", user_name="",
         is_admin=False, public=True, reply_lang=reply_lang,
         # Detected here rather than read off an intent, because this path has
         # no intent to read: an anonymous visitor has no account to dispatch a
@@ -1053,6 +1098,13 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
     from bot.core.contract_studio import (
         build_generation_prompt, scan_security_flags, flags_summary,
         AUDIT_DISCLAIMER)
+    # The denylist alone, DELIBERATELY — this is the one text-to-model path in
+    # this file that does not go through `hardened_prompt`, and the reason is
+    # what the text IS. A contract spec is a description of code: "system:"
+    # names a Solidity role, `\u200b` does not occur in one, and `defang`
+    # rewrites what it flags, so hardening here would edit the specification
+    # the user is paying to have generated. The three chat paths above harden
+    # because their text is a message; this one stays a document.
     from bot.nlp.sanitize import sanitize_chat_input
     prompt = build_generation_prompt(sanitize_chat_input(spec), license=lic,
                                      pragma=pragma)
