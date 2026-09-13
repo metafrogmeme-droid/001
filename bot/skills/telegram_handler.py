@@ -145,6 +145,48 @@ def _live_position_row(p, mark) -> str:
     sl = _read_price(getattr(p, "stop_loss", None))
     tp = _read_price(getattr(p, "take_profit", None))
 
+    provenance = []
+    if bool(getattr(p, "unprotected", False)):
+        provenance.append("UNPROTECTED: no stop could be placed on the venue — "
+                          "tell the user to place one now")
+    src = str(getattr(p, "sl_tp_source", "") or "")
+    if src == "default":
+        provenance.append("SL/TP are the bot's 3%/6% SAFETY DEFAULTS placed at "
+                          "adoption, not strategy levels")
+    elif src == "inherited":
+        provenance.append("SL/TP inherited from the bot's own strategy record")
+    elif src == "exchange":
+        provenance.append("SL/TP are the exchange's own levels")
+
+    parts = _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark,
+                                is_short=is_short, side=side, after_tp=provenance)
+
+    if origin == "adopted":
+        parts.append("ADOPTED from the exchange, not opened by this bot")
+    elif origin == "reclaimed":
+        parts.append("the bot's own order, re-tracked after a restart")
+    if unread:
+        # WHY a field is not on record, when adoption recorded the reason:
+        # the bot's record does not hold it because the venue never said.
+        parts.append(f"the venue did not state {', '.join(unread)} at "
+                     "adoption — do not estimate them")
+
+    return f"  - {direction or '?'} {getattr(p, 'symbol', '?')}: " + ", ".join(parts)
+
+
+def _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark, *,
+                        is_short: bool, side: str, after_tp=()) -> list:
+    """The three-valued fields of ONE position row, live or paper.
+
+    Extracted from `_live_position_row` so the paper row renders through the
+    same words: the paper arm of the prompt had its own inline row — `SL
+    ${pos.stop_loss:,.4f}` with no reading, `size` under the two-meanings
+    name `position_size_basis` retired, a header claiming "(live data)" over
+    simulated money — every defect the live row was rewritten to remove,
+    kept alive one branch over. One renderer, two vocabularies feeding it.
+    ``after_tp`` is the live row's provenance (UNPROTECTED, SL/TP source),
+    slotted where it has always printed.
+    """
     parts = [
         f"entry ${entry:,.4f}" if entry is not None else "entry NOT ON RECORD",
         f"qty {qty:g}" if qty is not None else "qty NOT ON RECORD",
@@ -156,26 +198,21 @@ def _live_position_row(p, mark) -> str:
     parts.append(f"SL ${sl:,.4f}" if sl is not None
                  else "SL NONE ON RECORD (no stop known for this position — do not describe one)")
     parts.append(f"TP ${tp:,.4f}" if tp is not None else "TP NONE ON RECORD")
+    parts.extend(after_tp)
 
-    if bool(getattr(p, "unprotected", False)):
-        parts.append("UNPROTECTED: no stop could be placed on the venue — "
-                     "tell the user to place one now")
-    src = str(getattr(p, "sl_tp_source", "") or "")
-    if src == "default":
-        parts.append("SL/TP are the bot's 3%/6% SAFETY DEFAULTS placed at "
-                     "adoption, not strategy levels")
-    elif src == "inherited":
-        parts.append("SL/TP inherited from the bot's own strategy record")
-    elif src == "exchange":
-        parts.append("SL/TP are the exchange's own levels")
-
-    mk = (mark if isinstance(mark, (int, float)) and not isinstance(mark, bool)
-          and mark > 0 else None)
+    # A NUMBER, positive AND finite. The row's own check was `mark > 0`,
+    # which an infinity passes — "MARK $inf, price move +inf%" is a number
+    # the model repeats — and a string is junk here, not a price: marks come
+    # from the ws snapshot as floats, and `_read_price` alone would read
+    # "63000" as one.
+    mk = (_read_price(mark) if isinstance(mark, (int, float)) and not isinstance(mark, bool)
+          else None)
     if mk is None:
         # Stated, not omitted. An omitted mark is a gap the model fills from
         # the entry price or from its weights.
-        parts.append("MARK UNAVAILABLE — you do NOT know this position's "
-                     "current price or whether it is up or down; say so")
+        parts.append("MARK UNAVAILABLE — CURRENT PRICE UNAVAILABLE: you do NOT know "
+                     "this position's current price or whether it is up or down; "
+                     "say so, and do not estimate it")
     else:
         parts.append(f"MARK ${mk:,.4f}")
         if entry is None:
@@ -197,22 +234,68 @@ def _live_position_row(p, mark) -> str:
                 parts.append(f"unrealized ${upnl:+,.2f}")
             else:
                 parts.append("unrealized $ NOT COMPUTABLE (quantity not on record)")
+    return parts
 
-    if origin == "adopted":
-        parts.append("ADOPTED from the exchange, not opened by this bot")
-    elif origin == "reclaimed":
-        parts.append("the bot's own order, re-tracked after a restart")
-    if unread:
-        # WHY a field is not on record, when adoption recorded the reason:
-        # the bot's record does not hold it because the venue never said.
-        parts.append(f"the venue did not state {', '.join(unread)} at "
-                     "adoption — do not estimate them")
 
-    return f"  - {direction or '?'} {getattr(p, 'symbol', '?')}: " + ", ".join(parts)
+def _paper_position_row(pos, mark) -> str:
+    """One ACTIVE POSITIONS line for a PAPER position — the live row's rules,
+    read from the paper book's vocabulary.
+
+    The paper `TradeExecution` names the asset ``asset`` (not ``symbol``),
+    carries ``direction`` as an enum, stores ``leverage`` as a plain float
+    (1.0 is spot, and it is the recorded value, not a fallback) and has no
+    ``cost_usd``: the paper book defines margin as ``entry x quantity /
+    leverage``, so it is DERIVED here and only from fields that were read —
+    an entry, a quantity or a leverage that is not on record leaves the
+    margin NOT ON RECORD rather than a zero. A stop of ``0.0`` is what the
+    record holds where none was set (`_read_price`), and it prints as no
+    stop on record, never as a stop at $0.0000. Nothing here raises on a
+    None: the old inline row did, and the `except` around the block then
+    replaced BOTH the positions and the closed trades with "could not be
+    read".
+    """
+    d = getattr(pos, "direction", "")
+    direction = str(getattr(d, "value", d) or "").upper()
+    is_short = direction.startswith("S")
+    side = "SHORT" if is_short else "LONG"
+    entry = _read_price(getattr(pos, "entry_price", None))
+    qty = _read_price(getattr(pos, "quantity", None))
+    lev = _read_price(getattr(pos, "leverage", None))
+    notional = entry * qty if entry is not None and qty is not None else None
+    margin = notional / lev if notional is not None and lev is not None else None
+    sl = _read_price(getattr(pos, "stop_loss", None))
+    tp = _read_price(getattr(pos, "take_profit", None))
+    parts = _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark,
+                                is_short=is_short, side=side)
+    return f"  - {direction or '?'} {getattr(pos, 'asset', '?')}: " + ", ".join(parts)
+
+
+_MISSING = object()
+
+
+def _first_attr(obj, *names):
+    """The first of ``names`` the object defines, or None — the live and
+    paper close records name the same field differently (``close_price`` /
+    ``exit_price``, ``pnl_usd`` / ``pnl``, ``symbol`` / ``asset``), and a
+    reader that knows one vocabulary prints the other as a row of absences."""
+    for name in names:
+        v = getattr(obj, name, _MISSING)
+        if v is not _MISSING:
+            return v
+    return None
 
 
 def _closed_trade_line(t) -> str:
     """One RECENT CLOSED TRADES line, three-valued where the record is.
+
+    Reads BOTH close vocabularies (`_first_attr`): the paper arm of the
+    prompt had its own inline row — `exit ${t.exit_price:,.4f}, PnL
+    ${t.pnl:+,.2f}` — with none of this function's readings, and an
+    `exit_price` of None (a paper close whose exit was never recorded)
+    raised inside the block and took the whole section with it. The close
+    time is printed when the record carries one, because "when did I close
+    it" is otherwise answered from the model's imagination; a record with
+    no timestamp says so.
 
     `exit_px = t.close_price or t.entry_price` rendered an UNPRICED close as
     having exited AT ITS ENTRY. `close_position` books `close_price=None`,
@@ -231,8 +314,8 @@ def _closed_trade_line(t) -> str:
     exception's text is not something to hand a model to repeat.
     """
     entry = _read_price(getattr(t, "entry_price", None))
-    exit_ = _read_price(getattr(t, "close_price", None))
-    pnl = getattr(t, "pnl_usd", None)
+    exit_ = _read_price(_first_attr(t, "close_price", "exit_price"))
+    pnl = _first_attr(t, "pnl_usd", "pnl")
     try:
         pnl_f = None if pnl is None else float(pnl)
     except (TypeError, ValueError):
@@ -249,10 +332,17 @@ def _closed_trade_line(t) -> str:
     reason = str(getattr(t, "close_reason", "") or "")
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]{0,23}", reason):
         parts.append(f"closed via {reason}")
+    closed_at = getattr(t, "closed_at", None)
+    if isinstance(closed_at, datetime):
+        parts.append(f"closed {closed_at:%Y-%m-%d %H:%M} UTC")
+    else:
+        parts.append("close time not on record")
     if str(getattr(t, "origin", "") or "") == "adopted":
         parts.append("adopted from the exchange, not opened by this bot")
-    direction = str(getattr(t, "direction", "") or "").upper()
-    return f"  - {direction or '?'} {getattr(t, 'symbol', '?')}: " + ", ".join(parts)
+    d = getattr(t, "direction", "")
+    direction = str(getattr(d, "value", d) or "").upper()
+    symbol = _first_attr(t, "symbol", "asset") or "?"
+    return f"  - {direction or '?'} {symbol}: " + ", ".join(parts)
 
 
 def _live_positions_block(executor, marks: dict | None = None) -> str:
@@ -317,11 +407,22 @@ def _live_positions_block(executor, marks: dict | None = None) -> str:
     # and has not seen fill. Not a holding, and not confirmed against the
     # exchange on this read.
     if pending:
-        plines = [
-            f"  - {p.direction} {p.symbol}: limit ${p.entry_price:,.4f}, "
-            f"SL ${p.stop_loss:,.4f}, TP ${p.take_profit:,.4f}"
-            for p in pending
-        ]
+        # Three-valued like the position row: the f-string this replaces
+        # printed a placeholder 0.0000 as a level and RAISED on a None, and
+        # the `except` around the whole block then replaced every section
+        # with "could not be read".
+        plines = []
+        for p in pending:
+            lim = _read_price(getattr(p, "entry_price", None))
+            psl = _read_price(getattr(p, "stop_loss", None))
+            ptp = _read_price(getattr(p, "take_profit", None))
+            plines.append(
+                f"  - {getattr(p, 'direction', '?')} {getattr(p, 'symbol', '?')}: "
+                + ", ".join([
+                    f"limit ${lim:,.4f}" if lim is not None else "limit price NOT ON RECORD",
+                    f"SL ${psl:,.4f}" if psl is not None else "SL NONE ON RECORD",
+                    f"TP ${ptp:,.4f}" if ptp is not None else "TP NONE ON RECORD",
+                ]))
         out += ("\n\nUNFILLED LIMIT ORDERS (the bot's own record, NOT "
                 "confirmed against the exchange just now, and NOT "
                 "positions -- the user does NOT hold these):\n"
@@ -1656,7 +1757,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         portfolio_summary = (
             "could not be read just now — do not quote an equity, P&L, win "
             "rate or trade count; say the portfolio could not be confirmed")
-        engine_state = ""
+        # NOT "" either: build_context_prompt OMITS an empty engine state, so
+        # a fault before the mode is read deleted the live/paper/halted line
+        # in silence and the model answered "you can trade" from history.
+        engine_state = ("could not be read — do not tell the user whether "
+                        "trading is live, paper or halted; say it could not "
+                        "be confirmed")
         # NOT "". The whole block below sits inside a broad `except
         # Exception`, so ANY error in it silently drops this section — and the
         # comment at the injection site says "NEVER leave this section blank
@@ -1785,10 +1891,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _pws = _win_stats(getattr(user_portfolio, 'trade_history', []))
                 _wr_paper = ("not measurable" if _pws["rate"] is None
                              else f"{_pws['rate']:.0%}")
+                # `total_pnl` is a float that defaults to 0.0, so an account
+                # with no closed trade read "total PnL $+0.00" — a measured
+                # break-even on money never risked. The count decides.
+                _tp_ctx = (f"total PnL ${state.total_pnl:+,.2f}"
+                           if state.total_trades
+                           else "total PnL: no closed trades yet, so none to report")
                 portfolio_summary = (
                     f"{state.open_positions} open positions, "
-                    f"equity ~${eq_display:,.2f}, "
-                    f"total PnL ${state.total_pnl:+,.2f}, "
+                    f"equity ~${eq_display:,.2f} (PAPER — a simulated account, "
+                    "not real money), "
+                    f"{_tp_ctx}, "
                     f"win rate {_wr_paper}"
                     + (f" (over {_pws['scored']} of {state.total_trades} — "
                        f"{_pws['unscored']} have no recorded P&L)"
@@ -1848,48 +1961,34 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # paper rows or into "none right now", which is what a READ flat
             # book says.
             elif not is_live and user_portfolio.open_positions:
-                pos_lines = []
-                for pos in user_portfolio.open_positions:
-                    # THE WORST PLACE TO INVENT A NUMBER. This text is the
-                    # model's evidence about the user's own money. With the old
-                    # `.get(asset, entry_price)` an unpriced position arrived as
-                    # "current $<entry>, PnL +0.00% ($0.00)" — and the model,
-                    # having no way to know that was a fallback, would tell the
-                    # user their position is flat. A fabrication laundered
-                    # through natural language is harder to catch than a wrong
-                    # number on a card, because the sentence sounds considered.
-                    _mark = user_portfolio._last_prices.get(pos.asset)
-                    _priced = _mark is not None and _mark > 0
-                    size_usd = pos.quantity * pos.entry_price
-                    if _priced:
-                        last_px = _mark
-                        if pos.direction.value == "LONG":
-                            pnl_pct = ((last_px - pos.entry_price) / pos.entry_price) * 100
-                        else:
-                            pnl_pct = ((pos.entry_price - last_px) / pos.entry_price) * 100
-                        pnl_usd = size_usd * pnl_pct / 100
-                        _mark_txt = (f"current ${last_px:,.4f}, size ${size_usd:,.2f}, "
-                                     f"PnL {pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
-                    else:
-                        # Say it in words the model will repeat rather than
-                        # round off. "unknown" invites a guess; this does not.
-                        _mark_txt = (f"size ${size_usd:,.2f}, CURRENT PRICE UNAVAILABLE "
-                                     f"— P&L cannot be computed for this position, "
-                                     f"do not estimate it")
-                    pos_lines.append(
-                        f"  - {pos.direction.value} {pos.asset}: "
-                        f"entry ${pos.entry_price:,.4f}, {_mark_txt}, "
-                        f"SL ${pos.stop_loss:,.4f}, TP ${pos.take_profit:,.4f}"
-                    )
+                # THE WORST PLACE TO INVENT A NUMBER. This text is the model's
+                # evidence about the user's own money. With the old
+                # `.get(asset, entry_price)` an unpriced position arrived as
+                # "current $<entry>, PnL +0.00% ($0.00)" — and the model,
+                # having no way to know that was a fallback, would tell the
+                # user their position is flat. The row is the live row's
+                # renderer now (`_paper_position_row`): the inline version
+                # printed `SL $0.0000` as a stop, `size` under the retired
+                # two-meanings name, and a header reading "(live data)" over
+                # simulated money — and it RAISED on a None stop, which the
+                # `except` below turned into "could not be read" for the
+                # positions AND the closed trades at once. The mark is the
+                # paper book's own last price, absent -> stated.
+                pos_lines = [
+                    _paper_position_row(pos, user_portfolio._last_prices.get(pos.asset))
+                    for pos in user_portfolio.open_positions
+                ]
                 positions_detail = (
-                    "\n\nACTIVE POSITIONS (live data):\n" +
+                    "\n\nACTIVE POSITIONS (PAPER — a simulated account, not real "
+                    "money; every figure below is simulated):\n" +
                     "\n".join(pos_lines)
                 )
             elif not is_live:
                 positions_detail = (
-                    "\n\nACTIVE POSITIONS: none right now. Do not reference "
-                    "any open position -- if the user asks about a specific "
-                    "symbol, treat it as a fresh question, not an existing trade."
+                    "\n\nACTIVE POSITIONS (PAPER — a simulated account): none right "
+                    "now. Do not reference any open position -- if the user asks "
+                    "about a specific symbol, treat it as a fresh question, not an "
+                    "existing trade."
                 )
 
             # Inject recent closed trades
@@ -1920,15 +2019,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             elif not is_live:
                 recent_trades = user_portfolio.trade_history[-5:]
                 if recent_trades:
-                    trade_lines = []
-                    for t in recent_trades:
-                        trade_lines.append(
-                            f"  - {t.direction.value} {t.asset}: "
-                            f"entry ${t.entry_price:,.4f}, exit ${t.exit_price:,.4f}, "
-                            f"PnL ${t.pnl:+,.2f}"
-                        )
+                    # The live row's renderer, reading the paper vocabulary:
+                    # the inline row printed an unrecorded exit as $0.0000
+                    # and raised on a None, and carried no PAPER label and no
+                    # close time.
+                    trade_lines = [_closed_trade_line(t) for t in recent_trades]
                     positions_detail += (
-                        "\n\nRECENT CLOSED TRADES:\n" +
+                        "\n\nRECENT CLOSED TRADES (PAPER — simulated fills):\n" +
                         "\n".join(trade_lines)
                     )
         except Exception:
