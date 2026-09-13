@@ -821,6 +821,37 @@ verdicts across the whole corpus, because no decoy ENDED in a routed phrase.
 Drive the anchor the way the router does (`.search` with a leading word), and
 put decoys in the table that end in the phrase.
 
+**The paper branch of the prompt kept every defect the live rows were
+rewritten to remove.** `_live_position_row` and `_closed_trade_line` exist so
+the model's evidence about the user's money is three-valued in WORDS, and
+the paper arm of the same builder, twenty lines below, had its own inline
+rows: `SL ${pos.stop_loss:,.4f}` with no reading (a stop the record holds as
+`0.0` printed as a stop at $0.0000), `size` under the two-meanings name
+`position_size_basis` retired, a header claiming "(live data)" over simulated
+money, `exit ${t.exit_price:,.4f}` with no reading, no PAPER label anywhere,
+and a raise on any None that the `except` around the whole block turned into
+"could not be read" for the positions AND the closed trades at once. The
+summary line printed `total PnL $+0.00` on an account that had never closed
+a trade, and `engine_state` defaulted to `""` — which the context builder
+OMITS, so a fault before the mode was read deleted the live/paper/halted line
+in silence and the model answered "you can trade" from history. The fix is
+one renderer with two vocabularies: `_position_row_parts` is the live row's
+body, `_paper_position_row` feeds it the paper book's fields (`asset`, an enum
+`direction`, a plain-float `leverage`, a margin DERIVED as entry × quantity /
+leverage from fields that were read), and `_closed_trade_line` reads both
+close vocabularies (`close_price`/`exit_price`, `pnl_usd`/`pnl`,
+`symbol`/`asset`) with the live name winning when a record carries both. A
+second copy of a row is a second answer, and this one had been drifting for
+months. Extracting the core found a hole in the live row too: its mark check
+was `mark > 0`, which an infinity passes — "MARK $inf, price move +inf%".
+**Two of the shipped assertions were wrong before the code was**: a
+must_not_say of `"RECENT CLOSED TRADES"` matched the base prompt's own
+grounding rule, which names the section in prose, and the first mark check
+accepted the string `"63000"` as a price because `_read_price` reads numeric
+strings — marks come from the ws snapshot as floats, and a string there is
+junk, not a price. Anchor to the section's own header, and keep the type
+check beside the range check.
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live
