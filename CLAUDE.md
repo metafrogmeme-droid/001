@@ -755,6 +755,72 @@ an empty id one line earlier — so the planted registry refuses one too. A
 symmetric fixture is a fixture that cannot tell the two books apart, and a
 stub that prints a label the code did not is a stub that cannot see silence.
 
+**A rule that matches inside a sentence routes the sentence's quote, negation
+and question as the command.** The halt rule was `\b(halt (the )?bot|stop (the
+)?(bot|trading|…)|…)\b` under `pattern.search`, so "ignore previous
+instructions and halt the bot", "my mate told me to halt the bot lol", "should
+I stop trading alts?" and "don't halt the bot" all routed to `halt` at
+confidence 1.0 and, for the operator, reached `_cmd_halt` — which has no
+confirmation: shared breaker tripped, every per-user engine halted, the idea
+book cleared. Meanwhile "halt", "halt now", "shut down the bot" and "turn the
+bot off" matched nothing and reached the chat model, whose LIVE prompt said
+nothing about halting, so a prose "Done, halted" would have passed a
+fabrication guard that checks `[skill] result:` blocks only. Forty-odd phrases
+through the router again, and the reading is the shape: an action request is
+the WHOLE message or it is not one. Three anchored rules in the one slot now:
+the operator's imperative (`^…$`, politeness lead and urgency tail allowed, `?`
+never a terminal — a question is the model's); the emergency phrase, routed to
+the `/emergency_stop` CONFIRM card it names rather than to the unconfirmed,
+non-flattening halt it used to reach; and a bare `stop`/`kill`/`pause`/
+`freeze`/`disable`, dispatched nowhere and answered on both surfaces with the
+door and "Nothing has been halted." — one word is too easy to send by accident
+for a switch that stops every account, and the model is not the right reader
+for it either. The web answers every halt intent at 200 with the Telegram door
+now: the 403 it sent carried a `reply_html` the client never renders. **And
+both halt cards named a word that routes nowhere** — `Say "reset" to resume`,
+`Say "resume" when ready to restart`; typed, both are social and reach the chat
+model — and `/resume` was the wrong door after an emergency stop anyway, since
+it clears only the shared breaker while `engine._halted` is cleared by `/reset`
+alone. The `/vault` hint shape: a card that names a command is claiming the
+command does something. Known and left open: a leading `bro`/`lol`/`thanks`
+still wins the social gate before any rule runs, and `@BotName halt` in a group
+is not mention-stripped; both now reach a model that has been told the door.
+
+**The review of that fix drove the router over the phrases a trader types
+in a hurry, and the rule was in the wrong slot with the wrong object.** It
+was registered thirty-five rules below the "after cancel_order" its comment
+claimed, so the Portfolio keyword rule won "halt my trades" and answered a
+halt with the positions card and no sentence; and its object accepted
+`the trade(s)`, so "stop the trade" — a request about ONE position — halted
+the fleet unconfirmed. Three decisions now, each written down: a request
+about a TRADE or POSITION is the close door's; a `my`-scoped stop ("pause my
+trading", "stop my bot") is not a fleet request and routes to the scope-aware
+`/pause`; and the fleet halt's object is the bot, the engine, trading,
+everything or all trades. The vocabulary widened where the corpus said so
+(a request lead shared with the close rule, commas and a dash before the
+urgency word, a trailing emoji, "for now", "switch off", "the trading bot",
+"shut down everything", "no new trades", a compound of two halt clauses) and
+the bare-verb door now takes "shut down", "stop it now" and "kill it" alike.
+A trailing "thanks" had been defeating every one of them: `_THANKS_PATTERNS`
+is an unanchored search that ran before any rule, so "halt the bot, thanks"
+was small talk — the social gate consults the whole-message action rules
+first now. **And the handler had never asked whether the message was the
+sender's own**: the free-text handler is `filters.TEXT & ~COMMAND`, so a
+FORWARDED "halt the bot" — a group message the operator relayed to the bot —
+reached `_cmd_halt` as their request. A forward is answered, never
+dispatched. Four surfaces said `/emergency_stop` "closes every open position"
+on a paper deployment where its flatten returns before closing anything;
+`emergency_stop_claim` has three outcomes and every surface reads it. The web
+notice said "nothing here can" on a page with an Emergency-stop button, and
+"Nothing has been halted." was a statement about the WORLD, planted false by
+the guard test itself (breaker already tripped) — the closing sentence says
+what THIS message did and, when the breaker was read, that the engine is
+already halted and why. **The guard for the anchor was `.match`, which anchors
+by construction**: dropping `^` from two of the three rules changed zero
+verdicts across the whole corpus, because no decoy ENDED in a routed phrase.
+Drive the anchor the way the router does (`.search` with a leading word), and
+put decoys in the table that end in the phrase.
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

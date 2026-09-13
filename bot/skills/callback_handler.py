@@ -619,7 +619,7 @@ class CallbackHandler:
             return
 
         if data == "risk_emergency_stop":
-            rendered = wr_emergency_stop()
+            rendered = wr_emergency_stop(live=CONFIG.is_live())
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Yes, stop everything", callback_data="emergency_confirm"),
                  InlineKeyboardButton("Cancel", callback_data="emergency_cancel")],
@@ -654,7 +654,8 @@ class CallbackHandler:
                 f"• Pending ideas: cleared ({summary.get('pending_cleared', 0)})\n"
                 f"• {flatten_headline(summary.get('accounts', []))}"
                 f"{close_summary}\n\n"
-                f"Say \"resume\" when ready to restart.",
+                f"Use /reset when ready to restart — /resume clears only the shared "
+                f"breaker and leaves the emergency halt flag set.",
                 edit=True)
             audit(system_log, "EMERGENCY STOP executed", action="emergency_stop", result="OK")
             return

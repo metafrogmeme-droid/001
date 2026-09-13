@@ -40,11 +40,12 @@ from bot.core.live_executor import position_size_basis
 # globals; tests/test_chat_runtime_split.py pins both halves.
 from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and callers)
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
-    ACT_INTENTS, ACT_KIND, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
+    ACT_INTENTS, ACT_KIND, HALT_INTENTS, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
-    act_intent_notice, close_intent_notice, reply_contract, thinking_phrase,
+    act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
+    thinking_phrase,
 )
-from bot.nlp.intent_router import symbol_mentioned
+from bot.nlp.intent_router import halt_verb, symbol_mentioned
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
@@ -413,6 +414,36 @@ def _no_live_account_block(absence: str, surface: str = "telegram") -> tuple[str
             "not say they hold nothing; say the account could not be confirmed."
             "\n\nRECENT CLOSED TRADES: could not be read.")
     return summary, detail
+
+
+def _is_forwarded(message) -> bool:
+    """Telegram marks a forward with ``forward_origin`` (python-telegram-bot
+    21+; the older ``forward_date`` is read too). Absent attributes mean "not
+    forwarded", which is what a stub message without them means. A forward
+    carries somebody else's words under the forwarder's authority, so a
+    halt-shaped forward must never reach the guarded commands as the
+    forwarder's own sentence."""
+    return any(getattr(message, k, None) is not None
+               for k in ("forward_origin", "forward_date"))
+
+
+def _engine_halt_state(engine) -> "str | None":
+    """``"running"``, ``"halted[:cause]"`` or None when the breaker could not
+    be read — the three outcomes the halt notice's closing sentence needs, so
+    it can say the engine is ALREADY halted instead of claiming the world is
+    running."""
+    try:
+        risk = engine.risk
+        active = bool(risk.circuit_breaker_active)
+    except Exception:
+        return None
+    if not active:
+        return "running"
+    try:
+        cause = str(getattr(risk, "circuit_trip_cause", "") or "")
+    except Exception:
+        cause = ""
+    return f"halted:{cause}" if cause else "halted"
 
 
 from telegram import (
@@ -3042,10 +3073,40 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 await self._cmd_open_positions(update, ctx)
                 return
 
+            # ── A halt-shaped FORWARD is somebody else's sentence ──
+            # The free-text handler is registered `filters.TEXT & ~COMMAND`,
+            # so a forwarded "halt the bot" — a group message the operator
+            # relayed to the bot — arrived here as the operator's own request
+            # and reached `_cmd_halt` unconfirmed. Answered, never dispatched.
+            if intent.skill in HALT_INTENTS and _is_forwarded(update.message):
+                await self._send(update, forwarded_halt_notice(
+                    _engine_halt_state(self.engine)))
+                return
+
+            # ── A bare stop/kill/pause → the door, never the switch ──
+            # A stop-word with nothing named is too easy to send by accident
+            # for a switch that halts every account (and `_cmd_halt` has no
+            # confirmation), and it is not the model's either: nothing forbade
+            # a prose "Stopped." there. `halt`, `emergency_stop` and `pause`
+            # fall through to the guarded commands below; only the bare verb
+            # is answered here — with the door THIS caller can open (the
+            # operator's /halt, a per-user engine's /pause, or neither) and
+            # whether the engine is already halted.
+            if intent.skill == "halt_ambiguous" and intent.skill in HALT_INTENTS:
+                try:
+                    _scope: "str | None" = self._control_scope(update)[1]
+                except Exception:
+                    _scope = None
+                await self._send(update, halt_intent_notice(
+                    "halt_ambiguous", surface="telegram", verb=halt_verb(intent.raw_text),
+                    live=CONFIG.is_live(), scope=_scope,
+                    engine_state=_engine_halt_state(self.engine)))
+                return
+
             # ── Dangerous intents → their GUARDED command (H3) ──
             # "stop trading", "halt the bot", "kill the bot" and "emergency
-            # stop" are one regex in intent_router.py, and they resolved to the
-            # `halt` SKILL, which the fall-through below executed directly:
+            # stop" were one regex in intent_router.py, and they resolved to
+            # the `halt` SKILL, which the fall-through below executed directly:
             # `skill.execute(...)`. That skips the @guard decorator, so it
             # skipped the role gate — and it skips `_cmd_halt`'s operator check,
             # so it skipped H4's fix too. HaltSkill trips the shared breaker,
@@ -3053,9 +3114,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # transitions the engine to HALTED. A self-admitted stranger typed
             # three words and stopped trading for every account.
             #
-            # Routed rather than re-gated, so there is nothing to keep in sync:
-            # the command owns its authority and free text borrows it. Same
-            # shape as get_orders above.
+            # Three anchored rules now: `halt` reaches `_cmd_halt` (no
+            # confirmation, the operator's), `emergency_stop` reaches
+            # `_cmd_emergency_stop` (the CONFIRM STOP card) and `pause`
+            # reaches the scope-aware `_cmd_pause`. Routed rather than
+            # re-gated, so there is nothing to keep in sync: the command owns
+            # its authority and free text borrows it. Same shape as get_orders
+            # above.
             _owner = DANGEROUS_SKILLS.get(intent.skill)
             if _owner:
                 await getattr(self, _owner)(update, ctx)

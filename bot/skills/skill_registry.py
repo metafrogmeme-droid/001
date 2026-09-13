@@ -1356,6 +1356,20 @@ class RejectedTradesSkill(BaseSkill):
 # HALT
 # ══════════════════════════════════════════════════════════════
 
+def _emergency_stop_line() -> str:
+    """The halt card's /emergency_stop sentence, true for THIS deployment.
+
+    The card said "or /emergency_stop to close everything" on paper too,
+    where that command's flatten returns before closing anything.
+    """
+    from bot.skills.chat_runtime import emergency_stop_claim
+    try:
+        live: "bool | None" = bool(CONFIG.is_live())
+    except Exception:
+        live = None
+    return emergency_stop_claim(live)
+
+
 class HaltSkill(BaseSkill):
     name = "halt"
     description = "Emergency kill-switch"
@@ -1381,7 +1395,9 @@ class HaltSkill(BaseSkill):
             f"- Circuit Breaker: {_BAD} <b>TRIPPED</b>\n"
             f"- Ideas Cancelled: <code>{len(cancelled)}</code>\n"
             f"- Engine: <code>HALTED</code>\n\n"
-            f"<i>\u26a0 All trading paused. Say \"reset\" to resume.</i>"
+            f"<i>\u26a0 All trading paused. Open positions are not closed — their "
+            f"stops and targets stay managed. Use /reset to resume. "
+            f"{_emergency_stop_line()}</i>"
         )
 
 

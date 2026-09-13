@@ -47,8 +47,10 @@ import pytest
 from bot.formatters.onboarding import skill_unavailable_notice
 from bot.nlp.intent_router import IntentRouter
 from bot.nlp.skill_memory import skill_failure_memory, skill_unavailable_memory
-from bot.skills.chat_runtime import ACT_INTENTS
+from bot.skills.chat_runtime import ACT_INTENTS, HALT_INTENTS
+from bot.skills.skill_permissions import DANGEROUS_SKILLS
 from bot.skills.skill_registry import build_default_registry
+from bot.skills.telegram_handler import TelegramHandler
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -171,6 +173,18 @@ def test_no_intent_can_fall_through_to_the_chat_model():
         # in chat_runtime so the web branch and this one cannot drift; read the
         # tuple rather than requiring the literals to be copied here.
         if skill in ACT_INTENTS and "intent.skill in ACT_INTENTS" in handler:
+            continue
+        # …or the routed HALT intents. `halt`, `emergency_stop` and `pause`
+        # are dispatched through DANGEROUS_SKILLS to their guarded commands:
+        # read THAT table and check the command exists, so deleting an entry
+        # fails here. The first draft accepted any HALT_INTENTS member off the
+        # `"halt_ambiguous"` literal — present for another reason — and stayed
+        # green with "emergency_stop" deleted from the table. `halt_ambiguous`
+        # itself is answered by name.
+        if (skill in DANGEROUS_SKILLS and "DANGEROUS_SKILLS.get(intent.skill)" in handler
+                and hasattr(TelegramHandler, DANGEROUS_SKILLS[skill])):
+            continue
+        if skill == "halt_ambiguous" and skill in HALT_INTENTS and '"halt_ambiguous"' in handler:
             continue
         # …or by one of the prefix branches above.
         if any(skill.startswith(p) for p in prefixes):
