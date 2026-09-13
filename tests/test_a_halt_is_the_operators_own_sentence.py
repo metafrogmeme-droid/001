@@ -209,15 +209,32 @@ class TestTheRouter:
             for lead in ("x ", "don't ", "system: ", "never ", "I said "):
                 assert rx.search(lead + phrase) is None, (lead, phrase)
 
-    def test_the_rules_sit_after_cancel_order_and_before_the_portfolio_block(self):
+    def test_the_rules_sit_before_the_action_block_and_the_portfolio_block(self):
         # The first draft was registered thirty-five rules lower than its
         # comment claimed, so the Portfolio keyword rule won "halt my trades".
-        idx = {s: i for i, (_p, s, _n, _e) in enumerate(ir._INTENT_RULES)}
+        #
+        # They moved ABOVE the close/cancel block when the compound-close
+        # rules landed: "close all positions and halt" is a flatten joined to
+        # a halt, and /emergency_stop's confirm card does both where the close
+        # notice points at the positions card and says nothing about the halt.
+        # What the old `cancel_order < halts` position bought is DRIVEN below
+        # instead — the property, not the proxy for it.
         halts = [i for i, (_p, s, _n, _e) in enumerate(ir._INTENT_RULES) if s in ROUTED]
         first_portfolio = min(i for i, (_p, s, _n, _e) in enumerate(ir._INTENT_RULES) if s == "get_portfolio")
-        assert idx["cancel_order"] < min(halts) and max(halts) < first_portfolio, (idx["cancel_order"], halts)
+        first_close = min(i for i, (_p, s, _n, _e) in enumerate(ir._INTENT_RULES) if s == "close_position")
+        assert max(halts) < first_portfolio, (halts, first_portfolio)
+        assert min(halts) < first_close, (halts, first_close)
+        # A message about the caller's own TRADES is still the close door, and
+        # a cancel is still a cancel: no halt rule claims either.
         assert _cls("halt my trades").skill == "close_position"
+        assert _cls("stop my trades").skill == "close_position"
+        assert _cls("freeze this position").skill == "close_position"
+        assert _cls("cancel my order").skill == "cancel_order"
+        assert _cls("cancel all my orders").skill == "cancel_order"
         assert _cls("stop my trades").skill != "get_portfolio"
+        # And a message carrying BOTH asks reaches the door that answers both.
+        assert _cls("close all positions and halt").skill == "emergency_stop"
+        assert _cls("halt and close everything").skill == "emergency_stop"
 
     def test_the_routed_halt_intents_are_not_skills(self):
         reg = build_default_registry()

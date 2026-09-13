@@ -510,7 +510,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         from bot.nlp.intent_router import symbol_mentioned
         return web.json_response({
             "reply_html": act_intent_notice(ACT_KIND[intent.skill],
-                                            symbol_mentioned(intent.raw_text), surface="web"),
+                                            symbol_mentioned(intent.raw_text), surface="web",
+                                            also_asked=bool(intent.kwargs.get("also_asked"))),
             "intent": intent.skill})
     # A halt has NO web CHAT door — `halt` is deliberately absent from
     # WEB_CHAT_SKILLS — and the 403 that used to answer it carried a

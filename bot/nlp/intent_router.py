@@ -140,13 +140,36 @@ def _is_social_message(text: str) -> bool:
     words = stripped.split()
     if len(words) <= 3 and not _extract_symbol(stripped):
         # Check if any word looks like a crypto/trading term
+        # THE LIST IS THE GATE. A message of three words or fewer with no
+        # symbol and no word from this set is answered as small talk, and the
+        # set held none of the vocabulary a trader actually types short:
+        # "win rate", "profit factor", "sharpe ratio", "biggest loser",
+        # "fees this month", "cpi tomorrow?", "15m setups", "api keys",
+        # "connect bitget", "what is rsi" — every one of them greeted.
         trading_words = {
             "scan", "analyze", "portfolio", "risk", "backtest", "macro",
-            "halt", "journal", "cost", "dashboard", "trade", "signal",
-            "positions", "position", "balance", "equity", "pnl",
-            "swing", "scalp", "intraday", "playbook", "performance",
-            "entry", "setup", "liquidity", "scan",
+            "halt", "journal", "cost", "costs", "dashboard", "trade", "trades",
+            "signal", "signals", "positions", "position", "balance", "equity",
+            "pnl", "p&l", "swing", "swings", "scalp", "scalps", "intraday",
+            "playbook", "performance", "entry", "entries", "setup", "setups",
+            "liquidity",
+            # what the record is asked about
+            "win", "rate", "winrate", "profit", "factor", "sharpe", "expectancy",
+            "drawdown", "exposure", "loser", "winner", "fees", "fee", "returns",
+            "stats", "results", "record", "history",
+            # indicators, so "what is rsi" reaches the model that can explain
+            # it rather than the greeter
+            "rsi", "macd", "atr", "vwap", "ema", "sma", "stochastic", "fib",
+            "fibonacci", "bollinger", "ichimoku", "funding", "oi",
+            # the account and its plumbing
+            "orders", "order", "limit", "limits", "leverage", "margin", "stop",
+            "stops", "target", "targets", "keys", "api", "connect", "venue",
+            "bitget", "bybit", "binance", "hyperliquid", "settings",
+            # macro
+            "cpi", "fomc", "nfp", "pce", "ppi", "fed", "events", "calendar",
         }
+        # …and the chart vocabulary the analysis rules read, by construction.
+        trading_words |= set(_ANALYSIS_WORDS)
         if not any(w.lower() in trading_words for w in words):
             # Only classify as social if it doesn't contain intent keywords
             for pattern, _, _, _ in _INTENT_RULES:
@@ -376,6 +399,68 @@ _NAME_TO_TICKER = {
 }
 
 
+#: Determiners that make a ticker-shaped English word the noun it looks like.
+_ENGLISH_LEAD = r"(?:the|a|an|this|that|these|those|my|your|our|his|her|their)"
+
+
+def _written_as_english(text: str, word: str) -> bool:
+    """Whether `word` (a ticker that is also an English word) appears in
+    `text` only as prose — lowercase, behind a determiner.
+
+    ONE occurrence written as a ticker is enough to make it one: "the link I
+    sent, and LINK/USDT looks weak" names the asset.
+    """
+    for m in re.finditer(rf"\b{re.escape(word)}\b", text, re.IGNORECASE):
+        raw = text[m.start():m.end()]
+        if raw.isupper():
+            return False                      # LINK
+        before = text[:m.start()]
+        if before.rstrip().endswith("$"):
+            return False                      # $link
+        if text[m.end():m.end() + 1] == "/":
+            return False                      # link/usdt
+        if not re.search(rf"\b{_ENGLISH_LEAD}\s+$", before, re.IGNORECASE):
+            return False                      # no determiner: "link analysis"
+    return True
+
+
+def symbols_named(text: str) -> list[str]:
+    """EVERY distinct asset the message names, in the order named.
+
+    `_extract_symbol` answers the FIRST one, which is the right answer for a
+    rule that carries one symbol and the wrong one for deciding whether the
+    message named more than the skill can answer: "analyze btc and eth" and
+    "sol or avax which is stronger" were dispatched as BTC and SOL, half the
+    question answered as though it were the whole of it.
+    """
+    if not text:
+        return []
+    out: list[str] = []
+
+    def add(sym: Optional[str]) -> None:
+        if sym and sym not in out:
+            out.append(sym)
+
+    for m in re.finditer(r"\$?([A-Za-z]{2,10})/(?:USDT|USD|USDC|PERP)\b", text, re.IGNORECASE):
+        add(_validate_symbol(f"{m.group(1).upper()}/USDT"))
+    for m in re.finditer(r"\$([A-Za-z]{2,10})\b", text):
+        add(_validate_symbol(f"{m.group(1).upper()}/USDT"))
+    for raw in re.findall(r"[A-Za-z]{2,}", text):
+        low = raw.lower()
+        if low in _NAME_TO_TICKER:
+            add(_validate_symbol(f"{_NAME_TO_TICKER[low]}/USDT"))
+        elif low in _KNOWN_SYMBOLS:
+            if low in AMBIGUOUS_TICKER_WORDS and _written_as_english(text, low):
+                continue
+            add(_validate_symbol(f"{low.upper()}/USDT"))
+    return out
+
+
+#: Every ticker and coin name the router knows, as one alternation — the
+#: post-mortem rule's object slot and the compound close rules both read it.
+_TICKER_WORDS = "|".join(sorted(_KNOWN_SYMBOLS | set(_NAME_TO_TICKER)))
+
+
 def _extract_symbol(text: str) -> Optional[str]:
     """Extract a crypto symbol from free text. Returns 'BTC/USDT' format or None.
 
@@ -392,6 +477,17 @@ def _extract_symbol(text: str) -> Optional[str]:
             return _validate_symbol(candidate)
         # Check known tickers
         if word in _KNOWN_SYMBOLS:
+            # …unless it is one of the tickers that is also an English word
+            # and it is written here AS an English word: lowercase, behind a
+            # determiner. "look at the link I sent" dispatched an analysis of
+            # LINK/USDT at confidence 1.0, and "check out the near term"
+            # analysed NEAR — the symbol resolving is precisely why
+            # `_names_a_non_asset` (which exists for "look at the docs") was
+            # never consulted. Written as a ticker it is still a ticker:
+            # `$LINK`, `LINK/USDT`, caps `LINK`, or lowercase with no
+            # determiner in front ("hows link looking", "link analysis").
+            if word in AMBIGUOUS_TICKER_WORDS and _written_as_english(text, word):
+                continue
             candidate = f"{word.upper()}/USDT"
             return _validate_symbol(candidate)
 
@@ -400,8 +496,14 @@ def _extract_symbol(text: str) -> Optional[str]:
     if explicit:
         candidate = f"{explicit.group(1)}/USDT"
         return _validate_symbol(candidate)
+    # A `$`-PREFIXED TOKEN IS A TICKER BY ITS SPELLING, known list or not —
+    # the argument `symbol_from_token` already makes for a token typed where
+    # a symbol is expected. This branch required membership of
+    # `_KNOWN_SYMBOLS`, so "$HYPE" resolved to nothing and a message that IS
+    # a ticker was answered by the social gate as small talk, while
+    # "analyze $HYPE" worked (the command-word fallback below).
     dollar = re.search(r'\$([A-Z]{2,10})\b', text.upper())
-    if dollar and dollar.group(1).lower() in _KNOWN_SYMBOLS:
+    if dollar:
         candidate = f"{dollar.group(1)}/USDT"
         return _validate_symbol(candidate)
 
@@ -511,23 +613,113 @@ def _rule(pattern: str, skill: str, needs_symbol: bool = False, explanation: str
     ))
 
 
+# "RISK ON" / "RISK OFF" as a STANCE, not as the noun. The bare alternative
+# matched anywhere in a sentence, so "event risk on eth" — a read-only
+# question about macro exposure — opened the card that PROPOSES trading more
+# aggressively, at confidence 1.0, and "macro risk on sol" and "what's the
+# risk on this trade" did the same. The stance reading is the whole message
+# or a stance verb in front of it; anything else is the ordinary English noun.
+_RISK_STANCE = r"(?:^|\b(?:go|going|gone|switch|flip|turn|be|get|stay|staying)\s+(?:to\s+)?)risk[-\s]{side}\b"
+
 # --- Agent stance (talk-to-your-agent risk posture) ---
 # Registered FIRST so risk-preference phrasing wins over scan/analyze rules.
 # These never execute anything: the handler PROPOSES a stance switch with a
 # confirm button (the mode_ callback path, which is permission-gated).
 _rule(r"\b(be (a bit |a little |way |much )?more (careful|cautious|conservative|defensive)|"
-      r"(reduce|lower|less|cut) (the )?risk|risk off|play it safe(r)?|"
+      r"(reduce|lower|less|cut) (the )?risk|" + _RISK_STANCE.format(side="off") + r"|play it safe(r)?|"
       r"(take |use )?smaller positions?|slow (it |things )?down|protect (the )?capital|"
       r"trade (more )?defensive(ly)?|dial (it|risk) (back|down))\b",
       "stance_defensive", explanation="Wants a more defensive risk posture")
 _rule(r"\b(be (a bit |a little |way |much )?more aggressive|"
-      r"(increase|raise|more|add) (the )?risk|risk on|push (it )?harder|"
+      r"(increase|raise|more|add) (the )?risk|" + _RISK_STANCE.format(side="on") + r"|push (it )?harder|"
       r"(take |use )?bigger positions?|trade (more )?aggressive(ly)?|"
       r"step on (the )?gas|go bigger)\b",
       "stance_aggressive", explanation="Wants a more aggressive risk posture")
 _rule(r"\b((back to|go) (normal|balanced|default)( risk| mode)?|"
       r"balanced (mode|stance|risk)|reset (the )?(risk|stance|mode))\b",
       "stance_balanced", explanation="Wants the balanced default posture")
+
+# THE HALT RULES COME FIRST, and the ordering is the answer to a message
+# carrying both: "close all positions and halt" is a flatten joined to a
+# halt, and /emergency_stop's confirm card does BOTH where the close notice
+# points at the positions card and says nothing about the halt — the second
+# ask, dropped in silence. A close with no halt clause in it reaches the
+# close rules below untouched: none of these matches one.
+#: How two clauses are joined in one message — ",", "and", "then". Used by
+#: the compound CLOSE rules further down and by the compound HALT rules further
+#: down: one spelling of "and another thing", read the same way by both.
+_CLAUSE_JOIN = r"(?:\s*[,;]\s*|\s+)(?:and\s+then\s+|and\s+|then\s+)?"
+
+_HALT_LEAD = (r"^\s*(?:(?:please|pls|plz|just|ok|okay|now|can you|could you|can u|would you|"
+              r"go ahead and|i need you to|i want you to|please can you|let's|lets)\s+)*")
+_HALT_TAIL = (r"(?:[\s,;\-–—]+(?:now|please|pls|plz|asap|immediately|right\s+now|for\s+now))*"
+              r"(?:[\s,]+(?:thanks|thank\s+you|thx|ty|cheers|tysm))?"
+              r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$")
+_HALT_OBJECT = (r"(?:(?:the|this|all)\s+)?(?:trading\s+bot|bot|trading|engine)"
+                r"|everything|all|all\s+(?:the\s+)?trades?")
+_HALT_BODY = (
+    r"(?:halt(?:\s+(?:" + _HALT_OBJECT + r"))?"
+    r"|(?:stop|pause|freeze|disable|suspend)\s+(?:" + _HALT_OBJECT + r")"
+    r"|kill\s+(?:(?:the|this)\s+)?(?:trading\s+bot|bot|engine|trading)"
+    r"|kill\s+(?:everything|all)"
+    r"|shut\s+(?:the\s+bot|the\s+engine|the\s+trading\s+bot|everything|it\s+all|all\s+of\s+it)\s+down"
+    r"|shut\s*down\s+(?:the\s+)?(?:trading\s+bot|bot|engine|everything|trading)"
+    r"|(?:turn|switch)\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)\s+off"
+    r"|(?:turn|switch)\s+off\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)"
+    r"|(?:stop|pause|halt|no|block)\s+(?:opening\s+|taking\s+|placing\s+|entering\s+)?"
+    r"(?:any\s+)?(?:new|more|further)\s+(?:entries|trades|positions|orders))"
+)
+_EMERGENCY_BODY = (
+    r"(?:emergency\s+(?:stop|halt|shutdown)(?:\s+(?:" + _HALT_OBJECT + r"))?"
+    r"|(?:(?:hit|flip|pull|press|engage|trigger)\s+(?:the\s+)?)?kill\s*switch)"
+)
+_FLATTEN_BODY = (
+    r"(?:(?:close|flatten)\s+(?:everything|all(?:\s+(?:open\s+)?positions)?"
+    r"|every\s+(?:open\s+)?position|all\s+(?:my\s+|the\s+)?trades))"
+)
+HALT_IMPERATIVE = re.compile(_HALT_LEAD + _HALT_BODY + _HALT_TAIL, re.IGNORECASE)
+EMERGENCY_STOP = re.compile(_HALT_LEAD + _EMERGENCY_BODY + _HALT_TAIL, re.IGNORECASE)
+HALT_COMPOUND_HALT = re.compile(
+    _HALT_LEAD + _HALT_BODY + r"(?:" + _CLAUSE_JOIN + _HALT_BODY + r")+" + _HALT_TAIL,
+    re.IGNORECASE)
+_ANY_CLAUSE = r"(?:" + _HALT_BODY + r"|" + _EMERGENCY_BODY + r"|" + _FLATTEN_BODY + r")"
+HALT_COMPOUND_ANY = re.compile(
+    _HALT_LEAD + _ANY_CLAUSE + r"(?:" + _CLAUSE_JOIN + _ANY_CLAUSE + r")+" + _HALT_TAIL,
+    re.IGNORECASE)
+PAUSE_OWN = re.compile(
+    _HALT_LEAD
+    + r"(?:(?:stop|pause|halt|freeze|disable|suspend)\s+my\s+(?:trading\s+bot|trading|bot|engine|agent|account)"
+    r"|(?:turn|switch)\s+my\s+(?:trading\s+bot|bot|engine|trading)\s+off"
+    r"|(?:turn|switch)\s+off\s+my\s+(?:trading\s+bot|bot|engine|trading))"
+    + _HALT_TAIL, re.IGNORECASE)
+# "emergency" and "panic" with nothing named are not verbs, but they are the
+# same state: an operator reaching for a switch and not naming one. Answered
+# with the DOOR, never dispatched, exactly like a bare "stop". Until this they
+# were three words or fewer with no trading word in them, so the social gate
+# greeted them.
+HALT_BARE_VERB = re.compile(
+    r"^\s*(?:(?:please|pls|plz|just|ok|okay)\s+)*"
+    r"(?P<verb>stop|kill|pause|freeze|disable|panic|emergency"
+    r"|shut\s*down|shut\s+it\s+down)"
+    r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
+    r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$", re.IGNORECASE)
+#: Whole-message ACTION rules: a message that IS one of these is never
+#: social, whatever thanks or greeting it also carries (the social gate
+#: consults this before its unanchored thanks pattern).
+_ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
+                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB)
+_rule(HALT_COMPOUND_HALT.pattern, "halt",
+      explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
+_rule(HALT_COMPOUND_ANY.pattern, "emergency_stop",
+      explanation="A halt joined to a flatten or the emergency phrase — routed to the confirm card")
+_rule(EMERGENCY_STOP.pattern, "emergency_stop",
+      explanation="Emergency stop request — routed to the /emergency_stop confirm card")
+_rule(HALT_IMPERATIVE.pattern, "halt",
+      explanation="Halt request — the operator's own imperative, anchored to the whole message")
+_rule(PAUSE_OWN.pattern, "pause",
+      explanation="A my-scoped stop/pause — routed to the scope-aware /pause, never the fleet halt")
+_rule(HALT_BARE_VERB.pattern, "halt_ambiguous",
+      explanation="A bare stop/kill/pause with nothing named — answered with the door, never dispatched")
 
 # --- Close a position: ROUTED, never dispatched ---
 # "close my ETH" had no rule, so it fell through to the chat model — which
@@ -544,6 +736,22 @@ _rule(r"\b((back to|go) (normal|balanced|default)( risk| mode)?|"
 # otherwise take "close my position" first.
 _CLOSE_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|can u|go ahead and|i want to|"
                r"i'd like to|i need to|let's|lets|just|now)\s+)*")
+
+#: "close my ETH", "exit BTC", "get out of sol" — the bare-ticker close, with
+#: no `positions?` noun to anchor on. Named because the compound rules below
+#: reuse it: a second copy of this would be a second answer.
+_CLOSE_TARGET = (r"(?:close|exit|flatten|unwind|get out of)\s+(?:my\s+|the\s+)?"
+                 r"[A-Za-z][A-Za-z0-9/:]{1,12}")
+#: The same clause for the COMPOUND rules, whose object is narrowed to
+#: something written as an asset or as the whole book. The anchored rule above
+#: is the whole message, so "close the gap" costs a notice; a compound reaches
+#: into the middle of a sentence, where "close the gap and move on" would be a
+#: close request manufactured from an idiom.
+_CLOSE_OBJECT = (r"(?:\$?(?:{tickers})(?:/[A-Za-z]{{2,10}})?"
+                 r"|(?-i:[A-Z]{{2,10}})(?:/(?-i:[A-Z]{{2,10}}))?"
+                 r"|everything|all of it|all positions|the book|my book)")
+_CLOSE_CLAUSE = (r"(?:close|exit|flatten|unwind|get out of)\s+(?:my\s+|the\s+|all\s+)?"
+                 + _CLOSE_OBJECT)
 _rule(_CLOSE_LEAD
       + r"(?:(?:close|exit|flatten|unwind|liquidate)\s+(?:(?:my|the|this|that|all|all my|every|all of my)\s+)?"
       r"(?:[A-Za-z0-9/:]+\s+)?(?:positions?|trades?|longs?|shorts?)\b"
@@ -553,18 +761,33 @@ _rule(_CLOSE_LEAD
       # The determiner is NOT `all` alone: "stop all trades" is the halt's.
       r"|(?:stop|halt|freeze|pause)\s+(?:(?:my|the|this|that|all my|every|all of my)\s+)"
       r"(?:[A-Za-z0-9/:]+\s+)?(?:positions?|trades?|longs?|shorts?)\b"
-      r"|(?:close|exit|flatten|unwind|get out of)\s+(?:my\s+|the\s+)?[A-Za-z][A-Za-z0-9/:]{1,12}"
-      r"(?:\s+now|\s+please)?\s*[!.]*\s*$"
+      r"|" + _CLOSE_TARGET + r"(?:\s+now|\s+please)?\s*[!.]*\s*$"
       r"|sell\s+(?:my|the|this)\s+\S+\s+(?:positions?|trades?)\b)",
       "close_position",
       explanation="Wants a position closed — routed to the positions card, never dispatched")
+
+# AN ACTION JOINED TO A READ MUST NOT LOSE THE ACTION. The branch above is
+# anchored to the end of the message, so "close my ETH and scan the market"
+# matched no close rule and the scan rule below took it: the close request
+# vanished, answered with a market scan and no sentence. The other order is
+# the same message ("scan the market and close my eth"), and so is a join by
+# `then` or a comma. Registered directly under the close rule, before every
+# read rule, for the reason the halt compound is: of the two intents in one
+# message, the one that asks to MOVE MONEY is the one that must be answered,
+# and the notice says the rest was not run.
 # A stop or target change. There is NO door for it — no command, no button,
 # no executor method changes SL/TP on an open position — so the honest
 # answer says so. Registered here rather than lower because "set stop LOSS"
 # and "take PROFIT" matched the bare Portfolio-keyword rule below and came
 # back as the positions card, silently.
 _rule(_CLOSE_LEAD
-      + r"(?:(?:set|move|change|update|adjust|raise|lower|tighten|widen|trail|edit|modify)\s+"
+      # The REMOVAL verbs were missing entirely, so "remove my stop loss" —
+      # a request to take protection OFF an open position — fell through to
+      # the bare Portfolio keyword rule and came back as the positions card
+      # with no sentence, and "take off my sl" reached the model. Removing a
+      # stop is the modification with the most at stake.
+      + r"(?:(?:set|move|change|update|adjust|raise|lower|tighten|widen|trail|edit|modify"
+      r"|remove|delete|drop|clear|cancel|kill|take\s+off|get\s+rid\s+of|turn\s+off)\s+"
       r"(?:(?:my|the|this|that|a)\s+)?(?:[A-Za-z0-9/:]+\s+)?"
       r"(?:stops?(?:[\s-]?loss)?|sl|take[\s-]?profit|tp|targets?\s+(?:on|for|to|at))\b"
       r"|(?:stop(?:[\s-]?loss)?|sl|take[\s-]?profit|tp|target)\s+(?:to|at)\s+\$?\d)",
@@ -632,71 +855,22 @@ _rule(_CLOSE_LEAD
 #     "shut it down"). Too easy to send by accident for a switch that halts
 #     every account, so it is answered with the door and never dispatched
 #     (`halt_ambiguous`). Bare "halt" IS routed: it is /halt's own name.
-_HALT_LEAD = (r"^\s*(?:(?:please|pls|plz|just|ok|okay|now|can you|could you|can u|would you|"
-              r"go ahead and|i need you to|i want you to|please can you|let's|lets)\s+)*")
-_HALT_TAIL = (r"(?:[\s,;\-–—]+(?:now|please|pls|plz|asap|immediately|right\s+now|for\s+now))*"
-              r"(?:[\s,]+(?:thanks|thank\s+you|thx|ty|cheers|tysm))?"
-              r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$")
-_HALT_OBJECT = (r"(?:(?:the|this|all)\s+)?(?:trading\s+bot|bot|trading|engine)"
-                r"|everything|all|all\s+(?:the\s+)?trades?")
-_HALT_BODY = (
-    r"(?:halt(?:\s+(?:" + _HALT_OBJECT + r"))?"
-    r"|(?:stop|pause|freeze|disable|suspend)\s+(?:" + _HALT_OBJECT + r")"
-    r"|kill\s+(?:(?:the|this)\s+)?(?:trading\s+bot|bot|engine|trading)"
-    r"|kill\s+(?:everything|all)"
-    r"|shut\s+(?:the\s+bot|the\s+engine|the\s+trading\s+bot|everything|it\s+all|all\s+of\s+it)\s+down"
-    r"|shut\s*down\s+(?:the\s+)?(?:trading\s+bot|bot|engine|everything|trading)"
-    r"|(?:turn|switch)\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)\s+off"
-    r"|(?:turn|switch)\s+off\s+(?:the\s+)?(?:trading\s+bot|bot|engine|trading)"
-    r"|(?:stop|pause|halt|no|block)\s+(?:opening\s+|taking\s+|placing\s+|entering\s+)?"
-    r"(?:any\s+)?(?:new|more|further)\s+(?:entries|trades|positions|orders))"
-)
-_EMERGENCY_BODY = (
-    r"(?:emergency\s+(?:stop|halt|shutdown)(?:\s+(?:" + _HALT_OBJECT + r"))?"
-    r"|(?:(?:hit|flip|pull|press|engage|trigger)\s+(?:the\s+)?)?kill\s*switch)"
-)
-_FLATTEN_BODY = (
-    r"(?:(?:close|flatten)\s+(?:everything|all(?:\s+(?:open\s+)?positions)?"
-    r"|every\s+(?:open\s+)?position|all\s+(?:my\s+|the\s+)?trades))"
-)
-_CLAUSE_JOIN = r"(?:\s*[,;]\s*|\s+)(?:and\s+then\s+|and\s+|then\s+)?"
-HALT_IMPERATIVE = re.compile(_HALT_LEAD + _HALT_BODY + _HALT_TAIL, re.IGNORECASE)
-EMERGENCY_STOP = re.compile(_HALT_LEAD + _EMERGENCY_BODY + _HALT_TAIL, re.IGNORECASE)
-HALT_COMPOUND_HALT = re.compile(
-    _HALT_LEAD + _HALT_BODY + r"(?:" + _CLAUSE_JOIN + _HALT_BODY + r")+" + _HALT_TAIL,
-    re.IGNORECASE)
-_ANY_CLAUSE = r"(?:" + _HALT_BODY + r"|" + _EMERGENCY_BODY + r"|" + _FLATTEN_BODY + r")"
-HALT_COMPOUND_ANY = re.compile(
-    _HALT_LEAD + _ANY_CLAUSE + r"(?:" + _CLAUSE_JOIN + _ANY_CLAUSE + r")+" + _HALT_TAIL,
-    re.IGNORECASE)
-PAUSE_OWN = re.compile(
-    _HALT_LEAD
-    + r"(?:(?:stop|pause|halt|freeze|disable|suspend)\s+my\s+(?:trading\s+bot|trading|bot|engine|agent|account)"
-    r"|(?:turn|switch)\s+my\s+(?:trading\s+bot|bot|engine|trading)\s+off"
-    r"|(?:turn|switch)\s+off\s+my\s+(?:trading\s+bot|bot|engine|trading))"
-    + _HALT_TAIL, re.IGNORECASE)
-HALT_BARE_VERB = re.compile(
-    r"^\s*(?:(?:please|pls|plz|just|ok|okay)\s+)*"
-    r"(?P<verb>stop|kill|pause|freeze|disable|shut\s*down|shut\s+it\s+down)"
-    r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
-    r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$", re.IGNORECASE)
-#: Whole-message ACTION rules: a message that IS one of these is never
-#: social, whatever thanks or greeting it also carries (the social gate
-#: consults this before its unanchored thanks pattern).
-_ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
-                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB)
-_rule(HALT_COMPOUND_HALT.pattern, "halt",
-      explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
-_rule(HALT_COMPOUND_ANY.pattern, "emergency_stop",
-      explanation="A halt joined to a flatten or the emergency phrase — routed to the confirm card")
-_rule(EMERGENCY_STOP.pattern, "emergency_stop",
-      explanation="Emergency stop request — routed to the /emergency_stop confirm card")
-_rule(HALT_IMPERATIVE.pattern, "halt",
-      explanation="Halt request — the operator's own imperative, anchored to the whole message")
-_rule(PAUSE_OWN.pattern, "pause",
-      explanation="A my-scoped stop/pause — routed to the scope-aware /pause, never the fleet halt")
-_rule(HALT_BARE_VERB.pattern, "halt_ambiguous",
-      explanation="A bare stop/kill/pause with nothing named — answered with the door, never dispatched")
+
+# Registered AFTER the halt block on purpose: "close all positions and
+# halt" carries both clauses, and /emergency_stop's card answers both
+# (it halts AND flattens), where the close notice answers one.
+_CLOSE_COMPOUND = _CLOSE_CLAUSE.format(tickers=_TICKER_WORDS)
+_rule(_CLOSE_LEAD + _CLOSE_COMPOUND + _CLAUSE_JOIN + r"\S",
+      "close_position",
+      explanation="A close joined to another request — the close door answers, and says the rest did not run")
+_rule(r"^.+" + _CLAUSE_JOIN + _CLOSE_COMPOUND + r"(?:\s+now|\s+please)?\s*[!.]*\s*$",
+      "close_position",
+      explanation="Another request joined to a close — the close door answers, and says the rest did not run")
+#: The two rules above, by identity. `classify_rules` marks their result so
+#: the door notice can say the OTHER ask was not run — a message with two
+#: requests answered with one card, and no sentence about the second, reads
+#: as though both were handled.
+_COMPOUND_ACTION_PATTERNS = frozenset({_INTENT_RULES[-1][0], _INTENT_RULES[-2][0]})
 
 # --- Scan / market overview ---
 # RUNECLAW natural language triggers — scan modes
@@ -724,6 +898,67 @@ _rule(r"^scan$",
       "scan_market", explanation="General scan request")
 
 # --- Analyze specific asset ---
+#
+# A FULL READ OF ONE NAMED ASSET had no rule at all. The verb-first rule
+# below knows `analy[sz]e|look at|check out`; the symbol-first rule needs the
+# analysis term directly after the ticker; the last-resort rule needs the
+# message to END in "scan" or "analysis". So every ordinary phrasing —
+# "give me a full analysis of BTC", "technical analysis of sol", "deep dive
+# on eth", "chart for doge", "can u do a TA on avax", "full analysis btc" —
+# matched nothing and reached the chat model, which holds no analysis tool
+# and no chart and answers about a chart it cannot see. That is the
+# fabricated-price failure this block's own comments record, reached by a
+# phrasing nobody had written a rule for.
+_INDICATORS = (r"rsi|macd|stoch(?:astic)?|bollinger|ichimoku|vwap|atr|ema|sma|"
+               r"moving averages?|fib(?:onacci)?|funding|open interest|oi")
+_rule(r"\b(?:(?:full|complete|detailed|deep|proper|quick|thorough)\s+)?"
+      r"(?:analysis|breakdown|dive|write.?up)\s+(?:of|on|for)\s+",
+      "analyze_asset", needs_symbol=True, explanation="Full-read request for one asset")
+_rule(r"\b(?:technical\s+analysis|deep\s+dive|\bta\b)\s+(?:of|on|for)\s+"
+      r"|\b(?:analysis|breakdown)\s+\$?[A-Za-z]",
+      "analyze_asset", needs_symbol=True, explanation="Technical-read request for one asset")
+_rule(r"\bchart\b", "analyze_asset", needs_symbol=True,
+      explanation="Chart request for one asset")
+# A DIRECTION OR OPINION QUESTION about a named asset is the bias read the
+# card renders (regime, bias, confluence). Left to the model it is a verdict
+# with no data behind it, in a product whose whole point is the opposite.
+_rule(r"\bis\s+\$?[A-Za-z]{2,10}\s+(?:bullish|bearish|strong|weak|pumping|dumping|oversold|overbought)\b"
+      r"|\b(?:looking|look)\s+(?:good|strong|weak|bullish|bearish|healthy)\b"
+      r"|\bwhat\s+(?:do you think|are your thoughts)\s+(?:of|about|on)\b"
+      r"|\bwhat.?s\s+the\s+play\s+(?:on|for|with)\b"
+      r"|\bwhy\s+is\s+\$?[A-Za-z]{2,10}\s+(?:pumping|dumping|mooning|tanking|ripping|bleeding)\b",
+      "analyze_asset", needs_symbol=True, explanation="Direction/opinion question about one asset")
+# An indicator's VALUE on a named asset is a live read. "what is rsi" with no
+# asset is a question about the indicator and belongs to the model — which is
+# why this needs the `on|for|of` object and the teaching stop-list above
+# keeps the bare form out of the symbol-first rule.
+_rule(rf"\bwhat.?s?\s+(?:is\s+)?(?:the\s+)?(?:{_INDICATORS})\s+(?:on|for|of)\s+",
+      "analyze_asset", needs_symbol=True, explanation="Indicator value for one asset")
+# "eth on bybit", "btc on hyperliquid": the asset is named and the venue is
+# not a second asset. The skill takes NO venue argument — it reads the
+# engine's own exchange — so the route is the asset's read and the card
+# speaks for the venue it actually read.
+_rule(rf"^\s*(?:\$?(?:{_TICKER_WORDS})|(?-i:[A-Z]{{2,10}}))(?:/[A-Za-z]{{2,10}})?\s+"
+      r"(?:on|at)\s+(?:bitget|bybit|binance|okx|kucoin|mexc|gate(?:\.io)?|hyperliquid|dydx)"
+      r"\s*[?!.]*$",
+      "analyze_asset", needs_symbol=True, explanation="One asset, on a named venue")
+# A COMPARISON names two assets and no skill answers about two. Matching it
+# is what lets the multi-asset reading ask WHICH — left unmatched it reaches
+# the model, which holds no analysis tool for either of them.
+_rule(r"\b(?:vs\.?|versus)\b"
+      r"|\bwhich\s+(?:one\s+)?(?:is|looks|has)\s+(?:the\s+)?(?:stronger|better|weaker|worse|best)\b"
+      r"|\bcompare\s+\$?[A-Za-z]{2,10}\b",
+      "analyze_asset", needs_symbol=True, explanation="A comparison of assets")
+
+# A MESSAGE THAT IS A TICKER. "$HYPE", "wif/usdt", "BTC" — a bare symbol on a
+# trading bot means "read this", and each reached the model or, for "$HYPE",
+# the SOCIAL gate: a ticker answered as small talk. Written as a ticker only
+# ($X, X/USDT, caps, or a name the router knows), so a one-word message that
+# is not a symbol is left exactly where it was.
+_rule(rf"^\s*(?:\$[A-Za-z]{{2,10}}|[A-Za-z]{{2,10}}/[A-Za-z]{{2,10}}"
+      rf"|(?-i:[A-Z]{{2,10}})|(?:{_TICKER_WORDS}))\s*[?!.]*$",
+      "analyze_asset", needs_symbol=True, explanation="A message that is a ticker")
+
 # RUNECLAW triggers
 _rule(r"\b(check (the )?setup|give (me )?entry zones?|safe entry|confirm setup)\b",
       "analyze_asset", needs_symbol=True, explanation="RUNECLAW setup check")
@@ -755,17 +990,49 @@ _rule(r"\b(what.?s the (price|entry) (of|for))\b",
 # ticker would miss every asset not in the list; requiring only a ticker-shaped
 # word would swallow ordinary sentences. A named analysis TERM is what makes
 # "BTC elliott waves" a request for a chart read and "BTC to the moon" not one.
-_ANALYSIS_TERMS = (
-    r"elliott(?:\s+waves?)?|wave\s+(?:count|analysis|structure)|"
-    r"rsi|macd|stoch(?:astic)?|bollinger|ichimoku|vwap|atr|"
-    r"ema|sma|moving averages?|"
-    r"fib(?:onacci)?(?:\s+(?:levels?|zones?|retracements?))?|"
-    r"support|resistance|levels?|targets?|"
-    r"setup|entry|entries|structure|trend|momentum|breakout|"
-    r"order\s?blocks?|fair\s?value\s?gaps?|fvg|liquidity|"
-    r"ta|technicals?|chart"
+#: Verbs that ask to be TAUGHT. "explain rsi" is a question about the
+#: indicator; "btc rsi" is a request to read it on a chart.
+_TEACHING_WORDS = (r"explain|define|describe|teach|tell|show|what|whats|what.s|why|how|when|"
+                   r"is|are|does|do|can|should|would|could|give|help")
+_NOT_A_TICKER = (
+    r"the|it|this|that|them|us|me|you|my|mine|"
+    r"today|tomorrow|yesterday|now|later|tonight|"
+    r"everything|anything|something|all|stuff|things|"
+    r"market|markets|price|prices|chart|charts|trading|"
+    r"docs|help|news|here|there|then|what|why|how"
 )
-_rule(rf"^\s*[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s+(?:{_ANALYSIS_TERMS})\b",
+#: THE CHART VOCABULARY, AS WORDS. One list, two readers: the symbol-first
+#: analysis rule builds its pattern from it, and `_is_social_message` folds it
+#: into `trading_words` — a term the analysis rules know and the social gate
+#: does not is a three-word chart question answered with a greeting, and that
+#: is invisible from either side alone. A second copy would be a second answer.
+_ANALYSIS_WORDS = (
+    "rsi", "macd", "stochastic", "stoch", "bollinger", "ichimoku", "vwap", "atr",
+    "ema", "sma", "support", "resistance", "level", "levels", "target", "targets",
+    "setup", "setups", "entry", "entries", "structure", "trend", "momentum",
+    "breakout", "liquidity", "technical", "technicals", "chart", "charts", "ta",
+    "fvg", "elliott", "wave", "waves",
+)
+#: The multi-word forms, which are patterns rather than words. Listed first so
+#: the alternation prefers the longer reading ("elliott waves" over "elliott").
+_ANALYSIS_PHRASES = (
+    r"elliott(?:\s+waves?)?", r"wave\s+(?:count|analysis|structure)",
+    r"moving averages?",
+    r"fib(?:onacci)?(?:\s+(?:levels?|zones?|retracements?))?",
+    r"order\s?blocks?", r"fair\s?value\s?gaps?",
+)
+_ANALYSIS_TERMS = "|".join(_ANALYSIS_PHRASES + _ANALYSIS_WORDS)
+# The leading slot is the SYMBOL slot, and it admitted anything: "explain
+# rsi", "define liquidity" and "explain elliott waves" matched with the VERB
+# in it, resolved no symbol, and were answered "which coin do you want me to
+# look at?" — a request to be taught, answered with a question. The bare-asset
+# rule below already carries `_NOT_A_TICKER` for exactly this; the teaching
+# verbs are added because they are what precedes an indicator NAME.
+# The optional timeframe token is what "btc 4h structure" and "eth 15m setup"
+# put between the ticker and its analysis term; the skill reads no timeframe
+# kwarg, so the card is its own read and must not be labelled a 4h one.
+_rule(rf"^\s*(?!(?:{_NOT_A_TICKER}|{_TEACHING_WORDS})\b)"
+      rf"[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s+(?:\d{{1,2}}\s?[mhdwMHDW]\s+)?(?:{_ANALYSIS_TERMS})\b",
       "analyze_asset", needs_symbol=True, explanation="Symbol-first analysis request")
 
 # "check BTC", "what about ETH", "how about SOL", "thoughts on BTC" — a bare
@@ -779,13 +1046,6 @@ _rule(rf"^\s*[A-Za-z]{{2,15}}(?:/[A-Za-z]{{2,10}})?\s+(?:{_ANALYSIS_TERMS})\b",
 # any single word in that slot is ticker-SHAPED, so the rule has to know which
 # words are never assets. Same words `_extract_symbol` already skips, for the
 # same reason, plus the time words that make this phrasing ordinary English.
-_NOT_A_TICKER = (
-    r"the|it|this|that|them|us|me|you|my|mine|"
-    r"today|tomorrow|yesterday|now|later|tonight|"
-    r"everything|anything|something|all|stuff|things|"
-    r"market|markets|price|prices|chart|charts|trading|"
-    r"docs|help|news|here|there|then|what|why|how"
-)
 _rule(rf"^\s*(?:check|look at|thoughts on|opinion on|view on|what about|how about|"
       rf"whats up with|what.?s (?:up )?with|any(?:thing)? on)\s+"
       rf"(?!(?:{_NOT_A_TICKER})\b)"
@@ -805,7 +1065,6 @@ _rule(rf"^\s*(?:check|look at|thoughts on|opinion on|view on|what about|how abou
 # closed rows only — answered with the most recent close, nothing on the
 # card saying the open position was never read. The asset itself is read by
 # `postmortem_symbol`, from the question's object slots, not the whole text.
-_TICKER_WORDS = "|".join(sorted(_KNOWN_SYMBOLS | set(_NAME_TO_TICKER)))
 _rule(r"\b(?:post.?mortems?|debrief|autopsy)\b(?!.*\b(?:market|week|day|session|month)\b)"
       r"|\b(?:review|walk me through|break down|go over|debrief)\s+(?:my|the|that|this)\s+"
       r"(?:(?:last|latest|recent|previous|closed)\s+(?:trade|position|loss|win)"
@@ -1015,11 +1274,19 @@ class IntentRouter:
             )
 
         symbol = _extract_symbol(text)
+        # EVERY asset named, not just the first. A skill that carries ONE
+        # symbol cannot answer "analyze btc and eth", and answering BTC alone
+        # is half the question rendered as the whole of it.
+        named = symbols_named(text)
 
         for pattern, skill, needs_symbol, explanation in self._rules:
             m = pattern.search(text)
             if m:
-                kwargs = {}
+                kwargs: dict[str, object] = {}
+                if pattern in _COMPOUND_ACTION_PATTERNS:
+                    # Not a skill argument: nothing dispatches a routed
+                    # action. The surfaces read it to say what did NOT run.
+                    kwargs["also_asked"] = True
                 # A symbol is OPTIONAL for these: "post-mortem of my last
                 # trade" names none and must still route, and "post mortem on
                 # the ETH trade" names one the skill should be handed — read
@@ -1029,6 +1296,20 @@ class IntentRouter:
                     if slot:
                         kwargs["symbol"] = slot
                 if needs_symbol:
+                    if len(named) > 1:
+                        # Ask which. The alternative is to pick one and print
+                        # a card that looks like an answer to the question
+                        # that was asked.
+                        return IntentResult(
+                            skill=skill,
+                            kwargs={},
+                            confidence=0.5,
+                            source="rules",
+                            raw_text=text,
+                            explanation=f"{explanation} (names {len(named)} assets: "
+                                        + ", ".join(named) + ")",
+                            reply_mode=_detect_reply_mode(text),
+                        )
                     if symbol:
                         kwargs["symbol"] = symbol
                     elif _names_a_non_asset(text, m):

@@ -177,7 +177,7 @@ _ACT_WORDING: dict[str, dict[str, str]] = {
 
 
 def act_intent_notice(kind: str, symbol: str | None = None,
-                      surface: str = "telegram") -> str:
+                      surface: str = "telegram", *, also_asked: bool = False) -> str:
     """What a routed request to act is told, on both surfaces.
 
     One function so the Telegram card, the web reply and the prompt rule
@@ -190,14 +190,22 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     an open position, so the notice says that rather than naming a command
     that does not exist. An unknown kind raises — a notice for an action
     nobody designed is a narration.
+
+    `also_asked` is set when the message carried a SECOND request beside the
+    action ("close my ETH and scan the market"). One card answering a message
+    with two asks, and no sentence about the other, reads as though both were
+    handled — the same silence the routed action itself exists to end.
     """
+    rest = (" You asked for something else in the same message; that part "
+            "has not been run \u2014 send it on its own and I will."
+            if also_asked else "")
     if kind == "modify":
         where = ("are below" if surface != "web"
                  else "are on the positions card in Telegram")
         return ("I can't change a stop or target from chat, and there is no "
                 "command that does: RUNECLAW manages SL/TP on the positions it "
                 f"opens. Your positions and their current protection {where}. "
-                "Nothing has been changed.")
+                f"Nothing has been changed.{rest}")
     w = _ACT_WORDING[kind]
     if surface == "web":
         what = f"your {symbol} {w['what']}" if symbol else f"a {w['what']}"
@@ -206,12 +214,12 @@ def act_intent_notice(kind: str, symbol: str | None = None,
         return (f"{w['cannot']}, and nothing here can. "
                 f"{'Closing' if kind == 'close' else 'Cancelling'} {what} is done "
                 "from the positions card in Telegram: open the "
-                f"{w['what']} and tap <b>{w['button']}</b>{admin}. {w['claim']}")
+                f"{w['what']} and tap <b>{w['button']}</b>{admin}. {w['claim']}{rest}")
     which = f"the {symbol} one" if symbol else "the one you mean"
     rows = "positions" if kind == "close" else "pending orders"
     return (f"{w['cannot']}, and nothing in this conversation can. Your {rows} "
             f"are below \u2014 open {which} and tap <b>{w['button']}</b>. "
-            f"{w['claim']}")
+            f"{w['claim']}{rest}")
 
 
 def close_intent_notice(symbol: str | None = None, surface: str = "telegram") -> str:

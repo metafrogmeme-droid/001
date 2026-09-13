@@ -3190,7 +3190,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if intent.skill in ACT_INTENTS:
                 await self._send(update, act_intent_notice(
                     ACT_KIND[intent.skill], symbol_mentioned(intent.raw_text),
-                    surface="telegram"))
+                    surface="telegram",
+                    also_asked=bool(intent.kwargs.get("also_asked"))))
                 await self._cmd_open_positions(update, ctx)
                 return
 
@@ -3389,7 +3390,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             return
 
         if intent.matched and intent.confidence >= 0.5 and not intent.kwargs.get("symbol"):
-            # Partial match — skill needs a symbol we couldn't extract
+            # Partial match — the skill needs ONE symbol and the message gave
+            # none, or gave more than one. Naming the assets it found is the
+            # difference between "I could not tell" and "I can only do one of
+            # these": a generic "which asset?" over "btc vs eth" reads as not
+            # having understood a question that was perfectly clear.
+            from bot.nlp.intent_router import symbols_named
+            _named = symbols_named(intent.raw_text)
+            if len(_named) > 1:
+                _list = ", ".join(f"<b>{html.escape(a)}</b>" for a in _named[:5])
+                await self._send(update,
+                    f"You named {len(_named)} assets ({_list}) and I read one at "
+                    "a time. Which should I start with?")
+                return
             await self._send(update,
                 "What coin do you want me to look at?\n\n"
                 "Which asset? Say something like <i>\"scan BTC\"</i> or <i>\"check ETH\"</i>")
