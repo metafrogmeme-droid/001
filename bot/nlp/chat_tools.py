@@ -110,8 +110,12 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "few seconds. Use it when asked what is moving or for a market overview."),
     ChatTool(
         "macro_calendar",
-        "Macro-event calendar: the current risk window and the upcoming "
-        "FOMC/CPI/NFP/PCE events with dates."),
+        "Macro-event calendar: the current risk window with the condition "
+        "behind it (an exhausted or unreadable schedule is named), the "
+        "upcoming FOMC/CPI/NFP/PCE events with dates, and what the ENTRY GATE "
+        "reads — its risk state and size multiplier. A card that says the "
+        "schedule is exhausted, unreadable or empty means macro protection "
+        "is NOT in force; say so rather than calling conditions normal."),
     ChatTool(
         "check_event_risk",
         "Macro-event risk for ONE symbol over the next window.",

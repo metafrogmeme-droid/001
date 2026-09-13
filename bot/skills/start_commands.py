@@ -755,7 +755,8 @@ class StartCommands:
         """
         try:
             macro = self.engine.macro_calendar.evaluate()
-            return str(macro.state.value).replace("_", " ").title()
+            from bot.macro.calendar import macro_state_words
+            return macro_state_words(macro)
         except Exception as exc:
             system_log.warning("/status: macro calendar unreadable: %s", exc)
             return t("val_bias_unread", "en")

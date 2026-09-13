@@ -852,6 +852,41 @@ strings — marks come from the ws snapshot as floats, and a string there is
 junk, not a price. Anchor to the section's own header, and keep the type
 check beside the range check.
 
+**The macro card read the STATE and not the condition behind it, and the
+state is one word for three facts.** `MacroCalendar.evaluate()` answers
+BLACKOUT for an EXHAUSTED schedule (every hardcoded event is in the past;
+`stale=True`, written so the monitor can alert) and for an evaluation that
+RAISED (fail-closed), and the `macro_calendar` chat tool printed "⚫ Blackout"
+for both with no sentence — or, with fail-closed switched off, "🟢 Normal" over
+a schedule with no future event on it, which is the all-clear the gate had
+stopped reading months earlier. `if upcoming:` had no else, so "no future event
+remains" looked like a short list. The row builder read
+`getattr(ev, "severity", "medium")` and `ev.timestamp`, two fields `MacroEvent`
+does not have (`impact` and `scheduled_utc` do), so every event was yellow
+from a default and the day never printed — a card whose every row is the same
+colour is a card nobody has read against its record. And it read the hardcoded
+calendar alone while the risk engine sizes entries off
+`macro_provider.get_context()`, so the card could say Normal while the gate
+refused entries off a stale seed. `macro_state_words` is the one reading now
+(exhausted, unreadable, empty, or the plain label), `render_macro_calendar` is
+pure and prints the gate's own reading beside the schedule, and the three
+sibling surfaces that printed the bare state — the risk pane, the header strip,
+`/status` — read the same words. A `check_risk()` fallback in
+`check_event_risk` was unreachable (no source in the tree defines the method)
+and defaulted `size_multiplier` to `1.0`: FULL SIZE for an unreadable
+multiplier, on the control whose job is to shrink positions before a print. A
+branch that cannot run cannot be driven, and its default was wrong for the day
+something grew the method; it is gone. **The first draft of the skill filed a
+raised listing as `[]`**, which the card's else-branch prints as "none
+scheduled" — a row of the shapes table in a new spelling, written into the
+commit that fixed the card, and caught by reading the diff rather than by any
+test. `None` is the listing that could not be read, and it prints as unread.
+And the mutation that made the skill stop asking `has_events()` survived the
+first round: every skill-level test planted a calendar with events or a crash,
+and an EMPTY calendar — NORMAL, not stale, because exhaustion means it HAD
+events — is the one case that flag exists for.
+(`tests/test_the_macro_card_reads_what_the_gate_reads.py`.)
+
 **A fix that lands in the assessor and not the renderer has not landed.**
 `assess_readiness` added `decisions_on_record` precisely so three disagreeing
 denominators would stop reading as one, with a comment naming the live

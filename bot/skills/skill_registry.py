@@ -757,7 +757,10 @@ class CheckRiskSkill(BaseSkill):
             "BLACKOUT": "\u26ab",
         }
         m_icon = macro_icons.get(macro.state.value, _NEU)
-        m_label = macro.state.value.replace("_", " ").title()
+        # The condition behind the state, not the state alone: "Blackout"
+        # for an exhausted schedule and for a crashed evaluation read alike.
+        from bot.macro.calendar import macro_state_words
+        m_label = macro_state_words(macro)
         net = (display_equity - cost.operating_cost_usd
                if display_equity is not None else None)
         pnl_icon = _status(display_pnl)
@@ -1452,6 +1455,109 @@ class WalkForwardSkill(BaseSkill):
 # MACRO
 # ══════════════════════════════════════════════════════════════
 
+_MACRO_STATE_ICONS = {
+    "NORMAL": _OK, "PRE_EVENT_CAUTION": _WARN,
+    "EVENT_LOCKDOWN": _BAD, "POST_EVENT_VOLATILITY": "\U0001f7e0",
+    "BLACKOUT": "\u26ab",
+}
+_IMPACT_ICONS = {"LOW": "\U0001f7e2", "MEDIUM": "\U0001f7e1", "HIGH": "\U0001f534",
+                 "CRITICAL": "\u26a0\ufe0f"}
+
+
+def _macro_gate_lines(ctx) -> list[str]:
+    """What the ENTRY GATE reads, from the v2 provider's context — the risk
+    engine sizes off `macro_provider.get_context()` (check #18) and only falls
+    back to the hardcoded calendar when that is absent, so a card that shows
+    the calendar alone can say "Normal" while the gate is refusing entries off
+    a stale seed. ``ctx`` is the context, ``None`` when no provider is wired,
+    or an Exception when the read raised. Three-valued per field (`_present`):
+    an unreadable size multiplier is not full size.
+    """
+    from bot.skills.macro_skills import _present
+    if ctx is None:
+        return ["- Entry gate: <code>unavailable</code> — no v2 macro provider is "
+                "wired, so the gate reads this calendar alone"]
+    if isinstance(ctx, Exception):
+        return ["- Entry gate: <code>could not be read</code> — the macro provider "
+                "raised; do not tell the user the gate is clear"]
+    out = [f"- Entry gate: risk state <code>{_esc(str(getattr(ctx, 'risk_state', 'unknown')))}"
+           f"</code>, size multiplier <code>{_esc(_present(ctx, 'size_multiplier'))}</code>"]
+    if getattr(ctx, "is_blind", False):
+        out.append("  \u26a0\ufe0f the gate's calendar is BLIND — no seed loaded")
+    if getattr(ctx, "is_stale", False):
+        out.append("  \u26a0\ufe0f the gate's calendar is STALE — past its max age")
+    expl = str(getattr(ctx, "explanation", "") or "")
+    if expl:
+        out.append(f"  <i>{_esc(expl[:200])}</i>")
+    return out
+
+
+def render_macro_calendar(snap, upcoming, gate_ctx, *, has_events: "bool | None",
+                          format_times=None) -> str:
+    """The MACRO CALENDAR card, pure: the state with the condition behind it
+    (`macro_state_words` — exhausted, unreadable, empty), the schedule, and
+    the entry gate's own reading. ``upcoming`` is the listing, or ``None``
+    when the listing could not be read — which prints as unread, never as an
+    empty schedule.
+
+    The card read `snap.state` alone: an exhausted schedule rendered
+    "🟢 Normal" (fail-closed off) or "⚫ Blackout" (on) with no events and no
+    sentence, and a crashed evaluation rendered "⚫ Blackout" with no reason.
+    `if upcoming:` had no else, so "no future event remains" looked like a
+    short list. Every event's icon came from `getattr(ev, "severity",
+    "medium")` — a field MacroEvent does not have — so every row was yellow
+    from a default; `impact` is the record's field. And `ev.timestamp` does
+    not exist either (`scheduled_utc` does), so the day never printed.
+    """
+    from bot.macro.calendar import MacroCalendar, macro_state_words
+    fmt = format_times or MacroCalendar.format_event_times
+    state = str(getattr(snap.state, "value", snap.state))
+    icon = _MACRO_STATE_ICONS.get(state, _NEU)
+    lines = [f"\U0001f4c5 <b>MACRO CALENDAR</b>\n{SEP}", "",
+             f"  {icon} <b>{_esc(macro_state_words(snap, has_events))}</b>"]
+    if getattr(snap, "active_event", None):
+        lines.append(f"- Active: <code>{_esc(snap.active_event.label)}</code>")
+    tun = getattr(snap, "time_until_next", None)
+    if tun:
+        hours = tun.total_seconds() / 3600
+        if hours < 1:
+            t = f"{tun.total_seconds() / 60:.0f}min"
+        elif hours < 24:
+            t = f"{hours:.1f}h"
+        else:
+            t = f"{hours / 24:.1f}d"
+        lines.append(f"- Next event in: <code>{t}</code>")
+
+    lines.extend(_macro_gate_lines(gate_ctx))
+
+    if getattr(snap, "unreadable", False) or upcoming is None:
+        lines.append("\n\U0001f4cb <b>Upcoming</b>: could not be read — the calendar "
+                     "did not evaluate; do not say the schedule is clear")
+    elif upcoming:
+        lines.append("\n\U0001f4cb <b>Upcoming</b>")
+        for ev in upcoming:
+            times = fmt(ev)
+            impact = str(getattr(ev, "impact", "") or "").upper()
+            imp_icon = _IMPACT_ICONS.get(impact, _NEU)
+            when = getattr(ev, "scheduled_utc", None)
+            day_str = when.strftime("%a %b %d") if isinstance(when, datetime) else ""
+            lines.append(f"  {imp_icon} <b>{_esc(ev.label)}</b>"
+                         + (f" ({_esc(impact.lower())} impact)" if impact else " (impact not on record)"))
+            _day = f"{day_str} \u2022 " if day_str else ""
+            lines.append(f"    {_day}<code>{times['utc']}</code>")
+            lines.append(f"    <code>{times['et']}</code>")
+    elif getattr(snap, "stale", False):
+        lines.append("\n\U0001f4cb <b>Upcoming</b>: none — the schedule is exhausted "
+                     "(every event on it is in the past). Macro event protection "
+                     "from this calendar has lapsed until it is regenerated.")
+    elif has_events is False:
+        lines.append("\n\U0001f4cb <b>Upcoming</b>: none — no calendar is loaded, so "
+                     "this card protects against nothing")
+    else:
+        lines.append("\n\U0001f4cb <b>Upcoming</b>: none scheduled")
+    return "\n".join(lines)
+
+
 class MacroCalendarSkill(BaseSkill):
     name = "macro_calendar"
     description = "Macro event calendar"
@@ -1459,58 +1565,29 @@ class MacroCalendarSkill(BaseSkill):
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         cal = engine.macro_calendar
         snap = cal.evaluate()
-        upcoming = cal.upcoming(limit=5)
-
-        state_icons = {
-            "NORMAL": _OK, "PRE_EVENT_CAUTION": _WARN,
-            "EVENT_LOCKDOWN": _BAD, "POST_EVENT_VOLATILITY": "\U0001f7e0",
-            "BLACKOUT": "\u26ab",
-        }
-        severity_emoji = {
-            "low": "\U0001f7e2",      # green
-            "medium": "\U0001f7e1",   # yellow
-            "high": "\U0001f534",     # red
-            "critical": "\u26a0\ufe0f",  # warning
-        }
-        icon = state_icons.get(snap.state.value, _NEU)
-
-        lines = [
-            f"\U0001f4c5 <b>MACRO CALENDAR</b>\n{SEP}",
-            "",
-            f"  {icon} <b>{snap.state.value.replace('_', ' ').title()}</b>",
-        ]
-
-        if snap.active_event:
-            lines.append(f"- Active: <code>{_esc(snap.active_event.label)}</code>")
-        if snap.time_until_next:
-            hours = snap.time_until_next.total_seconds() / 3600
-            if hours < 1:
-                t = f"{snap.time_until_next.total_seconds() / 60:.0f}min"
-            elif hours < 24:
-                t = f"{hours:.1f}h"
-            else:
-                t = f"{hours / 24:.1f}d"
-            lines.append(f"- Next event in: <code>{t}</code>")
-
-        if upcoming:
-            lines.append("\n\U0001f4cb <b>Upcoming</b>")
-            for ev in upcoming:
-                times = cal.format_event_times(ev)
-                sev = getattr(ev, "severity", "medium")
-                sev_icon = severity_emoji.get(sev, _NEU)
-                day_str = ""
-                try:
-                    dt = datetime.fromisoformat(str(ev.timestamp).replace("Z", "+00:00"))
-                    day_str = dt.strftime("%a %b %d")
-                except Exception:
-                    day_str = ""
-                lines.append(f"  {sev_icon} <b>{_esc(ev.label)}</b>")
-                if day_str:
-                    lines.append(f"    {day_str} \u2022 <code>{times['utc']}</code>")
-                else:
-                    lines.append(f"    <code>{times['utc']}</code>")
-                lines.append(f"    <code>{times['et']}</code>")
-        return "\n".join(lines)
+        # None, not []: a listing that RAISED is not an empty schedule, and
+        # the card's else-branch for [] says "none scheduled".
+        upcoming: Any
+        try:
+            upcoming = list(cal.upcoming(limit=5))
+        except Exception:
+            upcoming = None
+        _has = getattr(cal, "has_events", None)
+        try:
+            has_events: "bool | None" = bool(_has()) if callable(_has) else None
+        except Exception:
+            has_events = None
+        # The gate's own reading. `None` when no provider is wired; the
+        # exception itself when the read raised, so the card can say which.
+        provider = getattr(engine, "macro_provider", None)
+        gate_ctx: Any = None
+        if provider is not None:
+            try:
+                gate_ctx = provider.get_context()
+            except Exception as exc:
+                gate_ctx = exc
+        return render_macro_calendar(snap, upcoming, gate_ctx, has_events=has_events,
+                                     format_times=getattr(cal, "format_event_times", None))
 
 
 # ══════════════════════════════════════════════════════════════

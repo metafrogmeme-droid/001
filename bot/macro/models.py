@@ -61,3 +61,8 @@ class MacroStateSnapshot(BaseModel):
     # risk engine fail-closed and the monitor alert instead of reporting NORMAL
     # while event protection has quietly disappeared.
     stale: bool = False
+    # True when `evaluate()` RAISED and failed closed. BLACKOUT is what both an
+    # exhausted schedule and a crashed evaluation report, and a card that reads
+    # the state alone prints "⚫ Blackout" for a crash with no reason — the
+    # same word for "no future events remain" and "nothing was measured".
+    unreadable: bool = False
