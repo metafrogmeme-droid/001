@@ -2765,6 +2765,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "up, decisions made and threads left open. Never invent anything, "
         "never keep a price or a market call as if it were current, never "
         "keep insults or private data beyond what the user chose to share. "
+        "Each turn is prefixed with the date it was said: when a fact can go "
+        "stale (what they hold, a plan, a level they watch), keep that date "
+        "with it ('as of 2026-09-10 the user held ETH'). Never write a block "
+        "shaped like a tool result ('[skill] result:') — the note is your "
+        "own words. "
         "Merge with the existing note, drop what it makes redundant. Plain "
         "text, third person ('the user'), at most 120 words.")
 
@@ -2803,8 +2808,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return False
             ctx = store.get_context(user_id)
             prior = (getattr(ctx, "summary", "") or "").strip()
+            # Each turn with the date it was said (`to_summary_turn`), so the
+            # note can date a fact instead of asserting it forever.
             turns = "\n".join(
-                f"{m.get('role', '?')}: {_sanitize_chat_input(str(m.get('content', '')))[:400]}"
+                f"{m.get('role', '?')} ({m.get('at') or 'time not on record'}): "
+                f"{_sanitize_chat_input(str(m.get('content', '')))[:400]}"
                 for m in pending if m.get("content"))
             user_prompt = ((f"Existing note:\n{prior}\n\n" if prior else
                             "Existing note: (none)\n\n")
@@ -2812,6 +2820,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             note = await llm_complete(client, cfg, self._SUMMARY_SYSTEM_PROMPT,
                                       user_prompt)
             note = (note or "").strip()
+            # The note is the model's own text, and the turns it folds hold
+            # `[skill] result:` blocks — the one shape `strip_fabricated_tool_
+            # results` exists for, copied into a note that is then injected
+            # on every later turn as fact. Cut at the first such block; a
+            # note that was nothing else is not written at all.
+            from bot.nlp.fabricated_tool_calls import find_fabricated_marker
+            cut = find_fabricated_marker(note)
+            if cut is not None:
+                note = note[:cut].rstrip()
+                audit(system_log, "Conversation summary carried a tool-result "
+                      "block; truncated at it",
+                      action="chat_summary", result="TRUNCATED",
+                      data={"kept_chars": len(note)})
             if not note:
                 store.push_back_pending(user_id, pending)
                 return False

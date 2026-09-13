@@ -117,4 +117,7 @@ def test_the_stream_and_the_funnel_still_work_through_the_handler_name():
     assert th._chat_ret("plain", None, False) == "plain"
     assert th._say("zh", "chat_unavailable", "en text") != "en text"
     assert th._say("en", "chat_unavailable", "en text") == "en text"
-    assert th.thinking_phrase("en").startswith("<i>") or "⚔️" in th.thinking_phrase("en")
+    # One draw: the phrase is random, and two draws can each fail the other's
+    # half of the disjunction.
+    phrase = th.thinking_phrase("en")
+    assert phrase.startswith("<i>") or "⚔️" in phrase

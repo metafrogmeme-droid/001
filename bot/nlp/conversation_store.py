@@ -15,6 +15,7 @@ Design constraints:
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -24,6 +25,49 @@ from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_text
 
+#: Below this age a turn carries no stamp. "[12 s ago]" on every live
+#: exchange is noise, and the age that matters is the one the model cannot
+#: see — hours and days, when Monday's `[get_portfolio] result:` is read on
+#: Friday as the current book.
+FRESH_SECONDS = 60.0
+
+
+def _turn_time(ts) -> Optional[float]:
+    """``ts`` as a unix time, or None when the record has none.
+
+    The loader defaults a row with no timestamp to 0, and 0 is not the epoch,
+    it is an absence — rendered as an age it reads "56 y ago", which is a
+    confident number about a moment nobody recorded."""
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return None
+    if not math.isfinite(ts) or ts <= 0:
+        return None
+    return float(ts)
+
+
+def age_words(seconds: float) -> str:
+    """A duration in words: '45 s', '4 min', '3 h 2 min', '2 d 5 h'."""
+    s = max(0, int(seconds))
+    if s < 60:
+        return f"{s} s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m} min"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h} h {m} min" if m else f"{h} h"
+    d, h = divmod(h, 24)
+    return f"{d} d {h} h" if h else f"{d} d"
+
+
+def when_words(ts) -> str:
+    """An absolute date for the note-writer ('2026-09-10 14:02 UTC') —
+    relative ages rot inside a note that is read weeks later — or 'time not
+    on record'."""
+    t = _turn_time(ts)
+    if t is None:
+        return "time not on record"
+    return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t))
 
 
 @dataclass
@@ -31,15 +75,61 @@ class Message:
     """A single conversation message."""
     role: str           # "user" or "assistant"
     content: str        # Message text
-    timestamp: float    # Unix timestamp
+    timestamp: float    # Unix timestamp; 0 means NOT ON RECORD (see _turn_time)
     metadata: dict = field(default_factory=dict)  # Optional: intent, symbol, etc.
 
-    def to_llm_message(self) -> dict:
-        """Convert to LLM API message format."""
-        return {"role": self.role, "content": self.content}
+    def age_seconds(self, now: Optional[float] = None) -> Optional[float]:
+        """Seconds since this turn, or None when its time is not on record."""
+        t = _turn_time(self.timestamp)
+        if t is None:
+            return None
+        return max(0.0, (time.time() if now is None else now) - t)
 
-    def age_seconds(self) -> float:
-        return time.time() - self.timestamp
+    def is_tool_record(self) -> bool:
+        """Whether this turn is what a TOOL said — the `[skill] result:` shape
+        `skill_memory` writes, recorded with the skill in its metadata by every
+        dispatch site — rather than something the user or the model said."""
+        return self.role == "assistant" and bool((self.metadata or {}).get("skill"))
+
+    def age_stamp(self, now: Optional[float] = None) -> str:
+        """The bracketed age the model reads this turn under, '' when fresh.
+
+        `to_llm_message` dropped the timestamp, so a `[get_portfolio] result:`
+        recorded on Monday was handed to the model on Friday shaped exactly
+        like one recorded a second ago, and restated as the current book. The
+        stamp is the MEASUREMENT (how old), plus the one fact true of any
+        record (it is as of then); the verdict — call the tool again — is the
+        prompt rule's, so a two-minute-old snapshot is not called stale here.
+        A tool record whose time is not on record says so rather than
+        carrying an age computed from 0.
+        """
+        age = self.age_seconds(now)
+        if age is not None and age < FRESH_SECONDS:
+            return ""
+        if self.is_tool_record():
+            if age is None:
+                return ("[recorded at a time not on record — as of some earlier "
+                        "moment, not now]")
+            return f"[recorded {age_words(age)} ago — as of then, not now]"
+        return "[time not on record]" if age is None else f"[{age_words(age)} ago]"
+
+    def to_llm_message(self, now: Optional[float] = None) -> dict:
+        """Convert to LLM API message format, with the turn's age in front of
+        it when it is not fresh (a tool record on its own first line, so the
+        `[skill] result:` marker stays at the start of a line for every reader
+        that anchors on it)."""
+        stamp = self.age_stamp(now)
+        if not stamp:
+            return {"role": self.role, "content": self.content}
+        sep = "\n" if self.is_tool_record() else " "
+        return {"role": self.role, "content": f"{stamp}{sep}{self.content}"}
+
+    def to_summary_turn(self) -> dict:
+        """The shape the pruned queue keeps for the note-writer: the turn with
+        the ABSOLUTE date it was said, so the note can say "as of 2026-09-10
+        the user held ETH" instead of "the user holds ETH" forever."""
+        return {"role": self.role, "content": self.content,
+                "at": when_words(self.timestamp)}
 
 
 @dataclass
@@ -51,6 +141,14 @@ class UserContext:
     first_seen: float = 0.0
     last_active: float = 0.0
     summary: str = ""  # Compressed summary of older conversations
+    #: When `summary` was written (unix time); 0.0 = not on record. The note
+    #: is an LLM's undated paraphrase injected on every later turn, and the
+    #: prompt names its age so "the user holds ETH" is read as a dated claim.
+    summary_at: float = 0.0
+    #: When `last_discussed_asset` was mentioned; 0.0 = not on record.
+    last_discussed_at: float = 0.0
+    #: ticker -> how many of the user's messages mentioned it.
+    asset_mentions: dict[str, int] = field(default_factory=dict)
     #: Turns the per-user cap pruned since `summary` was last written, in LLM
     #: message shape, waiting to be folded in. This field is what made
     #: `summary` writable at all: the docstring above promised summarization
@@ -61,19 +159,29 @@ class UserContext:
     mood_hints: list[str] = field(default_factory=list)  # Recent mood signals
     user_name: str = ""  # Display name
 
-    def update_from_message(self, text: str) -> None:
-        """Extract context signals from a user message."""
-        from bot.nlp.intent_router import _extract_symbol
-        self.interaction_count += 1
-        self.last_active = time.time()
-        if not self.first_seen:
-            self.first_seen = time.time()
+    def update_from_message(self, text: str, now: Optional[float] = None) -> None:
+        """Extract context signals from a user message.
 
-        # Track discussed assets
-        symbol = _extract_symbol(text)
+        ``now`` is the message's own time — the loader passes the stored
+        timestamp, so a restart does not re-date every mention to boot time.
+        """
+        # `mentioned_symbol`, not `_extract_symbol`: the recall line is a
+        # claim about the user, and the whole-text reader put NEAR/USDT in it
+        # off "why did you enter near the top".
+        from bot.nlp.intent_router import mentioned_symbol
+        now = time.time() if now is None else now
+        self.interaction_count += 1
+        self.last_active = now
+        if not self.first_seen:
+            self.first_seen = now
+
+        # Track mentioned assets
+        symbol = mentioned_symbol(text)
         if symbol:
             self.last_discussed_asset = symbol
+            self.last_discussed_at = now
             ticker = symbol.replace("/USDT", "")
+            self.asset_mentions[ticker] = self.asset_mentions.get(ticker, 0) + 1
             if ticker not in self.preferred_assets:
                 self.preferred_assets.append(ticker)
                 # Keep only last 10 preferred assets
@@ -183,7 +291,7 @@ class ConversationStore:
                 self._conversations[user_id] = \
                     self._conversations[user_id][-self._max_messages:]
                 ctx = self._user_contexts[user_id]
-                ctx.pending_summary.extend(m.to_llm_message() for m in overflow)
+                ctx.pending_summary.extend(m.to_summary_turn() for m in overflow)
                 if len(ctx.pending_summary) > self.PENDING_SUMMARY_MAX:
                     ctx.pending_summary = \
                         ctx.pending_summary[-self.PENDING_SUMMARY_MAX:]
@@ -204,9 +312,11 @@ class ConversationStore:
 
     def get_recent_as_llm_messages(self, user_id: str,
                                     limit: Optional[int] = None,
-                                    *, drop_trailing_user: bool = False
+                                    *, drop_trailing_user: bool = False,
+                                    now: Optional[float] = None
                                     ) -> list[dict]:
-        """Recent turns as LLM `messages`, starting on a USER turn.
+        """Recent turns as LLM `messages`, starting on a USER turn, each
+        carrying its age when it is not fresh (`Message.age_stamp`).
 
         Two shapes the raw slice gets wrong, both invisible at the call site:
 
@@ -226,7 +336,7 @@ class ConversationStore:
         `chat_fallback` audit lines. Dropping the leading assistant turn costs
         one message of context and keeps the good provider.
         """
-        msgs = [m.to_llm_message() for m in self.get_recent(user_id, limit)]
+        msgs = [m.to_llm_message(now) for m in self.get_recent(user_id, limit)]
         if drop_trailing_user and msgs and msgs[-1].get("role") == "user":
             msgs = msgs[:-1]
         while msgs and msgs[0].get("role") != "user":
@@ -279,17 +389,21 @@ class ConversationStore:
             ctx.pending_summary = (list(turns) + ctx.pending_summary)[
                 -self.PENDING_SUMMARY_MAX:]
 
-    def set_summary(self, user_id: str, text: str) -> None:
-        """Write the rolling note for `user_id` and persist it.
+    def set_summary(self, user_id: str, text: str, *,
+                    at: Optional[float] = None) -> None:
+        """Write the rolling note for `user_id`, dated, and persist it.
 
         An empty text clears the note — deliberately possible, so a summary
-        that turned out wrong can be removed rather than only overwritten."""
+        that turned out wrong can be removed rather than only overwritten.
+        ``at`` is when the note was written (now, unless a test says)."""
         note = (text or "").strip()[:self.SUMMARY_MAX_CHARS]
+        written = (time.time() if at is None else float(at)) if note else 0.0
         with self._lock:
             ctx = self._user_contexts.setdefault(user_id, UserContext())
             ctx.summary = note
+            ctx.summary_at = written
         if self._persist_path:
-            self._persist_summary(user_id, note)
+            self._persist_summary(user_id, note, written)
 
     def clear_user(self, user_id: str) -> None:
         """Clear all conversation history for a user."""
@@ -315,15 +429,24 @@ class ConversationStore:
 
     def build_context_prompt(self, user_id: str, portfolio_summary: str = "",
                               engine_state: str = "",
-                              user_name: str = "") -> str:
+                              user_name: str = "",
+                              now: Optional[float] = None) -> str:
         """Build a context block to inject into the system prompt.
 
         Returns a string with user-specific context that makes the
-        conversation feel continuous and personalized.
+        conversation feel continuous and personalized. Every line that is a
+        claim about the user says what it was read from: a MENTION is not a
+        holding, and the memory note is the assistant's own undated paraphrase
+        until this names how old it is.
         """
         ctx = self.get_context(user_id)
         if not ctx:
             return ""
+        now_t = time.time() if now is None else now
+
+        def _ago(ts: float, absent: str = "time not on record") -> str:
+            t = _turn_time(ts)
+            return f"{age_words(now_t - t)} ago" if t is not None else absent
 
         # Store user name if provided
         if user_name and not ctx.user_name:
@@ -336,10 +459,15 @@ class ConversationStore:
             parts.append(f"User's name: {display_name}")
         if ctx.last_discussed_asset:
             parts.append(
-                f"Last discussed asset: {ctx.last_discussed_asset}")
+                f"Asset the user last MENTIONED: {ctx.last_discussed_asset} "
+                f"({_ago(ctx.last_discussed_at)}) — a mention in their own "
+                "words, not a holding or a position")
         if ctx.preferred_assets:
-            assets = ", ".join(ctx.preferred_assets[-5:])
-            parts.append(f"User's frequently discussed assets: {assets}")
+            assets = ", ".join(
+                f"{a} x{ctx.asset_mentions[a]}" if ctx.asset_mentions.get(a) else a
+                for a in ctx.preferred_assets[-5:])
+            parts.append("Assets the user has mentioned (mentions in their own "
+                         f"messages, not holdings): {assets}")
         if ctx.interaction_count > 1:
             parts.append(
                 f"This user has sent {ctx.interaction_count} messages "
@@ -358,7 +486,13 @@ class ConversationStore:
         if engine_state:
             parts.append(f"Engine state: {engine_state}")
         if ctx.summary:
-            parts.append(f"Previous conversation summary: {ctx.summary}")
+            parts.append(
+                "Memory note (written by the assistant "
+                f"{_ago(ctx.summary_at, 'at a time not on record')} "
+                "from older turns no longer in this history; UNVERIFIED and "
+                "possibly out of date — nothing in it is current: never state "
+                "a position, balance, price or figure from it as the present "
+                f"state; call a tool or ask the user): {ctx.summary}")
 
         if not parts:
             return ""
@@ -385,10 +519,11 @@ class ConversationStore:
         except OSError:
             pass  # Non-critical — memory store is primary
 
-    def _persist_summary(self, user_id: str, note: str) -> None:
+    def _persist_summary(self, user_id: str, note: str, at: float) -> None:
         """Append the rolling note as a `summary` row. The LAST such row for a
         user wins on load, so an update is an append, like everything else in
-        this file, and compaction keeps only the current one."""
+        this file, and compaction keeps only the current one. ``timestamp`` is
+        when the note was WRITTEN, which is what the prompt reports back."""
         if not self._persist_path:
             return
         try:
@@ -397,7 +532,7 @@ class ConversationStore:
                 "user_id": user_id,
                 "role": "summary",
                 "content": note[:self.SUMMARY_MAX_CHARS],
-                "timestamp": time.time(),
+                "timestamp": at,
                 "metadata": {},
             }
             with open(self._persist_path, "a") as f:
@@ -425,6 +560,8 @@ class ConversationStore:
                                 uid, UserContext())
                             ctx.summary = str(entry.get("content") or "")[
                                 :self.SUMMARY_MAX_CHARS]
+                            ctx.summary_at = (_turn_time(entry.get("timestamp"))
+                                              or 0.0) if ctx.summary else 0.0
                             continue
                         msg = Message(
                             role=entry["role"],
@@ -439,8 +576,11 @@ class ConversationStore:
                         if uid not in self._user_contexts:
                             self._user_contexts[uid] = UserContext()
                         if msg.role == "user":
+                            # The turn's own time, so a restart does not
+                            # re-date every mention to boot time; a row
+                            # with no time leaves the mention undated.
                             self._user_contexts[uid].update_from_message(
-                                msg.content)
+                                msg.content, now=_turn_time(msg.timestamp) or 0.0)
                     except (KeyError, json.JSONDecodeError):
                         continue
 
@@ -477,13 +617,15 @@ class ConversationStore:
                 for uid, msgs in self._conversations.items()
                 for msg in msgs]
             # The current note per user survives compaction; the superseded
-            # ones it was appended over do not — that is the compaction.
+            # ones it was appended over do not — that is the compaction. The
+            # note keeps ITS date: `last_active or time.time()` re-dated a
+            # month-old note to the user's last message, or to the restart.
             rows.extend(
                 json.dumps({
                     "user_id": uid,
                     "role": "summary",
                     "content": ctx.summary[:self.SUMMARY_MAX_CHARS],
-                    "timestamp": ctx.last_active or time.time(),
+                    "timestamp": ctx.summary_at,
                     "metadata": {},
                 }) + "\n"
                 for uid, ctx in self._user_contexts.items()
