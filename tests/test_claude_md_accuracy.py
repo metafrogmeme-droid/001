@@ -205,7 +205,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Twenty-eight call sites across the two entry points", DOC)
+    m = re.search(r"Thirty-one call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -215,7 +215,119 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 28, f"CLAUDE.md says twenty-eight; the two entry points have {n}"
+    assert n == 31, f"CLAUDE.md says thirty-one; the two entry points have {n}"
+
+
+def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
+    """The paragraph's own confession: the first draft wrote 79/10/5 from an
+    earlier walk and could not reproduce it. Read the claim OUT of the prose
+    and compare it to the drive, so a reworded sentence fails rather than
+    quietly carrying a stale number."""
+    from tests.test_the_bot_can_say_what_it_does import catalogue_on_the_web
+
+    m = re.search(r"`_cmd_help` names (\d+) slash\n?commands for a non-admin",
+                  DOC)
+    assert m, "the catalogue claim was reworded; recount it"
+    named, nothing, hits = catalogue_on_the_web()
+    assert int(m.group(1)) == named
+
+    m2 = re.search(r"(\d+) of the 90 reach the tool-less chat model and (\d+)\n?"
+                   r"reach a skill", DOC)
+    assert m2, "the fall-through claim was reworded; recount it"
+    assert (int(m2.group(1)), int(m2.group(2))) == (nothing, len(hits))
+    assert "`/scan`, whose whole job is the" in DOC
+    assert hits.get("scan") == "analyze_asset", hits
+
+
+def test_the_capability_answer_is_derived_from_the_permission_table():
+    """"a COLUMN on the permission table rather than a map in the renderer".
+
+    The claim is the EQUALITY, and it is the thing that makes the derivation
+    safe: a skill added later fails the table's own guard instead of vanishing
+    from the answer to "what can you do?".
+    """
+    from bot.skills.skill_permissions import SKILL_PERMISSION, SKILL_SAYS
+
+    assert "a COLUMN on the permission table rather than a map in the renderer" in DOC
+    assert set(SKILL_SAYS) == set(SKILL_PERMISSION)
+
+
+def test_the_seam_it_names_has_the_callers_it_claims():
+    """"the free-text, vision and public paths all read it".
+
+    `defang_if_flagged` having ONE caller is the defect this paragraph is
+    about, so a claim that a seam is shared must be counted, not remembered.
+    """
+    import ast
+    import inspect
+
+    from bot.web import user_gateway as ug
+    from tests.source_scan import code_only
+
+    # Whitespace-NORMALISED, because the claim wraps across two lines in the
+    # markdown and a wrapped phrase is not one substring — the "asserting a
+    # short string" misfire, in the present direction: the first draft of
+    # this pin failed on prose that was there.
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "the free-text, vision and public paths all read it" in flat
+    names = {"hardened_prompt", "_harden_v", "_harden_pub"}
+    calls = sum(
+        1 for n in ast.walk(ast.parse(code_only(inspect.getsource(ug))))
+        if isinstance(n, ast.Call)
+        and (n.func.id if isinstance(n.func, ast.Name)
+             else getattr(n.func, "attr", "")) in names)
+    assert calls >= 3, f"the web has {calls} caller(s) of the shared seam"
+
+
+def test_the_firewall_defaults_are_the_way_round_it_says():
+    """The paragraph corrects a comment that named the wrong half as off. If
+    the defaults ever flip, the correction becomes the new false statement."""
+    from bot.config import CONFIG
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "`guardian_firewall_enabled` defaults to **True**" in flat
+    assert getattr(CONFIG.risk, "guardian_firewall_enabled", None) is True
+    assert getattr(CONFIG.risk, "guardian_firewall_block_high", None) is False
+
+
+def test_the_outbound_seam_is_at_a_boundary_not_a_call_site_list():
+    """"a middleware and the `_sse_frame` builder — one place for every JSON
+    route and one for every streamed frame".
+
+    The claim is that new code inherits the scrub. That is only true while
+    the seam sits at the boundary, so it is counted rather than trusted: one
+    middleware, installed, and one scrub inside the frame builder.
+    """
+    import inspect
+
+    from bot.web import user_gateway as ug
+    from tests.source_scan import code_only
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "one place for every JSON route and one for every streamed frame" in flat
+    src = code_only(inspect.getsource(ug))
+    assert "middlewares=[outbound_redaction_middleware, secret_middleware]" in \
+        re.sub(r"\s+", " ", src), "the redactor must be installed, outermost"
+    frame = code_only(inspect.getsource(ug._sse_frame))
+    assert "reply_safe(" in frame, "every streamed frame is built here"
+    # And no chat reply may be scrubbed at its own call site instead: that is
+    # the list-of-seventeen this paragraph argues against.
+    turn = code_only(inspect.getsource(ug._chat_turn))
+    assert "reply_safe(" not in turn, (
+        "a per-return scrub is the shape the boundary replaced")
+
+
+def test_the_seam_knows_the_token_shape_the_old_one_did_not():
+    """The paragraph's sharpest claim, and the reason it is a named function
+    rather than an import of `_redact_string`."""
+    from bot.utils.logger import _redact_string
+    from bot.utils.outbound import reply_safe
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "the shared key=value redactor does not know it" in flat
+    tok = "bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    assert "1234567890:AAF" in _redact_string(tok), "the old scrub misses it"
+    assert "1234567890:AAF" not in reply_safe(tok)
 
 
 def test_the_four_records_it_names_all_exist_and_differ():
@@ -230,6 +342,85 @@ def test_the_four_records_it_names_all_exist_and_differ():
     for name in ("skill_result_memory", "routed_answer_memory",
                  "card_shown_memory", "not_run_memory", "record_routed_turn"):
         assert name in DOC and hasattr(sm, name)
+
+
+def test_the_two_valued_mode_shape_it_describes_is_really_gone():
+    """The claim is checkable, so it is checked: every site the paragraph
+    names reads `mode_label`, and the guard reads the whole tree."""
+    assert "Wrong file AND wrong literal" in DOC
+    from tests.test_live_readiness import MODE_SHAPE_ALLOWED, _two_valued_mode_sites
+
+    hits = _two_valued_mode_sites(ROOT)
+    assert [h for h in hits if h[0] not in MODE_SHAPE_ALLOWED] == []
+    guard = (ROOT / "tests" / "test_live_readiness.py").read_text(encoding="utf-8")
+    assert "root.rglob" in guard and "ast.IfExp" in guard
+
+
+def test_the_status_seam_it_names_exists_and_both_surfaces_read_it():
+    import inspect
+
+    from bot.skills.start_commands import StartCommands
+    from bot.web import user_gateway as ug
+
+    assert "status_card_text" in DOC
+    assert hasattr(StartCommands, "status_card_text")
+    assert "status_card_text" in inspect.getsource(StartCommands._cmd_status)
+    assert "status_card_text" in inspect.getsource(ug._chat_turn)
+    # ...and the alias it replaced is gone.
+    src = inspect.getsource(ug._chat_turn)
+    i = src.index("_INTENT_ALIASES = {")
+    assert '"status"' not in src[i:src.index("}", i)]
+
+
+
+def test_the_url_shape_it_names_is_the_shape_both_routes_send():
+    """"The bridge takes the symbol both ways" and the web sends the query
+    form — both halves driven, because this defect was one line copied twice
+    and a guard reading only one file would have acquitted the other."""
+    import os
+    import re as _re
+    import secrets
+
+    flat = re.sub(r"\s+", " ", DOC)
+    assert "a slash in a path segment does not survive a hop" in flat
+    assert "The bridge takes the symbol **both** ways" in flat
+
+    os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
+    from fastapi.routing import APIRoute
+    from starlette.routing import Match
+
+    import api_bridge
+
+    def _reaches(path, api_only=False):
+        scope = {"type": "http", "method": "GET", "path": path,
+                 "root_path": "", "headers": []}
+        return any(r.matches(scope)[0] is Match.FULL
+                   for r in api_bridge.app.routes
+                   if not api_only or isinstance(r, APIRoute))
+
+    for route in ("insight", "patterns"):
+        assert _reaches(f"/{route}"), f"the query form of /{route} is missing"
+        assert _reaches(f"/{route}/BTCUSDT"), "the path form was removed"
+        # What the decoded slash actually delivers, and why the query form
+        # exists. NOT "matches nothing" — a StaticFiles mount at '' matches
+        # everything, which is WHY the caller got HTML instead of a 404 body
+        # it could read. The first draft of this assertion asked whether the
+        # resolved route had an `.endpoint`, which the Mount does not, so it
+        # passed while the Mount was matching happily: a guard acquitting on
+        # a missing attribute rather than on a missing match.
+        assert not _reaches(f"/{route}/BTC/USDT", api_only=True)
+        assert _reaches(f"/{route}/BTC/USDT"), (
+            "something still matches it — the static mount, and that is the "
+            "point: the caller gets a web page where JSON was expected")
+
+    # And no web route puts a slash-bearing symbol back in a path segment.
+    for rel in ("app/routes/insight.js", "app/routes/patterns.js"):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        code = _re.sub(r"//[^\n]*", "",
+                       _re.sub(r"/\*.*?\*/", "", src, flags=_re.S))
+        for m in _re.finditer(r"\$\{BOT_API_URL\}([^`]*)", code):
+            seg = m.group(1).split("?")[0]
+            assert "${" not in seg, f"{rel} interpolates into a path segment"
 
 
 # ── F-15 ──────────────────────────────────────────────────────────────────

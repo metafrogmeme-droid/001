@@ -83,6 +83,18 @@ function validateSymbol(sym) {
 }
 
 // GET /api/patterns?symbol=BTC/USDT&timeframe=4h — live chart+candle patterns.
+// The symbol goes UP as a query param too, and that is the whole fix for a
+// live outage. `BTC/USDT` contains a slash; as a path segment it must be
+// percent-encoded, and the edge in front of the bridge decodes `%2F` back to
+// `/` before it matches a path — so `${BOT_API_URL}/{route}/BTC%2FUSDT`
+// arrived as a two-segment path, matched nothing, and came back as the
+// WEBSITE'S HTML 404. `fetchJSON` then failed to parse it and the panel
+// showed a 502, which reads as "the bridge is down" about a bridge that was
+// answering every other request correctly. Measured 2026-09-13: `BTCUSDT`
+// 200 with real data, `BTC%2FUSDT` 404 HTML, same host, same second.
+//
+// `routes/insight.js` carries the same note: this is one defect on two
+// surfaces, found by asking which other surface makes the same claim.
 async function handler(req, res, rawSym) {
   try {
     const sym = String(rawSym || '').toUpperCase();
@@ -92,7 +104,7 @@ async function handler(req, res, rawSym) {
       return res.status(400).json({ error: 'Invalid timeframe' });
     }
     const r = await cached(`patterns_${sym}_${tf}`, 45000, () =>
-      fetchJSON(`${BOT_API_URL}/patterns/${encodeURIComponent(sym)}?timeframe=${tf}`)
+      fetchJSON(`${BOT_API_URL}/patterns?symbol=${encodeURIComponent(sym)}&timeframe=${tf}`)
     )();
     if (r.status !== 200) {
       const detail = r.data && r.data.detail;

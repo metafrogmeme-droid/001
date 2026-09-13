@@ -30,6 +30,7 @@ from collections import defaultdict
 
 from bot.utils.i18n import chat_language_name, t
 from bot.utils.logger import audit, system_log
+from bot.utils.outbound import reply_safe
 
 logger = logging.getLogger(__name__)
 
@@ -650,7 +651,8 @@ class TelegramStream:
         if not plain.strip():
             return
         try:
-            await self.message.edit_text(plain + self.CARET, parse_mode=None)
+            await self.message.edit_text(reply_safe(plain) + self.CARET,
+                                         parse_mode=None)
             self.edits += 1
             self._last_edit = now
             self._last_len = len(self.text)
@@ -663,6 +665,13 @@ class TelegramStream:
         the edit landed; False means the caller must send it the usual way."""
         if self.dead or not final_html or len(final_html) > 4000:
             return False
+        # THE DEFAULT PATH. `_send` describes itself as the single chokepoint
+        # for outbound text and this returns True above it, so for as long as
+        # streaming has been on the model's own answer has been the one reply
+        # nobody scrubbed. Both edits below go through the seam, including
+        # the tag-stripped retry — a fallback that skipped it would be the
+        # same hole one branch deeper.
+        final_html = reply_safe(final_html)
         try:
             await self.message.edit_text(final_html, parse_mode="HTML")
             return True

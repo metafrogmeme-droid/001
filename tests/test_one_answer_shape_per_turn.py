@@ -572,10 +572,68 @@ def test_web_chat_hands_the_turns_shape_to_the_model(monkeypatch, text, expected
 PURE_SOCIAL = (
     "hey", "hi", "hello", "thanks", "thank you", "ty", "bye", "gn", "ok",
     "okay", "sure", "yep", "cool", "nice", "got it", "np", "lol", "haha",
-    "how are you", "who are you", "what are you", "what can you do",
+    # "what can you do" LEFT this list. It is a question about the PRODUCT with
+    # a real answer, and being social was why it reached a tool-less model that
+    # improvised the feature list; the capability rule answers it now.
+    "how are you", "who are you", "what are you",
     "tell me about yourself", "you there", "are you alive", "see ya",
     "peace", "all good", "makes sense",
 )
+
+
+CAPABILITY_ASKS = (
+    "what can you do", "what can you do?", "what can i ask", "capabilities",
+    "how does this work", "show me what you can do", "what can this bot do",
+    "what are your features", "im new what now", "/help", "help", "commands",
+)
+
+
+def test_a_capability_question_is_not_small_talk():
+    """Driven, phrase by phrase. Every one of these was answered by a model
+    with no tool and no list — which is the improvised-feature-list failure the
+    unavailable notice exists to prevent, arriving by the other door."""
+    from bot.nlp.intent_router import IntentRouter, _is_social_message
+    router = IntentRouter()
+    for text in CAPABILITY_ASKS:
+        assert not _is_social_message(text), text
+        assert router.classify_rules(text).skill == "help", text
+
+
+def test_a_question_about_the_MARKET_is_still_the_models():
+    """The rule is anchored on `how does THIS work`, never a bare "how does X
+    work": a question about funding belongs to the model that can explain it."""
+    from bot.nlp.intent_router import IntentRouter
+    router = IntentRouter()
+    for text in ("how does funding work", "how does leverage work",
+                 "help me set a stop", "what can i do with 500 dollars"):
+        assert router.classify_rules(text).skill != "help", text
+
+
+#: A capability phrase with a SUBJECT after it is a question about that
+#: subject. Each of these opens with a routed phrase and carries on, so a rule
+#: that anchors its start and not its end answers every one of them with the
+#: capability card — the halt rule's own lesson ("a rule that matches inside a
+#: sentence routes the sentence's quote, negation and question as the
+#: command"), arriving from the other end. Dropping the tail anchor changed no
+#: verdict at all until these were in the table.
+CAPABILITY_DECOYS = (
+    "what can you do about my ETH position",
+    "capabilities of the scalp engine versus the swing one",
+    "how does this work for shorts on bitget",
+    "features i should turn on for scalping",
+    "show me what you can do with 500 dollars",
+    "what can i ask you about SOL",
+    "what do you offer on leverage for BTC",
+    "i know what you can do",          # and the LEAD anchor, for the same reason
+    "remind me what can you do",
+)
+
+
+def test_a_capability_phrase_with_a_subject_is_about_the_subject():
+    from bot.nlp.intent_router import IntentRouter
+    router = IntentRouter()
+    for text in CAPABILITY_DECOYS:
+        assert router.classify_rules(text).skill != "help", text
 
 
 def test_every_actually_social_message_still_answers_in_the_general_shape():

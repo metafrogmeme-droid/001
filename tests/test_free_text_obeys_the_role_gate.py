@@ -396,6 +396,16 @@ class TestTheTableDoesNotDrift:
             # it to the positions card. A real skill now, so it routes to
             # itself here and is a chat tool on both surfaces.
             "get_orders": "portfolio",
+            # NOT a skill — a ROUTED INTENT the web answers from a seam
+            # (`status_card_text`), and it is in this table so it goes through
+            # the same gate. It arrived here because the web used to ALIAS
+            # `status` to `get_portfolio`: an engine question answered with
+            # the account card, and gated by `portfolio` rather than its own
+            # permission. A website signup is auto-provisioned `paper`, which
+            # HOLDS `status`, so this check is the only thing between a
+            # stranger and that card. `_cmd_status` is `@guard("status")`,
+            # which is where this string comes from.
+            "status": "status",
             # /postmortem is @guard("portfolio") — one of the caller's own
             # closed trades, off the book get_portfolio describes.
             "trade_postmortem": "portfolio",

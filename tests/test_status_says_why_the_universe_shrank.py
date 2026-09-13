@@ -69,7 +69,7 @@ def test_status_calls_the_renderer_with_the_scanners_record():
     # start-here mixin, and a scan of one file reads the move as the
     # renderer losing its caller.
     code = "\n".join(_code_only(p) for p in handler_sources())
-    i = code.find("def _cmd_status")
+    i = code.find("async def status_card_text")
     assert i > 0
     body = code[i:i + 40_000]
     j = body.find("session_skip_line (")

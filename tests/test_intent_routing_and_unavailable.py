@@ -247,19 +247,40 @@ def test_help_and_status_still_classify(router, text, skill):
     assert _skill(router, text)[0] == skill
 
 
-def test_help_and_status_dispatch_to_their_commands():
-    """Wired to the commands that already existed, not to the notice.
+def test_help_and_status_are_answered_and_never_called_unavailable():
+    """Answered from a seam, not with the notice.
 
-    "That tool is not available" would be true and useless for these two: the
-    commands are right there. The honest notice is the backstop for skills with
-    no equivalent, not the answer for the two words a new user types first.
+    "That tool is not available" would be false and useless for these two: the
+    product has both. The honest notice is the backstop for skills with no
+    equivalent, not the answer for the two words a new user types first.
+
+    It used to name `_cmd_help` and `_cmd_status`. Both moved for a reason and
+    the reason is the same: a COMMAND'S card is not always the answer to the
+    QUESTION. `/help`'s catalogue names 90 slash commands, which on the web are
+    not doors at all, so a typed "what can you do" gets `capability_answer` —
+    what this caller can ask for, in words — while `/help` keeps the reference.
+    `status` still reaches `/status`'s own handler here, because on Telegram
+    that card IS the answer — and `_cmd_status` renders `status_card_text`,
+    the seam the web reads, so the two surfaces cannot drift.
     """
+    import inspect
+
+    from bot.skills.start_commands import StartCommands
+
     handler = (REPO / "bot" / "skills" / "telegram_handler.py").read_text()
     free_text = handler[handler.index("intent = self.intent_router.classify_rules(text)"):]
     free_text = free_text[:free_text.index("# ── Fallback: AI chat")]
-    for skill, cmd in (("help", "_cmd_help"), ("status", "_cmd_status")):
+    for skill, seam in (("help", "capability_answer"),
+                        ("status", "_cmd_status")):
         assert f'intent.skill == "{skill}"' in free_text, f"{skill} has no branch"
-        assert cmd in free_text, f"{skill} does not reach {cmd}"
+        assert seam in free_text, f"{skill} does not reach {seam}"
+    assert "status_card_text" in inspect.getsource(StartCommands._cmd_status), (
+        "/status stopped reading the seam the web reads")
+    # Driven rather than read: the two words reach an answer, not the notice.
+    from bot.nlp.intent_router import IntentRouter
+    router = IntentRouter()
+    for text in ("help", "what can you do", "status", "is the bot running"):
+        assert router.classify_rules(text).skill in ("help", "status"), text
 
 
 def test_the_unavailable_branch_is_before_the_chat_fallback():
@@ -400,14 +421,38 @@ GATEWAY = REPO / "bot" / "web" / "user_gateway.py"
 
 
 def _web_aliases() -> dict:
-    src = GATEWAY.read_text()
-    block = src[src.index("_INTENT_ALIASES"):src.index("skill_name = _INTENT_ALIASES")]
-    return dict(re.findall(r'"(\w+)":\s*"(\w+)"', block))
+    """The `_INTENT_ALIASES` literal, read as a literal.
+
+    It used to be a regex over everything between the assignment and the first
+    USE of the name — which held only the dict until a routed `status` branch
+    was written between them, and then also held
+    `record_routed_turn(..., surface="web", skill="status")` and a
+    `json_response({..., "intent": "status"})`. The extractor reported
+    `skill -> status`, `surface -> web` and `intent -> status` as ALIASES, and
+    `test_no_web_intent_can_fall_through_to_the_chat_model` reads this map to
+    decide an intent is reachable: a stray `"x": "y"` anywhere below the dict
+    acquits an intent `x` that in fact reaches nothing but the LLM. A false
+    acquittal, in the guard against exactly that.
+    """
+    import ast
+
+    tree = ast.parse(GATEWAY.read_text())
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "_INTENT_ALIASES"
+                        for t in node.targets)):
+            return dict(ast.literal_eval(node.value))
+    raise AssertionError("_INTENT_ALIASES is not a plain assignment any more")
 
 
-def test_the_alias_extractor_sees_the_map():
+def test_the_alias_extractor_sees_the_map_and_ONLY_the_map():
     al = _web_aliases()
-    assert len(al) >= 5 and al.get("status"), f"only parsed {al}"
+    # The five scan modes are the map. `status` LEFT it — it is a routed
+    # intent with its own permission now, not an alias onto the account card.
+    assert set(al) == {"scan_scalp", "scan_swing", "scan_intraday",
+                       "scan_deep", "scan_full"}, al
+    for stray in ("skill", "surface", "intent", "reply_html"):
+        assert stray not in al, f"{stray} is not an alias; the reader overran"
 
 
 def test_no_web_intent_can_fall_through_to_the_chat_model():

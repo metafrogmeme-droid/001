@@ -104,7 +104,9 @@ def test_closed_on_utc_date_matches_only_today():
 
 
 def test_status_card_converts_daily_pnl_to_percent_and_filters_today():
-    src = inspect.getsource(TelegramHandler._cmd_status)
+    # The READING moved into `status_card_text` so the web could answer the
+    # same question; `_cmd_status` is four lines that send it.
+    src = inspect.getsource(TelegramHandler.status_card_text)
     # LIVE daily must be filtered to today's UTC close date (was all-time).
     assert '_closed_on_utc_date(t, _today)' in src
     # And dollars are converted to percent-of-equity before rendering.

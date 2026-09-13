@@ -706,8 +706,37 @@ HALT_BARE_VERB = re.compile(
 #: Whole-message ACTION rules: a message that IS one of these is never
 #: social, whatever thanks or greeting it also carries (the social gate
 #: consults this before its unanchored thanks pattern).
+#: "What can you do?" — a whole-message question about the PRODUCT, not small
+#: talk. The bare tokens (`help`, `commands`, `menu`) already routed; every
+#: phrasing a person actually uses did not. Driven: `what can you do` was eaten
+#: by `_SOCIAL_CHAT`, `capabilities` and `/help` by the three-word rule, and
+#: `how does this work`, `show me what you can do`, `what can i ask` and
+#: `im new what now` simply matched nothing and reached a tool-less model —
+#: which is the exact failure the unavailable notice was written to prevent,
+#: with the model improvising the product's own feature list.
+#:
+#: `how (does|do) (this|it|you) work` only, never a bare "how does X work":
+#: "how does funding work" is a question about the market and belongs to the
+#: model that can explain it.
+CAPABILITY_ASK = re.compile(
+    r"^\s*(?:(?:so|ok|okay|hey|hi|yo)[,\s]+)?"
+    r"(?:"
+    r"what\s+(?:can|do)\s+you\s+do(?:\s+for\s+me)?"
+    r"|what\s+(?:are\s+you\s+able\s+to\s+do|can\s+this\s+(?:bot|thing)\s+do)"
+    r"|what\s+(?:are\s+your|other)\s+(?:capabilities|features)"
+    r"|what\s+can\s+i\s+ask(?:\s+you)?(?:\s+for)?"
+    r"|what\s+do\s+you\s+offer"
+    r"|show\s+me\s+what\s+you\s+can\s+do"
+    r"|capabilities|features"
+    r"|how\s+(?:does|do)\s+(?:this|it|you)\s+work"
+    r"|(?:i'?m|im)\s+new[,.]?\s*what\s+(?:now|next|do\s+i\s+do)"
+    r"|/help"
+    r")"
+    r"\s*[?!.]*\s*$", re.IGNORECASE)
+
 _ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
-                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB)
+                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB,
+                          CAPABILITY_ASK)
 _rule(HALT_COMPOUND_HALT.pattern, "halt",
       explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
 _rule(HALT_COMPOUND_ANY.pattern, "emergency_stop",
@@ -1177,6 +1206,13 @@ _rule(r"\b(detected patterns?|recurring patterns?|learned patterns?|pattern (ana
 _rule(r"\b(show (me )?help|list (of )?commands?|what commands?|how (do i|to) use (this|the bot|runeclaw))\b"
       r"|^\s*(help|commands?|menu)(\s+me)?\s*$",
       "help", explanation="Help request")
+# The phrasings a person actually uses for the same question. Registered as a
+# SEPARATE rule rather than folded into the one above, because it is also in
+# `_ANCHORED_ACTION_RULES` — the social gate consults it before deciding that
+# "what can you do" is small talk — and a rule that is consulted in two places
+# has to be one object, not one spelling copied twice.
+_rule(CAPABILITY_ASK.pattern, "help",
+      explanation="Capability question — what the bot can do for this caller")
 
 # --- Learning ---
 _rule(r"\b(learning (dashboard|stats|status)|self.?improv|what did you learn|adaptation (stats|status))\b",

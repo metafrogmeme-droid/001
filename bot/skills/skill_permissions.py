@@ -89,10 +89,81 @@ SKILL_PERMISSION: dict[str, str] = {
     "halt": "halt",
 }
 
+#: The same skills, written for a PERSON: one short phrase naming what the
+#: caller gets if they ask for it.
+#:
+#: A COLUMN ON THIS TABLE, not a map in the module that renders the card,
+#: because a map somewhere else is the `/setllm` ten-of-eleven shape — a skill
+#: added later would simply be missing from it and nothing would say so.
+#: `tests/test_the_bot_can_say_what_it_does.py` pins the key sets equal, so a
+#: new skill fails here rather than vanishing from the answer to "what can you
+#: do?".
+#:
+#: These are NOT the tool descriptions. Those are written AT the model ("Call
+#: this for any question about…", "the caller's OWN account"), which is right
+#: there and reads as a stranger's notes in a card shown to the caller.
+SKILL_SAYS: dict[str, str] = {
+    "analyze_asset": "a full read of one asset — structure, levels and the "
+                     "setup the engine sees",
+    "check_risk": "your drawdown against the limit, your exposure, and whether "
+                  "new entries are allowed right now",
+    "costs": "today's model and API spend against the daily budget",
+    "deepscan": "a deep scan across the whole symbol universe with chart "
+                "patterns",
+    "get_portfolio": "your balance, open positions and closed-trade record",
+    "get_orders": "your resting limit orders and stop/take-profit triggers, as "
+                  "the exchange reports them",
+    "learning": "the learning system's readiness dashboard",
+    "macro_calendar": "the macro-event calendar and what the entry gate reads "
+                      "from it",
+    "optimize": "parameter optimisation over the recorded history",
+    "patterns": "recurring market patterns the learning system has measured",
+    "playbook": "the engine's execution playbook",
+    "pro_scan": "a scan tuned to one timeframe — scalp, intraday or swing",
+    "proposals": "improvement proposals the learning loop is holding for review",
+    "rejected_trades": "the most recent ideas the risk gate rejected, with the "
+                       "reason",
+    "run_backtest": "a backtest of a strategy over recorded data",
+    "run_strategy": "one strategy run against the current market",
+    "scan_market": "a live scan of the exchange for movers and volume anomalies",
+    "walk_forward": "a walk-forward validation of a strategy",
+    "whynot": "why the engine did not take a trade on a symbol",
+    "check_event_risk": "macro-event risk for one symbol over the next window",
+    "compliance_status": "restricted jurisdictions and the consent ledger "
+                         "summary",
+    "macro_brief": "the macro gate's posture and the size multiplier it is "
+                   "applying to new entries",
+    "quant_analyze": "the statistical read on one symbol — memory, trend "
+                     "strength and a volatility forecast",
+    "trade_journal": "your most recent closed trades",
+    "trade_postmortem": "a post-mortem of one of your closed trades, read from "
+                        "the record",
+    # `halt` is in SKILL_PERMISSION because that table is the FACT, and in no
+    # transport's reachable set. It is named here for the same reason: the key
+    # sets are pinned equal, and an exemption would be the hole.
+    "halt": "stop the engine (operator only, and never from chat — the command "
+            "owns that authority)",
+}
+
 # What web chat may run. Byte-identical to the dict this replaced — the
 # `halt` omission there was load-bearing and is preserved by construction
 # rather than by remembering.
 WEB_CHAT_SKILLS: frozenset[str] = frozenset(SKILL_PERMISSION) - {"halt", "trade_journal"}
+
+#: Routed intents the web answers from a READING rather than a registered
+#: skill, and the permission each needs.
+#:
+#: DERIVED, like every entry above: the permission is the one on the `@guard`
+#: of the Telegram command that answers the same question. `status` is here
+#: because the web used to ALIAS it to `get_portfolio` — a question about the
+#: engine answered with the account card, and gated by the `portfolio`
+#: permission rather than its own. `pending` holds neither, but `help` and
+#: `status` are not held by the same roles, so answering a routed intent
+#: ABOVE the permission check (which is where the unavailable notice sits)
+#: would remove the gate entirely.
+WEB_ROUTED_PERMISSION: dict[str, str] = {
+    "status": "status",
+}
 
 # Skills a chat transport must never `execute()` directly, whatever the
 # caller's role says.

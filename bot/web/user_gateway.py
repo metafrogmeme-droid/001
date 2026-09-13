@@ -51,9 +51,14 @@ from bot.nlp.skill_memory import (
     skill_result_memory,
     skill_unavailable_memory,
 )
-from bot.skills.skill_permissions import SKILL_PERMISSION, WEB_CHAT_SKILLS
+from bot.skills.skill_permissions import (
+    SKILL_PERMISSION,
+    WEB_CHAT_SKILLS,
+    WEB_ROUTED_PERMISSION,
+)
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
+from bot.utils.outbound import reply_safe
 from bot.utils.paths import env_state_path
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
@@ -79,6 +84,39 @@ def _secret() -> str:
     # restore or an admin /setgateway repair takes effect WITHOUT a restart.
     # Falls back to the import-time value so tests can monkeypatch module state.
     return os.environ.get("WEB_GATEWAY_SECRET", "") or _GATEWAY_SECRET
+
+
+@web.middleware
+async def outbound_redaction_middleware(request: web.Request, handler):
+    """THE outbound chokepoint for this transport. Telegram has had one since
+    the F-15 audit; the web relied on every producer scrubbing itself.
+
+    A MIDDLEWARE rather than a helper the seventeen `reply_html` returns each
+    call, because a chokepoint seventeen call sites must remember is not a
+    chokepoint — it is seventeen chances to forget, and a new route is the
+    eighteenth. This is the `_fmt_price(None)` rule: guard at the boundary and
+    new callers inherit the honest behaviour.
+
+    JSON bodies only, and deliberately so. A `StreamResponse` has no body to
+    rewrite here — its frames are scrubbed at `_sse_frame`, which is the one
+    place they are built — and a `FileResponse` is not text. Anything this
+    cannot read it leaves exactly as it found it: a scrub that can break a
+    response is worse than the defence in depth it buys.
+
+    `Content-Length` is reset by assigning `body`, which aiohttp recomputes.
+    """
+    resp = await handler(request)
+    try:
+        if (isinstance(resp, web.Response)
+                and (resp.content_type or "").endswith("json")
+                and resp.body):
+            raw = resp.body.decode("utf-8")
+            safe = reply_safe(raw)
+            if safe != raw:
+                resp.body = safe.encode("utf-8")
+    except Exception:
+        pass
+    return resp
 
 
 @web.middleware
@@ -153,6 +191,9 @@ def _is_admin_id(tg_handler, tg_id: str) -> bool:
 _WEB_SKILL_PERMISSION: dict[str, str] = {
     name: SKILL_PERMISSION[name] for name in sorted(WEB_CHAT_SKILLS)
 }
+# Routed intents the web answers itself still go through the SAME gate. A
+# question answered above the permission check is a question with no gate.
+_WEB_SKILL_PERMISSION.update(WEB_ROUTED_PERMISSION)
 
 
 #: The `error` codes `_web_skill_denied` answers with, as a sentence the next
@@ -181,7 +222,8 @@ def _denial_reason(code: str) -> str:
     return _DENIAL_REASON.get(code, "a gate on this surface refused it")
 
 
-def _web_skill_denied(tg_handler, tg_id: str, skill_name: str):
+def _web_skill_denied(tg_handler, tg_id: str,
+                      skill_name: str) -> "web.Response | None":
     """None when this caller may run `skill_name` from the web, else a response.
 
     Two checks the web path was missing entirely:
@@ -323,8 +365,20 @@ def build_profile_note(profile) -> str:
 
 
 def _sse_frame(event: str, payload: dict) -> bytes:
-    return (f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-            ).encode("utf-8")
+    """One frame. Every streamed frame this transport sends is built here,
+    which is what makes it the right place to scrub — the streaming half of
+    Telegram's own gap, where `TelegramStream` bypassed `_send`.
+
+    The whole serialised frame goes through `reply_safe`, not just a field:
+    the payload's shape varies by event (`delta`, `tool`, `final`, `error`)
+    and naming the text field per event would be a list to keep in step with
+    the emitters. A scrub over `key=value` shapes and the bot-token pattern
+    cannot corrupt JSON — the replacement carries no quote, backslash or
+    brace — and the frame is built here rather than anywhere else, so a new
+    event kind inherits the scrub instead of having to remember it.
+    """
+    raw = (f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n")
+    return reply_safe(raw).encode("utf-8")
 
 
 async def _sse_turn(request: web.Request, turn) -> web.StreamResponse:
@@ -432,8 +486,24 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # dispatch skills) exactly like Telegram, so the same input-provenance gate
     # applies here. Telemetry-first + fail-open: the engine records a FIREWALL
     # verdict to the tamper-evident chain and returns it; a message is only
-    # refused when the operator has opted into blocking HIGH verdicts. Default
-    # OFF (no scan) — this can never break a chat.
+    # refused when the operator has opted into blocking HIGH verdicts.
+    #
+    # `guardian_firewall_enabled` defaults to TRUE, so this scan really runs on
+    # a stock deploy; it is `guardian_firewall_block_high` that is off. This
+    # comment used to say "Default OFF (no scan)", which named the wrong half
+    # — and the half it named wrong is the one that makes the verdict matter,
+    # because for months the ONLY reader of `fw_verdict` here was the refusal
+    # branch that default keeps shut. The verdict is applied to the prompt at
+    # every LLM call below now, which is what the scan was for.
+    # Initialised BEFORE the try, or a scan that raises leaves the name
+    # undefined at the LLM call below and the whole turn dies with an
+    # UnboundLocalError. Telegram has carried `fw_verdict = None` above its
+    # own try since its fix; the web did not need it while nothing after the
+    # try read the name — which is the whole defect this change removes, so
+    # wiring the reader without this line reintroduces the crash it prevents.
+    # Found by driving a raising scan, not by reading; the first draft of this
+    # very fix shipped without it.
+    fw_verdict = None
     try:
         fw_verdict = engine.firewall_scan(text, source="web", user_id=tg_id)
         if fw_verdict and fw_verdict.get("risk") == "high" \
@@ -459,7 +529,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             return web.json_response({
                 "reply_html": "📷 Image analysis is available to the operator only.",
                 "intent": "vision_denied"})
-        from bot.nlp.sanitize import sanitize_chat_input as _san_v
+        # Same seam as the free-text path. The caption is user text on a turn
+        # that also carries an image, so it is exactly as steerable; and when
+        # the caption is empty `_q` is OUR OWN default, which the scan clears
+        # and the seam returns byte-identical.
+        from bot.guardian.firewall import hardened_prompt as _harden_v
         _q = text or (
             "Read this trading screenshot. If it's a chart, describe the "
             "structure, trend, key levels and any setup or risk you see. If "
@@ -469,7 +543,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             tg_id, "user", text or "[image]",
             metadata={"intent": "vision", "surface": "web"})
         answer, meta = await tg_handler._llm_chat(
-            _san_v(_q), user_id=tg_id, user_name=name,
+            _harden_v(_q, fw_verdict), user_id=tg_id, user_name=name,
             is_admin=True, profile_note=profile_note, reply_lang=reply_lang,
             return_meta=True, images=images)
         tg_handler.conversations.append(
@@ -591,8 +665,72 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             "scan_swing": "scan_market", "scan_scalp": "scan_market",
             "scan_intraday": "scan_market", "scan_deep": "scan_market",
             "scan_full": "scan_market",
-            "status": "get_portfolio",
         }
+        # `help` is answered HERE and not from `_cmd_help`. Driven, of the 90
+        # commands that card names for a non-admin, 78 reach the tool-less
+        # chat model on the web and 12 reach a skill by incidental word
+        # matching (`/scan` lands on `analyze_asset`) — so reusing it would
+        # replace a false refusal ("that tool is not available on this bot
+        # right now") with a mostly-false answer. What this caller can ASK FOR
+        # is the honest version, and it is derived from the same table that
+        # decides reachability rather than written out.
+        #
+        # NOT gated, deliberately, and not in `WEB_ROUTED_PERMISSION`: every
+        # role including `pending` holds `help`, and `_cmd_help` carries no
+        # `@guard` for the same reason — somebody who cannot be told what the
+        # product does cannot ask for access to it.
+        if intent.skill == "help":
+            from bot.formatters.capabilities import capability_answer
+            from bot.nlp.chat_tools import skill_reach
+            _role = str((tg_handler.users.get(tg_id) or {}).get("role", "")
+                        if hasattr(tg_handler.users, "get") else "")
+            # The TABLE's own order, not alphabetical: it is authored in
+            # groups, and sorting scatters the account rows through the macro
+            # ones for no gain.
+            _can, _withheld = skill_reach(tg_handler.users, tg_id, "web",
+                                          list(SKILL_PERMISSION))
+            _card = capability_answer(_can, surface="web", role=_role,
+                                      withheld=_withheld)
+            # The MARKER, not the card: every line of it is derived from the
+            # model's own tool catalogue, which it already holds in full.
+            # Telegram records the same thing for the same reason.
+            from bot.nlp.skill_memory import card_shown_memory
+            record_routed_turn(tg_handler.conversations, tg_id, text, "help",
+                               card_shown_memory("help"), surface="web")
+            return web.json_response({"reply_html": _card, "intent": "help"})
+
+        # `status` LEFT this map. It aliased a question about the ENGINE —
+        # is it running, is the breaker tripped, is the loop alive — to the
+        # account card, which carries no halt, breaker, tick or drawdown
+        # claim of any kind, and gated it under `portfolio` rather than its
+        # own permission. Aliasing a question to the nearest answer is a
+        # confident wrong answer; `get_orders` is the same lesson one intent
+        # over. It reads `status_card_text` now, the seam /status renders.
+        if intent.skill == "status":
+            denied = _web_skill_denied(tg_handler, tg_id, "status")
+            if denied is not None:
+                _why = _denial_reason(
+                    str(json.loads(denied.text or "{}").get("error", "")))
+                record_routed_turn(tg_handler.conversations, tg_id, text,
+                                   "status", not_run_memory("status", _why),
+                                   surface="web")
+                return denied
+            try:
+                _card = await tg_handler.status_card_text(
+                    tg_id, _ui_lang(reply_lang), surface="web")
+            except Exception:
+                tg_handler.conversations.append(
+                    tg_id, "assistant", skill_failure_memory("status"),
+                    metadata={"skill": "status", "surface": "web",
+                              "failed": True})
+                from bot.skills.chat_runtime import skill_failure_notice
+                return web.json_response(
+                    {"reply_html": skill_failure_notice("status"),
+                     "intent": "status"}, status=200)
+            record_routed_turn(tg_handler.conversations, tg_id, text, "status",
+                               skill_result_memory("status", _card),
+                               surface="web", skill="status")
+            return web.json_response({"reply_html": _card, "intent": "status"})
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
         skill = tg_handler.registry.get(skill_name)
         if skill:
@@ -745,7 +883,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                 _quota, lang=_ui_lang(reply_lang), surface="web"),
             "intent": "quota_exceeded", "quota": _quota}, status=200)
 
-    from bot.nlp.sanitize import sanitize_chat_input
+    # The scan's finding, then the denylist — the same seam Telegram reads.
+    # The RAW text is what goes to memory and to the router, exactly as on
+    # Telegram: hardening that rewrote the stored turn would change what a
+    # later turn thinks the user asked for.
+    from bot.guardian.firewall import hardened_prompt
     tg_handler.conversations.append(tg_id, "user", text,
                                     metadata={"intent": intent.skill or "chat",
                                               "surface": "web"})
@@ -753,7 +895,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # non-admin guard (operator Anthropic key stays admin-only) and the
     # fallback-chain gate in _llm_chat both key off this flag.
     answer, meta = await tg_handler._llm_chat(
-        sanitize_chat_input(text), user_id=tg_id, user_name=name,
+        hardened_prompt(text, fw_verdict), user_id=tg_id, user_name=name,
         is_admin=_is_admin,
         profile_note=profile_note, reply_lang=reply_lang, return_meta=True,
         surface="web",
@@ -909,9 +1051,30 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
             "intent": "public_scan_gate"})
 
     from bot.nlp.intent_router import detect_reply_mode
-    from bot.nlp.sanitize import sanitize_chat_input
+
+    # This surface had NO input-provenance gate at all — the weaker version of
+    # the defect one route up, where a verdict was computed and applied to
+    # nothing. It cannot act (no tools, no account, no dispatch), which is why
+    # it never got one; but it answers an anonymous visitor in the product's
+    # voice, and a smuggled role turn steers THAT just as well. The scan is
+    # pure regex and stdlib, so it costs a public request nothing measurable.
+    #
+    # Fail-open in the only direction that is safe: no engine on the app, or a
+    # scan that raises, leaves the verdict None — and `hardened_prompt` with a
+    # None verdict still runs the denylist, which is exactly what this path
+    # had before. It cannot come out worse than it went in.
+    _pub_engine = request.app.get("engine")
+    _pub_verdict = None
+    try:
+        if _pub_engine is not None:
+            _pub_verdict = _pub_engine.firewall_scan(
+                text, source="web_public", user_id="")
+    except Exception:
+        _pub_verdict = None
+
+    from bot.guardian.firewall import hardened_prompt as _harden_pub
     answer = await tg_handler._llm_chat(
-        sanitize_chat_input(text), user_id="", user_name="",
+        _harden_pub(text, _pub_verdict), user_id="", user_name="",
         is_admin=False, public=True, reply_lang=reply_lang,
         # Detected here rather than read off an intent, because this path has
         # no intent to read: an anonymous visitor has no account to dispatch a
@@ -981,6 +1144,13 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
     from bot.core.contract_studio import (
         build_generation_prompt, scan_security_flags, flags_summary,
         AUDIT_DISCLAIMER)
+    # The denylist alone, DELIBERATELY — this is the one text-to-model path in
+    # this file that does not go through `hardened_prompt`, and the reason is
+    # what the text IS. A contract spec is a description of code: "system:"
+    # names a Solidity role, `\u200b` does not occur in one, and `defang`
+    # rewrites what it flags, so hardening here would edit the specification
+    # the user is paying to have generated. The three chat paths above harden
+    # because their text is a message; this one stays a document.
     from bot.nlp.sanitize import sanitize_chat_input
     prompt = build_generation_prompt(sanitize_chat_input(spec), license=lic,
                                      pragma=pragma)
@@ -4163,7 +4333,12 @@ async def handle_health(request: web.Request) -> web.Response:
 
 def build_gateway(engine, tg_handler) -> web.Application:
     """Build the /gateway sub-app. Caller mounts it under the dashboard app."""
-    app = web.Application(middlewares=[secret_middleware])
+    # Order matters: aiohttp runs middlewares outermost-first, so the
+    # redactor must sit BEFORE the auth gate to wrap the responses the gate
+    # itself returns — `{"error": "gateway_disabled", "detail": "..."}` names
+    # an env var, and a refusal is outbound text like any other.
+    app = web.Application(
+        middlewares=[outbound_redaction_middleware, secret_middleware])
     app["engine"] = engine
     app["tg_handler"] = tg_handler
     app["proposers"] = {}

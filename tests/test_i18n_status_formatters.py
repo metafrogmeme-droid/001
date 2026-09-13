@@ -20,7 +20,10 @@ def _status(**kw):
 class TestStatusCardEnglish:
     def test_header_status_mode_line(self):
         out = _status()
-        assert "\U0001f7e2 ACTIVE | \U0001f534 LIVE | Bitget" in out
+        # The venue is OMITTED when the caller did not pass one: it was the
+        # literal "Bitget" on a product that routes to Bybit and BingX too.
+        assert "\U0001f7e2 ACTIVE | \U0001f534 LIVE" in out
+        assert "Bitget" not in out.splitlines()[2]
         assert "<b>RUNECLAW STATUS</b> — " in out
 
     def test_sections_and_labels(self):
@@ -33,7 +36,7 @@ class TestStatusCardEnglish:
 
     def test_halted_paper_variant(self):
         out = _status(active=False, mode="PAPER")
-        assert "\U0001f534 HALTED | \U0001f7e1 PAPER | Bitget" in out
+        assert "\U0001f534 HALTED | \U0001f7e1 PAPER" in out
         assert "- State: Halted (circuit breaker)" in out
 
 

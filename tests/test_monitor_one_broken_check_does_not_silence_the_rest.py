@@ -292,7 +292,7 @@ def test_status_reaches_the_line_through_the_monitor():
         return " ".join(tok.string for tok in tokenize.generate_tokens(
             io.StringIO(src).readline) if tok.type != tokenize.COMMENT)
     code = " ".join(_tokens(p.read_text(encoding="utf-8")) for p in handler_sources())
-    i = code.find("async def _cmd_status")
+    i = code.find("async def status_card_text")
     body = code[i:code.find("async def ", i + 10)]
     assert "monitor_checks_line (" in body
     assert "check_failures ( )" in body

@@ -151,7 +151,9 @@ def test_headroom_and_the_breach_are_both_shown():
 def test_the_status_command_passes_it():
     import inspect
     from bot.skills.telegram_handler import TelegramHandler
-    src = inspect.getsource(TelegramHandler._cmd_status)
+    # The READING moved into `status_card_text` when the web needed to
+    # answer the same question; `_cmd_status` is four lines that send it.
+    src = inspect.getsource(TelegramHandler.status_card_text)
     assert "phase_headroom" in src
 
 

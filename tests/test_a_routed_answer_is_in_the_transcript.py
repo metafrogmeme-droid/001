@@ -506,15 +506,57 @@ def test_the_web_news_intercept_records_the_digest(monkeypatch):
 def test_the_web_records_the_question_behind_an_unavailable_tool(monkeypatch):
     """The answer was recorded and the question never was — the mirror of the
     hole above. A history holding "there is no such tool" with nothing asking
-    for it reads as the assistant volunteering a refusal."""
+    for it reads as the assistant volunteering a refusal.
+
+    The intent is PLANTED, because no router intent reaches this branch today
+    (the test below pins that). It is the fail-closed path for a skill added
+    later and not wired, which is precisely when nobody is looking at it.
+    """
+    from bot.nlp.intent_router import IntentResult
+
     store = ConversationStore()
     ug, handler = _web(monkeypatch, store)
     handler.registry = SimpleNamespace(get=lambda n: None)
-    _web_turn(ug, handler, "help")
+    handler.intent_router = SimpleNamespace(classify_rules=lambda t: IntentResult(
+        raw_text=t, skill="brand_new_skill", confidence=1.0))
+    _web_turn(ug, handler, "do the new thing")
     turns = [(m.role, m.content) for m in store.get_recent("4242", limit=10)]
     assert [r for r, _ in turns] == ["user", "assistant"], turns
-    assert turns[0][1] == "help"
+    assert turns[0][1] == "do the new thing"
     assert "UNAVAILABLE" in turns[1][1]
+
+
+def test_no_router_intent_falls_to_the_unavailable_notice_today():
+    """A reachability ratchet on the fail-closed branch.
+
+    Every skill the router can name is either registered, aliased, or answered
+    by a branch of its own. An intent that stops being true here reaches a
+    user as "that tool is not available on this bot right now" — which was
+    false for `help` and `status` for as long as it was said.
+    """
+    import inspect
+
+    from bot.nlp.intent_router import _INTENT_RULES
+    from bot.skills.chat_runtime import ACT_INTENTS, HALT_INTENTS
+    from bot.skills.skill_registry import build_default_registry
+    from bot.web import user_gateway as ug
+
+    src = inspect.getsource(ug._chat_turn)
+    registry = build_default_registry()
+    i = src.index("_INTENT_ALIASES = {")
+    aliased = src[i:src.index("}", i)]
+    unhandled = []
+    for _pattern, skill, _needs, _why in _INTENT_RULES:
+        if not skill or registry.get(skill) is not None:
+            continue
+        if skill in ACT_INTENTS or skill in HALT_INTENTS:
+            continue          # answered by the door notices
+        if skill.startswith("stance_"):
+            continue          # answered by the stance reply
+        if f'"{skill}"' in aliased or f'if intent.skill == "{skill}"' in src:
+            continue          # an alias, or a branch of its own
+        unhandled.append(skill)
+    assert sorted(set(unhandled)) == [], sorted(set(unhandled))
 
 
 def test_a_bare_directional_whose_skill_raises_records_the_failure(monkeypatch):
@@ -572,21 +614,19 @@ def test_the_paywall_reason_survives_the_tier_code_family(monkeypatch):
 
 
 def test_the_web_alias_records_the_skill_that_ran(monkeypatch):
-    """`_INTENT_ALIASES` sends `status` to `get_portfolio` and every `scan_*`
-    to `scan_market`, so recording `intent.skill` attributes the card to a tool
-    that was never called — the Telegram scan branch's misattribution, one
-    transport over. (The ALIAS itself is a separate defect: a question about
-    the engine answered with the positions card. That is the next slice.)"""
+    """`_INTENT_ALIASES` sends every `scan_*` to `scan_market`, so recording
+    `intent.skill` attributes the card to a tool that was never called — the
+    Telegram scan branch's misattribution, one transport over."""
     store = ConversationStore()
     ug, handler = _web(monkeypatch, store)
     handler.registry = SimpleNamespace(get=lambda n: SimpleNamespace(
-        execute=AsyncMock(return_value="<b>Portfolio</b> equity $100")))
+        execute=AsyncMock(return_value="<b>BTC</b> 62k")))
     handler.users.permission_denial = lambda uid, perm: None
-    _web_turn(ug, handler, "status")
+    _web_turn(ug, handler, "deep scan")
     rec = "\n".join(m.content for m in store.get_recent("4242", limit=10)
                      if m.role == "assistant")
-    assert "[get_portfolio] result:" in rec, rec
-    assert "[status]" not in rec
+    assert "[scan_market] result:" in rec, rec
+    assert "[scan_deep]" not in rec
 
 
 def test_the_streaming_door_records_through_the_same_turn(monkeypatch):

@@ -1267,11 +1267,35 @@ def _gave_up_note(progress: Optional[dict], lang: str = "en") -> str:
     return f" \u2014 {n} {t('val_gave_up', lang)}"
 
 
+def mode_badge(mode: str, lang: str = "en") -> str:
+    """The trading mode as a badge — one map, four values, every card.
+
+    `live_readiness.mode_label()` is the READING and this is the RENDERING of
+    it, which is why it lives with the renderer. Three status skills wrote
+    their own two-valued version (`"PAPER" if CONFIG.simulation_mode else
+    "LIVE"`) and therefore announced LIVE on an IDLE real account — simulation
+    off, live never armed — which is the reassuring direction of a wrong claim
+    about real money. A second copy of a badge is a second answer, so they
+    read this.
+
+    `val_idle` / `val_unknown` are deliberately NOT looked up: `t()` returns
+    the key itself on a miss, so an untranslated key would render as the
+    literal string "val_idle" in all fourteen locales.
+    """
+    if mode == "LIVE":
+        return f"\U0001f534 {t('val_live', lang)}"
+    if mode == "PAPER":
+        return f"\U0001f7e1 {t('val_paper', lang)}"
+    if mode == "IDLE":
+        return "⚪ IDLE (not armed)"
+    return "⚪ UNKNOWN"
+
+
 def render_status_card(
     mode: str,
     active: bool,
     equity: Optional[float],
-    open_positions: int,
+    open_positions: Optional[int],
     daily_pnl: Optional[float],
     drawdown: Optional[float],
     max_drawdown: Optional[float],
@@ -1286,6 +1310,7 @@ def render_status_card(
     drawdown_source: Optional[str] = None,
     position_watch: Optional[dict] = None,
     tick_error: Optional[dict] = None,
+    venue: Optional[str] = None,
 ) -> str:
     """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
     # Whether the SL/TP monitor actually ran. Sits with the phase timeout
@@ -1304,14 +1329,7 @@ def render_status_card(
     # wrong one. `val_idle`/`val_unknown` are deliberately NOT looked up — t()
     # returns the key itself on a miss, so an untranslated key would render as
     # the literal string "val_idle" in all fourteen locales.
-    if mode == "LIVE":
-        mode_label = f"\U0001f534 {t('val_live', lang)}"
-    elif mode == "PAPER":
-        mode_label = f"\U0001f7e1 {t('val_paper', lang)}"
-    elif mode == "IDLE":
-        mode_label = "⚪ IDLE (not armed)"
-    else:
-        mode_label = "⚪ UNKNOWN"
+    mode_label = mode_badge(mode, lang)
     # Three outcomes, the same shape this card already uses for `equity`.
     # `daily_pnl` is None when today's closes exist but none could be priced —
     # "⚪ 0.0%" beside a "/ +5.0% limit" reads as a measured flat day, which is
@@ -1327,7 +1345,11 @@ def render_status_card(
     lines = [
         f"\U0001f43e <b>{t('status_title', lang)}</b> \u2014 {now}",
         "",
-        f"{status} | {mode_label} | Bitget",
+        # The venue was the literal "Bitget" on a product that routes to
+        # Bybit and BingX too, printed beside the real venue three sections
+        # down. A name nobody read is a claim nobody checked; omitted when
+        # unknown rather than guessed.
+        f"{status} | {mode_label}" + (f" | {venue}" if venue else ""),
         "",
         SEP,
         "",
@@ -1412,7 +1434,14 @@ def render_status_card(
         # say so, never fall back to the paper baseline.
         f"- {t('lbl_equity', lang)}: "
         f"{_fmt_price(equity) if equity is not None else 'unavailable'}",
-        f"- {t('lbl_open_positions', lang)}: {open_positions}",
+        # None is "no account this caller may view", which is not zero
+        # positions — the difference between a flat book and no book.
+        f"- {t('lbl_open_positions', lang)}: "
+        # "unavailable", untranslated, exactly as the equity line one row up:
+        # t() returns the key itself on a miss, so an invented key would
+        # render as the literal "val_unavailable" in all fourteen locales.
+        + (str(open_positions) if open_positions is not None
+           else "unavailable"),
         f"- {t('lbl_daily_pnl', lang)}: {pnl_icon} {_dp_str}",
         "",
         f"<b>{t('hdr_risk', lang)}</b>",

@@ -26,6 +26,7 @@ from datetime import datetime
 from bot.compat import UTC
 from typing import Optional
 from bot.utils.paths import state_path
+from bot.utils.outbound import reply_safe
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import position_size_basis
 # The chat's runtime pieces that are not the handler — the per-user rate
@@ -1111,13 +1112,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # Audit F-15: scrub secrets from every outgoing message. Many handlers
         # interpolate raw str(exc) into replies; the logger redacts its own
         # output but the Telegram send path did not, so a credential-bearing
-        # ccxt/auth error could reach the chat unredacted. This is the single
-        # chokepoint for all outbound text.
-        if text:
-            try:
-                text = _redact_string(text)
-            except Exception:
-                pass
+        # ccxt/auth error could reach the chat unredacted.
+        #
+        # It called itself "the single chokepoint for all outbound text" and
+        # had stopped being one: with streaming on (the default) the model's
+        # answer goes out through `TelegramStream`, which returns above this
+        # method. `reply_safe` is the seam all three sites share now, and it
+        # knows the bot-token shape `_redact_string` does not.
+        text = reply_safe(text)
         # Determine the right send method based on context
         if edit and update.callback_query:
             method = update.callback_query.edit_message_text
@@ -3238,7 +3240,28 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # whether the engine was running. These are the two things it is
             # least excusable to improvise, and the commands already exist.
             if intent.skill == "help":
-                await self._cmd_help(update, ctx)
+                # A typed QUESTION gets an answer; the /help COMMAND keeps its
+                # 126-command reference. "What can you do?" answered with a
+                # catalogue is the shape of an answer rather than one, and the
+                # same card serves the web, where those commands are not doors
+                # at all.
+                from bot.formatters.capabilities import capability_answer
+                from bot.nlp.chat_tools import skill_reach
+                from bot.skills.skill_permissions import SKILL_PERMISSION
+                _role = str((self.users.get(tg_id) or {}).get("role", ""))
+                _can, _withheld = skill_reach(self.users, tg_id, "telegram",
+                                              list(SKILL_PERMISSION))
+                _cap = capability_answer(_can, surface="telegram", role=_role,
+                                         withheld=_withheld)
+                await self._send(update, _cap)
+                # The MARKER, not the card. Every line of that card is derived
+                # from the model's own tool catalogue, which it already holds
+                # in full — pasting 2,000 characters of it back into the
+                # history spends the model's context on something it can see
+                # directly. That is a judgement about cost, and it is only
+                # available because the marker is honest about what it leaves
+                # out; it is not licence to use one where the content is the
+                # evidence.
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("help"))
                 return
@@ -3595,13 +3618,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # variable drives intent parsing and command routing above, and
         # rewriting it there would change what the bot thinks you asked for.
         # Ordinary messages come back byte-identical (see defang_if_flagged).
-        from bot.guardian.firewall import defang_if_flagged
-        _prompt_text, _ = defang_if_flagged(text, fw_verdict)
+        #
+        # One seam, both transports. This was two statements here and the
+        # second one alone on the web, so the verdict the web had just sealed
+        # to the audit chain changed nothing about what its model read.
+        from bot.guardian.firewall import hardened_prompt
+        _prompt_text = hardened_prompt(text, fw_verdict)
         # `intent` was classified three hundred lines up and carried the
         # turn's shape the whole way down here, where the prompt that names
         # its vocabulary finally reads it.
         answer, _meta = await self._llm_chat(
-            _sanitize_chat_input(_prompt_text), user_id=tg_id, user_name=user_name,
+            _prompt_text, user_id=tg_id, user_name=user_name,
             is_admin=_is_admin_caller, reply_lang=_reply_lang, return_meta=True,
             reply_mode=getattr(intent, "reply_mode", ""),
             on_event=_stream.on_event if _stream is not None else None)
