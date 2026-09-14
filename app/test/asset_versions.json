@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 179,
-    "sha": "47e329c5fb77ce1f"
+    "v": 180,
+    "sha": "ebec5dae3f0e9bd2"
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -104,12 +104,16 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 145,
-    "sha": "8cda97d76147fc26"
+    "v": 146,
+    "sha": "5a1a7bb29cc37616"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
     "v": 6
+  },
+  "js/instrument-row-model.js": {
+    "sha": "cd65ddb9c8ee7002",
+    "v": 1
   },
   "js/intent-model.js": {
     "sha": "d288c395a7e14720",
@@ -236,8 +240,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "e708df10cc7511a6",
-    "v": 41
+    "sha": "6dad4ce07bd38f5d",
+    "v": 42
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",

@@ -414,6 +414,7 @@
     "dp.prevtrack": { en: "The engine's real public record" },
     "dp.venues": { en: "Your venues — at a glance" },
     "dp.lpos": { en: "Open positions & stop-loss" },
+    "dp.instr": { en: "Instruments — mark & R" },
     "dp.intel": { en: "Trade intelligence" },
     "dp.networth": { en: "Net worth — everywhere" },
     "dp.holdings": { en: "Funds by venue & wallet" },
@@ -735,6 +736,36 @@
     "dd.ms_age_old": { en: "FIGURES OLD" },
     "dd.e_mode": { en: "No account record on this site yet." },
     "dd.e_positions": { en: "No open positions. The Trade view has a full order ticket." },
+    "dd.ir_spark_unread": { en: "price history not read" },
+    "dd.ir_spark_absent": { en: "not on the reference feed" },
+    "dd.ir_spark_thin": { en: "too few closes to draw" },
+    "dd.ir_spark_flat": { en: "unchanged across {n} closes" },
+    "dd.ir_mark_unread_t": { en: "The reference price feed could not be read for this instrument. A website read, not a statement about your position." },
+    "dd.ir_mark_absent_t": { en: "This instrument is not on the reference price feed, so no mark could be looked up for it." },
+    "dd.ir_move_noentry_t": { en: "No entry price on record for this position, so the move from entry cannot be measured." },
+    "dd.ir_move_nodir_t": { en: "The position’s direction could not be read, so the move has no sign." },
+    "dd.ir_r_nostop": { en: "R unknown — no stop on record for this position. It is not 0R." },
+    "dd.ir_r_noentry": { en: "R unknown — no entry price on record for this position." },
+    "dd.ir_r_nomark": { en: "R unknown — the mark could not be read, so there is nothing to measure against the stop." },
+    "dd.ir_r_nodir": { en: "R unknown — the position’s direction could not be read." },
+    "dd.ir_mark_unknown": { en: "mark —" },
+    "dd.ir_move_unknown": { en: "move —" },
+    "dd.ir_r_unknown": { en: "R —" },
+    "dd.ir_stop_unknown": { en: "🛑 stop unknown" },
+    "dd.ir_stop_unprot": { en: "⚠️ unprotected" },
+    "dd.ir_stop_exch": { en: "🛡️ on exchange" },
+    "dd.ir_stop_managed": { en: "🤖 bot-managed" },
+    "dd.ir_stop_none": { en: "no stop on record" },
+    "dd.ir_entry": { en: "entry" },
+    "dd.ir_stop": { en: "stop" },
+    "dd.ir_target": { en: "target" },
+    "dd.ir_none_on_record": { en: "none on record" },
+    "dd.ir_dir_none": { en: "— no direction" },
+    "dd.ir_open": { en: "Chart, patterns & structure" },
+    "dd.ir_foot_live": { en: "Mark and price history are the public reference feed (Bitget USDT futures), not your venue. R is measured against the stop on record." },
+    "dd.ir_foot_paper": { en: "Simulated paper book. Mark and price history are the public reference feed; R is measured against the stop on record." },
+    "dd.ir_book_unread": { en: "Your positions could not be read for this account — the bot has no executor attached to it. Nothing here is a statement about your book." },
+    "dd.e_instr": { en: "No open positions. Each one you open gets a line here with its reference mark and R." },
     "dd.e_signals": { en: "No signals yet — they appear as the engine scans." },
     "dd.e_macro": { en: "The macro backdrop appears once market data is available." },
     "dd.e_agent": { en: "Agent status unavailable right now." },
@@ -1304,6 +1335,7 @@
     "venue.failed": { en: "Failed." },
     "aria.symbol": { en: "Symbol" },
     "aria.direction": { en: "Direction" },
+    "aria.ir_spark": { en: "{sym}: last {n} hourly closes" },
     "aria.level": { en: "Level" },
     "aria.alert_mode": { en: "Alert mode" },
     "aria.delete_alert": { en: "Delete alert" },
@@ -1882,7 +1914,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"10e4c219","zh":"9482f3f5","pt":"d7e49c8a","fr":"d88fb562","de":"8a8c2319","nl":"01f96b63","ja":"10e4d831","ko":"04b2ab55","ru":"b03fcdb7","tr":"1ee46d4b","it":"a268cd11","hi":"b12b52ef","ar":"63fbee62"};
+  var CHUNKS = {"es":"6ecd7533","zh":"1efdbf4c","pt":"65ace22f","fr":"74cd3564","de":"b964b829","nl":"c7fd6d1a","ja":"a859b309","ko":"49ccd918","ru":"566718ff","tr":"5277e637","it":"3b56031e","hi":"e696d5cb","ar":"2c9b84b7"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

@@ -826,6 +826,11 @@
     // inside any one loader so no loader's failure or order decides whether
     // the others get a read.
     const portfolioRead = LOGGED_IN ? fetchJSON('/api/portfolio', { timeoutMs: 16000 }) : null;
+    // And ONE /api/positions read, for the command bar and the positions
+    // panel: two fetches of one endpoint on one screen are two answers that
+    // can disagree within a single paint. Settled with null on failure so
+    // the bar's omit-branch and the panel's mustRead each see the same event.
+    const positionsRead = LOGGED_IN ? fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null) : null;
 
     renderPanel(C('hero'), async () => {
       if (!LOGGED_IN) {
@@ -1017,7 +1022,7 @@
       renderPanel(C('cmd'), async () => {
         const [pf, posR, ctlR, scanR] = await Promise.all([
           getPortfolio(false, portfolioRead),
-          fetchJSON('/api/positions', { timeoutMs: 12000 }).catch(() => null),
+          positionsRead,
           fetchJSON('/api/controls/status', { timeoutMs: 10000 }).catch(() => null),
           getScan().catch(() => null),
         ]);
@@ -1062,7 +1067,10 @@
         if (daily != null) cells.push(chip(null, 'Today', `<b class="num ${pnlClass(daily)}">${signed(daily)}</b>`));
         if (paused) cells.push(chip('#account/actl', '', `<span class="chip chip--warn">Paused</span>`));
         return `<div class="mc-bar">${cells.join('')}</div>`;
-      }, { timeoutMs: 14000, empty: { text: '' } });
+      // BUDGET: the two shared reads live outside this body, where the budget
+      // gate cannot see them — the portfolio read asks 16000ms and the
+      // positions read 15000ms, both started before this timer, so 17000ms.
+      }, { timeoutMs: 17000, empty: { text: '' } });
 
       // The Agent Letter — weekly fund-style letter from recorded data.
       //
@@ -1251,7 +1259,9 @@
       // Show positions WITH their stop-loss protection status (🛡️ on exchange /
       // 🤖 bot-managed / ⚠️ unprotected) — the same safety truth as Portfolio,
       // capped to the top few with a link to the full view.
-      const r = await fetchJSON('/api/positions', { timeoutMs: 15000 });
+      // The home view's ONE positions read (15000ms, started with the render,
+      // before this 17000ms timer), shared with the command bar above.
+      const r = await positionsRead;
       mustRead(r);
       const d = r.ok ? r.data : null;
       if (!d || !(d.positions || []).length) return null;
@@ -1426,6 +1436,173 @@
       ? `<div class="small muted" style="padding-top:var(--s2)"><a href="#portfolio">+${rows.length - opts.limit} more →</a></div>` : '';
     return banner + body + more;
   }
+
+  // ── instrument row: renderers ─────────────────────────────────────────
+  // Every decision is InstrumentRowModel's (js/instrument-row-model.js); these
+  // turn its readings into markup and nothing else. The block between the two
+  // sentinel comments is sliced out by instrument_row_is_not_a_measurement
+  // .test.js and run in a VM, so it must stay self-contained: it reaches for
+  // T, TF, esc, fmtPrice, signed, moveClass and the model, and nothing else.
+  // The model global is read once, defensively, the way its siblings are: the
+  // failure this degrades from is the model file not shipping while
+  // dashboard.js does, and a ReferenceError inside a loader is painted as the
+  // generic error state with a Retry that cannot help.
+  const IR_W = 120, IR_H = 28;
+
+  // Tri-state ticker read. getTickers() hands back cache.tickers, which is {}
+  // before the first success, so an outage is indistinguishable from a feed
+  // that lists nothing — and a row that has to tell "not read" from "not
+  // listed" needs a reading that can say which. Warms the same cache.
+  async function readRefTickers(timeoutMs) {
+    const r = await fetchJSON('/api/market/tickers', { auth: false, timeoutMs }).catch(() => null);
+    if (!r || !r.ok || !r.data || !Array.isArray(r.data.data)) return { state: 'unreadable', map: null };
+    const map = {};
+    for (const t of r.data.data) { if (t && t.symbol) { map[t.symbol] = t; cache.tickers[t.symbol] = t; } }
+    return { state: 'read', map };
+  }
+
+  // Deliberately NOT _fetchMiniCandles: that one folds every failure into `[]`,
+  // and an empty candle list is exactly what "the instrument did not move"
+  // looks like from a renderer. A 200 whose body is not an array is
+  // UNREADABLE here — the mark's own rule — never "not on the feed". Only a
+  // READ is cached (120s, the mini-candle TTL): a failure must be asked
+  // again on the next render, not remembered.
+  const _refBars = new Map();
+  async function readRefBars(sym, timeoutMs) {
+    if (!sym) return { state: 'absent', rows: null };
+    const hit = _refBars.get(sym);
+    if (hit && Date.now() - hit.ts < 120000) return { state: 'read', rows: hit.rows };
+    const r = await fetchJSON('/api/market/candles/' + encodeURIComponent(sym) + '?granularity=1h&limit=24',
+      { auth: false, timeoutMs }).catch(() => null);
+    if (!r || !r.ok || !r.data || !Array.isArray(r.data.data)) return { state: 'unreadable', rows: null };
+    _refBars.set(sym, { ts: Date.now(), rows: r.data.data });
+    return { state: 'read', rows: r.data.data };
+  }
+
+  // The words the model can emit, every key a LITERAL so the dictionary sweep
+  // sees each one; `say()` never invents a sentence for a key it lacks.
+  function irWords() {
+    return {
+      'dd.ir_spark_unread': T('dd.ir_spark_unread', 'price history not read'),
+      'dd.ir_spark_absent': T('dd.ir_spark_absent', 'not on the reference feed'),
+      'dd.ir_spark_thin': T('dd.ir_spark_thin', 'too few closes to draw'),
+      'dd.ir_spark_flat': T('dd.ir_spark_flat', 'unchanged across {n} closes'),
+      'dd.ir_mark_unread_t': T('dd.ir_mark_unread_t', 'The reference price feed could not be read for this instrument. A website read, not a statement about your position.'),
+      'dd.ir_mark_absent_t': T('dd.ir_mark_absent_t', 'This instrument is not on the reference price feed, so no mark could be looked up for it.'),
+      'dd.ir_move_noentry_t': T('dd.ir_move_noentry_t', 'No entry price on record for this position, so the move from entry cannot be measured.'),
+      'dd.ir_move_nodir_t': T('dd.ir_move_nodir_t', 'The position’s direction could not be read, so the move has no sign.'),
+      'dd.ir_r_nostop': T('dd.ir_r_nostop', 'R unknown — no stop on record for this position. It is not 0R.'),
+      'dd.ir_r_noentry': T('dd.ir_r_noentry', 'R unknown — no entry price on record for this position.'),
+      'dd.ir_r_nomark': T('dd.ir_r_nomark', 'R unknown — the mark could not be read, so there is nothing to measure against the stop.'),
+      'dd.ir_r_nodir': T('dd.ir_r_nodir', 'R unknown — the position’s direction could not be read.'),
+      'dd.ir_mark_unknown': T('dd.ir_mark_unknown', 'mark —'),
+      'dd.ir_move_unknown': T('dd.ir_move_unknown', 'move —'),
+      'dd.ir_r_unknown': T('dd.ir_r_unknown', 'R —'),
+      'dd.ir_stop_unknown': T('dd.ir_stop_unknown', '🛑 stop unknown'),
+      'dd.ir_stop_unprot': T('dd.ir_stop_unprot', '⚠️ unprotected'),
+      'dd.ir_stop_exch': T('dd.ir_stop_exch', '🛡️ on exchange'),
+      'dd.ir_stop_managed': T('dd.ir_stop_managed', '🤖 bot-managed'),
+      'dd.ir_stop_none': T('dd.ir_stop_none', 'no stop on record'),
+      'dd.ir_entry': T('dd.ir_entry', 'entry'),
+      'dd.ir_stop': T('dd.ir_stop', 'stop'),
+      'dd.ir_target': T('dd.ir_target', 'target'),
+      'dd.ir_none_on_record': T('dd.ir_none_on_record', 'none on record'),
+      'dd.ir_dir_none': T('dd.ir_dir_none', '— no direction'),
+      'dd.ir_foot_live': T('dd.ir_foot_live', 'Mark and price history are the public reference feed (Bitget USDT futures), not your venue. R is measured against the stop on record.'),
+      'dd.ir_foot_paper': T('dd.ir_foot_paper', 'Simulated paper book. Mark and price history are the public reference feed; R is measured against the stop on record.'),
+      'dd.ir_book_unread': T('dd.ir_book_unread', 'Your positions could not be read for this account — the bot has no executor attached to it. Nothing here is a statement about your book.'),
+    };
+  }
+
+  // An absence: WORDS at the muted weight with the reason on the title —
+  // never a number, never coloured, never a bare dash in a numeric column.
+  function irUnread(cls, label, why) {
+    return '<span class="ir-unread ' + cls + '" title="' + esc(why) + '">' + esc(label) + '</span>';
+  }
+
+  // NO LINE IS DRAWN unless at least two distinct closes were read. A stroke
+  // across an empty box says the instrument did not move, and only a window
+  // of real closes may say that; a window that WAS read and is genuinely
+  // flat is said in words, because that is the one time the claim is true.
+  function irSparkHtml(row, WORDS) {
+    const say = (w) => (w ? (WORDS[w.key] || w.en) : '');
+    if (row.spark.state !== 'read') {
+      const word = say(row.spark.word).replace('{n}', String(row.spark.n));
+      return '<span class="ir-spark ir-spark--none" title="' + esc(word) + '">' + esc(word) + '</span>';
+    }
+    const geo = InstrumentRowModel.sparkGeometry(row.spark.closes, IR_W, IR_H);
+    if (!geo) return '';   // unreachable by construction: a READ window has two distinct closes
+    return '<svg class="ir-spark ir-spark--line" viewBox="0 0 ' + IR_W + ' ' + IR_H
+      + '" width="' + IR_W + '" height="' + IR_H + '" preserveAspectRatio="none" role="img" aria-label="'
+      + esc(TF('aria.ir_spark', '{sym}: last {n} hourly closes', { sym: row.base, n: geo.n }))
+      + '"><polyline points="' + geo.points + '" fill="none" stroke="currentColor" stroke-width="1.5"'
+      + ' stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+
+  function instrumentRowHtml(row, WORDS) {
+    const say = (w) => (w ? (WORDS[w.key] || w.en) : '');
+    // The chip is built from the model's ONE direction reading — the same
+    // reading that signs the move and the R — so a row cannot carry two
+    // opposite direction claims. It declines with the muted chip.
+    const chip = row.chip.text !== null
+      ? '<span class="' + row.chip.cls + '">' + esc(row.chip.text) + '</span>'
+      : '<span class="' + row.chip.cls + '">' + esc(say(row.chip.word)) + '</span>';
+    // `== null` on purpose: undefined is the other way a field goes missing,
+    // and `undefined >= 0` is FALSE where `null >= 0` is TRUE — the two
+    // flavours of absent paint opposite verdicts from one comparison. No
+    // comparison is made here at all; the model decided, moveClass paints.
+    const markCell = row.mark.value == null
+      ? irUnread('ir-mark', say(row.mark.label), say(row.mark.why))
+      : '<b class="num ir-mark">' + fmtPrice(row.mark.value) + '</b>';
+    const moveCell = row.move.pct == null
+      ? irUnread('ir-move', say(row.move.label), say(row.move.why))
+      : '<b class="num ir-move ' + moveClass(row.move.pct) + '">' + signed(row.move.pct, 2) + '%</b>';
+    const rCell = row.r.value == null
+      ? irUnread('ir-r', say(row.r.label), say(row.r.why))
+      : '<b class="num ir-r ' + moveClass(row.r.value) + '">' + signed(row.r.value, 2) + 'R</b>';
+    const stopChip = '<span class="' + row.stopChip.cls + '">' + esc(say(row.stopChip.word)) + '</span>';
+    const none = say({ key: 'dd.ir_none_on_record', en: 'none on record' });
+    const levels = [
+      esc(say({ key: 'dd.ir_entry', en: 'entry' })) + ' ' + (row.entry == null ? esc(none) : fmtPrice(row.entry)),
+      esc(say({ key: 'dd.ir_stop', en: 'stop' })) + ' ' + (row.stop == null ? esc(none) : fmtPrice(row.stop)),
+      esc(say({ key: 'dd.ir_target', en: 'target' })) + ' ' + (row.target == null ? esc(none) : fmtPrice(row.target)),
+    ].join(' · ');
+    // No dollar exposure and no leverage: `size_usd` is notional on a paper
+    // row and margin-or-notional on a live one, `leverage` defaults to 1.0
+    // for a field nobody read. Quantity is the one size figure with one
+    // meaning.
+    const qty = row.quantity == null ? '' :
+      ' · <span class="ir-qty num">' + esc(String(row.quantity)) + ' ' + esc(row.base) + '</span>';
+    return '<div class="ir-row" data-sym="' + esc(row.base) + '" role="button" tabindex="0"'
+      + ' data-geo=\'' + esc(JSON.stringify({ e: row.entry, sl: row.stop, tp: row.target, d: row.side })) + '\''
+      + ' title="' + esc(T('dd.ir_open', 'Chart, patterns & structure')) + '">'
+      + '<div class="ir-head">'
+      + '<span class="ir-sym"><b>' + esc(row.base) + '</b> ' + chip + '</span>'
+      + irSparkHtml(row, WORDS)
+      + '<span class="ir-nums">' + markCell + moveCell + rCell + '</span>'
+      + stopChip
+      + '</div>'
+      + '<div class="ir-sub small muted">' + levels + qty + '</div>'
+      + '</div>';
+  }
+
+  // The whole panel body from a READ positions payload and the two classified
+  // decoration reads. `null` is renderPanel's empty state, reachable ONLY
+  // when the bot says the book was read; a book nobody read is a named
+  // absence in words, never "no open positions".
+  function instrumentPanelHtml(d, tickers, barsBySym) {
+    const M = self.InstrumentRowModel;
+    const WORDS = irWords();
+    if (!d || d.book_read !== true) {
+      return '<p class="small ir-unread ir-book-unread">' + esc(WORDS['dd.ir_book_unread']) + '</p>';
+    }
+    const rows = Array.isArray(d.positions) ? d.positions : [];
+    if (!rows.length) return null;
+    const body = rows.map((p) => instrumentRowHtml(
+      M.instrumentRow(p, tickers, barsBySym[M.refFeedSymbol(p.symbol)] || { state: 'absent', rows: null }), WORDS)).join('');
+    return body + '<p class="ir-foot small muted">' + esc(WORDS[M.footer(d.live).key]) + '</p>';
+  }
+  // ── instrument row: renderers end ─────────────────────────────────────
 
   /* ═══════════════ MARKETS ═══════════════ */
   // The radar panels the jump-nav can scroll to — id must match a `p-<id>`
@@ -3468,6 +3645,11 @@
           <canvas id="underwaterCanvas" style="width:100%;height:180px;display:block"></canvas>
           <p class="small muted" id="underwaterLegend" style="margin-top:var(--s2)"></p>
         </section>
+        <section class="panel" id="p-instr">
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.instr">Instruments — mark &amp; R</span>
+            <span class="badge" style="margin-left:auto" title="Mark and price history are a public reference feed, not your venue. Read-only.">read-only</span></h2>
+          <div id="c-instr"><div class="skel"></div><div class="skel"></div></div>
+        </section>
         <section class="panel" id="p-lpos">
           <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.lpos">Open positions &amp; stop-loss</span>
             <span class="badge" style="margin-left:auto" title="Whether each stop-loss is actually live ON THE EXCHANGE (protected) or bot-managed — the same truth the Telegram bot shows. Read-only.">read-only</span></h2>
@@ -3567,6 +3749,15 @@
     // skeletons with nothing to retry.
     const pf = await getPortfolio(true).catch(() => null);
     updateModeChip(pf);
+    // ONE /api/positions read per Portfolio render. The instrument row and the
+    // protection list below are two readers of one truth, and two independent
+    // fetches of one endpoint on one screen could disagree within a single
+    // paint (one 200, one 502) and cost two of the route's thirty a minute.
+    // `.catch(() => null)` keeps the promise settled for every consumer;
+    // mustRead(null) still throws, so each panel paints its own error state.
+    // BUDGET: this read asks 15000ms and is started here, before either
+    // panel's timer is armed, so it is at most 15000ms into either loader.
+    const positionsRead = fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null);
 
     renderPanel(C('pstats'), async () => {
       const r = await fetchJSON('/api/trades/stats');
@@ -3668,8 +3859,42 @@
     // stop is actually live on the exchange (🛡️ protected), bot-managed (paper /
     // in-sim), or ⚠️ UNPROTECTED (a live position missing its exchange stop —
     // real risk). Read-only; nothing here places, moves, or closes an order.
+    // INSTRUMENT ROW — GUARD on the spine, a classified read per decoration.
+    //
+    // /api/positions IS this panel: with no position list there is no row to
+    // draw, so a failed read throws and renderPanel paints the named error
+    // state with a Retry. The reference mark and the hourly closes are
+    // per-row decorations — each read separately, each classified read /
+    // unreadable / absent, each rendered in WORDS when it is not a number. A
+    // dead price feed must not blank the position list, and a dead position
+    // list must not be rendered as an empty book.
+    //
+    // BUDGET ARITHMETIC, stated because panel_timeout_budget.test.js slices
+    // only this loader's body and the shared read lives outside it: the
+    // positions read (15000ms, started above) is awaited first, the tickers
+    // read (6000ms) is started beside it, and the candle reads (6000ms each,
+    // in parallel) can only start once the symbols are known — worst case
+    // 15000 + 6000 = 21000ms, under the 22000ms panel timer below.
+    renderPanel(C('instr'), async () => {
+      const tickersRead = readRefTickers(6000);
+      const r = await positionsRead;
+      mustRead(r);
+      const d = r.ok ? r.data : null;
+      if (!d) return null;
+      const M = self.InstrumentRowModel;
+      if (!M) throw new Error('instrument row model unavailable');
+      const rows = Array.isArray(d.positions) ? d.positions : [];
+      const syms = [...new Set(rows.map((p) => M.refFeedSymbol(p.symbol)).filter(Boolean))];
+      const [tickers, bars] = await Promise.all([tickersRead, Promise.all(syms.map((sym) => readRefBars(sym, 6000)))]);
+      const barsBySym = {};
+      syms.forEach((sym, i) => { barsBySym[sym] = bars[i]; });
+      return instrumentPanelHtml(d, tickers, barsBySym);
+    }, { timeoutMs: 22000, empty: { icon: 'icon-target', text: T('dd.e_instr', 'No open positions. Each one you open gets a line here with its reference mark and R.') } });
+
     renderPanel(C('lpos'), async () => {
-      const r = await fetchJSON('/api/positions', { timeoutMs: 15000 });
+      // The shared read above (15000ms, started before this timer): at most
+      // 15000ms into this loader, under its 17000ms budget.
+      const r = await positionsRead;
       mustRead(r);
       const d = r.ok ? r.data : null;
       if (!d) return null;

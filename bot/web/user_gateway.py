@@ -2379,10 +2379,24 @@ async def handle_positions(request: web.Request) -> web.Response:
         return err
     rows: list[dict] = []
     live = False
+    # WHETHER THE BOOK WAS READ AT ALL. `positions: []` used to be the answer
+    # for a flat account, for an account whose executor could not be
+    # resolved, and for an executor with no book -- and the website rendered
+    # every one of them as "No open positions", a confident negative about
+    # the reader's own money assembled from a read that never happened. The
+    # list stays [] in all three cases (an older client keeps working); the
+    # FLAG says which, and the client's empty state is reachable only when
+    # it is True. Absent is never a measurement.
+    book_read = True
     try:
         if CONFIG.is_live() and not _is_web_id(tg_id):
             executor = engine._executor_for(tg_id)
-            live_positions = list(getattr(executor, "open_positions", []) or []) if executor else []
+            book = getattr(executor, "open_positions", None) if executor is not None else None
+            if book is None:
+                book_read = False
+                live_positions: list = []
+            else:
+                live_positions = list(book or [])
             rows = [_live_position_row(p) for p in live_positions]
             live = True
         else:
@@ -2395,6 +2409,7 @@ async def handle_positions(request: web.Request) -> web.Response:
     return web.json_response({
         "live": live,
         "read_only": True,
+        "book_read": book_read,
         "positions": rows,
         "count": len(rows),
         "protected_count": sum(1 for r in rows if r.get("sl_protected")),

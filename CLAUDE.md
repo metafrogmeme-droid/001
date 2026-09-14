@@ -2070,6 +2070,64 @@ which is the fixture drifting from the route, and the right answer.
 the strict module; a model passing `as_of` through unparsed would have
 passed the loose check with a value the renderer prints as `--`.
 
+**Direction is the sign of every number on a position row, and it arrives as
+a venue-supplied string.** The instrument row's first design tested it two
+ways — `isLong(direction)`, everything else a SHORT — while `dirChip`, fifteen
+lines away in `app.js`, had already declared the boundary in its own comment
+(*"a chip is a claim: it must be able to decline"*) and accepts LONG/BUY,
+SHORT/SELL and mutes the rest. Driven, `direction: 'BUY'` printed a red
+−10.00% and −1.00R beside a green ▲ LONG chip, on one row, from one payload;
+`''` and `'UNKNOWN'` printed the same numbers beside a chip that had correctly
+declined. The live row publishes `getattr(pos, "direction", "")` raw and an
+adopted position's side is `(p.get("side") or "long").upper()`, so the decoys
+are real. `side()` is three-valued and shares dirChip's vocabulary, the row's
+chip is built from the same reading that signs its numbers, and the guard's
+table holds the decoys — the design's own guard drove LONG and SHORT only, so
+no mutation in its round could reach the defect.
+
+**Each absence gets its own reason, decided where the absence is decided.**
+The move cell borrowed the MARK's sentence, and an adopted position's entry is
+recorded as `0.0` (named in `adoption_unread`), so *entry unread + mark READ*
+is reachable — and printed `$63,000.00` beside a "move —" whose title said the
+instrument was not on the reference feed: a false statement about a read that
+succeeded one cell away. A stop AT entry has no risk distance and is the same
+absence as no stop, and it is a fact about the stop, so it is decided before
+the mark is asked — the first draft answered "the mark could not be read" for
+a stop-at-entry position whose mark was unreadable, implying a usable stop.
+And the stop chip read the FLAGS alone: the paper row builder stamps
+`sl_order: 'manual', unprotected: false` unconditionally over a raw
+`stop_loss` that can be `0.0`, so a paper position with no stop wore
+"🤖 bot-managed" — the most reassuring label on the panel — beside "stop none
+on record" and "R unknown". The chip reads the level too, and has a fifth
+state.
+
+**An empty list is not a reading of a flat book, and the payload could not say
+which.** `handle_positions` built `positions: []` from the executor's local
+cache with `if executor else []`, so a flat account, an executor that could
+not be resolved and an executor with no book all arrived as a 200 with an
+empty list and `live: true`, and the website rendered every one of them as
+"No open positions" — a confident negative about the reader's own money from
+a read that never happened. The list stays `[]` (an older client keeps
+working); `book_read` says which, and the panel's empty state is reachable
+only when it is true. The row's other seams were declined on purpose: no
+dollar exposure (`size_usd` is notional on a paper row and margin-or-notional
+on a live one) and no leverage (defaulted to 1.0 for a field nobody read) —
+quantity is the one size figure with one meaning — and the mark is labelled as
+the public reference feed, because `/api/positions` carries no venue mark.
+
+**Two fetches of one endpoint on one screen are two answers.** The Portfolio
+view already read `/api/positions` for the protection list, and the home view
+read it twice — the command bar and the positions panel — against a limiter of
+thirty a minute; one 200 beside one 502 within a single paint is the shape
+slice 3 fixed for `/api/portfolio`. Each view makes one read now and every
+consumer takes it, which moves the fetch OUT of the loader bodies that
+`panel_timeout_budget.test.js` slices — so the arithmetic that gate can no
+longer see is stated beside each budget, and the command bar's budget, which
+had been 14000ms over a shared 16000ms portfolio read since slice 3, is 17000.
+A sparkline is a claim too: its colour was going to follow the reference
+feed's window, so a rising reference beside a SHORT painted green next to a
+red move. It is a muted stroke, and the move cell states the direction.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

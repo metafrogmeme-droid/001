@@ -2015,3 +2015,55 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   background: var(--warn-dim); color: var(--text);
   font-size: var(--fs-xs); line-height: 1.45;
 }
+
+/* ---- Instrument row: symbol · sparkline · mark · move · R · stop chip ---- */
+/* Rendered from InstrumentRowModel (js/instrument-row-model.js). Four readings
+   per row and each has three answers; every absence is WORDS at the muted
+   weight with its reason on the title, never a number, never a dash standing
+   alone in a numeric column, never coloured. Colour appears in exactly two
+   places — the move and the R — and both classes come from moveClass, which
+   answers '' for a value nobody read. The sparkline is deliberately NOT
+   coloured: its window is the reference feed's, and a rising reference beside
+   a SHORT would paint green next to a red move — two claims about one row.
+   No wide-screen media block here (dashboard_shell_layout pins the first
+   one); the narrow rule below is max-width only. */
+.ir-row { padding: var(--s3) 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.ir-row:last-of-type { border-bottom: 0; }
+.ir-row:hover { background: var(--surface-2); border-radius: var(--radius-sm); }
+/* The sheet's one focus ring, not a second appearance of it. */
+.ir-row:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-sm); }
+.ir-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; row-gap: var(--s2); }
+.ir-sym { display: inline-flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+/* The numbers WRAP rather than clip: an absence is the longest string on the
+   row ("Bewegung —", "movimento —"), and body{overflow-x:hidden} would hide
+   the overflow rather than prove the fit. Figures stay nowrap; words do not. */
+.ir-nums {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap;
+  gap: var(--s2) var(--s3); flex: 1 1 auto; justify-content: flex-end; min-width: 0;
+}
+.ir-nums .num { white-space: nowrap; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.ir-mark { color: var(--text); }
+.ir-move.up, .ir-r.up { color: var(--up); }
+.ir-move.down, .ir-r.down { color: var(--down); }
+.ir-sub { margin-top: var(--s1); font-family: var(--font-data); overflow-wrap: anywhere; }
+.ir-qty { color: var(--text-2); }
+.ir-foot { margin-top: var(--s3); }
+/* A LINE IS ONLY EVER DRAWN OVER CLOSES THAT WERE READ AND DIFFER. Every other
+   state is this text slot, which is deliberately not an empty box with a track
+   in it — an empty track reads as a flat line, and flat is a measurement. */
+.ir-spark { flex: 0 1 120px; min-width: 64px; height: 28px; }
+.ir-spark--line { display: block; width: 120px; max-width: 100%; color: var(--text-2); }
+.ir-spark--none {
+  display: inline-flex; align-items: center; height: 28px;
+  font-size: var(--fs-xs); color: var(--text-3); font-style: italic;
+  white-space: normal; line-height: 1.15;
+}
+.ir-unread { color: var(--text-3); font-size: var(--fs-sm); font-style: italic; white-space: normal; }
+@media (max-width: 560px) {
+  /* The numbers drop to their own line rather than compressing: a mark, a
+     move and an R crushed onto one 400px line is where a reader stops
+     distinguishing "R —" from a number. The sparkline keeps full width. */
+  .ir-nums { flex: 1 0 100%; justify-content: flex-start; gap: var(--s2) var(--s4); }
+  .ir-spark { flex: 1 1 auto; }
+  .ir-spark--line { width: 100%; }
+}
