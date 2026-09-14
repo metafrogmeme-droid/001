@@ -51,7 +51,15 @@ overstated is the failure CLAUDE.md exists to prevent:
 
 Order matters and is the order of `SHAPES`: token-shaped patterns first, because
 they carry no `key=value` the next family could see; the `key=value` families
-next; query parameters last. Every replacement carries no quote, backslash,
+next; query parameters last.
+
+THE EXAMPLES SCAN AS SECRETS, which is the point of them, and CI's secret scan
+(gitleaks) read three of them as leaks on the commit that added this file. The
+values are obvious fixtures — the alphabet, a counting string, base64 of
+"foobarbazqux" — and they are listed by VALUE in `.gitleaks.toml`'s stopwords,
+not by path, so this file stays scanned and a real key pasted into it is still
+caught. A new example with a realistic value goes there too, or the scan says
+so. Every replacement carries no quote, backslash,
 brace or angle bracket, so a JSON body or an HTML card that was valid still is.
 """
 from __future__ import annotations

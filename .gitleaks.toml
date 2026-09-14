@@ -91,6 +91,16 @@ stopwords = [
   "apikey_abc",
   "apisecret_xyz",
   "AKEY123456789",
+  # bot/utils/secret_shapes.py is the one vocabulary every outbound scrub
+  # reads, and each row carries the example it must scrub — so the module
+  # that DEFINES secret shapes holds three lines that scan as one. The values
+  # are the alphabet, a counting string and base64 of "foobarbazqux"; they
+  # are in tests/ too, where the path allowlist above already covers them.
+  # Listed by value rather than by path so the file stays scanned: a real key
+  # pasted into it tomorrow is still caught.
+  "sk-abcdefghijklmnopqrs",
+  "bg_1234567890abcdef1234567890abcdef",
+  "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4YQ",
 ]
 
 # ── The one closed incident is suppressed by FINGERPRINT, not by this file ──
