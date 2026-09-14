@@ -520,6 +520,21 @@ def _journal_exit_price(pos) -> float:
     return 0.0
 
 
+def _journal_quantity(pos) -> Optional[float]:
+    """The base-currency size to journal, or None when the record has none.
+    Both books carry `quantity` (LivePosition and the paper TradeExecution);
+    an absent or non-positive one is NOT zero — zero would make the journal's
+    R a division by no risk and read as unknown for the wrong reason."""
+    v = getattr(pos, "quantity", None)
+    if v is None:
+        return None
+    try:
+        q = float(v)
+    except (TypeError, ValueError):
+        return None
+    return q if q > 0 else None
+
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -1361,6 +1376,7 @@ class RuneClawEngine:
                     exit_price=_journal_exit_price(pos),
                     stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
                     take_profit=float(getattr(pos, "take_profit", 0) or 0),
+                    quantity=_journal_quantity(pos),
                     pnl=float(_jpnl),
                     regime=self._outcome_regime(getattr(pos, "symbol", "")),
                     holding_hours=_hold,
@@ -8144,6 +8160,7 @@ class RuneClawEngine:
                         exit_price=getattr(c, 'exit_price', None) or 0,
                         stop_loss=c.stop_loss,
                         take_profit=c.take_profit,
+                        quantity=_journal_quantity(c),
                         pnl=c.pnl,
                         confidence=getattr(c, '_confidence', 0),
                         signals_used=getattr(c, '_signals_used', []),

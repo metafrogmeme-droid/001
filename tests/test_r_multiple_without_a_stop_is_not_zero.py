@@ -58,44 +58,47 @@ from bot.skills.engine_ops_commands import _avg_r_line, _r_tag
 class TestRMultipleFor:
     def test_a_real_long_measures(self):
         # entry 100, stop 95 -> risk 5; +10 pnl is +2R.
-        assert r_multiple_for(100.0, 95.0, 10.0, "LONG") == pytest.approx(2.0)
+        assert r_multiple_for(100.0, 95.0, 10.0, 1.0) == pytest.approx(2.0)
 
     def test_a_real_short_measures(self):
-        assert r_multiple_for(100.0, 105.0, 10.0, "SHORT") == pytest.approx(-2.0)
+        # entry 100, stop 105 -> risk 5 per unit; +10 pnl is +2R. The sign is the
+        # P&L's: this used to assert -2.0, pinning a divisor negated for shorts
+        # that printed a winning short as a loss in R.
+        assert r_multiple_for(100.0, 105.0, 10.0, 1.0) == pytest.approx(2.0)
 
     def test_a_losing_long_is_negative_r(self):
-        assert r_multiple_for(100.0, 95.0, -5.0, "LONG") == pytest.approx(-1.0)
+        assert r_multiple_for(100.0, 95.0, -5.0, 1.0) == pytest.approx(-1.0)
 
     def test_no_stop_on_record_has_no_r(self):
         """The expensive case: it used to answer pnl / entry_price."""
-        assert r_multiple_for(100.0, 0.0, 10.0, "LONG") is None
+        assert r_multiple_for(100.0, 0.0, 10.0, 1.0) is None
 
     def test_it_does_not_answer_the_old_fabricated_number(self):
         # 10 / 100 == 0.1, which is what the old expression produced and what
         # the card printed as "0.1R". Pinned as a number, not as prose.
-        assert r_multiple_for(100.0, 0.0, 10.0, "LONG") != pytest.approx(0.1)
+        assert r_multiple_for(100.0, 0.0, 10.0, 1.0) != pytest.approx(0.1)
 
     def test_neither_price_readable_has_no_r(self):
         """`abs(0 - 0) == 0` took the `else 0` branch — a measured 0R."""
-        out = r_multiple_for(0.0, 0.0, 10.0, "LONG")
+        out = r_multiple_for(0.0, 0.0, 10.0, 1.0)
         assert out is None
         assert out is not 0.0  # noqa: F632 - identity is the point
 
     def test_a_stop_at_the_entry_has_no_r(self):
-        assert r_multiple_for(100.0, 100.0, 10.0, "LONG") is None
+        assert r_multiple_for(100.0, 100.0, 10.0, 1.0) is None
 
     def test_a_negative_price_is_not_a_price(self):
-        assert r_multiple_for(-1.0, 95.0, 10.0, "LONG") is None
-        assert r_multiple_for(100.0, -5.0, 10.0, "LONG") is None
+        assert r_multiple_for(-1.0, 95.0, 10.0, 1.0) is None
+        assert r_multiple_for(100.0, -5.0, 10.0, 1.0) is None
 
     def test_garbage_answers_none_rather_than_raising(self):
         for bad in (None, "x", object()):
-            assert r_multiple_for(bad, 95.0, 10.0, "LONG") is None
-            assert r_multiple_for(100.0, bad, 10.0, "LONG") is None
+            assert r_multiple_for(bad, 95.0, 10.0, 1.0) is None
+            assert r_multiple_for(100.0, bad, 10.0, 1.0) is None
 
     def test_a_genuine_zero_r_still_measures(self):
         """0R is real — the fix must not swallow it along with the unknowns."""
-        assert r_multiple_for(100.0, 95.0, 0.0, "LONG") == 0.0
+        assert r_multiple_for(100.0, 95.0, 0.0, 1.0) == 0.0
 
 
 # ── 2. the average, and its coverage ──────────────────────────────────────
@@ -151,14 +154,15 @@ class TestRecordTrade:
         e = j.record_trade(
             trade_id="T2", symbol="SOL/USDT", direction="LONG",
             strategy_type="swing", entry_price=100.0, exit_price=110.0,
-            stop_loss=95.0, take_profit=115.0, pnl=10.0, holding_hours=3.0)
+            stop_loss=95.0, take_profit=115.0, pnl=10.0, holding_hours=3.0,
+            quantity=1.0)
         assert e.r_multiple == pytest.approx(2.0)
 
     def test_the_weekly_review_averages_only_the_scoreable(self, tmp_path):
         j = self._journal(tmp_path)
         j.record_trade(trade_id="A", symbol="S", direction="LONG",
                        strategy_type="x", entry_price=100.0, exit_price=110.0,
-                       stop_loss=95.0, take_profit=0.0, pnl=10.0)
+                       stop_loss=95.0, take_profit=0.0, pnl=10.0, quantity=1.0)
         j.record_trade(trade_id="B", symbol="S", direction="LONG",
                        strategy_type="x", entry_price=100.0, exit_price=141.0,
                        stop_loss=0.0, take_profit=0.0, pnl=41.0)
@@ -196,7 +200,7 @@ class TestRecordTrade:
         e = j.record_trade(trade_id="A", symbol="S", direction="LONG",
                            strategy_type="x", entry_price=100.0,
                            exit_price=120.0, stop_loss=95.0, take_profit=0.0,
-                           pnl=20.0)                      # +4R
+                           pnl=20.0, quantity=1.0)                      # +4R
         assert "runner" in e.tags
 
     def test_it_survives_a_round_trip_through_disk(self, tmp_path):

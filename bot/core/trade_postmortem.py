@@ -39,6 +39,7 @@ import re
 from typing import Any, Optional
 
 from bot.core.live_executor import position_size_basis
+from bot.core.trade_journal import r_multiple_for
 from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
 from bot.utils.leveraged_return import realized_margin_return_pct
 from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS
@@ -232,13 +233,13 @@ def realized_r(entry: Optional[float], sl: Optional[float], qty: Optional[float]
                pnl: Optional[float]) -> Optional[float]:
     """Net P&L over the DOLLAR risk the stop defined — ``|entry - stop| *
     quantity`` — with the sign of the P&L, for either direction. None when
-    any of the three is not on record or the risk is zero. (The journal's own
-    R divides by the PRICE distance alone and negates it for shorts, which is
-    why it is not printed here.)"""
-    if entry is None or sl is None or pnl is None or not qty or qty <= 0:
+    any of the three is not on record or the risk is zero. This IS the
+    journal's ``r_multiple_for`` — one arithmetic, so the card and the review
+    cannot disagree about what an R is (they did: the journal divided by the
+    price distance alone and negated it for shorts)."""
+    if entry is None or sl is None or pnl is None:
         return None
-    risk = abs(entry - sl) * qty
-    return pnl / risk if risk > 0 else None
+    return r_multiple_for(entry, sl, pnl, qty)
 
 
 def _planned_r(entry: Optional[float], sl: Optional[float], tp: Optional[float],
