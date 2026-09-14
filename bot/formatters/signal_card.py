@@ -74,6 +74,7 @@ _CLOSE_REASON_LABELS: dict[str, tuple[str, str]] = {
     "expired": ("\U0001f4c4", "Order Expired"),
     "canceled": ("\U0001f4c4", "Order Cancelled"),
     "cancelled": ("\U0001f4c4", "Order Cancelled"),
+    "rejected": ("\U0001f4c4", "Order Rejected"),
     "price_drift": ("\U0001f4c4", "Order Cancelled — Price Drift"),
     "stale_pending": ("\U0001f4c4", "Order Expired"),
     "duplicate_fill_suppressed": ("\U0001f4c4", "Duplicate Fill Suppressed"),

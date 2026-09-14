@@ -16,11 +16,13 @@ A win is net PnL strictly > 0.
 
 from __future__ import annotations
 
+from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
+
 # Bookkeeping trade_ids that are not real trades.
 ORPHAN_PREFIXES = ("TI-adopted", "TI-injected")
-# Close reasons for orders that never became a fill (zero-PnL non-trades).
-NON_TRADE_REASONS = frozenset(
-    {"canceled", "cancelled", "expired", "price_drift", "rejected"})
+# Close reasons for orders that never became a fill (zero-PnL non-trades):
+# the one definition in `bot/utils/close_reason.py`, not a third copy of it.
+NON_TRADE_REASONS = NON_FILL_CLOSE_REASONS
 
 
 def real_closed_trades(closed) -> list:
