@@ -129,6 +129,21 @@ router.get('/flight/:decisionId', async (req, res) => {
 router.get('/incidents', async (req, res) => {
   try {
     const flight = await getLatestFlight();
+    // The same three states as /flight above, for the same reason: a
+    // flight_cache row nobody could read answered 200 with counts of zero
+    // and "the controls have had nothing to stop or recover" — an all-clear
+    // about the safety ledger manufactured from a failed read. This is the
+    // reading the EXISTING incidents panel (renderGuardian) takes on its own,
+    // with no flight sibling to throw first; the decision log sequences its
+    // two reads, so for it the flight read fails first and this branch is
+    // reached only by a transport failure of this request itself.
+    if (!flight && getLatestFlight.lastReadFailed) {
+      return res.status(503).json({
+        error: 'Incident record unavailable',
+        note: 'The incident record could not be read — this is not the same as '
+          + 'an empty record. Nothing here is a statement about what the controls did.',
+      });
+    }
     let limit = parseInt(req.query.limit, 10);
     if (!Number.isFinite(limit) || limit < 1) limit = 40;
     limit = Math.min(limit, 100);

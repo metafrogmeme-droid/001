@@ -364,8 +364,14 @@ test('the panel is mounted above the protection list, and its model loads before
 test('the styles let an absence wrap, use the sheet\'s one focus ring, and colour no sparkline', () => {
   // Comments stripped first: a comment that names the thing it forbids is
   // indistinguishable from the sheet doing it.
-  const block = CSS.slice(CSS.indexOf('/* ---- Instrument row')).replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(block.length > 500, 'the instrument-row block is at the end of the sheet');
+  // Bounded at the NEXT banner, not the end of the sheet: the decision log's
+  // block is appended after this one and carries its own @media query, and a
+  // slice that ran to EOF read that as this block's — a guard breaking on its
+  // own scanning when code moved near it, the shape this file names.
+  const start = CSS.indexOf('/* ---- Instrument row');
+  const next = CSS.indexOf('/* ---- ', start + 10);
+  const block = CSS.slice(start, next === -1 ? CSS.length : next).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(start > -1 && block.length > 500, 'the instrument-row block is in the sheet and non-trivial');
   assert.match(block, /\.ir-unread \{[^}]*white-space: normal/);
   assert.match(block, /\.ir-nums \{[^}]*flex-wrap: wrap/);
   assert.match(block, /\.ir-row:focus-visible \{[^}]*box-shadow: var\(--ring\)/);

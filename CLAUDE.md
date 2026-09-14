@@ -2128,6 +2128,58 @@ A sparkline is a claim too: its colour was going to follow the reference
 feed's window, so a rising reference beside a SHORT painted green next to a
 red move. It is a muted stroke, and the move cell states the direction.
 
+**A verdict the seal never carried is not a rejection, and the card painted
+it red.** `flightCard` writes `verdict === 'APPROVED' ? up : down`, and the
+recorder's own except branch seals the literal `UNKNOWN` when it could not
+read the risk object — so a gate nobody read wore the colour of a gate that
+refused, and a record with no risk block at all wore the same colour for a
+third fact. The decision log's gate has four states, two of them muted: a
+sealed APPROVED or REJECTED is a verdict, a sealed UNKNOWN is a read that
+failed at seal time, a missing block is a record shape. And the seal's thin
+shape — `{verdict}` alone — carries no `failed` count, which must not print as
+"0 checks failed", the all-clear. The first draft of the guard asserted no
+green anywhere on the row and failed on the disposition chip, which was
+telling the truth about a sealed EXECUTED_LIVE beside an unread gate: anchor
+the assertion to the cell that makes the claim.
+
+**A viewer-scoped flag was standing in for a field-scoped fact.** The
+anonymous scrub drops `result.pnl_usd` whether the engine recorded a number
+or recorded None — the unpriced close this repo is built around — and the
+only flag on the payload (`disclosure`) says the VIEWER is anonymous, not
+that THIS field held anything. A panel promising "sign in to see it" off that
+flag would name a number that does not exist. `sanitizeRecord` sets
+`fill_priced` after the scrub (so the scrub cannot eat it, and its name is
+not a currency key the redaction sweep would strip), the fill has six states,
+and an older server that sends no marker gets the sentence that promises
+nothing. The same absence had a second copy one route over: `/incidents`
+answered 200 with counts of zero off a flight cache nobody could read while
+its sibling `/flight` already knew to 503 — and the fix is honest about
+where it lands. Both handlers share one cold cache and one `lastReadFailed`
+flag, so for a panel that reads flight first the flight read fails first;
+the seam is for the existing incidents panel, which has no sibling to throw
+before it, and the decision log SEQUENCES its two reads rather than racing
+two cold reads to write one flag.
+
+**Omit may not degenerate into a confident negative.** The log guards the
+ledger and omits the incident stream, naming the omission in a row of its
+own — and an empty ledger beside an unreadable incident stream THROWS, because
+"nothing happened" over the only half that could have had content is
+assembled from a read that failed. A 200 whose body did not parse throws too:
+`fetchJSON` answers `{ok: true, data: null}` for it, `mustRead` hands the
+null through, and the empty state's copy would then assert "nothing sealed
+yet" about the tamper-evident chain off a proxy page. The empty sentence is
+ONE sentence now on three surfaces: `guardianBlock` said "No decisions have
+been recorded yet" and the same panel's empty option said "The decision
+ledger is unavailable right now" — opposite meanings for one state, and the
+second was reachable only on a 404 the route never sends. **And the full
+suite found what the slice's suites could not, again**: the renderers took
+the word reader as a `say` PARAMETER — valid, driven in the VM, rendered in
+Chromium — and `dashboard_helpers_are_in_scope.test.js` resolves every call
+against DECLARATIONS, so a closure named like a nested helper declared in
+four other functions read as a cross-view call. It is one module-level
+reader now (`dlSay`), which is the shape that guard's model can see, and the
+mutation round was re-run against it.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

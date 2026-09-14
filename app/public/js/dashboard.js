@@ -4640,6 +4640,7 @@
         </div>
         <section class="panel" id="p-emods"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.emods">Engine modules</span></h2><div id="c-emods"><div class="skel"></div></div></section>
         <section class="panel" id="p-ecards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ecards">Engine's current setups</span></h2><div id="c-ecards"><div class="skel"></div></div></section>
+        <section class="panel" id="p-declog"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-seal"></use></svg><span data-i18n="dp.declog">Decision log</span></h2><div id="c-declog"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
         <div class="grid grid-2">
           <section class="panel panel--quiet" id="p-eshadow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.eshadow">Shadow book — what the gates cost</span></h2><div id="c-eshadow"><div class="skel"></div></div></section>
           <section class="panel panel--quiet" id="p-elist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.elist">New listings radar</span></h2><div id="c-elist"><div class="skel"></div></div></section>
@@ -4677,6 +4678,32 @@
         </div>
         ${notes.length ? `<p class="small muted mt-2">${esc(notes.join(' · '))}</p>` : ''}`;
     }, { empty: { icon: 'icon-shield', text: 'Parity stats arrive with the bot\'s hourly report once live trades have closed.' } });
+
+    // DECISION LOG — GUARD the ledger, OMIT the incident stream, and NAME the
+    // omission. The ledger is this panel's subject: unreadable, there is no
+    // log at all, so it paints the error state rather than a shorter log. The
+    // incident stream is an addition: unreadable, the sealed decisions are
+    // still a true record — just not a complete one, said in a row of its own.
+    // A 200 whose body did not parse is NOT a reading (the model throws), so
+    // a proxy page never renders as "nothing sealed yet".
+    //
+    // SEQUENCED, not Promise.all: both handlers share one cold cache and one
+    // `lastReadFailed` flag, and two concurrent cold reads would race to write
+    // it. Flight first; the incidents read is warm by then.
+    // BUDGET ARITHMETIC (the gate reads the fetch budgets inside this body):
+    // 12000 + 8000 = 20000ms, under the 21000ms panel timer.
+    renderPanel(C('declog'), async () => {
+      const M = self.DecisionLogModel;
+      if (!M) throw new Error('decision log model unavailable');
+      const fr = await fetchJSON('/api/guardian/flight?limit=40', { auth: false, timeoutMs: 12000 });
+      mustRead(fr);
+      const ir = await fetchJSON('/api/guardian/incidents?limit=40', { auth: false, timeoutMs: 8000 }).catch(() => null);
+      const read = M.reading(fr, ir);
+      if (!read.flight) return null;                 // 404 only: mustRead's empty doctrine
+      const log = M.decisionLog(read.flight, read.incidents);
+      if (log === null) return null;
+      return decisionLogHtml(log, dlWords());
+    }, { timeoutMs: 21000, empty: { icon: 'icon-seal', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
 
     const scan = await getScan();
     updateConnChip();
@@ -8718,13 +8745,146 @@
     </div>`;
   }
 
+  // ── decision log: renderers ───────────────────────────────────────────
+  // Every decision is DecisionLogModel's (js/decision-log-model.js); these
+  // turn its readings into markup. Sliced between the two sentinel comments
+  // by decision_log_is_not_asserted_from_a_failed_read.test.js and run in a
+  // VM, so the block reaches for T, TF, esc, fmtPrice, signed, pnlClass,
+  // fmtAgo and the model global, and nothing else.
+  function dlWords() {
+    return {
+      'dd.dl_no_time': T('dd.dl_no_time', 'time not on record'),
+      'dd.dl_no_sym': T('dd.dl_no_sym', 'symbol unread'),
+      'dd.dl_no_market': T('dd.dl_no_market', 'no market'),
+      'dd.dl_no_dir': T('dd.dl_no_dir', 'direction unread'),
+      'dd.dl_no_thesis': T('dd.dl_no_thesis', 'no thesis on record'),
+      'dd.dl_no_detail': T('dd.dl_no_detail', 'no detail on record'),
+      'dd.dl_gate_pass': T('dd.dl_gate_pass', 'gate passed'),
+      'dd.dl_gate_block': T('dd.dl_gate_block', 'gate blocked'),
+      'dd.dl_gate_unread': T('dd.dl_gate_unread', 'gate verdict unread'),
+      'dd.dl_gate_none': T('dd.dl_gate_none', 'no gate on record'),
+      'dd.dl_nfailed': T('dd.dl_nfailed', '{n} check(s) failed'),
+      'dd.dl_d_exec': T('dd.dl_d_exec', 'sent to venue'),
+      'dd.dl_d_fail': T('dd.dl_d_fail', 'venue rejected the order'),
+      'dd.dl_d_rej': T('dd.dl_d_rej', 'stopped on re-check'),
+      'dd.dl_d_unread': T('dd.dl_d_unread', 'disposition not on record'),
+      'dd.dl_open': T('dd.dl_open', 'open — no close on record'),
+      'dd.dl_pnl_unrec': T('dd.dl_pnl_unrec', 'closed · P&L not recorded'),
+      'dd.dl_hidden': T('dd.dl_hidden', 'closed · amount hidden on the anonymous view — sign in to see it'),
+      'dd.dl_unshown': T('dd.dl_unshown', 'closed · amount not shown on the anonymous view'),
+      'dd.dl_k_block': T('dd.dl_k_block', 'blocked'),
+      'dd.dl_k_rec': T('dd.dl_k_rec', 'recovered'),
+      'dd.dl_k_flag': T('dd.dl_k_flag', 'flagged'),
+      'dd.dl_k_unread': T('dd.dl_k_unread', 'kind not on record'),
+      'dd.dl_inc_unread': T('dd.dl_inc_unread', 'Gate blocks could not be read — this log shows sealed decisions only and is incomplete.'),
+      'dd.dl_inc_derived': T('dd.dl_inc_derived', 'Only risk-gate rejections are shown — this bot has not yet sent its full incident stream, so firewall, sentinel and escape events are missing from the log below.'),
+      'dd.dl_inc_none': T('dd.dl_inc_none', 'No gate blocks in this window — the incident ledger was read and is empty.'),
+      'dd.dl_scope': T('dd.dl_scope', 'The operator agent’s sealed ledger — the same record for every viewer, not your own account.'),
+      'dd.dl_written': T('dd.dl_written', 'Ledger last written {when}.'),
+      'dd.dl_written_why': T('dd.dl_written_why', 'That is when the bot last pushed, not when it last thought: a push happens on a live confirm, rejection or close, so a quiet ledger and a quiet engine look the same from here.'),
+      'dd.dl_thesis_cut': T('dd.dl_thesis_cut', 'shortened — the full thesis is in the tooltip'),
+    };
+  }
+
+  // One reader for every dl renderer: a word is `{key, en}` and the map
+  // falls back to the English the model carries. Module-level on purpose —
+  // the helper-scope guard resolves calls against DECLARATIONS, and a
+  // closure handed down as a parameter is invisible to it.
+  function dlSay(WORDS, w) { return w ? (WORDS[w.key] || w.en) : ''; }
+
+  function dlChip(chip, WORDS) {
+    const text = chip.word ? dlSay(WORDS, chip.word) : String(chip.literal == null ? '' : chip.literal);
+    return '<span class="' + chip.cls + '">' + esc(text) + '</span>';
+  }
+
+  // The gate's WHY: the named checks, else the sealed reason, else the failed
+  // COUNT when the seal carried one above zero — never "0 checks failed",
+  // which is the all-clear.
+  function dlWhy(why, WORDS) {
+    if (!why) return '';
+    if (why.names.length) return why.names.map(esc).join(', ');
+    if (why.reason) return esc(why.reason);
+    if (why.failed !== null) return esc(dlSay(WORDS, { key: 'dd.dl_nfailed', en: '{n} check(s) failed' }).replace('{n}', String(why.failed)));
+    return '';
+  }
+
+  function dlFillHtml(f, WORDS) {
+    if (f.state === 'omitted') return '';
+    const at = f.price !== null ? ' @ ' + esc(fmtPrice(f.price)) : '';
+    const why = f.reason ? ' · ' + esc(f.reason) : '';
+    if (f.state === 'pnl') {
+      // pnlClass answers '' for unreadable and keeps a measured 0 green.
+      return '<span class="dl-fill ' + pnlClass(f.pnl) + '">' + esc(signed(f.pnl)) + at + why + '</span>';
+    }
+    return '<span class="dl-fill">' + esc(dlSay(WORDS, f.word)) + (f.state === 'open' ? '' : at + why) + '</span>';
+  }
+
+  function dlWhen(row, WORDS) {
+    return '<span class="dl-when' + (row.ms === null ? ' dl-when--unread' : '') + ' num">'
+      + esc(row.ms === null ? dlSay(WORDS, row.when) : fmtAgo(row.timestamp)) + '</span>';
+  }
+
+  function dlDecisionRowHtml(row, WORDS) {
+    const dir = row.side === 'long' ? '<span class="dl-dir dl-dir--long">LONG</span>'
+      : row.side === 'short' ? '<span class="dl-dir dl-dir--short">SHORT</span>'
+      : '<span class="dl-dir dl-dir--unread">' + esc(dlSay(WORDS, row.sideWord)) + '</span>';
+    const thesis = row.thesis === null
+      ? '<span class="dl-thesis dl-thesis--none">' + esc(dlSay(WORDS, row.thesisWord)) + '</span>'
+      : '<span class="dl-thesis" title="' + esc(row.thesis) + '">' + esc(row.thesis)
+        + (row.thesisCut ? ' <span class="dl-thesis-cut">… ' + esc(dlSay(WORDS, { key: 'dd.dl_thesis_cut', en: 'shortened — the full thesis is in the tooltip' })) + '</span>' : '')
+        + '</span>';
+    const why = dlWhy(row.gate.why, WORDS);
+    return '<li class="dl-row dl-row--decision">'
+      + dlWhen(row, WORDS)
+      + '<span class="dl-what"><span class="dl-sym' + (row.sym === null ? ' dl-sym--unread' : '') + '">'
+        + esc(row.sym === null ? dlSay(WORDS, row.symWord) : row.sym) + '</span>' + dir + '</span>'
+      + thesis
+      + '<span class="dl-gate">' + dlChip(row.gate, WORDS) + (why ? '<span class="dl-gate-why">' + why + '</span>' : '') + '</span>'
+      + '<span class="dl-out">' + dlChip(row.disposition, WORDS) + dlFillHtml(row.fill, WORDS) + '</span>'
+      + '<span class="dl-seq">' + (row.seq === null ? '' : '#' + esc(String(row.seq))) + '</span>'
+      + '</li>';
+  }
+
+  function dlIncidentRowHtml(row, WORDS) {
+    const detail = row.detail === null
+      ? '<span class="dl-thesis dl-thesis--none">' + esc(dlSay(WORDS, row.detailWord)) + '</span>'
+      : '<span class="dl-thesis" title="' + esc(row.detail) + '">' + esc(row.detail) + '</span>';
+    return '<li class="dl-row dl-row--incident">'
+      + dlWhen(row, WORDS)
+      + '<span class="dl-what"><span class="dl-sym' + (row.sym === null ? ' dl-sym--unread' : '') + '">'
+        + esc(row.sym === null ? dlSay(WORDS, row.symWord) : row.sym) + '</span></span>'
+      + detail
+      + '<span class="dl-gate">' + dlChip(row.chip, WORDS) + (row.category ? '<span class="dl-gate-why">' + esc(row.category) + '</span>' : '') + '</span>'
+      + '<span class="dl-out"></span>'
+      + '<span class="dl-seq">' + (row.seq === null ? '' : '#' + esc(String(row.seq))) + '</span>'
+      + '</li>';
+  }
+
+  // `log` is DecisionLogModel.decisionLog's reading: null never reaches here
+  // (renderPanel's empty state), and the empty-plus-unread case threw.
+  function decisionLogHtml(log, WORDS) {
+    const notes = log.notes.map((n) => '<p class="dl-note' + (n.loud ? '' : ' dl-note--quiet') + '">' + esc(dlSay(WORDS, n.word)) + '</p>').join('');
+    const rows = log.rows.map((r) => (r.kind === 'incident' ? dlIncidentRowHtml(r, WORDS) : dlDecisionRowHtml(r, WORDS))).join('');
+    const when = log.footer.when === null ? dlSay(WORDS, log.footer.whenWord) : fmtAgo(log.footer.when);
+    // The footer names the book and the ledger's age, and carries no colour
+    // and no health chip: "last written" is never a liveness claim.
+    return notes + '<ul class="dl-list">' + rows + '</ul>'
+      + '<p class="dl-foot">' + esc(dlSay(WORDS, log.footer.scope)) + ' '
+      + esc(dlSay(WORDS, log.footer.written).replace('{when}', when)) + ' '
+      + esc(dlSay(WORDS, log.footer.why)) + '</p>';
+  }
+  // ── decision log: renderers end ───────────────────────────────────────
+
   function guardianBlock(data) {
     const recs = (data && data.records) || [];
     const head = `<div style="margin-bottom:var(--s4)">${chainBanner(data.chain, data.window, data.updated_at)}</div>`
       + guardianPostureCard(data.guardian_status)
       + policyCard(data.policy);
     if (!recs.length) {
-      return head + `<div class="empty small muted" style="padding:var(--s4)">No decisions have been recorded yet. As the engine confirms or rejects trades, each one is sealed here with its full provenance.</div>`;
+      // ONE sentence for a read empty ledger — the same words the decision
+      // log's empty state and this panel's empty option print, because
+      // three sentences for one state on two views were three answers.
+      return head + `<div class="empty small muted" style="padding:var(--s4)">${esc(T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.'))}</div>`;
     }
     return head + recs.map(flightCard).join('');
   }
@@ -8801,7 +8961,10 @@
       mustRead(r);
       if (!r.data) return null;
       return guardianBlock(r.data);
-    }, { timeoutMs: 18000, empty: { icon: 'icon-check', text: 'The decision ledger is unavailable right now — check back in a moment.' } });
+    // The empty option is reachable only on a 404 (mustRead's empty doctrine),
+    // which this route never answers; it used to say "unavailable", the
+    // opposite of what the block above says for the same ledger. One sentence.
+    }, { timeoutMs: 18000, empty: { icon: 'icon-check', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
   }
 
   function mountPolicyAuthoring(panel) {

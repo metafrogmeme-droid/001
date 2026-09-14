@@ -414,6 +414,7 @@
     "dp.prevtrack": { en: "The engine's real public record" },
     "dp.venues": { en: "Your venues — at a glance" },
     "dp.lpos": { en: "Open positions & stop-loss" },
+    "dp.declog": { en: "Decision log" },
     "dp.instr": { en: "Instruments — mark & R" },
     "dp.intel": { en: "Trade intelligence" },
     "dp.networth": { en: "Net worth — everywhere" },
@@ -736,6 +737,37 @@
     "dd.ms_age_old": { en: "FIGURES OLD" },
     "dd.e_mode": { en: "No account record on this site yet." },
     "dd.e_positions": { en: "No open positions. The Trade view has a full order ticket." },
+    "dd.dl_no_time": { en: "time not on record" },
+    "dd.dl_no_sym": { en: "symbol unread" },
+    "dd.dl_no_market": { en: "no market" },
+    "dd.dl_no_dir": { en: "direction unread" },
+    "dd.dl_no_thesis": { en: "no thesis on record" },
+    "dd.dl_no_detail": { en: "no detail on record" },
+    "dd.dl_gate_pass": { en: "gate passed" },
+    "dd.dl_gate_block": { en: "gate blocked" },
+    "dd.dl_gate_unread": { en: "gate verdict unread" },
+    "dd.dl_gate_none": { en: "no gate on record" },
+    "dd.dl_nfailed": { en: "{n} check(s) failed" },
+    "dd.dl_d_exec": { en: "sent to venue" },
+    "dd.dl_d_fail": { en: "venue rejected the order" },
+    "dd.dl_d_rej": { en: "stopped on re-check" },
+    "dd.dl_d_unread": { en: "disposition not on record" },
+    "dd.dl_open": { en: "open — no close on record" },
+    "dd.dl_pnl_unrec": { en: "closed · P&L not recorded" },
+    "dd.dl_hidden": { en: "closed · amount hidden on the anonymous view — sign in to see it" },
+    "dd.dl_unshown": { en: "closed · amount not shown on the anonymous view" },
+    "dd.dl_k_block": { en: "blocked" },
+    "dd.dl_k_rec": { en: "recovered" },
+    "dd.dl_k_flag": { en: "flagged" },
+    "dd.dl_k_unread": { en: "kind not on record" },
+    "dd.dl_inc_unread": { en: "Gate blocks could not be read — this log shows sealed decisions only and is incomplete." },
+    "dd.dl_inc_derived": { en: "Only risk-gate rejections are shown — this bot has not yet sent its full incident stream, so firewall, sentinel and escape events are missing from the log below." },
+    "dd.dl_inc_none": { en: "No gate blocks in this window — the incident ledger was read and is empty." },
+    "dd.dl_scope": { en: "The operator agent’s sealed ledger — the same record for every viewer, not your own account." },
+    "dd.dl_written": { en: "Ledger last written {when}." },
+    "dd.dl_written_why": { en: "That is when the bot last pushed, not when it last thought: a push happens on a live confirm, rejection or close, so a quiet ledger and a quiet engine look the same from here." },
+    "dd.dl_thesis_cut": { en: "shortened — the full thesis is in the tooltip" },
+    "dd.dl_empty": { en: "Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking." },
     "dd.ir_spark_unread": { en: "price history not read" },
     "dd.ir_spark_absent": { en: "not on the reference feed" },
     "dd.ir_spark_thin": { en: "too few closes to draw" },
@@ -1914,7 +1946,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"6ecd7533","zh":"1efdbf4c","pt":"65ace22f","fr":"74cd3564","de":"b964b829","nl":"c7fd6d1a","ja":"a859b309","ko":"49ccd918","ru":"566718ff","tr":"5277e637","it":"3b56031e","hi":"e696d5cb","ar":"2c9b84b7"};
+  var CHUNKS = {"es":"3254f066","zh":"4cb34117","pt":"0a5a9028","fr":"002b390f","de":"09370d03","nl":"2f3bd489","ja":"472fba28","ko":"f15e72ed","ru":"d4bc6eb2","tr":"1981b7c6","it":"ef140d27","hi":"37eb07ed","ar":"972032f5"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

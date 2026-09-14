@@ -2067,3 +2067,71 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   .ir-spark { flex: 1 1 auto; }
   .ir-spark--line { width: 100%; }
 }
+
+/* ---- Decision log: event · thesis · GATE · disposition · fill ------------ */
+/* Rendered from DecisionLogModel (js/decision-log-model.js). Three colour
+   vocabularies, and the third is deliberately colourless: --up / --down /
+   --warn carry a verdict the SEAL recorded; .dl-unread wears --text-3 on
+   --surface-2 — the pair .chip--offline uses — because "the seal carried no
+   verdict" is not a quiet version of "the gate passed", and a gate chip is
+   the loudest claim on the panel. It is named apart from .chip--offline on
+   purpose: a restyle of "offline" must not repaint "nobody could read the
+   gate". No new hue: every value is an existing token. */
+.dl-list { list-style: none; margin: 0; padding: 0; }
+.dl-row {
+  display: grid; grid-template-columns: 1fr;
+  gap: var(--s1) var(--s3); padding: var(--s3) 0;
+  border-top: 1px solid var(--line); align-items: baseline;
+}
+.dl-row:first-child { border-top: 0; }
+/* An incident is a row of the same log, on the same columns — a separate list
+   would make "what was stopped" a footnote to "what was done". */
+.dl-row--incident { border-left: 2px solid var(--line-2); padding-left: var(--s3); }
+.dl-when { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; }
+.dl-when--unread { font-style: italic; white-space: normal; }
+.dl-what { display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.dl-sym { font-weight: 600; overflow-wrap: anywhere; }
+.dl-dir { font-size: var(--fs-xs); letter-spacing: .04em; }
+.dl-dir--long { color: var(--up); }
+.dl-dir--short { color: var(--down); }
+.dl-dir--unread, .dl-sym--unread { color: var(--text-3); font-style: italic; font-weight: 400; }
+/* The thesis is clamped to two lines AND says so: a partial presented as the
+   whole is the shape flightCard's own comment warns about. The full text
+   rides on the title, and the marker is printed only when the model says the
+   text exceeds the clamp. */
+.dl-thesis {
+  color: var(--text-2); font-size: var(--fs-sm); min-width: 0;
+  overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.dl-thesis--none { color: var(--text-3); font-style: italic; }
+.dl-thesis-cut { color: var(--text-3); font-size: var(--fs-xs); font-style: italic; }
+.dl-gate, .dl-out { display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.dl-gate-why { color: var(--text-3); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+/* The one chip on this panel that must be able to decline. */
+.dl-unread { color: var(--text-3); background: var(--surface-2); border-color: var(--line); }
+.dl-fill { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.dl-fill.pos { color: var(--up); }
+.dl-fill.neg { color: var(--down); }
+/* pnlClass answers '' for unreadable, so an unclassed fill is the unknown
+   one and wears the muted ramp — never a colour inherited from the row. */
+.dl-fill:not(.pos):not(.neg) { color: var(--text-3); }
+.dl-seq { color: var(--text-3); font-size: var(--fs-xs); font-family: var(--font-data); }
+/* A stated absence is part of the log, not a footnote: the panel says which
+   half it could not read, in reading order, ABOVE the rows it does have. */
+.dl-note {
+  display: block; margin-bottom: var(--s3); padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--warn); background: var(--surface-2);
+  border-radius: var(--radius-sm); color: var(--text-2); font-size: var(--fs-sm);
+}
+.dl-note--quiet { border-left-color: var(--line-2); color: var(--text-3); }
+.dl-foot {
+  margin-top: var(--s4); padding-top: var(--s3);
+  border-top: 1px solid var(--line); color: var(--text-3); font-size: var(--fs-xs);
+}
+@media (min-width: 1024px) {
+  .dl-row {
+    grid-template-columns:
+      minmax(72px, 88px) minmax(96px, 132px) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 56px);
+  }
+}
