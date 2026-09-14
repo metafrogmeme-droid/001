@@ -101,6 +101,7 @@
     "costs": "Aufschlüsselung der Handelskosten",
     "watch": "proaktive Alarme für diesen Chat",
     "alerts": "Umfang und Takt der Anomalie-Alarme",
+    "price_alert": "ein Preisalarm, hier scharfgeschaltet und hier zugestellt, wenn er auslöst",
     "share": "eine Notiz speichern, die dein Agent nutzen kann",
     "mynotes": "die Notizen, die du geteilt hast",
     "agent": "die Haltung deines Agenten, in klaren Worten",

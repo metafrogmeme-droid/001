@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 100 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 101 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 91 of the 100 reach the tool-less chat model and 9
+typed as the card prints them, 92 of the 101 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -1295,6 +1295,54 @@ twice checks nothing about either. It names the claims now — the verbs,
 whose door it is, that the card moves nothing until Confirm, and the
 "never say" — and the mutation dies on the first of them.
 
+**The last door row was a WRITE, and the door became the write.** The website
+owned price alerts end to end — a parser, a once-a-minute evaluator over
+public tickers, delivery by web push ONLY — and the bot had no alert code at
+all, so a linked user who armed one on the web was never told on Telegram and
+on Telegram the words met a notice. One store and one evaluator, the
+website's, with three things around them. The WORDS are the argument:
+`/price_alert tell me when BTC drops below 100k` hands the sentence to the
+intercept's own parser over the card route (`WEB_CARD_PARAMS` gained a `text`
+row and a per-parameter bound, because the 32 that bounds a token cut that
+sentence one character short), so its phrasings are the phrasings, its help
+sentence answers words it could not read — the same card for a sentence that
+is no alert at all, never an empty answer — and the delivery sentence is in
+the channel's words, from one renderer with a channel argument rather than a
+second copy. A trips queue: a trip writes one row BESIDE the push, same title
+and body, and the proactive monitor polls it once a minute and messages the
+linked account through a DM function that RAISES where the alert sender
+swallows, because the ack is three-valued — sent; failed, with the exception's
+class name and never its text; or nothing read — and "sent" acked for a
+blocked bot would either retry forever or lie; an ack that did not land keeps
+the sent ids so a row the website still lists is acked again and never sent
+again. And an unlinked caller is told NOTHING WAS ARMED, a third sentence
+beside the wallet cards' "nothing was read" and the channel's "did not
+answer". The router takes the intercept's trigger words anchored where the
+intercept anchors them (at the start: "can you tell me when btc drops?" is
+nobody's) under the education lookahead the idle-yield rule uses, because
+"what is a price alert" handed to a parser answers "didn't catch the
+condition" — a confident wrong card for a question. The command carries the
+intent's own name, which is what the invariant that walks `_cmd_<intent>` for
+every web seam demands (the first draft was `/pricealert` and that guard
+refused it), and is the tenth catalogue command with an underscore; deletion
+stays on the website's Live Feed panel, where the intercept keeps it too, and
+the card says so.
+(`tests/test_a_price_alert_is_armed_and_delivered_on_telegram.py`,
+`app/test/sync_card_route_arms_price_alerts.test.js`.)
+
+**Thirty-three mutations, each killed on the first round, and one that was not
+run.** The stage that delivers a trip cannot tell an unreadable queue from an
+empty one by what it does — it sends nothing and acks nothing either way — so
+folding `None` into an empty list there is an equivalent mutant, and the
+distinction is pinned where it is a READING: the pull answers `None` for a
+channel that did not answer and a list otherwise, and the mutation that turns
+the first into the second dies on that pin. The other half worth naming is the
+trips listing, which exists twice by necessity: the SQL the MySQL deployment
+runs (a JOIN on the account's Telegram id) and the in-memory store's handler
+that mirrors it by hand for every test in CI. The round mutates the handler,
+which is what CI can drive; the SQL is the untested half, stated rather than
+hidden — the second-copy shape sitting exactly where a test double has to be.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
@@ -1318,10 +1366,10 @@ driven off `SCAN_DISPATCH` now, which is the question it was really asking.
 > just as easy to do to yourself in the dev loop.
 
 **And one regex acquitted every command with an underscore.** `_SLASH_COMMAND`
-was `/[a-z]{2,}`, which stops at the underscore: nine catalogue commands
+was `/[a-z]{2,}`, which stops at the underscore: ten catalogue commands
 carry one (`emergency_stop`, `open_positions`, `grant_live`, `revoke_live`,
 `set_tier`, `daily_report`, `latest_signal`, and since the website's cards
-became commands `venue_router` and `meme_radar`), so `/emergency_stop` was checked
+became commands `venue_router`, `meme_radar` and `price_alert`), so `/emergency_stop` was checked
 as the string `/emergency`, which is not a command — a false ACQUITTAL in the
 web card's no-slash check and in `test_no_phrase_names_a_command`. A false
 accusation is loud; that one just sat there.
@@ -1510,7 +1558,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-eight call sites across the two entry points today, one on
+never happened. Forty-nine call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

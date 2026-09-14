@@ -132,6 +132,7 @@ GROUPS: List[Group] = [
     ("🔔 Alerts & notes", "user", [
         ("watch", "proactive alerts for this chat"),
         ("alerts", "anomaly alert scope and how often"),
+        ("price_alert", "a price alert armed here and delivered here when it trips"),
         ("share", "save a note your agent can use"),
         ("mynotes", "the notes you've shared"),
         ("agent", "your agent's posture, in plain language"),
@@ -436,7 +437,8 @@ DESC_ZH: Dict[str, str] = {
     "signals": "各交易對訊號統計", "rejected": "被風控攔下的訊號", "journal": "每週交易日誌",
     "daily_report": "每日交易報告", "classpf": "依資產類別的績效", "holdtime": "持倉時間分析",
     "equitycurve": "權益曲線熔斷狀態", "costs": "交易成本明細",
-    "watch": "為此對話開啟主動提醒", "alerts": "異常警報範圍與頻率", "share": "儲存一則代理可參考的筆記",
+    "watch": "為此對話開啟主動提醒", "alerts": "異常警報範圍與頻率",
+    "price_alert": "在此設定價格提醒，觸發時會傳到這裡", "share": "儲存一則代理可參考的筆記",
     "mynotes": "你分享過的筆記", "agent": "用白話說明你的代理狀態",
     "backtest": "執行回測", "walkforward": "前進式驗證", "montecarlo": "蒙地卡羅風險模擬",
     "calibration": "學習疊加與校準", "learn": "引擎學到了什麼", "optimize": "參數最佳化",

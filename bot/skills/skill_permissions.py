@@ -188,6 +188,7 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "venue_router": "venue_router",
     "meme_radar": "meme_radar",
     "wallet": "wallet",
+    "price_alert": "price_alert",
     "defi": "defi",
 }
 

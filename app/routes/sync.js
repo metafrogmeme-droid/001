@@ -1375,6 +1375,9 @@ const cardChain = (q) => {
   const c = String(q.chain || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 12);
   return c || null;
 };
+// The price-alert intercept's argument is the SENTENCE: its own parser reads
+// it, so the bot hands the words over rather than a second reading of them.
+const cardText = (q) => String(q.text ?? '').slice(0, 240);
 const CHAT_CARDS = {
   nft: () => require('../lib/opensea').nftChatCard(),
   spot: () => require('../lib/spot').spotChatCard(),
@@ -1390,6 +1393,18 @@ const CHAT_CARDS = {
   defi: async (tg) => {
     const userId = await webUserFor(tg);
     return userId == null ? UNLINKED : require('../lib/defi').defiChatCard(userId);
+  },
+  // The website's price-alert intercept for a linked Telegram caller: arms,
+  // lists, or says "didn't catch the condition" in the intercept's own
+  // sentences, with the delivery sentence in Telegram's words. A sentence
+  // that is no alert at all gets the same help card the intercept gives an
+  // unparsed one, never an empty answer.
+  alerts: async (tg, q) => {
+    const userId = await webUserFor(tg);
+    if (userId == null) return UNLINKED;
+    const alerts = require('../lib/alerts');
+    const card = await alerts.maybeHandleAlertChat(userId, cardText(q), { channel: 'telegram' });
+    return card || alerts.alertHelpCard();
   },
 };
 
@@ -1409,6 +1424,37 @@ router.get('/card/:name', async (req, res) => {
   } catch (err) {
     console.error(`Sync card ${name} error:`, err.stack || err.message);
     res.status(500).json({ error: 'Card unavailable' });
+  }
+});
+
+// The bot's Telegram delivery of tripped alerts: undelivered trips for linked
+// accounts, oldest first, and the acks that stamp them. A failed send is
+// stamped with its reason so one trip cannot retry forever — the rule the
+// stance ack states — and the stamp says sent or failed, never one word for
+// both.
+router.get('/alerts/pending', async (req, res) => {
+  try {
+    const rows = await require('../lib/alerts').pendingTelegramTrips(Number(req.query.limit) || 50);
+    res.json({
+      trips: rows.map((t) => ({
+        id: t.id, alert_id: t.alert_id, telegram_id: String(t.telegram_id),
+        title: t.title, body: t.body, tripped_at: t.tripped_at,
+      })),
+    });
+  } catch (err) {
+    console.error('Sync alerts/pending error:', err.stack || err.message);
+    res.status(500).json({ error: 'Alert trips unavailable' });
+  }
+});
+
+router.post('/alerts/ack', async (req, res) => {
+  try {
+    const acks = Array.isArray(req.body && req.body.acks) ? req.body.acks : [];
+    const n = await require('../lib/alerts').ackTelegramTrips(acks);
+    res.json({ ok: true, acked: n });
+  } catch (err) {
+    console.error('Sync alerts/ack error:', err.stack || err.message);
+    res.status(500).json({ error: 'Ack failed' });
   }
 });
 

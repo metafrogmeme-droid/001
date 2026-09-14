@@ -31,7 +31,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: wallet, so the route reads `telegram_id` for them and answers `unlinked`
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
-                              "venue_router", "meme_radar", "wallet", "defi")
+                              "venue_router", "meme_radar", "wallet", "defi", "alerts")
 
 #: The one argument each of three cards takes — the intercept's own capture
 #: group, as a query parameter (`bot/nlp/web_card_args.py` reads it from the
@@ -40,7 +40,15 @@ WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
 #: a programming error and not a value to drop quietly.
 WEB_CARD_PARAMS: dict[str, tuple[str, ...]] = {
     "replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
+    # The alert card's argument is the SENTENCE: the website's own parser reads
+    # "tell me when BTC drops below 100k", so the words travel whole.
+    "alerts": ("text",),
 }
+
+#: How long each argument may be on the wire. A stake, an asset or a chain is
+#: a token; the alert card's argument is a sentence, and the 32 that bounds a
+#: token cut "tell me when BTC drops below 100k" (33 characters) one short.
+_PARAM_LIMIT: dict[str, int] = {"text": 240}
 
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 #: Every tag Telegram's HTML parser renders that a website card uses. Any
@@ -106,9 +114,33 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
         value = params.get(key)
         if value is None or not str(value).strip():
             continue
-        parts.append(f"{key}=" + urllib.parse.quote(str(value).strip()[:32]))
+        parts.append(f"{key}=" + urllib.parse.quote(str(value).strip()[:_PARAM_LIMIT.get(key, 32)]))
     query = ("?" + "&".join(parts)) if parts else ""
     return _request(f"/api/bot/sync/card/{name}{query}")
+
+
+def fetch_alert_trips(limit: int = 50) -> list[dict] | None:
+    """Tripped price alerts not yet delivered to a linked Telegram account,
+    oldest first — or None when the channel is unconfigured or did not
+    answer. None is NOT an empty queue: the poller then sends nothing and
+    acks nothing, because "no trips" and "could not ask" are different
+    facts and only one of them is a reading."""
+    if not SYNC_SECRET:
+        return None
+    payload = _request(f"/api/bot/sync/alerts/pending?limit={int(limit)}")
+    if not isinstance(payload, dict) or not isinstance(payload.get("trips"), list):
+        return None
+    return [t for t in payload["trips"] if isinstance(t, dict)]
+
+
+def ack_alert_trips(acks: list) -> bool:
+    """Stamp each trip as sent, or as failed with its reason. False when the
+    ack did not land; the poller then keeps what it sent, so a trip the
+    website still lists is acked again rather than sent again."""
+    if not SYNC_SECRET or not acks:
+        return False
+    payload = _request("/api/bot/sync/alerts/ack", {"acks": list(acks)})
+    return isinstance(payload, dict) and payload.get("ok") is True
 
 
 def web_card_unlinked(payload: object) -> bool:

@@ -1057,6 +1057,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # Proactive alerts
             ("watch", self._cmd_watch),
             ("alerts", self._cmd_alerts),
+            ("price_alert", self._cmd_price_alert),
             # Live trading commands
             ("golive", self._cmd_golive), ("livebalance", self._cmd_livebalance),
             ("livepositions", self._cmd_livepositions), ("liveclose", self._cmd_liveclose),
@@ -3667,6 +3668,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 await self._cmd_defi(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("defi"))
+                return
+            if intent.skill == "price_alert":
+                # The website's alert engine holds the tripwire and the bot's
+                # poll delivers a trip here; the WORDS are the argument, read
+                # by the website's own parser (`/price_alert`).
+                await self._cmd_price_alert(update, ctx, text=intent.raw_text)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("price_alert"))
                 return
 
             # ── The reads only the website answers → a door, never a narrator ──

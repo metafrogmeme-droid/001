@@ -14,7 +14,7 @@ through the handler's own confirm callback, and every card answers through
 from __future__ import annotations
 
 import html
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -50,6 +50,10 @@ class AgentCommands:
         def _is_admin(self, update: Update) -> bool: ...
 
         def _get_tg_id(self, update: Update) -> str: ...
+
+        async def _web_card_text(self, name: str, surface: str,
+                                 telegram_id: str = "", params: Optional[dict] = None,
+                                 unlinked: Optional[str] = None) -> str: ...
 
     _STANCE_BLURB = {
         "defensive": ("🛡 <b>Defensive</b> — smaller sizing bias, stricter "
@@ -153,6 +157,44 @@ class AgentCommands:
                 return
         prefs = self.users.anomaly_prefs(tg_id)
         await self._send(update, settings_card(prefs, held_symbols(self.engine)))
+
+    @guard("price_alert")
+    async def _cmd_price_alert(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                              *, text: str = "") -> None:
+        """/price_alert [tell me when BTC drops below 100k] — a price, move,
+        health-factor or signal tripwire, armed on the website's alert engine
+        for THIS caller's linked web account and delivered here when it trips
+        (and as a web push too, when one is enabled). With no words it lists
+        yours. The words ARE the argument: the website's own parser reads
+        them, so its phrasings are the phrasings, and its help sentence is the
+        answer to words it could not read. The card is `price_alert_card_text`,
+        the seam the routed "tell me when…" renders on both surfaces. A caller
+        whose Telegram account is not linked to a web account is told so —
+        there is no account to hold an alert for them, and nothing was armed."""
+        args = getattr(ctx, "args", None) or []
+        words = str(text or " ".join(str(a) for a in args)).strip() or "my alerts"
+        await self._send(update, await self.price_alert_card_text(self._get_tg_id(update), words))
+
+    async def price_alert_card_text(self, user_id: str, text: str, *,
+                                   surface: str = "telegram") -> str:
+        """The website's alert intercept, answered for THIS caller's linked web
+        account in Telegram's delivery words; both surfaces."""
+        return await self._web_card_text("alerts", surface=surface,
+                                         telegram_id=str(user_id or ""), params={"text": text},
+                                         unlinked=self._unlinked_alert_hint(surface))
+
+    @staticmethod
+    def _unlinked_alert_hint(surface: str = "telegram") -> str:
+        """The unlinked sentence for a WRITE: nothing was armed, because there
+        is no web account to hold the alert. Telegram names /link, because
+        there an unmapped caller is one who has not linked; a web caller is
+        mapped by construction, so its sentence claims no door."""
+        if surface == "web":
+            return ("\U0001f517 The website could not map this chat to a web account, so "
+                    "there is no account to hold an alert for you. Nothing was armed.")
+        return ("\U0001f517 Your Telegram account is not linked to a RUNECLAW web account, so "
+                "there is no account to hold an alert for you \u2014 /link it first, then try "
+                "again. Nothing was armed.")
 
     @guard("scan")
     async def _cmd_watch(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

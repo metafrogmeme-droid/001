@@ -238,6 +238,16 @@ class AlertsMonitor:
                     pass
 
         self.monitor._dispatch = _dispatch_with_forward
+
+        async def _dm_fn(chat_id: str, text: str) -> None:
+            # The website's tripped price alerts are acked back as sent or
+            # failed, so this one RAISES where `_send_fn` swallows — and it
+            # goes through the outbound scrub, because it is a reply to a
+            # person that `_send` never sees.
+            from bot.utils.outbound import reply_safe
+            await bot.send_message(chat_id=int(chat_id), text=reply_safe(text),
+                                   parse_mode="HTML")
+        self.monitor.set_dm_fn(_dm_fn)
         self._monitor_task = asyncio.create_task(self.monitor.run(_send_fn))
 
         # Task-death tripwire: a dead monitor task means ALL internal alerting

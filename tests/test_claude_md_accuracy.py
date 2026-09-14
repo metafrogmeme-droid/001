@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Forty-eight call sites across the two entry points", DOC)
+    m = re.search(r"Forty-nine call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 48, f"CLAUDE.md says forty-eight; the two entry points have {n}"
+    assert n == 49, f"CLAUDE.md says forty-nine; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -443,13 +443,14 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     assert left <= routed_skill_names(), left - routed_skill_names()
     assert (two | left) <= {t.name for t in CHAT_TOOLS}
 
-    # "nine catalogue commands carry one" — the underscore commands the
+    # "ten catalogue commands carry one" — the underscore commands the
     # slash extractor used to truncate (seven until the website's venue
-    # router and meme radar became commands under their intent names).
+    # router and meme radar became commands under their intent names, nine
+    # until the price alert did).
     from bot.skills.command_catalog import all_entries
     under = sorted(c for c in all_entries() if "_" in c)
-    assert "nine catalogue commands carry one" in flat
-    assert len(under) == 9, under
+    assert "ten catalogue commands carry one" in flat
+    assert len(under) == 10, under
     for name in under:
         assert f"`{name}`" in DOC, name
 

@@ -369,12 +369,19 @@ async function runOnce(notify) {
       tripped++;
       const base = String(a.symbol).replace(/USDT$/, '');
       const nowTxt = a.metric === 'price' ? fmtPrice(v) : `${Number(v).toFixed(2)}%`;
+      const title = a.metric === 'health_factor' ? '🏦 DeFi risk alert'
+        : a.metric === 'signal' ? '📡 Signal watch'
+        : `⏰ ${base} alert tripped`;
+      const body = bodyOverride || `${describeCondition(a)} — ${base} is now ${nowTxt}.`;
+      // One sentence, two channels: the trips queue carries the same title and
+      // body the push does, so a linked Telegram reads what the browser reads.
+      try {
+        await recordTrip(a, title, body, v);
+      } catch (e) { /* the queue is best-effort beside the push; the row is already stamped */ }
       try {
         await send({
-          title: a.metric === 'health_factor' ? '🏦 DeFi risk alert'
-            : a.metric === 'signal' ? '📡 Signal watch'
-            : `⏰ ${base} alert tripped`,
-          body: bodyOverride || `${describeCondition(a)} — ${base} is now ${nowTxt}.`,
+          title,
+          body,
           url: a.metric === 'signal' ? '/dashboard#signals' : '/dashboard#feed',
         }, [a.user_id]);
       } catch (e) { /* push is best-effort; the row is already stamped */ }
@@ -448,7 +455,11 @@ const { esc } = require('./esc');
  * ({ reply_html, intent }); otherwise return null so the caller proxies the
  * message to the bot as usual. Never throws.
  */
-async function maybeHandleAlertChat(userId, text) {
+async function maybeHandleAlertChat(userId, text, opts = {}) {
+  // `channel` decides the delivery sentence and the push hint: on the web a
+  // trip is a push, on Telegram it is a message in that chat (delivered by
+  // the bot's poll of the trips queue), and the sentence says which.
+  const channel = opts && opts.channel === 'telegram' ? 'telegram' : 'web';
   let parsed = null;
   try {
     parsed = parseAlertCommand(text);
@@ -470,38 +481,31 @@ async function maybeHandleAlertChat(userId, text) {
           : `🔔 tripped${a.trigger_price != null ? ` at ${a.metric === 'price' ? fmtPrice(a.trigger_price) : Number(a.trigger_price).toFixed(2) + '%'}` : ''}`;
         return `• <b>${esc(describeCondition(a))}</b> — ${state}`;
       });
+      const manage = channel === 'telegram'
+        ? "Manage them in the web app's Live Feed view."
+        : 'Manage them in the Live Feed view.';
       return {
-        reply_html: `⏰ <b>Your alerts</b><br>${items.join('<br>')}<br><i>Manage them in the Live Feed view.</i>`,
+        reply_html: `⏰ <b>Your alerts</b><br>${items.join('<br>')}<br><i>${manage}</i>`,
         intent: 'alert_list',
       };
     }
 
-    if (parsed.kind === 'unparsed') {
-      return {
-        reply_html: 'I can watch a level for you, but I didn\'t catch the condition. '
-          + 'Try: <i>"tell me when BTC drops below $100k"</i>, '
-          + '<i>"alert me if SOL rises above $200"</i> or '
-          + '<i>"let me know when ETH moves 5%"</i>.',
-        intent: 'alert_help',
-      };
-    }
+    if (parsed.kind === 'unparsed') return alertHelpCard();
 
     const r = await createAlert(userId, parsed);
     if (!r.ok) return { reply_html: esc(r.error), intent: 'alert_error' };
     const nowTxt = r.alert.metric === 'price' ? fmtPrice(r.now) : `${Number(r.now).toFixed(2)}%`;
     let hint = '';
-    try {
-      const [subs] = await pool.execute(
-        'SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?', [userId]);
-      if ((subs[0]?.n || 0) === 0) {
-        hint = '<br><i>Enable push notifications (Account → Notifications) so this reaches you even with the tab closed.</i>';
-      }
-    } catch (e) { /* hint only */ }
-    const semantics = r.alert.mode === 'recurring'
-      ? (r.alert.metric === 'signal'
-        ? 'I\'ll push you every matching signal.'
-        : `I\'ll push you each time it trips (at most once per ${r.alert.cooldown_min} min).`)
-      : 'I\'ll send you a push notification the moment it trips — one-shot, then it disarms.';
+    if (channel === 'web') {
+      try {
+        const [subs] = await pool.execute(
+          'SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?', [userId]);
+        if ((subs[0]?.n || 0) === 0) {
+          hint = '<br><i>Enable push notifications (Account → Notifications) so this reaches you even with the tab closed.</i>';
+        }
+      } catch (e) { /* hint only */ }
+    }
+    const semantics = deliverySentence(r.alert, channel);
     return {
       reply_html: `⏰ Alert armed: <b>${esc(describeCondition(r.alert))}</b>${nowTxt !== null && r.now !== null ? ` (now ${nowTxt})` : ''}. `
         + semantics + hint,
@@ -514,9 +518,99 @@ async function maybeHandleAlertChat(userId, text) {
 
 function __testResetOnchainSweep() { lastOnchainSweep = 0; }
 
+/**
+ * The sentence for an ask this parser could not read — the intercept's own,
+ * and what the bot's card route answers for a sentence that is no alert at
+ * all, so both surfaces show one help text rather than two drifting ones.
+ */
+function alertHelpCard() {
+  return {
+    reply_html: 'I can watch a level for you, but I didn\'t catch the condition. '
+      + 'Try: <i>"tell me when BTC drops below $100k"</i>, '
+      + '<i>"alert me if SOL rises above $200"</i> or '
+      + '<i>"let me know when ETH moves 5%"</i>.',
+    intent: 'alert_help',
+  };
+}
+
+/**
+ * How a trip reaches the person, in the channel's own words. The web
+ * sentences are the original ones, byte for byte; on Telegram the trip is a
+ * message in that chat — the bot polls the trips queue — and a web push as
+ * well when one is enabled, because a trip is ONE row read by both channels.
+ */
+function deliverySentence(alert, channel) {
+  const tg = channel === 'telegram';
+  if (alert.mode === 'recurring') {
+    if (alert.metric === 'signal') {
+      return tg ? 'I\'ll message you here on every matching signal.' : 'I\'ll push you every matching signal.';
+    }
+    return tg
+      ? `I'll message you here each time it trips (at most once per ${alert.cooldown_min} min).`
+      : `I'll push you each time it trips (at most once per ${alert.cooldown_min} min).`;
+  }
+  return tg
+    ? 'I\'ll message you here the moment it trips — one-shot, then it disarms.'
+    : 'I\'ll send you a push notification the moment it trips — one-shot, then it disarms.';
+}
+
+/**
+ * One row per trip, read by the bot's poll for the person's Telegram.
+ * Written BESIDE the push and never instead of it: a queue that could not be
+ * written must not cost the push, and a push that could not be sent must not
+ * cost the queue — `runOnce` wraps each in its own try.
+ */
+async function recordTrip(a, title, body, value) {
+  await pool.execute(
+    `INSERT INTO user_alert_trips (alert_id, user_id, title, body, value, tripped_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [a.id, a.user_id, title, body, value, new Date()]);
+}
+
+/**
+ * Trips not yet delivered to a linked Telegram account, oldest first, a page
+ * at a time. Only rows whose person HAS a Telegram id: a person with none
+ * has nowhere for a delivery to go, so their rows are not "undelivered" and
+ * never appear here.
+ */
+async function pendingTelegramTrips(limit = 50) {
+  const n = Math.max(1, Math.min(200, Number(limit) || 50));
+  const [rows] = await pool.execute(
+    `SELECT t.id, t.alert_id, t.title, t.body, t.tripped_at, u.telegram_id
+       FROM user_alert_trips t JOIN users u ON u.id = t.user_id
+      WHERE t.tg_delivered_at IS NULL AND u.telegram_id IS NOT NULL AND u.telegram_id <> ''
+      ORDER BY t.id ASC LIMIT ${n}`);
+  return rows;
+}
+
+/**
+ * The bot's acks: each names a trip id and whether the message was SENT. A
+ * failed send is stamped too, with its reason, so a person who blocked the
+ * bot does not make the same trip retry forever — and `tg_result` says which
+ * of the two happened, because a stamp that meant either would mean neither.
+ */
+async function ackTelegramTrips(acks) {
+  let n = 0;
+  for (const a of Array.isArray(acks) ? acks : []) {
+    const id = Number(a && a.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const result = a.ok === true ? 'sent' : `failed:${String((a && a.error) || 'unknown').slice(0, 60)}`;
+    const [r] = await pool.execute(
+      'UPDATE user_alert_trips SET tg_delivered_at = ?, tg_result = ? WHERE id = ? AND tg_delivered_at IS NULL',
+      [new Date(), result, id]);
+    n += (r.affectedRows || 0);
+  }
+  return n;
+}
+
 module.exports = {
   MAX_ACTIVE_PER_USER,
   __testResetOnchainSweep,
+  alertHelpCard,
+  deliverySentence,
+  recordTrip,
+  pendingTelegramTrips,
+  ackTelegramTrips,
   parseAlertCommand,
   evaluateAlert,
   describeCondition,

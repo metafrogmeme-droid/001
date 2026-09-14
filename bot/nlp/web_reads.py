@@ -2,15 +2,17 @@
 does not — and the door each one is given, on both surfaces.
 
 `app/routes/chat.js` answers fifteen shapes of question before any bot
-round-trip. Twelve have a Telegram command that renders the same reading and
-are routed to it (`networth`, `rwa`, `research`, and — since the website's
-own cards became fetchable — `nft`, `spot`, `airdrops`, `replay`, `letter`,
-`venue_router`, `meme_radar`, `wallet`, `defi`); one is a WRITE the website
-alone can do (a price alert, whose push channel is there) and collides by
-NAME with `/alerts`, the anomaly-alert scope; the idle-yield read is the
-website's optimiser over the wallet the caller signed in with, while
-`/idleyield` here is the OPERATOR's exchange account under the same word.
-This table holds those two doors. The fifteenth, `exposure`, is neither: the
+round-trip. Thirteen have a Telegram command that renders the same reading
+and are routed to it (`networth`, `rwa`, `research`, and — since the
+website's own cards became fetchable — `nft`, `spot`, `airdrops`, `replay`,
+`letter`, `venue_router`, `meme_radar`, `wallet`, `defi`, and `price_alert`
+→ `/price_alert`, a WRITE the website's alert engine holds and delivers here
+too since the bot polls its trips; it collides by NAME with `/alerts`, the
+anomaly-alert scope, which is why the command is not called that); the
+idle-yield read is the website's optimiser over the wallet the caller signed
+in with, while `/idleyield` here is the OPERATOR's exchange account under the
+same word. This table holds that one door. The fifteenth, `exposure`, is
+neither: the
 website answers "my exposure" with its cross-venue netting card, which
 `/exposure` renders here by name, while the WORDS stay the risk engine's on
 Telegram — a pinned routing from the corpus work (beside "whats my

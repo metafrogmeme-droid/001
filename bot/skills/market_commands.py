@@ -135,20 +135,22 @@ class MarketCommands:
                                          telegram_id=str(user_id or ""))
 
     async def _web_card_text(self, name: str, surface: str,
-                             telegram_id: str = "", params: Optional[dict] = None) -> str:
+                             telegram_id: str = "", params: Optional[dict] = None,
+                             unlinked: Optional[str] = None) -> str:
         """Fetch one website card off the event loop (blocking urllib) and
         hand it back as Telegram HTML. Three absences, three sentences: the
         channel not answering is `_link_hint`, a caller the website could not
         map to a web account is `_unlinked_hint`, and a card is the card —
         never one of the first two rendered as the third. ``params`` are the
         card's own arguments (`WEB_CARD_PARAMS`), a dict so the host contract
-        can declare the method."""
+        can declare the method. ``unlinked`` replaces the wallet sentence for
+        a card that is a WRITE: nothing was armed, not nothing was read."""
         import asyncio as _aio
 
         from bot.utils.web_data_pull import fetch_web_card, web_card_text, web_card_unlinked
         payload = await _aio.to_thread(fetch_web_card, name, telegram_id, **(params or {}))
         if web_card_unlinked(payload):
-            return self._unlinked_hint(surface)
+            return unlinked if unlinked is not None else self._unlinked_hint(surface)
         text = web_card_text(payload)
         if text is None:
             return self._link_hint(surface)

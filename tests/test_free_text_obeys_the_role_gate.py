@@ -433,6 +433,9 @@ class TestTheTableDoesNotDrift:
             "meme_radar": "meme_radar",
             "wallet": "wallet",
             "defi": "defi",
+            # The last door row became a WRITE the website's alert engine holds
+            # for the caller's linked web account: the `@guard` on /price_alert.
+            "price_alert": "price_alert",
         }
 
     def test_halt_reaches_no_chat_transport(self):

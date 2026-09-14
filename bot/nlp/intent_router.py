@@ -1182,10 +1182,21 @@ _rule(_EDU + r"\b(idle[- ]yield(?: optimi[sz]er| scan(?:ner)?| radar)?"
       r"|put (?:my )?(?:idle )?\w+ to work|where can i earn (?:more|yield|on)"
       r"|earn more on my \w+|is my capital idle)\b",
       "idle_yield", explanation="Idle-yield optimiser over your linked wallet (a website read, ask it there)")
-_rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"
-      r"|tell me when \S+ (?:drops?|falls?|goes|rises?|hits|breaks?|crosses)|notify me (?:when|if)"
-      r"|(?:show |list )?my (?:price )?alerts)\b",
-      "price_alert", explanation="A price alert (set on the website)")
+# The website's alert intercept anchors its trigger phrase at the START of the
+# message ("tell me when…", "alert me if…") and reads the condition itself;
+# this rule takes the same trigger words, anchored the same way, plus the
+# list forms, and hands the whole sentence to that parser.
+# The education lookahead is `_EDU`'s, written out because `_EDU` also opens
+# the match with a lazy `.*?` and the trigger alternative must stay anchored:
+# "what is a price alert" handed to the intercept's parser answers "didn't
+# catch the condition", a confident wrong card for a question.
+_rule(r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b)"
+      r"(?:\s*(?:please )?(?:tell me|alert me|notify me|ping me|warn me|let me know) "
+      r"(?:when|if|once|every time|whenever|each time)\b"
+      r"|.*?\b(?:price alerts?|set (?:up )?(?:an? |a new )?(?:price )?alerts?"
+      r"|(?:show |list )?my (?:price )?alerts|(?:show|list) (?:active )?alerts)\b)",
+      "price_alert",
+      explanation="A price alert — armed on the website's alert engine, delivered here too (/price_alert)")
 _rule(r"\b((?:best|cheapest) (?:venue|exchange)"
       r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
       r"|venue router|cheapest funding)\b",

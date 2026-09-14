@@ -277,6 +277,14 @@ async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
     return await tg_handler.defi_card_text(tg_id, surface="web")
 
 
+async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                           text: str = "") -> str:
+    # The Python path sees an alert ask only when the Node intercept's own
+    # regex missed the phrasing; the website's parser then reads the words
+    # again through this seam and answers in its own sentences.
+    return await tg_handler.price_alert_card_text(tg_id, text or "my alerts", surface="web")
+
+
 #: Routed intents the web answers from a SEAM on the Telegram handler — the
 #: reading the slash command renders — keyed by intent. Every key is also in
 #: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
@@ -298,6 +306,7 @@ _WEB_SEAM = {
     "venue_router": _seam_venue_router,
     "meme_radar": _seam_meme_radar,
     "wallet": _seam_wallet,
+    "price_alert": _seam_price_alert,
     "defi": _seam_defi,
 }
 

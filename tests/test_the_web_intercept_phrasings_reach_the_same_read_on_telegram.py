@@ -122,9 +122,11 @@ class TestTheRouter:
     def test_the_three_are_router_names_and_the_tables_agree(self):
         assert {"networth", "rwa", "research"} <= routed_skill_names()
         from bot.web import user_gateway as ug
-        # Twelve since the website's own cards became commands.
+        # Twelve since the website's own cards became commands; thirteen with
+        # the price alert, a WRITE the website's alert engine holds.
         assert set(ug._WEB_SEAM) == {"networth", "rwa", "research", "nft", "spot", "airdrops",
-                                     "replay", "letter", "venue_router", "meme_radar", "wallet", "defi"}
+                                     "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
+                                     "price_alert"}
         assert set(WEB_ROUTED_PERMISSION) == set(ROUTED_INTENT_SEAM)
         assert set(ug._WEB_SEAM) == set(WEB_ROUTED_PERMISSION) - {"status"}
         # The permission is the @guard on the command that renders the seam.

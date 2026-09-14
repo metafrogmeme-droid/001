@@ -101,6 +101,7 @@
     "costs": "uitsplitsing van tradingkosten",
     "watch": "proactieve alerts voor deze chat",
     "alerts": "bereik en frequentie van anomalie-alerts",
+    "price_alert": "een prijsalarm, hier ingesteld en hier bezorgd zodra het afgaat",
     "share": "bewaar een notitie die je agent kan gebruiken",
     "mynotes": "de notities die je hebt gedeeld",
     "agent": "de houding van je agent, in gewone taal",

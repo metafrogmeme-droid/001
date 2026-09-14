@@ -15,12 +15,14 @@ one, and ends by saying nothing was read. Both surfaces answer from
 `bot/nlp/web_reads.py`, whose table the Node side pins against the
 intercepts' own patterns (`app/test/web_reads_examples_reach_the_intercepts.test.js`).
 
-Eight of the nine are COMMANDS since the website's own cards became
+All nine are COMMANDS now: eight since the website's own cards became
 fetchable (`tests/test_the_website_cards_are_telegram_commands.py`,
-`tests/test_the_public_and_wallet_reads_are_telegram_commands.py`): their
-phrasings still route to the same intents (ROWS below), the intents now
-dispatch a command rather than a door, and the table holds the one door
-left — the price alert, a WRITE the website's push channel does.
+`tests/test_the_public_and_wallet_reads_are_telegram_commands.py`) and the
+price alert since the website's alert engine gained a Telegram delivery
+(`tests/test_a_price_alert_is_armed_and_delivered_on_telegram.py`). Their
+phrasings still route to the same intents (ROWS below); the intents dispatch
+a command rather than a door, and the table holds the one door left — the
+idle-yield read, which is the OPERATOR's account under `/idleyield` here.
 
 Plant the phrase, drive the surface, read the STORE and the words.
 """
@@ -195,9 +197,9 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert r.row in rows, r
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
-    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 2
+    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
     assert not {"airdrops", "nft", "spot", "replay", "letter", "defi",
-                "venue_router", "meme_radar"} & set(WEB_READS), "commands now, not doors"
+                "venue_router", "meme_radar", "price_alert"} & set(WEB_READS), "commands now, not doors"
 
 
 @pytest.mark.parametrize("intent", sorted(WEB_READS))
@@ -244,23 +246,22 @@ def test_the_collision_sentence_is_the_catalogues_own_words():
 
 class TestTelegram:
     @pytest.mark.asyncio
-    async def test_a_price_alert_sends_the_door_dispatches_nothing_and_records(self, bot):
+    async def test_the_idle_yield_ask_sends_the_door_dispatches_nothing_and_records(self, bot):
         # RED HERRING: "replay every signal with $1k" used to be this test's
         # phrase, and before slice 3 those words dispatched `run_backtest`;
-        # the replay is a command now, so the one door left is the alert.
+        # then "tell me when BTC drops below 100k" was, until the price alert
+        # became a command too. The one door left is the idle-yield read.
         store = _store(bot)
-        await bot._handle_message(_update(OPERATOR, "tell me when BTC drops below 100k"), None)
+        await bot._handle_message(_update(OPERATOR, "put my idle cash to work"), None)
         assert bot.registry.dispatched == []
-        assert bot.sent[-1] == web_read_notice("price_alert", surface="telegram")
+        assert bot.sent[-1] == web_read_notice("idle_yield", surface="telegram")
         turns = [(m.role, m.content) for m in store.get_recent(str(OPERATOR), limit=5)]
-        assert turns[0] == ("user", "tell me when BTC drops below 100k")
-        assert turns[1][1] == routed_answer_memory("price_alert", bot.sent[-1])
+        assert turns[0] == ("user", "put my idle cash to work")
+        assert turns[1][1] == routed_answer_memory("idle_yield", bot.sent[-1])
         assert "no tool ran" in turns[1][1]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("text,intent", [
-        ("tell me when BTC drops below 100k", "price_alert"),
-        ("set an alert for eth at 3000", "price_alert"),
         ("put my idle cash to work", "idle_yield"),
         ("my idle usdc", "idle_yield"),
     ])
@@ -272,13 +273,6 @@ class TestTelegram:
         rec.assert_not_awaited()
         assert bot.sent[-1] == web_read_notice(intent, surface="telegram")
         assert routed_answer_memory(intent, bot.sent[-1]) == store.get_recent(str(OPERATOR), limit=5)[-1].content
-
-    @pytest.mark.asyncio
-    async def test_a_price_alert_ask_names_the_anomaly_command_as_a_different_thing(self, bot):
-        await bot._handle_message(_update(OPERATOR, "my alerts"), None)
-        n = bot.sent[-1]
-        assert "/alerts" in n and "anomaly alert scope" in n and "different thing" in n
-        assert "tell me when BTC drops below 100k" in n
 
     @pytest.mark.asyncio
     async def test_an_idle_yield_ask_names_the_operators_command_as_a_different_thing(self, bot):
@@ -297,8 +291,7 @@ class TestTelegram:
 
 class TestTheWeb:
     @pytest.mark.parametrize("text,intent", [
-        ("alert me when sol hits 200", "price_alert"), ("my alerts", "price_alert"),
-        ("best apy for usdc", "idle_yield"),
+        ("best apy for usdc", "idle_yield"), ("my idle usdc", "idle_yield"),
     ])
     def test_the_python_path_answers_with_the_intercepts_words_and_records(self, monkeypatch, text, intent):
         ug, h = _web(monkeypatch)

@@ -101,6 +101,7 @@
     "costs": "işlem maliyeti dökümü",
     "watch": "bu sohbet için proaktif uyarılar",
     "alerts": "anomali uyarılarının kapsamı ve sıklığı",
+    "price_alert": "burada kurulan ve tetiklenince buraya gelen bir fiyat uyarısı",
     "share": "ajanınızın kullanabileceği bir not kaydedin",
     "mynotes": "paylaştığınız notlar",
     "agent": "ajanınızın duruşu, sade bir dille",

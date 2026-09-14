@@ -101,6 +101,7 @@
     "costs": "détail des coûts de trading",
     "watch": "alertes proactives pour ce chat",
     "alerts": "portée et fréquence des alertes d'anomalie",
+    "price_alert": "une alerte de prix, armée ici et livrée ici quand elle se déclenche",
     "share": "enregistrer une note que votre agent peut utiliser",
     "mynotes": "les notes que vous avez partagées",
     "agent": "la posture de votre agent, en langage clair",

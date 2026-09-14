@@ -582,6 +582,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 |---|---|
 | `/watch` | proactive alerts for this chat |
 | `/alerts` | anomaly alert scope and how often |
+| `/price_alert` | a price alert armed here and delivered here when it trips |
 | `/share` | save a note your agent can use |
 | `/mynotes` | the notes you've shared |
 | `/agent` | your agent's posture, in plain language |

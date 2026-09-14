@@ -7,8 +7,9 @@
  * the website answers ("ask it there in the same words: …") quotes each
  * row's `example`, and a phrasing that drifted out of an intercept's regex
  * would have failed in a user's chat, one turn after the notice invited it.
- * Driven against each library's own CHAT_RE (the alerts parser for the one
- * intercept that has no regex) rather than against a copy of it here.
+ * Driven against each library's own CHAT_RE rather than against a copy of it
+ * here. (The alerts row, driven through its parser while it was a door, is a
+ * Telegram command now — app/test/sync_card_route_arms_price_alerts.test.js.)
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,25 +22,21 @@ const CHAT_SRC = fs.readFileSync(path.join(__dirname, '..', 'routes', 'chat.js')
 const ROWS = [...CHAT_SRC.matchAll(/^\s*\['([a-z]+)',/gm)].map((m) => m[1]);
 
 function claims(row, text) {
-  if (row.lib === 'alerts') {
-    const { parseAlertCommand } = require('../lib/alerts');
-    const parsed = parseAlertCommand(text);
-    return Boolean(parsed && parsed.kind && parsed.kind !== 'error');
-  }
   const lib = require(`../lib/${row.lib}`);
   assert.ok(lib.CHAT_RE instanceof RegExp, `${row.lib} exports no CHAT_RE`);
   return lib.CHAT_RE.test(text);
 }
 
-test('the table names two reads, each on a row the intercept table has', () => {
+test('the table names one read, on a row the intercept table has', () => {
   // Nine until the website's cards became Telegram commands
   // (bot/skills/market_commands.py, portfolio_commands.py); eight route to a
-  // command now, and a row here would be a door notice over a read that
-  // exists. The price alert is a WRITE the website's push channel does, and
-  // the idle-yield read is the website's optimiser over the wallet the caller
-  // signed in with, where the bot's /idleyield is the operator's account.
-  assert.equal(Object.keys(TABLE).length, 2);
-  for (const gone of ['nft', 'spot', 'airdrops', 'replay', 'letter', 'defi', 'venue_router', 'meme_radar']) {
+  // command now, and the price alert — a WRITE the website's alert engine
+  // holds — is /price_alert since the bot polls its trips. A row here would
+  // be a door notice over a read that exists. The idle-yield read is the
+  // website's optimiser over the wallet the caller signed in with, where the
+  // bot's /idleyield is the operator's account.
+  assert.equal(Object.keys(TABLE).length, 1);
+  for (const gone of ['nft', 'spot', 'airdrops', 'replay', 'letter', 'defi', 'venue_router', 'meme_radar', 'price_alert']) {
     assert.equal(gone in TABLE, false, gone);
   }
   for (const [intent, row] of Object.entries(TABLE)) {

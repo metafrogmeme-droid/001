@@ -535,6 +535,7 @@ python -m bot.main --mode scan
 |---|---|
 | `/watch` | 為此對話開啟主動提醒 |
 | `/alerts` | 異常警報範圍與頻率 |
+| `/price_alert` | 在此設定價格提醒，觸發時會傳到這裡 |
 | `/share` | 儲存一則代理可參考的筆記 |
 | `/mynotes` | 你分享過的筆記 |
 | `/agent` | 用白話說明你的代理狀態 |

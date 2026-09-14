@@ -108,8 +108,9 @@ class TestTheArgumentReaders:
 class TestThePull:
     def test_the_nine_names_and_the_three_arguments(self):
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
-                             "meme_radar", "wallet", "defi")
-        assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",)}
+                             "meme_radar", "wallet", "defi", "alerts")
+        assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
+                                   "alerts": ("text",)}
 
     def test_the_paths_carry_the_argument_only_when_given(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
@@ -323,8 +324,8 @@ class TestTheTables:
             assert WEB_ROUTED_PERMISSION[name] == name
             assert ROUTED_INTENT_SEAM[name] == f"{name}_card_text"
             assert ug._WEB_SKILL_PERMISSION[name] == name
-        assert set(WEB_READS) == {"price_alert", "idle_yield"}, "a door notice over a read that exists"
-        assert "idleyield" not in WEB_CARDS and "price_alert" not in WEB_CARDS
+        assert set(WEB_READS) == {"idle_yield"}, "a door notice over a read that exists"
+        assert "idleyield" not in WEB_CARDS and "alerts" in WEB_CARDS
 
     def test_the_command_branches_sit_above_the_door_branch(self):
         src = textwrap.dedent(inspect.getsource(TelegramHandler._handle_message))

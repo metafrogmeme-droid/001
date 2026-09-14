@@ -213,6 +213,7 @@ ROUTED_INTENT_SEAM = {
     "airdrops": "airdrops_card_text",
     "replay": "replay_card_text",
     "letter": "letter_card_text",
+    "price_alert": "price_alert_card_text",
     "venue_router": "venue_router_card_text",
     "meme_radar": "meme_radar_card_text",
     "wallet": "wallet_card_text",
