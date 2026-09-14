@@ -2180,6 +2180,65 @@ four other functions read as a cross-view call. It is one module-level
 reader now (`dlSay`), which is the shape that guard's model can see, and the
 mutation round was re-run against it.
 
+**A loader inside the signed-in block under an ungated shell is a skeleton
+that never stops.** The deck study placed the context row's loader "directly
+after" the command bar's — inside `if (LOGGED_IN) {` — with the shell outside
+it, so every signed-out visitor would have got a permanently animating
+skeleton under a heading that announced itself: neither the empty state nor
+the error state, and invisible to every scan of loaders, because the loader
+exists. It sits below the block now, and the views smoke drives the
+SIGNED-OUT home in Chromium and asks the DOM for the rendered row; the
+brace-matched position is pinned as well, because the scan is cheap and the
+drive is the proof. The guard that wanted "the loader is reached" as a source
+assertion needed a third copy of the twenty-line `renderPanel(` paren-walk
+two other guards already carried, which this file had already named as the
+shape to refuse: `app/test/helpers/loaders.js` is the one walk, and each
+caller keeps only its filter.
+
+**A default is not a reading, and the payload's only evidence is a
+neighbouring field.** `regime` is always present and seeded
+`{label: 'NEUTRAL', gate: 0}`; `gate` — the BTC anchor price — is written
+only inside `if btc:`, so a zero anchor means BTC was never read, and the
+Engine view has been printing the constructor's default as a measured regime.
+NORMAL is the same shape one subject over: an EMPTY calendar evaluates
+NORMAL, so without the producer's `has_events` the word is not a reading.
+Each subject the row does not show is NAMED with its own reason — every one
+a dictionary key, where the design's first draft joined raw English into a
+chip on a fourteen-language page — and the venue on a paper bot is OMITTED
+rather than named forever: `live_mode: false` is a read fact, and a
+permanently-named absence trains the reader to stop reading the list.
+
+**A title attribute does not render on touch.** Every load-bearing caveat in
+the design lived in `title=` — "no block reported" defended by "not every
+gate could be read", a macro state by "the calendar's reading, not the
+gate's" — on a phone layout with non-interactive chips, the surface the
+design spent three paragraphs on. A hedge the primary surface cannot show is
+not a hedge: the caveats are visible lines under the row, keyed, and the
+renderer block spells no `title=` at all.
+
+**One read per screen, and its outcome recorded in one place.** The home
+view fetched `/api/bot/sync/scan` in the command bar (through the swallowing
+`getScan()`), in the agent panel (a `fetchJSON` of its own) and would have a
+third time in the row — three answers that can disagree in one paint. It is
+one read now, started with the render for every visitor and consumed three
+ways: the row GUARDS it (`mustRead` on this read), the bar and the agent
+panel OMIT. And the tri-state the topbar chip reads was written only by
+`getScan`'s own fetch, so a row saying "could not read" would have stood
+beside a chip still painting ENGINE LIVE from an earlier cache, or CONNECTING
+over a read that had already failed. `adoptScanRead` is the one writer (the
+guard counts it), it tells the chip every time, and the row adopts BEFORE it
+guards — the sliced loader is driven to prove the order, and the read's own
+budget sits under the panel's because a `renderPanel` timeout skips that
+catch entirely.
+
+**The bot's own time stamp is not ISO 8601.** `scan_skill` writes
+`%Y-%m-%d %H:%M UTC`, and `Date.parse` of that is implementation-defined —
+V8 reads it, another engine answers NaN, and a chip that exists in one
+browser and not the other from one payload is the kind of defect no test on
+this box can see. The model spells it into ISO before parsing, and an
+unparseable stamp names the tick as not reported rather than falling through
+the topbar model's NaN age to "ENGINE OFFLINE".
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

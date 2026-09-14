@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 182,
-    "sha": "eb19723bc413fc03"
+    "v": 183,
+    "sha": "0ba39a024bbbb3f0"
   },
   "js/decision-log-model.js": {
     "sha": "6e81e1b8accbccd1",
@@ -108,8 +108,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 147,
-    "sha": "92c611783ab0d703"
+    "v": 148,
+    "sha": "18438c383554d964"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -244,11 +244,15 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "27b876c98cdb4482",
-    "v": 43
+    "sha": "975ad66e314abd5f",
+    "v": 44
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
+    "v": 1
+  },
+  "js/context-chips-model.js": {
+    "sha": "e89e7947af99dd26",
     "v": 1
   }
 }

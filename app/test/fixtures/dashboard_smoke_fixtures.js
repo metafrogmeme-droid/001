@@ -16,6 +16,20 @@ const tickers = [
 ];
 module.exports = [
   ['/api/auth/me', me],
+  // The engine's scan, as the sync route serves it to a signed-in reader:
+  // every subject the home view's context row reads is READ here — a stamp
+  // this site put on it at ingest, a BTC anchor beside the regime, a venue,
+  // a calendar that says it loaded, and the entry gate's three-valued
+  // answer — so the row renders five chips and no NOT REPORTED.
+  ['/api/bot/sync/scan', { scan: {
+    received_at: new Date(Date.now() - 60e3).toISOString(), timestamp: '2026-09-14 11:00 UTC',
+    regime: { label: 'BULLISH', score: 0.4, gate: 60000, long_short: '', funding: '' },
+    features: { venue: { id: 'bitget', name: 'Bitget' } },
+    macro: { state: 'NORMAL', stale: false, unreadable: false, has_events: true, reading: 'Normal', next_event: null, active_event: null, seconds_until_next: 86400, evaluated_at: new Date().toISOString() },
+    circuit_breaker: { rules: [], gate: { blocked: false, unknown: false, reasons: [] }, equity: null, net_pnl: null, win_rate: null, record_unreadable: false,
+      total_trades: 0, open_count: 0, open_positions: [], closed_trades: [], live_mode: true, live_unavailable: false, strategy_mode: 'balanced' },
+    symbols: {}, entry_cards: [], key_call: 'No scan data available.',
+  } }],
   ['/api/reports/yield', { yield: { rows: [yieldRow], total_idle_usd: 40, total_est_year_usd: 1.18, incomplete: '' } }],
   ['/api/reports', { reports: {
     parity: { trades: 18, excluded_non_fills: 7, unscored_pnl: 0, win_rate: 0.61, net_pnl: 4.51, pf: 2.24, fees_read: 18, total_fees: 1.2, realized_fee_rate: 0.001, modeled_fee_rate: 0.002, fee_vs_model: 0.48, inferred_fills: 14 },

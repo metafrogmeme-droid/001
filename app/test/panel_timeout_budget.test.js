@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { codeOnly } = require('./helpers/code_only');
+const { loaderBodies } = require('./helpers/loaders');
 
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
 // COMMENTS BLANKED FIRST, because `panels()` below finds a loader's end by
@@ -38,21 +39,11 @@ function panelDefault() {
 }
 
 // Slice each renderPanel(...) call: its loader body plus its opts object.
+// The walk is the shared one (helpers/loaders.js); this guard keeps only the
+// INLINE `async () => {` loaders, because a named loader function has a
+// body the slice cannot see, and a budget read out of nothing is no check.
 function panels(src) {
-  const out = [];
-  const re = /renderPanel\(([^,]+),\s*async \(\) => \{/g;
-  let m;
-  while ((m = re.exec(src))) {
-    const start = m.index;
-    // Walk to the matching close of the renderPanel( call.
-    let depth = 0, i = src.indexOf('(', start);
-    for (; i < src.length; i++) {
-      if (src[i] === '(') depth++;
-      else if (src[i] === ')') { depth--; if (depth === 0) break; }
-    }
-    out.push({ target: m[1].trim(), body: src.slice(start, i + 1), line: src.slice(0, start).split('\n').length });
-  }
-  return out;
+  return loaderBodies(src).filter((p) => p.inline);
 }
 
 test('no panel gives up sooner than the fetch inside it asks for', () => {

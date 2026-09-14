@@ -161,19 +161,32 @@
   // table. Same rule as _haveTrades below: absent is not zero.
   const cache = { scan: null, scanAt: 0, scanOk: null, tickers: {}, portfolio: null, insightOk: null };
 
-  async function getScan(maxAgeMs = 45000) {
+  // THE ONE PLACE A SCAN READ'S OUTCOME IS RECORDED: the tri-state, the cached
+  // payload and the topbar chip that reads both. getScan and the home view's
+  // context row both go through it, so a read either surface makes updates
+  // what the other shows — the row cannot say "could not read" beside a
+  // topbar still painting ENGINE LIVE from an earlier cache, or CONNECTING
+  // over a read that has already failed, because one failed read told both.
+  function adoptScanRead(r) {
+    cache.scanOk = wasRead(r);
+    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    updateConnChip();
+    return r;
+  }
+  // `read` is a fetch already in flight for this render — the home view's one
+  // /scan read — consumed with the same bookkeeping as a fetch of our own.
+  async function getScan(maxAgeMs = 45000, read = null) {
     // Served from cache — no read happened, so the read state is unchanged.
-    if (cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
+    if (!read && cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
     // Send the session when there is one. /scan is optionalAuth: it never
     // 401s, and logged-out readers still get the market data — but the
     // circuit-breaker figures below (Engine equity, Net PnL) are redacted for
     // anonymous callers, so the operator's own dashboard has to identify
     // itself to see them. `authHeaders()` is a no-op without a token, so the
     // logged-out path is unchanged.
-    const r = await fetchJSON('/api/bot/sync/scan')
+    const r = await (read || fetchJSON('/api/bot/sync/scan'))
       .catch(() => ({ ok: false, status: 0, data: null }));
-    cache.scanOk = wasRead(r);
-    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    adoptScanRead(r);
     return cache.scan;
   }
   // A win rate over ZERO trades is not 0% — it does not exist. The sync
@@ -794,6 +807,7 @@
         <section class="panel panel--primary" id="p-hero"><div id="c-hero"><div class="skel"></div><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-metrics"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.metrics">Account figures</span></h2><div id="c-metrics"><div class="skel"></div></div></section>` : ''}
         ${LOGGED_IN ? `<section class="panel" id="p-cmd" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-cmd"><div class="skel"></div></div></section>` : ''}
+        <section class="panel" id="p-ctx" style="padding-top:var(--s3);padding-bottom:var(--s3)"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.ctx">Engine context</span></h2><div id="c-ctx"><div class="skel"></div></div></section>
         <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.next">Getting started</span></h2><div id="c-next"><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-watch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.watch">Watchlist</span>
           <span class="right muted small" data-i18n="dp.watch_sub">engine patterns push for these</span></h2><div id="c-watch"><div class="skel"></div></div></section>` : ''}
@@ -831,6 +845,15 @@
     // can disagree within a single paint. Settled with null on failure so
     // the bar's omit-branch and the panel's mustRead each see the same event.
     const positionsRead = LOGGED_IN ? fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null) : null;
+    // And ONE /api/bot/sync/scan read, for every visitor: the command bar
+    // takes it through getScan (omit — the cached scan on failure) and the
+    // context row awaits it directly (guard — mustRead on THIS read). Settled
+    // with a failed-read envelope rather than a rejection so both consumers
+    // see one event, and adopted into the shared cache by whichever awaits
+    // it first. 10000ms here, under the row's 12000ms timer — the bound the
+    // budget gate cannot see from inside the loader.
+    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null }));
 
     renderPanel(C('hero'), async () => {
       if (!LOGGED_IN) {
@@ -1024,7 +1047,7 @@
           getPortfolio(false, portfolioRead),
           positionsRead,
           fetchJSON('/api/controls/status', { timeoutMs: 10000 }).catch(() => null),
-          getScan().catch(() => null),
+          getScan(45000, scanRead).catch(() => null),
         ]);
         const posRead = wasRead(posR);
         const pos = posRead ? posR.data : null;
@@ -1132,7 +1155,10 @@
         const [pf, hist, scanR, meR, prof] = await Promise.all([
           getPortfolio(),
           fetchJSON('/api/trades/history?limit=50', { timeoutMs: 12000 }).catch(() => null),
-          fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 }).catch(() => null),
+          // The home view's ONE scan read (a settled envelope, never a
+          // rejection): a third fetch of /scan on this screen was a third
+          // answer that could disagree with the row and the bar in one paint.
+          scanRead,
           fetchJSON('/api/auth/me', { timeoutMs: 10000 }).catch(() => null),
           getUserProfile().catch(() => ({ risk_pref: null, watchlist: [], prefs: {} })),
         ]);
@@ -1232,6 +1258,47 @@
         else toast(r?.data?.detail || r?.data?.error || 'Stance change failed.');
       });
     }
+
+    // CONTEXT CHIP ROW — the engine's operating context on one line, for
+    // every visitor: how old the bot's last push is, the venue it trades,
+    // the BTC regime, the macro calendar, and whether the entry gate reported
+    // a block. Placed HERE, below the signed-in block, because the shell is
+    // ungated: a loader inside that block leaves every signed-out visitor a
+    // permanently animating skeleton under a heading that announced itself —
+    // neither the empty state nor the error state, and invisible to every
+    // scan that only inspects loaders that exist. The views smoke drives the
+    // signed-out render for exactly that reason.
+    //
+    // SINGLE SOURCE, SO IT GUARDS. getScan() is deliberately NOT used: it
+    // swallows its own failure and hands back the cache, so a loader built on
+    // it would print an absence sentence made from a 503. The shared read is
+    // awaited here and mustRead throws on it, so a refused or dead /scan
+    // reaches the error state with a named sentence and the right action —
+    // AFTER the outcome has been adopted, so the topbar chip reads ENGINE
+    // STATUS UNKNOWN beside the row's error rather than CONNECTING or a stale
+    // ENGINE LIVE. A renderPanel timeout would skip this catch, which is why
+    // the read's own budget (10000ms) sits under the panel's (12000ms).
+    //
+    // The decision is a PURE model (context-chips-model.js): a chip only for
+    // a field that was READ, each unread subject NAMED with its own reason,
+    // the venue omitted rather than named forever on a paper bot, and every
+    // caveat in visible text under the row — a title attribute does not
+    // render on touch.
+    renderPanel(C('ctx'), async () => {
+      const M = self.ContextChipsModel;
+      const ES = (self.EngineStatusModel || {}).engineChipState;
+      // A model that failed to load is a render we could not do, not a
+      // context that is not there: throwing says the first, null the second.
+      if (!M || typeof ES !== 'function') throw new Error('context chip model unavailable');
+      const r = await scanRead;
+      adoptScanRead(r);
+      const d = mustRead(r);
+      const scan = d ? d.scan : null;
+      if (!scan) return null;
+      const out = M.contextChips(scan, Date.now(), ES);
+      if (!out) return null;
+      return contextRowHtml(out, ctxWords());
+    }, { timeoutMs: 12000, empty: { icon: 'icon-offline', text: T('dd.e_ctx', 'No engine scan on record yet. This row fills in when the bot pushes its next scan.') } });
 
     renderPanel(C('mind'), async () => feedListHtml(await getFeed(10)),
       { empty: { icon: 'icon-radar', text: T('dd.m_empty', 'The agent narrates its work here — scans, theses, trades and stop moves, live as they happen.') } });
@@ -8744,6 +8811,98 @@
       <div class="small muted" style="margin-top:8px;font-style:italic">Every proposed on-chain action lands here first. Review can only <em>tighten</em> the Authority Envelope — never authorize. Nothing here signs or broadcasts.</div>
     </div>`;
   }
+
+  // ── context chips: renderers ──
+  // Every key the model can emit, as a LITERAL T() call, so the dictionary
+  // sweep sees each one and a language switch re-resolves them. The guard
+  // pins that this map and the model's `KEYS` are the same set.
+  function ctxWords() {
+    return {
+      'dd.ctx_tick': T('dd.ctx_tick', 'TICK'),
+      'dd.ctx_venue': T('dd.ctx_venue', 'VENUE'),
+      'dd.ctx_regime': T('dd.ctx_regime', 'REGIME'),
+      'dd.ctx_macro': T('dd.ctx_macro', 'MACRO'),
+      'dd.ctx_gate': T('dd.ctx_gate', 'GATE'),
+      'dd.ctx_unread': T('dd.ctx_unread', 'NOT REPORTED'),
+      'dd.ctx_tick_live': T('dd.ctx_tick_live', 'LIVE'),
+      'dd.ctx_tick_stale': T('dd.ctx_tick_stale', 'STALE'),
+      'dd.ctx_tick_offline': T('dd.ctx_tick_offline', 'OFFLINE'),
+      'dd.ctx_reg_bull': T('dd.ctx_reg_bull', 'BULLISH'),
+      'dd.ctx_reg_bear': T('dd.ctx_reg_bear', 'BEARISH'),
+      'dd.ctx_reg_neutral': T('dd.ctx_reg_neutral', 'NEUTRAL'),
+      'dd.ctx_mac_normal': T('dd.ctx_mac_normal', 'Normal'),
+      'dd.ctx_mac_pre': T('dd.ctx_mac_pre', 'Pre-event caution'),
+      'dd.ctx_mac_post': T('dd.ctx_mac_post', 'Post-event volatility'),
+      'dd.ctx_mac_blackout': T('dd.ctx_mac_blackout', 'Blackout'),
+      'dd.ctx_gate_clear': T('dd.ctx_gate_clear', 'CLEAR'),
+      'dd.ctx_gate_blocked': T('dd.ctx_gate_blocked', 'BLOCKED'),
+      'dd.ctx_gate_noblock': T('dd.ctx_gate_noblock', 'no block reported'),
+      'dd.ctx_u_tick': T('dd.ctx_u_tick', 'tick'),
+      'dd.ctx_u_venue': T('dd.ctx_u_venue', 'venue'),
+      'dd.ctx_u_regime': T('dd.ctx_u_regime', 'regime'),
+      'dd.ctx_u_macro': T('dd.ctx_u_macro', 'macro'),
+      'dd.ctx_u_gate': T('dd.ctx_u_gate', 'gate'),
+      'dd.ctx_w_tick': T('dd.ctx_w_tick', 'the scan carries no readable time stamp.'),
+      'dd.ctx_w_venue': T('dd.ctx_w_venue', 'the scan named no venue.'),
+      'dd.ctx_w_regime': T('dd.ctx_w_regime', 'the scan carried no regime.'),
+      'dd.ctx_w_regime_default': T('dd.ctx_w_regime_default', 'BTC was not read, so the regime is the scan’s default rather than a reading.'),
+      'dd.ctx_w_regime_word': T('dd.ctx_w_regime_word', 'the scan carried a regime word this page does not know.'),
+      'dd.ctx_w_macro': T('dd.ctx_w_macro', 'the scan carried no calendar reading.'),
+      'dd.ctx_w_macro_failed': T('dd.ctx_w_macro_failed', 'the calendar evaluation failed — nothing was measured.'),
+      'dd.ctx_w_macro_exhausted': T('dd.ctx_w_macro_exhausted', 'every scheduled event is in the past; the calendar needs regenerating.'),
+      'dd.ctx_w_macro_empty': T('dd.ctx_w_macro_empty', 'no calendar is loaded, so its Normal is not a reading.'),
+      'dd.ctx_w_macro_unstated': T('dd.ctx_w_macro_unstated', 'the scan did not say whether a calendar was loaded, so its Normal is not a reading.'),
+      'dd.ctx_w_gate': T('dd.ctx_w_gate', 'the scan carried no gate reading.'),
+      'dd.ctx_w_gate_unasked': T('dd.ctx_w_gate_unasked', 'the engine could not read its own entry gate.'),
+      'dd.ctx_w_gate_shape': T('dd.ctx_w_gate_shape', 'the gate reading was malformed.'),
+      'dd.ctx_n_tick': T('dd.ctx_n_tick', 'Last scan push reached this site {when}.'),
+      'dd.ctx_n_macro': T('dd.ctx_n_macro', 'The calendar reports {state}. That is the calendar’s own reading, not what the risk gate did with it.'),
+      'dd.ctx_n_gate_blocked': T('dd.ctx_n_gate_blocked', 'Entries are blocked: {reasons}.'),
+      'dd.ctx_n_gate_blocked_nr': T('dd.ctx_n_gate_blocked_nr', 'Entries are blocked; the scan named no reason.'),
+      'dd.ctx_n_gate_partial': T('dd.ctx_n_gate_partial', 'No block was reported, but not every gate condition could be read — this is not an all-clear.'),
+    };
+  }
+  // A word by key; the fallback is the English the caller carries. Module
+  // level, like every reader here: the helper-scope guard resolves calls
+  // against declarations, and a closure handed down as a parameter is
+  // invisible to it.
+  function ctxSay(WORDS, key, en) { return WORDS[key] != null ? WORDS[key] : (en == null ? '' : String(en)); }
+  function ctxFill(tpl, vars) {
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (vars && vars[k] != null ? String(vars[k]) : w));
+  }
+  // One chip: its key word, its value word (a keyed reading, a producer
+  // literal such as a venue name, or the NOT REPORTED chip's list of the
+  // subjects that were not read), its class. No title attribute — the
+  // caveats are visible lines under the row.
+  function ctxChipHtml(c, WORDS, out) {
+    const k = ctxSay(WORDS, c.kKey, c.k);
+    const v = c.subject === 'unread'
+      ? out.unread.map((u) => ctxSay(WORDS, u.nameKey, u.subject)).join(' · ')
+      : (c.vKey ? ctxSay(WORDS, c.vKey, c.v) : (c.v == null ? '' : String(c.v)));
+    return '<span class="chip ' + esc(c.cls) + '"><span class="ctx-k">' + esc(k) + '</span><span class="ctx-v">' + esc(v) + '</span></span>';
+  }
+  // A note under the row. `at` is the stamp the model read and is rendered
+  // as an age here (the model does not format time); `stateKey` is a keyed
+  // state word that the raw `state` falls back from.
+  function ctxNoteHtml(n, WORDS) {
+    const vars = Object.assign({}, n.vars);
+    if (vars.at) vars.when = fmtAgo(vars.at);
+    if (vars.stateKey) vars.state = ctxSay(WORDS, vars.stateKey, vars.state);
+    return '<p class="ctx-note">' + esc(ctxFill(ctxSay(WORDS, n.key, n.key), vars)) + '</p>';
+  }
+  // `out` is ContextChipsModel.contextChips's reading; null never reaches
+  // here (renderPanel's empty state). Chips first, then one line per note
+  // and one per unread subject — its name, then its own reason.
+  function contextRowHtml(out, WORDS) {
+    const chips = out.chips.map((c) => ctxChipHtml(c, WORDS, out)).join('');
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    const notes = out.notes.map((n) => ctxNoteHtml(n, WORDS)).join('')
+      + out.unread.map((u) => '<p class="ctx-note">'
+        + esc(cap(ctxSay(WORDS, u.nameKey, u.subject)) + ': ' + ctxSay(WORDS, u.whyKey, u.whyKey)) + '</p>').join('');
+    return '<div class="ctxrow" role="group" aria-label="' + esc(T('aria.ctxrow', 'Engine context')) + '">' + chips + '</div>'
+      + (notes ? '<div class="ctx-notes">' + notes + '</div>' : '');
+  }
+  // ── context chips: renderers end ──
 
   // ── decision log: renderers ───────────────────────────────────────────
   // Every decision is DecisionLogModel's (js/decision-log-model.js); these

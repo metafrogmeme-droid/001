@@ -2135,3 +2135,26 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
       minmax(72px, 88px) minmax(96px, 132px) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 56px);
   }
 }
+
+/* ---- Context chip row (Home · #p-ctx) ----------------------------------
+   Engine CONTEXT as one wrapping line of the existing .chip. No new colour
+   and no new tint: a chip that makes a claim wears .chip--up / --down /
+   --warn, a chip that reports a reading without judging it wears bare
+   .chip, and the one that names what was not reported wears .chip--offline,
+   the muted swatch "MODE ?" already uses. The row wraps to as many lines as
+   it needs; it never scrolls sideways and never drops a chip to fit. The
+   caveats are visible lines under it, never title attributes — a title does
+   not render on touch. */
+.ctxrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+/* A chip must be able to SHRINK, or a long venue name pushes the row past the
+   panel on a phone. The value carries the ellipsis and the key stays whole. */
+.ctxrow .chip { max-width: 100%; min-width: 0; align-items: baseline; }
+.ctxrow .ctx-k { flex: 0 0 auto; color: var(--text-3); font-weight: 500; letter-spacing: .06em; }
+.ctxrow .ctx-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The not-reported chip lists its subjects, so it is the one allowed to run
+   onto a second line rather than be truncated to a count: "the count may be
+   wrong" is not actionable, "venue · gate" is. */
+.ctxrow .chip--offline { white-space: normal; height: auto; }
+.ctxrow .chip--offline .ctx-v { white-space: normal; overflow: visible; text-align: left; }
+.ctx-notes { margin-top: var(--s2); display: grid; gap: 2px; }
+.ctx-note { margin: 0; color: var(--text-3); font-size: var(--fs-xs); max-width: 72ch; }

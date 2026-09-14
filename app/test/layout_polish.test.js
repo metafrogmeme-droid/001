@@ -17,14 +17,14 @@ test('Getting-started checklist is promoted above Open positions on Home', () =>
   assert.ok(next > -1 && hpos > -1, 'both panels must exist');
   assert.ok(next < hpos, 'the checklist must come before Open positions');
   // "Right after the hero" used to be a byte distance (< 400), which was
-  // standing in for ORDER: the deck's own account panels (the metric cluster
-  // and the command bar) sit between the hero and the checklist now, and
-  // nothing else may. Every id between them is named, so a panel that
-  // wanders in fails here by name rather than by width.
+  // standing in for ORDER: the deck's own panels (the metric cluster, the
+  // command bar and the engine-context row) sit between the hero and the
+  // checklist now, and nothing else may. Every id between them is named, so
+  // a panel that wanders in fails here by name rather than by width.
   assert.ok(next > hero, 'the checklist comes after the hero panel');
   const between = [...stack.slice(hero, next).matchAll(/id="(p-[a-z]+)"/g)].map((m) => m[1]);
-  assert.deepStrictEqual(between, ['p-hero', 'p-metrics', 'p-cmd'],
-    'only the deck\'s account panels sit between the hero and the checklist');
+  assert.deepStrictEqual(between, ['p-hero', 'p-metrics', 'p-cmd', 'p-ctx'],
+    'only the deck\'s own panels sit between the hero and the checklist');
   // Exactly one checklist panel (not duplicated by the move).
   assert.strictEqual((stack.match(/id="p-next"/g) || []).length, 1);
 });
