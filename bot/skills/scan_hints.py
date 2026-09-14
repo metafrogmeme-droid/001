@@ -33,6 +33,7 @@ import time
 from bot.formatters.brain_state import BRAIN_TEXT as _BRAIN_TEXT
 from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import untested_confirmation as _untested_confirm
+from bot.llm import failure_cause as _fc
 
 
 def _background_scan_is_fresh(
@@ -146,10 +147,28 @@ def _scan_timeout_hint(analyzer, engine=None) -> str:
         h = analyzer.llm_health()
         streak = int(h.get("degraded_streak", 0) or 0)
         if streak > 0:
-            return ("\n\n🚨 <b>Likely cause: LLM brain degraded</b> — every "
-                    f"provider has failed {streak} analyses in a row, so each "
-                    "symbol burns through the fallback chain. Check "
-                    "<code>/llmstatus</code> and the configured model id.")
+            # THE CAUSAL CLAIM IS THE PART THAT WAS WRONG HERE, and it points
+            # the opposite way from the 37-tick incident in the docstring
+            # above. "Each symbol burns through the fallback chain" is true
+            # when providers are CONTACTED — every attempt pays a timeout —
+            # and false when they are skipped for want of a key, which is an
+            # instant `continue`. A chain nobody could contact is the FASTEST
+            # path to the rule engine there is, so naming it as the likely
+            # cause of a timeout sends the operator to the one subsystem that
+            # provably is not costing them any time.
+            _s = _fc.attempt_summary(h.get("chain_walk"))
+            if _s["readable"] and _s["asked"] == 0:
+                return ("\n\n⚪ <b>The LLM brain is degraded — and that is "
+                        "NOT why this is slow.</b> No provider was contacted "
+                        f"at all ({_s['not_contacted']} in the chain have no "
+                        "usable key), so each analysis fell straight to the "
+                        "rule engine without waiting on anything. The delay "
+                        "is somewhere else.")
+            return ("\n\n🚨 <b>Likely cause: LLM brain degraded</b> — "
+                    + _fc.chain_coverage_sentence(h.get("chain_walk"), streak)
+                    + " Each contacted provider pays a timeout before the "
+                    "next is tried. Check <code>/llmstatus</code> and the "
+                    "configured model id.")
 
         # WHAT THE HEALTH SNAPSHOT ACTUALLY ENTITLES THIS LINE TO SAY.
         #

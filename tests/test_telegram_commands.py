@@ -357,8 +357,14 @@ async def test_llmstatus_degraded_shows_last_error():
     handler.engine.analyzer._note_llm_degraded("Error 401 - invalid x-api-key")
     update, ctx = _make_update(text="/llmstatus")
     await handler._cmd_llmstatus(update, ctx)
-    assert _any_reply_contains(update, "Last error")
+    # "Last error" WAS THE WRONG LABEL and is gone. The string is `str(exc)`
+    # from the PRIMARY provider's `except`; every fallback's error is swallowed
+    # by its own `except ... continue` into the audit log and never reaches
+    # here. The property this test names — the line must include WHY it is
+    # failing — is stronger than before: the raw error AND a reading of it.
+    assert _any_reply_contains(update, "Primary provider's error")
     assert _any_reply_contains(update, "401")
+    assert _any_reply_contains(update, "rejected key")
 
 
 @pytest.mark.asyncio
@@ -371,7 +377,10 @@ async def test_llmstatus_shows_degraded_brain_after_provider_failures():
     update, ctx = _make_update(text="/llmstatus")
     await handler._cmd_llmstatus(update, ctx)
     assert _any_reply_contains(update, "Brain: DEGRADED")
-    assert _any_reply_contains(update, "2 analyses")
+    # <b>2</b> analyses — the streak comes from the shared
+    # chain_coverage_sentence now. Property unchanged, markup moved.
+    assert _any_reply_contains(update, "analyses in a row")
+    assert _any_reply_contains(update, "<b>2</b>")
 
 
 @pytest.mark.asyncio
