@@ -16,6 +16,24 @@ const tickers = [
 ];
 module.exports = [
   ['/api/auth/me', me],
+  // The engine's scan, as the sync route serves it to a signed-in reader:
+  // every subject the home view's context row reads is READ here — a stamp
+  // this site put on it at ingest, a BTC anchor beside the regime, a venue,
+  // a calendar that says it loaded, and the entry gate's three-valued
+  // answer — so the row renders five chips and no NOT REPORTED.
+  ['/api/bot/sync/scan', { scan: {
+    received_at: new Date(Date.now() - 60e3).toISOString(), timestamp: '2026-09-14 11:00 UTC',
+    regime: { label: 'BULLISH', score: 0.4, gate: 60000, long_short: '', funding: '' },
+    features: { venue: { id: 'bitget', name: 'Bitget' } },
+    macro: { state: 'NORMAL', stale: false, unreadable: false, has_events: true, reading: 'Normal', next_event: null, active_event: null, seconds_until_next: 86400, evaluated_at: new Date().toISOString() },
+    circuit_breaker: { rules: [], gate: { blocked: false, unknown: false, reasons: [] }, equity: null, net_pnl: null, win_rate: null, record_unreadable: false,
+      total_trades: 0, open_count: 0, open_positions: [], closed_trades: [], live_mode: true, live_unavailable: false, strategy_mode: 'balanced',
+      // The risk backstop as bot/formatters/risk_backstop.py publishes it:
+      // every field read, so the Engine view's panel renders four rows.
+      backstop: { drawdown_pct: 3.2, limit_pct: 7.0, source: 'live', verdict: 'Healthy', override_pct: null, default_limit_pct: 7.0, hardening: true,
+        slots_used: 2, slots_cap: 5, slots_floor: false, slots_note: '', slots_person: 'unset', gate: { blocked: false, unknown: false, reasons: [] } } },
+    symbols: {}, entry_cards: [], key_call: 'No scan data available.',
+  } }],
   ['/api/reports/yield', { yield: { rows: [yieldRow], total_idle_usd: 40, total_est_year_usd: 1.18, incomplete: '' } }],
   ['/api/reports', { reports: {
     parity: { trades: 18, excluded_non_fills: 7, unscored_pnl: 0, win_rate: 0.61, net_pnl: 4.51, pf: 2.24, fees_read: 18, total_fees: 1.2, realized_fee_rate: 0.001, modeled_fee_rate: 0.002, fee_vs_model: 0.48, inferred_fills: 14 },
@@ -49,6 +67,32 @@ module.exports = [
   ['/api/arena/account', { start_balance: 10000, balance: 10000, equity: 10000, return_pct: 0,
     limits: { min_margin: 5, max_leverage: 20, max_open: 5 }, positions: [], trades: [], follow: false }],
   ['/api/market/tickers', { data: tickers, updated_at: new Date().toISOString() }],
+  // The Guardian flight ledger and incident stream, shaped as routes/guardian.js
+  // relays them: one approved-and-executed record with a priced close, one
+  // rejection, one record whose gate the recorder could not read (the sealed
+  // literal UNKNOWN — muted on the decision log, never red), and three
+  // incidents of the three kinds. Populated so the decision log, guardianBlock
+  // and incidentsCard render their populated branches in a real browser.
+  ['/api/guardian/flight', { records: [
+    { decision_id: 'd-1', symbol: 'BTC/USDT:USDT', timestamp: new Date(Date.now() - 3600e3).toISOString(), outcome: 'EXECUTED_LIVE', is_paper: false,
+      idea: { direction: 'LONG', confidence: 0.71, entry: 59000, sl: 57000, tp: 64000, rr: 2.5, reasoning: 'Higher-timeframe trend up, pullback to the 4h demand zone with a bullish engulfing close.', signals_used: ['trend', 'engulfing'], provenance: { model_provider: 'grok', prompt_hash: 'abcdef0123456789', analysis_version: 'v9', data_bars: 240, data_thin: false }, votes: [] },
+      risk: { verdict: 'APPROVED', passed: 11, failed: 0, size_usd: 100, position_pct: 0.02, drawdown_pct: 0.01, reason: '', checks_failed: [] },
+      result: { pnl_usd: 12.5, exit_price: 60100, entry_price: 59000, close_reason: 'tp' },
+      chain: { sequence: 41, entry_hash: 'a'.repeat(64), prev_hash: 'b'.repeat(64) } },
+    { decision_id: 'd-2', symbol: 'ETH/USDT:USDT', timestamp: new Date(Date.now() - 7200e3).toISOString(), outcome: 'REJECTED', is_paper: false,
+      idea: { direction: 'SHORT', confidence: 0.55, entry: 2400, sl: 2500, tp: 2200, rr: 2.0, reasoning: 'Lower high into resistance.', signals_used: ['resistance'], provenance: {}, votes: [] },
+      risk: { verdict: 'REJECTED', passed: 9, failed: 2, size_usd: 100, reason: 'daily loss cap reached', checks_failed: ['DAILY_LOSS', 'MAX_OPEN'] },
+      result: null, chain: { sequence: 40, entry_hash: 'c'.repeat(64), prev_hash: 'a'.repeat(64) } },
+    { decision_id: 'd-3', symbol: 'SOL/USDT:USDT', timestamp: '', outcome: 'EXECUTION_FAILED', is_paper: false,
+      idea: { direction: 'LONG', confidence: 0.6 }, risk: { verdict: 'UNKNOWN' }, result: null,
+      chain: { sequence: 39, entry_hash: 'd'.repeat(64), prev_hash: 'c'.repeat(64) } },
+  ], chain: { ok: true, length: 41, tip_hash: 'a'.repeat(64), problems: [] }, policy: null, guardian_status: null,
+    window: { ok: true, checked: 3, problems: [] }, updated_at: new Date(Date.now() - 3600e3).toISOString() }],
+  ['/api/guardian/incidents', { read_only: true, incidents: [
+    { id: 'i-1', ts: new Date(Date.now() - 1800e3).toISOString(), kind: 'block', category: 'Firewall', severity: 'high', symbol: '', detail: 'prompt injection pattern in a message', chain: { sequence: 42, entry_hash: 'e'.repeat(64) } },
+    { id: 'i-2', ts: new Date(Date.now() - 5400e3).toISOString(), kind: 'recovery', category: 'Escape plan', severity: 'medium', symbol: 'BTC/USDT:USDT', detail: '2 unwind step(s)', chain: { sequence: 38, entry_hash: 'f'.repeat(64) } },
+    { id: 'i-3', ts: new Date(Date.now() - 9000e3).toISOString(), kind: 'flag', category: 'Sentinel', severity: 'low', symbol: 'ETH/USDT:USDT', detail: 'funding spike', chain: { sequence: 37, entry_hash: '1'.repeat(64) } },
+  ], counts: { block: 1, recovery: 1, flag: 1 }, derived: false, guardian_status: null, updated_at: new Date(Date.now() - 1800e3).toISOString() }],
   // The positions payload as routes/positions.js relays it from the bot:
   // `book_read` says the book was READ (the instrument row's empty state is
   // reachable only then), and one live row with a stop on the exchange so

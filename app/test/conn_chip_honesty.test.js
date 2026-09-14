@@ -129,9 +129,14 @@ test('a good refresh carries no such caveat', () => {
 test('getScan records whether the read succeeded', () => {
   const block = SRC.slice(SRC.indexOf('async function getScan'),
                           SRC.indexOf('async function getTickers'));
+  // The bookkeeping is ONE seam, adoptScanRead, because the home view's
+  // context row shares the read: getScan hands every outcome to it, and a
+  // second copy of the tri-state's writer would be a second answer.
+  assert.match(block, /adoptScanRead\(r\)/, 'getScan records through the one seam');
+  const seam = SRC.slice(SRC.indexOf('function adoptScanRead(r)'), SRC.indexOf('async function getScan'));
   // `wasRead`, not `r.ok`: a 200 whose body did not parse is not a scan that
   // succeeded, and the chip would have painted it green.
-  assert.match(block, /cache\.scanOk = wasRead\(r\)/,
+  assert.match(seam, /cache\.scanOk = wasRead\(r\)/,
     'the chip can only distinguish states the fetch bothered to record');
   assert.match(block, /\.catch\(\(\) => \(\{ ok: false/,
     'a thrown fetch is a failed read, not an absent scan');

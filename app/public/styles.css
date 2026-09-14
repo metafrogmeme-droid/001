@@ -2067,3 +2067,150 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   .ir-spark { flex: 1 1 auto; }
   .ir-spark--line { width: 100%; }
 }
+
+/* ---- Decision log: event · thesis · GATE · disposition · fill ------------ */
+/* Rendered from DecisionLogModel (js/decision-log-model.js). Three colour
+   vocabularies, and the third is deliberately colourless: --up / --down /
+   --warn carry a verdict the SEAL recorded; .dl-unread wears --text-3 on
+   --surface-2 — the pair .chip--offline uses — because "the seal carried no
+   verdict" is not a quiet version of "the gate passed", and a gate chip is
+   the loudest claim on the panel. It is named apart from .chip--offline on
+   purpose: a restyle of "offline" must not repaint "nobody could read the
+   gate". No new hue: every value is an existing token. */
+.dl-list { list-style: none; margin: 0; padding: 0; }
+.dl-row {
+  display: grid; grid-template-columns: 1fr;
+  gap: var(--s1) var(--s3); padding: var(--s3) 0;
+  border-top: 1px solid var(--line); align-items: baseline;
+}
+.dl-row:first-child { border-top: 0; }
+/* An incident is a row of the same log, on the same columns — a separate list
+   would make "what was stopped" a footnote to "what was done". */
+.dl-row--incident { border-left: 2px solid var(--line-2); padding-left: var(--s3); }
+.dl-when { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; }
+.dl-when--unread { font-style: italic; white-space: normal; }
+.dl-what { display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.dl-sym { font-weight: 600; overflow-wrap: anywhere; }
+.dl-dir { font-size: var(--fs-xs); letter-spacing: .04em; }
+.dl-dir--long { color: var(--up); }
+.dl-dir--short { color: var(--down); }
+.dl-dir--unread, .dl-sym--unread { color: var(--text-3); font-style: italic; font-weight: 400; }
+/* The thesis is clamped to two lines AND says so: a partial presented as the
+   whole is the shape flightCard's own comment warns about. The full text
+   rides on the title, and the marker is printed only when the model says the
+   text exceeds the clamp. */
+.dl-thesis {
+  color: var(--text-2); font-size: var(--fs-sm); min-width: 0;
+  overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.dl-thesis--none { color: var(--text-3); font-style: italic; }
+.dl-thesis-cut { color: var(--text-3); font-size: var(--fs-xs); font-style: italic; }
+.dl-gate, .dl-out { display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.dl-gate-why { color: var(--text-3); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+/* The one chip on this panel that must be able to decline. */
+.dl-unread { color: var(--text-3); background: var(--surface-2); border-color: var(--line); }
+.dl-fill { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.dl-fill.pos { color: var(--up); }
+.dl-fill.neg { color: var(--down); }
+/* pnlClass answers '' for unreadable, so an unclassed fill is the unknown
+   one and wears the muted ramp — never a colour inherited from the row. */
+.dl-fill:not(.pos):not(.neg) { color: var(--text-3); }
+.dl-seq { color: var(--text-3); font-size: var(--fs-xs); font-family: var(--font-data); }
+/* A stated absence is part of the log, not a footnote: the panel says which
+   half it could not read, in reading order, ABOVE the rows it does have. */
+.dl-note {
+  display: block; margin-bottom: var(--s3); padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--warn); background: var(--surface-2);
+  border-radius: var(--radius-sm); color: var(--text-2); font-size: var(--fs-sm);
+}
+.dl-note--quiet { border-left-color: var(--line-2); color: var(--text-3); }
+.dl-foot {
+  margin-top: var(--s4); padding-top: var(--s3);
+  border-top: 1px solid var(--line); color: var(--text-3); font-size: var(--fs-xs);
+}
+@media (min-width: 1024px) {
+  .dl-row {
+    grid-template-columns:
+      minmax(72px, 88px) minmax(96px, 132px) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 56px);
+  }
+}
+
+/* ---- Context chip row (Home · #p-ctx) ----------------------------------
+   Engine CONTEXT as one wrapping line of the existing .chip. No new colour
+   and no new tint: a chip that makes a claim wears .chip--up / --down /
+   --warn, a chip that reports a reading without judging it wears bare
+   .chip, and the one that names what was not reported wears .chip--offline,
+   the muted swatch "MODE ?" already uses. The row wraps to as many lines as
+   it needs; it never scrolls sideways and never drops a chip to fit. The
+   caveats are visible lines under it, never title attributes — a title does
+   not render on touch. */
+.ctxrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+/* A chip must be able to SHRINK, or a long venue name pushes the row past the
+   panel on a phone. The value carries the ellipsis and the key stays whole. */
+.ctxrow .chip { max-width: 100%; min-width: 0; align-items: baseline; }
+.ctxrow .ctx-k { flex: 0 0 auto; color: var(--text-3); font-weight: 500; letter-spacing: .06em; }
+.ctxrow .ctx-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The not-reported chip lists its subjects, so it is the one allowed to run
+   onto a second line rather than be truncated to a count: "the count may be
+   wrong" is not actionable, "venue · gate" is. */
+.ctxrow .chip--offline { white-space: normal; height: auto; }
+.ctxrow .chip--offline .ctx-v { white-space: normal; overflow: visible; text-align: left; }
+.ctx-notes { margin-top: var(--s2); display: grid; gap: 2px; }
+.ctx-note { margin: 0; color: var(--text-3); font-size: var(--fs-xs); max-width: 72ch; }
+
+/* ---- Risk backstop (Engine · #p-ebackstop) ------------------------------
+   The drawdown the breaker gates on, against the threshold that HALTS it;
+   the slots in use against the binding cap; and whether entries are refused.
+
+   ONE RULE DECIDES EVERY LINE BELOW. A track is drawn only over a pair of
+   numbers AND a verdict that were all read. An empty track reads as zero,
+   and on this card zero is the all-clear — the reading .wr-row--unrated
+   refuses one block up for the same reason.
+
+   COLOUR COMES FROM THE SERVER'S VERDICT WORD, mapped by the model and
+   never recomputed here: the bands are off the EFFECTIVE limit, and a
+   second copy of that table in the browser would be a second answer.
+
+   No @media block: everything here is intrinsic, so it adds no breakpoint
+   and does not disturb the first (min-width: 1024px) query that the shell
+   layout guard brace-matches. */
+.rb-row { padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
+.rb-row:last-of-type { border-bottom: 0; }
+.rb-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.rb-label {
+  flex: 1 1 auto; min-width: 0;
+  color: var(--text-3); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase;
+}
+.rb-val {
+  font-family: var(--font-data); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md); color: var(--text); white-space: nowrap;
+}
+/* Three verdict colours and a fourth state with NO class. An unread value
+   keeps --text and says so in words — grey is not a shade of green. */
+.rb-val.rb-up   { color: var(--up); }
+.rb-val.rb-warn { color: var(--warn); }
+.rb-val.rb-down { color: var(--down); }
+.rb-track {
+  height: 5px; margin-top: var(--s1);
+  background: var(--surface-3); border-radius: 3px; overflow: hidden;
+}
+.rb-fill { height: 100%; border-radius: 3px; transition: width var(--dur-2) var(--ease-out); }
+.rb-fill.rb-up   { background: var(--up); }
+.rb-fill.rb-warn { background: var(--warn); }
+.rb-fill.rb-down { background: var(--down); }
+/* Capacity, not a verdict: slots used is a headroom reading, so it wears the
+   brand accent rather than borrowing a P&L colour. A FLOOR wears --warn. */
+.rb-fill.rb-cap  { background: var(--gold); }
+/* The whole point. A row with nothing measured gets NO track — the class
+   sits on the ROW rather than a zero width, because a zero-width fill is
+   still a full-length track and a full-length track at zero is a claim. */
+.rb-row--unread .rb-track { display: none; }
+.rb-why  { display: block; margin-top: 2px; color: var(--text-3); font-size: var(--fs-xs); }
+.rb-src  { color: var(--text-3); font-size: var(--fs-xs); }
+.rb-note { display: block; margin: var(--s3) 0 0; color: var(--text-2); font-size: var(--fs-sm); }
+.rb-reasons { display: block; margin-top: var(--s1); color: var(--text-2); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+/* The rows stack intrinsically — no grid, no columns, so nothing to collapse
+   at any width. The chip row wraps. */
+.rb-chips { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }

@@ -93,7 +93,19 @@ function scrub(value) {
  */
 function sanitizeRecord(rec) {
   if (!rec || typeof rec !== 'object') return rec;
-  return scrub(rec);
+  const out = scrub(rec);
+  // WHICH ABSENCE. The scrub drops `result.pnl_usd` whether the engine
+  // recorded a number or recorded None (the unpriced close it deliberately
+  // books), so an anonymous reader could not tell "hidden — sign in to see
+  // it" from "never priced" — and a panel promising the first over the
+  // second names a number that does not exist. `fill_priced` is a boolean
+  // about the RECORD, set after the scrub so the scrub cannot eat it, and
+  // carries no amount.
+  if (rec.result && typeof rec.result === 'object' && out && out.result && typeof out.result === 'object') {
+    out.result.fill_priced = rec.result.pnl_usd !== null && rec.result.pnl_usd !== undefined
+      && Number.isFinite(Number(rec.result.pnl_usd));
+  }
+  return out;
 }
 
 module.exports = { HEX64, inspectWindow, sanitizeRecord, scrub, DOLLAR_KEY };

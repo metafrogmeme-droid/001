@@ -125,11 +125,26 @@ def test_the_card_passes_the_drawdown_limit_through():
 
 
 def test_live_mode_shows_the_BINDING_position_cap():
+    # The min() over the two caps has ONE home now — `RiskEngine.slot_status`,
+    # which the website's backstop block reads too — so the card is pinned to
+    # the seam and the arithmetic is driven where it lives
+    # (tests/test_the_backstop_reading_is_three_valued.py::TestSlotStatus).
     block = SRC[SRC.index("_max_trades = CONFIG.risk.max_open_positions"):
                 SRC.index('"daily_loss_limit": CONFIG.risk.max_daily_loss_pct,')]
-    assert "min(" in block and "max_live_open_positions" in block, \
-        "two caps bound the count in live; the binding one is the lower"
-    assert "CONFIG.is_live()" in block, "paper mode is unaffected"
+    assert "slot_status(open_count)" in block, "the card reads the binding cap through the one seam"
+    assert "max_live_open_positions" not in block, "a second copy of the min() would be a second answer"
+    from unittest.mock import patch
+
+    from bot.risk.portfolio import PortfolioTracker
+    from bot.risk.risk_engine import RiskEngine
+    eng = RiskEngine(PortfolioTracker(initial_balance=10_000.0))
+    with patch("bot.risk.risk_engine.CONFIG") as cfg:
+        cfg.risk.max_open_positions = 5
+        cfg.execution.max_live_open_positions = 3
+        cfg.is_live.return_value = True
+        assert eng.slot_status(1)["cap"] == 3, "two caps bound the count in live; the binding one is the lower"
+        cfg.is_live.return_value = False
+        assert eng.slot_status(1)["cap"] == 5, "paper mode is unaffected"
 
 
 def test_the_two_caps_exist_and_are_distinct_controls():

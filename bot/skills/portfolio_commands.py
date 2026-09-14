@@ -96,7 +96,8 @@ class PortfolioCommands:
         def _caller_executor(self, update: Update): ...
 
         @staticmethod
-        def _format_networth(paper: Optional[dict], cex: dict) -> str: ...
+        def _format_networth(paper: Optional[dict], cex: dict,
+                             surface: str = "telegram") -> str: ...
 
         @staticmethod
         def _format_exposure(data: dict) -> str: ...
@@ -154,40 +155,27 @@ class PortfolioCommands:
     @guard("networth")
     async def _cmd_networth(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/networth — the caller's own read-only cross-venue snapshot: paper
-        equity plus one balance fetch on their connected venue (the same
-        primitives the web gateway's net-worth endpoint uses)."""
-        import asyncio as _aio
-        tg_id = self._get_tg_id(update)
-        paper = None
-        try:
-            snap = self.engine.user_portfolios.get(tg_id).snapshot()
-            paper = {"equity_usd": round(float(snap.equity_usd), 2),
-                     "total_pnl": round(float(snap.total_pnl), 2)}
-        except Exception:
-            paper = None
-        cex: dict = {"connected": False}
-        try:
-            from bot.core.exchange_credentials import (balance_snapshot,
-                                                       get_credential_store)
-            store = get_credential_store()
-            if store.has(tg_id):
-                venue = store.get_venue(tg_id)
-                fields = store.get(tg_id)
-                if not fields:
-                    cex = {"connected": True, "venue": venue,
-                           "equity_usd": None, "detail": "credentials unreadable"}
-                else:
-                    try:
-                        snap_cex = await _aio.wait_for(
-                            balance_snapshot(venue, fields), timeout=25)
-                    except _aio.TimeoutError:
-                        snap_cex = {"venue": venue, "equity_usd": None,
-                                    "detail": "venue timeout"}
-                    cex = {"connected": True, **snap_cex}
-        except Exception as exc:
-            system_log.debug("/networth CEX read failed: %s", exc)
-            cex = {"connected": False}
-        await self._send(update, self._format_networth(paper, cex))
+        equity plus one balance fetch on their connected venue.
+
+        The reading is `bot.core.networth_reading` — the one the web
+        gateway's net-worth endpoint serves, where this command used to carry
+        a second copy of it — and the card is `networth_card_text`, the seam
+        the routed "my net worth" renders on both surfaces."""
+        await self._send(update,
+                         await self.networth_card_text(self._get_tg_id(update)))
+
+    async def networth_card_text(self, user_id: str, *,
+                                 surface: str = "telegram") -> str:
+        """The net-worth card as text — the reading BOTH surfaces render.
+
+        `surface` keys only the DOORS. A card that names a command is claiming
+        the command does something, and `/connect` is a door painted on a wall
+        for a web caller.
+        """
+        from bot.core.networth_reading import networth_reading
+        reading = await networth_reading(self.engine, str(user_id))
+        return self._format_networth(reading["paper"], reading["cex"],
+                                     surface=surface)
 
     @guard("exposure")
     async def _cmd_exposure(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -695,14 +683,17 @@ class PortfolioCommands:
             pass
         # In LIVE mode two independent caps bound the position count — the risk
         # engine's and the executor's — so the BINDING one is the lower. Showing
-        # only the higher would promise room the other refuses.
+        # only the higher would promise room the other refuses. That min() has
+        # ONE home now, `RiskEngine.slot_status`, which the website's backstop
+        # panel reads too, so the two cards cannot disagree about the cap; the
+        # configured risk cap stays the fallback when the reading fails.
         _max_trades = CONFIG.risk.max_open_positions
-        if CONFIG.is_live():
-            try:
-                _max_trades = min(_max_trades,
-                                  int(CONFIG.execution.max_live_open_positions))
-            except Exception:
-                pass
+        try:
+            _cap = (self.engine.risk.slot_status(open_count) or {}).get("cap")
+            if isinstance(_cap, int) and not isinstance(_cap, bool):
+                _max_trades = _cap
+        except Exception:
+            pass
         data = {
             "daily_loss_limit": CONFIG.risk.max_daily_loss_pct,
             "drawdown_limit": _dd_limit,

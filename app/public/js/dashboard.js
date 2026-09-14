@@ -161,19 +161,32 @@
   // table. Same rule as _haveTrades below: absent is not zero.
   const cache = { scan: null, scanAt: 0, scanOk: null, tickers: {}, portfolio: null, insightOk: null };
 
-  async function getScan(maxAgeMs = 45000) {
+  // THE ONE PLACE A SCAN READ'S OUTCOME IS RECORDED: the tri-state, the cached
+  // payload and the topbar chip that reads both. getScan and the home view's
+  // context row both go through it, so a read either surface makes updates
+  // what the other shows — the row cannot say "could not read" beside a
+  // topbar still painting ENGINE LIVE from an earlier cache, or CONNECTING
+  // over a read that has already failed, because one failed read told both.
+  function adoptScanRead(r) {
+    cache.scanOk = wasRead(r);
+    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    updateConnChip();
+    return r;
+  }
+  // `read` is a fetch already in flight for this render — the home view's one
+  // /scan read — consumed with the same bookkeeping as a fetch of our own.
+  async function getScan(maxAgeMs = 45000, read = null) {
     // Served from cache — no read happened, so the read state is unchanged.
-    if (cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
+    if (!read && cache.scan && Date.now() - cache.scanAt < maxAgeMs) return cache.scan;
     // Send the session when there is one. /scan is optionalAuth: it never
     // 401s, and logged-out readers still get the market data — but the
     // circuit-breaker figures below (Engine equity, Net PnL) are redacted for
     // anonymous callers, so the operator's own dashboard has to identify
     // itself to see them. `authHeaders()` is a no-op without a token, so the
     // logged-out path is unchanged.
-    const r = await fetchJSON('/api/bot/sync/scan')
+    const r = await (read || fetchJSON('/api/bot/sync/scan'))
       .catch(() => ({ ok: false, status: 0, data: null }));
-    cache.scanOk = wasRead(r);
-    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    adoptScanRead(r);
     return cache.scan;
   }
   // A win rate over ZERO trades is not 0% — it does not exist. The sync
@@ -794,6 +807,7 @@
         <section class="panel panel--primary" id="p-hero"><div id="c-hero"><div class="skel"></div><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-metrics"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.metrics">Account figures</span></h2><div id="c-metrics"><div class="skel"></div></div></section>` : ''}
         ${LOGGED_IN ? `<section class="panel" id="p-cmd" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-cmd"><div class="skel"></div></div></section>` : ''}
+        <section class="panel" id="p-ctx" style="padding-top:var(--s3);padding-bottom:var(--s3)"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.ctx">Engine context</span></h2><div id="c-ctx"><div class="skel"></div></div></section>
         <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.next">Getting started</span></h2><div id="c-next"><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-watch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.watch">Watchlist</span>
           <span class="right muted small" data-i18n="dp.watch_sub">engine patterns push for these</span></h2><div id="c-watch"><div class="skel"></div></div></section>` : ''}
@@ -831,6 +845,15 @@
     // can disagree within a single paint. Settled with null on failure so
     // the bar's omit-branch and the panel's mustRead each see the same event.
     const positionsRead = LOGGED_IN ? fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null) : null;
+    // And ONE /api/bot/sync/scan read, for every visitor: the command bar
+    // takes it through getScan (omit — the cached scan on failure) and the
+    // context row awaits it directly (guard — mustRead on THIS read). Settled
+    // with a failed-read envelope rather than a rejection so both consumers
+    // see one event, and adopted into the shared cache by whichever awaits
+    // it first. 10000ms here, under the row's 12000ms timer — the bound the
+    // budget gate cannot see from inside the loader.
+    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null }));
 
     renderPanel(C('hero'), async () => {
       if (!LOGGED_IN) {
@@ -1024,7 +1047,7 @@
           getPortfolio(false, portfolioRead),
           positionsRead,
           fetchJSON('/api/controls/status', { timeoutMs: 10000 }).catch(() => null),
-          getScan().catch(() => null),
+          getScan(45000, scanRead).catch(() => null),
         ]);
         const posRead = wasRead(posR);
         const pos = posRead ? posR.data : null;
@@ -1132,7 +1155,10 @@
         const [pf, hist, scanR, meR, prof] = await Promise.all([
           getPortfolio(),
           fetchJSON('/api/trades/history?limit=50', { timeoutMs: 12000 }).catch(() => null),
-          fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 }).catch(() => null),
+          // The home view's ONE scan read (a settled envelope, never a
+          // rejection): a third fetch of /scan on this screen was a third
+          // answer that could disagree with the row and the bar in one paint.
+          scanRead,
           fetchJSON('/api/auth/me', { timeoutMs: 10000 }).catch(() => null),
           getUserProfile().catch(() => ({ risk_pref: null, watchlist: [], prefs: {} })),
         ]);
@@ -1232,6 +1258,47 @@
         else toast(r?.data?.detail || r?.data?.error || 'Stance change failed.');
       });
     }
+
+    // CONTEXT CHIP ROW — the engine's operating context on one line, for
+    // every visitor: how old the bot's last push is, the venue it trades,
+    // the BTC regime, the macro calendar, and whether the entry gate reported
+    // a block. Placed HERE, below the signed-in block, because the shell is
+    // ungated: a loader inside that block leaves every signed-out visitor a
+    // permanently animating skeleton under a heading that announced itself —
+    // neither the empty state nor the error state, and invisible to every
+    // scan that only inspects loaders that exist. The views smoke drives the
+    // signed-out render for exactly that reason.
+    //
+    // SINGLE SOURCE, SO IT GUARDS. getScan() is deliberately NOT used: it
+    // swallows its own failure and hands back the cache, so a loader built on
+    // it would print an absence sentence made from a 503. The shared read is
+    // awaited here and mustRead throws on it, so a refused or dead /scan
+    // reaches the error state with a named sentence and the right action —
+    // AFTER the outcome has been adopted, so the topbar chip reads ENGINE
+    // STATUS UNKNOWN beside the row's error rather than CONNECTING or a stale
+    // ENGINE LIVE. A renderPanel timeout would skip this catch, which is why
+    // the read's own budget (10000ms) sits under the panel's (12000ms).
+    //
+    // The decision is a PURE model (context-chips-model.js): a chip only for
+    // a field that was READ, each unread subject NAMED with its own reason,
+    // the venue omitted rather than named forever on a paper bot, and every
+    // caveat in visible text under the row — a title attribute does not
+    // render on touch.
+    renderPanel(C('ctx'), async () => {
+      const M = self.ContextChipsModel;
+      const ES = (self.EngineStatusModel || {}).engineChipState;
+      // A model that failed to load is a render we could not do, not a
+      // context that is not there: throwing says the first, null the second.
+      if (!M || typeof ES !== 'function') throw new Error('context chip model unavailable');
+      const r = await scanRead;
+      adoptScanRead(r);
+      const d = mustRead(r);
+      const scan = d ? d.scan : null;
+      if (!scan) return null;
+      const out = M.contextChips(scan, Date.now(), ES);
+      if (!out) return null;
+      return contextRowHtml(out, ctxWords());
+    }, { timeoutMs: 12000, empty: { icon: 'icon-offline', text: T('dd.e_ctx', 'No engine scan on record yet. This row fills in when the bot pushes its next scan.') } });
 
     renderPanel(C('mind'), async () => feedListHtml(await getFeed(10)),
       { empty: { icon: 'icon-radar', text: T('dd.m_empty', 'The agent narrates its work here — scans, theses, trades and stop moves, live as they happen.') } });
@@ -4638,8 +4705,10 @@
           <section class="panel" id="p-eregime"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.eregime">Market regime</span></h2><div id="c-eregime"><div class="skel"></div></div></section>
           <section class="panel" id="p-ecb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.ecb">Engine account</span></h2><div id="c-ecb"><div class="skel"></div></div></section>
         </div>
+        <section class="panel" id="p-ebackstop"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.ebackstop">Risk backstop</span></h2><div id="c-ebackstop"><div class="skel"></div><div class="skel"></div></div></section>
         <section class="panel" id="p-emods"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.emods">Engine modules</span></h2><div id="c-emods"><div class="skel"></div></div></section>
         <section class="panel" id="p-ecards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ecards">Engine's current setups</span></h2><div id="c-ecards"><div class="skel"></div></div></section>
+        <section class="panel" id="p-declog"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-seal"></use></svg><span data-i18n="dp.declog">Decision log</span></h2><div id="c-declog"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
         <div class="grid grid-2">
           <section class="panel panel--quiet" id="p-eshadow"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.eshadow">Shadow book — what the gates cost</span></h2><div id="c-eshadow"><div class="skel"></div></div></section>
           <section class="panel panel--quiet" id="p-elist"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.elist">New listings radar</span></h2><div id="c-elist"><div class="skel"></div></div></section>
@@ -4650,6 +4719,17 @@
 
     // Parity headline: does live execution still match the model? Pushed
     // hourly by the bot from its real closed-trades journal.
+    // ONE /api/bot/sync/scan read per Engine render. The six telemetry
+    // panels below take it through getScan (omit: the cached scan on
+    // failure), the backstop panel awaits it directly (guard: mustRead on
+    // THIS read, so a refused or dead /scan reaches the error state with its
+    // named sentence rather than an absence sentence built from a 503).
+    // Settled with a failed-read envelope, never a rejection, and adopted
+    // into the shared cache by whichever consumer awaits it first. 10000ms
+    // here, under the backstop panel's 12000ms timer.
+    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null }));
+
     renderPanel(C('eparity'), async () => {
       const rep = await getReports();
       const p = rep?.parity;
@@ -4678,8 +4758,33 @@
         ${notes.length ? `<p class="small muted mt-2">${esc(notes.join(' · '))}</p>` : ''}`;
     }, { empty: { icon: 'icon-shield', text: 'Parity stats arrive with the bot\'s hourly report once live trades have closed.' } });
 
-    const scan = await getScan();
-    updateConnChip();
+    // DECISION LOG — GUARD the ledger, OMIT the incident stream, and NAME the
+    // omission. The ledger is this panel's subject: unreadable, there is no
+    // log at all, so it paints the error state rather than a shorter log. The
+    // incident stream is an addition: unreadable, the sealed decisions are
+    // still a true record — just not a complete one, said in a row of its own.
+    // A 200 whose body did not parse is NOT a reading (the model throws), so
+    // a proxy page never renders as "nothing sealed yet".
+    //
+    // SEQUENCED, not Promise.all: both handlers share one cold cache and one
+    // `lastReadFailed` flag, and two concurrent cold reads would race to write
+    // it. Flight first; the incidents read is warm by then.
+    // BUDGET ARITHMETIC (the gate reads the fetch budgets inside this body):
+    // 12000 + 8000 = 20000ms, under the 21000ms panel timer.
+    renderPanel(C('declog'), async () => {
+      const M = self.DecisionLogModel;
+      if (!M) throw new Error('decision log model unavailable');
+      const fr = await fetchJSON('/api/guardian/flight?limit=40', { auth: false, timeoutMs: 12000 });
+      mustRead(fr);
+      const ir = await fetchJSON('/api/guardian/incidents?limit=40', { auth: false, timeoutMs: 8000 }).catch(() => null);
+      const read = M.reading(fr, ir);
+      if (!read.flight) return null;                 // 404 only: mustRead's empty doctrine
+      const log = M.decisionLog(read.flight, read.incidents);
+      if (log === null) return null;
+      return decisionLogHtml(log, dlWords());
+    }, { timeoutMs: 21000, empty: { icon: 'icon-seal', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
+
+    const scan = await getScan(45000, scanRead);
     const OFFLINE = { icon: 'icon-offline', text: 'Engine telemetry arrives when the bot pushes its next scan. Market data stays live meanwhile.' };
 
     renderPanel(C('eregime'), async () => {
@@ -4722,6 +4827,45 @@
       ${c.note ? `<div class="small mt-2" style="color:var(--text-2)">${esc(c.note)}</div>` : ''}
       <div class="row mt-3">${(cb.rules || []).map(ruleChipThreeValued).join('')}</div>`;
     }, { empty: OFFLINE });
+
+    // RISK BACKSTOP — the drawdown the breaker gates on against the threshold
+    // that halts it, the slots in use against the binding cap, whether entries
+    // are refused, and the override. The OPERATOR's engine, like every panel
+    // on this view (entry_gate is asked with no user id): the banner above
+    // says so, and putting this on Home would be the viewer-executor leak this
+    // repo has fixed five times, arriving through a new door.
+    //
+    // GUARD, not omit. The hoisted `scan` above comes from getScan, which
+    // swallows its own failure and hands back the cache, so the six panels
+    // that read it print an absence sentence off a 503 and pass the
+    // structural guard with no read ever inspected. This panel awaits the
+    // shared read itself and mustRead throws on it — after the outcome has
+    // been adopted, so the topbar chip is told too.
+    //
+    // The decision is a PURE model (risk-backstop-model.js): five states at
+    // the top (absent build, engine fault, undated, stale, read), three per
+    // row, a bar only over numbers AND a verdict that were all read, the
+    // colour the server's verdict word and never a comparison here. The
+    // stamp is read by the context row's one reader and the staleness floor
+    // is the topbar's, so the page has one age vocabulary.
+    renderPanel(C('ebackstop'), async () => {
+      const M = self.RiskBackstopModel;
+      const ES = self.EngineStatusModel;
+      const CX = self.ContextChipsModel;
+      // A model that failed to load is a render we could not do, not a
+      // backstop the build does not publish: throwing says the first.
+      if (!M || !ES || !CX) throw new Error('risk backstop model unavailable');
+      const r = await scanRead;
+      adoptScanRead(r);
+      const d = mustRead(r);
+      const sc = d ? d.scan : null;
+      if (!sc) return null;
+      const cb = (sc.circuit_breaker && typeof sc.circuit_breaker === 'object') ? sc.circuit_breaker : null;
+      const at = CX.stamp(sc.received_at) || CX.stamp(sc.timestamp);
+      const ageSec = at === null ? null : (Date.now() - Date.parse(at)) / 1000;
+      const m = M.readBackstop(cb ? cb.backstop : undefined, ageSec, ES.STALE_MAX_S);
+      return riskBackstopHtml(m, at, rbWords());
+    }, { timeoutMs: 12000, empty: { icon: 'icon-shield', text: T('dd.e_ebackstop', 'The engine has not pushed a scan yet, so its backstop has not been read.') } });
 
     renderPanel(C('emods'), async () => {
       const f = scan?.features;
@@ -8718,13 +8862,346 @@
     </div>`;
   }
 
+  // ── risk backstop: renderers ──
+  // Every key the model can emit, as a LITERAL T() call, so the dictionary
+  // sweep sees each one; the guard pins this map and the model's KEYS as one
+  // set. The two bar labels are aria keys and are resolved at their sites.
+  function rbWords() {
+    return {
+      'dd.rb_h_absent': T('dd.rb_h_absent', 'Not published'),
+      'dd.rb_h_unread': T('dd.rb_h_unread', 'Could not be assembled'),
+      'dd.rb_h_undated': T('dd.rb_h_undated', 'Undated'),
+      'dd.rb_h_stale': T('dd.rb_h_stale', 'Last read {when}'),
+      'dd.rb_absent': T('dd.rb_absent', 'This engine build does not publish a backstop reading, so nothing here is a measurement of it.'),
+      'dd.rb_unread_engine': T('dd.rb_unread_engine', 'The engine could not assemble its backstop reading — a fault in the engine, not a build that lacks the reading, and not a flat book.'),
+      'dd.rb_no_age': T('dd.rb_no_age', 'The engine scan carries no readable timestamp, so this reading cannot be dated — and an undated backstop is not a reading of the present.'),
+      'dd.rb_stale': T('dd.rb_stale', 'The last engine scan is older than this card will vouch for, so the backstop figures it carried are not shown. They are a memory.'),
+      'dd.rb_dd': T('dd.rb_dd', 'Drawdown backstop'),
+      'dd.rb_slots': T('dd.rb_slots', 'Position slots'),
+      'dd.rb_gate': T('dd.rb_gate', 'New entries'),
+      'dd.rb_override': T('dd.rb_override', 'Override'),
+      'dd.rb_operator': T('dd.rb_operator', 'The operator engine’s backstop — read-only, the same numbers for every viewer. Not your account.'),
+      'dd.rb_gate_refused': T('dd.rb_gate_refused', 'Refused:'),
+      'dd.rb_dd_unread': T('dd.rb_dd_unread', 'The drawdown state is unknown — a failed read, not a flat equity curve, and it does not mean the backstop is clear.'),
+      'dd.rb_no_limit': T('dd.rb_no_limit', 'No halt threshold on record, so this figure carries no verdict — it is a number, not a reading of how close the book is to stopping.'),
+      'dd.rb_no_dd': T('dd.rb_no_dd', 'The current drawdown could not be read, so this card cannot say how much of that threshold is left.'),
+      'dd.rb_no_verdict': T('dd.rb_no_verdict', 'The engine returned no verdict for this reading, so no bar is drawn.'),
+      'dd.rb_src_live': T('dd.rb_src_live', 'live equity high-water mark'),
+      'dd.rb_src_paper': T('dd.rb_src_paper', 'paper snapshot'),
+      'dd.rb_src_unknown': T('dd.rb_src_unknown', 'source unknown'),
+      'dd.rb_slots_unread': T('dd.rb_slots_unread', 'The open-position count could not be read. This is not a book with nothing in it.'),
+      'dd.rb_cap_unread': T('dd.rb_cap_unread', 'No position cap on record, so this count carries no headroom.'),
+      'dd.rb_floor': T('dd.rb_floor', 'A floor, not a count — {note}.'),
+      'dd.rb_gate_paused': T('dd.rb_gate_paused', 'Paused'),
+      'dd.rb_gate_unknown': T('dd.rb_gate_unknown', 'Unknown'),
+      'dd.rb_gate_active': T('dd.rb_gate_active', 'Active'),
+      'dd.rb_gate_absent': T('dd.rb_gate_absent', 'not published'),
+      'dd.rb_gate_unknown_why': T('dd.rb_gate_unknown_why', 'Could not read the full trading-gate status — this card cannot confirm entries are open.'),
+      'dd.rb_gate_absent_why': T('dd.rb_gate_absent_why', 'This engine build does not publish the trading-gate state.'),
+      'dd.rb_override_none': T('dd.rb_override_none', 'none (default {d})'),
+      'dd.rb_override_set': T('dd.rb_override_set', '{p} (default {d})'),
+      'dd.rb_hardening_off': T('dd.rb_hardening_off', 'Live hardening is OFF — the override only bites on live.'),
+    };
+  }
+  function rbSay(WORDS, key) { return WORDS[key] != null ? WORDS[key] : (key == null ? '' : String(key)); }
+  function rbFill(tpl, vars) {
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (vars && vars[k] != null ? String(vars[k]) : w));
+  }
+  // A bar is emitted ONLY when the model computed a fill — the model computes
+  // one only over a pair of numbers and a verdict that were all read — and the
+  // row carries rb-row--unread otherwise, which removes the track: a full
+  // track with nothing in it reads as zero, and here zero is the all-clear.
+  function rbTrack(fill, cls, label) {
+    if (fill === null || fill === undefined) return '';
+    return '<div class="rb-track"><span class="rb-fill ' + esc(cls) + '" style="width:' + Number(fill).toFixed(1) + '%" role="img" aria-label="' + esc(label) + '"></span></div>';
+  }
+  // `m` is RiskBackstopModel.readBackstop's reading; `at` the ISO stamp of the
+  // scan it came from (or null), rendered as an age here and never by the
+  // model. Every state renders in place with its own headline word; the
+  // operator note is on every one, because "not your account" is true of
+  // every state.
+  function riskBackstopHtml(m, at, WORDS) {
+    const note = '<p class="rb-note">' + esc(rbSay(WORDS, 'dd.rb_operator')) + '</p>';
+    if (m.state !== 'read') {
+      const head = rbFill(rbSay(WORDS, m.head), { when: at ? fmtAgo(at) : '' });
+      return '<div class="rb-row rb-row--unread"><div class="rb-head">'
+        + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_dd')) + '</span>'
+        + '<span class="rb-val">' + esc(head) + '</span></div>'
+        + '<span class="rb-why">' + esc(rbSay(WORDS, m.why)) + '</span></div>' + note;
+    }
+    const d = m.drawdown;
+    const ddTxt = d.pct === null ? '—' : fmt(d.pct, 1) + '%' + (d.limit === null ? '' : ' / ' + fmt(d.limit, 1) + '%');
+    const ddRow = '<div class="rb-row' + (d.fill === null ? ' rb-row--unread' : '') + '"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_dd')) + '</span>'
+      + '<span class="rb-val ' + esc(d.cls) + '">' + esc(ddTxt) + '</span>'
+      + '<span class="rb-src">' + esc(rbSay(WORDS, d.src)) + '</span></div>'
+      + rbTrack(d.fill, d.cls, T('aria.rb_dd_bar', 'Drawdown against the halt threshold'))
+      + (d.why ? '<span class="rb-why">' + esc(rbSay(WORDS, d.why)) + '</span>' : '')
+      + '</div>';
+    const sl = m.slots;
+    const slotTxt = sl.used === null
+      ? '—' + (sl.cap === null ? '' : ' / ' + String(sl.cap))
+      : (sl.floor ? '≥' : '') + String(sl.used) + (sl.cap === null ? '' : ' / ' + String(sl.cap));
+    const slotRow = '<div class="rb-row' + (sl.fill === null ? ' rb-row--unread' : '') + '"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_slots')) + '</span>'
+      + '<span class="rb-val ' + esc(sl.valCls) + '">' + esc(slotTxt) + '</span></div>'
+      + rbTrack(sl.fill, sl.cls, T('aria.rb_slots_bar', 'Position slots used'))
+      + (sl.floor && sl.note ? '<span class="rb-why">' + esc(rbFill(rbSay(WORDS, 'dd.rb_floor'), { note: sl.note })) + '</span>' : '')
+      + (sl.why ? '<span class="rb-why">' + esc(rbSay(WORDS, sl.why)) + '</span>' : '')
+      + '</div>';
+    const g = m.gate;
+    const gateRow = '<div class="rb-row"><div class="rb-head rb-chips">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_gate')) + '</span>'
+      + '<span class="chip ' + esc(g.cls) + '">' + esc(rbSay(WORDS, g.label)) + '</span></div>'
+      + (g.reasons.length ? '<span class="rb-reasons">' + esc(rbSay(WORDS, 'dd.rb_gate_refused') + ' ' + g.reasons.join('; ')) + '</span>' : '')
+      + (g.why ? '<span class="rb-why">' + esc(rbSay(WORDS, g.why)) + '</span>' : '')
+      + '</div>';
+    const o = m.override;
+    const defTxt = o.defaultPct === null ? '—' : fmt(o.defaultPct, 1) + '%';
+    const ovTxt = o.pct === null
+      ? rbFill(rbSay(WORDS, 'dd.rb_override_none'), { d: defTxt })
+      : rbFill(rbSay(WORDS, 'dd.rb_override_set'), { p: fmt(o.pct, 1) + '%', d: defTxt });
+    const ovRow = '<div class="rb-row"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_override')) + '</span>'
+      + '<span class="rb-val">' + esc(ovTxt) + '</span></div>'
+      + (o.hardeningOff ? '<span class="rb-why">' + esc(rbSay(WORDS, 'dd.rb_hardening_off')) + '</span>' : '')
+      + '</div>';
+    return ddRow + slotRow + gateRow + ovRow + note;
+  }
+  // ── risk backstop: renderers end ──
+
+  // ── context chips: renderers ──
+  // Every key the model can emit, as a LITERAL T() call, so the dictionary
+  // sweep sees each one and a language switch re-resolves them. The guard
+  // pins that this map and the model's `KEYS` are the same set.
+  function ctxWords() {
+    return {
+      'dd.ctx_tick': T('dd.ctx_tick', 'TICK'),
+      'dd.ctx_venue': T('dd.ctx_venue', 'VENUE'),
+      'dd.ctx_regime': T('dd.ctx_regime', 'REGIME'),
+      'dd.ctx_macro': T('dd.ctx_macro', 'MACRO'),
+      'dd.ctx_gate': T('dd.ctx_gate', 'GATE'),
+      'dd.ctx_unread': T('dd.ctx_unread', 'NOT REPORTED'),
+      'dd.ctx_tick_live': T('dd.ctx_tick_live', 'LIVE'),
+      'dd.ctx_tick_stale': T('dd.ctx_tick_stale', 'STALE'),
+      'dd.ctx_tick_offline': T('dd.ctx_tick_offline', 'OFFLINE'),
+      'dd.ctx_reg_bull': T('dd.ctx_reg_bull', 'BULLISH'),
+      'dd.ctx_reg_bear': T('dd.ctx_reg_bear', 'BEARISH'),
+      'dd.ctx_reg_neutral': T('dd.ctx_reg_neutral', 'NEUTRAL'),
+      'dd.ctx_mac_normal': T('dd.ctx_mac_normal', 'Normal'),
+      'dd.ctx_mac_pre': T('dd.ctx_mac_pre', 'Pre-event caution'),
+      'dd.ctx_mac_post': T('dd.ctx_mac_post', 'Post-event volatility'),
+      'dd.ctx_mac_blackout': T('dd.ctx_mac_blackout', 'Blackout'),
+      'dd.ctx_gate_clear': T('dd.ctx_gate_clear', 'CLEAR'),
+      'dd.ctx_gate_blocked': T('dd.ctx_gate_blocked', 'BLOCKED'),
+      'dd.ctx_gate_noblock': T('dd.ctx_gate_noblock', 'no block reported'),
+      'dd.ctx_u_tick': T('dd.ctx_u_tick', 'tick'),
+      'dd.ctx_u_venue': T('dd.ctx_u_venue', 'venue'),
+      'dd.ctx_u_regime': T('dd.ctx_u_regime', 'regime'),
+      'dd.ctx_u_macro': T('dd.ctx_u_macro', 'macro'),
+      'dd.ctx_u_gate': T('dd.ctx_u_gate', 'gate'),
+      'dd.ctx_w_tick': T('dd.ctx_w_tick', 'the scan carries no readable time stamp.'),
+      'dd.ctx_w_venue': T('dd.ctx_w_venue', 'the scan named no venue.'),
+      'dd.ctx_w_regime': T('dd.ctx_w_regime', 'the scan carried no regime.'),
+      'dd.ctx_w_regime_default': T('dd.ctx_w_regime_default', 'BTC was not read, so the regime is the scan’s default rather than a reading.'),
+      'dd.ctx_w_regime_word': T('dd.ctx_w_regime_word', 'the scan carried a regime word this page does not know.'),
+      'dd.ctx_w_macro': T('dd.ctx_w_macro', 'the scan carried no calendar reading.'),
+      'dd.ctx_w_macro_failed': T('dd.ctx_w_macro_failed', 'the calendar evaluation failed — nothing was measured.'),
+      'dd.ctx_w_macro_exhausted': T('dd.ctx_w_macro_exhausted', 'every scheduled event is in the past; the calendar needs regenerating.'),
+      'dd.ctx_w_macro_empty': T('dd.ctx_w_macro_empty', 'no calendar is loaded, so its Normal is not a reading.'),
+      'dd.ctx_w_macro_unstated': T('dd.ctx_w_macro_unstated', 'the scan did not say whether a calendar was loaded, so its Normal is not a reading.'),
+      'dd.ctx_w_gate': T('dd.ctx_w_gate', 'the scan carried no gate reading.'),
+      'dd.ctx_w_gate_unasked': T('dd.ctx_w_gate_unasked', 'the engine could not read its own entry gate.'),
+      'dd.ctx_w_gate_shape': T('dd.ctx_w_gate_shape', 'the gate reading was malformed.'),
+      'dd.ctx_n_tick': T('dd.ctx_n_tick', 'Last scan push reached this site {when}.'),
+      'dd.ctx_n_macro': T('dd.ctx_n_macro', 'The calendar reports {state}. That is the calendar’s own reading, not what the risk gate did with it.'),
+      'dd.ctx_n_gate_blocked': T('dd.ctx_n_gate_blocked', 'Entries are blocked: {reasons}.'),
+      'dd.ctx_n_gate_blocked_nr': T('dd.ctx_n_gate_blocked_nr', 'Entries are blocked; the scan named no reason.'),
+      'dd.ctx_n_gate_partial': T('dd.ctx_n_gate_partial', 'No block was reported, but not every gate condition could be read — this is not an all-clear.'),
+    };
+  }
+  // A word by key; the fallback is the English the caller carries. Module
+  // level, like every reader here: the helper-scope guard resolves calls
+  // against declarations, and a closure handed down as a parameter is
+  // invisible to it.
+  function ctxSay(WORDS, key, en) { return WORDS[key] != null ? WORDS[key] : (en == null ? '' : String(en)); }
+  function ctxFill(tpl, vars) {
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (vars && vars[k] != null ? String(vars[k]) : w));
+  }
+  // One chip: its key word, its value word (a keyed reading, a producer
+  // literal such as a venue name, or the NOT REPORTED chip's list of the
+  // subjects that were not read), its class. No title attribute — the
+  // caveats are visible lines under the row.
+  function ctxChipHtml(c, WORDS, out) {
+    const k = ctxSay(WORDS, c.kKey, c.k);
+    const v = c.subject === 'unread'
+      ? out.unread.map((u) => ctxSay(WORDS, u.nameKey, u.subject)).join(' · ')
+      : (c.vKey ? ctxSay(WORDS, c.vKey, c.v) : (c.v == null ? '' : String(c.v)));
+    return '<span class="chip ' + esc(c.cls) + '"><span class="ctx-k">' + esc(k) + '</span><span class="ctx-v">' + esc(v) + '</span></span>';
+  }
+  // A note under the row. `at` is the stamp the model read and is rendered
+  // as an age here (the model does not format time); `stateKey` is a keyed
+  // state word that the raw `state` falls back from.
+  function ctxNoteHtml(n, WORDS) {
+    const vars = Object.assign({}, n.vars);
+    if (vars.at) vars.when = fmtAgo(vars.at);
+    if (vars.stateKey) vars.state = ctxSay(WORDS, vars.stateKey, vars.state);
+    return '<p class="ctx-note">' + esc(ctxFill(ctxSay(WORDS, n.key, n.key), vars)) + '</p>';
+  }
+  // `out` is ContextChipsModel.contextChips's reading; null never reaches
+  // here (renderPanel's empty state). Chips first, then one line per note
+  // and one per unread subject — its name, then its own reason.
+  function contextRowHtml(out, WORDS) {
+    const chips = out.chips.map((c) => ctxChipHtml(c, WORDS, out)).join('');
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    const notes = out.notes.map((n) => ctxNoteHtml(n, WORDS)).join('')
+      + out.unread.map((u) => '<p class="ctx-note">'
+        + esc(cap(ctxSay(WORDS, u.nameKey, u.subject)) + ': ' + ctxSay(WORDS, u.whyKey, u.whyKey)) + '</p>').join('');
+    return '<div class="ctxrow" role="group" aria-label="' + esc(T('aria.ctxrow', 'Engine context')) + '">' + chips + '</div>'
+      + (notes ? '<div class="ctx-notes">' + notes + '</div>' : '');
+  }
+  // ── context chips: renderers end ──
+
+  // ── decision log: renderers ───────────────────────────────────────────
+  // Every decision is DecisionLogModel's (js/decision-log-model.js); these
+  // turn its readings into markup. Sliced between the two sentinel comments
+  // by decision_log_is_not_asserted_from_a_failed_read.test.js and run in a
+  // VM, so the block reaches for T, TF, esc, fmtPrice, signed, pnlClass,
+  // fmtAgo and the model global, and nothing else.
+  function dlWords() {
+    return {
+      'dd.dl_no_time': T('dd.dl_no_time', 'time not on record'),
+      'dd.dl_no_sym': T('dd.dl_no_sym', 'symbol unread'),
+      'dd.dl_no_market': T('dd.dl_no_market', 'no market'),
+      'dd.dl_no_dir': T('dd.dl_no_dir', 'direction unread'),
+      'dd.dl_no_thesis': T('dd.dl_no_thesis', 'no thesis on record'),
+      'dd.dl_no_detail': T('dd.dl_no_detail', 'no detail on record'),
+      'dd.dl_gate_pass': T('dd.dl_gate_pass', 'gate passed'),
+      'dd.dl_gate_block': T('dd.dl_gate_block', 'gate blocked'),
+      'dd.dl_gate_unread': T('dd.dl_gate_unread', 'gate verdict unread'),
+      'dd.dl_gate_none': T('dd.dl_gate_none', 'no gate on record'),
+      'dd.dl_nfailed': T('dd.dl_nfailed', '{n} check(s) failed'),
+      'dd.dl_d_exec': T('dd.dl_d_exec', 'sent to venue'),
+      'dd.dl_d_fail': T('dd.dl_d_fail', 'venue rejected the order'),
+      'dd.dl_d_rej': T('dd.dl_d_rej', 'stopped on re-check'),
+      'dd.dl_d_unread': T('dd.dl_d_unread', 'disposition not on record'),
+      'dd.dl_open': T('dd.dl_open', 'open — no close on record'),
+      'dd.dl_pnl_unrec': T('dd.dl_pnl_unrec', 'closed · P&L not recorded'),
+      'dd.dl_hidden': T('dd.dl_hidden', 'closed · amount hidden on the anonymous view — sign in to see it'),
+      'dd.dl_unshown': T('dd.dl_unshown', 'closed · amount not shown on the anonymous view'),
+      'dd.dl_k_block': T('dd.dl_k_block', 'blocked'),
+      'dd.dl_k_rec': T('dd.dl_k_rec', 'recovered'),
+      'dd.dl_k_flag': T('dd.dl_k_flag', 'flagged'),
+      'dd.dl_k_unread': T('dd.dl_k_unread', 'kind not on record'),
+      'dd.dl_inc_unread': T('dd.dl_inc_unread', 'Gate blocks could not be read — this log shows sealed decisions only and is incomplete.'),
+      'dd.dl_inc_derived': T('dd.dl_inc_derived', 'Only risk-gate rejections are shown — this bot has not yet sent its full incident stream, so firewall, sentinel and escape events are missing from the log below.'),
+      'dd.dl_inc_none': T('dd.dl_inc_none', 'No gate blocks in this window — the incident ledger was read and is empty.'),
+      'dd.dl_scope': T('dd.dl_scope', 'The operator agent’s sealed ledger — the same record for every viewer, not your own account.'),
+      'dd.dl_written': T('dd.dl_written', 'Ledger last written {when}.'),
+      'dd.dl_written_why': T('dd.dl_written_why', 'That is when the bot last pushed, not when it last thought: a push happens on a live confirm, rejection or close, so a quiet ledger and a quiet engine look the same from here.'),
+      'dd.dl_thesis_cut': T('dd.dl_thesis_cut', 'shortened — the full thesis is in the tooltip'),
+    };
+  }
+
+  // One reader for every dl renderer: a word is `{key, en}` and the map
+  // falls back to the English the model carries. Module-level on purpose —
+  // the helper-scope guard resolves calls against DECLARATIONS, and a
+  // closure handed down as a parameter is invisible to it.
+  function dlSay(WORDS, w) { return w ? (WORDS[w.key] || w.en) : ''; }
+
+  function dlChip(chip, WORDS) {
+    const text = chip.word ? dlSay(WORDS, chip.word) : String(chip.literal == null ? '' : chip.literal);
+    return '<span class="' + chip.cls + '">' + esc(text) + '</span>';
+  }
+
+  // The gate's WHY: the named checks, else the sealed reason, else the failed
+  // COUNT when the seal carried one above zero — never "0 checks failed",
+  // which is the all-clear.
+  function dlWhy(why, WORDS) {
+    if (!why) return '';
+    if (why.names.length) return why.names.map(esc).join(', ');
+    if (why.reason) return esc(why.reason);
+    if (why.failed !== null) return esc(dlSay(WORDS, { key: 'dd.dl_nfailed', en: '{n} check(s) failed' }).replace('{n}', String(why.failed)));
+    return '';
+  }
+
+  function dlFillHtml(f, WORDS) {
+    if (f.state === 'omitted') return '';
+    const at = f.price !== null ? ' @ ' + esc(fmtPrice(f.price)) : '';
+    const why = f.reason ? ' · ' + esc(f.reason) : '';
+    if (f.state === 'pnl') {
+      // pnlClass answers '' for unreadable and keeps a measured 0 green.
+      return '<span class="dl-fill ' + pnlClass(f.pnl) + '">' + esc(signed(f.pnl)) + at + why + '</span>';
+    }
+    return '<span class="dl-fill">' + esc(dlSay(WORDS, f.word)) + (f.state === 'open' ? '' : at + why) + '</span>';
+  }
+
+  function dlWhen(row, WORDS) {
+    return '<span class="dl-when' + (row.ms === null ? ' dl-when--unread' : '') + ' num">'
+      + esc(row.ms === null ? dlSay(WORDS, row.when) : fmtAgo(row.timestamp)) + '</span>';
+  }
+
+  function dlDecisionRowHtml(row, WORDS) {
+    const dir = row.side === 'long' ? '<span class="dl-dir dl-dir--long">LONG</span>'
+      : row.side === 'short' ? '<span class="dl-dir dl-dir--short">SHORT</span>'
+      : '<span class="dl-dir dl-dir--unread">' + esc(dlSay(WORDS, row.sideWord)) + '</span>';
+    const thesis = row.thesis === null
+      ? '<span class="dl-thesis dl-thesis--none">' + esc(dlSay(WORDS, row.thesisWord)) + '</span>'
+      : '<span class="dl-thesis" title="' + esc(row.thesis) + '">' + esc(row.thesis)
+        + (row.thesisCut ? ' <span class="dl-thesis-cut">… ' + esc(dlSay(WORDS, { key: 'dd.dl_thesis_cut', en: 'shortened — the full thesis is in the tooltip' })) + '</span>' : '')
+        + '</span>';
+    const why = dlWhy(row.gate.why, WORDS);
+    return '<li class="dl-row dl-row--decision">'
+      + dlWhen(row, WORDS)
+      + '<span class="dl-what"><span class="dl-sym' + (row.sym === null ? ' dl-sym--unread' : '') + '">'
+        + esc(row.sym === null ? dlSay(WORDS, row.symWord) : row.sym) + '</span>' + dir + '</span>'
+      + thesis
+      + '<span class="dl-gate">' + dlChip(row.gate, WORDS) + (why ? '<span class="dl-gate-why">' + why + '</span>' : '') + '</span>'
+      + '<span class="dl-out">' + dlChip(row.disposition, WORDS) + dlFillHtml(row.fill, WORDS) + '</span>'
+      + '<span class="dl-seq">' + (row.seq === null ? '' : '#' + esc(String(row.seq))) + '</span>'
+      + '</li>';
+  }
+
+  function dlIncidentRowHtml(row, WORDS) {
+    const detail = row.detail === null
+      ? '<span class="dl-thesis dl-thesis--none">' + esc(dlSay(WORDS, row.detailWord)) + '</span>'
+      : '<span class="dl-thesis" title="' + esc(row.detail) + '">' + esc(row.detail) + '</span>';
+    return '<li class="dl-row dl-row--incident">'
+      + dlWhen(row, WORDS)
+      + '<span class="dl-what"><span class="dl-sym' + (row.sym === null ? ' dl-sym--unread' : '') + '">'
+        + esc(row.sym === null ? dlSay(WORDS, row.symWord) : row.sym) + '</span></span>'
+      + detail
+      + '<span class="dl-gate">' + dlChip(row.chip, WORDS) + (row.category ? '<span class="dl-gate-why">' + esc(row.category) + '</span>' : '') + '</span>'
+      + '<span class="dl-out"></span>'
+      + '<span class="dl-seq">' + (row.seq === null ? '' : '#' + esc(String(row.seq))) + '</span>'
+      + '</li>';
+  }
+
+  // `log` is DecisionLogModel.decisionLog's reading: null never reaches here
+  // (renderPanel's empty state), and the empty-plus-unread case threw.
+  function decisionLogHtml(log, WORDS) {
+    const notes = log.notes.map((n) => '<p class="dl-note' + (n.loud ? '' : ' dl-note--quiet') + '">' + esc(dlSay(WORDS, n.word)) + '</p>').join('');
+    const rows = log.rows.map((r) => (r.kind === 'incident' ? dlIncidentRowHtml(r, WORDS) : dlDecisionRowHtml(r, WORDS))).join('');
+    const when = log.footer.when === null ? dlSay(WORDS, log.footer.whenWord) : fmtAgo(log.footer.when);
+    // The footer names the book and the ledger's age, and carries no colour
+    // and no health chip: "last written" is never a liveness claim.
+    return notes + '<ul class="dl-list">' + rows + '</ul>'
+      + '<p class="dl-foot">' + esc(dlSay(WORDS, log.footer.scope)) + ' '
+      + esc(dlSay(WORDS, log.footer.written).replace('{when}', when)) + ' '
+      + esc(dlSay(WORDS, log.footer.why)) + '</p>';
+  }
+  // ── decision log: renderers end ───────────────────────────────────────
+
   function guardianBlock(data) {
     const recs = (data && data.records) || [];
     const head = `<div style="margin-bottom:var(--s4)">${chainBanner(data.chain, data.window, data.updated_at)}</div>`
       + guardianPostureCard(data.guardian_status)
       + policyCard(data.policy);
     if (!recs.length) {
-      return head + `<div class="empty small muted" style="padding:var(--s4)">No decisions have been recorded yet. As the engine confirms or rejects trades, each one is sealed here with its full provenance.</div>`;
+      // ONE sentence for a read empty ledger — the same words the decision
+      // log's empty state and this panel's empty option print, because
+      // three sentences for one state on two views were three answers.
+      return head + `<div class="empty small muted" style="padding:var(--s4)">${esc(T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.'))}</div>`;
     }
     return head + recs.map(flightCard).join('');
   }
@@ -8801,7 +9278,10 @@
       mustRead(r);
       if (!r.data) return null;
       return guardianBlock(r.data);
-    }, { timeoutMs: 18000, empty: { icon: 'icon-check', text: 'The decision ledger is unavailable right now — check back in a moment.' } });
+    // The empty option is reachable only on a 404 (mustRead's empty doctrine),
+    // which this route never answers; it used to say "unavailable", the
+    // opposite of what the block above says for the same ledger. One sentence.
+    }, { timeoutMs: 18000, empty: { icon: 'icon-check', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
   }
 
   function mountPolicyAuthoring(panel) {

@@ -17,6 +17,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { codeOnly } = require('./helpers/code_only');
+const { loaderBodies } = require('./helpers/loaders');
 const M = require('../public/js/panel-error-model');
 
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
@@ -67,34 +68,10 @@ test('every panel loader that fetches also guards the read', () => {
   assert.ok(guards >= 65, `expected the read guard at 65+ call sites, found ${guards}`);
 });
 
-/**
- * The body of every renderPanel(el, loader) — brace-matched from the call.
- *
- * The single-line scan above only catches `if (!r.ok) return null;` written on
- * ONE line. Three live escapes were found by hand afterwards, all of which
- * simply split the fetch from the null-check:
- *
- *     const load = async () => { ...; data = r.ok ? r.data : null; return data; };
- *     renderPanel(el, async () => { await load(); if (!data) return null; ... });
- *
- * A guard whose coverage is narrower than the rule it states is the same
- * defect it exists to prevent. This one walks the whole loader body.
- */
-function loaderBodies(src) {
-  const out = [];
-  const re = /renderPanel\(/g;
-  let m;
-  while ((m = re.exec(src))) {
-    let depth = 0, i = m.index + 'renderPanel'.length;
-    for (; i < src.length; i++) {
-      const c = src[i];
-      if (c === '(') depth++;
-      else if (c === ')') { depth--; if (depth === 0) break; }
-    }
-    out.push({ body: src.slice(m.index, i + 1), line: src.slice(0, m.index).split('\n').length });
-  }
-  return out;
-}
+// The body of every renderPanel(el, loader), brace-matched from the call, is
+// `helpers/loaders.js` — one walker for every guard that reads loader
+// bodies, because this file and panel_timeout_budget.test.js each carried
+// their own copy of the same loop, and a third caller made it three.
 
 test('a loader that reads the network guards that read, however it is written', () => {
   // A loader is honest by one of two strategies, and the test accepts either:

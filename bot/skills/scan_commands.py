@@ -93,23 +93,33 @@ class ScanCommands:
         def _format_research(data: dict) -> str: ...
 
     @guard("research")
-    async def _cmd_research(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _cmd_research(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                            *, symbol: str = "") -> None:
         """/research <symbol> — the cited research dossier (venue data +
-        recorded platform history), same as the web research card."""
-        import asyncio as _aio
-        from bot.utils.web_data_pull import fetch_research
+        recorded platform history), same as the web research card.
+
+        ``symbol`` is how the free-text branch hands the routed asset in
+        ("research SOL" carries it in the intent's kwargs, and a text message
+        has no `ctx.args`); the guard runs with the real context either way.
+        """
         args = getattr(ctx, "args", None) or []
-        if not args:
+        sym = str(symbol or (args[0] if args else "")).strip()
+        if not sym:
             await self._send(update, "Usage: /research <symbol> — e.g. "
                                      "<code>/research PENDLE</code>")
             return
-        data = await _aio.to_thread(fetch_research, str(args[0]))
+        await self._send(update, await self.research_card_text(sym))
+
+    async def research_card_text(self, symbol: str) -> str:
+        """The research dossier as text — the reading BOTH surfaces render.
+        The fetch runs off the event loop (blocking urllib)."""
+        import asyncio as _aio
+        from bot.utils.web_data_pull import fetch_research
+        data = await _aio.to_thread(fetch_research, str(symbol))
         if not data or "sections" not in data:
-            await self._send(update,
-                             "No dossier — the symbol isn't listed on the "
-                             "venue, or the web app isn't reachable.")
-            return
-        await self._send(update, self._format_research(data))
+            return ("No dossier — the symbol isn't listed on the venue, or the "
+                    "web app isn't reachable.")
+        return self._format_research(data)
 
     _EVM_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 

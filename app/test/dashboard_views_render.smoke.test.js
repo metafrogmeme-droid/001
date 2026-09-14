@@ -133,17 +133,91 @@ test('the signed-in home renders the deck\'s account panels, in order, each with
     const page = await ctx.newPage();
     await page.goto(`${base}/dashboard#home`, { waitUntil: 'load' });
     await page.waitForSelector('#c-metrics .mcl', { timeout: 8000 });
+    await page.waitForSelector('#c-ctx .ctxrow', { timeout: 8000 });
     const seen = await page.$$eval('.stack > section.panel[id]', (els) => els.map((e) => e.id));
-    const deck = ['p-mode', 'p-hero', 'p-metrics', 'p-cmd'];
+    const deck = ['p-mode', 'p-hero', 'p-metrics', 'p-cmd', 'p-ctx'];
     assert.deepStrictEqual(seen.filter((id) => deck.includes(id)), deck, `deck panels in DOM order; saw ${seen.join(', ')}`);
     assert.ok(await page.$('#c-mode .ms-strip'), 'the status strip rendered');
     assert.ok(await page.$('#c-metrics .mcl'), 'the metric cluster rendered');
+    // The context row read the fixture's scan: five subjects, each a chip,
+    // and nothing named as not reported.
+    const ctxKeys = await page.$$eval('#c-ctx .ctxrow .ctx-k', (els) => els.map((e) => e.textContent.trim()));
+    assert.deepStrictEqual(ctxKeys, ['TICK', 'VENUE', 'REGIME', 'MACRO', 'GATE'], `the row's chips, saw ${JSON.stringify(ctxKeys)}`);
+    assert.strictEqual(await page.$('#c-ctx .skel'), null, 'the row is past its skeleton');
+    assert.strictEqual(await page.$('#c-ctx .state-block'), null, 'the row is not in an error state');
     assert.strictEqual(await page.$('#c-metrics .skel'), null, 'the cluster is past its skeleton');
     assert.strictEqual(await page.$('#c-metrics .state-block'), null, 'the cluster is not in an error state');
     // And the cluster read the fixture: three cells, a figure in each.
     const cells = await page.$$eval('#c-metrics .v', (els) => els.map((e) => e.textContent.trim()));
     assert.strictEqual(cells.length, 3, `three cells, saw ${JSON.stringify(cells)}`);
     assert.ok(cells.every((t) => /\d/.test(t)), `every cell shows a figure: ${JSON.stringify(cells)}`);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+});
+
+// THE SIGNED-OUT HOME, driven. The context row's shell is deliberately not
+// gated on LOGGED_IN, so its loader has to sit OUTSIDE the signed-in block of
+// renderHome — placed inside it, every signed-out visitor gets a permanently
+// animating skeleton under a heading that announced itself, which is neither
+// the empty state nor the error state, and which no scan of loaders can see,
+// because the loader exists. Only the browser can say whether it ran.
+test('the signed-out home renders the context row, not a skeleton under its heading', SKIP ? { skip: SKIP } : {}, async () => {
+  const { server, base } = await serve();
+  const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    // No rc_auth cookie and no token: LOGGED_IN is false.
+    await ctx.route('**/api/**', (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtureFor(u.pathname)) });
+    });
+    await ctx.route('**/api/stream*', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': ok\n\n' }));
+    await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
+    const page = await ctx.newPage();
+    await page.goto(`${base}/dashboard#home`, { waitUntil: 'load' });
+    await page.waitForSelector('#c-ctx .ctxrow', { timeout: 8000 });
+    const seen = await page.$$eval('.stack > section.panel[id]', (els) => els.map((e) => e.id));
+    for (const gated of ['p-mode', 'p-metrics', 'p-cmd']) assert.ok(!seen.includes(gated), `${gated} is a signed-in panel; saw ${seen.join(', ')}`);
+    assert.deepStrictEqual(seen.filter((id) => ['p-hero', 'p-ctx', 'p-next'].includes(id)), ['p-hero', 'p-ctx', 'p-next'], `the row sits under the hero; saw ${seen.join(', ')}`);
+    assert.strictEqual(await page.$('#c-ctx .skel'), null, 'the signed-out row is past its skeleton');
+    assert.strictEqual(await page.$('#c-ctx .state-block'), null, 'the signed-out row is not in an error state');
+    const ctxKeys = await page.$$eval('#c-ctx .ctxrow .ctx-k', (els) => els.map((e) => e.textContent.trim()));
+    assert.deepStrictEqual(ctxKeys, ['TICK', 'VENUE', 'REGIME', 'MACRO', 'GATE'], `the row's chips, saw ${JSON.stringify(ctxKeys)}`);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+});
+
+// The Engine view's risk backstop, driven: the panel reads the shared scan
+// through its own guard, and only the browser can say whether the loader is
+// reached and the four rows render off the fixture's backstop block.
+test('the engine view renders the risk backstop panel with its four rows', SKIP ? { skip: SKIP } : {}, async () => {
+  const { server, base } = await serve();
+  const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.addCookies([{ name: 'rc_auth', value: '1', url: base }]);
+    await ctx.route('**/api/**', (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtureFor(u.pathname)) });
+    });
+    await ctx.route('**/api/stream*', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': ok\n\n' }));
+    await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
+    const page = await ctx.newPage();
+    await page.goto(`${base}/dashboard#engine`, { waitUntil: 'load' });
+    await page.waitForSelector('#c-ebackstop .rb-row', { timeout: 8000 });
+    const labels = await page.$$eval('#c-ebackstop .rb-label', (els) => els.map((e) => e.textContent.trim()));
+    // textContent is the source text; the uppercase is the stylesheet's.
+    assert.deepStrictEqual(labels, ['Drawdown backstop', 'Position slots', 'New entries', 'Override'], `four rows, saw ${JSON.stringify(labels)}`);
+    assert.strictEqual(await page.$('#c-ebackstop .skel'), null, 'past its skeleton');
+    assert.strictEqual(await page.$('#c-ebackstop .state-block'), null, 'not in an error state');
+    assert.strictEqual((await page.$$('#c-ebackstop .rb-track')).length, 2, 'a bar over the drawdown and one over the slots');
+    const seen = await page.$$eval('.stack section.panel[id]', (els) => els.map((e) => e.id));
+    const i = seen.indexOf('p-ebackstop');
+    assert.ok(i > seen.indexOf('p-ecb') && i < seen.indexOf('p-emods'), `between the engine account and the modules; saw ${seen.join(', ')}`);
   } finally {
     await browser.close();
     server.close();

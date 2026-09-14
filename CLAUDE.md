@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **36 names including `halt`,
+whole vocabulary plus every chat tool: **39 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 33), because the
+surface than for the one it modelled best (telegram, 36), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -904,6 +904,74 @@ sentence, beside the handler it describes), `client_capabilities` rides every
 turn, and the Python side treats a missing or malformed field as ABSENT rather
 than as an error, because Telegram is a caller too and has no intercepts.
 
+**The website answers fifteen phrasings from its own intercepts, and on
+Telegram three of the same sentences were GREETED.** `app/routes/chat.js`
+claims `networth`, `rwa` and `research` before a turn reaches this process,
+and each has a Telegram command that renders the same reading (`/networth`,
+`/rwa`, `/research <sym>`). Typed as words on Telegram, driven: "my net
+worth" was small talk, "rwa radar" was small talk, and "research SOL" reached
+a chat model with no dossier tool. Parity is not a nicety here: a linked
+account's web turns are recorded into the same store the Telegram model reads
+(`web_answer_memory`), so that model had been told `[networth] shown by the
+website` and could not show one. They are routed intents on both surfaces
+now, with the intercepts' own phrasings (`networth.js`, `rwa.js`,
+`research.js`) so one sentence reaches one reading — and two differences are
+recorded rather than resolved: an education question ("what is rwa", "what
+are real world assets") is the model's on Telegram where the web hands it the
+radar, and "deep dive on <sym>" is the chart's on Telegram (a pinned routing)
+where the web's research intercept claims it as a dossier.
+
+**The Telegram branch goes THROUGH the guarded command and never to the
+seam.** The seams (`networth_card_text`, `rwa_card_text`,
+`research_card_text`) exist so the web's Python path can render the same
+reading under `WEB_ROUTED_PERMISSION`; on Telegram the `@guard` on `_cmd_*`
+IS the role gate, so a branch that called the seam directly would answer a
+caller the command refuses. Driven both ways — the guard refused, the seam is
+never awaited and no card is sent. The research symbol rides in by KEYWORD
+(`_cmd_research(update, ctx, symbol=…)`): a text message has no `ctx.args`,
+and a synthesized context would have been handed to the guard. **And the web's
+Python path sees only the residue**: the Node intercepts claim their phrasings
+before the turn reaches this process, for a non-linked web user too, so the
+web branches answer the phrasings those regexes miss ("how much am i worth",
+"can you research SOL for me") — worth stating because the branch reads as
+though it answers every net-worth question, and a drive of `_chat_turn` with
+"my net worth" is driving a sentence the website will never send.
+
+**Two copies of the net-worth reading, and the drift was on the branch that
+matters.** `_cmd_networth` and the web gateway's `handle_networth` were
+byte-for-byte copies of paper-plus-one-balance-fetch, except on a credential
+store that RAISED: the web stamped `error: cex_unavailable` on the answer
+and the command folded it into `{"connected": False}`, which the card printed
+as "Exchange: not connected — /connect to link one" — a store nobody could
+ask, rendered as an account nobody linked, under a door that re-links it.
+`bot/core/networth_reading.py` is the one reading; `cex` has four words (no
+venue; unreadable or timed out, with its reason; read; could not be asked) and
+`_format_networth` prints the fourth as *could not be read … not a missing
+link*, on both surfaces. The wire shape is unchanged. The hint for a web-app
+channel that did not answer is keyed by transport too: `_link_hint("web")`
+names no `/link` — a web caller IS linked to the web app, so that half of the
+Telegram sentence is false there — and ends "Nothing was read".
+
+**A social-gate word every rule already claims is a word nothing reaches.**
+The first draft added "net", "worth" and "networth" to `trading_words`;
+driven, every short net-worth phrasing was already claimed by its rule, which
+the gate consults before deciding, so the three words were the fifth
+granularity inside a set literal. Kept are only the words a decoy needs:
+"rwa" (so "what is rwa" reaches the model rather than the greeter),
+"research" ("research report"), "radar", "dossier", "diligence",
+"tokenized" — each with a table row that dies without it.
+
+**Thirty mutations, each killed on the first round.** Two are worth naming
+for what they prove about the guard rather than the code: the web branch
+reading the seam BEFORE the gate refuses survives every assertion on the 403
+itself and dies only on the seam's await count — a refusal that has already
+done the read it exists to refuse is invisible from the response; and the
+branch calling the seam directly instead of the guarded command passes
+every record assertion and dies only on the guard's own await, which is why
+the Telegram drive plants a refusing `_guard` rather than a mocked command.
+The round clears `__pycache__` between mutations, for the reason the
+preflight chapter gives.
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1079,7 +1147,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty-one call sites across the two entry points today, one on
+never happened. Thirty-six call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -2127,6 +2195,222 @@ had been 14000ms over a shared 16000ms portfolio read since slice 3, is 17000.
 A sparkline is a claim too: its colour was going to follow the reference
 feed's window, so a rising reference beside a SHORT painted green next to a
 red move. It is a muted stroke, and the move cell states the direction.
+
+**A verdict the seal never carried is not a rejection, and the card painted
+it red.** `flightCard` writes `verdict === 'APPROVED' ? up : down`, and the
+recorder's own except branch seals the literal `UNKNOWN` when it could not
+read the risk object — so a gate nobody read wore the colour of a gate that
+refused, and a record with no risk block at all wore the same colour for a
+third fact. The decision log's gate has four states, two of them muted: a
+sealed APPROVED or REJECTED is a verdict, a sealed UNKNOWN is a read that
+failed at seal time, a missing block is a record shape. And the seal's thin
+shape — `{verdict}` alone — carries no `failed` count, which must not print as
+"0 checks failed", the all-clear. The first draft of the guard asserted no
+green anywhere on the row and failed on the disposition chip, which was
+telling the truth about a sealed EXECUTED_LIVE beside an unread gate: anchor
+the assertion to the cell that makes the claim.
+
+**A viewer-scoped flag was standing in for a field-scoped fact.** The
+anonymous scrub drops `result.pnl_usd` whether the engine recorded a number
+or recorded None — the unpriced close this repo is built around — and the
+only flag on the payload (`disclosure`) says the VIEWER is anonymous, not
+that THIS field held anything. A panel promising "sign in to see it" off that
+flag would name a number that does not exist. `sanitizeRecord` sets
+`fill_priced` after the scrub (so the scrub cannot eat it, and its name is
+not a currency key the redaction sweep would strip), the fill has six states,
+and an older server that sends no marker gets the sentence that promises
+nothing. The same absence had a second copy one route over: `/incidents`
+answered 200 with counts of zero off a flight cache nobody could read while
+its sibling `/flight` already knew to 503 — and the fix is honest about
+where it lands. Both handlers share one cold cache and one `lastReadFailed`
+flag, so for a panel that reads flight first the flight read fails first;
+the seam is for the existing incidents panel, which has no sibling to throw
+before it, and the decision log SEQUENCES its two reads rather than racing
+two cold reads to write one flag.
+
+**Omit may not degenerate into a confident negative.** The log guards the
+ledger and omits the incident stream, naming the omission in a row of its
+own — and an empty ledger beside an unreadable incident stream THROWS, because
+"nothing happened" over the only half that could have had content is
+assembled from a read that failed. A 200 whose body did not parse throws too:
+`fetchJSON` answers `{ok: true, data: null}` for it, `mustRead` hands the
+null through, and the empty state's copy would then assert "nothing sealed
+yet" about the tamper-evident chain off a proxy page. The empty sentence is
+ONE sentence now on three surfaces: `guardianBlock` said "No decisions have
+been recorded yet" and the same panel's empty option said "The decision
+ledger is unavailable right now" — opposite meanings for one state, and the
+second was reachable only on a 404 the route never sends. **And the full
+suite found what the slice's suites could not, again**: the renderers took
+the word reader as a `say` PARAMETER — valid, driven in the VM, rendered in
+Chromium — and `dashboard_helpers_are_in_scope.test.js` resolves every call
+against DECLARATIONS, so a closure named like a nested helper declared in
+four other functions read as a cross-view call. It is one module-level
+reader now (`dlSay`), which is the shape that guard's model can see, and the
+mutation round was re-run against it.
+
+**A loader inside the signed-in block under an ungated shell is a skeleton
+that never stops.** The deck study placed the context row's loader "directly
+after" the command bar's — inside `if (LOGGED_IN) {` — with the shell outside
+it, so every signed-out visitor would have got a permanently animating
+skeleton under a heading that announced itself: neither the empty state nor
+the error state, and invisible to every scan of loaders, because the loader
+exists. It sits below the block now, and the views smoke drives the
+SIGNED-OUT home in Chromium and asks the DOM for the rendered row; the
+brace-matched position is pinned as well, because the scan is cheap and the
+drive is the proof. The guard that wanted "the loader is reached" as a source
+assertion needed a third copy of the twenty-line `renderPanel(` paren-walk
+two other guards already carried, which this file had already named as the
+shape to refuse: `app/test/helpers/loaders.js` is the one walk, and each
+caller keeps only its filter.
+
+**A default is not a reading, and the payload's only evidence is a
+neighbouring field.** `regime` is always present and seeded
+`{label: 'NEUTRAL', gate: 0}`; `gate` — the BTC anchor price — is written
+only inside `if btc:`, so a zero anchor means BTC was never read, and the
+Engine view has been printing the constructor's default as a measured regime.
+NORMAL is the same shape one subject over: an EMPTY calendar evaluates
+NORMAL, so without the producer's `has_events` the word is not a reading.
+Each subject the row does not show is NAMED with its own reason — every one
+a dictionary key, where the design's first draft joined raw English into a
+chip on a fourteen-language page — and the venue on a paper bot is OMITTED
+rather than named forever: `live_mode: false` is a read fact, and a
+permanently-named absence trains the reader to stop reading the list.
+
+**A title attribute does not render on touch.** Every load-bearing caveat in
+the design lived in `title=` — "no block reported" defended by "not every
+gate could be read", a macro state by "the calendar's reading, not the
+gate's" — on a phone layout with non-interactive chips, the surface the
+design spent three paragraphs on. A hedge the primary surface cannot show is
+not a hedge: the caveats are visible lines under the row, keyed, and the
+renderer block spells no `title=` at all.
+
+**One read per screen, and its outcome recorded in one place.** The home
+view fetched `/api/bot/sync/scan` in the command bar (through the swallowing
+`getScan()`), in the agent panel (a `fetchJSON` of its own) and would have a
+third time in the row — three answers that can disagree in one paint. It is
+one read now, started with the render for every visitor and consumed three
+ways: the row GUARDS it (`mustRead` on this read), the bar and the agent
+panel OMIT. And the tri-state the topbar chip reads was written only by
+`getScan`'s own fetch, so a row saying "could not read" would have stood
+beside a chip still painting ENGINE LIVE from an earlier cache, or CONNECTING
+over a read that had already failed. `adoptScanRead` is the one writer (the
+guard counts it), it tells the chip every time, and the row adopts BEFORE it
+guards — the sliced loader is driven to prove the order, and the read's own
+budget sits under the panel's because a `renderPanel` timeout skips that
+catch entirely.
+
+**The bot's own time stamp is not ISO 8601.** `scan_skill` writes
+`%Y-%m-%d %H:%M UTC`, and `Date.parse` of that is implementation-defined —
+V8 reads it, another engine answers NaN, and a chip that exists in one
+browser and not the other from one payload is the kind of defect no test on
+this box can see. The model spells it into ISO before parsing, and an
+unparseable stamp names the tick as not reported rather than falling through
+the topbar model's NaN age to "ENGINE OFFLINE".
+
+**The website could not reach the backstop, and the number it could reach
+has the same name.** Nothing under `app/` carried the live drawdown, the halt
+threshold, the slot cap or the gate state, and every `drawdown` the website
+holds is the HISTORICAL drawdown of its own closed-trade curve — a different
+quantity under the same name, which is exactly what an implementer greps to
+and wires under "halt threshold" with every test green. `circuit_breaker.
+backstop` carries the engine's own figures now, composed from the readings
+the Telegram cards already share (`enforced_drawdown`, `live_risk_status`)
+rather than re-derived, so no two surfaces can disagree about what the
+breaker enforces. Every field is a percent, a count or a flag; the equity
+peak is deliberately not sent, because the payload is served to anonymous
+callers and a dollar figure has no business on it.
+
+**The slot count comes from where it EXISTS, and the method the design
+wanted could not see it.** `live_open_count` is a PARAMETER of `evaluate()`,
+supplied by the engine's caller; the only count a method on `RiskEngine` can
+reach is the PAPER book's. A `slot_status()` built the way the design drew it
+would have published the paper count against the LIVE binding cap — the
+defect `drawdown_status` was cured of one method up ("an operator could read
+~0% from a gate that was refusing trades at 9%"), one field over, under a
+label that makes it a lie rather than a mislabel. `slot_status(open_count)`
+takes the caller's count, the scan builder hands it the same count its slot
+chip reads, and an unread live book stays `None`: never the paper number. The
+binding cap — `min()` of the risk engine's and the executor's, which only
+`/risk` took while the status cards printed the higher one — has one home in
+it now, and the `/risk` pin that grepped for the `min(` moved to the seam.
+
+**A raised aggregator is not a single venue.** `_person_totals` folds an
+exception into `None`, which is right for the gate (it fails CLOSED either
+way) and wrong for a card, which would print an exact `2 / 5` over a count
+whose cross-venue half failed to read. `_person_totals_state` keeps the third
+word, and a total the aggregator did not carry leaves the caller's count
+alone rather than reading as zero — the gate's own reader still does
+`getattr(t, "open_positions", 0) or 0`, and the honesty ratchet caught the
+copy of that shape in the first draft of the new one.
+
+**A composer fault is a marker, not an absence.** The key is present in every
+payload this build makes; an ABSENT key means a bot build that predates the
+reading — a redeploy instruction — so a fault in the composer must not be
+reported that way, or it sends the operator to redeploy the build they are
+already running. `{"unreadable": true}` is the fault, the shape
+`credential_state()` and `master_key_state()` use; `drawdown_status() == {}`
+is NOT a fault, it is that reader's one failure signal, and it renders as an
+unread drawdown beside a read gate. The panel that reads all of this is the
+next slice; it cannot begin until this one is deployed to the bot box and
+confirmed serving, because `app/` and `bot/` are different deploy targets.
+
+**The panel that reads it, and the age is read FIRST.** The Engine view's
+risk backstop panel (`risk-backstop-model.js`) has five states at the top —
+undated, stale, absent build, engine fault, read — and its first draft read
+the BLOCK before the scan's age, so "not published" and "engine fault" would
+have been printed off a four-hour-old scan as facts about the bot now. A
+memory is a memory whatever it holds: the age gates everything the scan
+carries, the floor is the topbar's `STALE_MAX_S` rather than a second copy
+(one age vocabulary on the page, driven at the boundary), and a scan the
+page cannot date is undated whatever it holds. The stamp is the context
+row's one reader, ingest first, and is never manufactured from the request
+clock.
+
+**A bar is drawn only over numbers AND a verdict that were ALL read, and the
+class sits on the ROW.** The study's blocking objection to its own design:
+`drawdownRow` computed `fill` unconditionally and `.rb-fill` declared no
+background, so two numbers under a verdict word this page does not know
+painted a full-length track with an invisible fill — which on the card an
+operator reads to decide how much real money the bot may lose before it
+halts is 0% drawdown, full headroom, from a verdict nobody could read. A
+zero-WIDTH fill is still a full-length track, so the hiding class is on the
+row (`rb-row--unread .rb-track { display: none }`, the reading
+`.wr-row--unrated` refuses one block up), the numbers are still printed and
+the sentence says why the bar is not. The colour is the server's verdict
+word mapped by the model and never a comparison here — the bands are off the
+EFFECTIVE limit, and a second copy of that table in the browser is a second
+answer. `0 / 5` is the one zero `dashboard_unreadable_is_not_zero.smoke`'s
+regex cannot see (it knows `0.0%`, `0%`, `0 open`), so the guard pins the
+dash itself.
+
+**No colour class is spelled in the renderer, and the first draft spelled
+one.** The slots row did `(sl.cls === 'rb-warn' ? ' rb-warn' : '')` — a
+colour literal conditioned on the model's word, harmless today and the exact
+shape the next reader extends with `|| 'rb-up'`. The model emits `valCls`
+beside `cls` (a floor colours the figure, a count colours the fill only:
+capacity is not a verdict), so the renderer block can be scanned for every
+`rb-(up|warn|down|cap)` and `chip--` literal and hold none. The i18n half of
+the same objection: the design resolved twenty-two of its keys through a
+computed `T(p[0], p[1])`, which the dictionary sweep's `T('` literal match
+cannot see — every honesty sentence rendering English in fourteen languages
+with nothing red — so every key the model can emit is a literal call in
+`rbWords()`, and the guard pins the renderer's literal set and the model's
+`KEYS` as one set.
+
+**Sixty-one mutations and one browser-only mutation, each killed — and the
+three that survived the first round were the DRIVER's, not the guard's.** Their
+anchor was the loader's three adopt-then-guard lines, which also open the
+context row's loader two thousand lines earlier in the same file, so a
+first-occurrence replace mutated THAT loader — whose guard was not in the
+round's suites — and reported the backstop's guard as blind to a mutation it
+never received. Re-anchored to the backstop loader's own throw line, all
+three die. A mutation driver's anchor is a claim about WHICH code changed,
+and one that matches twice is the second-copy shape inside the instrument
+that exists to find it; the quiet direction — a false KILL, where the stray
+edit breaks some unrelated test — is the one to remember. The browser-only
+mutation registers the model under another global name: every node suite
+requires it through `module.exports` and stays green, and only Chromium
+reaches `self.RiskBackstopModel`.
 
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
