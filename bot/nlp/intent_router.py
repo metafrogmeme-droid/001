@@ -931,6 +931,29 @@ _rule(_CLOSE_LEAD
       r"|cancel\s+(?:it|that|this|them|everything)\s*[!.]*\s*$)",
       "cancel_order",
       explanation="Wants an order cancelled — routed to the positions card's Cancel button, never dispatched")
+# A request to STAKE or REDEEM. The website's idle-yield intercept reads
+# "stake my …" as a yield QUESTION; here /stake and /unstake move the
+# OPERATOR's funds behind a Confirm card and are admin-only, and "stake my
+# usdc" reached no rule at all — three words, no trading word, greeted — so a
+# request to move money was answered with "hey!". It meets the act door now:
+# the notice says whose door it is and that nothing moved, and for the
+# operator the plan card follows (it moves nothing until Confirm is tapped).
+# Anchored to the whole message like the close rule, so "should i stake eth"
+# and "what is staking" stay the model's; the object is written as an asset,
+# an amount of one, the stables, Earn, or "it all" — "stake my claim" is an
+# idiom and reaches nothing here.
+# The stables are NOT in the ticker list — they are quote currencies, never
+# an asset the scanner names — and they are the thing people stake.
+_STAKE_OBJECT = (r"(?:\$?(?:{tickers})(?:/[A-Za-z]{{2,10}})?|(?-i:[A-Z]{{2,10}})"
+                 r"|usd[a-z]{{0,2}}|dai|frax|busd|tusd|pyusd"
+                 r"|stables?|stablecoins?|earn(?:ings)?|savings|it all|all of it|it|everything|the lot)")
+_rule(_CLOSE_LEAD
+      + r"(?:stake|restake|unstake|redeem|lock(?:\s+up)?)\s+(?:(?:my|the|some|all|all my|all of my|some of my)\s+)?"
+      r"(?:\$?\d[\d,.]*\s*k?\s+(?:of\s+(?:my\s+)?)?)?" + _STAKE_OBJECT.format(tickers=_TICKER_WORDS)
+      + r"(?:\s+(?:in|into|on|to|with|for|via)\s+[\w\s]{1,24})?(?:\s+(?:please|now|pls))?\s*[!.]*\s*$",
+      "stake_request",
+      explanation="Wants funds staked or redeemed — the operator's confirm-gated /stake or /unstake is the door, "
+                  "never dispatched")
 
 # --- Halt/emergency ---
 # Anchored to the WHOLE message. This was `\b(halt (the )?bot|stop (the )?

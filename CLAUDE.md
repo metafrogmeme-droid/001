@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **50 names including `halt`,
+whole vocabulary plus every chat tool: **51 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 47), because the
+surface than for the one it modelled best (telegram, 48), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1260,6 +1260,41 @@ intercept declines, has no instance: the rule is narrower than the
 intercept's by construction, so the one mutation the JS side can kill is
 the export leaving the intercept, and it does.
 
+**A request to STAKE was three words, no trading word, and greeted.**
+"stake my usdc" reached no rule — the website's idle-yield intercept reads
+"stake my …" as a yield question, and here `/stake` and `/unstake` move the
+OPERATOR's funds behind a Confirm card, admin-only — so a request to move
+money was answered with "hey!", and "stake my eth" reached a model that
+holds no staking tool. It is the fourth routed action now, the
+close/cancel/modify shape with one difference: its door is not a button.
+The notice says whose door it is (`/stake` or `/unstake`, read off the
+verb), where a caller's OWN idle assets can be read about (the website's
+idle-yield read — a recommendation, never a move), and that nothing was
+staked or redeemed. On Telegram the operator's own plan card follows for an
+admin, because that card moves nothing until Confirm is tapped and refuses
+everyone else, and nothing follows for anyone else — never the positions
+card, which is not this request's door, and never the command's refusal
+under a notice that has already said so. The rule is anchored to the whole
+message like the close rule, so "should i stake eth" and "what is staking"
+stay the model's; its object is written as an asset, an amount of one, the
+stables, Earn or "it all" — and the stables had to be spelled out, because
+they are quote currencies the ticker list never held and the one thing
+people stake, so the first draft matched "stake my eth" and not "stake my
+usdc". The transcript guard refused the next draft: it recorded in each arm
+of the admin `if` and nothing at the branch's own level, which is a record
+the guard cannot see above the return — one record now, written below the
+arm, with the arm adding only the card it showed. The prompt's cannot-act
+rule names the door too.
+(`tests/test_an_action_request_meets_a_door_on_every_surface.py`.)
+
+**Twelve mutations, each killed — and the one that survived the first
+round was the guard's.** The prompt rule's opening verbs were dropped, and
+the pin, reading "stake" as a substring, was satisfied by the "/stake"
+further along the same sentence: a pin on a word the sentence carries
+twice checks nothing about either. It names the claims now — the verbs,
+whose door it is, that the card moves nothing until Confirm, and the
+"never say" — and the mutation dies on the first of them.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
@@ -1437,7 +1472,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-seven call sites across the two entry points today, one on
+never happened. Forty-eight call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

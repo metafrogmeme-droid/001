@@ -47,6 +47,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
+    stake_verb,
     skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
@@ -3695,11 +3696,31 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # rows, and a stop change has no door at all, which the notice
             # says instead of naming one.
             if intent.skill in ACT_INTENTS:
+                _kind = ACT_KIND[intent.skill]
+                _verb = stake_verb(intent.raw_text) if _kind == "stake" else None
                 _act = act_intent_notice(
-                    ACT_KIND[intent.skill], symbol_mentioned(intent.raw_text),
+                    _kind, symbol_mentioned(intent.raw_text),
                     surface="telegram",
-                    also_asked=bool(intent.kwargs.get("also_asked")))
+                    also_asked=bool(intent.kwargs.get("also_asked")), verb=_verb)
                 await self._send(update, _act)
+                if _kind == "stake":
+                    # The door is the operator's own plan card — /stake or
+                    # /unstake, which moves nothing until Confirm is tapped
+                    # and refuses everyone else — so for the operator it
+                    # follows the notice, and for anyone else nothing does:
+                    # the notice has already said whose door it is, and the
+                    # command's refusal under it would say so twice. Never
+                    # the positions card, which is not this request's door.
+                    # One record, written unconditionally below the arm, so
+                    # the transcript guard can see it above the return; the
+                    # arm only adds the card it showed.
+                    _record = routed_answer_memory(intent.skill, _act)
+                    if self._is_admin(update):
+                        _plan = self._cmd_unstake if _verb == "unstake" else self._cmd_stake
+                        await _plan(update, ctx)
+                        _record += "\n" + card_shown_memory(f"{_verb} plan")
+                    self._remember_routed(tg_id, text, intent.skill, _record)
+                    return
                 await self._cmd_open_positions(update, ctx)
                 # BOTH halves, because the turn had two: the door, and a card
                 # whose rows are not in the transcript. Recording only the

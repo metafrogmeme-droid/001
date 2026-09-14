@@ -157,15 +157,34 @@ _CHAT_CANNOT_ACT_RULE = (
     "/reset clears a halt. On the web, the Controls panel's Emergency stop "
     "and Pause act on the caller's own agent. Never say the bot was halted, "
     "paused, stopped or resumed unless a tool result in THIS turn says so.\n"
+    "- You cannot stake, unstake or move funds into or out of Earn from this "
+    "chat, and no tool here can. If asked to, say so and name the door: "
+    "/stake and /unstake in Telegram are the operator's, admin-only, and "
+    "show a plan card that moves nothing until Confirm is tapped; the "
+    "website's chat can say where a caller's own idle assets could earn (a "
+    "recommendation, never a move). Never say funds were staked or redeemed "
+    "unless a tool result in THIS turn says so.\n"
 )
 
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
 #: act on a surface that cannot act meets a door and never a narrator.
-ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position")
+ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position", "stake_request")
 ACT_KIND: dict[str, str] = {
     "close_position": "close", "cancel_order": "cancel", "modify_position": "modify",
+    "stake_request": "stake",
 }
+
+_UNSTAKE_VERB = re.compile(r"\b(?:unstake|redeem|withdraw)\b", re.IGNORECASE)
+
+
+def stake_verb(text: str) -> str:
+    """Which way a staking request points — "unstake" for a redemption
+    ("unstake my usdc", "redeem my earn"), "stake" for everything else — so
+    the notice names the door that matches (/unstake or /stake) and the
+    Telegram branch dispatches the operator's matching plan card. Read from
+    the words, once, for both surfaces."""
+    return "unstake" if _UNSTAKE_VERB.search(str(text or "")) else "stake"
 
 _ACT_WORDING: dict[str, dict[str, str]] = {
     # verb phrase for the refusal, the door, and the closing claim
@@ -205,7 +224,8 @@ def cannot_act_rule(surface: str = "telegram") -> str:
 
 
 def act_intent_notice(kind: str, symbol: str | None = None,
-                      surface: str = "telegram", *, also_asked: bool = False) -> str:
+                      surface: str = "telegram", *, also_asked: bool = False,
+                      verb: str | None = None) -> str:
     """What a routed request to act is told, on both surfaces.
 
     One function so the Telegram card, the web reply and the prompt rule
@@ -223,10 +243,31 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     action ("close my ETH and scan the market"). One card answering a message
     with two asks, and no sentence about the other, reads as though both were
     handled — the same silence the routed action itself exists to end.
+
+    `stake` is the fourth kind and its door is not a button: /stake and
+    /unstake are the OPERATOR's, admin-only, and show a plan card that moves
+    nothing until Confirm is tapped, so the notice says whose door it is
+    (`verb` picks which), where a caller's OWN idle assets can be read about
+    (the website's idle-yield read, a recommendation and never a move), and
+    that nothing was staked or redeemed. The Telegram branch follows it with
+    the operator's plan card for an admin and with nothing for anyone else.
     """
     rest = (" You asked for something else in the same message; that part "
             "has not been run \u2014 send it on its own and I will."
             if also_asked else "")
+    if kind == "stake":
+        door = "/unstake" if verb == "unstake" else "/stake"
+        here = ("nothing here can" if surface == "web"
+                else "nothing in this conversation can")
+        where = ("in the Telegram bot" if surface == "web" else "here")
+        read = ("ask here: " if surface == "web"
+                else "the web app's chat has a read: ")
+        return ("I don't stake or redeem funds from chat, and " + here + ". "
+                f"Staking {where} is the operator's <code>{door}</code> \u2014 admin-only, a "
+                "plan card over the operator's idle stables that moves nothing until "
+                "Confirm is tapped. For where YOUR idle assets could earn, " + read
+                + "\u201c<i>put my idle cash to work</i>\u201d \u2014 a recommendation, never a "
+                f"move. Nothing has been staked or redeemed.{rest}")
     if kind == "modify":
         where = ("are below" if surface != "web"
                  else "are on the positions card in Telegram")
