@@ -73,6 +73,17 @@
       key: 'dd.err_operator_only', action: 'none', icon: 'icon-lock',
       fallback: 'This panel is for the operator account only.',
     },
+    // The 409 the credentials and controls POSTs answer for an account with
+    // no Telegram link. No panel LOAD meets it today — both status GETs answer
+    // 200 with `linked: false` and the panels read that field — so this row
+    // is the vocabulary being complete for a code the server does send, not
+    // a fix any loader reaches. 'none': a Retry cannot link an account, and
+    // the sentence names the door instead.
+    telegram_required: {
+      key: 'dd.err_telegram_required', action: 'none', icon: 'icon-link',
+      fallback: 'Live trading and exchange keys need a linked Telegram account — '
+        + 'link it under Account → Telegram first. Paper trading works without it.',
+    },
     rate_limited: {
       key: 'dd.err_rate_limited', action: 'retry', icon: 'icon-offline',
       fallback: 'Too many requests just now — wait a moment and try again.',

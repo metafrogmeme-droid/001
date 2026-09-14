@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "이 패널은 운영자 계정 전용입니다."],
   ["dd.err_rate_limited", "지금 요청이 너무 많습니다 — 잠시 후 다시 시도하세요."],
   ["dd.err_unreadable_body", "서버가 응답했지만 내용을 읽을 수 없었습니다 — 잠시 후 다시 시도하세요."],
+  ["dd.err_telegram_required", "실거래와 거래소 키에는 연결된 Telegram 계정이 필요합니다 — 먼저 계정 → Telegram에서 연결하세요. 페이퍼 트레이딩은 연결 없이도 됩니다."],
   ["dd.err_panel", "이 패널을 불러오지 못했습니다."],
   ["dd.retry", "다시 시도"],
   ["dd.nothing_here", "아직 아무것도 없습니다."],

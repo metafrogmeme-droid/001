@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "Bu panel yalnızca operatör hesabı içindir."],
   ["dd.err_rate_limited", "Şu anda çok fazla istek var — biraz bekleyip tekrar deneyin."],
   ["dd.err_unreadable_body", "Sunucu yanıt verdi ama yanıt okunamadı — birazdan tekrar deneyin."],
+  ["dd.err_telegram_required", "Canlı işlem ve borsa anahtarları için bağlı bir Telegram hesabı gerekir — önce Hesap → Telegram altından bağlayın. Kağıt işlem onsuz da çalışır."],
   ["dd.err_panel", "Bu panel yüklenemedi."],
   ["dd.retry", "Yeniden dene"],
   ["dd.nothing_here", "Burada henüz bir şey yok."],

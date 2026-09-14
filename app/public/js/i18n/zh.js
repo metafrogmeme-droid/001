@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "這個面板僅限操作者帳號使用。"],
   ["dd.err_rate_limited", "目前請求過多——稍候片刻再試。"],
   ["dd.err_unreadable_body", "伺服器已回應，但內容無法讀取——請稍後重試。"],
+  ["dd.err_telegram_required", "實盤交易與交易所金鑰需要已連結的 Telegram 帳號——請先在「帳戶 → Telegram」完成連結。模擬交易無需此步驟。"],
   ["dd.err_panel", "無法載入這個面板。"],
   ["dd.retry", "重試"],
   ["dd.nothing_here", "這裡還沒有內容。"],

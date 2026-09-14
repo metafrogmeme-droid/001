@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "Dit paneel is alleen voor het beheerdersaccount."],
   ["dd.err_rate_limited", "Te veel verzoeken op dit moment — wacht even en probeer opnieuw."],
   ["dd.err_unreadable_body", "De server antwoordde, maar het antwoord was niet leesbaar — probeer het zo opnieuw."],
+  ["dd.err_telegram_required", "Live handelen en exchange-sleutels vereisen een gekoppeld Telegram-account — koppel het eerst onder Account → Telegram. Papieren handel werkt ook zonder."],
   ["dd.err_panel", "Dit paneel kon niet geladen worden."],
   ["dd.retry", "Opnieuw"],
   ["dd.nothing_here", "Hier is nog niets."],

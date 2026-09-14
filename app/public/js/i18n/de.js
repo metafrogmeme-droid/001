@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "Dieses Panel ist nur für das Betreiberkonto."],
   ["dd.err_rate_limited", "Gerade zu viele Anfragen — kurz warten und erneut versuchen."],
   ["dd.err_unreadable_body", "Der Server hat geantwortet, aber die Antwort war nicht lesbar — gleich erneut versuchen."],
+  ["dd.err_telegram_required", "Live-Trading und Exchange-Schlüssel brauchen ein verknüpftes Telegram-Konto — verknüpfe es zuerst unter Konto → Telegram. Paper-Trading funktioniert auch ohne."],
   ["dd.err_panel", "Dieses Panel konnte nicht geladen werden."],
   ["dd.retry", "Erneut versuchen"],
   ["dd.nothing_here", "Hier ist noch nichts."],

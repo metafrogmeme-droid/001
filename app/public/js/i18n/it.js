@@ -641,6 +641,7 @@
   ["dd.err_operator_only", "Questo pannello è riservato all’account operatore."],
   ["dd.err_rate_limited", "Troppe richieste in questo momento: attendi un attimo e riprova."],
   ["dd.err_unreadable_body", "Il server ha risposto, ma la risposta non è leggibile — riprova tra poco."],
+  ["dd.err_telegram_required", "Il trading live e le chiavi exchange richiedono un account Telegram collegato — collegalo prima in Account → Telegram. Il paper trading funziona anche senza."],
   ["dd.err_panel", "Impossibile caricare questo pannello."],
   ["dd.retry", "Riprova"],
   ["dd.nothing_here", "Ancora nulla qui."],

@@ -5253,6 +5253,16 @@
         <input class="input" id="cf-${esc(venue.id)}-${esc(f.key)}" data-fkey="${esc(f.key)}" type="${f.type === 'password' ? 'password' : 'text'}" autocomplete="off"></div>`
     ).join('');
 
+    // ONE note, two readers (the keys panel and the live controls). The
+    // sentence is the panel-error vocabulary's own `telegram_required` row,
+    // so the 409 a POST answers and the `linked: false` a GET carries are
+    // worded identically; the button is the same door the hub's ladder
+    // names. The reading lives in CredsGateModel so a test can plant a payload
+    // and read the verdict back; a missing script claims nothing.
+    const tgFirst = (data) => (window.CredsGateModel ? CredsGateModel.needsTelegramFirst(data) : false);
+    const tgFirstNote = () => `<div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>
+          ${esc(T('dd.err_telegram_required', 'Live trading and exchange keys need a linked Telegram account — link it under Account → Telegram first. Paper trading works without it.'))}</div>
+          <p style="margin-top:var(--s2)"><a class="btn btn--primary btn--sm" href="#account/atg">${esc(T('dd.cta_tg', 'Link Telegram'))} →</a></p>`;
     renderPanel(C('akeys'), async () => {
       const [r, cfg] = await Promise.all([
         fetchJSON('/api/credentials/status'),
@@ -5260,13 +5270,13 @@
       ]);
       mustRead(r);
       venuesCatalog = (cfg.data?.venues) || [];
-      if (r.status === 409) {
-        // Not a dead-end: say what's missing AND hand over the next step.
-        return `<div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>
-          ${esc(r.data?.detail || 'Exchange keys require a linked Telegram account.')}</div>
-          <p style="margin-top:var(--s2)"><a class="btn btn--primary btn--sm" href="#account/atg">Link Telegram first →</a>
-          <span class="small muted" style="margin-left:8px">two minutes — then come straight back here</span></p>`;
-      }
+      // BEFORE THE FORM, off the READING. This branch used to wait for a 409
+      // that `GET /status` never sends (the 409 is the POST's answer), under a
+      // `mustRead` that would have thrown on one anyway — so an unlinked user
+      // was handed a keys form whose submit could only be refused, with their
+      // real API keys already typed into it. `linked: false` is the fact the
+      // GET does carry; an absent or malformed field claims nothing.
+      if (tgFirst(r.data)) return tgFirstNote();
       const c = r.data || {};
       if (!venuesCatalog.length) return null;
       // SAY IT BEFORE THE KEYS ARE TYPED, not after. When nothing can protect
@@ -5389,15 +5399,16 @@
     renderPanel(C('actl'), async () => {
       const r = await fetchJSON('/api/controls/status');
       mustRead(r);
+      // Same reading as the keys panel, for the same reason: every control
+      // below POSTs to a route that answers 409 for an unlinked account, so
+      // showing the switches is inviting a refusal. Read the field the GET
+      // carries and name the door instead.
+      if (tgFirst(r.data)) return tgFirstNote();
       // OMIT, not guard: the venue picker decorates this panel and one dead
       // source must not blank the live-trading controls beside it. A failed
       // read leaves `connected` empty, which the model renders as "nothing
       // connected" rather than as an empty selection.
       const cs = await fetchJSON('/api/credentials/status').catch(() => null);
-      if (r.status === 409) {
-        return `<div class="section-note"><svg class="icon" aria-hidden="true"><use href="#icon-link"></use></svg>
-          ${esc(r.data?.detail || 'Live controls require a linked Telegram account.')}</div>`;
-      }
       const c = r.data || {};
       const liveEff = c.live_enabled && c.allowlisted;
       return `<div class="row mb-3">
