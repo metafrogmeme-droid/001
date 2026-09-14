@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **39 names including `halt`,
+whole vocabulary plus every chat tool: **48 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 36), because the
+surface than for the one it modelled best (telegram, 45), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1023,6 +1023,43 @@ on its own, and the full preflight — not the slice's suites — said so.
 
 **Twenty-seven mutations, each killed.** The driver's first run aborted on its own anchor: the truncation tail written for the new record was byte-identical to the website record's, so the anchor matched twice — the second-copy shape showing up inside the instrument built to find it, and a second copy in the product. The tail is one helper now (`_headed`), the router's and the website's records read it too, and the round was re-run against it: every mutation dies, the gate refusal that returns without sending (so the AST pin is live) and the record written before the command runs included.
 
+**Nine of the website's fifteen chat intercepts had no read on Telegram, and
+one of them was a wrong card.** Six have nothing here at all — the what-if
+replay, the weekly letter, the airdrop radar, the NFT radar, the spot market,
+the DeFi positions — and three share a word with a Telegram command that does
+something else: `/alerts` is the anomaly-alert scope, `/venues` picks which
+connected venues trade, `/memeplan` is a buy preflight. Typed on Telegram,
+"replay every signal with $1k" ran a SYNTHETIC BACKTEST, because the backtest
+rule carried a bare `replay` in its alternation — a confident wrong card, the
+`get_orders` shape one word over — and the other eight either met the social
+gate (three words, no trading word, greeted) or reached a model whose prompt
+says nothing about the website, which then answered from nothing. A read the
+product has on one surface and not the other gets a DOOR, never a narrator:
+`bot/nlp/web_reads.py` answers both surfaces with the surface that has the
+read, the phrasing it accepts, the same-named command here when there is one
+(its sentence read off the command catalogue, never written here), and
+"nothing was read or set". On the web the Python path sees such an ask only
+when the Node intercept's own pattern missed the phrasing, so the honest
+answer THERE is the phrasing it accepts.
+
+**The sentence a notice tells a caller to type is a claim about another
+surface, so the other surface checks it.** `web_reads.json` is one table read
+by both sides: the Python notice quotes each row's `example`, and
+`app/test/web_reads_examples_reach_the_intercepts.test.js` drives every
+example through the intercept library's own `CHAT_RE` (the alerts parser for
+the one intercept with no regex), which seven libraries export now. A
+phrasing that drifted out of a regex fails there rather than in a user's chat
+one turn after the notice invited it — the `/vault` hint rule, with the door
+on the other side of a process boundary. The rules mirror the intercepts'
+patterns and narrow them where the web's claim is wider than honest: the
+web's `spot` takes "spot prices", which on Telegram is a PRICE question and
+stays one; an education question ("what is defi") is the model's, as it is
+for `rwa`, and the nouns went into the social gate's vocabulary so a
+three-word one reaches the model rather than the greeter.
+(`tests/test_the_website_only_reads_meet_a_door_on_telegram.py`.)
+
+**Twenty-four mutations, each killed.** Two survived the first round and both were the driver's. The bare `replay` put back into the backtest rule changed no verdict, because the new replay rule is registered above it — so the corpus gained a phrasing NEITHER surface claims ("replay the last week"), which the old rule ran a backtest for and which reaches no rule now. And the letter example swapped for "agent letter" was an equivalent mutant, both surfaces claiming it; the mutation is the spot example swapped for "spot prices" now, the one phrasing this router deliberately declines and the web takes — killed by the Python pin, which is the direction the JS pin cannot see.
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1198,7 +1235,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty-six call sites across the two entry points today, one on
+never happened. Thirty-eight call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

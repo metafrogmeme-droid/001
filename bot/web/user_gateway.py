@@ -55,6 +55,7 @@ from bot.nlp.skill_memory import (
     skill_unavailable_memory,
     web_answer_memory,
 )
+from bot.nlp.web_reads import WEB_READS, web_read_notice
 from bot.skills.skill_permissions import (
     SKILL_PERMISSION,
     WEB_CHAT_SKILLS,
@@ -721,6 +722,15 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             _live = None
         _door = halt_intent_notice(intent.skill, surface="web",
                                    verb=halt_verb(intent.raw_text), live=_live)
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           routed_answer_memory(intent.skill, _door), surface="web")
+        return web.json_response({"reply_html": _door, "intent": intent.skill})
+    # A read only the website answers, whose Node intercept missed this
+    # phrasing — the Python path sees such an ask only then. The notice names
+    # the words the intercept takes, so the caller is not handed to a model
+    # that holds no such tool (`bot/nlp/web_reads.py`).
+    if intent.matched and intent.confidence >= 0.8 and intent.skill in WEB_READS:
+        _door = web_read_notice(intent.skill, surface="web")
         record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
                            routed_answer_memory(intent.skill, _door), surface="web")
         return web.json_response({"reply_html": _door, "intent": intent.skill})

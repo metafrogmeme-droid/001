@@ -728,7 +728,7 @@ async function maybeHandleLetterChat(userId, text) {
   }
 }
 
-module.exports = {
+module.exports = { CHAT_RE,
   // Exported for the read-state contract: `reads` is the difference
   // between a quiet week and an unreadable one, and asserting it through
   // getLetter alone would couple those tests to persistence.

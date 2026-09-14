@@ -140,6 +140,6 @@ async function maybeHandleNftChat(userId, text) {
     ...rows, `<i>${radar.disclaimer}</i>`].join('<br>') };
 }
 
-module.exports = {
+module.exports = { CHAT_RE,
   getNftRadar, getWalletNfts, maybeHandleNftChat, setOpenSeaFetcher, CHAT_RE,
 };

@@ -242,7 +242,7 @@ async function maybeHandleAirdropChat(userId, text) {
   }
 }
 
-module.exports = {
+module.exports = { CHAT_RE,
   SEED_CATALOG,
   CURATED_AT,
   loadCatalog,

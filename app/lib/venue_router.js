@@ -136,4 +136,4 @@ async function maybeHandleVenueRouterChat(userId, text) {
   }
 }
 
-module.exports = { buildRouterTable, buildRouter, getVenueRouter, maybeHandleVenueRouterChat };
+module.exports = { CHAT_RE, buildRouterTable, buildRouter, getVenueRouter, maybeHandleVenueRouterChat };

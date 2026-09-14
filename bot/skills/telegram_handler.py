@@ -50,6 +50,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
+from bot.nlp.web_reads import WEB_READS, web_read_notice
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
@@ -3598,6 +3599,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     update, ctx, symbol=str(intent.kwargs.get("symbol") or ""))
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("research"))
+                return
+
+            # ── The reads only the website answers → a door, never a narrator ──
+            # "replay every signal with $1k" ran a synthetic backtest here and
+            # "my defi positions" reached a model told nothing about the
+            # website. Each answers with the surface that has the read, the
+            # words it takes, and what any same-named command here does
+            # (`bot/nlp/web_reads.py`); nothing is dispatched.
+            if intent.skill in WEB_READS:
+                _door = web_read_notice(intent.skill, surface="telegram")
+                await self._send(update, _door)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      routed_answer_memory(intent.skill, _door))
                 return
 
             # ── Close intent → the positions card, NEVER a close ──

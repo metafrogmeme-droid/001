@@ -200,7 +200,7 @@ async function maybeHandleMemeChat(userId, text) {
   }
 }
 
-module.exports = {
+module.exports = { CHAT_RE,
   CHAINS, riskRead, normalizePair, buildRadar,
   getRadar, setPairFetcher, maybeHandleMemeChat,
 };

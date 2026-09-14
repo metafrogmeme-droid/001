@@ -240,7 +240,7 @@ async function maybeHandleDefiChat(userId, text) {
   }
 }
 
-module.exports = {
+module.exports = { CHAT_RE,
   AAVE_POOLS,
   buildDefiPositions,
   getDefiPositions,
