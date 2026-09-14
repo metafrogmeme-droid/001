@@ -404,16 +404,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "49 names including `halt`" in flat
+    assert "50 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 49, len(old)
+    assert len(old) == 50, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 46)" in flat
+    assert "(telegram, 47)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 46, len(tg)
+    assert len(tg) == 47, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):

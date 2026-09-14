@@ -323,7 +323,7 @@ class TestTheTables:
             assert WEB_ROUTED_PERMISSION[name] == name
             assert ROUTED_INTENT_SEAM[name] == f"{name}_card_text"
             assert ug._WEB_SKILL_PERMISSION[name] == name
-        assert set(WEB_READS) == {"price_alert"}, "a door notice over a read that exists"
+        assert set(WEB_READS) == {"price_alert", "idle_yield"}, "a door notice over a read that exists"
         assert "idleyield" not in WEB_CARDS and "price_alert" not in WEB_CARDS
 
     def test_the_command_branches_sit_above_the_door_branch(self):

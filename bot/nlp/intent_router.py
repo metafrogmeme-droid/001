@@ -1122,9 +1122,11 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # now (`/airdrops`, `/nft`, `/spot`, `/replay`, `/letter`, `/venue_router`,
 # `/meme_radar`, `/defi` render the website's own card) and route to them the
 # way `rwa` does; the price alert stays a door, being a WRITE the website's
-# push channel does. The rules keep their place here because order is what
-# decides which rule answers. `wallet` — the website's mirror of the caller's
-# linked wallet — never had a rule: two words, greeted.
+# push channel does, and the idle-yield read — which had no rule at all, so
+# "idle yield" was greeted — gets a door of the same shape below. The rules
+# keep their place here because order is what decides which rule answers.
+# `wallet` — the website's mirror of the caller's linked wallet — never had
+# a rule: two words, greeted.
 _EDU = r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
 _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
       r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
@@ -1143,6 +1145,20 @@ _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions|
       "defi", explanation="DeFi positions and liquidation risk (the website's card, /defi)")
 _rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",
       "wallet", explanation="The caller's linked on-chain wallet, mirrored (the website's card, /wallet)")
+# The idle-yield read is the website's too — its optimiser reads the wallet
+# the caller signed in with — and this chat's `/idleyield` is the OPERATOR's
+# exchange account under the same word (admin-only), so the words get a
+# door and never that command. Narrower than the web's regex on purpose: the
+# intercept takes a bare "idle" and "stake my …", and here "stake my usdc"
+# is a request to ACT that /stake's confirm card owns — recorded, not
+# routed, so it must not reach this door.
+_rule(_EDU + r"\b(idle[- ]yield(?: optimi[sz]er| scan(?:ner)?| radar)?"
+      r"|(?:my )?idle (?:capital|cash|stables?|usd[ct]|funds?|money|balances?|assets?|coins?)"
+      r"|(?:what|where) (?:to do|can i do) with my idle \w+"
+      r"|best (?:rate|yield|apy) for (?:my )?(?:idle )?(?:stables?|usd[ct]|\w+)"
+      r"|put (?:my )?(?:idle )?\w+ to work|where can i earn (?:more|yield|on)"
+      r"|earn more on my \w+|is my capital idle)\b",
+      "idle_yield", explanation="Idle-yield optimiser over your linked wallet (a website read, ask it there)")
 _rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"
       r"|tell me when \S+ (?:drops?|falls?|goes|rises?|hits|breaks?|crosses)|notify me (?:when|if)"
       r"|(?:show |list )?my (?:price )?alerts)\b",

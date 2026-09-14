@@ -31,12 +31,14 @@ function claims(row, text) {
   return lib.CHAT_RE.test(text);
 }
 
-test('the table names one read, on a row the intercept table has', () => {
+test('the table names two reads, each on a row the intercept table has', () => {
   // Nine until the website's cards became Telegram commands
   // (bot/skills/market_commands.py, portfolio_commands.py); eight route to a
   // command now, and a row here would be a door notice over a read that
-  // exists. The price alert is a WRITE the website's push channel does.
-  assert.equal(Object.keys(TABLE).length, 1);
+  // exists. The price alert is a WRITE the website's push channel does, and
+  // the idle-yield read is the website's optimiser over the wallet the caller
+  // signed in with, where the bot's /idleyield is the operator's account.
+  assert.equal(Object.keys(TABLE).length, 2);
   for (const gone of ['nft', 'spot', 'airdrops', 'replay', 'letter', 'defi', 'venue_router', 'meme_radar']) {
     assert.equal(gone in TABLE, false, gone);
   }

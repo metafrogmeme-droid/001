@@ -1,3 +1,4 @@
 {
-  "price_alert":  {"row": "alerts",   "lib": "alerts",       "label": "a price alert",                                              "example": "tell me when BTC drops below 100k",  "collides_with": "alerts"}
+  "price_alert":  {"row": "alerts",   "lib": "alerts",       "label": "a price alert",                                              "example": "tell me when BTC drops below 100k",  "collides_with": "alerts"},
+  "idle_yield":   {"row": "idleyield", "lib": "idle_yield",   "label": "the idle-yield optimiser over your linked wallet",           "example": "put my idle cash to work",           "collides_with": "idleyield"}
 }

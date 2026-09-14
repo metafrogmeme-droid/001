@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **49 names including `halt`,
+whole vocabulary plus every chat tool: **50 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 46), because the
+surface than for the one it modelled best (telegram, 47), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1227,6 +1227,38 @@ dies on a DEXScreener token named `<b`, driven through the route's own card
 rather than read off the helper. And `wallet` leaving the social vocabulary
 dies on the one word typed alone: no rule claims it, so without the word it
 is greeted, and the router test types it bare.
+
+**The fifteenth intercept had no door and the fourteenth had a pin, and the
+difference is worth writing down.** The website's idle-yield optimiser reads
+the wallet the caller signed in with; this chat's `/idleyield` is the
+OPERATOR's exchange account under the same word, admin-only, and no rule
+claimed the words at all — "idle yield" and "my idle usdc" were greeted,
+"put my idle cash to work" reached a model told nothing about the website.
+It is a door row now, the price alert's shape: the notice names the surface
+that has the read, the words it takes, and what this chat's same-named
+command does, off the catalogue. The rule is narrower than the web's on
+purpose — the intercept takes a bare "idle" and "stake my …", and here
+"stake my usdc" is a request to ACT that `/stake`'s confirm card owns, so it
+stays out of the door and in the decoy table (today it is greeted, which is
+its own gap, filed). The intercept exports its pattern now, so the JS side
+checks the example the notice quotes, as it does for the other row. And
+`exposure` stays where slice 1 pinned it: the website answers "my exposure"
+with its cross-venue netting card, which `/exposure` renders here by name,
+while the words are the risk engine's — a pinned routing from the corpus
+work, kept because a recorded decision is overturned by a new argument or
+not at all, and "one word names two cards" is the argument that was already
+weighed. Fifteen intercepts: twelve commands, two doors, one recorded
+difference — and the two counts this file drives moved by one each, the
+door being a routed name that dispatches nowhere.
+(`tests/test_the_website_only_reads_meet_a_door_on_telegram.py`.)
+
+**Seven mutations, each killed on the first round, and one of them for a
+reason other than its name.** The example swapped for a phrasing the web
+does not claim died on the PYTHON pin — Telegram routes it nowhere either —
+and the JS pin's own direction, a phrasing Telegram routes that the
+intercept declines, has no instance: the rule is narrower than the
+intercept's by construction, so the one mutation the JS side can kill is
+the export leaving the intercept, and it does.
 
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every

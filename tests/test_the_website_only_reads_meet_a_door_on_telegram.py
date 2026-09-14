@@ -85,6 +85,19 @@ ROWS = [
     ("dexscreener", "meme_radar"),
     ("meme coins", "meme_radar"),
     ("ai agent tokens", "meme_radar"),
+    # The second door: the website's idle-yield optimiser over the wallet the
+    # caller signed in with; /idleyield here is the operator's account.
+    ("idle yield", "idle_yield"),
+    ("idle-yield optimizer", "idle_yield"),
+    ("my idle usdc", "idle_yield"),
+    ("put my idle cash to work", "idle_yield"),
+    ("put my usdc to work", "idle_yield"),
+    ("best yield for my idle stables", "idle_yield"),
+    ("best apy for usdc", "idle_yield"),
+    ("where can i earn yield", "idle_yield"),
+    ("earn more on my stables", "idle_yield"),
+    ("what to do with my idle cash", "idle_yield"),
+    ("is my capital idle", "idle_yield"),
 ]
 
 #: Phrases that must NOT reach any of the nine — each a neighbour that was
@@ -108,6 +121,15 @@ DECOYS = [
     ("rwa radar", "spot"),
     ("halt the bot", "replay"),
     ("close my eth", "spot"),
+    # The web's idle-yield regex takes a bare "idle" and "stake my …"; here
+    # "stake my usdc" is a request to ACT that /stake's confirm card owns, an
+    # education question is the model's, and "yield radar" is this chat's
+    # own /yield word. None reaches the door.
+    ("stake my usdc", "idle_yield"),
+    ("what is idle yield", "idle_yield"),
+    ("what is yield farming", "idle_yield"),
+    ("how do i earn yield", "idle_yield"),
+    ("yield radar", "idle_yield"),
 ]
 
 #: Routes that stay exactly where they were.
@@ -173,7 +195,7 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert r.row in rows, r
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
-    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
+    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 2
     assert not {"airdrops", "nft", "spot", "replay", "letter", "defi",
                 "venue_router", "meme_radar"} & set(WEB_READS), "commands now, not doors"
 
@@ -239,6 +261,8 @@ class TestTelegram:
     @pytest.mark.parametrize("text,intent", [
         ("tell me when BTC drops below 100k", "price_alert"),
         ("set an alert for eth at 3000", "price_alert"),
+        ("put my idle cash to work", "idle_yield"),
+        ("my idle usdc", "idle_yield"),
     ])
     async def test_each_read_gets_its_door_and_the_model_never_runs(self, bot, text, intent):
         rec = AsyncMock(return_value="narrated")
@@ -256,12 +280,25 @@ class TestTelegram:
         assert "/alerts" in n and "anomaly alert scope" in n and "different thing" in n
         assert "tell me when BTC drops below 100k" in n
 
+    @pytest.mark.asyncio
+    async def test_an_idle_yield_ask_names_the_operators_command_as_a_different_thing(self, bot):
+        # The operator typing the website's words gets the door too: their
+        # /idleyield reads the exchange account, not the wallet the website
+        # optimises, and the notice says so off the catalogue's own words.
+        await bot._handle_message(_update(OPERATOR, "idle yield"), None)
+        n = bot.sent[-1]
+        assert n == web_read_notice("idle_yield", surface="telegram")
+        assert "/idleyield" in n and "cross-source best-rate scan" in n and "different thing" in n
+        assert "put my idle cash to work" in n and "Nothing was read" in n
+        assert bot.registry.dispatched == []
+
 
 # ── the web ──────────────────────────────────────────────────────────────
 
 class TestTheWeb:
     @pytest.mark.parametrize("text,intent", [
         ("alert me when sol hits 200", "price_alert"), ("my alerts", "price_alert"),
+        ("best apy for usdc", "idle_yield"),
     ])
     def test_the_python_path_answers_with_the_intercepts_words_and_records(self, monkeypatch, text, intent):
         ug, h = _web(monkeypatch)
