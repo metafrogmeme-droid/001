@@ -1978,9 +1978,46 @@ both halt cards named a word that routes nowhere** — `Say "reset" to resume`,
 model — and `/resume` was the wrong door after an emergency stop anyway, since
 it clears only the shared breaker while `engine._halted` is cleared by `/reset`
 alone. The `/vault` hint shape: a card that names a command is claiming the
-command does something. Known and left open: a leading `bro`/`lol`/`thanks`
-still wins the social gate before any rule runs, and `@BotName halt` in a group
-is not mention-stripped; both now reach a model that has been told the door.
+command does something. Two things were left open there — a leading
+`bro`/`lol`/`thanks` won the social gate before any rule ran, and
+`@BotName halt` in a group was not mention-stripped — and both are closed
+below.
+
+**A social lead on a whole-message action is INFORMALITY, and informality
+goes to the door.** The social gate consults the anchored action rules
+first, and every one of them begins with `_HALT_LEAD`, which knows
+politeness (`please`, `ok`, `can you`) and nothing casual — so "bro stop the
+bot", "lol stop" and "thanks, stop the bot" met `_SOCIAL_CHAT`'s `^bro`,
+the three-word rule and `_THANKS_PATTERNS`' unanchored search, and were
+greeted: an operator in a hurry, answered "hey!". Two of those were PINNED
+social by the halt suite ("a LEADING thanks is still social"), and a
+recorded decision is overturned by a new argument or not at all. The
+argument: the lead is a signal about the SENTENCE, and a casual fleet halt
+is exactly the kind `_cmd_halt`'s missing confirmation was anchored
+against — so `HALT_SOCIAL_LEAD` routes it to the ambiguous DOOR (the notice
+says the sentence was read as casual and names the command), never to the
+dispatch; the emergency phrase keeps its confirm card, which is the
+confirmation; a `my`-scoped pause keeps `/pause`, the caller's own and
+reversible; and a bare verb behind the lead is the bare door it always
+was. Politeness may sit on either side ("ok bro, please stop the bot").
+"thanks bro", "lol ok", "thanks for stopping the bot" and "lol the bot
+stopped again" (a REPORT) stay social: the lead alone is not an action,
+and a sentence whose remainder matches no rule is what it was.
+
+**And the handler strips THIS bot's handle before the router reads the
+text.** `_handle_message` handed `update.message.text` to the router raw,
+so `@RuneClawBot halt` in a group — the one shape a group message takes —
+was a decoy by construction: an anchored rule cannot see past a mention it
+was never told about. `strip_bot_mention` (the chat-runtime leaf) removes
+the handle ONCE from either end, only this bot's (`_bot_username`, the
+cached API read the close callbacks already use — never a config value
+that outlives a rename), only as a whole token (`@RuneClawBotty halt` and
+`x@RuneClawBot` stay as typed), and strips nothing when the handle is
+unknown, which is the behaviour every message had before. It runs before
+the firewall scan and the forward check, so those read the sentence too.
+(`tests/test_a_social_lead_is_an_action_at_the_door.py`.)
+
+**Seventeen mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: any word accepted as a social lead dies on the halt suite's own decoys rather than on the new table — "never halt the bot" becomes a lead plus a halt and routes, which is the decoy list doing the job it was written for one slice ago; and the handler stripping nothing dies twice, on the drive where `@RuneClawBot halt` must run `/halt` and on the source pin that orders the strip before the firewall — the drive is the proof, the pin says where. The rest die where the drives say — a casual fleet halt dispatched, the social forms leaving the gate's list, the casual emergency phrase losing its confirm card, the casual own-pause becoming the fleet door, a casual bare verb dispatched, `halt_verb` blind to the social form, nothing ever casual, the notice ignoring or contradicting it on either surface, a longer handle stripped as this one, the strip repeating, the handle matched case-sensitively, a trailing handle left as a word.
 
 **The review of that fix drove the router over the phrases a trader types
 in a hurry, and the rule was in the wrong slot with the wrong object.** It

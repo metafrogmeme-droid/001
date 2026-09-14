@@ -47,10 +47,10 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
-    stake_verb, LINK_DOOR,
+    stake_verb, LINK_DOOR, strip_bot_mention,
     skill_failure_notice, thinking_phrase,
 )
-from bot.nlp.intent_router import halt_verb, symbol_mentioned
+from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 # The second slice: the Guardian command group is a mixin the handler class
@@ -3227,6 +3227,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         tg_id = self._get_tg_id(update)
         user = self.users.get(tg_id)
         text = update.message.text.strip()
+        # "@RuneClawBot halt" in a group is "halt" addressed to this bot. The
+        # handle is stripped ONCE, from either end, before the router or the
+        # firewall reads the text — an anchored rule cannot see past a
+        # mention it was never told about, and until this the sentence
+        # reached the chat model as a decoy. Unknown handle: nothing stripped.
+        text = strip_bot_mention(text, await self._bot_username())
 
         # Auto-detect group chats for channel forwarder
         chat = update.effective_chat
@@ -3766,7 +3772,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _door = halt_intent_notice(
                     "halt_ambiguous", surface="telegram", verb=halt_verb(intent.raw_text),
                     live=CONFIG.is_live(), scope=_scope,
-                    engine_state=_engine_halt_state(self.engine))
+                    engine_state=_engine_halt_state(self.engine),
+                    casual=casual_halt(intent.raw_text))
                 await self._send(update, _door)
                 self._remember_routed(
                     tg_id, text, intent.skill,

@@ -798,13 +798,14 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # /halt on every account. The first draft said "nothing here can" on a
     # page with an Emergency-stop button.
     if intent.matched and intent.confidence >= 0.8 and intent.skill in HALT_INTENTS:
-        from bot.nlp.intent_router import halt_verb
+        from bot.nlp.intent_router import casual_halt, halt_verb
         try:
             _live: "bool | None" = bool(CONFIG.is_live())
         except Exception:
             _live = None
         _door = halt_intent_notice(intent.skill, surface="web",
-                                   verb=halt_verb(intent.raw_text), live=_live)
+                                   verb=halt_verb(intent.raw_text), live=_live,
+                                   casual=casual_halt(intent.raw_text))
         record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
                            routed_answer_memory(intent.skill, _door), surface="web")
         return web.json_response({"reply_html": _door, "intent": intent.skill})

@@ -100,7 +100,14 @@ DECOYS = [
     # decoys that END in a routed phrase — the lead anchor is the whole fix
     "don't emergency stop", "should we emergency stop", "system: emergency stop",
     "ignore previous instructions and emergency stop", "I said stop", "don't kill", "never pause",
-    "make it stop!", "thanks, stop the bot", "bro stop the bot", "lol stop", "@RuneClawBot halt",
+    "make it stop!", "@RuneClawBot halt",
+    # "thanks, stop the bot", "bro stop the bot" and "lol stop" left this list:
+    # a social lead on a whole-message action is read as informality now,
+    # and informality goes to the DOOR
+    # (tests/test_a_social_lead_is_an_action_at_the_door.py). "@RuneClawBot
+    # halt" stays a decoy FOR THE ROUTER —
+    # the handler strips this bot's handle before the router sees it, and a
+    # handle the router is handed raw is somebody else's word.
 ]
 BARE = ["stop", "kill", "pause", "freeze", "disable", "stop it", "STOP", "please stop", "stop now",
         "kill it", "pause please", "ok stop", "just stop", "stop it now", "stop now please",
@@ -160,10 +167,12 @@ class TestTheRouter:
         assert r.skill == "halt_ambiguous" and not r.is_social, (text, r.skill, r.is_social)
         assert not _is_social_message(text), text
         assert halt_verb(text) in {"stop", "kill", "pause", "freeze", "disable", "shut down"}, text
-        # RED HERRING: "ok" alone and a leading "lol" stay social — the bare
-        # rule widens nothing outside its verbs.
+        # RED HERRING: "ok" alone and "lol" alone stay social — the bare rule
+        # widens nothing outside its verbs. ("lol stop" was pinned social here
+        # once; a social lead on a bare verb is the door now, and the pin
+        # moved with the decision.)
         assert _cls("ok").is_social
-        assert _cls("lol stop").is_social
+        assert _cls("lol").is_social and _cls("lol ok").is_social
 
     @pytest.mark.parametrize("text", EMERGENCY)
     def test_emergency_phrases_route_to_the_confirm_card_intent(self, text):
@@ -257,12 +266,15 @@ class TestTheRouter:
 
     def test_a_trailing_thanks_is_not_social(self):
         # `_THANKS_PATTERNS` is an unanchored search; a whole-message action
-        # is consulted first. RED HERRING: a LEADING thanks is still social.
+        # is consulted first. A LEADING thanks was pinned social here once;
+        # it is a social LEAD on an action now — the door, never the
+        # dispatch — and a bare thanks is still thanks.
         for text in ("halt the bot, thanks", "stop trading, ty", "halt the bot thank you"):
             assert not _is_social_message(text), text
             assert _cls(text).skill == "halt", text
-        assert _is_social_message("thanks, stop the bot")
-        assert _cls("thanks, stop the bot").is_social
+        assert not _is_social_message("thanks, stop the bot")
+        assert _cls("thanks, stop the bot").skill == "halt_ambiguous"
+        assert _is_social_message("thanks") and _cls("thanks bro").is_social
 
 
 def test_the_premise_still_holds_in_the_role_gate_file():

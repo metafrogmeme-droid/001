@@ -199,6 +199,34 @@ def link_door(surface: str) -> dict[str, str]:
     return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
 
 
+_MENTION_EDGE = " ,:;!-\u2013\u2014\t"
+
+
+def strip_bot_mention(text: str, username: str | None) -> str:
+    """The message with THIS bot's @handle removed once from its start or its
+    end. "@RuneClawBot halt" in a group is "halt" addressed to this bot, and
+    the router's anchored rules — the whole fix for "matched inside any
+    sentence" — cannot see past a handle they were never told about.
+
+    Only this bot's handle, compared case-insensitively as Telegram does,
+    and only as a whole token: "@RuneClawBotty halt" and "x@RuneClawBot"
+    are left alone, and so is a mention of any OTHER bot, which is part of
+    the sentence. With no handle known (the API never answered) nothing is
+    stripped — the message reaches the router as typed, which is what it
+    always did."""
+    if not username or not text:
+        return text
+    handle = "@" + str(username).lstrip("@")
+    s = text.strip()
+    low, h = s.lower(), handle.lower()
+    n = len(h)
+    if low.startswith(h) and (len(s) == n or not (s[n].isalnum() or s[n] == "_")):
+        return s[n:].lstrip(_MENTION_EDGE).strip()
+    if low.endswith(h) and (len(s) == n or not (s[-n - 1].isalnum() or s[-n - 1] == "_")):
+        return s[:-n].rstrip(_MENTION_EDGE).strip()
+    return s
+
+
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
 #: act on a surface that cannot act meets a door and never a narrator.
@@ -441,7 +469,7 @@ _WEB_HALT_DOOR = (
 
 def halt_intent_notice(kind: str, surface: str = "telegram", verb: str | None = None, *,
                        live: bool | None = None, scope: str | None = None,
-                       engine_state: str | None = None) -> str:
+                       engine_state: str | None = None, casual: bool = False) -> str:
     """What a routed halt-shaped message is told when it is NOT dispatched.
 
     Telegram answers only the bare verb (`halt_ambiguous`): a stop-word with
@@ -457,12 +485,19 @@ def halt_intent_notice(kind: str, surface: str = "telegram", verb: str | None = 
     `engine_state` lets the closing sentence say the engine is ALREADY
     halted rather than claim the world is running. `verb` is the rule's own
     vocabulary, never free input; None is worded as a stop-word, never as a
-    default verb.
+    default verb. `casual` is `intent_router.casual_halt`'s reading: the
+    message reached this door behind a social lead ("bro stop the bot"),
+    which may well have named the bot — so the sentence says it was read
+    as casual, not that nothing was named.
     """
     if kind not in HALT_INTENTS:
         raise KeyError(kind)
-    bare = (f"a bare <code>{verb}</code> with nothing named" if verb is not None
-            else "a stop-word with nothing named")
+    if casual:
+        bare = ((f"a casual <code>{verb}</code>" if verb is not None else "a casual sentence")
+                + " \u2014 a halt that stops every account is the command itself, typed on its own")
+    else:
+        bare = (f"a bare <code>{verb}</code> with nothing named" if verb is not None
+                else "a stop-word with nothing named")
     if surface == "web":
         lead = (f"I wouldn't act on {bare} anywhere — too easy to send by accident "
                 "for a switch that stops every account. "

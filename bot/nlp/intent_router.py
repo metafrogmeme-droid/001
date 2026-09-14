@@ -218,10 +218,20 @@ def symbol_mentioned(text: str) -> Optional[str]:
     return _extract_symbol(text)
 
 
+def casual_halt(text: str) -> bool:
+    """Whether a routed halt-shaped message reached the door BECAUSE of a
+    social lead — "bro stop the bot" rather than "stop the bot" — so the
+    notice can say the sentence was read as casual and name the command,
+    rather than call a sentence that named the bot "a stop-word with
+    nothing named"."""
+    t = text or ""
+    return bool(HALT_SOCIAL_LEAD.match(t) or BARE_SOCIAL_LEAD.match(t))
+
+
 def halt_verb(text: str) -> Optional[str]:
     """The bare verb a `halt_ambiguous` match carried — from the rule's own
     fixed vocabulary, never free input — or None."""
-    m = HALT_BARE_VERB.match(text or "")
+    m = HALT_BARE_VERB.match(text or "") or BARE_SOCIAL_LEAD.match(text or "")
     if not m:
         return None
     verb = re.sub(r"\s+", " ", m.group("verb").lower())
@@ -723,8 +733,24 @@ _rule(r"\b((back to|go) (normal|balanced|default)( risk| mode)?|"
 #: down: one spelling of "and another thing", read the same way by both.
 _CLAUSE_JOIN = r"(?:\s*[,;]\s*|\s+)(?:and\s+then\s+|and\s+|then\s+)?"
 
-_HALT_LEAD = (r"^\s*(?:(?:please|pls|plz|just|ok|okay|now|can you|could you|can u|would you|"
-              r"go ahead and|i need you to|i want you to|please can you|let's|lets)\s+)*")
+_HALT_LEAD_WORDS = (r"(?:(?:please|pls|plz|just|ok|okay|now|can you|could you|can u|would you|"
+                    r"go ahead and|i need you to|i want you to|please can you|let's|lets)\s+)*")
+_HALT_LEAD = r"^\s*" + _HALT_LEAD_WORDS
+#: A SOCIAL lead — "bro", "lol", "thanks", "yo" — on a whole-message action.
+#: `_SOCIAL_CHAT` and `_GREETING_PATTERNS` anchor on these words and
+#: `_THANKS_PATTERNS` searches for them anywhere, so "bro stop the bot",
+#: "lol stop" and "thanks, stop the bot" were greeted — the action rules
+#: are consulted first by the social gate, and every one of them begins
+#: with `_HALT_LEAD`, which knows politeness and not informality. The lead
+#: is read as what it is: a signal that the sentence is casual. A casual
+#: FLEET HALT goes to the ambiguous door (the notice and the door, never the
+#: unconfirmed dispatch); the emergency phrase keeps its confirm card,
+#: which is the confirmation; a `my`-scoped pause keeps /pause, which is the
+#: caller's own and reversible. Politeness may sit on either side of it
+#: ("ok bro, please stop the bot").
+_SOCIAL_LEAD_WORDS = (r"(?:(?:bro|bruh|dude|mate|fam|man|lol|lmao|rofl|haha|hah|thanks|thank\s+you|"
+                      r"thx|ty|tysm|cheers|yo|hey|hi|hello|ok\s+cool|cool|nice)[\s,!.:;\-–—]+)+")
+_SOCIAL_LEAD = r"^\s*" + _HALT_LEAD_WORDS + _SOCIAL_LEAD_WORDS + _HALT_LEAD_WORDS
 _HALT_TAIL = (r"(?:[\s,;\-–—]+(?:now|please|pls|plz|asap|immediately|right\s+now|for\s+now))*"
               r"(?:[\s,]+(?:thanks|thank\s+you|thx|ty|cheers|tysm))?"
               r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$")
@@ -759,23 +785,31 @@ _ANY_CLAUSE = r"(?:" + _HALT_BODY + r"|" + _EMERGENCY_BODY + r"|" + _FLATTEN_BOD
 HALT_COMPOUND_ANY = re.compile(
     _HALT_LEAD + _ANY_CLAUSE + r"(?:" + _CLAUSE_JOIN + _ANY_CLAUSE + r")+" + _HALT_TAIL,
     re.IGNORECASE)
-PAUSE_OWN = re.compile(
-    _HALT_LEAD
-    + r"(?:(?:stop|pause|halt|freeze|disable|suspend)\s+my\s+(?:trading\s+bot|trading|bot|engine|agent|account)"
+_PAUSE_BODY = (
+    r"(?:(?:stop|pause|halt|freeze|disable|suspend)\s+my\s+(?:trading\s+bot|trading|bot|engine|agent|account)"
     r"|(?:turn|switch)\s+my\s+(?:trading\s+bot|bot|engine|trading)\s+off"
-    r"|(?:turn|switch)\s+off\s+my\s+(?:trading\s+bot|bot|engine|trading))"
-    + _HALT_TAIL, re.IGNORECASE)
+    r"|(?:turn|switch)\s+off\s+my\s+(?:trading\s+bot|bot|engine|trading))")
+PAUSE_OWN = re.compile(_HALT_LEAD + _PAUSE_BODY + _HALT_TAIL, re.IGNORECASE)
 # "emergency" and "panic" with nothing named are not verbs, but they are the
 # same state: an operator reaching for a switch and not naming one. Answered
 # with the DOOR, never dispatched, exactly like a bare "stop". Until this they
 # were three words or fewer with no trading word in them, so the social gate
 # greeted them.
-HALT_BARE_VERB = re.compile(
-    r"^\s*(?:(?:please|pls|plz|just|ok|okay)\s+)*"
-    r"(?P<verb>stop|kill|pause|freeze|disable|panic|emergency"
-    r"|shut\s*down|shut\s+it\s+down)"
-    r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
-    r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$", re.IGNORECASE)
+_BARE_LEAD_WORDS = r"(?:(?:please|pls|plz|just|ok|okay)\s+)*"
+_BARE_VERB_BODY = (r"(?P<verb>stop|kill|pause|freeze|disable|panic|emergency"
+                   r"|shut\s*down|shut\s+it\s+down)"
+                   r"(?:[\s,]+(?:it|now|please|pls|plz|right\s+now|asap))*"
+                   r"\s*[!.]*(?:\s*[^\w\s?]+)*\s*$")
+HALT_BARE_VERB = re.compile(r"^\s*" + _BARE_LEAD_WORDS + _BARE_VERB_BODY, re.IGNORECASE)
+#: The same bodies behind a social lead. Registered with the halt block and
+#: consulted by the social gate with it; `halt_verb` reads the bare form's
+#: verb through both.
+HALT_SOCIAL_LEAD = re.compile(_SOCIAL_LEAD + _HALT_BODY + _HALT_TAIL, re.IGNORECASE)
+EMERGENCY_SOCIAL_LEAD = re.compile(_SOCIAL_LEAD + _EMERGENCY_BODY + _HALT_TAIL, re.IGNORECASE)
+PAUSE_SOCIAL_LEAD = re.compile(_SOCIAL_LEAD + _PAUSE_BODY + _HALT_TAIL, re.IGNORECASE)
+BARE_SOCIAL_LEAD = re.compile(
+    r"^\s*" + _BARE_LEAD_WORDS + _SOCIAL_LEAD_WORDS + _BARE_LEAD_WORDS + _BARE_VERB_BODY,
+    re.IGNORECASE)
 #: "What can you do?" — a whole-message question about the PRODUCT, not small
 #: talk. The bare tokens (`help`, `commands`, `menu`) already routed; every
 #: phrasing a person actually uses did not. Driven: `what can you do` was eaten
@@ -836,6 +870,8 @@ CAPABILITY_ASK = re.compile(
 #: it onto the wrong name.
 _ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
                           HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB,
+                          HALT_SOCIAL_LEAD, EMERGENCY_SOCIAL_LEAD, PAUSE_SOCIAL_LEAD,
+                          BARE_SOCIAL_LEAD,
                           CAPABILITY_ASK)
 _rule(HALT_COMPOUND_HALT.pattern, "halt",
       explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
@@ -849,6 +885,17 @@ _rule(PAUSE_OWN.pattern, "pause",
       explanation="A my-scoped stop/pause — routed to the scope-aware /pause, never the fleet halt")
 _rule(HALT_BARE_VERB.pattern, "halt_ambiguous",
       explanation="A bare stop/kill/pause with nothing named — answered with the door, never dispatched")
+# A social lead ("bro", "lol", "thanks", "yo") on any of the above: casual,
+# so the fleet halt is demoted to the door; the confirm card and the
+# caller's own pause keep their destinations.
+_rule(EMERGENCY_SOCIAL_LEAD.pattern, "emergency_stop",
+      explanation="Emergency stop request behind a social lead — the confirm card is the confirmation")
+_rule(PAUSE_SOCIAL_LEAD.pattern, "pause",
+      explanation="A my-scoped stop behind a social lead — the caller's own /pause")
+_rule(HALT_SOCIAL_LEAD.pattern, "halt_ambiguous",
+      explanation="A fleet halt behind a social lead — casual, so answered with the door, never dispatched")
+_rule(BARE_SOCIAL_LEAD.pattern, "halt_ambiguous",
+      explanation="A bare stop-word behind a social lead — answered with the door, never dispatched")
 
 # --- Close a position: ROUTED, never dispatched ---
 # "close my ETH" had no rule, so it fell through to the chat model — which
