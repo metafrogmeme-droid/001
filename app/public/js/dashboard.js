@@ -4705,6 +4705,7 @@
           <section class="panel" id="p-eregime"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-globe"></use></svg><span data-i18n="dp.eregime">Market regime</span></h2><div id="c-eregime"><div class="skel"></div></div></section>
           <section class="panel" id="p-ecb"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.ecb">Engine account</span></h2><div id="c-ecb"><div class="skel"></div></div></section>
         </div>
+        <section class="panel" id="p-ebackstop"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.ebackstop">Risk backstop</span></h2><div id="c-ebackstop"><div class="skel"></div><div class="skel"></div></div></section>
         <section class="panel" id="p-emods"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.emods">Engine modules</span></h2><div id="c-emods"><div class="skel"></div></div></section>
         <section class="panel" id="p-ecards"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ecards">Engine's current setups</span></h2><div id="c-ecards"><div class="skel"></div></div></section>
         <section class="panel" id="p-declog"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-seal"></use></svg><span data-i18n="dp.declog">Decision log</span></h2><div id="c-declog"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
@@ -4718,6 +4719,17 @@
 
     // Parity headline: does live execution still match the model? Pushed
     // hourly by the bot from its real closed-trades journal.
+    // ONE /api/bot/sync/scan read per Engine render. The six telemetry
+    // panels below take it through getScan (omit: the cached scan on
+    // failure), the backstop panel awaits it directly (guard: mustRead on
+    // THIS read, so a refused or dead /scan reaches the error state with its
+    // named sentence rather than an absence sentence built from a 503).
+    // Settled with a failed-read envelope, never a rejection, and adopted
+    // into the shared cache by whichever consumer awaits it first. 10000ms
+    // here, under the backstop panel's 12000ms timer.
+    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null }));
+
     renderPanel(C('eparity'), async () => {
       const rep = await getReports();
       const p = rep?.parity;
@@ -4772,8 +4784,7 @@
       return decisionLogHtml(log, dlWords());
     }, { timeoutMs: 21000, empty: { icon: 'icon-seal', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
 
-    const scan = await getScan();
-    updateConnChip();
+    const scan = await getScan(45000, scanRead);
     const OFFLINE = { icon: 'icon-offline', text: 'Engine telemetry arrives when the bot pushes its next scan. Market data stays live meanwhile.' };
 
     renderPanel(C('eregime'), async () => {
@@ -4816,6 +4827,45 @@
       ${c.note ? `<div class="small mt-2" style="color:var(--text-2)">${esc(c.note)}</div>` : ''}
       <div class="row mt-3">${(cb.rules || []).map(ruleChipThreeValued).join('')}</div>`;
     }, { empty: OFFLINE });
+
+    // RISK BACKSTOP — the drawdown the breaker gates on against the threshold
+    // that halts it, the slots in use against the binding cap, whether entries
+    // are refused, and the override. The OPERATOR's engine, like every panel
+    // on this view (entry_gate is asked with no user id): the banner above
+    // says so, and putting this on Home would be the viewer-executor leak this
+    // repo has fixed five times, arriving through a new door.
+    //
+    // GUARD, not omit. The hoisted `scan` above comes from getScan, which
+    // swallows its own failure and hands back the cache, so the six panels
+    // that read it print an absence sentence off a 503 and pass the
+    // structural guard with no read ever inspected. This panel awaits the
+    // shared read itself and mustRead throws on it — after the outcome has
+    // been adopted, so the topbar chip is told too.
+    //
+    // The decision is a PURE model (risk-backstop-model.js): five states at
+    // the top (absent build, engine fault, undated, stale, read), three per
+    // row, a bar only over numbers AND a verdict that were all read, the
+    // colour the server's verdict word and never a comparison here. The
+    // stamp is read by the context row's one reader and the staleness floor
+    // is the topbar's, so the page has one age vocabulary.
+    renderPanel(C('ebackstop'), async () => {
+      const M = self.RiskBackstopModel;
+      const ES = self.EngineStatusModel;
+      const CX = self.ContextChipsModel;
+      // A model that failed to load is a render we could not do, not a
+      // backstop the build does not publish: throwing says the first.
+      if (!M || !ES || !CX) throw new Error('risk backstop model unavailable');
+      const r = await scanRead;
+      adoptScanRead(r);
+      const d = mustRead(r);
+      const sc = d ? d.scan : null;
+      if (!sc) return null;
+      const cb = (sc.circuit_breaker && typeof sc.circuit_breaker === 'object') ? sc.circuit_breaker : null;
+      const at = CX.stamp(sc.received_at) || CX.stamp(sc.timestamp);
+      const ageSec = at === null ? null : (Date.now() - Date.parse(at)) / 1000;
+      const m = M.readBackstop(cb ? cb.backstop : undefined, ageSec, ES.STALE_MAX_S);
+      return riskBackstopHtml(m, at, rbWords());
+    }, { timeoutMs: 12000, empty: { icon: 'icon-shield', text: T('dd.e_ebackstop', 'The engine has not pushed a scan yet, so its backstop has not been read.') } });
 
     renderPanel(C('emods'), async () => {
       const f = scan?.features;
@@ -8811,6 +8861,114 @@
       <div class="small muted" style="margin-top:8px;font-style:italic">Every proposed on-chain action lands here first. Review can only <em>tighten</em> the Authority Envelope — never authorize. Nothing here signs or broadcasts.</div>
     </div>`;
   }
+
+  // ── risk backstop: renderers ──
+  // Every key the model can emit, as a LITERAL T() call, so the dictionary
+  // sweep sees each one; the guard pins this map and the model's KEYS as one
+  // set. The two bar labels are aria keys and are resolved at their sites.
+  function rbWords() {
+    return {
+      'dd.rb_h_absent': T('dd.rb_h_absent', 'Not published'),
+      'dd.rb_h_unread': T('dd.rb_h_unread', 'Could not be assembled'),
+      'dd.rb_h_undated': T('dd.rb_h_undated', 'Undated'),
+      'dd.rb_h_stale': T('dd.rb_h_stale', 'Last read {when}'),
+      'dd.rb_absent': T('dd.rb_absent', 'This engine build does not publish a backstop reading, so nothing here is a measurement of it.'),
+      'dd.rb_unread_engine': T('dd.rb_unread_engine', 'The engine could not assemble its backstop reading — a fault in the engine, not a build that lacks the reading, and not a flat book.'),
+      'dd.rb_no_age': T('dd.rb_no_age', 'The engine scan carries no readable timestamp, so this reading cannot be dated — and an undated backstop is not a reading of the present.'),
+      'dd.rb_stale': T('dd.rb_stale', 'The last engine scan is older than this card will vouch for, so the backstop figures it carried are not shown. They are a memory.'),
+      'dd.rb_dd': T('dd.rb_dd', 'Drawdown backstop'),
+      'dd.rb_slots': T('dd.rb_slots', 'Position slots'),
+      'dd.rb_gate': T('dd.rb_gate', 'New entries'),
+      'dd.rb_override': T('dd.rb_override', 'Override'),
+      'dd.rb_operator': T('dd.rb_operator', 'The operator engine’s backstop — read-only, the same numbers for every viewer. Not your account.'),
+      'dd.rb_gate_refused': T('dd.rb_gate_refused', 'Refused:'),
+      'dd.rb_dd_unread': T('dd.rb_dd_unread', 'The drawdown state is unknown — a failed read, not a flat equity curve, and it does not mean the backstop is clear.'),
+      'dd.rb_no_limit': T('dd.rb_no_limit', 'No halt threshold on record, so this figure carries no verdict — it is a number, not a reading of how close the book is to stopping.'),
+      'dd.rb_no_dd': T('dd.rb_no_dd', 'The current drawdown could not be read, so this card cannot say how much of that threshold is left.'),
+      'dd.rb_no_verdict': T('dd.rb_no_verdict', 'The engine returned no verdict for this reading, so no bar is drawn.'),
+      'dd.rb_src_live': T('dd.rb_src_live', 'live equity high-water mark'),
+      'dd.rb_src_paper': T('dd.rb_src_paper', 'paper snapshot'),
+      'dd.rb_src_unknown': T('dd.rb_src_unknown', 'source unknown'),
+      'dd.rb_slots_unread': T('dd.rb_slots_unread', 'The open-position count could not be read. This is not a book with nothing in it.'),
+      'dd.rb_cap_unread': T('dd.rb_cap_unread', 'No position cap on record, so this count carries no headroom.'),
+      'dd.rb_floor': T('dd.rb_floor', 'A floor, not a count — {note}.'),
+      'dd.rb_gate_paused': T('dd.rb_gate_paused', 'Paused'),
+      'dd.rb_gate_unknown': T('dd.rb_gate_unknown', 'Unknown'),
+      'dd.rb_gate_active': T('dd.rb_gate_active', 'Active'),
+      'dd.rb_gate_absent': T('dd.rb_gate_absent', 'not published'),
+      'dd.rb_gate_unknown_why': T('dd.rb_gate_unknown_why', 'Could not read the full trading-gate status — this card cannot confirm entries are open.'),
+      'dd.rb_gate_absent_why': T('dd.rb_gate_absent_why', 'This engine build does not publish the trading-gate state.'),
+      'dd.rb_override_none': T('dd.rb_override_none', 'none (default {d})'),
+      'dd.rb_override_set': T('dd.rb_override_set', '{p} (default {d})'),
+      'dd.rb_hardening_off': T('dd.rb_hardening_off', 'Live hardening is OFF — the override only bites on live.'),
+    };
+  }
+  function rbSay(WORDS, key) { return WORDS[key] != null ? WORDS[key] : (key == null ? '' : String(key)); }
+  function rbFill(tpl, vars) {
+    return String(tpl).replace(/\{(\w+)\}/g, (w, k) => (vars && vars[k] != null ? String(vars[k]) : w));
+  }
+  // A bar is emitted ONLY when the model computed a fill — the model computes
+  // one only over a pair of numbers and a verdict that were all read — and the
+  // row carries rb-row--unread otherwise, which removes the track: a full
+  // track with nothing in it reads as zero, and here zero is the all-clear.
+  function rbTrack(fill, cls, label) {
+    if (fill === null || fill === undefined) return '';
+    return '<div class="rb-track"><span class="rb-fill ' + esc(cls) + '" style="width:' + Number(fill).toFixed(1) + '%" role="img" aria-label="' + esc(label) + '"></span></div>';
+  }
+  // `m` is RiskBackstopModel.readBackstop's reading; `at` the ISO stamp of the
+  // scan it came from (or null), rendered as an age here and never by the
+  // model. Every state renders in place with its own headline word; the
+  // operator note is on every one, because "not your account" is true of
+  // every state.
+  function riskBackstopHtml(m, at, WORDS) {
+    const note = '<p class="rb-note">' + esc(rbSay(WORDS, 'dd.rb_operator')) + '</p>';
+    if (m.state !== 'read') {
+      const head = rbFill(rbSay(WORDS, m.head), { when: at ? fmtAgo(at) : '' });
+      return '<div class="rb-row rb-row--unread"><div class="rb-head">'
+        + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_dd')) + '</span>'
+        + '<span class="rb-val">' + esc(head) + '</span></div>'
+        + '<span class="rb-why">' + esc(rbSay(WORDS, m.why)) + '</span></div>' + note;
+    }
+    const d = m.drawdown;
+    const ddTxt = d.pct === null ? '—' : fmt(d.pct, 1) + '%' + (d.limit === null ? '' : ' / ' + fmt(d.limit, 1) + '%');
+    const ddRow = '<div class="rb-row' + (d.fill === null ? ' rb-row--unread' : '') + '"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_dd')) + '</span>'
+      + '<span class="rb-val ' + esc(d.cls) + '">' + esc(ddTxt) + '</span>'
+      + '<span class="rb-src">' + esc(rbSay(WORDS, d.src)) + '</span></div>'
+      + rbTrack(d.fill, d.cls, T('aria.rb_dd_bar', 'Drawdown against the halt threshold'))
+      + (d.why ? '<span class="rb-why">' + esc(rbSay(WORDS, d.why)) + '</span>' : '')
+      + '</div>';
+    const sl = m.slots;
+    const slotTxt = sl.used === null
+      ? '—' + (sl.cap === null ? '' : ' / ' + String(sl.cap))
+      : (sl.floor ? '≥' : '') + String(sl.used) + (sl.cap === null ? '' : ' / ' + String(sl.cap));
+    const slotRow = '<div class="rb-row' + (sl.fill === null ? ' rb-row--unread' : '') + '"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_slots')) + '</span>'
+      + '<span class="rb-val ' + esc(sl.valCls) + '">' + esc(slotTxt) + '</span></div>'
+      + rbTrack(sl.fill, sl.cls, T('aria.rb_slots_bar', 'Position slots used'))
+      + (sl.floor && sl.note ? '<span class="rb-why">' + esc(rbFill(rbSay(WORDS, 'dd.rb_floor'), { note: sl.note })) + '</span>' : '')
+      + (sl.why ? '<span class="rb-why">' + esc(rbSay(WORDS, sl.why)) + '</span>' : '')
+      + '</div>';
+    const g = m.gate;
+    const gateRow = '<div class="rb-row"><div class="rb-head rb-chips">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_gate')) + '</span>'
+      + '<span class="chip ' + esc(g.cls) + '">' + esc(rbSay(WORDS, g.label)) + '</span></div>'
+      + (g.reasons.length ? '<span class="rb-reasons">' + esc(rbSay(WORDS, 'dd.rb_gate_refused') + ' ' + g.reasons.join('; ')) + '</span>' : '')
+      + (g.why ? '<span class="rb-why">' + esc(rbSay(WORDS, g.why)) + '</span>' : '')
+      + '</div>';
+    const o = m.override;
+    const defTxt = o.defaultPct === null ? '—' : fmt(o.defaultPct, 1) + '%';
+    const ovTxt = o.pct === null
+      ? rbFill(rbSay(WORDS, 'dd.rb_override_none'), { d: defTxt })
+      : rbFill(rbSay(WORDS, 'dd.rb_override_set'), { p: fmt(o.pct, 1) + '%', d: defTxt });
+    const ovRow = '<div class="rb-row"><div class="rb-head">'
+      + '<span class="rb-label">' + esc(rbSay(WORDS, 'dd.rb_override')) + '</span>'
+      + '<span class="rb-val">' + esc(ovTxt) + '</span></div>'
+      + (o.hardeningOff ? '<span class="rb-why">' + esc(rbSay(WORDS, 'dd.rb_hardening_off')) + '</span>' : '')
+      + '</div>';
+    return ddRow + slotRow + gateRow + ovRow + note;
+  }
+  // ── risk backstop: renderers end ──
 
   // ── context chips: renderers ──
   // Every key the model can emit, as a LITERAL T() call, so the dictionary

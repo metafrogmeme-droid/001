@@ -27,7 +27,11 @@ module.exports = [
     features: { venue: { id: 'bitget', name: 'Bitget' } },
     macro: { state: 'NORMAL', stale: false, unreadable: false, has_events: true, reading: 'Normal', next_event: null, active_event: null, seconds_until_next: 86400, evaluated_at: new Date().toISOString() },
     circuit_breaker: { rules: [], gate: { blocked: false, unknown: false, reasons: [] }, equity: null, net_pnl: null, win_rate: null, record_unreadable: false,
-      total_trades: 0, open_count: 0, open_positions: [], closed_trades: [], live_mode: true, live_unavailable: false, strategy_mode: 'balanced' },
+      total_trades: 0, open_count: 0, open_positions: [], closed_trades: [], live_mode: true, live_unavailable: false, strategy_mode: 'balanced',
+      // The risk backstop as bot/formatters/risk_backstop.py publishes it:
+      // every field read, so the Engine view's panel renders four rows.
+      backstop: { drawdown_pct: 3.2, limit_pct: 7.0, source: 'live', verdict: 'Healthy', override_pct: null, default_limit_pct: 7.0, hardening: true,
+        slots_used: 2, slots_cap: 5, slots_floor: false, slots_note: '', slots_person: 'unset', gate: { blocked: false, unknown: false, reasons: [] } } },
     symbols: {}, entry_cards: [], key_call: 'No scan data available.',
   } }],
   ['/api/reports/yield', { yield: { rows: [yieldRow], total_idle_usd: 40, total_est_year_usd: 1.18, incomplete: '' } }],

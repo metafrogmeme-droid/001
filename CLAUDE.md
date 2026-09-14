@@ -2286,6 +2286,64 @@ unread drawdown beside a read gate. The panel that reads all of this is the
 next slice; it cannot begin until this one is deployed to the bot box and
 confirmed serving, because `app/` and `bot/` are different deploy targets.
 
+**The panel that reads it, and the age is read FIRST.** The Engine view's
+risk backstop panel (`risk-backstop-model.js`) has five states at the top —
+undated, stale, absent build, engine fault, read — and its first draft read
+the BLOCK before the scan's age, so "not published" and "engine fault" would
+have been printed off a four-hour-old scan as facts about the bot now. A
+memory is a memory whatever it holds: the age gates everything the scan
+carries, the floor is the topbar's `STALE_MAX_S` rather than a second copy
+(one age vocabulary on the page, driven at the boundary), and a scan the
+page cannot date is undated whatever it holds. The stamp is the context
+row's one reader, ingest first, and is never manufactured from the request
+clock.
+
+**A bar is drawn only over numbers AND a verdict that were ALL read, and the
+class sits on the ROW.** The study's blocking objection to its own design:
+`drawdownRow` computed `fill` unconditionally and `.rb-fill` declared no
+background, so two numbers under a verdict word this page does not know
+painted a full-length track with an invisible fill — which on the card an
+operator reads to decide how much real money the bot may lose before it
+halts is 0% drawdown, full headroom, from a verdict nobody could read. A
+zero-WIDTH fill is still a full-length track, so the hiding class is on the
+row (`rb-row--unread .rb-track { display: none }`, the reading
+`.wr-row--unrated` refuses one block up), the numbers are still printed and
+the sentence says why the bar is not. The colour is the server's verdict
+word mapped by the model and never a comparison here — the bands are off the
+EFFECTIVE limit, and a second copy of that table in the browser is a second
+answer. `0 / 5` is the one zero `dashboard_unreadable_is_not_zero.smoke`'s
+regex cannot see (it knows `0.0%`, `0%`, `0 open`), so the guard pins the
+dash itself.
+
+**No colour class is spelled in the renderer, and the first draft spelled
+one.** The slots row did `(sl.cls === 'rb-warn' ? ' rb-warn' : '')` — a
+colour literal conditioned on the model's word, harmless today and the exact
+shape the next reader extends with `|| 'rb-up'`. The model emits `valCls`
+beside `cls` (a floor colours the figure, a count colours the fill only:
+capacity is not a verdict), so the renderer block can be scanned for every
+`rb-(up|warn|down|cap)` and `chip--` literal and hold none. The i18n half of
+the same objection: the design resolved twenty-two of its keys through a
+computed `T(p[0], p[1])`, which the dictionary sweep's `T('` literal match
+cannot see — every honesty sentence rendering English in fourteen languages
+with nothing red — so every key the model can emit is a literal call in
+`rbWords()`, and the guard pins the renderer's literal set and the model's
+`KEYS` as one set.
+
+**Sixty-one mutations and one browser-only mutation, each killed — and the
+three that survived the first round were the DRIVER's, not the guard's.** Their
+anchor was the loader's three adopt-then-guard lines, which also open the
+context row's loader two thousand lines earlier in the same file, so a
+first-occurrence replace mutated THAT loader — whose guard was not in the
+round's suites — and reported the backstop's guard as blind to a mutation it
+never received. Re-anchored to the backstop loader's own throw line, all
+three die. A mutation driver's anchor is a claim about WHICH code changed,
+and one that matches twice is the second-copy shape inside the instrument
+that exists to find it; the quiet direction — a false KILL, where the stray
+edit breaks some unrelated test — is the one to remember. The browser-only
+mutation registers the model under another global name: every node suite
+requires it through `module.exports` and stays green, and only Chromium
+reaches `self.RiskBackstopModel`.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

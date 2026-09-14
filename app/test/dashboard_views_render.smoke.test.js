@@ -191,6 +191,39 @@ test('the signed-out home renders the context row, not a skeleton under its head
   }
 });
 
+// The Engine view's risk backstop, driven: the panel reads the shared scan
+// through its own guard, and only the browser can say whether the loader is
+// reached and the four rows render off the fixture's backstop block.
+test('the engine view renders the risk backstop panel with its four rows', SKIP ? { skip: SKIP } : {}, async () => {
+  const { server, base } = await serve();
+  const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.addCookies([{ name: 'rc_auth', value: '1', url: base }]);
+    await ctx.route('**/api/**', (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtureFor(u.pathname)) });
+    });
+    await ctx.route('**/api/stream*', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': ok\n\n' }));
+    await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
+    const page = await ctx.newPage();
+    await page.goto(`${base}/dashboard#engine`, { waitUntil: 'load' });
+    await page.waitForSelector('#c-ebackstop .rb-row', { timeout: 8000 });
+    const labels = await page.$$eval('#c-ebackstop .rb-label', (els) => els.map((e) => e.textContent.trim()));
+    // textContent is the source text; the uppercase is the stylesheet's.
+    assert.deepStrictEqual(labels, ['Drawdown backstop', 'Position slots', 'New entries', 'Override'], `four rows, saw ${JSON.stringify(labels)}`);
+    assert.strictEqual(await page.$('#c-ebackstop .skel'), null, 'past its skeleton');
+    assert.strictEqual(await page.$('#c-ebackstop .state-block'), null, 'not in an error state');
+    assert.strictEqual((await page.$$('#c-ebackstop .rb-track')).length, 2, 'a bar over the drawdown and one over the slots');
+    const seen = await page.$$eval('.stack section.panel[id]', (els) => els.map((e) => e.id));
+    const i = seen.indexOf('p-ebackstop');
+    assert.ok(i > seen.indexOf('p-ecb') && i < seen.indexOf('p-emods'), `between the engine account and the modules; saw ${seen.join(', ')}`);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+});
+
 test('the smoke reports itself as SKIPPED, never as passed, when it cannot run', () => {
   // A skip is visible in TAP as "# SKIP <reason>"; this test exists so the
   // reason is printed even when the run above is skipped.

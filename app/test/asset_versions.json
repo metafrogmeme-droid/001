@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 183,
-    "sha": "0ba39a024bbbb3f0"
+    "v": 184,
+    "sha": "edeebd7c678990da"
   },
   "js/decision-log-model.js": {
     "sha": "6e81e1b8accbccd1",
@@ -108,8 +108,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 148,
-    "sha": "18438c383554d964"
+    "v": 149,
+    "sha": "71101b2434a8470f"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -244,8 +244,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "975ad66e314abd5f",
-    "v": 44
+    "sha": "dcf90af179bd83f1",
+    "v": 45
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
@@ -253,6 +253,10 @@
   },
   "js/context-chips-model.js": {
     "sha": "e89e7947af99dd26",
+    "v": 1
+  },
+  "js/risk-backstop-model.js": {
+    "sha": "6e482731fe53921c",
     "v": 1
   }
 }
