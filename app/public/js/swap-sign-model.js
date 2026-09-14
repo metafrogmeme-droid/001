@@ -195,5 +195,48 @@
     };
   }
 
-  return { canSign: canSign, secondsLeft: secondsLeft, reviewCells: reviewCells };
+  /**
+   * What the planner's reply MEANS — decided here so the page cannot decide it.
+   *
+   * The page used to parse with `catch (_) { data = null; }` and then print
+   * "The plan did not pass — nothing was built." whenever `data.build` was
+   * missing: a verdict about the MARKET, manufactured from a 200 whose body
+   * did not parse, five lines under the comment saying an unreachable planner
+   * is not an empty plan. `routes/meme.js` names this exact rendering as the
+   * shape the repo guards against. Four outcomes, and only one is a verdict:
+   *
+   *   refused     the server said no (a 4xx/5xx with its own sentence)
+   *   unreadable  a 2xx whose body did not parse, or parsed to something that
+   *               is not an object — a fault on our side, not a market fact
+   *   no_plan     a readable reply with no build: the planner's own verdict,
+   *               in its own words when it gave them
+   *   plan        a build to review
+   *
+   * @param {{ok: boolean, data: any, unreadable: boolean}} r  the fetch outcome
+   */
+  function readBuildReply(r) {
+    var ok = !!(r && r.ok);
+    var data = r ? r.data : null;
+    var isObj = data !== null && typeof data === 'object';
+    if (!ok) {
+      return { kind: 'refused', tone: 'err', build: null, human: '',
+               text: (isObj && (data.detail || data.error))
+                 || 'The build failed — nothing was built or signed.' };
+    }
+    if ((r && r.unreadable) || !isObj) {
+      return { kind: 'unreadable', tone: 'err', build: null, human: '',
+               text: 'The planner answered, but the reply could not be read — '
+                 + 'nothing was built or signed. This is a fault on our side, '
+                 + 'not a statement about the route.' };
+    }
+    var human = typeof data.human === 'string' ? data.human : '';
+    if (!data.build) {
+      return { kind: 'no_plan', tone: 'warn', build: null, human: human,
+               text: data.reason || 'The plan did not pass — nothing was built.' };
+    }
+    return { kind: 'plan', tone: '', build: data.build, human: human, text: '' };
+  }
+
+  return { canSign: canSign, secondsLeft: secondsLeft, reviewCells: reviewCells,
+           readBuildReply: readBuildReply };
 }));

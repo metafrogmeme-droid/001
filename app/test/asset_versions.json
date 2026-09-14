@@ -188,12 +188,12 @@
     "v": 2
   },
   "js/swap-page.js": {
-    "sha": "d1f9fc46f37f2aa4",
-    "v": 1
+    "v": 2,
+    "sha": "bbff4870494d760f"
   },
   "js/swap-sign-model.js": {
-    "sha": "549396106f911f41",
-    "v": 1
+    "v": 2,
+    "sha": "93a650c4329ff1f1"
   },
   "js/theater.js": {
     "sha": "2d1bbf1c17554a79",
