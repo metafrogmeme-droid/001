@@ -206,6 +206,11 @@ ROUTED_INTENT_SEAM = {
     "networth": "networth_card_text",
     "rwa": "rwa_card_text",
     "research": "research_card_text",
+    # The website chat's own cards as commands: `_cmd_nft` / `_cmd_spot` /
+    # `_cmd_airdrops` render these seams, so the walk finds them through it.
+    "nft": "nft_card_text",
+    "spot": "spot_card_text",
+    "airdrops": "airdrops_card_text",
 }
 
 

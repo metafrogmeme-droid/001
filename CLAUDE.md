@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 91 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 94 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 82 of the 91 reach the tool-less chat model and 9
+typed as the card prints them, 85 of the 94 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -1060,6 +1060,39 @@ three-word one reaches the model rather than the greeter.
 
 **Twenty-four mutations, each killed.** Two survived the first round and both were the driver's. The bare `replay` put back into the backtest rule changed no verdict, because the new replay rule is registered above it — so the corpus gained a phrasing NEITHER surface claims ("replay the last week"), which the old rule ran a backtest for and which reaches no rule now. And the letter example swapped for "agent letter" was an equivalent mutant, both surfaces claiming it; the mutation is the spot example swapped for "spot prices" now, the one phrasing this router deliberately declines and the web takes — killed by the Python pin, which is the direction the JS pin cannot see.
 
+**Three of those nine doors stood in front of reads that could be fetched,
+and the door became the read.** The NFT radar, the spot pairs and basis, and
+the airdrop radar have no account in them — public market facts and a curated
+catalogue — so "ask the web app in these words" was honest only until the
+card could arrive. `GET /api/bot/sync/card/<name>` answers the card the web
+intercept renders, from the intercept's OWN renderer (`nftChatCard`,
+`spotChatCard`, `airdropChatCard`; each intercept is a regex test in front of
+one now), and `/nft`, `/spot` and `/airdrops` render that byte for byte, with
+`<br>` turned into the newline Telegram's HTML parser accepts. There is no
+Python formatter, deliberately: `_format_rwa` one command over is a second
+copy of the card `rwa.js` renders, kept in step by hand, which is the shape
+this file records for maps and gates. The route is whitelisted by name and
+refuses `__proto__` the way it refuses `nope`; the fetch is a fixed three-name
+tuple on the Python side, so a name outside it never reaches the wire; and a
+payload with no string `reply_html` is the transport's own "could not read"
+sentence, never an empty card. The airdrops card is the one with a per-person
+half — wallet-readiness hints for a linked wallet — so the route reads
+`telegram_id` for that card alone, maps it to a web account the way
+`/exposure` does, and answers the PUBLIC radar for a caller it cannot map: a
+caller nobody could map is unlinked, not somebody else's wallet. The three
+rules kept their place in the router (order decides which rule answers) and
+their intents moved from the door table to the command table on both
+surfaces — `_WEB_SEAM`, `WEB_ROUTED_PERMISSION`, `ROUTED_INTENT_SEAM` and the
+literal pin each grew the same three rows, under permissions of their own
+names held by trader, paper and viewer — and `web_reads.json` holds six. The
+Telegram branches sit ABOVE the door notice, pinned, because a read that
+exists here must never be answered "ask the web app".
+(`tests/test_the_website_cards_are_telegram_commands.py`,
+`app/test/sync_card_route_is_the_web_intercepts_own_card.test.js`.)
+
+**Twenty-nine mutations, each killed, and the two that survived the first round were one of each kind.** The route's guard against a renderer answering no card survived because no renderer in the tree can — each has its own honest unavailable card — so the branch could not be driven from the product's own inputs; it is driven now by patching the export the route reads at call time, because a 200 carrying no `reply_html` reaches Telegram as "the channel did not answer", a different fact from the truth. The other was the driver's: routing an unlinked caller through the DB with a null id reads no row and hands back the same public radar, an EQUIVALENT mutant, and the line's real claim — a linked caller gets THEIR card, hints and all — is the mutation now, killed by the linked-wallet test.
+
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1235,7 +1268,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty-eight call sites across the two entry points today, one on
+never happened. Forty-one call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

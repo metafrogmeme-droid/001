@@ -124,8 +124,13 @@ async function getWalletNfts(address, chain = 'ethereum') {
 
 const CHAT_RE = /\b(nft ?radar|nfts?\b.*\b(floor|trending|radar)|opensea|floor price)\b/i;
 
-async function maybeHandleNftChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The NFT radar as the chat card — ONE renderer for both surfaces. The web
+ * intercept below answers with it, and the bot's /nft command fetches this
+ * same card over the sync channel (`GET /api/bot/sync/card/nft`) rather than
+ * carrying a second formatter in Python that would drift from this one.
+ */
+async function nftChatCard() {
   const radar = await getNftRadar();
   if (!radar.available) {
     return { reply_html: '🖼 <b>NFT radar</b> — unavailable: '
@@ -140,6 +145,11 @@ async function maybeHandleNftChat(userId, text) {
     ...rows, `<i>${radar.disclaimer}</i>`].join('<br>') };
 }
 
+async function maybeHandleNftChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return nftChatCard();
+}
+
 module.exports = { CHAT_RE,
-  getNftRadar, getWalletNfts, maybeHandleNftChat, setOpenSeaFetcher, CHAT_RE,
+  getNftRadar, getWalletNfts, maybeHandleNftChat, nftChatCard, setOpenSeaFetcher, CHAT_RE,
 };

@@ -224,16 +224,34 @@ async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
     return await tg_handler.research_card_text(sym)
 
 
+async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.nft_card_text(surface="web")
+
+
+async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.spot_card_text(surface="web")
+
+
+async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.airdrops_card_text(tg_id, surface="web")
+
+
 #: Routed intents the web answers from a SEAM on the Telegram handler — the
 #: reading the slash command renders — keyed by intent. Every key is also in
 #: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
-#: guards index that branch's literal.
+#: guards index that branch's literal. The last three are the website's own
+#: chat cards, which the Node intercepts answer first for a web caller — the
+#: Python path sees only the phrasings those intercepts miss, and answers
+#: them with the same card rather than a door notice pointing at this chat.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
     "research": _seam_research,
+    "nft": _seam_nft,
+    "spot": _seam_spot,
+    "airdrops": _seam_airdrops,
 }
 
 

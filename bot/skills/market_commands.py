@@ -1,14 +1,15 @@
 """The market-context command group — a slice out of the handler.
 
 `/macro` (and `/macro brief`), `/eventrisk`, `/news`, `/funding`,
-`/fundingscan`, `/arb`, `/rwa`, plus the operator's `/compliance` and
+`/fundingscan`, `/arb`, `/rwa`, the three website-card commands `/nft`,
+`/spot` and `/airdrops`, plus the operator's `/compliance` and
 `/readiness`, and the two helpers `/news` shares with the free-text
 intercept: the digest renderer and the held-symbol read. Read-only cards
 over macro, funding and news data; nothing here places an order. Their
 behaviour is covered where it always was (`test_news_radar`,
 `test_news_radar_honesty`, `test_macro_cards_are_reachable`,
-`test_telegram_web_parity`); `tests/test_handler_mixins.py` holds this class
-to the split's rules.
+`test_telegram_web_parity`, `test_the_website_cards_are_telegram_commands`);
+`tests/test_handler_mixins.py` holds this class to the split's rules.
 
 A mixin, not a leaf: every method dispatches through `self.registry` or
 reads `self.engine`, and answers through `self._send`. `_format_rwa` stays
@@ -57,6 +58,8 @@ class MarketCommands:
 
         def _is_admin(self, update: Update) -> bool: ...
 
+        def _get_tg_id(self, update: Update) -> str: ...
+
         @staticmethod
         def _format_rwa(data: dict) -> str: ...
 
@@ -80,6 +83,67 @@ class MarketCommands:
         if not data or "sector" not in data:
             return self._link_hint(surface)
         return self._format_rwa(data)
+
+    # ── The website chat's own cards, as commands ─────────────────────────
+    # /nft, /spot and /airdrops render the SAME card the website's chat
+    # intercept answers with — fetched rendered, never re-formatted here.
+    # Three of the nine reads only the website answered (`bot/nlp/web_reads`)
+    # were a door notice on Telegram; these three are the read itself now.
+
+    @guard("nft")
+    async def _cmd_nft(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/nft — top NFT collections by real 7-day volume, floor and volume
+        (OpenSea, read-only). The card is `nft_card_text`, the seam the routed
+        "nft radar" renders on both surfaces."""
+        await self._send(update, await self.nft_card_text())
+
+    async def nft_card_text(self, *, surface: str = "telegram") -> str:
+        """The NFT radar card — the website's own rendering, both surfaces."""
+        return await self._web_card_text("nft", surface=surface)
+
+    @guard("spot")
+    async def _cmd_spot(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/spot — the spot pairs across connected venues and the spot/perp
+        basis (read-only; nothing here places a spot order). The card is
+        `spot_card_text`, the seam the routed "spot market" renders on both
+        surfaces."""
+        await self._send(update, await self.spot_card_text())
+
+    async def spot_card_text(self, *, surface: str = "telegram") -> str:
+        """The spot market card — the website's own rendering, both surfaces."""
+        return await self._web_card_text("spot", surface=surface)
+
+    @guard("airdrops")
+    async def _cmd_airdrops(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/airdrops — the airdrop and testnet radar, guided only (the card
+        itself carries the anti-sybil line; nothing is farmed for anybody).
+        The card is `airdrops_card_text`, the seam the routed "airdrop radar"
+        renders on both surfaces."""
+        await self._send(update, await self.airdrops_card_text(self._get_tg_id(update)))
+
+    async def airdrops_card_text(self, user_id: str, *, surface: str = "telegram") -> str:
+        """The airdrop radar card — the website's own rendering, both surfaces.
+
+        ``user_id`` is the caller's Telegram id: the website adds THEIR
+        wallet-readiness hints when that id is linked to a web account, and
+        answers the public radar otherwise. It is never a guess about whose
+        wallet to read."""
+        return await self._web_card_text("airdrops", surface=surface,
+                                         telegram_id=str(user_id or ""))
+
+    async def _web_card_text(self, name: str, *, surface: str,
+                             telegram_id: str = "") -> str:
+        """Fetch one website card off the event loop (blocking urllib) and
+        hand it back as Telegram HTML; the channel not answering is said in
+        the transport's own words (`_link_hint`), never rendered as a card."""
+        import asyncio as _aio
+
+        from bot.utils.web_data_pull import fetch_web_card, web_card_text
+        payload = await _aio.to_thread(fetch_web_card, name, telegram_id)
+        text = web_card_text(payload)
+        if text is None:
+            return self._link_hint(surface)
+        return text
 
     async def _cmd_funding(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/funding [SYMBOL] — live funding rates for a perp across every

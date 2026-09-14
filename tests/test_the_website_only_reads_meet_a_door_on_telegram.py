@@ -1,8 +1,8 @@
-"""The nine reads only the website's chat answers meet a DOOR on Telegram,
-and "replay" stops running a backtest.
+"""The reads only the website's chat answers meet a DOOR on Telegram, and
+"replay" stops running a backtest.
 
 `app/routes/chat.js` answers fifteen shapes of question from its own
-intercepts. Six have nothing on Telegram (replay, letter, airdrops, nft,
+intercepts. Six had nothing on Telegram (replay, letter, airdrops, nft,
 spot, defi) and three share a word with a Telegram command that does
 something else (/alerts is the anomaly-alert scope, /venues picks the venues
 that trade, /memeplan is a buy preflight). Typed on Telegram, "replay every
@@ -14,6 +14,11 @@ that answers it, the words it accepts, the same-named command when there is
 one, and ends by saying nothing was read. Both surfaces answer from
 `bot/nlp/web_reads.py`, whose table the Node side pins against the
 intercepts' own patterns (`app/test/web_reads_examples_reach_the_intercepts.test.js`).
+
+Three of the nine — airdrops, nft, spot — are COMMANDS since the website's
+own cards became fetchable (`tests/test_the_website_cards_are_telegram_commands.py`):
+their phrasings still route to the same intents (ROWS below), the intents
+now dispatch a command rather than a door, and the table holds six.
 
 Plant the phrase, drive the surface, read the STORE and the words.
 """
@@ -166,7 +171,8 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert r.row in rows, r
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
-    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 9
+    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 6
+    assert not {"airdrops", "nft", "spot"} & set(WEB_READS), "commands now, not doors"
 
 
 @pytest.mark.parametrize("intent", sorted(WEB_READS))
@@ -227,8 +233,8 @@ class TestTelegram:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("text,intent", [
-        ("my defi positions", "defi"), ("nft radar", "nft"), ("spot market", "spot"),
-        ("show me this week's letter", "letter"), ("airdrop radar", "airdrops"),
+        ("my defi positions", "defi"),
+        ("show me this week's letter", "letter"),
         ("best venue for BTC", "venue_router"), ("meme radar", "meme_radar"),
         ("tell me when BTC drops below 100k", "price_alert"),
     ])

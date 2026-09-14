@@ -70,13 +70,13 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Spot trading | partial | `/livebalance`, `/exposure`, `/networth`, `/api/spot/market`, `/api/spot/basis`, `/api/meme/swap/build`, `/memeplan` |
+| Spot trading | partial | `/livebalance`, `/exposure`, `/networth`, `/spot`, `/api/spot/market`, `/api/spot/basis`, `/api/meme/swap/build`, `/memeplan` |
 | Swing trading | **shipped** | `/swing`, `/fullscan`, `/mystrategy`, `/trade`, `/analyze` |
 | Scalping | **shipped** | `/scalp`, `/fullscan`, `/mystrategy`, `/run`, `/trade` |
 | Perp futures | **shipped** | `/trade`, `/positions`, `/open_positions`, `/livepositions`, `/orders`, `/leverage`, `/venues`, `/liveclose`, `/api/trade/propose`, `/api/trade/confirm`, `/api/trade/cancel` |
 | Options | — | — |
 | Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/api/reports` |
-| Basis trades | partial | `/api/spot/basis`, `/api/market/dex` |
+| Basis trades | partial | `/spot`, `/api/spot/basis`, `/api/market/dex` |
 | Triangular arbitrage | — | — |
 | CEX/DEX arbitrage | partial | `/api/market/dex`, `/api/market/venue-router` |
 | Copy trading | partial | `/api/arena/follow`, `/api/copy`, `/api/copy/unfollow`, `/api/copy/picks`, `/api/strategies`, `/api/bot-strategy`, `/mystrategy` |
@@ -92,8 +92,9 @@ market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
 tickers and the spot/perp basis, reachable through the web chat 'spot'
-intercept (chat.js:97) — the /api/spot/* routes it also backs have no browser
-caller. One genuine spot EXECUTION path exists and it is on-chain, not CEX:
+intercept (chat.js:97) and through /spot on Telegram, which renders the SAME
+card over the bot-secret sync channel (market_commands.py) — the /api/spot/*
+routes it also backs have no browser caller. One genuine spot EXECUTION path exists and it is on-chain, not CEX:
 bot/core/meme_swap.py:175 builds an unsigned Jupiter (Solana DEX) swap that
 the user signs in their own wallet at /swap (swap-page.js:181). It is double-
 gated off: build_swap refuses unless the /memeplan plan came back allowed,
@@ -221,8 +222,8 @@ nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
 app/lib/spot.js exposes getSpotPerpBasis (route /api/spot/basis,
-routes/spot.js:11 — no browser caller; the reachable door is the chat 'spot'
-intercept at chat.js:97), and app/lib/dex.js renders a DEX↔CEX basis
+routes/spot.js:11 — no browser caller; the reachable doors are the chat 'spot'
+intercept at chat.js:97 and /spot on Telegram, the same card), and app/lib/dex.js renders a DEX↔CEX basis
 (Hyperliquid mids vs this venue's perp price, as delta_bps) into the Markets
 view's c-dex panel.
 
@@ -334,8 +335,9 @@ all.
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
 futures-only mode' (trading_commands.py:744, :753); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
-by its own header ('nothing in this module places orders') and its only
-reachable consumer is the chat intercept at chat.js:101 — the /api/spot/*
+by its own header ('nothing in this module places orders') and its
+reachable consumers are the chat intercept at chat.js:101 and /spot on
+Telegram, which fetches that intercept's own card — the /api/spot/*
 routes have no caller in the tree. There is no cost-basis lot ledger:
 tax.js:5-9 says so outright ('There is no spot-lot ledger to match across, so
 forcing FIFO cost-basis matching onto already-matched round-trips would
@@ -499,8 +501,8 @@ Curve/Convex stable pools.
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Airdrop farming | partial | `/api/airdrops`, `/api/airdrops/me` |
-| Testnet/mainnet grinding | partial | `/api/airdrops`, `/me` |
+| Airdrop farming | partial | `/airdrops`, `/api/airdrops`, `/api/airdrops/me` |
+| Testnet/mainnet grinding | partial | `/airdrops`, `/api/airdrops`, `/me` |
 | Points programs | — ⟲ | — |
 | Referral loops | partial | `/api/auth/referrals`, `/api/public/invite/:code`, `/start`, `/api/public/duel/squads`, `/duel` |
 | Node/DePIN rewards | — | — |
@@ -517,8 +519,10 @@ need to bridge first' (app/lib/airdrops.js:139) — and the module's own
 docstring is explicit that a hint is a fact about the wallet, never a claim of
 qualification. Operators can swap the catalog without a deploy via
 AIRDROP_CATALOG_PATH, and a broken file falls through to the seed rather than
-blanking the radar (app/lib/airdrops.js:122-131). Four doors render it; the
-chat reply restates the anti-sybil line itself.
+blanking the radar (app/lib/airdrops.js:122-131). Five doors render it; the
+chat reply restates the anti-sybil line itself, and /airdrops on Telegram is
+that same chat card, fetched rendered over the bot-secret sync channel
+(market_commands.py), so the line reaches Telegram verbatim.
 
 *Gap.* The farming half does not exist and is a stated product line, not an omission:
 app/lib/airdrops.js:10-17 refuses automated participation, transaction
@@ -527,9 +531,10 @@ solely to qualify; ANTI_SYBIL_NOTE (:161) ships that refusal to every caller.
 There is no endpoint that performs, signs or schedules any step
 (app/routes/airdrops.js:8-10). Nothing tracks which steps a user has
 completed, nothing reads an allocation or a claim, and the catalog is a static
-snapshot the card tells you to re-verify on the official link. NO TELEGRAM
-DOOR — grep of bot/ for 'airdrop' returns one hit and it is
-scripts/guard_lint.py:521.
+snapshot the card tells you to re-verify on the official link. The Telegram
+door, /airdrops, is the web card and nothing more: a caller whose Telegram
+account is linked to a web account gets their own wallet-readiness hints,
+anybody else the public radar — never a guessed wallet.
 
 **Testnet/mainnet grinding** — partial
 
@@ -813,7 +818,7 @@ by nobo…
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Flipping | partial | `/api/nft/radar`, `/api/nft/wallet/:address`, `/api/web3/collectibles` |
+| Flipping | partial | `/nft`, `/api/nft/radar`, `/api/nft/wallet/:address`, `/api/web3/collectibles` |
 | Minting | partial | `/api/nft/mint-plan`, `/api/nft/stats`, `/rune`, `/api/command` |
 | Fractional/lending markets | — | — |
 | Royalty income | — | — |
@@ -838,13 +843,15 @@ header states the scope — "No marketplace machinery — no listings, no offers
 no fulfillment, no minting, no wallet credentials" (app/lib/opensea.js:5-9) —
 and its radar payload carries "RUNECLAW never lists, bids, mints or trades
 NFTs" (app/lib/opensea.js:88). Both HTTP routes (/radar, /wallet/:address)
-have no browser caller anywhere in the repo; the chat intercept is the only UI
-door. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
+have no browser caller anywhere in the repo; the chat intercept and /nft on
+Telegram — the same card, fetched rendered over the sync channel — are the UI
+doors. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
 commented out at .env.example:744 and set nowhere, so configured() is false
 and every reader honestly answers available:false / not_configured rather than
-a fabricated radar. No Telegram door of any kind — grep of bot/**/*.py for
-"nft" returns only contract_studio.py and deployer_fates.py, neither an NFT
-surface.
+a fabricated radar. The Telegram door, /nft, renders that same honest card
+(market_commands.py fetches the web intercept's own rendering), so an
+unconfigured key reads 'unavailable' on both surfaces rather than as a radar
+on one and silence on the other.
 
 *The verifier refused part of this row.* The STATUS is right and the read-only framing is right — I drove every path:
 the intercept table is dispatched in a loop (app/routes/chat.js:208-213), the

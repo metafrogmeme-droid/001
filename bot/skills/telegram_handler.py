@@ -1131,6 +1131,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("token", self._cmd_token),
             ("memeplan", self._cmd_memeplan),
             ("rwa", self._cmd_rwa),
+            # The website chat's own cards, rendered there and fetched here
+            ("nft", self._cmd_nft),
+            ("spot", self._cmd_spot),
+            ("airdrops", self._cmd_airdrops),
         ]:
             # Every slash command's turn reaches the transcript through this
             # one line — the command typed and what it replied — because a
@@ -3599,6 +3603,28 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     update, ctx, symbol=str(intent.kwargs.get("symbol") or ""))
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("research"))
+                return
+
+            # ── nft / spot / airdrops → the website's card, as a command ──
+            # Three of the website-only reads below became commands: each
+            # fetches the card the web intercept renders (one renderer, two
+            # surfaces) through the guarded command, and records the card
+            # the way the three above do. ABOVE the door notices, because a
+            # read that exists here must never be answered "ask the web app".
+            if intent.skill == "nft":
+                await self._cmd_nft(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("nft"))
+                return
+            if intent.skill == "spot":
+                await self._cmd_spot(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("spot"))
+                return
+            if intent.skill == "airdrops":
+                await self._cmd_airdrops(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("airdrops"))
                 return
 
             # ── The reads only the website answers → a door, never a narrator ──

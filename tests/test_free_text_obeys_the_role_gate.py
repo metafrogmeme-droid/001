@@ -417,6 +417,14 @@ class TestTheTableDoesNotDrift:
             "networth": "networth",
             "rwa": "rwa",
             "research": "research",
+            # Three more ROUTED INTENTS: the website chat's own cards, fetched
+            # rendered and shown by `_cmd_nft` / `_cmd_spot` / `_cmd_airdrops`.
+            # Each string is the `@guard` on that command; trader, paper and
+            # viewer all hold it — public market facts and a curated
+            # catalogue, no account is read for any of them.
+            "nft": "nft",
+            "spot": "spot",
+            "airdrops": "airdrops",
         }
 
     def test_halt_reaches_no_chat_transport(self):

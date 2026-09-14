@@ -548,6 +548,9 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/fundingscan` | annualized funding, multi-venue |
 | `/arb` | funding-arb paper tracker |
 | `/rwa` | tokenized real-world-asset radar |
+| `/spot` | spot pairs across venues and the spot/perp basis, read-only |
+| `/nft` | NFT collections by real 7-day volume, floor and volume, read-only |
+| `/airdrops` | airdrop and testnet radar — guided only, never farmed for you |
 
 ### 💼 Portfolio & record
 

@@ -1109,16 +1109,19 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
       explanation="Research dossier for one symbol")
 
 # --- The reads only the website answers: a door, never a narrator ---
-# Nine intercept rows of `app/routes/chat.js` that Telegram has no read for
+# Nine intercept rows of `app/routes/chat.js` that Telegram had no read for
 # (`bot/nlp/web_reads.py`): six with nothing here at all, three whose word
 # a Telegram command shares while doing something else. Their phrasings are
 # the intercepts' own patterns, narrowed where the web's claim is wider than
 # honest — the web's `spot` takes "spot prices", which on Telegram is a
 # PRICE question and stays one — and an education question ("what is defi",
-# "how do airdrops work") is the model's, as it is for `rwa` above. None
-# dispatches to a skill: both surfaces answer with `web_read_notice`, which
+# "how do airdrops work") is the model's, as it is for `rwa` above. Six
+# dispatch to no skill: both surfaces answer with `web_read_notice`, which
 # names the surface that has the read, the words it takes, and the
-# same-named command here when there is one.
+# same-named command here when there is one. Three — `airdrops`, `nft`,
+# `spot` — are commands now (`/airdrops`, `/nft`, `/spot` render the
+# website's own card) and route to them the way `rwa` does; the rules keep
+# their place here because order is what decides which rule answers.
 _EDU = r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
 _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
       r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
@@ -1128,11 +1131,11 @@ _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trad
 _rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|agent letter|fund letter)\b",
       "letter", explanation="The weekly letter (a website read)")
 _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
-      "airdrops", explanation="Airdrop and testnet radar (a website read)")
+      "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
-      "nft", explanation="NFT floor and volume radar (a website read)")
+      "nft", explanation="NFT floor and volume radar (the website's card, /nft)")
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
-      "spot", explanation="Spot pairs and the spot/perp basis (a website read)")
+      "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
       "defi", explanation="DeFi positions and liquidation risk (a website read)")
 _rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"

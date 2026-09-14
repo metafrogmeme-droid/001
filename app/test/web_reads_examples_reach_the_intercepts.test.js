@@ -31,8 +31,12 @@ function claims(row, text) {
   return lib.CHAT_RE.test(text);
 }
 
-test('the table names nine reads, each on a row the intercept table has', () => {
-  assert.equal(Object.keys(TABLE).length, 9);
+test('the table names six reads, each on a row the intercept table has', () => {
+  // Nine until the nft, spot and airdrops cards became Telegram commands
+  // (bot/skills/market_commands.py); those three route to a command now,
+  // and a row here would be a door notice over a read that exists.
+  assert.equal(Object.keys(TABLE).length, 6);
+  for (const gone of ['nft', 'spot', 'airdrops']) assert.equal(gone in TABLE, false, gone);
   for (const [intent, row] of Object.entries(TABLE)) {
     assert.ok(ROWS.includes(row.row), `${intent}: no intercept row named ${row.row}`);
     assert.ok(fs.existsSync(path.join(__dirname, '..', 'lib', `${row.lib}.js`)), `${intent}: no lib ${row.lib}`);

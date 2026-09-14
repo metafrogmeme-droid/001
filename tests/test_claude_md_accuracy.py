@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Thirty-eight call sites across the two entry points", DOC)
+    m = re.search(r"Forty-one call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 38, f"CLAUDE.md says thirty-eight; the two entry points have {n}"
+    assert n == 41, f"CLAUDE.md says forty-one; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():

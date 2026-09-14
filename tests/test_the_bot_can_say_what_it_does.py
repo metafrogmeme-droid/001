@@ -544,7 +544,10 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # Re-measured when the scan-mode rules became whole-message rules: the
     # bare `swing`/`scalp`/`intraday` alternatives that matched INSIDE
     # "/swing" are gone, so three more typed commands reach nothing.
-    assert (named, nothing, len(hits)) == (91, 82, 9), (named, nothing, hits)
+    # Re-measured again when /nft, /spot and /airdrops joined the catalogue:
+    # typed as commands none of the three reaches a registered skill, so
+    # every one of them lands on the model.
+    assert (named, nothing, len(hits)) == (94, 85, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

@@ -236,8 +236,13 @@ function fmt(v) {
   return Number(v).toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
-async function maybeHandleSpotChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The spot card — ONE renderer for both surfaces. The web intercept answers
+ * with it, and the bot's /spot command fetches this same card over the sync
+ * channel (`GET /api/bot/sync/card/spot`) instead of formatting the payload a
+ * second time in Python.
+ */
+async function spotChatCard() {
   const [mkt, basis] = [await getSpotMarket(), await getSpotPerpBasis(6)];
   if (!mkt.available) {
     return { reply_html: '🪙 <b>Spot market</b> — no spot venue reachable right now, try again shortly.' };
@@ -264,4 +269,9 @@ async function maybeHandleSpotChat(userId, text) {
   return { reply_html: lines.join('<br>') };
 }
 
-module.exports = { getSpotMarket, getSpotPerpBasis, maybeHandleSpotChat, setSpotFetcher, CHAT_RE, VENUES };
+async function maybeHandleSpotChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return spotChatCard();
+}
+
+module.exports = { getSpotMarket, getSpotPerpBasis, maybeHandleSpotChat, spotChatCard, setSpotFetcher, CHAT_RE, VENUES };
