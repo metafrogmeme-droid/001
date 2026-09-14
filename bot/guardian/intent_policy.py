@@ -197,6 +197,19 @@ def compile_policy(spec: dict, engine_caps: Optional[dict] = None) -> dict:
     ``warnings`` rather than raising — a bad rule can never yield an
     enforceable-but-wrong policy.
 
+    ``engine_caps["tradable_symbols"]`` — when the caller supplies it — is the
+    set of base symbols the engine can trade, or ``None`` when that set could
+    not be read. Symbol lists are CHECKED against it and never trimmed: an
+    entry the engine does not trade is named in ``warnings`` (so "only trade
+    btc please" says that PLEASE is not a symbol), a block-list none of whose
+    entries are tradable says it binds nothing, and an allow-list none of
+    whose entries are tradable says it would allow no trades. Trimming would
+    be the one thing this compiler must never do to a list — dropping an
+    entry LOOSENS an allow-list — and a warning on the approval card is where
+    the operator reads what their sentence bound. A universe that could not
+    be read checks nothing and says so; a caller that supplies no universe
+    gets the old behaviour, silently.
+
     Returns a policy dict: ``{version, policy_id, label, source_text, mode,
     rules, warnings, compiled_hash}``.
     """
@@ -246,6 +259,8 @@ def compile_policy(spec: dict, engine_caps: Optional[dict] = None) -> dict:
             if not vals:
                 warnings.append(f"{rtype}: no valid entries")
                 continue
+            if rtype in ("allowed_symbols", "blocked_symbols") and "tradable_symbols" in engine_caps:
+                warnings.extend(_symbol_notes(rtype, vals, engine_caps.get("tradable_symbols")))
             out_rules.append({"type": rtype, "value": vals})
             seen.add(rtype)
 
@@ -277,6 +292,39 @@ def compile_policy(spec: dict, engine_caps: Optional[dict] = None) -> dict:
 
 
 # ── evaluate: deterministic violation check (no LLM, no network) ───────
+
+def _symbol_notes(rtype: str, vals: list, universe: Any) -> list[str]:
+    """Warnings for a symbol list read against the engine's tradable set.
+
+    Three readings, never collapsed: a universe of ``None`` could not be read
+    (nothing is checked, and the note says so — silently trusting the list
+    would be a claim from no measurement); an entry outside a READ universe
+    is named; and a list whose every entry is outside it gets the sentence
+    that matters — a block-list that binds nothing is the expensive one,
+    because the operator believes something is blocked.
+    """
+    if universe is None:
+        return [f"{rtype}: could not read the tradable universe — "
+                f"{', '.join(vals)} not checked"]
+    try:
+        known = {_base_symbol(s) for s in universe if _base_symbol(s)}
+    except TypeError:
+        return [f"{rtype}: could not read the tradable universe — "
+                f"{', '.join(vals)} not checked"]
+    unknown = [v for v in vals if v not in known]
+    notes: list[str] = []
+    if unknown:
+        notes.append(f"{rtype}: {', '.join(unknown)} not in the universe this "
+                     f"engine trades from — check the spelling")
+    if unknown and len(unknown) == len(vals):
+        if rtype == "blocked_symbols":
+            notes.append("blocked_symbols: none of these is tradable here, so "
+                         "this rule blocks nothing")
+        else:
+            notes.append("allowed_symbols: none of these is tradable here, so "
+                         "this rule would allow no trades")
+    return notes
+
 
 def evaluate_policy(policy: Optional[dict], ctx: dict) -> dict:
     """Check a candidate trade context against a compiled policy.
@@ -595,7 +643,7 @@ def human_readable(policy: Optional[dict]) -> str:
     warnings = policy.get("warnings") or []
     if warnings:
         lines.append("")
-        lines.append("Adjusted to stay within engine caps:")
+        lines.append("Notes — adjusted to stay within engine caps, or symbols to check:")
         for w in warnings[:8]:
             lines.append("  – " + str(w))
     return "\n".join(lines)

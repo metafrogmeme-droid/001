@@ -520,6 +520,22 @@ def _journal_exit_price(pos) -> float:
     return 0.0
 
 
+def _tradable_base_symbols() -> Optional[frozenset]:
+    """The base symbols this engine can enter — the deep-scan universe plus
+    the scanner's, one set — or None when neither could be read. Never an
+    empty set: an unreadable universe must not make every symbol an
+    operator names look untradable."""
+    try:
+        from bot.guardian.intent_policy import _base_symbol
+        from bot.skills.scan_skill import UNIVERSE as _scan
+        from bot.skills.skill_registry import DEEPSCAN_UNIVERSE, TRADFI_PERPETUALS
+        syms = {_base_symbol(s) for s in (*DEEPSCAN_UNIVERSE, *TRADFI_PERPETUALS, *_scan)}
+        syms.discard("")
+        return frozenset(syms) or None
+    except Exception:  # noqa: BLE001 - an unreadable universe is None, never []
+        return None
+
+
 def _journal_quantity(pos) -> Optional[float]:
     """The base-currency size to journal, or None when the record has none.
     Both books carry `quantity` (LivePosition and the paper TradeExecution);
@@ -1559,8 +1575,12 @@ class RuneClawEngine:
 
     def _intent_engine_caps(self) -> dict:
         """The authoritative engine caps a compiled policy is clamped against
-        (so a policy can only tighten). Missing caps are simply omitted."""
+        (so a policy can only tighten). Missing caps are simply omitted — except
+        the tradable universe, which is ALWAYS present and ``None`` when it
+        could not be read, because "not supplied" and "could not read" are
+        different answers and only the second should say so on the card."""
         caps = {
+            "tradable_symbols": _tradable_base_symbols(),
             "max_position_pct": getattr(CONFIG.risk, "max_position_pct", None),
             "max_symbol_exposure_pct": getattr(CONFIG.risk, "max_symbol_exposure_pct", None),
             "max_portfolio_exposure_pct": getattr(CONFIG.risk, "max_portfolio_exposure_pct", None),
