@@ -1504,6 +1504,33 @@ is supposed to be gated on. The catalogue's driven counts moved by one
 
 **Thirty mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: the venue-read seam bound as a default argument dies only on the test that plants the module's `balance_snapshot` and expects the planted read — every assertion on the card passes with the real seam being called, and the kill is the planted call count; and the first radar row taken whatever coin it is for dies only on a row planted for ANOTHER coin, which no assertion on the card can see because the card prints the row's own base. The rest die where the drives say — a zero read sized, the larger leg bounding the pair, one read leg sizing it, the snapshot attempted for an unlinked venue, a store fault or a no-figure answer read as not linked or as zero, the venue's detail on the card, a flat spread breaking even in zero hours, the bound unnamed, the places-nothing line gone, the requested figure printed as the size, markup or a non-positive size accepted, does-not-survive wearing green, the guard gone or demoted to `status`, a store fault read as an empty store, the short leg read off the long venue, a Confirm button, the record not read, a bad argument falling through, the catalogue row gone or claiming it places, the registration gone, the baseline forgetting it.
 
+**The re-place sweep cancelled every plan order on the symbol, both sides,
+and the rule it needed was already written one module over.** `_place_sl_tp`
+clears the resting stops it finds before it places new ones — the right idea,
+its own comment names the double-close it prevents — with no side filter. The
+bot's own book never holds both sides of one symbol (the duplicate-symbol
+guard is direction-agnostic), so the hazard needs a position the bot did not
+open — an operator's manual short beside a bot long, an adopted orphan — on a
+HEDGE-mode account, where re-placing the long's protection stripped the
+short's stop and placed one: a real position, unprotected, by the code whose
+job is protection. `order_state.rows_for_side` states the asymmetry for
+position rows ("a row is dropped only when it is DEFINITELY somebody else's");
+`bot/core/plan_cleanup.py` is the same asymmetry pointed the other way — a row
+is CANCELLED only when it definitely protects THIS side, read off `posSide` or
+`holdSide` (the UTA listing documents both) or the normalised order side (a
+stop that closes a long is a sell). In hedge mode a row whose side could not
+be read is KEPT and audited, because the two mistakes are not the same size:
+a reduce-only survivor on the same side cannot double-close, a stripped
+other-side stop leaves real money naked. One-way keeps the sweep it always
+had — one side is all there is — and an undetected mode takes the hedge rule
+for the same reason. The task had been filed rather than fixed because the
+classic v2 listing's side field was unverified; the fix reads three
+spellings and refuses to guess on a fourth, which is what "needs a payload"
+turns into when the payload does not come.
+(`tests/test_the_plan_cleanup_keeps_the_other_sides_stop.py`.)
+
+**Twelve mutations, each killed on the first round.** Seven on the rule and five on the executor's use of it — an undetected mode sweeping everything, hedge mode sweeping everything, the other side cancelled too, an unreadable row cancelled in hedge mode, the close side read backwards, the raw position side ignored, `holdSide` alone dropped; the loop reading the listing instead of the rule's answer, the executor always claiming one-way, the kept rows unaudited, the side computed backwards, and a cancel the venue rejected counted as cleared. The last is worth naming for what it proves about the fixture rather than the code: the count is asserted against a planted `cancel_order` that RAISES, because a stub that always succeeds cannot tell an increment above the await from one below it, and the mutation is exactly that swap.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
