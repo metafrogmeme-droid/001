@@ -47,7 +47,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
-    stake_verb,
+    stake_verb, LINK_DOOR,
     skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
@@ -560,21 +560,10 @@ def _live_account_absence(user_id: str) -> str:
     return state if state in ("absent", "unreadable") else "unresolved"
 
 
-#: The door to a linked account, per surface. A slash command told to a web
-#: caller is a door painted on a wall: the web chat cannot run /connect, and
-#: the dashboard has its own step — Account -> "Connect an exchange" (API
-#: keys), which is also where the key state is shown. Telegram and the
-#: operator's API bridge get the commands. Keyed by the transport the turn
-#: arrived on (`_llm_chat`'s ``surface``), never guessed from the id.
-_LINK_DOOR: dict[str, dict[str, str]] = {
-    "web": {"link": "the dashboard's Account > Connect an exchange step links "
-                    "exchange keys",
-            "state": "the dashboard's Account > API keys page shows the key "
-                     "state, and re-entering the keys there replaces them"},
-    "telegram": {"link": "/connect links exchange keys",
-                 "state": "/exchange shows the key state, and re-linking with "
-                          "/connect replaces them"},
-}
+#: The door to a linked account, per surface — `chat_runtime.LINK_DOOR`, the
+#: one table the stake notice reads too; kept under this name for the
+#: no-account block and the tests that pin it.
+_LINK_DOOR = LINK_DOOR
 
 
 def _no_live_account_block(absence: str, surface: str = "telegram") -> tuple[str, str]:
@@ -1078,7 +1067,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("idleyield", self._cmd_idleyield),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
-            # Admin: stake/redeem flexible Earn (button-confirmed money path)
+            # Stake/redeem flexible Earn on the CALLER's linked account
+            # (button-confirmed money path; `stake` permission, trader+admin)
             ("stake", self._cmd_stake),
             ("unstake", self._cmd_unstake),
             # Multi-symbol funding-spread scan (read-only, public data);
@@ -3713,18 +3703,22 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     also_asked=bool(intent.kwargs.get("also_asked")), verb=_verb)
                 await self._send(update, _act)
                 if _kind == "stake":
-                    # The door is the operator's own plan card — /stake or
-                    # /unstake, which moves nothing until Confirm is tapped
-                    # and refuses everyone else — so for the operator it
-                    # follows the notice, and for anyone else nothing does:
-                    # the notice has already said whose door it is, and the
-                    # command's refusal under it would say so twice. Never
-                    # the positions card, which is not this request's door.
+                    # The door is the caller's own plan card — /stake or
+                    # /unstake over the account THEY linked (the operator's
+                    # for an admin who linked none), which moves nothing
+                    # until Confirm is tapped — so for a caller whose role
+                    # holds `stake` it follows the notice, and for anyone
+                    # else nothing does: the notice has already said whose
+                    # door it is, and the command's role refusal under it
+                    # would say so twice. Never the positions card, which is
+                    # not this request's door. The command's own @guard still
+                    # runs inside the call; asking the same store the same
+                    # question here only decides whether a card follows.
                     # One record, written unconditionally below the arm, so
                     # the transcript guard can see it above the return; the
                     # arm only adds the card it showed.
                     _record = routed_answer_memory(intent.skill, _act)
-                    if self._is_admin(update):
+                    if self.users.permission_denial(tg_id, "stake") is None:
                         _plan = self._cmd_unstake if _verb == "unstake" else self._cmd_stake
                         await _plan(update, ctx)
                         _record += "\n" + card_shown_memory(f"{_verb} plan")

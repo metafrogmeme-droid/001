@@ -487,12 +487,24 @@ async def test_llmtiers_unconfigured_shows_fix_hint():
 
 
 @pytest.mark.asyncio
-async def test_stake_denied_for_non_admin():
-    """/stake moves operator funds — a non-admin must be refused up front."""
+async def test_stake_denied_for_a_self_admitted_user(monkeypatch):
+    """/stake moves real funds on the caller's OWN linked account, so its
+    permission (`stake`) is trader-and-admin: a self-admitted paper user is
+    refused by the role gate before any account is resolved or any balance
+    read — the refusal names the role, not "admin only", because a vouched-for
+    trader is not an admin and may stake."""
+    import bot.core.yield_radar as yr
+
     handler = _make_handler()
+    handler.users.register("999999", name="Walkin")
+    handler.users.authorize("999999", role="paper", by="auto-accept")
     update, ctx = _make_update(user_id=999999, text="/stake")
+    read = []
+    monkeypatch.setattr(yr, "build_report", lambda *a, **k: read.append(1))
     await handler._cmd_stake(update, ctx)
-    assert _any_reply_contains(update, "admin only")
+    assert _any_reply_contains(update, "needs a higher role")
+    assert not _any_reply_contains(update, "Stake plan")
+    assert not read, "a refused caller's balances must not be read"
 
 
 @pytest.mark.asyncio
@@ -517,11 +529,15 @@ async def test_stake_only_proposes_never_executes(monkeypatch):
 
     await handler._cmd_stake(update, ctx)
     assert _any_reply_contains(update, "Stake plan")
+    # An admin who linked no account of their own stakes the OPERATOR's — the
+    # card says so, because the same command over a linked account says whose.
+    assert _any_reply_contains(update, "the operator's Bitget")
     assert not executed, "/stake itself must never move funds"
-    # The confirm button carries only the coin — never an amount.
+    # The confirm button carries the coin and the account's owner tag — never
+    # an amount.
     markup = update.message.reply_text.call_args.kwargs.get("reply_markup")
     flat = [b for row in markup.inline_keyboard for b in row]
-    assert any(b.callback_data == "yld:s:USDT" for b in flat)
+    assert any(b.callback_data == "yld:s:USDT:op" for b in flat)
     assert all("98" not in (b.callback_data or "") for b in flat)
 
 

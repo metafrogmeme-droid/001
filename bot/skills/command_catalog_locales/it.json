@@ -168,8 +168,8 @@
     "setsigner": "imposta la chiave di firma on-chain (cifrata)",
     "yield": "radar del rendimento degli asset inattivi (sola lettura)",
     "idleyield": "scansione del miglior tasso tra le fonti",
-    "stake": "metti le stablecoin inattive in Earn flessibile",
-    "unstake": "riscatta da Earn al margine di trading",
+    "stake": "mettere gli stable inattivi del TUO account Bitget collegato in Earn flessibile — una scheda piano, nulla si muove fino a Conferma",
+    "unstake": "riscattare il tuo Earn flessibile verso il margine di trading — confermato con pulsante",
     "postmortem": "autopsia di un'operazione chiusa — /postmortem [SIMBOLO o id dell'operazione]"
   },
   "menu": {

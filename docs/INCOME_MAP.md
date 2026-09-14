@@ -384,8 +384,8 @@ four instruction names and every transaction sender is a test harness;
 bot/token/tier_gate.py:438 only READS StakeAccount bytes via
 getProgramAccounts, so a user cannot stake $RCLAW from Telegram, the web, or
 any CLI in the repo. The only staking-shaped EXECUTION in the product is
-Bitget Earn CEX savings, stables-only and operator-only (see the stablecoin
-row).
+Bitget Earn CEX savings, stables-only, on the Bitget account a trader linked
+with /connect (see the stablecoin row).
 
 *The verifier refused part of this row.* partial stands for the liquid-staking READ (that half I confirmed end to end),
 but two of the seven listed doors are not doors. (1) tier_gate.py:438 is
@@ -473,28 +473,36 @@ snapshots, not a deposit. What these doors actually serve is cross-venue fu…
 
 **Stablecoin yield strategies** — partial
 
-Two different products under one word. For an ordinary signed-in user: READ
-ONLY — the idle-yield optimizer matches their wallet's idle USDC/USDT/DAI to
-the best Aave v3 supply rate (non-custodial preferred honestly over a
-marginally higher custodial CEX rate) and says so; the module's own first
-lines are 'RECOMMEND, never auto-deploy' and 'RECOMMENDATION-ONLY — never
-moves funds'. For the OPERATOR only: real execution into Bitget Earn savings.
-/stake shows a plan and the yld:s callback calls yield_radar.execute_stake,
-re-clamped from live balances at press time and holding a 30% margin reserve;
-STAKEABLE_COINS is exactly ('USDT','USDC'); /stake fixed is a two-step lock
-whose second confirm must echo the exact lock end date; /unstake redeems. The
-web twin POST /api/staking/fixed is gated three times — authMiddleware, a TOTP
-step-up, and `_is_admin_id` 403 in the gateway — and /api/reports/yield
-requires plan==='admin'.
+Two different products under one word. On the website, for a signed-in
+user: READ ONLY — the idle-yield optimizer matches their wallet's idle
+USDC/USDT/DAI to the best Aave v3 supply rate (non-custodial preferred
+honestly over a marginally higher custodial CEX rate) and says so; the
+module's own first lines are 'RECOMMEND, never auto-deploy' and
+'RECOMMENDATION-ONLY — never moves funds'. On Telegram, real execution into
+Bitget Earn savings on the CALLER's OWN account: /stake shows a plan over the
+idle stables of the Bitget account they linked with /connect (an admin who
+linked none gets the operator's, as before), and the yld:s callback calls
+yield_radar.execute_stake with THAT account's client, re-clamped from live
+balances at press time and holding a 30% margin reserve; STAKEABLE_COINS is
+exactly ('USDT','USDC'); /stake fixed is a two-step lock whose second confirm
+must echo the exact lock end date; /unstake redeems. The permission is
+`stake`, held by trader and admin — a self-admitted paper user and a viewer
+are refused by role — and the plan card, the button's owner tag and the
+sealed record all name the account acted on (bot/core/earn_account.py is
+the one reading, eight states, asked again at press time so a plan over one
+book cannot execute against another). The web twin POST /api/staking/fixed
+stays operator-only — authMiddleware, a TOTP step-up, and `_is_admin_id` 403
+in the gateway — and /api/reports/yield requires plan==='admin'; /yield and
+/idleyield are still admin-only reads of the operator's book.
 
-*Gap.* No user can move a cent. Every execution path is `_is_admin`/`_is_admin_id`
-and runs against the OPERATOR's Bitget keys — a normal trader/paper/viewer
-gets a rate and nothing to press. The custodial execution is Bitget Earn
-flexible/fixed savings, not on-chain: nothing supplies to Aave, nothing enters
-a stablecoin vault, and non-custodial stablecoin yield is recommendation-only
-end to end. Coverage is four assets (USDC/USDT/DAI on Aave v3, plus whatever
-Bitget Earn lists); no sDAI/sUSDS, no Ethena, no T-bill/RWA stable yield, no
-Curve/Convex stable pools.
+*Gap.* The custodial execution is Bitget Earn flexible/fixed savings, and
+Bitget only: a caller linked to Bybit or BingX is told so and nothing moves
+(their Earn is unserved — recorded rather than guessed at). The website's own
+staking route is still the operator's. Not on-chain: nothing supplies to
+Aave, nothing enters a stablecoin vault, and non-custodial stablecoin yield
+is recommendation-only end to end. Coverage is four assets (USDC/USDT/DAI on
+Aave v3, plus whatever Bitget Earn lists); no sDAI/sUSDS, no Ethena, no
+T-bill/RWA stable yield, no Curve/Convex stable pools.
 
 
 ### Points & Rewards Meta

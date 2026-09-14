@@ -495,6 +495,8 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/paper` | practise risk-free with virtual funds |
 | `/mystrategy` | choose which strategy preset YOUR confirms run through |
 | `/venues` | choose which of your connected venues actually trade |
+| `/stake` | put your linked Bitget's idle stables into flexible Earn — nothing moves until Confirm |
+| `/unstake` | redeem your flexible Earn back to trading margin — button-confirmed |
 | `/open_positions` | your open positions |
 | `/positions` | your open positions — same as /open_positions |
 | `/livepositions` | live exchange positions and pending orders |
@@ -677,8 +679,6 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/setsigner` | set the on-chain signing key (encrypted) |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
-| `/stake` | put idle stables into flexible Earn |
-| `/unstake` | redeem Earn back to trading margin |
 
 <!-- END generated: telegram commands -->
 

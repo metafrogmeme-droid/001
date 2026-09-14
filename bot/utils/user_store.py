@@ -53,6 +53,17 @@ ROLES = ("admin", "trader", "paper", "viewer", "pending")
 # a refactor bought with no safety.
 OPERATOR_CONTROL_PERMISSIONS = frozenset({"halt", "reset", "mode"})
 
+# The OTHER kind of trader-only permission. `stake` reaches no shared state —
+# /stake and /unstake act on the caller's OWN linked exchange account, through
+# their own keys, on a confirm button — so the operator-control derivation
+# (tests/test_operator_controls_are_derived.py) would rightly refuse it in the
+# set above. It is withheld from the self-admission role for a different
+# reason: it moves real money through this bot, and nobody vouched for a
+# self-admitted user. A permission belongs here when it is the caller's own
+# real money and there; the two sets are pinned apart so neither reason can
+# be borrowed for the other.
+VOUCHED_ONLY_PERMISSIONS = frozenset({"stake"})
+
 # A user who let themselves in through PAPER_AUTO_ACCEPT gets this role, and an
 # admin's /approve grants "trader". They were the SAME role, which is the whole
 # of H4: the door opened for the Arena on-ramp handed every stranger who
@@ -125,9 +136,13 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
         # to exactly the role that can confirm trades.
         "mystrategy",
+        # /stake and /unstake: the caller's OWN linked account, real money,
+        # confirm-gated. Vouched-for only — see VOUCHED_ONLY_PERMISSIONS.
+        "stake",
     },
     # Self-admission (PAPER_AUTO_ACCEPT). "trader" minus OPERATOR_CONTROL_
-    # PERMISSIONS, written out rather than computed as a set difference,
+    # PERMISSIONS and VOUCHED_ONLY_PERMISSIONS, written out rather than
+    # computed as a set difference,
     # because the two directions fail differently and only one of them fails
     # safe. Derived, a permission added to "trader" would land here too — which
     # is exactly how a stranger got `reset`. Written out, a new trader
@@ -136,8 +151,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     #
     # The maintenance cost of writing it out is paid by a test, not by
     # remembering: test_self_admission_is_not_vouched pins
-    # `trader - paper == OPERATOR_CONTROL_PERMISSIONS` exactly, so adding to one
-    # set without deciding about the other fails loudly instead of drifting.
+    # `trader - paper == OPERATOR_CONTROL_PERMISSIONS | VOUCHED_ONLY_PERMISSIONS`
+    # exactly, so adding to one set without deciding about the other fails
+    # loudly instead of drifting.
     "paper": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",

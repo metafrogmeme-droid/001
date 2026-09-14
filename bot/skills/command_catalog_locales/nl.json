@@ -168,8 +168,8 @@
     "setsigner": "stelt de on-chain ondertekeningssleutel in (versleuteld)",
     "yield": "yield-radar voor inactieve activa (alleen-lezen)",
     "idleyield": "scan van het beste tarief over alle bronnen",
-    "stake": "inactieve stables in flexibele Earn zetten",
-    "unstake": "Earn terughalen naar de handelsmarge",
+    "stake": "ongebruikte stables van JOUW gekoppelde Bitget-account in flexibel Earn zetten — een plankaart, niets verplaatst tot Bevestigen",
+    "unstake": "je flexibele Earn terughalen naar de handelsmarge — met een knop bevestigd",
     "postmortem": "autopsie van één gesloten trade — /postmortem [SYMBOOL of trade-id]"
   },
   "menu": {

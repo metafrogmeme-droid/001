@@ -159,12 +159,45 @@ _CHAT_CANNOT_ACT_RULE = (
     "paused, stopped or resumed unless a tool result in THIS turn says so.\n"
     "- You cannot stake, unstake or move funds into or out of Earn from this "
     "chat, and no tool here can. If asked to, say so and name the door: "
-    "/stake and /unstake in Telegram are the operator's, admin-only, and "
-    "show a plan card that moves nothing until Confirm is tapped; the "
-    "website's chat can say where a caller's own idle assets could earn (a "
-    "recommendation, never a move). Never say funds were staked or redeemed "
-    "unless a tool result in THIS turn says so.\n"
+    "/stake and /unstake in Telegram act on the Bitget account the caller "
+    "linked to the bot (the trader role is needed; an admin who linked "
+    "none acts on the operator's account) and show a plan card that moves "
+    "nothing until Confirm is tapped; the website's chat can say where a "
+    "caller's own idle assets could earn (a recommendation, never a move). "
+    "Never say funds were staked or redeemed unless a tool result in THIS "
+    "turn says so.\n"
 )
+
+#: The door to a linked exchange account, per surface. A slash command told
+#: to a web caller is a door painted on a wall: the web chat cannot run
+#: /connect, and the dashboard has its own step — Account -> "Connect an
+#: exchange" (API keys), which is also where the key state is shown.
+#: Telegram and the operator's API bridge get the commands. Keyed by the
+#: transport the turn arrived on (`_llm_chat`'s ``surface``), never guessed
+#: from the id. ONE table for the prompt's no-account block and the stake
+#: notice, and the rule above names no linking command at all: it is one
+#: string every surface reads, and its first draft said "linked with
+#: /connect" — the guard against exactly that shape caught it on the full
+#: run, and no suite the slice had been running could have.
+LINK_DOOR: dict[str, dict[str, str]] = {
+    "web": {"link": "the dashboard's Account > Connect an exchange step links "
+                    "exchange keys",
+            "state": "the dashboard's Account > API keys page shows the key "
+                     "state, and re-entering the keys there replaces them",
+            "linked": "on the dashboard's Account > Connect an exchange step"},
+    "telegram": {"link": "/connect links exchange keys",
+                 "state": "/exchange shows the key state, and re-linking with "
+                          "/connect replaces them",
+                 "linked": "with /connect"},
+}
+
+
+def link_door(surface: str) -> dict[str, str]:
+    """The surface's own linking door. A transport the table does not name
+    (the api bridge, an empty string) gets Telegram's commands, as the
+    no-account block always has: the bridge is the operator's."""
+    return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
+
 
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
@@ -245,12 +278,17 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     handled — the same silence the routed action itself exists to end.
 
     `stake` is the fourth kind and its door is not a button: /stake and
-    /unstake are the OPERATOR's, admin-only, and show a plan card that moves
-    nothing until Confirm is tapped, so the notice says whose door it is
-    (`verb` picks which), where a caller's OWN idle assets can be read about
-    (the website's idle-yield read, a recommendation and never a move), and
-    that nothing was staked or redeemed. The Telegram branch follows it with
-    the operator's plan card for an admin and with nothing for anyone else.
+    /unstake show a plan card over the Bitget account the caller LINKED (the
+    operator's, for an admin who linked none), and it moves nothing until
+    Confirm is tapped — so the notice names the door (`verb` picks which),
+    says whose account it is over, how it was linked (the SURFACE's own
+    door, `link_door`: /connect here, the dashboard's step on the web,
+    where a slash command is a door painted on a wall), what the role gate is,
+    says where a caller's OWN idle assets can be read about (the website's
+    idle-yield read, a recommendation and never a move), and that nothing
+    was staked or redeemed. The Telegram branch follows it with the plan
+    card for a caller whose role holds `stake` and with nothing for anyone
+    else.
     """
     rest = (" You asked for something else in the same message; that part "
             "has not been run \u2014 send it on its own and I will."
@@ -262,10 +300,13 @@ def act_intent_notice(kind: str, symbol: str | None = None,
         where = ("in the Telegram bot" if surface == "web" else "here")
         read = ("ask here: " if surface == "web"
                 else "the web app's chat has a read: ")
+        linked = link_door(surface)["linked"]
         return ("I don't stake or redeem funds from chat, and " + here + ". "
-                f"Staking {where} is the operator's <code>{door}</code> \u2014 admin-only, a "
-                "plan card over the operator's idle stables that moves nothing until "
-                "Confirm is tapped. For where YOUR idle assets could earn, " + read
+                f"Staking {where} is <code>{door}</code> \u2014 a plan card over the "
+                f"idle stables of the Bitget account you linked {linked} (the "
+                "trader role; an admin who linked none gets the operator's "
+                "account), and it moves nothing until Confirm is tapped. For "
+                "where YOUR idle assets could earn, " + read
                 + "\u201c<i>put my idle cash to work</i>\u201d \u2014 a recommendation, never a "
                 f"move. Nothing has been staked or redeemed.{rest}")
     if kind == "modify":

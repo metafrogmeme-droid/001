@@ -50,7 +50,7 @@ import pathlib
 import pytest
 
 from bot.utils.user_store import (OPERATOR_CONTROL_PERMISSIONS, ROLE_PERMISSIONS,
-                                  SELF_ADMISSION_ROLE)
+                                  SELF_ADMISSION_ROLE, VOUCHED_ONLY_PERMISSIONS)
 from tests.source_scan import handler_sources
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -255,3 +255,36 @@ def test_the_weaker_roles_hold_none_either(role):
     derived = set(_derived_operator_permissions())
     assert not (ROLE_PERMISSIONS[role] & derived), (
         f"{role!r} holds {sorted(ROLE_PERMISSIONS[role] & derived)}")
+
+
+# ── the other trader-only set ────────────────────────────────────────
+
+def test_a_vouched_only_permission_reaches_no_shared_state():
+    """`VOUCHED_ONLY_PERMISSIONS` is the set the derivation must NOT back: its
+    entries are withheld from self-admission because they move the caller's
+    OWN real money, not because they reach anybody else's. One that starts
+    reaching shared state belongs in the operator set, and this says so."""
+    derived = set(_derived_operator_permissions())
+    crossed = set(VOUCHED_ONLY_PERMISSIONS) & derived
+    assert not crossed, (
+        f"{sorted(crossed)} reach shared state now — move them to "
+        "OPERATOR_CONTROL_PERMISSIONS")
+
+
+def test_a_vouched_only_permission_is_held_by_trader_and_withheld_from_the_rest():
+    """Both halves of the reason: a vouched-for trader holds it, and every role
+    nobody vouched for does not — including viewer, which cannot even trade."""
+    for perm in VOUCHED_ONLY_PERMISSIONS:
+        assert perm in ROLE_PERMISSIONS["trader"], perm
+        for role in (SELF_ADMISSION_ROLE, "viewer", "pending"):
+            assert perm not in ROLE_PERMISSIONS[role], (perm, role)
+
+
+def test_a_vouched_only_permission_is_one_a_guarded_handler_carries():
+    """A declared permission no handler carries is a claim nobody checked —
+    the same rule the operator set's other-direction test states."""
+    carried = {_guard_permission(node)
+               for tree in _handler_trees() for node in ast.walk(tree)
+               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    for perm in VOUCHED_ONLY_PERMISSIONS:
+        assert perm in carried, f"no @guard({perm!r}) handler exists"

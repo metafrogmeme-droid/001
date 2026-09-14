@@ -83,11 +83,13 @@ _cmd_settier
 _cmd_signals
 _cmd_spot
 _cmd_squeeze
+_cmd_stake
 _cmd_status
 _cmd_stockscan
 _cmd_sweep
 _cmd_swing
 _cmd_token
+_cmd_unstake
 _cmd_venue_router
 _cmd_venues
 _cmd_walkforward

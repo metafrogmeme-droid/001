@@ -168,8 +168,8 @@
     "setsigner": "setzt den On-Chain-Signaturschlüssel (verschlüsselt)",
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
     "idleyield": "Bestzins-Scan über alle Quellen",
-    "stake": "ungenutzte Stables in flexibles Earn legen",
-    "unstake": "aus Earn zurück in die Handelsmargin holen",
+    "stake": "ungenutzte Stables DEINES verknüpften Bitget-Kontos in flexibles Earn legen — eine Plan-Karte, nichts bewegt sich vor Bestätigen",
+    "unstake": "dein flexibles Earn zurück in die Handelsmargin holen — per Button bestätigt",
     "postmortem": "Post-mortem eines geschlossenen Trades — /postmortem [SYMBOL oder Trade-ID]"
   },
   "menu": {

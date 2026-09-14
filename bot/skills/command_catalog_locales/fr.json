@@ -168,8 +168,8 @@
     "setsigner": "définit la clé de signature on-chain (chiffrée)",
     "yield": "radar de rendement des actifs inactifs (lecture seule)",
     "idleyield": "scan du meilleur taux toutes sources",
-    "stake": "placer les stables inactifs en Earn flexible",
-    "unstake": "retirer d'Earn vers la marge de trading",
+    "stake": "placer les stables inutilisés de TON compte Bitget lié en Earn flexible — une carte de plan, rien ne bouge avant Confirmer",
+    "unstake": "récupérer ton Earn flexible vers la marge de trading — confirmé par bouton",
     "postmortem": "autopsie d'un trade clôturé — /postmortem [SYMBOLE ou id du trade]"
   },
   "menu": {

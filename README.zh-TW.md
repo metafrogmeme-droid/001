@@ -448,6 +448,8 @@ python -m bot.main --mode scan
 | `/paper` | 用虛擬資金無風險練習 |
 | `/mystrategy` | 選擇你的機器人採用哪個策略預設 |
 | `/venues` | 選擇你已連接的哪些交易所實際下單 |
+| `/stake` | 把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金 |
+| `/unstake` | 把你的活期 Earn 贖回為交易保證金——按鈕確認 |
 | `/open_positions` | 你的持倉 |
 | `/positions` | 你的持倉（等同 /open_positions） |
 | `/livepositions` | 交易所實盤持倉與掛單 |
@@ -630,8 +632,6 @@ python -m bot.main --mode scan
 | `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
-| `/stake` | 將閒置穩定幣投入活期 Earn |
-| `/unstake` | 將 Earn 贖回為交易保證金 |
 
 <!-- END generated: telegram commands -->
 

@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 101 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 103 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 92 of the 101 reach the tool-less chat model and 9
+typed as the card prints them, 94 of the 103 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -1342,6 +1342,88 @@ runs (a JOIN on the account's Telegram id) and the in-memory store's handler
 that mirrors it by hand for every test in CI. The round mutates the handler,
 which is what CI can drive; the SQL is the untested half, stated rather than
 hidden — the second-copy shape sitting exactly where a test double has to be.
+
+**A door that refuses everyone but the operator, over the account only the
+operator has, is the operator-book leak with the sign flipped.** `/stake`,
+`/stake fixed`, `/unstake` and the three confirm buttons behind them each
+built their client with `BitgetV3Client.from_config()` — the OPERATOR's keys
+— under an `_is_admin` gate, so INCOME_MAP's stablecoin row could say "no
+user can move a cent" while `_executor_for`, `/livebalance` and the
+credential store already knew whose keys a linked caller had. `check_risk`,
+`playbook`, `get_portfolio` and the chat prompt were each cured of reading
+the operator's book FOR a caller; the Earn path never read the caller's at
+all. `bot/core/earn_account.py` is the one ask, made once and asked again at
+press time: eight states, because "no account" is five different facts
+(never linked, keys that will not decrypt, linked elsewhere, a store that
+could not be asked, an explicit revoke) and each gets its own sentence ending
+*Nothing was moved.* A linked account wins for everyone, admin included — an
+admin who brought their own keys stakes their own idle stables, the rule
+`/livebalance` already follows — and the card, the button's owner tag and
+the sealed record all name the account acted on. The caller's client is
+built from the decrypted fields and never through `for_account`, whose
+documented fallback is the operator's keys: the one fallback the module
+exists to make unreachable, so a half-filled record is `unreadable` rather
+than signed with what it has.
+
+**A button is a claim about whose plan it executes, and a tap is a second
+resolution.** The buttons never run the `@guard`, so `_earn_button_account`
+asks the same store the same question — the presser holds `stake`, the
+presser resolves to a usable account, and that account's tag is the one the
+plan was built with (`op`, or the caller's Telegram id). Without the tag, a
+plan over the operator's book tapped by a linked trader would have executed
+against the trader's account with the operator's numbers, and a plan over
+one caller's book tapped by another would have moved the second caller's
+funds. An untagged button is refused the way `_callback_owner_ok` refuses an
+untagged payload: it cannot have come from a button this build sent.
+
+**The permission met a pin whose own message named the wrong fix.** `stake`
+is trader-and-admin, and `test_it_is_trader_minus_exactly_those` pins
+`trader - paper == OPERATOR_CONTROL_PERMISSIONS` with a message saying
+"vouched-for only: add it to OPERATOR_CONTROL_PERMISSIONS and check it
+against the derivation test" — which would have refused it, because `stake`
+reaches no shared state, and that derivation is what keeps the set honest.
+`VOUCHED_ONLY_PERMISSIONS` is the second reason written down: the caller's
+OWN real money, withheld from self-admission because nobody vouched, pinned
+disjoint from the operator set, held by trader and not by paper, viewer or
+pending, and carried by a guarded handler. One set with two reasons is how
+`halt` ends up justified as "the caller's own" or `stake` as an operator
+control.
+
+**The fixture is asymmetric or it proves nothing, and the first draft's
+stub was asymmetric in the wrong direction.** The operator's free margin is
+planted at $1,000 in the engine cache and the caller's at $250 on their own
+executor, under two client keys, so a card built over the wrong book is a
+different card. The operator executor stub had no `fetch_balance`, so the
+mutation that dropped the fallback check (an executor that IS the
+operator's answers `None`) raised inside the code's own `try`, was caught,
+and answered `None` — the right answer for the wrong reason, an equivalent
+mutant on a fixture that could not tell. The stub answers the operator's
+balance now, and the mutation dies on $1,000.
+
+**`fetch_savings_assets` answered `[]` for a failed read and its docstring
+said so** — "the caller treats that as 'nothing to redeem'" — on the card
+whose whole job is to show what the caller holds: the failed-read-as-empty
+shape, written into the definition. `None` now, and `execute_unstake`
+refuses without posting on it; `fetch_savings_catalog` was `{}` for both a
+venue that did not answer and a venue with no products, and `build_report`
+says which. The catalog's error sentence named "the operator keys" and would
+have named the wrong account for every linked caller.
+(`tests/test_a_linked_trader_stakes_their_own_account.py`.)
+
+**And the prompt rule named `/connect` in the one string every surface
+reads.** `_CHAT_CANNOT_ACT_RULE` is base text, and its first draft said the
+account was "linked with /connect" — a slash command told to a web caller,
+the door painted on a wall that
+`test_a_web_caller_is_never_told_a_slash_command` exists for. The FULL gate
+caught it and no suite the slice had been running could have, because the
+two pins that shipped with it asserted `/connect` on BOTH surfaces — the pin
+that let the sentence through. The rule names no linking command now, and
+the notice asks `link_door(surface)`: the table the prompt's no-account
+block already read, moved into the leaf so both readers hold one copy, with
+a third key for how the account was linked (`with /connect`; on the web,
+the dashboard's step).
+
+**Forty-one mutations, each killed on the first round.** The one worth naming is the fixture's, above: dropping the fallback-executor check survived until the operator stub could answer a balance, and the round was re-run against that stub. The rest die where the drives say — the operator's client never built for a caller, the tag never checked or an empty one accepted, the button branch back on `_yield_client()`, the fixed lock on the operator's margin, the record without its account, the notice saying admin-only again, `paper` holding `stake`, unread holdings an empty list.
 
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every

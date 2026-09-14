@@ -54,6 +54,8 @@ GROUPS: List[Group] = [
         ("paper", "practise risk-free with virtual funds"),
         ("mystrategy", "choose which strategy preset YOUR confirms run through"),
         ("venues", "choose which of your connected venues actually trade"),
+        ("stake", "put your linked Bitget's idle stables into flexible Earn — nothing moves until Confirm"),
+        ("unstake", "redeem your flexible Earn back to trading margin — button-confirmed"),
         ("open_positions", "your open positions"),
         ("positions", "your open positions — same as /open_positions"),
         ("livepositions", "live exchange positions and pending orders"),
@@ -226,8 +228,6 @@ GROUPS: List[Group] = [
         ("setsigner", "set the on-chain signing key (encrypted)"),
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
-        ("stake", "put idle stables into flexible Earn"),
-        ("unstake", "redeem Earn back to trading margin"),
     ]),
 ]
 
@@ -468,5 +468,6 @@ DESC_ZH: Dict[str, str] = {
     "setgateway": "修復網頁閘道密鑰",
     "setsigner": "設定鏈上簽章金鑰（加密儲存）",
     "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
-    "stake": "將閒置穩定幣投入活期 Earn", "unstake": "將 Earn 贖回為交易保證金",
+    "stake": "把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金",
+    "unstake": "把你的活期 Earn 贖回為交易保證金——按鈕確認",
 }

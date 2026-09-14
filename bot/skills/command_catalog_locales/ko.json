@@ -168,8 +168,8 @@
     "setsigner": "온체인 서명 키 설정 (암호화)",
     "yield": "유휴 자산 수익 레이더(읽기 전용)",
     "idleyield": "소스 통합 최고 금리 스캔",
-    "stake": "유휴 스테이블을 유연 Earn에 예치",
-    "unstake": "Earn에서 거래 증거금으로 회수",
+    "stake": "연결된 내 Bitget 계정의 유휴 스테이블을 유연 Earn에 넣기 — 플랜 카드, 확인을 누르기 전까지 아무것도 옮기지 않음",
+    "unstake": "내 유연 Earn을 거래 증거금으로 되돌리기 — 버튼으로 확인",
     "postmortem": "청산된 거래 1건의 부검 — /postmortem [심볼 또는 거래 ID]"
   },
   "menu": {

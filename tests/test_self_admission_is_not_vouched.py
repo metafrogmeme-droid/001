@@ -64,6 +64,7 @@ from unittest.mock import patch
 import pytest
 
 from bot.utils.user_store import (DEFAULT_AUTO_ROLE, OPERATOR_CONTROL_PERMISSIONS,
+                                  VOUCHED_ONLY_PERMISSIONS,
                                   ROLE_PERMISSIONS, ROLES, SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore)
 
@@ -391,14 +392,28 @@ class TestTheRoleSets:
         this, naming both directions — rather than either silently granting a
         stranger a new operator control (if `paper` were derived) or silently
         hiding a new feature from every self-admitted user (if it were not
-        pinned)."""
+        pinned).
+
+        Two declared sets, because "vouched-for only" has two reasons and the
+        derivation test can check only one of them: an OPERATOR CONTROL
+        reaches state shared by every account (it is derived from the
+        handlers, and a declared entry the derivation cannot back FAILS
+        there); a VOUCHED-ONLY permission moves the caller's OWN real money
+        (`stake`), reaches nothing shared, and is withheld because nobody
+        vouched. Filing `stake` under the first set would have failed the
+        derivation; filing `halt` under the second would hide a shared
+        control behind a caller-scoped reason."""
         missing = ROLE_PERMISSIONS["trader"] - ROLE_PERMISSIONS[SELF_ADMISSION_ROLE]
-        assert missing == set(OPERATOR_CONTROL_PERMISSIONS), (
+        expected = set(OPERATOR_CONTROL_PERMISSIONS) | set(VOUCHED_ONLY_PERMISSIONS)
+        assert missing == expected, (
             f"trader - {SELF_ADMISSION_ROLE} is {sorted(missing)}, expected "
-            f"{sorted(OPERATOR_CONTROL_PERMISSIONS)}.\n"
+            f"{sorted(expected)}.\n"
             f"Granting it to both: add it to ROLE_PERMISSIONS[{SELF_ADMISSION_ROLE!r}].\n"
-            f"Vouched-for only: add it to OPERATOR_CONTROL_PERMISSIONS and "
-            f"check it against the derivation test.")
+            f"Vouched-for only: add it to OPERATOR_CONTROL_PERMISSIONS if it reaches "
+            f"shared state (the derivation test checks), or to "
+            f"VOUCHED_ONLY_PERMISSIONS if it moves the caller's own real money.")
+        assert not (set(OPERATOR_CONTROL_PERMISSIONS) & set(VOUCHED_ONLY_PERMISSIONS)), \
+            "one permission cannot carry both reasons"
         extra = ROLE_PERMISSIONS[SELF_ADMISSION_ROLE] - ROLE_PERMISSIONS["trader"]
         assert not extra, f"{SELF_ADMISSION_ROLE} holds {sorted(extra)} that trader does not"
 
