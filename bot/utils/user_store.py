@@ -873,8 +873,10 @@ class UserStore:
         corrupt row should not be able to widen the scope.
         """
         from bot.core.anomaly_scope import (
+            DEFAULT_BUDGET_PER_HOUR,
             DEFAULT_INTERVAL_SEC,
             SCOPE_HELD,
+            normalise_budget,
             normalise_interval,
             normalise_scope,
         )
@@ -887,12 +889,17 @@ class UserStore:
             "scope": normalise_scope(raw.get("scope")) or SCOPE_HELD,
             "interval": (normalise_interval(raw.get("interval"))
                          or DEFAULT_INTERVAL_SEC),
+            # Same rule as the other two: a stored value that is not usable
+            # is dropped, and the default is the QUIET one.
+            "budget": (normalise_budget(raw.get("budget"))
+                       or DEFAULT_BUDGET_PER_HOUR),
         }
 
     def set_anomaly_prefs(self, telegram_id: int | str, *,
                           scope: str | None = None,
-                          interval: int | None = None) -> bool:
-        """Set either dial, leaving the other alone. False if unknown user.
+                          interval: int | None = None,
+                          budget: int | None = None) -> bool:
+        """Set any dial, leaving the others alone. False if unknown user.
 
         The caller normalises and refuses; this stores what it is given, so a
         `None` here means "not being changed" rather than "clear it" — two
@@ -909,6 +916,8 @@ class UserStore:
                 prefs["scope"] = scope
             if interval is not None:
                 prefs["interval"] = int(interval)
+            if budget is not None:
+                prefs["budget"] = int(budget)
             self._users[key]["anomaly_prefs"] = prefs
             self._save()
             audit(system_log,

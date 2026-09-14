@@ -52,6 +52,40 @@ DEFAULT_INTERVAL_SEC = 3600
 MIN_INTERVAL_SEC = 60
 MAX_INTERVAL_SEC = 86_400
 
+# ── The third dial: how many ADVISORY messages an hour the channel may carry ──
+#
+# THE SECOND REPORT, 2026-09-14: "Still we have 20+ more anomaly messages last
+# hour this is to much." The scope and interval above govern ONE of the
+# monitor's thirty check paths (`_check_black_swan`, at its entry). The other
+# twenty-nine share only `DEDUP_COOLDOWN`, and that is applied PER KEY — and
+# thirteen of the twenty `dedup_key=` sites mint a key per symbol or per trade
+# (`sl_prox_{asset}_{trade_id}`, `slippage_high_{symbol}`, `unprotected_{tid}`
+# …). So the ceiling is twelve messages an hour PER KEY, and the key count is
+# the position count: four positions hovering near their stops is ninety-six
+# an hour with every per-key rule satisfied. Nothing bounded the CHANNEL.
+#
+# A blanket cap would be wrong, and this module's own opening says why: it
+# "only trades a real warning for a quieter flood of irrelevant ones" — twelve
+# SL-proximity messages would spend the allowance and a black-swan card would
+# be the one dropped. So the budget is SEVERITY-AWARE: CRITICAL is never
+# budgeted, because those are the alerts that name the reader's own risk
+# (a tripped breaker, an unprotected position, a time-stop close, the brain
+# offline). WARNING and INFO are advisory by their own definition and share
+# the hour's allowance.
+#
+# Twelve, not twenty: the operator called twenty too many, and one advisory
+# message every five minutes on average is the per-key ceiling made channel
+# wide. It is a dial, and raising it is one command.
+#
+# WHAT IS HELD BACK IS SAID. The next message that goes through carries the
+# count — the same rule `scoped()` follows for symbols it removed, and
+# `_anomaly_digest`'s footer for severity: a quiet channel that does not say
+# why it is quiet is a claim that the market is quiet.
+DEFAULT_BUDGET_PER_HOUR = 12
+MIN_BUDGET_PER_HOUR = 1
+MAX_BUDGET_PER_HOUR = 500
+BUDGET_WINDOW_SEC = 3600.0
+
 
 def normalise_interval(value: Any) -> Optional[int]:
     """Seconds, or None when the value is not a usable interval.
@@ -73,6 +107,73 @@ def normalise_scope(value: Any) -> Optional[str]:
     """One of SCOPES, or None when it is not one of them."""
     s = str(value or "").strip().lower()
     return s if s in SCOPES else None
+
+
+def normalise_budget(value: Any) -> Optional[int]:
+    """Advisory messages per hour, or None when the value is not a usable one.
+
+    Same refusal shape as `normalise_interval`: junk is not defaulted, because
+    a corrupt stored row must not be able to widen the channel.
+    """
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if n < MIN_BUDGET_PER_HOUR or n > MAX_BUDGET_PER_HOUR:
+        return None
+    return n
+
+
+def is_budgeted(severity: Any) -> bool:
+    """Whether an alert of this severity draws on the hourly channel budget.
+
+    CRITICAL never does. Anything else does — INCLUDING a severity nobody
+    recognises. An unknown word is not a reason to bypass the one control
+    that bounds the channel; the safe direction for "not a known priority" is
+    "not a priority".
+    """
+    return str(severity or "").strip().upper() != "CRITICAL"
+
+
+def channel_budget_allows(sent_at: list, now: float, per_hour: int,
+                          window: float = BUDGET_WINDOW_SEC) -> tuple:
+    """``(allowed, fresh)`` — may one more advisory go out, and the pruned
+    send-time list to persist.
+
+    PURE AND MODULE-LEVEL for the reason `apply_hourly_budget` states on the
+    black-swan card budget: a rate limiter is exactly the code whose
+    interesting cases — budget exactly exhausted, window boundary, empty
+    history — never occur in a manual test and never occur in production
+    until the day they matter. ``now`` is a parameter so a test can pin the
+    clock far from zero; `time.monotonic()` starts near zero on a fresh host,
+    and "an hour ago" planted as ``monotonic() - 3600`` is NEGATIVE there.
+
+    This only decides. Charging the budget is the sender's job, AFTER the
+    send — a message that was built and then suppressed, or that failed to
+    send, has not spoken to the operator and must not spend their allowance.
+    """
+    try:
+        per_hour = int(per_hour)
+    except (TypeError, ValueError):
+        per_hour = DEFAULT_BUDGET_PER_HOUR
+    fresh = [t for t in (sent_at or []) if now - float(t) < window]
+    return len(fresh) < per_hour, fresh
+
+
+def held_back_note(held: int, per_hour: int) -> str:
+    """The sentence a message carries when the budget held others back.
+
+    Empty when nothing was held: a note on every message is a note nobody
+    reads. Otherwise it says the count, the dial, and that critical alerts
+    were never subject to it — because "N alerts held back" alone reads as
+    "you may have missed the important one".
+    """
+    if held <= 0:
+        return ""
+    plural = "alert" if held == 1 else "alerts"
+    return (f"{held} advisory {plural} held back this hour by the "
+            f"<code>/alerts budget</code> of {per_hour}/hour — critical "
+            "alerts are never held")
 
 
 def held_symbols(engine: Any) -> Optional[set[str]]:
@@ -180,6 +281,7 @@ def settings_card(prefs: dict, held: Optional[set[str]] = None) -> str:
     """
     scope = prefs.get("scope", SCOPE_HELD)
     interval = int(prefs.get("interval", DEFAULT_INTERVAL_SEC))
+    budget = int(prefs.get("budget", DEFAULT_BUDGET_PER_HOUR))
     lines = [
         "\U0001f514 <b>Anomaly alerts</b>",
         "\u2500" * 16,
@@ -187,6 +289,8 @@ def settings_card(prefs: dict, held: Optional[set[str]] = None) -> str:
         + ("  (only symbols you hold)" if scope == SCOPE_HELD
            else "  (every scanned symbol)"),
         f"- At most one message every <code>{_human_interval(interval)}</code>",
+        f"- Advisory budget: <code>{budget}</code> an hour across every "
+        "alert type (critical alerts are never held)",
     ]
     if scope == SCOPE_HELD:
         if held is None:
@@ -205,29 +309,41 @@ def settings_card(prefs: dict, held: Optional[set[str]] = None) -> str:
         "<code>/alerts held</code> — only symbols you hold (default)",
         "<code>/alerts every 2h</code> — change the interval "
         f"({MIN_INTERVAL_SEC}s\u2013{MAX_INTERVAL_SEC // 3600}h)",
+        "<code>/alerts budget 20</code> — advisory messages per hour "
+        f"({MIN_BUDGET_PER_HOUR}\u2013{MAX_BUDGET_PER_HOUR})",
     ]
     return "\n".join(lines)
 
 
-def parse_setting(args) -> tuple[Optional[str], Optional[int], str]:
-    """``(scope, interval, error)`` for `/alerts <args>`.
+def parse_setting(args) -> tuple[Optional[str], Optional[int], Optional[int], str]:
+    """``(scope, interval, budget, error)`` for `/alerts <args>`.
 
-    All three can be empty: no args is a READ, which is why this refuses
-    rather than defaulting. An unparseable interval is an error the operator
-    sees, not a silent fallback to an hour — they asked for something
-    specific and got something else is the shape this whole slice is about.
+    All four can be empty: no args is a READ, which is why this refuses
+    rather than defaulting. An unparseable value is an error the operator
+    sees, not a silent fallback — they asked for something specific and got
+    something else is the shape this whole slice is about.
     """
     parts = [str(a).strip().lower() for a in (args or []) if str(a).strip()]
     if not parts:
-        return None, None, ""
+        return None, None, None, ""
     head = parts[0]
     scope = normalise_scope(head)
     if scope:
-        return scope, None, ""
+        return scope, None, None, ""
+    if head in ("budget", "max", "limit"):
+        if len(parts) < 2:
+            return None, None, None, ("say how many an hour — for example "
+                                      "<code>/alerts budget 20</code>")
+        got = normalise_budget(parts[1])
+        if got is None:
+            return None, None, None, (f"budget must be a whole number between "
+                                      f"{MIN_BUDGET_PER_HOUR} and "
+                                      f"{MAX_BUDGET_PER_HOUR}")
+        return None, None, got, ""
     if head in ("every", "interval", "each"):
         if len(parts) < 2:
-            return None, None, ("say how often — for example "
-                                "<code>/alerts every 2h</code>")
+            return None, None, None, ("say how often — for example "
+                                      "<code>/alerts every 2h</code>")
         raw = parts[1]
         mult = 1
         if raw.endswith("h"):
@@ -239,13 +355,13 @@ def parse_setting(args) -> tuple[Optional[str], Optional[int], str]:
         try:
             secs = int(float(raw)) * mult
         except (TypeError, ValueError):
-            return None, None, f"could not read <code>{parts[1]}</code> as a time"
+            return None, None, None, f"could not read <code>{parts[1]}</code> as a time"
         got = normalise_interval(secs)
         if got is None:
-            return None, None, (f"interval must be between "
-                                f"{MIN_INTERVAL_SEC}s and "
-                                f"{MAX_INTERVAL_SEC // 3600}h")
-        return None, got, ""
-    return None, None, (f"did not understand <code>{head}</code> — "
-                        "try <code>all</code>, <code>held</code> or "
-                        "<code>every 2h</code>")
+            return None, None, None, (f"interval must be between "
+                                      f"{MIN_INTERVAL_SEC}s and "
+                                      f"{MAX_INTERVAL_SEC // 3600}h")
+        return None, got, None, ""
+    return None, None, None, (f"did not understand <code>{head}</code> — "
+                              "try <code>all</code>, <code>held</code>, "
+                              "<code>every 2h</code> or <code>budget 20</code>")

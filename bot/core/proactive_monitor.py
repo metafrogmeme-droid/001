@@ -318,6 +318,12 @@ class ProactiveMonitor:
         # this MOVING, not on the predicate momentarily reading healthy.
         self._tick_stale_alerted_for = None
         self._dedup_cache: dict[str, float] = {}  # dedup_key -> last_alert_time
+        # The channel's advisory budget: send times inside the window, and how
+        # many advisories it has held back since the last message went out.
+        # Both also created on demand by their readers, because tests build
+        # the monitor with __new__ -- the same reason `_check_failures` is.
+        self._channel_sent_at: list[float] = []
+        self._held_back: int = 0
         # Per-check failure accounting for _check_all: name -> record. A
         # check that raised on the last pass is "down" until it returns
         # normally. Also created on demand by _failure_records(), because
@@ -409,21 +415,24 @@ class ProactiveMonitor:
         self._anomaly_prefs_fn = prefs_fn
 
     def _anomaly_dials(self) -> dict:
-        """`{"scope", "interval"}`, defaults when nothing is wired or the read
-        fails. A fault must not widen the scope: the default IS the narrow
-        one, so falling back to it can only ever send less."""
-        from bot.core.anomaly_scope import DEFAULT_INTERVAL_SEC, SCOPE_HELD
+        """`{"scope", "interval", "budget"}`, defaults when nothing is wired
+        or the read fails. A fault must not widen anything: every default IS
+        the narrow one, so falling back to it can only ever send less."""
+        from bot.core.anomaly_scope import DEFAULT_BUDGET_PER_HOUR, DEFAULT_INTERVAL_SEC, SCOPE_HELD
 
+        quiet = {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC,
+                 "budget": DEFAULT_BUDGET_PER_HOUR}
         fn = getattr(self, "_anomaly_prefs_fn", None)
         if fn is None:
-            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+            return quiet
         try:
             got = fn() or {}
             return {"scope": got.get("scope") or SCOPE_HELD,
-                    "interval": int(got.get("interval") or DEFAULT_INTERVAL_SEC)}
+                    "interval": int(got.get("interval") or DEFAULT_INTERVAL_SEC),
+                    "budget": int(got.get("budget") or DEFAULT_BUDGET_PER_HOUR)}
         except Exception as exc:
             logger.debug("anomaly prefs read failed: %s", exc)
-            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+            return quiet
 
     def set_admin_fn(self, admin_fn) -> None:
         """Register ``callable(chat_id) -> bool`` deciding who is an admin.
@@ -3210,7 +3219,7 @@ class ProactiveMonitor:
     # ── Deduplication ─────────────────────────────────────────────
 
     def _should_send(self, alert: Alert) -> bool:
-        """Check if alert should be sent (dedup + has enabled chats)."""
+        """Check if alert should be sent (dedup + budget + has enabled chats)."""
         if not self._enabled_chats:
             return False
         if alert.dedup_key:
@@ -3223,12 +3232,45 @@ class ProactiveMonitor:
             last_sent = self._dedup_cache.get(alert.dedup_key)
             if last_sent is not None and time.monotonic() - last_sent < self.DEDUP_COOLDOWN:
                 return False
+        # THE CHANNEL'S OWN BOUND, applied here because this is the one place
+        # every one of the thirty check paths (and the arb tracker's) passes
+        # through. The dedup above is PER KEY and thirteen of the twenty key
+        # sites mint one per symbol or per trade, so it bounds repetition of
+        # ONE condition and nothing bounds the total; twenty-plus an hour was
+        # the second live report of exactly that. CRITICAL is never budgeted
+        # — those name the reader's own risk. See anomaly_scope.py for the
+        # whole argument, and for why a blanket cap would be the wrong fix.
+        from bot.core.anomaly_scope import channel_budget_allows, is_budgeted
+        if is_budgeted(alert.severity):
+            budget = self._anomaly_dials()["budget"]
+            allowed, fresh = channel_budget_allows(
+                getattr(self, "_channel_sent_at", None) or [],
+                time.monotonic(), budget)
+            self._channel_sent_at = fresh
+            if not allowed:
+                # COUNTED, and said on the next message that goes through
+                # (`_dispatch` attaches it; `_mark_sent` clears it). Silent
+                # suppression here would be the flood traded for an operator
+                # reading a quiet channel as a quiet market.
+                self._held_back = int(getattr(self, "_held_back", 0)) + 1
+                return False
         return True
 
     def _mark_sent(self, alert: Alert) -> None:
         """Record that alert was sent for dedup tracking."""
         if alert.dedup_key:
             self._dedup_cache[alert.dedup_key] = time.monotonic()
+        # CHARGED ON WHAT WAS SENT, NOT ON WHAT WAS BUILT — the correction the
+        # black-swan card budget records having needed: charging at decision
+        # time spent the allowance on messages that then failed to send. And
+        # the held-back count is cleared HERE rather than where the note is
+        # attached, so a dispatch that raised keeps its count for the next
+        # message rather than losing it.
+        from bot.core.anomaly_scope import is_budgeted
+        if is_budgeted(alert.severity):
+            self._channel_sent_at = (
+                getattr(self, "_channel_sent_at", None) or []) + [time.monotonic()]
+        self._held_back = 0
 
         # Prune old dedup entries (keep last 200)
         if len(self._dedup_cache) > 200:
@@ -3314,6 +3356,15 @@ class ProactiveMonitor:
         """Send alert to its audience \u2014 every watching chat, or admins only."""
         icon = _SEVERITY_ICON.get(alert.severity, "\u2139\ufe0f")
         full_msg = f"{icon} {alert.body}"
+        # What the budget held back since the last message, said ON the one
+        # that got through — the same treatment `_check_black_swan` gives its
+        # scope note. Read here, cleared in `_mark_sent` after the send.
+        held = int(getattr(self, "_held_back", 0))
+        if held > 0:
+            from bot.core.anomaly_scope import held_back_note
+            note = held_back_note(held, self._anomaly_dials()["budget"])
+            if note:
+                full_msg = f"{full_msg}\n\u2139\ufe0f {note}"
 
         # Public mind-stream: title + type only \u2014 alert BODIES can carry
         # operator-account detail (drawdown amounts, idle-cash balances) that

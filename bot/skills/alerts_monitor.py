@@ -171,12 +171,13 @@ class AlertsMonitor:
         # because these alerts go to the operator chats — a per-user version
         # belongs with per-user alerting, which does not exist yet.
         def _anomaly_prefs_fn() -> dict:
-            from bot.core.anomaly_scope import DEFAULT_INTERVAL_SEC, SCOPE_HELD
+            from bot.core.anomaly_scope import DEFAULT_BUDGET_PER_HOUR, DEFAULT_INTERVAL_SEC, SCOPE_HELD
             for cid in sorted(self.monitor._configured_operator_chats()):
                 got = self.users.anomaly_prefs(cid)
                 if got:
                     return got
-            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+            return {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC,
+                    "budget": DEFAULT_BUDGET_PER_HOUR}
 
         self.monitor.set_anomaly_prefs_fn(_anomaly_prefs_fn)
 

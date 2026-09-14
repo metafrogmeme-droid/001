@@ -199,8 +199,9 @@ class TestPreScopeBehaviourNeedsNoCodeChange:
         # override deleted the method anyway, and the caller crashed.
         m = ProactiveMonitor.__new__(ProactiveMonitor)
         dials = m._anomaly_dials()
-        assert set(dials) == {"scope", "interval"}
+        assert set(dials) == {"scope", "interval", "budget"}
         assert dials["interval"] > 0
+        assert dials["budget"] > 0
 
     def test_the_injection_point_still_exists(self):
         assert callable(getattr(ProactiveMonitor, "set_anomaly_prefs_fn", None))
