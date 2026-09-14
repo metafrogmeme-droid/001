@@ -109,6 +109,43 @@ function armTimers(req, timeoutMs, reject) {
   };
 }
 
+// WHAT A GATEWAY BODY MEANS, decided once for both transports.
+//
+// Both used to do `JSON.parse(data || '{}')`, each beside a correct reject
+// branch that the `|| '{}'` diverted exactly one input away from: an EMPTY
+// 2xx became `{}` and was relayed as a success. Every gateway route answers
+// through json_response, so a 200 with nothing in it is not the bot's shape —
+// it is a proxy or edge that swallowed the body — and traced downstream that
+// `{}` reached swap-page as a planner verdict and the chat drawer as
+// `reply_html || '…'`: the bot's answer rendered as a literal ellipsis. A
+// truncated body already threw honestly; the hole was only the empty one.
+//
+// Three answers, never collapsed:
+//   - a body that parses: the reading, whatever its status;
+//   - an empty NON-2xx: the status is the fact and there is no reason to
+//     read (a 404 with no body is still a 404), so `{}` with the status kept;
+//   - an empty or unparseable 2xx: a FAILED READ — 502 and the gateway-error
+//     sentence, with `unreadable` naming which, so the JSON transport keeps
+//     rejecting (its callers' catch is their 502 branch) and the stream
+//     transport sends the same verdict as its one `final` frame.
+// A 204 lands in the third bucket on purpose: no gateway route answers 204,
+// so one arriving here is the edge's, not the bot's.
+function decodeGatewayBody(statusCode, text) {
+  const status = statusCode;
+  const ok = status >= 200 && status < 300;
+  const raw = text == null ? '' : String(text);
+  const failed = (why) => ({
+    status: ok ? 502 : status,
+    data: { error: 'Bot gateway error' },
+    unreadable: why,
+  });
+  if (raw.trim() === '') {
+    return ok ? failed('empty') : { status, data: {}, unreadable: null };
+  }
+  try { return { status, data: JSON.parse(raw), unreadable: null }; }
+  catch (e) { return failed('unparseable'); }
+}
+
 function requestJSON(method, gwPath, body, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     const url = `${BOT_GATEWAY_URL}/gateway${gwPath}`;
@@ -125,8 +162,13 @@ function requestJSON(method, gwPath, body, timeoutMs = 20000) {
       res.on('end', () => {
         if (timers.settled()) return;               // deadline already fired
         timers.done();
-        try { resolve({ status: res.statusCode, data: JSON.parse(data || '{}') }); }
-        catch (e) { reject(new Error('Invalid JSON from gateway')); }
+        const read = decodeGatewayBody(res.statusCode, data);
+        if (read.unreadable) {
+          const err = new Error('Invalid JSON from gateway');
+          err.reason = read.unreadable;
+          return reject(err);
+        }
+        resolve({ status: read.status, data: read.data });
       });
     });
     const timers = armTimers(req, timeoutMs, reject);
@@ -241,10 +283,9 @@ function relayStream(method, gwPath, body, res, timeoutMs = 60000) {
         up.on('data', (d) => data += d);
         up.on('end', () => finish(() => {
           timers.done();
-          let parsed;
-          try { parsed = JSON.parse(data || '{}'); } catch (e) { parsed = { error: 'Bot gateway error' }; }
-          const status = up.statusCode >= 500 ? 502 : up.statusCode;
-          sseFinal(res, status, status === 502 ? { error: 'Bot gateway error' } : parsed);
+          const read = decodeGatewayBody(up.statusCode, data);
+          const status = read.status >= 500 ? 502 : read.status;
+          sseFinal(res, status, status === 502 ? { error: 'Bot gateway error' } : read.data);
         }));
         return;
       }
@@ -275,6 +316,7 @@ function relayStream(method, gwPath, body, res, timeoutMs = 60000) {
 
 module.exports = {
   isConfigured,
+  decodeGatewayBody,
   relay,
   sseFinal,
   sseFrame,

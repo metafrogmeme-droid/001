@@ -57,5 +57,34 @@
     return { state: 'off', showForms: false, reason, detail };
   }
 
-  return { gateState };
+  /**
+   * Is this account linked to Telegram — read off the status payload, never
+   * off an HTTP status. Both status routes answer 200 with `linked` for an
+   * unlinked user; the 409 `telegram_required` is what the POSTs send, and
+   * the keys panel used to wait for a 409 its own GET never sends, so an
+   * unlinked user was handed a form whose submit could only be refused —
+   * with their real API keys already typed into it.
+   *
+   * @param {object} status  /api/credentials/status or /api/controls/status payload
+   * @returns {'linked'|'unlinked'|'unknown'}  a non-boolean `linked` is not a
+   *   reading: an older server, a malformed payload and an absent field all
+   *   read `unknown`, which claims nothing and changes nothing on screen.
+   */
+  function linkState(status) {
+    const s = status || {};
+    if (s.linked === true) return 'linked';
+    if (s.linked === false) return 'unlinked';
+    return 'unknown';
+  }
+
+  /**
+   * Should the panel show "link Telegram first" INSTEAD of its form? Only on
+   * a real `unlinked` reading — `unknown` renders the form, because a note
+   * that sends a linked user away to link again is a claim from no reading.
+   */
+  function needsTelegramFirst(status) {
+    return linkState(status) === 'unlinked';
+  }
+
+  return { gateState, linkState, needsTelegramFirst };
 }));

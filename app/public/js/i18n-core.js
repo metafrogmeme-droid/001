@@ -683,6 +683,7 @@
     "dd.err_operator_only": { en: "This panel is for the operator account only." },
     "dd.err_rate_limited": { en: "Too many requests just now — wait a moment and try again." },
     "dd.err_unreadable_body": { en: "The server answered, but the reply couldn’t be read — try again in a moment." },
+    "dd.err_telegram_required": { en: "Live trading and exchange keys need a linked Telegram account — link it under Account → Telegram first. Paper trading works without it." },
     "dd.err_panel": { en: "Couldn’t load this panel." },
     "dd.retry": { en: "Retry" },
     "dd.nothing_here": { en: "Nothing here yet." },
@@ -1087,6 +1088,7 @@
     "dd.h_nopf": { en: "No portfolio yet — place your first paper trade and your equity shows up here." },
     "dd.m_empty": { en: "The agent narrates its work here — scans, theses, trades and stop moves, live as they happen." },
     "dd.w_hint": { en: "Star symbols from any chart (☆ Watch in the symbol view) — engine pattern alerts then cover your watchlist, not just your open positions." },
+    "dd.w_unread": { en: "Your watchlist could not be read just now." },
     "dd.ac_today": { en: "Today for you" },
     "dd.ac_closed": { en: "{n} closed ({w} wins)" },
     "dd.ac_none": { en: "no closed trades yet — only setups that clear the risk gate get taken" },
@@ -1843,7 +1845,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8a8565fe","zh":"130e545d","pt":"62306d07","fr":"c04b6dbc","de":"f6331258","nl":"7b782bdd","ja":"3b10ecc0","ko":"3bd9a443","ru":"cb4b9799","tr":"6ef54241","it":"dd038998","hi":"c7bf5c4a","ar":"b736751c"};
+  var CHUNKS = {"es":"3e673f0c","zh":"3b028670","pt":"2fc2d648","fr":"cf5f7859","de":"1edf50b2","nl":"0940f6ed","ja":"8e56dc14","ko":"8ec164ed","ru":"9f306589","tr":"ca612fc8","it":"6d6d58f6","hi":"60cad008","ar":"daad5263"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

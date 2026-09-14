@@ -279,6 +279,16 @@
   // how a loader says that: renderPanel's catch turns it into the error state.
   // 404 is the one honest exception (letter-for-that-week, a deleted record):
   // the resource genuinely isn't there, so it falls through as empty.
+  // THE OMIT HALF OF THE STRICT READ. mustRead is the GUARD strategy's door;
+  // a composite panel that `.catch()`es each source has no door at all, and
+  // so no way to tell a source it could not read from one that read as empty
+  // — a caught null and an unparseable 2xx both fall to `r?.data?.x || []`,
+  // and `[]` is a claim ("no alerts", "nothing connected", "not configured").
+  // One reading, so every omit site asks the same question and answers the
+  // same way: read means the server answered AND the answer parsed.
+  function wasRead(r) {
+    return !!(r && r.ok && !r.unreadable);
+  }
   function mustRead(r) {
     if (!r || (!r.ok && r.status !== 404)) {
       const e = new Error('panel read failed: HTTP ' + (r ? r.status : 'no response'));
@@ -683,7 +693,7 @@
   window.RC = {
     TOKEN, LOGGED_IN, authHeaders, logout, hasSessionCookie, forgetStoredToken,
     fetchJSON, postWithStepUp, esc, fmt, fmtMoney, fmtPrice, fmtK, signed, pnlClass, fmtAgo,
-    dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, connectStream,
+    dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, wasRead, connectStream,
     modalA11y, countUp, animateCounters, revealOnScroll, syncPageIndex,
   };
 })();

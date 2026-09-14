@@ -85,20 +85,17 @@
       setStatus('Could not reach the planner — nothing was built.', 'err');
       return;
     }
+    // THE PARSE OUTCOME IS RECORDED, because `data === null` cannot carry it —
+    // and the model, not this file, decides what the reply means. A 200 whose
+    // body did not parse used to fall through to "The plan did not pass": a
+    // verdict about the market, manufactured from a read that failed.
     let data = null;
-    try { data = await r.json(); } catch (_) { data = null; }
-    if (!r.ok) {
-      setStatus((data && (data.detail || data.error))
-        || 'The build failed — nothing was built or signed.', 'err');
-      return;
-    }
-    $('plan').textContent = (data && data.human) || '';
-    build = (data && data.build) || null;
-    if (!build) {
-      setStatus((data && data.reason) || 'The plan did not pass — nothing was built.', 'warn');
-    } else {
-      setStatus('', '');
-    }
+    let unreadable = false;
+    try { data = await r.json(); } catch (_) { unreadable = true; }
+    const reply = M.readBuildReply({ ok: r.ok, status: r.status, data, unreadable });
+    $('plan').textContent = reply.human;
+    build = reply.build;
+    setStatus(reply.text, reply.tone);
     render();
   }
 

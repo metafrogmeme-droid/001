@@ -41,7 +41,9 @@ test('the onboarding ladder climbs in dependency order', () => {
 test('no copy misdirects to Telegram for something the web can do', () => {
   assert.ok(!js.includes('/connect in Telegram'), 'misdirecting strings removed');
   assert.match(js, /connect keys here/);
-  assert.match(js, /Link Telegram first →/);      // the 409 hands over a next step
+  // The unlinked READING hands over a next step: the note's button is the same
+  // door the ladder names, translated — so the door is pinned, not a spelling.
+  assert.match(js, /href="#account\/atg">\$\{esc\(T\('dd\.cta_tg', 'Link Telegram'\)\)\} →<\/a>/);
 });
 
 test('cache-buster bumped so the fixes ship', () => {
