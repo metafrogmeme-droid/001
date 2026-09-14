@@ -27,6 +27,7 @@ const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
+const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { aggregateStats } = require('../public/js/trade-stats');
 const gateway = require('../lib/gateway');
 
@@ -85,7 +86,27 @@ async function operatorPortfolio(userId) {
   // Live/paper mode AND live-availability from the bot's own scan payload
   // (circuit_breaker). Mode and equity must be derived together so the header
   // can never say LIVE over a stale/paper number.
-  let live = false;
+  //
+  // THREE VALUES, NOT TWO. This was `let live = false` closed by
+  // `catch (e) { /* mode stays PAPER */ }`, and driven through the real route
+  // it published a confident `mode: 'PAPER'` on the OPERATOR account -- the
+  // one with real money -- from six distinct failed reads: no scan_cache row
+  // (a cold start, before the first sync), a NULL scan_json, a payload with no
+  // circuit_breaker, one with no live_mode, a malformed scan_json, and the
+  // SELECT itself throwing. Every one of those produced a payload
+  // byte-identical to a genuine reading of live_mode:false. No field told
+  // them apart. `dbFallback` in this same file was cured of exactly this and
+  // its comment calls it "a CLAIM about which account the user is trading,
+  // manufactured from a failed read"; this path did not get the memo, and the
+  // comment on the catch stated the defect as though it were the design.
+  //
+  // `null` is NOT READ. The payload carries it as `mode: null`, which every
+  // client renderer already prints as MODE ? -- the client needed no change.
+  // The read is `lib/live_mode.readLiveMode` -- ONE reading for the four
+  // producers that used to answer this three different ways (track.js had
+  // it right; sync.js and this path did not). The contract and why it is a
+  // strict boolean are stated there, once.
+  let live = null;
   let cbUnavailable = false;
   let cbEquity = null;
   let cbFresh = false;
@@ -94,14 +115,14 @@ async function operatorPortfolio(userId) {
     if (rows.length && rows[0].scan_json) {
       const scan = JSON.parse(rows[0].scan_json);
       const cb = scan.circuit_breaker || {};
-      live = !!cb.live_mode;
+      live = readLiveMode(cb);
       cbUnavailable = cb.live_unavailable === true;
       const ts = scan.received_at || rows[0].updated_at;
       cbFresh = !!ts && (Date.now() - new Date(ts).getTime()) < 30 * 60 * 1000;
       const e = parseFloat(cb.equity);
       if (Number.isFinite(e) && e > 0) cbEquity = e;
     }
-  } catch (e) { /* mode stays PAPER */ }
+  } catch (e) { /* live stays null: the mode was NOT READ, and the payload says so */ }
   const closed = aggregateStats(pnlRows[0]);
   const snap = snaps[0];
   const fresh = snap && (Date.now() - new Date(snap.snapshot_at).getTime()) < 30 * 60 * 1000;
@@ -115,10 +136,20 @@ async function operatorPortfolio(userId) {
   //     even while a perfectly fresh reading sat in the scan cache.
   // Only when neither source is fresh/real does the header say unavailable.
   let equity = snap ? parseFloat(snap.equity) : null;
+  // WHICH ROW THE PUBLISHED EQUITY CAME FROM, because `stale` below has to
+  // describe the figure that is actually sent. It was `!fresh` -- the close-
+  // driven SNAPSHOT row's age -- while `equity` may have been replaced by
+  // cbEquity, which the bot refreshes every scan cycle and cbFresh has just
+  // gated to under thirty minutes. So a seconds-old reading went out as
+  // `stale: true` whenever the last close happened to be old, and the client
+  // printed "bot offline -- last known" over a number the bot had just sent.
+  // A false caution about a measured number is still a false claim.
+  let equitySource = snap ? 'snapshot' : null;
   let liveUnavailable = false;
   if (live) {
     if (!cbUnavailable && cbFresh && cbEquity != null) {
       equity = cbEquity;
+      equitySource = 'scan';
       // Write through so the operator's equity curve keeps growing between
       // closes (same change/staleness thresholds as the per-user path).
       try {
@@ -136,7 +167,12 @@ async function operatorPortfolio(userId) {
     }
   }
   return {
-    mode: live ? 'LIVE' : 'PAPER',
+    // `null` when the scan cache could not be read or held no live_mode: the
+    // one value `readMode` on the client renders as MODE ? rather than as a
+    // claim. Its `stale`-escape hatch is disabled for source:'sync' on
+    // purpose (a stale operator push is still a real reading), which is
+    // exactly why this path could not lean on `stale` and had to say `null`.
+    mode: modeWord(live),
     source: 'sync',
     equity,
     live_unavailable: liveUnavailable,
@@ -152,7 +188,10 @@ async function operatorPortfolio(userId) {
     open_positions: open,
     closed_trades: [],
     linked: true,
-    stale: !fresh,
+    // Describes the equity that was PUBLISHED. A scan-cache reading is fresh
+    // by construction (cbFresh gated it), so it is never called stale because
+    // an unrelated snapshot row beside it is old.
+    stale: equitySource === 'scan' ? false : !fresh,
   };
 }
 
