@@ -137,7 +137,11 @@ PROVIDER_CATALOG: dict[LLMProvider, dict] = {
         "get_key_url": "https://api.together.ai/settings/api-keys",
     },
     LLMProvider.OLLAMA: {
-        "base_url": "http://localhost:11434/v1",
+        # Env-overridable for the same reason RUNECLAW's is: "self-hosted" no
+        # longer means "on this machine". The workaround until now was to
+        # point RUNECLAW_LLM_BASE_URL at Ollama and let it masquerade as a
+        # different provider — the comment on that entry still says to.
+        "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "default_model": "llama3",
         "recommended_models": ["llama3", "qwen2.5", "deepseek-v2", "gemma2"],
         "sdk": "openai",
@@ -439,6 +443,37 @@ _PROVIDER_KEY_ENV = {
     LLMProvider.GROK: "XAI_API_KEY",
     LLMProvider.RUNECLAW: "RUNECLAW_LLM_API_KEY",
 }
+
+def optional_provider_key(provider: "LLMProvider") -> str:
+    """The key for a keyless provider that happens to sit behind auth, or "".
+
+    NOT A MAP, AND NOT A ROW IN `_PROVIDER_KEY_ENV`. Both constraints are
+    real and they pull in opposite directions:
+
+    * `_PROVIDER_KEY_ENV` is not a key lookup — it is the contract between
+      `/setllm` and `/vault`. A row there means the command writes that
+      secret to the operator vault and the card audits the slot. `/setllm
+      ollama` takes no key by design (`test_a_keyless_provider_stores_nothing`),
+      so a row would make `/vault` report an OLLAMA_API_KEY slot nothing
+      fills — the fourth instance of the drift that file exists to stop.
+    * A second `{LLMProvider.X: "ENV"}` literal in this module is itself the
+      defect `test_there_is_exactly_one_provider_to_key_map` forbids: four
+      copies once existed carrying 11, 8, 6 and 7 providers, and the short
+      ones failed silently for exactly the providers they forgot.
+
+    So: an explicit branch, not a table. One provider needs this today. A
+    second one is a deliberate line of code rather than a quiet dict entry,
+    which is the right amount of friction for a map that has gone wrong four
+    times.
+
+    `_KEYLESS_PROVIDERS` means "does not REQUIRE a key", not "cannot use
+    one" — an Ollama reached over a tunnel usually sits behind an auth proxy.
+    Set the variable and the Authorization header is attached; leave it unset
+    and nothing changes.
+    """
+    if provider is LLMProvider.OLLAMA:
+        return os.getenv("OLLAMA_API_KEY", "").strip()
+    return ""
 
 _KEYLESS_PROVIDERS = (LLMProvider.OLLAMA, LLMProvider.RUNECLAW)
 
@@ -1164,7 +1199,12 @@ def create_llm_client(config: LLMConfig):
         # All other providers use OpenAI-compatible SDK
         try:
             from openai import AsyncOpenAI
-            kwargs = {"api_key": config.api_key or "not-needed", "max_retries": 3}
+            # `or "not-needed"` is the placeholder a genuinely keyless
+            # endpoint wants. A keyless endpoint behind an auth proxy wants a
+            # real header, and sent the placeholder instead — every call 401'd
+            # while the endpoint itself was healthy.
+            _key = config.api_key or optional_provider_key(config.provider)
+            kwargs = {"api_key": _key or "not-needed", "max_retries": 3}
             if config.resolved_base_url() != "https://api.openai.com/v1":
                 kwargs["base_url"] = config.resolved_base_url()
             return AsyncOpenAI(**kwargs)
