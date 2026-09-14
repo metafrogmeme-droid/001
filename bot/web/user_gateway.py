@@ -55,6 +55,7 @@ from bot.nlp.skill_memory import (
     skill_unavailable_memory,
     web_answer_memory,
 )
+from bot.nlp.web_reads import WEB_READS, web_read_notice
 from bot.skills.skill_permissions import (
     SKILL_PERMISSION,
     WEB_CHAT_SKILLS,
@@ -223,16 +224,34 @@ async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
     return await tg_handler.research_card_text(sym)
 
 
+async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.nft_card_text(surface="web")
+
+
+async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.spot_card_text(surface="web")
+
+
+async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.airdrops_card_text(tg_id, surface="web")
+
+
 #: Routed intents the web answers from a SEAM on the Telegram handler — the
 #: reading the slash command renders — keyed by intent. Every key is also in
 #: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
-#: guards index that branch's literal.
+#: guards index that branch's literal. The last three are the website's own
+#: chat cards, which the Node intercepts answer first for a web caller — the
+#: Python path sees only the phrasings those intercepts miss, and answers
+#: them with the same card rather than a door notice pointing at this chat.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
     "research": _seam_research,
+    "nft": _seam_nft,
+    "spot": _seam_spot,
+    "airdrops": _seam_airdrops,
 }
 
 
@@ -721,6 +740,15 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             _live = None
         _door = halt_intent_notice(intent.skill, surface="web",
                                    verb=halt_verb(intent.raw_text), live=_live)
+        record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                           routed_answer_memory(intent.skill, _door), surface="web")
+        return web.json_response({"reply_html": _door, "intent": intent.skill})
+    # A read only the website answers, whose Node intercept missed this
+    # phrasing — the Python path sees such an ask only then. The notice names
+    # the words the intercept takes, so the caller is not handed to a model
+    # that holds no such tool (`bot/nlp/web_reads.py`).
+    if intent.matched and intent.confidence >= 0.8 and intent.skill in WEB_READS:
+        _door = web_read_notice(intent.skill, surface="web")
         record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
                            routed_answer_memory(intent.skill, _door), surface="web")
         return web.json_response({"reply_html": _door, "intent": intent.skill})

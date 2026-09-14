@@ -50,6 +50,7 @@ from bot.nlp.fabricated_tool_calls import REFUSAL, find_fabricated_marker
 from bot.nlp.skill_memory import (
     MEMORY_CAP,
     card_shown_memory,
+    command_reply_memory,
     not_run_memory,
     routed_answer_memory,
     skill_failure_memory,
@@ -169,6 +170,9 @@ _RECORDS = [
     not_run_memory("pro_scan", "a staked tier is needed"),
     web_answer_memory("networth", "$12,400"),
     web_answer_memory("networth", None),
+    command_reply_memory("networth", ["$12,400"]),
+    command_reply_memory("networth", []),
+    command_reply_memory("help", ["x" * (MEMORY_CAP + 1)]),
 ]
 
 

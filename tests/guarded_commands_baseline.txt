@@ -3,6 +3,7 @@
 # inserted between the decorator and the def, as happened twice on 2026-09-03)
 # is an auth regression nothing else notices. A new guarded command is added
 # here in the same commit, same rule as known_failures.txt.
+_cmd_airdrops
 _cmd_alerts
 _cmd_analyze
 _cmd_anchor
@@ -50,6 +51,7 @@ _cmd_momentum
 _cmd_mystrategy
 _cmd_networth
 _cmd_news
+_cmd_nft
 _cmd_open_positions
 _cmd_optimize
 _cmd_orders
@@ -74,6 +76,7 @@ _cmd_scan
 _cmd_sell
 _cmd_settier
 _cmd_signals
+_cmd_spot
 _cmd_squeeze
 _cmd_status
 _cmd_stockscan

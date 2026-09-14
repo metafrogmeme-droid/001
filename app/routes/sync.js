@@ -1324,6 +1324,45 @@ router.get('/rwa', async (req, res) => {
   }
 });
 
+/**
+ * The website chat's own cards, for the Telegram commands that render them
+ * (/nft /spot /airdrops): ONE renderer per card — the same function the web
+ * intercept answers with — so the two surfaces cannot drift, and Python
+ * carries no second formatter. Whitelisted by name: an unknown name is a 404,
+ * never a lookup on a prototype. `telegram_id` is read only by the airdrops
+ * card, which adds the caller's wallet-readiness hints WHEN their Telegram
+ * account is linked to a web account and answers the public radar otherwise
+ * — a caller nobody could map is unlinked, not somebody else.
+ */
+const CHAT_CARDS = {
+  nft: () => require('../lib/opensea').nftChatCard(),
+  spot: () => require('../lib/spot').spotChatCard(),
+  airdrops: async (tg) => {
+    let userId = null;
+    if (tg) {
+      const [rows] = await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [tg]);
+      if (rows.length) userId = rows[0].id;
+    }
+    return require('../lib/airdrops').airdropChatCard(userId);
+  },
+};
+
+router.get('/card/:name', async (req, res) => {
+  const name = String(req.params.name || '');
+  if (!Object.prototype.hasOwnProperty.call(CHAT_CARDS, name)) {
+    return res.status(404).json({ error: 'Unknown card' });
+  }
+  try {
+    const tg = String(req.query.telegram_id || '').slice(0, 32);
+    const card = await CHAT_CARDS[name](tg);
+    if (!card || typeof card.reply_html !== 'string') throw new Error('card renderer answered nothing');
+    res.json({ reply_html: card.reply_html, intent: name });
+  } catch (err) {
+    console.error(`Sync card ${name} error:`, err.stack || err.message);
+    res.status(500).json({ error: 'Card unavailable' });
+  }
+});
+
 // DEX taker-flow radar for the engine's gated on-chain voter (PR JJ) — the
 // bot pulls the SAME payload the public Markets panel renders.
 router.get('/onchain-flow', async (req, res) => {

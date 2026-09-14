@@ -47,6 +47,7 @@ import pytest
 from bot.formatters.onboarding import skill_unavailable_notice
 from bot.nlp.intent_router import IntentRouter
 from bot.nlp.skill_memory import skill_failure_memory, skill_unavailable_memory
+from bot.nlp.web_reads import WEB_READS
 from bot.skills.chat_runtime import ACT_INTENTS, HALT_INTENTS
 from bot.skills.skill_permissions import DANGEROUS_SKILLS
 from bot.skills.skill_registry import build_default_registry
@@ -173,6 +174,10 @@ def test_no_intent_can_fall_through_to_the_chat_model():
         # in chat_runtime so the web branch and this one cannot drift; read the
         # tuple rather than requiring the literals to be copied here.
         if skill in ACT_INTENTS and "intent.skill in ACT_INTENTS" in handler:
+            continue
+        # …or the reads only the website answers, tested the same way
+        # against the runtime leaf's table (`intent.skill in WEB_READS`).
+        if skill in WEB_READS and "intent.skill in WEB_READS" in handler:
             continue
         # …or the routed HALT intents. `halt`, `emergency_stop` and `pause`
         # are dispatched through DANGEROUS_SKILLS to their guarded commands:

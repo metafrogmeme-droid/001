@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import html as _html
 import re
-from typing import Optional
+from typing import Optional, Sequence
 
 from bot.utils.logger import system_log
 
@@ -77,6 +77,21 @@ def _plain(result: object) -> Optional[str]:
     text = _html.unescape(_TAG.sub(" ", str(result)))
     text = "\n".join(_SPACES.sub(" ", line).strip() for line in text.splitlines())
     return _BLANK_RUN.sub("\n\n", text).strip() or None
+
+
+def _headed(head: str, body: str) -> str:
+    """Close the parenthesis ``head`` opened, announcing a truncation inside it.
+
+    Three records share this tail — the router's answer, the website's, and
+    a slash command's reply — and it was three byte-identical copies until a
+    mutation driver's anchor matched two of them at once, which is the
+    second-copy shape showing up in the instrument built to find it. One
+    tail, so the announced truncation cannot drift between records.
+    """
+    if len(body) > MEMORY_CAP:
+        return (f"{head}; TRUNCATED — first {MEMORY_CAP} of {len(body)} "
+                "characters; the rest is not recorded):\n" + body[:MEMORY_CAP])
+    return f"{head}):\n{body}"
 
 
 def skill_result_memory(skill: str, result: object) -> str:
@@ -117,10 +132,7 @@ def web_answer_memory(intent: str, reply: object) -> str:
     if body is None:
         return (f"{head}; the reply carried no text, so nothing of it is "
                 "recorded).")
-    if len(body) > MEMORY_CAP:
-        return (f"{head}; TRUNCATED — first {MEMORY_CAP} of {len(body)} "
-                "characters; the rest is not recorded):\n" + body[:MEMORY_CAP])
-    return f"{head}):\n{body}"
+    return _headed(head, body)
 
 
 def skill_failure_memory(skill: str) -> str:
@@ -174,11 +186,7 @@ def routed_answer_memory(intent: str, answer: object) -> str:
         # branch, and saying so is more useful to the next turn than silence.
         return (f"[{intent}] ANSWERED WITH NOTHING — the reply carried no "
                 "text. Nothing was said to the user.")
-    if len(body) > MEMORY_CAP:
-        return (f"[{intent}] answered (no tool ran; TRUNCATED — first "
-                f"{MEMORY_CAP} of {len(body)} characters; the rest is not "
-                f"recorded):\n" + body[:MEMORY_CAP])
-    return f"[{intent}] answered (no tool ran):\n{body}"
+    return _headed(f"[{intent}] answered (no tool ran", body)
 
 
 def card_shown_memory(card: str) -> str:
@@ -223,9 +231,66 @@ def not_run_memory(skill: str, reason: str) -> str:
             "result from it exists for this turn.")
 
 
+def command_turn_text(command: str, n_args: int) -> str:
+    """The USER turn to record for a slash command: the command, never its
+    arguments.
+
+    The routed free-text path records the message verbatim, and a slash
+    command cannot: five commands take a SECRET as their argument
+    (``/setexchange``, ``/setgateway``, ``/setsigner``, ``/setllm``,
+    ``/connect``), and this store is both a file on disk and the model's
+    prompt. A list of the commands whose arguments are safe to keep would be
+    the ``/setllm`` ten-of-eleven shape — a command added later would leak
+    by default — so the default is to withhold, and the count says that an
+    argument existed. The reply captured beside it usually carries what the
+    argument named: a dossier prints its symbol.
+    """
+    cmd = str(command).strip().lstrip("/")
+    if n_args <= 0:
+        return f"/{cmd}"
+    plural = "s" if n_args != 1 else ""
+    return f"/{cmd} ({n_args} argument{plural} not recorded)"
+
+
+def command_reply_memory(command: str, replies: Sequence[object]) -> str:
+    """The assistant turn to record after a SLASH COMMAND replied.
+
+    A fifth record, and the distinction from the four above is WHO answered.
+    A tool result is a measurement a tool the model holds made; a routed
+    answer is the router speaking; a card shown is a command's reply the
+    branch could not see; a refusal is a gate. This is a command's reply the
+    runtime DID see — captured at the send chokepoint, as the user saw it —
+    and it must not wear the ``[x] result:`` shape, because both tool rules
+    tell the model such a block "was written by the runtime after a tool
+    really ran" and ``/setexchange`` is no tool the model holds: the argument
+    ``web_answer_memory`` makes for the website's intercepts, one transport
+    over. The marker word is ``SHOWN``, which the fabrication guard already
+    polices, so a model copying this shape is claiming a command it never ran.
+
+    ``replies`` is what the chokepoint DELIVERED, in order — the chunks of one
+    card, a refusal, or nothing. Nothing is not "the command sent nothing":
+    twenty commands reply through the bot object directly and a rate-limited
+    ``/help`` returns in silence, and from here those are one absence. The
+    record says what it knows and claims no send it did not see.
+    """
+    cmd = str(command).strip().lstrip("/")
+    joined = "\n".join(str(r) for r in replies if r is not None) if replies else ""
+    body = _plain(joined) if joined else None
+    if body is None:
+        return (f"[{cmd}] SHOWN, CONTENTS NOT RECORDED — /{cmd} ran and no reply "
+                "from it was captured in this transcript: it may reply by a "
+                "route this transcript does not see, or it may have sent "
+                "nothing. Nothing of its reply can be quoted, summarised or "
+                "counted from here.")
+    head = (f"[{cmd}] SHOWN by the /{cmd} command (its own reply, as the user "
+            "saw it; no chat tool ran")
+    return _headed(head, body)
+
+
 def record_routed_turn(store, user_id: str, text: str, intent: str,
                        record: str, *, surface: str,
-                       skill: Optional[str] = None) -> None:
+                       skill: Optional[str] = None,
+                       via: Optional[str] = None) -> None:
     """Write the question and what answered it into the conversation store.
 
     ONE implementation, called by both transports, because the alternative was
@@ -239,6 +304,11 @@ def record_routed_turn(store, user_id: str, text: str, intent: str,
     decides ``Message.is_tool_record()``, which is what puts the age stamp on
     its own line instead of inline.
 
+    ``via`` names the door the turn came through when it was not the intent
+    router — ``"command"`` for a slash command — so a reader of the store can
+    tell a typed ``/networth`` from the words "my net worth" without parsing
+    the user turn.
+
     Memory is context, never a dependency: a store that raises must not be the
     reason a reply the user already read fails to arrive.
     """
@@ -246,6 +316,8 @@ def record_routed_turn(store, user_id: str, text: str, intent: str,
                                "routed": True}
     if skill:
         meta["skill"] = skill
+    if via:
+        meta["via"] = via
     try:
         store.append(user_id, "user", text,
                      metadata={"intent": intent, "surface": surface})

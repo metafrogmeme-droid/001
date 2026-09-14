@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Thirty-six call sites across the two entry points", DOC)
+    m = re.search(r"Forty-one call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 36, f"CLAUDE.md says thirty-six; the two entry points have {n}"
+    assert n == 41, f"CLAUDE.md says forty-one; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -337,17 +337,20 @@ def test_the_seam_knows_the_token_shape_the_old_one_did_not():
     assert "1234567890:AAF" not in reply_safe(tok)
 
 
-def test_the_four_records_it_names_all_exist_and_differ():
+def test_the_six_records_it_names_all_exist_and_differ():
     from bot.nlp import skill_memory as sm
 
-    assert "Four records now" in DOC
+    assert "Six records now" in DOC
     heads = {sm.skill_result_memory("s", "x")[:30],
              sm.routed_answer_memory("s", "x")[:30],
              sm.card_shown_memory("s")[:30],
-             sm.not_run_memory("s", "x")[:30]}
-    assert len(heads) == 4, heads
+             sm.not_run_memory("s", "x")[:30],
+             sm.web_answer_memory("s", "x")[:30],
+             sm.command_reply_memory("s", ["x"])[:30]}
+    assert len(heads) == 6, heads
     for name in ("skill_result_memory", "routed_answer_memory",
-                 "card_shown_memory", "not_run_memory", "record_routed_turn"):
+                 "card_shown_memory", "not_run_memory", "web_answer_memory",
+                 "command_reply_memory", "record_routed_turn"):
         assert name in DOC and hasattr(sm, name)
 
 
@@ -401,16 +404,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "39 names including `halt`" in flat
+    assert "48 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 39, len(old)
+    assert len(old) == 48, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 36)" in flat
+    assert "(telegram, 45)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 36, len(tg)
+    assert len(tg) == 45, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):

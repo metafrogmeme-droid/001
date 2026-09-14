@@ -172,6 +172,13 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",
+    # The website chat's own cards, as commands: `_cmd_nft`, `_cmd_spot` and
+    # `_cmd_airdrops` render the card the web intercept answers with, each
+    # under a permission of its own name, held by trader, paper and viewer —
+    # public market facts and a curated catalogue, no account read in any.
+    "nft": "nft",
+    "spot": "spot",
+    "airdrops": "airdrops",
 }
 
 # Skills a chat transport must never `execute()` directly, whatever the

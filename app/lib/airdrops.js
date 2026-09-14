@@ -220,10 +220,17 @@ async function getUserAirdropRadar(userId) {
 
 const CHAT_RE = /\b(airdrops?|testnets?( participation)?|airdrop radar|farm(ing)? airdrops?)\b/i;
 
-async function maybeHandleAirdropChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The airdrop card — ONE renderer for both surfaces. The web intercept
+ * answers with it for the signed-in user (wallet-readiness hints included);
+ * the bot's /airdrops command fetches this same card over the sync channel
+ * (`GET /api/bot/sync/card/airdrops`), with `userId` null for a caller whose
+ * Telegram account is not linked to a web account — the public radar, no
+ * hints, never a guessed wallet.
+ */
+async function airdropChatCard(userId) {
   try {
-    const r = await getUserAirdropRadar(userId);
+    const r = userId == null ? getPublicAirdropRadar() : await getUserAirdropRadar(userId);
     const live = r.campaigns.filter(c => c.status === 'live');
     const lines = r.campaigns.slice(0, 5).map(c =>
       `• <b>${c.name}</b> (${c.status}, ${c.costs}, effort ${c.effort})`
@@ -242,7 +249,13 @@ async function maybeHandleAirdropChat(userId, text) {
   }
 }
 
-module.exports = {
+async function maybeHandleAirdropChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return airdropChatCard(userId);
+}
+
+module.exports = { CHAT_RE,
+  airdropChatCard,
   SEED_CATALOG,
   CURATED_AT,
   loadCatalog,

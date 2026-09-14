@@ -1,0 +1,8 @@
+{
+  "replay":       {"row": "replay",   "lib": "replay",       "label": "the what-if replay of every past signal",                     "example": "replay every signal with $1k",       "collides_with": null},
+  "letter":       {"row": "letter",   "lib": "letter",       "label": "this week's fund-style letter",                              "example": "show me this week's letter",         "collides_with": null},
+  "defi":         {"row": "defi",     "lib": "defi",         "label": "your Aave, Lido and Uniswap positions",                      "example": "my defi positions",                  "collides_with": null},
+  "price_alert":  {"row": "alerts",   "lib": "alerts",       "label": "a price alert",                                              "example": "tell me when BTC drops below 100k",  "collides_with": "alerts"},
+  "venue_router": {"row": "venues",   "lib": "venue_router", "label": "which venue is cheapest to hold a position on, by funding",  "example": "best venue for BTC",                 "collides_with": "venues"},
+  "meme_radar":   {"row": "meme",     "lib": "meme",         "label": "the on-chain meme and AI-token snapshot",                    "example": "meme radar",                         "collides_with": "memeplan"}
+}

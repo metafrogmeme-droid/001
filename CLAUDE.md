@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 91 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 94 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 82 of the 91 reach the tool-less chat model and 9
+typed as the card prints them, 85 of the 94 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **39 names including `halt`,
+whole vocabulary plus every chat tool: **48 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 36), because the
+surface than for the one it modelled best (telegram, 45), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -972,6 +972,127 @@ the Telegram drive plants a refusing `_guard` rather than a mocked command.
 The round clears `__pycache__` between mutations, for the reason the
 preflight chapter gives.
 
+**A slash command's card was the one reply on Telegram that reached the
+transcript nowhere, and the fix is a capture, not a return value.** The routed
+free-text path records every command's card (`card_shown_memory`), the website
+records what its own intercepts showed (`web_answer_memory`), and `/networth`
+— typed as the command the card itself names — wrote nothing at all, on all
+147 registered commands: "which is biggest?" one turn later reached the model
+with a history in which nothing had been shown, which is `skill_memory.py`'s
+whole subject arriving through the product's oldest door. Nobody had blessed
+the gap; nobody had asked. The registration loop in `build_app` is the one
+place every command passes through (four are module-level functions a method
+decorator would miss), so `_remembering` wraps each callback there and records
+the turn after it ran. The reply cannot be RETURNED — `_send` returns None and
+a command sends zero, one or many messages — so it is CAPTURED: a context
+variable the wrapper sets, and the chokepoint appends each chunk it DELIVERED.
+What the user saw is what the model reads, a `@guard` refusal included (every
+`return False` in `_guard` sits directly under an `await self._send`, and a
+test pins it), and a chunk Telegram refused is not in the transcript.
+
+**The record says who answered, and it is not a tool.** `command_reply_memory`
+is a sixth record rather than `skill_result_memory` with the card's text, for
+the reason `web_answer_memory` already gives one transport over: the
+`[x] result:` shape tells the model a tool it holds really ran, and
+`/setexchange` is no tool the model holds. Its marker word is `SHOWN`, which
+the fabrication guard already polices. And nothing captured is not "the
+command sent nothing": twenty commands reply through the bot object directly
+and a rate-limited `/help` returns in silence, and from the wrapper's side
+those are one absence — so that record names the absence and claims no send
+it did not see, where `card_shown_memory` says "was sent to the user" because
+its callers know it was.
+
+**The user turn is the command and the COUNT of its arguments, never the
+arguments.** Five commands take a SECRET as theirs (`/setexchange`,
+`/setgateway`, `/setsigner`, `/setllm`, `/connect`), and the conversation
+store is both a file on disk and the model's prompt. The routed path records
+the message verbatim and the slash path cannot, and a list of the commands
+whose arguments are safe would be the `/setllm` ten-of-eleven shape — a
+command added later would leak by default — so `/setexchange bitget KEY
+SECRET` is recorded as `/setexchange (3 arguments not recorded)`, and the
+captured card usually carries what the argument named. Two more rules travel
+with it: not admitted, no transcript (the free-text handler's own rule, and
+here it also keeps strangers typing commands from evicting admitted users out
+of a 200-user LRU store), and the turn is recorded AFTER the command ran, so a
+`/start` that admits its own caller is recorded and a stranger's is not. The
+failure record is built inside the wrapper's own `except`, which is where
+`test_skill_memory_records_the_result` pins the file's first such call: the
+first draft built it in a conditional expression the raise never reached
+on its own, and the full preflight — not the slice's suites — said so.
+(`tests/test_a_slash_command_is_in_the_transcript.py`.)
+
+**Twenty-seven mutations, each killed.** The driver's first run aborted on its own anchor: the truncation tail written for the new record was byte-identical to the website record's, so the anchor matched twice — the second-copy shape showing up inside the instrument built to find it, and a second copy in the product. The tail is one helper now (`_headed`), the router's and the website's records read it too, and the round was re-run against it: every mutation dies, the gate refusal that returns without sending (so the AST pin is live) and the record written before the command runs included.
+
+**Nine of the website's fifteen chat intercepts had no read on Telegram, and
+one of them was a wrong card.** Six have nothing here at all — the what-if
+replay, the weekly letter, the airdrop radar, the NFT radar, the spot market,
+the DeFi positions — and three share a word with a Telegram command that does
+something else: `/alerts` is the anomaly-alert scope, `/venues` picks which
+connected venues trade, `/memeplan` is a buy preflight. Typed on Telegram,
+"replay every signal with $1k" ran a SYNTHETIC BACKTEST, because the backtest
+rule carried a bare `replay` in its alternation — a confident wrong card, the
+`get_orders` shape one word over — and the other eight either met the social
+gate (three words, no trading word, greeted) or reached a model whose prompt
+says nothing about the website, which then answered from nothing. A read the
+product has on one surface and not the other gets a DOOR, never a narrator:
+`bot/nlp/web_reads.py` answers both surfaces with the surface that has the
+read, the phrasing it accepts, the same-named command here when there is one
+(its sentence read off the command catalogue, never written here), and
+"nothing was read or set". On the web the Python path sees such an ask only
+when the Node intercept's own pattern missed the phrasing, so the honest
+answer THERE is the phrasing it accepts.
+
+**The sentence a notice tells a caller to type is a claim about another
+surface, so the other surface checks it.** `web_reads.json` is one table read
+by both sides: the Python notice quotes each row's `example`, and
+`app/test/web_reads_examples_reach_the_intercepts.test.js` drives every
+example through the intercept library's own `CHAT_RE` (the alerts parser for
+the one intercept with no regex), which seven libraries export now. A
+phrasing that drifted out of a regex fails there rather than in a user's chat
+one turn after the notice invited it — the `/vault` hint rule, with the door
+on the other side of a process boundary. The rules mirror the intercepts'
+patterns and narrow them where the web's claim is wider than honest: the
+web's `spot` takes "spot prices", which on Telegram is a PRICE question and
+stays one; an education question ("what is defi") is the model's, as it is
+for `rwa`, and the nouns went into the social gate's vocabulary so a
+three-word one reaches the model rather than the greeter.
+(`tests/test_the_website_only_reads_meet_a_door_on_telegram.py`.)
+
+**Twenty-four mutations, each killed.** Two survived the first round and both were the driver's. The bare `replay` put back into the backtest rule changed no verdict, because the new replay rule is registered above it — so the corpus gained a phrasing NEITHER surface claims ("replay the last week"), which the old rule ran a backtest for and which reaches no rule now. And the letter example swapped for "agent letter" was an equivalent mutant, both surfaces claiming it; the mutation is the spot example swapped for "spot prices" now, the one phrasing this router deliberately declines and the web takes — killed by the Python pin, which is the direction the JS pin cannot see.
+
+**Three of those nine doors stood in front of reads that could be fetched,
+and the door became the read.** The NFT radar, the spot pairs and basis, and
+the airdrop radar have no account in them — public market facts and a curated
+catalogue — so "ask the web app in these words" was honest only until the
+card could arrive. `GET /api/bot/sync/card/<name>` answers the card the web
+intercept renders, from the intercept's OWN renderer (`nftChatCard`,
+`spotChatCard`, `airdropChatCard`; each intercept is a regex test in front of
+one now), and `/nft`, `/spot` and `/airdrops` render that byte for byte, with
+`<br>` turned into the newline Telegram's HTML parser accepts. There is no
+Python formatter, deliberately: `_format_rwa` one command over is a second
+copy of the card `rwa.js` renders, kept in step by hand, which is the shape
+this file records for maps and gates. The route is whitelisted by name and
+refuses `__proto__` the way it refuses `nope`; the fetch is a fixed three-name
+tuple on the Python side, so a name outside it never reaches the wire; and a
+payload with no string `reply_html` is the transport's own "could not read"
+sentence, never an empty card. The airdrops card is the one with a per-person
+half — wallet-readiness hints for a linked wallet — so the route reads
+`telegram_id` for that card alone, maps it to a web account the way
+`/exposure` does, and answers the PUBLIC radar for a caller it cannot map: a
+caller nobody could map is unlinked, not somebody else's wallet. The three
+rules kept their place in the router (order decides which rule answers) and
+their intents moved from the door table to the command table on both
+surfaces — `_WEB_SEAM`, `WEB_ROUTED_PERMISSION`, `ROUTED_INTENT_SEAM` and the
+literal pin each grew the same three rows, under permissions of their own
+names held by trader, paper and viewer — and `web_reads.json` holds six. The
+Telegram branches sit ABOVE the door notice, pinned, because a read that
+exists here must never be answered "ask the web app".
+(`tests/test_the_website_cards_are_telegram_commands.py`,
+`app/test/sync_card_route_is_the_web_intercepts_own_card.test.js`.)
+
+**Twenty-nine mutations, each killed, and the two that survived the first round were one of each kind.** The route's guard against a renderer answering no card survived because no renderer in the tree can — each has its own honest unavailable card — so the branch could not be driven from the product's own inputs; it is driven now by patching the export the route reads at call time, because a 200 carrying no `reply_html` reaches Telegram as "the channel did not answer", a different fact from the truth. The other was the driver's: routing an unlinked caller through the DB with a null id reads no row and hands back the same public radar, an EQUIVALENT mutant, and the line's real claim — a linked caller gets THEIR card, hints and all — is the mutation now, killed by the linked-wallet test.
+
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1147,7 +1268,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty-six call sites across the two entry points today, one on
+never happened. Forty-one call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -1157,13 +1278,16 @@ fall-through, the news digest, and the five-return limit-price flow that
 CONFIRMS AND EXECUTES A TRADE. The web's news intercept was the same defect with a
 placeholder instead of silence: `"[news] radar digest"` says a digest happened
 and not one headline from it, which is `"executed successfully"` in new
-clothes, three modules from the docstring that deletes it. **Four records now,
-because four things happen and only one is a measurement** —
+clothes, three modules from the docstring that deletes it. **Six records now,
+because six things happen and only one is a measurement** —
 `skill_result_memory` (a tool ran), `routed_answer_memory` (the router spoke;
 "no tool ran"), `card_shown_memory` (a command's card, "CONTENTS NOT
 RECORDED", so the model's honest continuation is *I do not have that in front
-of me* rather than a reconstruction) and `not_run_memory` (a gate said no,
-which is neither a failure inviting a retry nor an absent tool). The name
+of me* rather than a reconstruction), `not_run_memory` (a gate said no,
+which is neither a failure inviting a retry nor an absent tool),
+`web_answer_memory` (the website answered from its own reading; no bot tool
+ran) and `command_reply_memory` (a slash command replied, captured where it
+was sent — its section below). The name
 recorded is the skill that RAN — `scan_deep` dispatches `deepscan` — and
 `record_routed_turn` writes both turns from one leaf, so the transports cannot
 drift about what the model remembers.

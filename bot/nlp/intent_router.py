@@ -186,6 +186,15 @@ def _is_social_message(text: str) -> bool:
             # "radar" — which must reach the model rather than the greeter.
             "rwa", "rwas", "radar", "research", "dossier", "diligence",
             "tokenized", "tokenised",
+            # The website-only reads' own nouns, for the EDUCATION shapes the
+            # rules above decline ("what is defi", "how do airdrops work"):
+            # three words, no rule, and without these the greeter answered.
+            # Not "alert"/"alerts": every price-alert phrasing is claimed by
+            # its rule first, and "turn off alerts" is pinned as small talk
+            # by the halt suite's neighbour table.
+            "defi", "aave", "nft", "nfts", "airdrop", "airdrops", "testnet",
+            "testnets", "meme", "memes", "spot", "letter", "replay",
+            "opensea", "dexscreener",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -1099,6 +1108,47 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
       "research", needs_symbol=True,
       explanation="Research dossier for one symbol")
 
+# --- The reads only the website answers: a door, never a narrator ---
+# Nine intercept rows of `app/routes/chat.js` that Telegram had no read for
+# (`bot/nlp/web_reads.py`): six with nothing here at all, three whose word
+# a Telegram command shares while doing something else. Their phrasings are
+# the intercepts' own patterns, narrowed where the web's claim is wider than
+# honest — the web's `spot` takes "spot prices", which on Telegram is a
+# PRICE question and stays one — and an education question ("what is defi",
+# "how do airdrops work") is the model's, as it is for `rwa` above. Six
+# dispatch to no skill: both surfaces answer with `web_read_notice`, which
+# names the surface that has the read, the words it takes, and the
+# same-named command here when there is one. Three — `airdrops`, `nft`,
+# `spot` — are commands now (`/airdrops`, `/nft`, `/spot` render the
+# website's own card) and route to them the way `rwa` does; the rules keep
+# their place here because order is what decides which rule answers.
+_EDU = r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
+_rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
+      r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
+      r"(?:every|all|each) (?:signal|trade|position)s?)\b"
+      r"|^\s*replay\s*[?!.]*$",
+      "replay", explanation="What-if replay of every past signal (a website read)")
+_rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|agent letter|fund letter)\b",
+      "letter", explanation="The weekly letter (a website read)")
+_rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
+      "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
+_rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
+      "nft", explanation="NFT floor and volume radar (the website's card, /nft)")
+_rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
+      "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
+_rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
+      "defi", explanation="DeFi positions and liquidation risk (a website read)")
+_rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"
+      r"|tell me when \S+ (?:drops?|falls?|goes|rises?|hits|breaks?|crosses)|notify me (?:when|if)"
+      r"|(?:show |list )?my (?:price )?alerts)\b",
+      "price_alert", explanation="A price alert (set on the website)")
+_rule(r"\b((?:best|cheapest) (?:venue|exchange)"
+      r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
+      r"|venue router|cheapest funding)\b",
+      "venue_router", explanation="Cheapest venue by funding cost (a website read)")
+_rule(_EDU + r"\b(meme ?(?:radar|coins?|tokens?)|dexscreener|pump\.?fun|ai[- ]agent tokens?)\b",
+      "meme_radar", explanation="Meme and AI-token snapshot (a website read)")
+
 # --- The book and the risk engine, before the chart ---
 #
 # "hows my pnl looking" matched the analysis rule's `how's … looking` below
@@ -1443,7 +1493,11 @@ _rule(r"^\s*macro\s*[?!.]*$", "macro_calendar", explanation="Bare macro request"
 # partial and drop it to LLM chat.
 _rule(r"\bbacktest\s+[A-Za-z0-9/]{2,12}\b",
       "run_backtest", needs_symbol=True, explanation="Backtest request (symbol)")
-_rule(r"\b(run (a )?backtest|backtest (it|this)|replay|test (the )?strategy)\b",
+# `replay` LEFT this alternation: "replay every signal with $1k" is the
+# website's what-if replay of the recorded record, and a bare `replay` here
+# ran a synthetic-smoke backtest for it — a confident wrong card. The
+# website-read rules above claim it now.
+_rule(r"\b(run (a )?backtest|backtest (it|this)|test (the )?strategy)\b",
       "run_backtest", explanation="Backtest request")
 
 # --- Costs ---

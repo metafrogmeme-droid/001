@@ -248,11 +248,16 @@ async def test_a_paywalled_scan_records_that_it_did_not_run(bot):
     ("my net worth", "networth"),
     ("rwa radar", "rwa"),
     ("research SOL", "research"),
+    # The website chat's own cards, as commands: a door notice until the
+    # card could be fetched, the card itself now.
+    ("nft radar", "nft"),
+    ("spot market", "spot"),
+    ("airdrop radar", "airdrops"),
 ])
 async def test_a_command_branch_records_that_its_card_is_not_in_the_transcript(bot, text, card):
     store = _store(bot)
     for name in ("_cmd_orders", "_cmd_help", "_cmd_status", "_cmd_networth",
-                 "_cmd_rwa", "_cmd_research"):
+                 "_cmd_rwa", "_cmd_research", "_cmd_nft", "_cmd_spot", "_cmd_airdrops"):
         setattr(bot, name, AsyncMock())
     await bot._handle_message(_update(OPERATOR, text), None)
     turns = _turns(store)
@@ -544,6 +549,7 @@ def test_no_router_intent_falls_to_the_unavailable_notice_today():
 
     from bot.nlp.intent_router import _INTENT_RULES
     from bot.nlp.skill_doors import web_scan_aliases
+    from bot.nlp.web_reads import WEB_READS
     from bot.skills.chat_runtime import ACT_INTENTS, HALT_INTENTS
     from bot.skills.skill_registry import build_default_registry
     from bot.web import user_gateway as ug
@@ -563,6 +569,8 @@ def test_no_router_intent_falls_to_the_unavailable_notice_today():
             continue
         if skill in ACT_INTENTS or skill in HALT_INTENTS:
             continue          # answered by the door notices
+        if skill in WEB_READS:
+            continue          # a read only the website answers: its own door, both surfaces
         if skill.startswith("stance_"):
             continue          # answered by the stance reply
         if skill in aliased or f'if intent.skill == "{skill}"' in src:

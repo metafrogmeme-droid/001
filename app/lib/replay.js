@@ -173,4 +173,4 @@ async function maybeHandleReplayChat(userId, text) {
   }
 }
 
-module.exports = { computeReplay, runReplay, maybeHandleReplayChat };
+module.exports = { CHAT_RE, computeReplay, runReplay, maybeHandleReplayChat };
