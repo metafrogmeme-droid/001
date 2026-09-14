@@ -25,6 +25,7 @@ every `_analyzer(0)` planted an untested brain, and the case named
 negative nobody had measured — the same error as 2026-07-29, one step earlier.
 `last_ok` is a parameter now, and the two states are separate tests.
 """
+import re as _re
 import time
 from types import SimpleNamespace
 
@@ -46,7 +47,12 @@ def _analyzer(streak, last_ok=30.0):
 def test_degraded_brain_named_as_likely_cause():
     hint = _scan_timeout_hint(_analyzer(5))
     assert "LLM brain degraded" in hint
-    assert "5 analyses" in hint
+    # THE STREAK IS BOLD NOW, not plain: the sentence comes from
+    # failure_cause.chain_coverage_sentence, shared with the degraded card and
+    # /llmstatus so no two can drift about what was tried. `"5 analyses"` was
+    # pinning a spelling rather than the property — strip the markup and the
+    # property is still exactly what it was.
+    assert "5 analyses in a row" in _re.sub(r"<[^>]+>", "", hint)
     assert "/llmstatus" in hint
 
 

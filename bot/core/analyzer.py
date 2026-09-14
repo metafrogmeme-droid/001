@@ -27,6 +27,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from bot.compat import UTC
+from bot.llm import failure_cause as _fc
 from typing import Optional
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
@@ -606,6 +607,13 @@ class Analyzer:
         # LLM) does NOT touch these counters, so the streak only rises on real
         # provider failure. The streak resets to 0 on the next LLM success.
         self._llm_degraded_streak: int = 0        # consecutive all-provider fails
+        # The fallback chain's per-provider outcomes, scoped to the CURRENT
+        # streak. `_llm_last_chain_walk` is the handoff out of
+        # `_try_llm_fallback`; this is the copy the health snapshot reports,
+        # so a walk from a call that later succeeded can never be read as
+        # evidence for a streak it does not belong to.
+        self._llm_last_chain_walk: list[dict] = []
+        self._llm_degraded_walk: Optional[list[dict]] = None
         # Chat calls where every provider failed. Kept SEPARATE from the
         # streak above on purpose — see note_llm_chat_failed.
         self._llm_chat_failures: int = 0
@@ -4396,7 +4404,7 @@ class Analyzer:
             # Every provider failed and we're running on the rule engine — the
             # live "quota exhausted → brain offline" signature. Record it so the
             # proactive monitor can alert once the streak crosses the threshold.
-            self._note_llm_degraded(str(exc))
+            self._note_llm_degraded(str(exc), primary=failed_provider)
             # Auth failures condemn the KEY, not the provider: mark this
             # config's key invalid in the key-health registry so the next
             # tier resolution auto-heals onto the next candidate key instead
@@ -4423,9 +4431,13 @@ class Analyzer:
         self._llm_degraded_streak = 0
         self._llm_degraded_since_monotonic = 0.0
         self._llm_last_error = ""
+        # The walk was evidence for a streak that is over. Keeping it would let
+        # a later reader describe today's silence with yesterday's chain.
+        self._llm_degraded_walk = None
         self._llm_last_ok_monotonic = time.monotonic()
 
-    def _note_llm_degraded(self, reason: str = "") -> None:
+    def _note_llm_degraded(self, reason: str = "", *,
+                           primary: Optional[str] = None) -> None:
         """Every provider failed for one thesis and we fell to the rule engine.
         Advance the consecutive-fail streak; stamp when it began. ``reason`` is
         the primary provider's error — surfaced in /llmstatus and the degraded
@@ -4437,6 +4449,43 @@ class Analyzer:
         self._llm_degraded_streak += 1
         if reason:
             self._llm_last_error = str(reason)[:200]
+        self._llm_degraded_walk = self._chain_walk_for(primary, reason)
+
+    def _chain_walk_for(self, primary: Optional[str],
+                        primary_error: str) -> Optional[list[dict]]:
+        """The chain walk that produced this degrade, with the PRIMARY's own
+        failure written into it.
+
+        `_try_llm_fallback` records the primary as `SKIPPED_PRIMARY` with no
+        error, because from inside the loop the primary is simply the step it
+        must not repeat — the exception lives one frame up. And under tier
+        routing the primary may not be in the analysis chain AT ALL (SCAN tier
+        can point at a provider the chain does not list), in which case the
+        walk has no row for the provider whose failure started everything.
+
+        Both cases are filled in here, which is the only place that holds the
+        walk and the exception at once. Never raises: this is instrumentation
+        inside a fallback path, and it may not turn one failure into two.
+        """
+        try:
+            walk = getattr(self, "_llm_last_chain_walk", None)
+            if not isinstance(walk, list):
+                return None
+            out = [dict(step) for step in walk if isinstance(step, dict)]
+            err = str(primary_error or "")[:200]
+            if primary:
+                for step in out:
+                    if step.get("provider") == primary:
+                        step["outcome"] = _fc.SKIPPED_PRIMARY
+                        step["error"] = err
+                        break
+                else:
+                    out.insert(0, {"provider": primary,
+                                   "outcome": _fc.SKIPPED_PRIMARY,
+                                   "error": err})
+            return out
+        except Exception:
+            return None
 
     def note_llm_chat_failed(self, reason: str = "") -> None:
         """A CHAT call fell through every provider.
@@ -4494,6 +4543,16 @@ class Analyzer:
         since = self._llm_degraded_since_monotonic
         return {
             "degraded_streak": self._llm_degraded_streak,
+            # Per-provider outcomes behind THIS streak, or None when no walk
+            # was recorded. `None` and `[]` are different readings and the
+            # card treats them differently: absent means "which providers
+            # were tried was not recorded", empty means the chain had no
+            # step to take. See bot/llm/failure_cause.attempt_summary.
+            # getattr, not direct access: analyzers built without __init__
+            # exist (several suites do it), and the sibling `chat_failures`
+            # field below already reaches for this reason. A snapshot that
+            # RAISED here would take the whole degraded card down.
+            "chain_walk": getattr(self, "_llm_degraded_walk", None),
             "degraded_seconds": (now - since) if since > 0 else 0.0,
             "last_ok_seconds_ago": (
                 (now - self._llm_last_ok_monotonic)
@@ -4564,12 +4623,26 @@ class Analyzer:
         # already recorded as retired. `is_admin` decides whether the
         # operator's reserved Anthropic key is in it. Skip the provider that
         # actually failed.
+        # WHAT THE WALK ACTUALLY DID, recorded per provider. Three of the
+        # `continue`s below mean the provider was never contacted, and until
+        # this list existed nothing downstream could tell them from a provider
+        # that was asked and raised — so `_check_llm_degraded` printed "Every
+        # LLM provider has failed" for a chain in which one was tried and three
+        # were skipped for want of a key. See bot/llm/failure_cause.py.
+        walk: list[dict] = []
         for provider, key_env, default_model in fallback_chain("analysis", is_admin=is_admin):
             if provider.value == skip_provider:
+                # Not a fresh attempt and not a provider that went unasked: it
+                # is the one that just failed on the primary path, which is the
+                # failure this whole alert is about.
+                walk.append({"provider": provider.value,
+                             "outcome": _fc.SKIPPED_PRIMARY, "error": ""})
                 continue  # Skip the one that just failed
 
             api_key = _os.getenv(key_env, "")
             if not api_key:
+                walk.append({"provider": provider.value,
+                             "outcome": _fc.NO_KEY, "error": ""})
                 continue  # No key configured for this provider
 
             try:
@@ -4582,6 +4655,8 @@ class Analyzer:
                 )
                 fb_client = create_llm_client(fb_config)
                 if fb_client is None:
+                    walk.append({"provider": provider.value,
+                                 "outcome": _fc.NO_CLIENT, "error": ""})
                     continue
 
                 sdk_type = fb_config.sdk_type()
@@ -4649,6 +4724,12 @@ class Analyzer:
                           action="llm_fallback", result="LLM_PARSE_FAIL",
                           data={"provider": provider.value, "model": default_model,
                                 "raw_text": (raw_text or "")[:200]})
+                    # ANSWERED, and the reply was unusable. Not the same event
+                    # as a provider that could not be reached, and the card
+                    # must not report a working host as a dead one.
+                    walk.append({"provider": provider.value,
+                                 "outcome": _fc.UNPARSEABLE,
+                                 "error": "reply did not parse"})
                     continue  # try next fallback provider
                 result["_fallback_provider"] = provider.value.upper()
                 result["model_used"] = default_model
@@ -4656,6 +4737,10 @@ class Analyzer:
                       f"LLM fallback succeeded via {provider.value}: {signal.symbol}",
                       action="llm_fallback", result="OK",
                       data={"provider": provider.value, "model": default_model})
+                # A success ends the walk, and the walk is only ever read by
+                # the degraded card — which does not fire on a success. Stash
+                # it anyway so a later reader cannot find a stale one.
+                self._llm_last_chain_walk = walk
                 return result
 
             except Exception as fb_exc:
@@ -4663,11 +4748,17 @@ class Analyzer:
                       f"LLM fallback {provider.value} also failed: {fb_exc}",
                       action="llm_fallback", result="FAIL",
                       data={"provider": provider.value})
+                # The audit log was the ONLY place this error went, which is
+                # why the card's "Last error" was the primary's — the first
+                # one, under a label that says last.
+                walk.append({"provider": provider.value,
+                             "outcome": _fc.FAILED, "error": str(fb_exc)[:200]})
                 continue
 
         # All fallbacks exhausted
         audit(trade_log, "All LLM fallback providers exhausted, using rule engine",
               action="llm_fallback", result="ALL_EXHAUSTED")
+        self._llm_last_chain_walk = walk
         return None
 
     @property

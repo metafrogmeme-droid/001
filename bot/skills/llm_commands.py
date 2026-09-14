@@ -31,6 +31,7 @@ from bot.formatters.brain_state import UNTESTED as _BRAIN_UNTESTED
 from bot.formatters.brain_state import brain_state as _brain_state
 from bot.formatters.brain_state import sweep_note as _sweep_note
 from bot.formatters.brain_state import untested_confirmation as _untested_confirm
+from bot.llm import failure_cause as _fc
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider, provider_key_env
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
@@ -336,17 +337,31 @@ class LLMCommands:
                 _state = _brain_state(h)
                 if streak > 0:
                     mins = float(h.get("degraded_seconds", 0.0) or 0.0) / 60.0
-                    health_line = (
-                        f"\n🚨 <b>Brain: DEGRADED</b> — every provider has failed "
-                        f"{streak} analyses in a row"
-                        + (f" (~{mins:.0f} min)" if mins >= 1 else "")
-                        + "; running on the rule engine. Add/rotate an LLM key.")
-                    # WHY it's failing (401 bad key / 404 model / 429 quota) —
-                    # the live incident showed the streak without the cause.
+                    # THE SAME READING THE DEGRADED CARD USES, and this is the
+                    # surface that card's own footer sends the operator to.
+                    # Both said "every provider has failed" for a chain in
+                    # which a provider with no key was `continue`d past and
+                    # never contacted, and both closed with an unconditional
+                    # "Add/rotate an LLM key" — printed here beside a
+                    # Cloudflare 1033, a tunnel that is not connected, where
+                    # no key changes anything. Fixing the card and leaving the
+                    # command it names is the "fix that lands on one surface"
+                    # failure, at its sharpest: one tap apart.
                     _err = str(h.get("last_error", "") or "")
+                    _aged = f" (~{mins:.0f} min)" if mins >= 1 else ""
+                    health_line = (
+                        "\n🚨 <b>Brain: DEGRADED</b> — "
+                        + _fc.chain_coverage_sentence(h.get("chain_walk"), streak,
+                                                _aged)
+                        + " Running on the rule engine.")
                     if _err:
-                        health_line += (f"\nLast error: "
+                        # "Last" was wrong: this is the PRIMARY provider's
+                        # exception, and each fallback's own error is swallowed
+                        # into the audit log by its `except ... continue`.
+                        health_line += (f"\nPrimary provider's error: "
                                         f"<code>{html.escape(_err[:160])}</code>")
+                    health_line += ("\n" + _fc.cause_line(_err)
+                                    + "\n👉 " + _fc.cause_action(_err))
                 elif _state == _BRAIN_UNTESTED:
                     # streak==0 but no success recorded either: nothing has been
                     # attempted since restart. Don't claim "answering" — the

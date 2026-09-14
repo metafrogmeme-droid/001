@@ -48,6 +48,7 @@ from bot.compat import UTC
 from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
+from bot.llm import failure_cause as _fc
 from bot.formatters.rich_cards import (
     analyze_budget_line,
     position_watch_line,
@@ -2038,26 +2039,37 @@ class ProactiveMonitor:
             degraded = streak >= min_streak
             if degraded and not self._last_llm_degraded:
                 mins = float(health.get("degraded_seconds", 0.0) or 0.0) / 60.0
+                # WHAT WAS TRIED, and WHAT THE ERROR READS AS. Both come from
+                # bot/llm/failure_cause.py, and both replace a sentence this
+                # card used to assert without measuring. The old headline said
+                # "Every LLM provider has failed" for a chain in which a
+                # provider with no key was `continue`d past and never
+                # contacted; the old action line said "Add or rotate an LLM API
+                # key (paid tier avoids the daily quota wall)" unconditionally,
+                # and printed that under a Cloudflare 1033 — a tunnel that is
+                # not connected, where no key changes anything. Worse, the
+                # branch that ran when NO error was recorded asserted the quota
+                # wall outright: the emptiest evidence produced the most
+                # specific diagnosis.
+                last_error = str(health.get("last_error") or "")
+                aged = f" (~{mins:.0f} min)" if mins >= 1 else ""
+                coverage = _fc.chain_coverage_sentence(
+                    health.get("chain_walk"), streak, aged)
                 alerts.append(Alert(
                     alert_type="LLM_DEGRADED", severity="CRITICAL",
                     title="LLM brain offline",
                     body=(
                         "\U0001f6a8 <b>LLM BRAIN OFFLINE — RUNNING ON RULES</b>\n"
                         "────────────────\n"
-                        f"Every LLM provider has failed for <b>{streak}</b> "
-                        "analyses in a row"
-                        + (f" (~{mins:.0f} min)" if mins >= 1 else "") + ".\n"
+                        f"{coverage}\n"
                         "The bot is still scanning and trading, but on the "
                         "<b>rule engine only</b> — no AI thesis, weaker signals.\n\n"
-                        + (("Last error: <code>"
-                            + _html.escape(str(health.get("last_error", ""))[:160])
-                            + "</code>\n")
-                           if health.get("last_error") else
-                           "Usual cause: free-tier API quota exhausted (429 / "
-                           "RESOURCE_EXHAUSTED) across every provider.\n")
-                        + "────────────────\n"
-                        "\U0001f449 Add or rotate an LLM API key (paid tier "
-                        "avoids the daily quota wall).\n"
+                        + (("Primary provider's error: <code>"
+                            + _html.escape(last_error[:160])
+                            + "</code>\n") if last_error else "")
+                        + _fc.cause_line(last_error) + "\n"
+                        "────────────────\n"
+                        "\U0001f449 " + _fc.cause_action(last_error) + "\n"
                         "\U0001f449 /llmstatus — current provider + key"),
                     dedup_key="llm_degraded",
                     # OPERATOR INFRASTRUCTURE. The two actions this card asks

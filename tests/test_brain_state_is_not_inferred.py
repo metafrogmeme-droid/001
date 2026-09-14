@@ -32,6 +32,8 @@ and not on silence. `brain_state()` is the display answer. Same split as
 
 from __future__ import annotations
 
+import re as _re
+
 import pathlib
 
 import pytest
@@ -140,7 +142,13 @@ def test_a_healthy_brain_still_rules_the_chain_out():
 
 def test_a_degraded_brain_still_leads_with_the_streak():
     out = _hint({"degraded_streak": 5, "last_ok_seconds_ago": 600.0})
-    assert "degraded" in out and "5 analyses in a row" in out
+    # Same repoint as test_scan_timeout_hint: the streak is rendered <b>5</b>
+    # by the shared chain_coverage_sentence. The property under test — a
+    # degraded brain leads with its streak — is unchanged; only the markup is.
+    # This snapshot carries no chain_walk, so the sentence also says the
+    # coverage was not recorded, which is the honest reading of an absent walk.
+    plain = _re.sub(r"<[^>]+>", "", out)
+    assert "degraded" in plain and "5 analyses in a row" in plain
 
 
 def test_a_broken_health_call_produces_no_line_rather_than_a_wrong_one():
