@@ -331,6 +331,10 @@ def _normalise_symbol(raw) -> Optional[str]:
     Runs the same strict validator the intent router uses so a model-supplied
     string can never reach CCXT unchecked."""
     s = str(raw or "").strip().upper().replace("$", "")
+    # `HYPE/USDT:USDT` is how ACTIVE POSITIONS prints a perpetual, and a model
+    # that copies it verbatim used to be refused ("not a symbol I can look
+    # up") for the one spelling the evidence itself taught it.
+    s = s.split(":", 1)[0]
     if not s:
         return None
     if "/" not in s:

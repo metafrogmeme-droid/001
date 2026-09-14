@@ -6285,7 +6285,10 @@ class RuneClawEngine:
 
         if risk_check.verdict == RiskVerdict.REJECTED:
             # Store rejection for /whynot command
-            symbol_key = idea.asset.replace("/USDT", "").upper()
+            # The one normaliser: a perp's `HYPE/USDT:USDT` used to key as
+            # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
+            # of a perpetual was ever found by name.
+            symbol_key = normalize_symbol(idea.asset)
             self._last_rejections[symbol_key] = {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,

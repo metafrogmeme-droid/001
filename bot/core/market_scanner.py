@@ -362,6 +362,15 @@ class MarketScanner:
         spot_result, futures_result = await asyncio.gather(
             spot_task, futures_task, return_exceptions=True,
         )
+        # WHICH VENUE ANSWERED, recorded beside the signals. `return_exceptions`
+        # folds a venue that did not answer into an empty half of the universe,
+        # and an empty list at the end reads as "no signals" — a market claim
+        # from a read that failed. The type name only: a driver's message can
+        # carry a host or a key, and this reading is printed on a chat card.
+        self.last_fetch_errors = {
+            "spot": None if isinstance(spot_result, dict) else type(spot_result).__name__,
+            "futures": None if isinstance(futures_result, dict) else type(futures_result).__name__,
+        }
 
         signals: list[MarketSignal] = []
         seen_symbols: set[str] = set()
