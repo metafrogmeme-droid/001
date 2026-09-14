@@ -1907,3 +1907,51 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
    that is the reading the floor exists to refuse. */
 .wr-row--unrated .wr-track { display: none; }
 .wr-why { display: block; margin-top: 2px; color: var(--text-3); font-size: var(--fs-xs); }
+
+/* ---- Mode strip -------------------------------------------------------
+   The one full-width claim about WHICH ACCOUNT is trading. The accent bar is
+   never the only signal: the word (LIVE / PAPER / MODE ?) is printed beside it
+   in every state, because colour is a claim and a reader who cannot see the
+   difference between --down and --warn must still get the right answer.
+   An unknown mode wears the muted token — NOT a paler shade of either verdict,
+   which would read as a weak version of a claim nobody made. Same swatch the
+   topbar's 'MODE ?' already uses (.chip--offline), so the dashboard has one
+   colour for "not read" rather than a fourth. `absent` — no bot on this
+   deployment — is muted too: amber there would claim *simulating*, and the
+   strip's sentence is the only thing that says which of the two facts holds. */
+.ms-strip {
+  display: grid; gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius-sm);
+  /* inline-start, not left: the Arabic build is RTL. */
+  border-inline-start: 3px solid var(--line-2);
+  background: var(--surface-2);
+  min-width: 0;
+}
+.ms-strip--live    { border-inline-start-color: var(--down); background: var(--down-dim); }
+.ms-strip--paper   { border-inline-start-color: var(--warn); background: var(--warn-dim); }
+.ms-strip--unknown { border-inline-start-color: var(--line-2); background: var(--surface-2); }
+.ms-strip--absent  { border-inline-start-color: var(--line-2); background: var(--surface-2); }
+
+.ms-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; }
+/* Provenance, not decoration: "read from the trading bot" and "not read —
+   this site's own records" are the two halves of the same strip's honesty. */
+.ms-src {
+  font-family: var(--font-data); font-size: var(--fs-xs);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--text-3);
+}
+.ms-why   { margin: 0; color: var(--text);   font-size: var(--fs-sm); max-width: 76ch; }
+.ms-below { margin: 0; color: var(--text-2); font-size: var(--fs-xs); max-width: 76ch; }
+
+/* Desktop: the badge column sits beside both sentences instead of above them,
+   so the strip is one band rather than three stacked lines. Appended at the
+   END of the file — far below the shell's own 1024px block, which
+   dashboard_shell_layout.test.js finds by indexOf and must keep finding first. */
+@media (min-width: 1024px) {
+  .ms-strip {
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    column-gap: var(--s4); align-items: center;
+  }
+  .ms-head { grid-row: 1 / span 2; flex-direction: column; align-items: flex-start; gap: var(--s1); }
+  .ms-why, .ms-below { grid-column: 2; }
+}

@@ -698,6 +698,24 @@
     "dd.cta_verify": { en: "Resend verification" },
     "dd.cta_live": { en: "Review live controls" },
     "dd.e_portfolio": { en: "No portfolio data yet." },
+    "dd.ms_src_bot": { en: "read from the trading bot" },
+    "dd.ms_src_sync": { en: "read from the operator sync feed" },
+    "dd.ms_src_site": { en: "not read — this site’s own records" },
+    "dd.ms_src_deploy": { en: "this deployment’s own configuration" },
+    "dd.ms_why_live": { en: "The trading bot reports it is trading this account live. Orders reach a real exchange." },
+    "dd.ms_why_live_sync": { en: "The operator’s own engine reports live trading. Orders reach a real exchange." },
+    "dd.ms_why_live_nobal": { en: "The bot reports live trading, but its account balance could not be read." },
+    "dd.ms_why_mixed": { en: "The bot is trading live, but the book shown below is this account’s simulated one. The bot reports the two together." },
+    "dd.ms_why_paper": { en: "The bot reports it is simulating. Nothing below placed an order at an exchange." },
+    "dd.ms_why_unconfigured": { en: "No trading bot is connected to this site, so there is no live account to be in. This is what the deployment is, not a reading of an engine." },
+    "dd.ms_why_unreach": { en: "This site could not reach the trading bot, so the mode was never read. It is not paper — it is unknown." },
+    "dd.ms_why_nomode": { en: "The bot answered without a mode this dashboard recognises. It is not safe to call that paper." },
+    "dd.ms_below_live": { en: "The figures below are this account’s live book." },
+    "dd.ms_below_paper": { en: "The figures below are simulated." },
+    "dd.ms_below_nobal": { en: "The equity figure below is missing rather than zero — nobody could read the balance." },
+    "dd.ms_below_site": { en: "The figures below are the last values this site recorded. They were not read from the bot just now and may be old." },
+    "dd.ms_age_old": { en: "FIGURES OLD" },
+    "dd.e_mode": { en: "No account record on this site yet." },
     "dd.e_positions": { en: "No open positions. The Trade view has a full order ticket." },
     "dd.e_signals": { en: "No signals yet — they appear as the engine scans." },
     "dd.e_macro": { en: "The macro backdrop appears once market data is available." },
@@ -1845,7 +1863,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"3e673f0c","zh":"3b028670","pt":"2fc2d648","fr":"cf5f7859","de":"1edf50b2","nl":"0940f6ed","ja":"8e56dc14","ko":"8ec164ed","ru":"9f306589","tr":"ca612fc8","it":"6d6d58f6","hi":"60cad008","ar":"daad5263"};
+  var CHUNKS = {"es":"c84556d9","zh":"70634f24","pt":"faf8bb4c","fr":"0535c23f","de":"2a2303c9","nl":"8783d15b","ja":"762c286b","ko":"2353e253","ru":"f232b245","tr":"91755f43","it":"07b1d041","hi":"cb94dad6","ar":"dec54b1a"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

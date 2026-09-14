@@ -1996,6 +1996,27 @@ Prefer exercising a property over matching text: run the function, drive the
 failure, assert the outcome. Source matching is for shapes a unit test cannot
 reach (a guard being *reached* at every call site, a cap being configurable).
 
+**A translation guard that resolves through the fallback cannot see a missing
+translation.** `i18n.translate(key, lang)` ends `return e.en != null ? e.en :
+null`, so a key that exists in one language answers English for the other
+thirteen, and a guard written as `translate(key, code)` non-empty detects only
+a wholly-missing key. The deck study's status-strip design credited its
+mutation table with "forgetting 13 translations fails test 9", and driven,
+`translate('dd.err_panel', 'zz')` came back "Couldn't load this panel." — the
+kill it claimed belonged to `i18n.test.js`'s sweep of `STRINGS`, not to the
+test that said so. Read `i18n.STRINGS[key][code]`, the convention
+`panel_failure_honesty.test.js` already uses, and the stated mutation dies
+where it is claimed to.
+
+**Three panels reading one endpoint is three answers to one question.** The
+home view resolved the trading mode from up to three `/api/portfolio`
+responses — the hero's forced fetch, the command bar's cached-or-fetched one,
+and the topbar chip fed by whichever won — behind a limiter of thirty a
+minute, so a gateway blip between them printed LIVE one panel above MODE ?.
+`renderHome` makes one read and every consumer takes it; the component that
+CLAIMS the mode (the strip) reads it strictly and the ones that print figures
+keep their stale-beats-blank, because those are different questions.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

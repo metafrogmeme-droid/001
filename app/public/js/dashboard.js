@@ -194,10 +194,15 @@
     if (r.ok && r.data?.data) for (const t of r.data.data) cache.tickers[t.symbol] = t;
     return cache.tickers;
   }
-  async function getPortfolio(force = false) {
+  // `read` is a fetch already in flight for this render. The home view makes
+  // ONE /api/portfolio read per render (the mode strip's) and the hero and
+  // the command bar consume it through here, so three panels no longer race
+  // three requests at a 30/min limiter — and, one read, one answer: the strip
+  // cannot say LIVE beside a topbar chip that read a different response.
+  async function getPortfolio(force = false, read = null) {
     if (!LOGGED_IN) return null;
     if (cache.portfolio && !force) return cache.portfolio;
-    const r = await fetchJSON('/api/portfolio', { timeoutMs: 16000 });
+    const r = await (read || fetchJSON('/api/portfolio', { timeoutMs: 16000 }));
     if (r.ok) cache.portfolio = r.data;
     // Stale beats blank: a cached portfolio survives a failed refresh. But with
     // nothing cached, a failed read must NOT return undefined — the panel above
@@ -785,6 +790,7 @@
     if (sinceDigest) { container.insertAdjacentHTML('beforeend', sinceCardHtml()); wireSinceDismiss(); }
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
+        ${LOGGED_IN ? `<section class="panel" id="p-mode" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-mode"><div class="skel"></div></div></section>` : ''}
         <section class="panel panel--primary" id="p-hero"><div id="c-hero"><div class="skel"></div><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-cmd" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-cmd"><div class="skel"></div></div></section>` : ''}
         <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.next">Getting started</span></h2><div id="c-next"><div class="skel"></div></div></section>
@@ -811,6 +817,15 @@
         <section class="panel" id="p-hsig"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.hsig">Latest engine signals</span></h2><div id="c-hsig"><div class="skel"></div><div class="skel"></div></div></section>
       </div>`);
 
+    // ONE /api/portfolio read per home render. The mode strip, the hero and
+    // the command bar all consume this same response: the strip through its
+    // own strict guard (mustRead — never the cached payload, because the strip
+    // is a claim about THIS read), the other two through getPortfolio, which
+    // keeps its stale-beats-blank for the figures. Started here rather than
+    // inside any one loader so no loader's failure or order decides whether
+    // the others get a read.
+    const portfolioRead = LOGGED_IN ? fetchJSON('/api/portfolio', { timeoutMs: 16000 }) : null;
+
     renderPanel(C('hero'), async () => {
       if (!LOGGED_IN) {
         // The logged-out overview is a ROUTER into everything already open:
@@ -830,7 +845,7 @@
           <a class="btn btn--primary" href="/">Create your free account</a>
           <span class="small muted" style="margin-left:10px">unlocks your own portfolio, journal, alerts &amp; Arena record</span></div>`;
       }
-      const pf = await getPortfolio(true);
+      const pf = await getPortfolio(true, portfolioRead);
       updateModeChip(pf);
       if (pf && pf.live_unavailable) {
         // LIVE account but the exchange balance can't be read right now — say so
@@ -867,6 +882,52 @@
     }, { empty: { text: T('dd.e_portfolio', 'No portfolio data yet.') } });
 
     if (LOGGED_IN) {
+      // MODE STRIP — the one full-width claim about WHICH ACCOUNT is trading.
+      //
+      // Single source, so it GUARDS: mustRead turns a refused or failed read
+      // into renderPanel's error state and carries the bot's reason code, so
+      // a refusal gets its own sentence and no Retry. A 2xx whose body did not
+      // parse throws there too (fetchJSON's `unreadable`), so it lands in the
+      // error state rather than as "no account record".
+      //
+      // A 200 carrying `mode: null` is a DIFFERENT event and must not throw.
+      // routes/portfolio.js answers the gateway's 403/503 with HTTP 200 and
+      // this site's own DB rows — the site answered, the BOT did not — and
+      // there are figures below this strip that need the caveat. Blanking the
+      // strip to a state-block would leave them standing uncaveated, which is
+      // the louder lie: the strip renders in place and says so.
+      //
+      // The verdict is readMode(pf)'s and is never rebuilt here. The model is
+      // handed the answer and reads the payload only for the WHY. It never
+      // consults cache.portfolio: a cached payload is a claim about an
+      // earlier read, and this strip is a claim about this one.
+      renderPanel(C('mode'), async () => {
+        const M = window.ModeStripModel;
+        // Fail closed. A missing model is a strip that cannot say what it
+        // read, and a fallback that guessed PAPER is the whole defect.
+        if (!M) throw new Error('mode strip model unavailable');
+        const r = await portfolioRead;
+        const pf = mustRead(r);
+        // 404 only: mustRead throws on every other non-2xx and on an
+        // unparseable 2xx. The route has no 404 branch today, so this is the
+        // empty state's one door and it is defensive — the sentence it prints
+        // describes absence and nothing else.
+        if (pf == null) return null;
+        const s = M.modeStrip({ mode: readMode(pf), pf });
+        const age = s.age
+          ? `<span class="chip chip--warn" data-i18n="${s.age.key}">${esc(T(s.age.key, s.age.en))}</span>`
+          : '';
+        return `<div class="ms-strip ms-strip--${esc(s.tone)}">
+          <div class="ms-head">
+            <span class="chip ${esc(s.cls)}">${esc(s.word)}</span>
+            ${age}
+            <span class="ms-src" data-i18n="${s.src.key}">${esc(T(s.src.key, s.src.en))}</span>
+          </div>
+          <p class="ms-why" data-i18n="${s.why.key}">${esc(T(s.why.key, s.why.en))}</p>
+          <p class="ms-below" data-i18n="${s.below.key}">${esc(T(s.below.key, s.below.en))}</p>
+        </div>`;
+      }, { timeoutMs: 18000, empty: { text: T('dd.e_mode', 'No account record on this site yet.') } });
+
       // Watchlist strip — starred symbols with live price/24h, each chip a
       // door into the symbol modal; stars extend the pattern-alert pushes.
       renderPanel(C('watch'), watchStripLoader);
@@ -878,7 +939,7 @@
       // and auto-refreshes with the home view on portfolio/scan/trade SSE.
       renderPanel(C('cmd'), async () => {
         const [pf, posR, ctlR, scanR] = await Promise.all([
-          getPortfolio(),
+          getPortfolio(false, portfolioRead),
           fetchJSON('/api/positions', { timeoutMs: 12000 }).catch(() => null),
           fetchJSON('/api/controls/status', { timeoutMs: 10000 }).catch(() => null),
           getScan().catch(() => null),
