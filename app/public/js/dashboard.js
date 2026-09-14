@@ -11,7 +11,7 @@
   const RC = window.RC;
   const { LOGGED_IN, fetchJSON, esc, fmt, fmtMoney, fmtPrice, fmtK, signed,
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
-          stateBlock, mustRead, connectStream } = RC;
+          stateBlock, mustRead, wasRead, connectStream } = RC;
 
   // Resolved per CALL, never cached: the language switcher changes the answer
   // after boot. Declared here, above every use, so no caller depends on the
@@ -172,8 +172,8 @@
     // logged-out path is unchanged.
     const r = await fetchJSON('/api/bot/sync/scan')
       .catch(() => ({ ok: false, status: 0, data: null }));
-    cache.scanOk = !!(r && r.ok);
-    if (r.ok && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    cache.scanOk = wasRead(r);
+    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
     return cache.scan;
   }
   // A win rate over ZERO trades is not 0% — it does not exist. The sync
@@ -210,7 +210,7 @@
   async function insightAvailable() {
     if (cache.insightOk !== null) return cache.insightOk;
     const r = await fetchJSON('/api/insight?symbol=BTC%2FUSDT&timeframe=1h&limit=50', { auth: false, timeoutMs: 7000 }).catch(() => null);
-    cache.insightOk = !!(r && r.ok);
+    cache.insightOk = wasRead(r);
     return cache.insightOk;
   }
 
@@ -641,7 +641,7 @@
     const el = document.getElementById('alertList');
     if (!el) return;
     const r = await fetchJSON('/api/alerts').catch(() => null);
-    if (!r || !r.ok) {
+    if (!wasRead(r)) {
       el.innerHTML = '<p style="color:var(--text-2)">Could not load alerts.</p>';
       return;
     }
@@ -883,7 +883,8 @@
           fetchJSON('/api/controls/status', { timeoutMs: 10000 }).catch(() => null),
           getScan().catch(() => null),
         ]);
-        const pos = posR && posR.ok ? posR.data : null;
+        const posRead = wasRead(posR);
+        const pos = posRead ? posR.data : null;
         const openN = (pos?.positions || pf?.open_positions || []).length;
         const unp = pos?.unprotected_count || 0;
         // RC-2026-016 REACHED slPositionsHtml AND NOT THIS BAR. The positions
@@ -911,6 +912,10 @@
         if (stance) cells.push(chip('#engine', 'Stance', `<b>${esc(String(stance))}</b>`));
         cells.push(chip('#portfolio', 'Open', `<b>${openN}</b>`));
         if (unp > 0) cells.push(chip('#portfolio', '⚠️ Unprotected', `<b>${unp}</b>`, 'mc-chip--alert'));
+        // An unread positions list is not a protected one: the two alert chips
+        // are ABSENT when their counts are zero, so with nothing read the bar
+        // would look exactly like a clean book. Say it was not read.
+        if (!posRead) cells.push(chip('#portfolio', '⚠️ Positions', '<b>unread</b>', 'mc-chip--alert'));
         // Its own chip, not folded into the one above: "no stop on the
         // exchange" and "nobody could ask the exchange" call for different
         // actions, and summing them would report a count of confirmed
@@ -964,10 +969,12 @@
       (async () => {
         const arc = await fetchJSON('/api/letter/archive').catch(() => null);
         const sel = document.getElementById('letterWeek');
-        const weeks = arc?.data?.letters || [];
+        const weeks = wasRead(arc) ? (arc.data?.letters || []) : null;
         if (sel) {
           sel.innerHTML = '<option value="">latest</option>'
-            + weeks.map(w => `<option value="${esc(w.week_key)}">${esc(w.week_key)}</option>`).join('');
+            + (weeks === null
+              ? '<option value="" disabled>archive could not be read</option>'
+              : weeks.map(w => `<option value="${esc(w.week_key)}">${esc(w.week_key)}</option>`).join(''));
           sel.onchange = () => loadLetter(sel.value);
         }
         loadLetter('');
@@ -2458,6 +2465,14 @@
         + 'this symbol just now. The rest of this card is live market data '
         + 'and is unaffected.</p>';
     }
+    // Reached is not read: a 200 whose body did not parse used to fall through
+    // to "No directional read for this symbol" — a market claim from an
+    // interstitial. Two questions, two sentences.
+    if (!wasRead(res)) {
+      return '<p class="muted small">The analysis bridge answered, but its reply '
+        + 'could not be read for this symbol just now. The rest of this card is '
+        + 'live market data and is unaffected.</p>';
+    }
     if (d && d.error) {
       // The bridge said why. Repeating it beats replacing it with a guess.
       return '<p class="muted small">The analysis bridge declined this '
@@ -2494,15 +2509,22 @@
   // Watchlist — one fetch per page load; the modal star and the home strip
   // share it. Starred symbols also extend the engine's pattern-alert pushes.
   let _watchSet = null;
+  let _watchUnread = false;
   async function getWatchlist(force) {
     if (!LOGGED_IN) return new Set();
     if (_watchSet && !force) return _watchSet;
     const r = await fetchJSON('/api/watchlist', { timeoutMs: 8000 }).catch(() => null);
-    _watchSet = new Set((r && r.ok && r.data && r.data.symbols) || []);
+    // An unread list stays a Set (every caller iterates it) and is flagged
+    // beside it; an empty Set alone reads as "you watch nothing".
+    _watchUnread = !wasRead(r);
+    _watchSet = new Set((wasRead(r) && r.data && r.data.symbols) || []);
     return _watchSet;
   }
   async function watchStripLoader() {
     const s = await getWatchlist();
+    if (_watchUnread) {
+      return `<p class="small muted">${esc(T('dd.w_unread', 'Your watchlist could not be read just now.'))}</p>`;
+    }
     if (!s.size) {
       return `<p class="small muted">${esc(T('dd.w_hint', 'Star symbols from any chart (☆ Watch in the symbol view) — engine pattern alerts then cover your watchlist, not just your open positions.'))}</p>`;
     }
@@ -2549,7 +2571,7 @@
     if (m.hidden) return; // closed while loading
     const hit = deepScanIndex(scan).get(base);
     let card = null;
-    const pd = pat && pat.ok && pat.data;
+    const pd = wasRead(pat) && pat.data;
     if (pd && ((pd.chart_patterns || []).length || Object.keys(pd.candlestick_patterns || pd.candle_patterns || {}).length)) {
       card = deepScanCard({ symbol: pair, price: pd.price, chg: pd.change_pct, rsi: pd.rsi,
         chart_patterns: pd.chart_patterns || [], candle_patterns: pd.candlestick_patterns || pd.candle_patterns || {} });
@@ -2562,7 +2584,9 @@
       <div id="symChart" class="mt-2"></div>
       <div id="symReadChips" class="row mt-2" style="gap:6px;flex-wrap:wrap"></div>
       <h3 class="mt-4 mb-2" style="font-size:var(--fs-md)">Pattern read</h3>
-      ${card || '<p class="muted small">No chart patterns detected on ' + esc(pair) + ' right now.</p>'}
+      ${card || (wasRead(pat)
+        ? '<p class="muted small">No chart patterns detected on ' + esc(pair) + ' right now.</p>'
+        : '<p class="muted small">The pattern read for ' + esc(pair) + ' could not be loaded just now.</p>')}
       <div class="row mt-3" style="gap:var(--s2)">
         <a class="btn btn--sm" href="#markets" id="symGoChart">View in Markets</a>
         <button class="btn btn--sm" type="button" id="symAsk">Ask the AI</button>
@@ -2695,7 +2719,7 @@
         star.disabled = true;
         const r = await fetchJSON('/api/watchlist/toggle', { method: 'POST', body: { symbol: base }, timeoutMs: 8000 }).catch(() => null);
         star.disabled = false;
-        if (r && r.ok) {
+        if (wasRead(r) && r.data) {
           await getWatchlist(true);
           paintStar(!!r.data.watching);
           const c = document.getElementById('c-watch');
@@ -5035,6 +5059,11 @@
         if (sub) {
           // Follow-the-agent topics are per-account prefs (opt-in, default off).
           const prof = await fetchJSON('/api/profile').catch(() => null);
+          if (!wasRead(prof)) {
+            // Two unchecked boxes are a claim about your settings; hide them.
+            return `<p class="small" style="color:var(--text-2)">✅ This device gets a notification when the agent opens or closes a trade.</p>
+              <p class="muted small">Your board and new-pick preferences could not be read just now — the toggles are hidden rather than shown as off.</p>`;
+          }
           const boardOn = !!prof?.data?.prefs?.push_board;
           const copyOn = !!prof?.data?.prefs?.push_copy;
           return `<p class="small" style="color:var(--text-2)">✅ This device gets a notification when the agent opens or closes a trade, or raises a warning.</p>
@@ -5380,7 +5409,7 @@
       const rows = st.rows.map((r) => `
         <label class="switch"><input type="checkbox" class="venuePick" value="${esc(r.venue)}"
           ${r.checked ? 'checked' : ''}><span class="track"></span>
-          <code>${esc(r.venue.toUpperCase())}</code>${r.disconnected
+          <code>${esc(r.venue.toUpperCase())}</code>${r.unknown ? ' <span class="muted small">— connection unread</span>' : ''}${r.disconnected
             ? ` <span class="muted small">— ${esc(T('venue.not_connected', 'selected but not connected; nothing is routed there'))}</span>`
             : ''}</label>`).join('');
       return `<hr class="sep">
@@ -5429,7 +5458,7 @@
           </div>
           <p class="muted small">${esc(T('ctl.stop_note', 'Emergency stop disables live, pauses, and closes your open positions.'))}</p>
         </div>
-        ${venuePickerHtml(c, (cs && cs.ok && cs.data && cs.data.venues) || [])}`;
+        ${venuePickerHtml(c, wasRead(cs) ? (cs.data?.venues || []) : null)}`;
     }, { empty: { text: T('ctl.unavailable', 'Controls unavailable.') } });
     onView('click', async (e) => {
       if (e.target.id === 'ctlSave') {
@@ -6633,8 +6662,8 @@
       let d = null, readOk = false;
       try {
         const r = await fetchJSON('/api/bot-strategy', { timeoutMs: 12000 });
-        readOk = !!(r && r.ok);
-        d = r.ok ? r.data : null;
+        readOk = wasRead(r);
+        d = readOk ? r.data : null;
       } catch (_) { /* readOk stays false */ }
       // Hiding the bar on a failed read tells a user with a strategy armed
       // that nothing is armed — about the thing that vetoes their trades.
@@ -6918,8 +6947,8 @@
       let d = null, readOk = false;
       try {
         const r = await fetchJSON('/api/strategies', { timeoutMs: 12000 });
-        readOk = !!(r && r.ok);
-        d = r.ok ? r.data : null;
+        readOk = wasRead(r);
+        d = readOk ? r.data : null;
       } catch (_) { /* readOk stays false */ }
       // "No strategies yet" is a claim about the user's own account. It must
       // come from a list we actually read, never from a failed request.
@@ -7636,7 +7665,9 @@
           push = '<span class="muted small">not supported in this browser</span>';
         } else {
           const k = await fetchJSON('/api/push/key').catch(() => null);
-          if (!k?.ok || !k.data?.enabled) {
+          if (!wasRead(k)) {
+            push = '<span class="muted small">push status could not be read</span>';
+          } else if (!k.data?.enabled) {
             push = '<span class="muted small">not configured on the server yet</span>';
           } else {
             const reg = await navigator.serviceWorker.ready.catch(() => null);

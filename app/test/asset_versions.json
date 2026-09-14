@@ -16,8 +16,8 @@
     "v": 1
   },
   "js/app.js": {
-    "sha": "c9975b9196240cc5",
-    "v": 14
+    "v": 15,
+    "sha": "7d42f545580f374e"
   },
   "js/arena-risk-model.js": {
     "sha": "77d4026436966cf1",
@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 175,
-    "sha": "f3f835b5cfcc916c"
+    "v": 176,
+    "sha": "9f4c1aca7ad1c6f9"
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -104,8 +104,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 142,
-    "sha": "81a9fc2165d01121"
+    "v": 143,
+    "sha": "93cc7b2f46cc4814"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -212,8 +212,8 @@
     "v": 1
   },
   "js/venue-picker-model.js": {
-    "sha": "2618f71df7c91cb3",
-    "v": 1
+    "v": 2,
+    "sha": "761e89248a87aeb5"
   },
   "js/venue-rows.js": {
     "sha": "89842fe2d768161f",

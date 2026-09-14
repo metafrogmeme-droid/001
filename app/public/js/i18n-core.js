@@ -1088,6 +1088,7 @@
     "dd.h_nopf": { en: "No portfolio yet — place your first paper trade and your equity shows up here." },
     "dd.m_empty": { en: "The agent narrates its work here — scans, theses, trades and stop moves, live as they happen." },
     "dd.w_hint": { en: "Star symbols from any chart (☆ Watch in the symbol view) — engine pattern alerts then cover your watchlist, not just your open positions." },
+    "dd.w_unread": { en: "Your watchlist could not be read just now." },
     "dd.ac_today": { en: "Today for you" },
     "dd.ac_closed": { en: "{n} closed ({w} wins)" },
     "dd.ac_none": { en: "no closed trades yet — only setups that clear the risk gate get taken" },
@@ -1844,7 +1845,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"a56b0bc1","zh":"e55c7980","pt":"97987879","fr":"04797b2f","de":"6fd64f61","nl":"eb0cf8a5","ja":"61c313aa","ko":"bfb65e50","ru":"216f37cc","tr":"c991be6f","it":"ce9701c6","hi":"5ac819b8","ar":"88062929"};
+  var CHUNKS = {"es":"3e673f0c","zh":"3b028670","pt":"2fc2d648","fr":"cf5f7859","de":"1edf50b2","nl":"0940f6ed","ja":"8e56dc14","ko":"8ec164ed","ru":"9f306589","tr":"ca612fc8","it":"6d6d58f6","hi":"60cad008","ar":"daad5263"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

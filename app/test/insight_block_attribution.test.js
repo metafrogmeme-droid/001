@@ -47,11 +47,24 @@ function loadBlock() {
   const body = `${src.slice(i, j)}return 'READ'; }`;
   const esc = (x) => String(x == null ? '' : x)
     .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // The real wasRead, evaluated out of the shipped app.js: the block now asks
+  // it, and a stub here would be a second answer about what "read" means.
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
+  const w = app.slice(app.indexOf('function wasRead(r) {'));
   // eslint-disable-next-line no-new-func
-  return new Function('esc', `return ${body}`)(esc);
+  const wasRead = new Function(`${w.slice(0, w.indexOf('\n  }') + 4)}; return wasRead;`)();
+  // eslint-disable-next-line no-new-func
+  return new Function('esc', 'wasRead', `return ${body}`)(esc, wasRead);
 }
 
 const block = loadBlock();
+
+test('a bridge that answered with a body nobody could read is neither unreachable nor empty', () => {
+  const html = block({ ok: true, status: 200, data: null, unreadable: true });
+  assert.match(html, /answered, but its reply/);
+  assert.ok(!/No directional read/.test(html), 'an interstitial read as a market fact');
+  assert.ok(!/Could not reach/.test(html), 'a bridge that answered called unreachable');
+});
 
 test('a healthy read still renders the decision picture', () => {
   assert.strictEqual(block({ ok: true, data: { confluence: 0.62 } }), 'READ');

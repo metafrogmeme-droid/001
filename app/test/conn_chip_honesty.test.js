@@ -129,7 +129,9 @@ test('a good refresh carries no such caveat', () => {
 test('getScan records whether the read succeeded', () => {
   const block = SRC.slice(SRC.indexOf('async function getScan'),
                           SRC.indexOf('async function getTickers'));
-  assert.match(block, /cache\.scanOk = !!\(r && r\.ok\)/,
+  // `wasRead`, not `r.ok`: a 200 whose body did not parse is not a scan that
+  // succeeded, and the chip would have painted it green.
+  assert.match(block, /cache\.scanOk = wasRead\(r\)/,
     'the chip can only distinguish states the fetch bothered to record');
   assert.match(block, /\.catch\(\(\) => \(\{ ok: false/,
     'a thrown fetch is a failed read, not an absent scan');

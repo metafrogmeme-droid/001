@@ -1046,6 +1046,7 @@
   ["dd.h_nopf", "Ainda sem carteira — faça o seu primeiro paper trade e o seu capital aparece aqui."],
   ["dd.m_empty", "O agente narra aqui o seu trabalho — análises, teses, operações e ajustes de stop, em direto."],
   ["dd.w_hint", "Marque símbolos em qualquer gráfico (☆ Watch na vista do símbolo) — os alertas de padrões do motor passam a cobrir a sua watchlist, não só as posições abertas."],
+  ["dd.w_unread", "A tua watchlist não pôde ser lida agora."],
   ["dd.ac_today", "Hoje para si"],
   ["dd.ac_closed", "{n} fechadas ({w} ganhas)"],
   ["dd.ac_none", "ainda sem operações fechadas — só se tomam setups que passem o gate de risco"],

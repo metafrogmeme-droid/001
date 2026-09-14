@@ -1046,6 +1046,7 @@
   ["dd.h_nopf", "Noch kein Portfolio — platziere deinen ersten Paper-Trade, dann erscheint dein Kapital hier."],
   ["dd.m_empty", "Der Agent erzählt hier live von seiner Arbeit — Scans, Thesen, Trades und Stop-Anpassungen."],
   ["dd.w_hint", "Markiere Symbole in jedem Chart (☆ Watch in der Symbolansicht) — die Muster-Alerts der Engine decken dann deine Watchlist ab, nicht nur offene Positionen."],
+  ["dd.w_unread", "Deine Watchlist konnte gerade nicht gelesen werden."],
   ["dd.ac_today", "Heute für dich"],
   ["dd.ac_closed", "{n} geschlossen ({w} Gewinner)"],
   ["dd.ac_none", "noch keine geschlossenen Trades — genommen wird nur, was das Risiko-Gate passiert"],

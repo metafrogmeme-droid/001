@@ -41,8 +41,12 @@ const BLOCK = blockBetween(SRC,
 
 /** Render the bar for a given /api/positions payload and controls state. */
 function bar({ positions = null, openN = 0, mode = 'PAPER', stance = null,
-  daily = null, paused = false } = {}) {
+  daily = null, paused = false, posRead = positions !== null } = {}) {
   const ctx = vm.createContext({
+    // Whether /api/positions was READ at all — the bar says so when it was not,
+    // because its two alert chips are absent at zero and an unread book would
+    // otherwise look exactly like a clean one.
+    posRead,
     esc: (s) => String(s == null ? '' : s),
     pnlClass: (n) => (n == null ? '' : n >= 0 ? 'pos' : 'neg'),
     signed: (n) => (n == null ? '--' : `${n > 0 ? '+' : ''}${n}`),
@@ -55,6 +59,13 @@ function bar({ positions = null, openN = 0, mode = 'PAPER', stance = null,
   vm.runInContext(`this.__out = (function () {\n${BLOCK}\n})();`, ctx);
   return ctx.__out;
 }
+
+test('an unread positions list is not a clean book', () => {
+  const html = bar({ positions: null, openN: 0, posRead: false });
+  assert.match(html, /Positions.*unread/, 'nothing was read and the bar showed no alarm at all');
+  const clean = bar({ positions: { unprotected_count: 0, unknown_count: 0 }, openN: 2 });
+  assert.ok(!/unread/.test(clean), 'a read, clean book must not carry the unread chip');
+});
 
 test('a book with unreadable stops raises an alarm', () => {
   const html = bar({ positions: { unprotected_count: 0, unknown_count: 3 }, openN: 3 });

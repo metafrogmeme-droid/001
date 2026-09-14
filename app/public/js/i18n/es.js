@@ -1046,6 +1046,7 @@
   ["dd.h_nopf", "Aún sin cartera: haz tu primera operación en papel y tu capital aparecerá aquí."],
   ["dd.m_empty", "El agente narra aquí su trabajo: escaneos, tesis, operaciones y movimientos de stop, en vivo."],
   ["dd.w_hint", "Marca símbolos desde cualquier gráfico (☆ Watch en la vista del símbolo): las alertas de patrones del motor cubrirán tu lista, no solo tus posiciones abiertas."],
+  ["dd.w_unread", "Tu lista de seguimiento no se pudo leer ahora mismo."],
   ["dd.ac_today", "Hoy para ti"],
   ["dd.ac_closed", "{n} cerradas ({w} ganadas)"],
   ["dd.ac_none", "aún sin operaciones cerradas: solo se toman los setups que superan el gate de riesgo"],

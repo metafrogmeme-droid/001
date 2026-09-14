@@ -1046,6 +1046,7 @@
   ["dd.h_nopf", "Nog geen portfolio — plaats je eerste paper trade en je vermogen verschijnt hier."],
   ["dd.m_empty", "De agent vertelt hier live over zijn werk — scans, theses, trades en stop-verplaatsingen."],
   ["dd.w_hint", "Ster symbolen vanaf elke grafiek (☆ Watch in de symboolweergave) — patroonwaarschuwingen van de engine dekken dan je watchlist, niet alleen je open posities."],
+  ["dd.w_unread", "Je watchlist kon zojuist niet worden gelezen."],
   ["dd.ac_today", "Vandaag voor jou"],
   ["dd.ac_closed", "{n} gesloten ({w} winst)"],
   ["dd.ac_none", "nog geen gesloten trades — alleen setups die de risicopoort passeren worden genomen"],

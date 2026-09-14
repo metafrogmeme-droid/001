@@ -1046,6 +1046,7 @@
   ["dd.h_nopf", "Henüz portföy yok — ilk kâğıt işleminizi yapın, varlığınız burada görünsün."],
   ["dd.m_empty", "Ajan işini burada anlatır — taramalar, tezler, işlemler ve stop hareketleri, canlı."],
   ["dd.w_hint", "Herhangi bir grafikten sembollere yıldız ekleyin (sembol görünümünde ☆ Watch) — motorun desen uyarıları açık pozisyonlarınızın yanı sıra izleme listenizi de kapsar."],
+  ["dd.w_unread", "İzleme listen şu anda okunamadı."],
   ["dd.ac_today", "Bugün sizin için"],
   ["dd.ac_closed", "{n} kapandı ({w} kazanç)"],
   ["dd.ac_none", "henüz kapanan işlem yok — yalnızca risk kapısını geçen kurulumlar alınır"],

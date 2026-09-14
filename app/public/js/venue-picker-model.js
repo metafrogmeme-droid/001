@@ -36,6 +36,12 @@
    */
   function pickerState(s, connected) {
     const st = s || {};
+    // `null` is UNREAD — the credentials status could not be fetched or did
+    // not parse — and it is not `[]`. `[]` is a reading: nothing connected.
+    // Rendering an unread list as "nothing connected" marked every selected
+    // venue "not connected; nothing is routed there", a claim about routing
+    // manufactured from a failed read of a different endpoint.
+    const unread = connected === null || connected === undefined;
     const conn = (connected || [])
       .filter((v) => v && v.connected)
       .map((v) => String(v.venue || 'bitget').toLowerCase());
@@ -57,16 +63,23 @@
       // or the user cannot tell "I turned this off" from "my keys stopped
       // working". It appears as a problem, never as an unticked option.
       disconnected: false,
+      unknown: false,
     }));
     for (const v of shown) {
       if (!conn.includes(v)) {
-        rows.push({ venue: v, checked: true, disconnected: true });
+        // Unread: the tick is real (it is the selection); the connection is
+        // simply not known — never "not connected".
+        rows.push({ venue: v, checked: true, disconnected: !unread, unknown: unread });
       }
     }
 
     return {
       rows,
-      notice: notice(mode, pending, shown),
+      notice: unread
+        ? { tone: 'unknown',
+            text: 'Connected venues could not be read just now — the ticks show '
+                + 'what is selected, not what is connected.' }
+        : notice(mode, pending, shown),
       dirty: pending !== null,
       // Nothing to save when nothing is connected — and saying so beats a
       // button that fails.
