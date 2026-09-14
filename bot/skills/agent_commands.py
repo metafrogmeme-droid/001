@@ -124,7 +124,8 @@ class AgentCommands:
 
     @guard("scan")
     async def _cmd_alerts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/alerts [all|held|every <N>h] — anomaly alert scope and cadence.
+        """/alerts [all|held|every <N>h|budget <N>] — alert scope, cadence and
+        the hourly advisory budget.
 
         Guarded with `scan` rather than an admin permission: these are the
         alerts the caller RECEIVES, and turning down your own notifications is
@@ -134,15 +135,16 @@ class AgentCommands:
         from bot.core.anomaly_scope import held_symbols, parse_setting, settings_card
 
         tg_id = self._get_tg_id(update)
-        scope, interval, err = parse_setting(ctx.args or [])
+        scope, interval, budget, err = parse_setting(ctx.args or [])
         if err:
             # A refusal, not a default. The whole point of this command is
             # that an operator got something they did not ask for.
             await self._send(update, f"\u26a0\ufe0f {err}")
             return
-        if scope is not None or interval is not None:
+        if scope is not None or interval is not None or budget is not None:
             if not self.users.set_anomaly_prefs(tg_id, scope=scope,
-                                                interval=interval):
+                                                interval=interval,
+                                                budget=budget):
                 await self._send(
                     update,
                     "\u26a0\ufe0f Could not save that — this account is not in "

@@ -28,6 +28,7 @@ from __future__ import annotations
 import types
 
 from bot.core.anomaly_scope import (
+    DEFAULT_BUDGET_PER_HOUR,
     DEFAULT_INTERVAL_SEC,
     MAX_INTERVAL_SEC,
     MIN_INTERVAL_SEC,
@@ -235,8 +236,11 @@ def test_a_genuinely_flat_book_suppresses_and_says_why():
 def test_the_defaults_are_the_quiet_ones():
     assert DEFAULT_INTERVAL_SEC == 3600
     m = ProactiveMonitor.__new__(ProactiveMonitor)
+    # Three dials now: the channel budget rides beside scope and interval,
+    # and its default is the quiet one too.
     assert m._anomaly_dials() == {"scope": SCOPE_HELD,
-                                  "interval": DEFAULT_INTERVAL_SEC}
+                                  "interval": DEFAULT_INTERVAL_SEC,
+                                  "budget": DEFAULT_BUDGET_PER_HOUR}
 
 
 def test_a_failing_prefs_read_falls_back_to_the_NARROW_default():
@@ -270,19 +274,23 @@ def test_a_never_sent_channel_is_due_immediately():
 # ── 4. the setting surface ──────────────────────────────────────────────────
 
 def test_the_parser_reads_what_an_operator_types():
-    assert parse_setting([]) == (None, None, "")
+    # Four slots now: the channel budget rides beside scope and interval.
+    assert parse_setting([]) == (None, None, None, "")
     assert parse_setting(["all"])[0] == SCOPE_ALL
     assert parse_setting(["held"])[0] == SCOPE_HELD
     assert parse_setting(["every", "2h"])[1] == 7200
     assert parse_setting(["every", "30m"])[1] == 1800
+    assert parse_setting(["budget", "20"])[2] == 20
 
 
 def test_an_unreadable_setting_is_a_refusal_not_a_default():
     """The whole slice is about an operator getting something they did not
     ask for; quietly substituting an hour here would be that again."""
-    for args in (["banana"], ["every", "3s"], ["every", "nope"], ["every"]):
-        scope, interval, err = parse_setting(args)
-        assert scope is None and interval is None and err, args
+    for args in (["banana"], ["every", "3s"], ["every", "nope"], ["every"],
+                 ["budget"], ["budget", "0"], ["budget", "lots"],
+                 ["budget", "9999"]):
+        scope, interval, budget, err = parse_setting(args)
+        assert scope is None and interval is None and budget is None and err, args
 
 
 def test_the_card_says_what_quiet_would_mean():
@@ -308,7 +316,8 @@ def test_the_store_defaults_for_a_user_it_has_never_seen(tmp_path):
 
     st = UserStore(path=tmp_path / "u.json")
     assert st.anomaly_prefs("nobody") == {"scope": SCOPE_HELD,
-                                          "interval": DEFAULT_INTERVAL_SEC}
+                                          "interval": DEFAULT_INTERVAL_SEC,
+                                          "budget": DEFAULT_BUDGET_PER_HOUR}
 
 
 def test_a_corrupt_stored_row_cannot_widen_the_scope(tmp_path):
@@ -317,9 +326,11 @@ def test_a_corrupt_stored_row_cannot_widen_the_scope(tmp_path):
     st = UserStore(path=tmp_path / "u.json")
     st.register("7", "x")
     st.authorize("7", "trader")
-    st._users["7"]["anomaly_prefs"] = {"scope": "EVERYTHING", "interval": "soon"}
+    st._users["7"]["anomaly_prefs"] = {"scope": "EVERYTHING", "interval": "soon",
+                                       "budget": "lots"}
     got = st.anomaly_prefs("7")
-    assert got == {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC}
+    assert got == {"scope": SCOPE_HELD, "interval": DEFAULT_INTERVAL_SEC,
+                   "budget": DEFAULT_BUDGET_PER_HOUR}
 
 
 def test_each_dial_is_set_without_clearing_the_other(tmp_path):
@@ -330,7 +341,9 @@ def test_each_dial_is_set_without_clearing_the_other(tmp_path):
     st.authorize("7", "trader")
     assert st.set_anomaly_prefs("7", scope=SCOPE_ALL)
     assert st.set_anomaly_prefs("7", interval=7200)
-    assert st.anomaly_prefs("7") == {"scope": SCOPE_ALL, "interval": 7200}
+    assert st.set_anomaly_prefs("7", budget=30)
+    assert st.anomaly_prefs("7") == {"scope": SCOPE_ALL, "interval": 7200,
+                                     "budget": 30}
     assert st.set_anomaly_prefs("nobody", scope=SCOPE_ALL) is False
 
 
@@ -341,9 +354,10 @@ def test_the_setting_survives_a_restart(tmp_path):
     st = UserStore(path=path)
     st.register("7", "x")
     st.authorize("7", "trader")
-    st.set_anomaly_prefs("7", scope=SCOPE_ALL, interval=7200)
+    st.set_anomaly_prefs("7", scope=SCOPE_ALL, interval=7200, budget=30)
     assert UserStore(path=path).anomaly_prefs("7") == {"scope": SCOPE_ALL,
-                                                       "interval": 7200}
+                                                       "interval": 7200,
+                                                       "budget": 30}
 
 
 # ── 6. what the SCOPE does NOT change: who receives the message ────────────
