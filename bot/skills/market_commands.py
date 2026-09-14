@@ -241,25 +241,24 @@ class MarketCommands:
     async def _cmd_arb(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/arb — the funding-arb paper tracker: what a fixed $1k delta-
         neutral pair WOULD have earned on the recorded cross-venue spreads,
-        with the fee reality check. 100% paper — the evidence that gates
-        whether a real capture strategy is worth building."""
+        with the fee reality check and the VERDICT over it — survives fees,
+        does not, too thin to say, or the record could not be read. 100%
+        paper — the evidence that gates whether a real capture strategy is
+        worth building, read through the one seam the web report reads."""
         if not await self._guard(update, "status"):
             return
         await self._send(update, "⏳ Crunching the paper-arb history…")
         try:
-            from bot.core.arb_tracker import (compute_paper_carry,
-                                              format_arb_html,
-                                              load_snapshots)
+            from bot.core.arb_tracker import arb_reading, format_arb_html
             from bot.core.funding_radar import build_comparison
-            snaps = await asyncio.to_thread(load_snapshots)
-            carries = compute_paper_carry(snaps)
+            carries, verdict = await asyncio.to_thread(arb_reading)
             current = []
             try:
                 current = await asyncio.to_thread(
                     build_comparison, ["BTC", "ETH", "SOL", "XRP", "DOGE"])
             except Exception:
                 pass
-            await self._send(update, format_arb_html(carries, current))
+            await self._send(update, format_arb_html(carries, current, verdict=verdict))
         except Exception as exc:
             system_log.warning("/arb failed: %s", exc)
             await self._send(update, "🔴 Paper-arb report failed — see logs.")

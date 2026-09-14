@@ -195,11 +195,19 @@ capture. /funding (market_commands.py:71, ungated) shows one perp's 8h rate
 and annualized rate across Bitget/Bybit/Hyperliquid with the cross-venue
 spread and a crowding read. /fundingscan (:149) does the same for many coins
 at once, widest spread first, and names the delta-neutral direction. /arb
-(:123) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
-FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots and
+(:241) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
+FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots,
 prints the fee reality check (0.24% of notional for four taker legs,
-arb_tracker.py:43). The same reports feed the dashboard's c-xfunding and c-arb
-panels. app/lib/venue_router.js recommends the cheapest venue to hold a given
+arb_tracker.py:43) and a VERDICT over the record — `arb_verdict`, four
+outcomes: survives fees (the whole 95% interval on the per-entry net carry
+above zero, past floors of 10 closed entries and 72h held), does not survive
+fees (the whole interval below zero), record too thin (a floor unmet, or an
+interval that straddles zero), or the record could not be read (kept apart
+from "no history yet"). An on-period still running at the last snapshot is
+counted and never scored. The same reports feed the dashboard's c-xfunding
+and c-arb panels, and the verdict rides the public reports payload in percent
+of the notional, in the bot's own sentence, which the panel prints and never
+derives. app/lib/venue_router.js recommends the cheapest venue to hold a given
 side by funding cost. Funding also genuinely affects live trading —
 analyzer.py:1612 applies funding_cost_haircut to blended confidence, and
 risk/funding_clock.py times settlements.
@@ -210,8 +218,10 @@ sizes, or even proposes an order," and venue_router.js:3 says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
 gated decision that does not exist in this codebase." No delta-neutral pair
 construction, no per-leg margin management, no automated entry at a spread
-threshold. The module headers describe this as the evidence layer that gates
-whether a real capture strategy is worth building.
+threshold. The verdict is the evidence layer's own answer to whether a real
+capture strategy is worth building; the proposal card that would size both
+legs (and place nothing) is the next slice, and execution a decision after
+shadow evidence.
 
 **Basis trades** — partial
 

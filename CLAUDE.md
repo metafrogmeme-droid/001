@@ -1425,6 +1425,45 @@ the dashboard's step).
 
 **Forty-one mutations, each killed on the first round.** The one worth naming is the fixture's, above: dropping the fallback-executor check survived until the operator stub could answer a balance, and the round was re-run against that stub. The rest die where the drives say — the operator's client never built for a caller, the tag never checked or an empty one accepted, the button branch back on `_yield_client()`, the fixed lock on the operator's margin, the record without its account, the notice saying admin-only again, `paper` holding `stake`, unread holdings an empty list.
 
+**A total with a fee sentence under it is a verdict the reader makes, from
+however few entries accrued the total.** `/arb` printed *Total paper carry:
+$+38.12* and *carry must beat that before the capture strategy is worth
+gating in*, and nothing decided whether it had — the same shape as the
+voter card's `62% of 34` and the shadow scoreboard's `+4.1R over 97`, on
+the record whose next step is real capital on two venues. `arb_verdict` is
+the same discipline: each CLOSED on-period's gross carry minus one round
+trip is a sample, the whole 95% interval on the per-entry net has to clear
+zero (`_mean_interval`, the normal interval `mean_r_interval` uses, because
+a signed magnitude is not a proportion), and two floors sit beside it
+(`MIN_VERDICT_ENTRIES`, `MIN_VERDICT_HELD_HOURS`) for the reason
+`MIN_GATE_TRADES` does — identical entries have a sample sd of zero and a
+lower bound at their mean. Four outcomes, one seam, three readers: survives
+fees, does not, too thin to say (a floor unmet, or an interval that
+straddles zero — printed with the interval, never rounded to either side),
+and could not read the record, which `arb_reading` keeps apart from "no
+history yet" because `load_snapshots` answers `[]` for a file that is not
+there and raises for one that will not open, and both reached the card as
+one "report failed" line.
+
+**The samples had to be a decomposition of the total, and building them
+found the last period's exit was decided by nothing.** `compute_paper_carry`
+closes a period on the next interval's EARLIER snapshot, so a period whose
+final observed snapshot was already below the threshold — an exit that was
+observed — stayed open and unscored, one closed entry short on every
+record; the last snapshot decides now, and a row whose spread cannot be
+read is not an observed exit either (counted, never scored — the honesty
+gate flagged the first draft's `.get("spread_apr", 0) or 0` on exactly that
+line, one row of its own table copied from two lines above). The public
+wire carries the same verdict in percent of the notional and no dollar
+figure (`public_verdict_sentence`), without the per-coin sample list, and
+the dashboard panel prints the bot's sentence when present and nothing when
+not — a verdict derived on the panel from the total it prints would be the
+second reading the seam exists to replace.
+(`tests/test_the_arb_record_gets_a_verdict.py`,
+`app/test/arb_panel_prints_the_bots_verdict.test.js`.)
+
+**Twenty-four mutations, each killed — and the two that survived the first round were the driver's.** The point estimate deciding "does not survive" survived because every straddling fixture had a POSITIVE mean, so a mutant that only fires on a negative one changed no verdict; and the interval accepting one sample survived because no fixture had exactly one closed entry. Both are cases the prose had described and no fixture planted — a losing mean whose interval still reaches above zero (thin, not a verdict), and a single closed entry with no interval and a singular sentence — and both mutations die on them now.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —

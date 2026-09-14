@@ -599,6 +599,19 @@
   }
   // end monitorChecksCopy
 
+  // The paper-arb VERDICT the bot pushes with its report — its own words, in
+  // percent of the notional, already three-valued at the source (survives /
+  // does not / too thin / unread). Printed when present and ONLY then: an
+  // older bot pushes no verdict, and a panel that derived one from the
+  // total it prints would be the reading the bot's seam exists to replace.
+  function arbVerdictLine(arb) {
+    const v = arb && arb.verdict;
+    const STATES = ['survives', 'does_not', 'thin', 'unread'];
+    if (!v || typeof v.sentence !== 'string' || !v.sentence.trim() || !STATES.includes(v.state)) return '';
+    const mark = v.state === 'survives' ? '🟢' : v.state === 'does_not' ? '🔴' : v.state === 'unread' ? '⚠️' : '🟡';
+    return `<p class="small mt-2 arb-verdict" data-state="${esc(v.state)}">${mark} Verdict: <b>${esc(v.sentence)}</b></p>`;
+  }
+
   function reportAge(rep) {
     const t = rep?.generated_at || rep?.received_at;
     return t ? `updated ${fmtAgo(t)}` : '';
@@ -2032,7 +2045,8 @@
           <td class="num r ${pnlClass(c.earned_usd)}">$${Number(c.earned_usd || 0).toFixed(2)}</td>
           <td class="num r">${Number(c.held_hours || 0).toFixed(0)}h / ${Number(c.observed_hours || 0).toFixed(0)}h</td>
           <td class="num r">${Number(c.last_spread_apr || 0).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>
-        <p class="small muted mt-2">Total paper carry <b class="num ${pnlClass(total)}">$${total.toFixed(2)}</b> over ${arb.snapshots || 0} snapshots. A real 2-venue round trip costs ~0.24% of notional in fees.</p>`;
+        <p class="small muted mt-2">Total paper carry <b class="num ${pnlClass(total)}">$${total.toFixed(2)}</b> over ${arb.snapshots || 0} snapshots. A real 2-venue round trip costs ~0.24% of notional in fees.</p>
+        ${arbVerdictLine(arb)}`;
     }, { empty: { icon: 'icon-coin', text: 'The paper arb tracker fills in as the bot records hourly funding snapshots.' } });
 
     const drawAll = () => { drawChart(); drawDepth(); drawFunding(); drawInsight(); };
