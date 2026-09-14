@@ -108,7 +108,7 @@ class TestThePurgeEndpointReportsPerStore:
     def test_every_store_answers_and_the_answers_are_returned(self):
         src = __import__("inspect").getsource(self._module().handle_account_purge)
         for store in ("exchange_credentials", "agent_profile", "agent_memory",
-                      "user_record"):
+                      "user_record", "conversation_memory", "live_authority"):
             assert f'result["{store}"]' in src, (
                 f"{store} is not reported separately, so a failure in it is "
                 "indistinguishable from success")
@@ -227,3 +227,65 @@ class TestNoPerUserStoreOutlivesTheDeletePath:
             "these hold per-user state and the account purge does not touch "
             f"them: {missed}\n\nWire each into handle_account_purge, or add it "
             "to EXEMPT with the reason it is not personal data.")
+
+    #: Per-user stores that are CLASSES, keyed by `Class.method`, each mapped
+    #: to the verdict key the purge reports it under. The module sweep above
+    #: reads `def clear(user_id)` at module level in bot/core and could not
+    #: see `ConversationStore.clear_user` — a class in bot/nlp with a delete
+    #: method nothing called — so a purged account's whole chat history came
+    #: back on the next restart, and `UserAuthorityStore.clear` beside it left
+    #: an ENFORCE envelope bound to a stable Telegram id. A class this sweep
+    #: finds that is not in this map fails: wire it, or map it to None with
+    #: the reason it is not personal data.
+    CLASS_STORES: dict = {
+        "ExchangeCredentialStore.delete": "exchange_credentials",
+        "UserStore.forget": "user_record",
+        "ConversationStore.clear_user": "conversation_memory",
+        "UserAuthorityStore.clear": "live_authority",
+    }
+
+    def _per_user_class_stores(self):
+        import ast
+        import pathlib
+        found = []
+        for f in sorted(pathlib.Path("bot").rglob("*.py")):
+            try:
+                tree = ast.parse(f.read_text(encoding="utf-8"))
+            except SyntaxError:                   # pragma: no cover - defensive
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                for m in node.body:
+                    if (isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and m.name in ("clear_user", "forget", "clear",
+                                           "delete", "purge", "remove_user")
+                            and len(m.args.args) >= 2
+                            and m.args.args[1].arg in (
+                                "user_id", "uid", "tg_id", "telegram_id",
+                                "chat_id")):
+                        found.append(f"{node.name}.{m.name}")
+        return found
+
+    def test_the_class_sweep_finds_the_stores_it_is_meant_to(self):
+        stores = self._per_user_class_stores()
+        assert "ConversationStore.clear_user" in stores, (
+            f"the class sweep found {stores}; it is broken, not empty")
+
+    def test_every_per_user_class_store_is_named_by_the_purge(self):
+        import inspect
+
+        mod = pytest.importorskip("bot.web.user_gateway")
+        src = inspect.getsource(mod.handle_account_purge)
+        found = self._per_user_class_stores()
+        unmapped = [s for s in found if s not in self.CLASS_STORES]
+        assert not unmapped, (
+            "these classes hold per-user state and CLASS_STORES does not "
+            f"decide them: {unmapped}")
+        for cls_method, verdict in self.CLASS_STORES.items():
+            if verdict is None:
+                continue
+            assert cls_method in found, f"{cls_method} is mapped and no longer exists"
+            method = cls_method.split(".")[1]
+            assert f'result["{verdict}"]' in src and f".{method}(" in src, (
+                f"{cls_method} is not reported as {verdict} by the purge")

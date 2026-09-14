@@ -50,6 +50,7 @@ from bot.nlp.skill_memory import (
     skill_failure_memory,
     skill_result_memory,
     skill_unavailable_memory,
+    web_answer_memory,
 )
 from bot.skills.skill_permissions import (
     SKILL_PERMISSION,
@@ -70,6 +71,11 @@ _MIN_SECRET_LEN = 32
 # this layer accepts is a message the model sees whole. Two numbers here
 # were 2000 and 500, and the gap was dropped in silence.
 _MAX_TEXT_LEN = MAX_CHAT_INPUT_LEN
+#: The one ceiling on /chat/record's `reply`. A website card is a few
+#: kilobytes at most and the memory layer keeps 1,500 characters of it with
+#: the cut announced, so anything past this is a web-side fault worth a 400
+#: in its log rather than a regex pass over whatever arrived.
+_MAX_RECORD_REPLY_LEN = 8 * MAX_CHAT_INPUT_LEN
 _MAX_PROPOSERS = 500  # bound the proposer map (pending ideas expire anyway)
 
 
@@ -1027,10 +1033,19 @@ async def handle_chat_record(request: web.Request) -> web.Response:
     web, and "and how does that compare to last week?" reached a model that
     had never seen the first question and answered as if it had.
 
-    The reply is recorded in the `[intent] result:` shape skill_memory uses
-    for tool output, because that is what it is: something the runtime
-    measured and said, not something the model wrote. Two rows, user then
-    assistant, same as a regex-dispatched skill on either surface.
+    The reply is recorded as `web_answer_memory` — "[intent] shown by the
+    website (its own reading; no bot tool ran)" — and NOT in the
+    `[intent] result:` shape tool output takes. The first version took that
+    shape on the argument that the website had measured something, which is
+    true; what it did not weigh is that the shape is a claim the tool rules
+    spell out for the model — "written by the runtime after a tool really
+    ran" — and `[networth] result:` names a tool no surface holds, so on
+    Telegram the model was told to call it again for a fresh figure. Two
+    rows, user then assistant, same as a regex-dispatched skill.
+
+    `reply` is bounded like `text`. It is the trusted Express side's own
+    card, but it was the one field on this route with no ceiling at all,
+    ahead of a regex pass and the store.
 
     Guarded like /chat/history: the caller is the trusted Express side, but
     the identity still has to be one this store may hold a conversation for.
@@ -1047,6 +1062,8 @@ async def handle_chat_record(request: web.Request) -> web.Response:
             {"error": "telegram_id, text and reply required"}, status=400)
     if len(text) > _MAX_TEXT_LEN:
         return web.json_response({"error": "message too long"}, status=400)
+    if len(reply) > _MAX_RECORD_REPLY_LEN:
+        return web.json_response({"error": "reply too long"}, status=400)
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return cast(web.Response, err)
@@ -1054,7 +1071,7 @@ async def handle_chat_record(request: web.Request) -> web.Response:
     tg_handler.conversations.append(
         tg_id, "user", text, metadata={"intent": intent, "surface": "web"})
     tg_handler.conversations.append(
-        tg_id, "assistant", skill_result_memory(intent, reply),
+        tg_id, "assistant", web_answer_memory(intent, reply),
         metadata={"skill": intent, "surface": "web", "via": "web_intercept"})
     return web.json_response({"ok": True, "recorded": 2})
 
@@ -3658,6 +3675,39 @@ async def handle_account_purge(request: web.Request) -> web.Response:
     except Exception as exc:                      # pragma: no cover - defensive
         system_log.warning("purge: memory failed for %s: %s", tg_id, exc)
         result["agent_memory"] = "error"
+
+    # The CONVERSATION. Every turn on both surfaces — what they asked, what
+    # the tools read back, the rolling summary, the "last discussed" recall —
+    # lives in `tg_handler.conversations`, replayed from an append-only JSONL
+    # on every boot. It is a CLASS in bot/nlp, so the module sweep in
+    # tests/test_account_purge.py could not see it, and `clear_user` had no
+    # caller outside a test: a purged account's whole chat history came back
+    # with the next restart. A handler with no store is a store that could
+    # not be asked, never an empty one.
+    try:
+        _convs = getattr(tg_handler, "conversations", None)
+        if _convs is None:
+            result["conversation_memory"] = "error"
+        else:
+            result["conversation_memory"] = (
+                "deleted" if _convs.clear_user(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        system_log.warning("purge: conversation failed for %s: %s", tg_id, exc)
+        result["conversation_memory"] = "error"
+
+    # The AUTHORITY ENVELOPE — what this person authorised the bot to do with
+    # their money, compiled and bound per user and read by the web live gate
+    # at trade time (`_web_envelope_enforcing`, same key). Found by the same
+    # widened sweep. A binding that outlives the account is this docstring's
+    # own worst case one store over: a Telegram id is stable, and an ENFORCE
+    # envelope left behind would be waiting for whoever links that id next.
+    try:
+        from bot.guardian.user_authority_store import get_user_authority_store
+        result["live_authority"] = (
+            "deleted" if get_user_authority_store().clear(tg_id) else "none")
+    except Exception as exc:                      # pragma: no cover - defensive
+        system_log.warning("purge: authority failed for %s: %s", tg_id, exc)
+        result["live_authority"] = "error"
 
     # Two more per-user preference stores, found by the enumeration in
     # tests/test_account_purge.py rather than by anybody remembering them. The

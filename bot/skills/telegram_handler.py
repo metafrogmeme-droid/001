@@ -43,6 +43,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
     ACT_INTENTS, ACT_KIND, HALT_INTENTS, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
+    tools_rule_for,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
     skill_failure_notice, thinking_phrase,
 )
@@ -2330,9 +2331,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # registry gets none — an unreadable role holds nothing.
         _tool_specs = _chat_tools_for(self, user_id, surface, public)
         _tool_names = {t.name for t in _tool_specs}
-        if _tool_specs:
-            system_prompt = system_prompt.replace(_CHAT_NO_TOOLS_RULE,
-                                                  _CHAT_TOOLS_RULE)
+        # The rule about tools is chosen PER CANDIDATE, in the loop below,
+        # from what that candidate is actually handed. It used to be swapped
+        # in here, once for the turn, whenever the caller held tools — and
+        # the vision candidate attaches images and NO tools (the two are not
+        # combined), so an operator sending a chart was answered by a model
+        # told to CALL tools it had not been given. `system_prompt` keeps the
+        # no-tools rule; the tools rule, carrying the offered names, replaces
+        # it only on a call that carries the tools.
+        _tools_rule = tools_rule_for(_tool_names) if _tool_specs else None
 
         # AI-WEBSEARCH: real-time web search is admin/ULTRA-only (it bills per
         # search against the operator's Anthropic key, and only the admin path
@@ -2563,7 +2570,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "type": "tool", "name": name, "phase": phase,
                         **({"ok": ok} if ok is not None else {})})
 
-                if _tool_specs and not _vision_ok:
+                _tools_attached = bool(_tool_specs) and not _vision_ok
+                # ONE document, ONE rule about tools — the one that is true
+                # of THIS call. A test drives the vision candidate and reads
+                # the prompt it was given (test_chat_guards_say_what_ran).
+                _sp = (system_prompt.replace(_CHAT_NO_TOOLS_RULE, _tools_rule)
+                       if _tools_attached and _tools_rule else system_prompt)
+                if _tools_attached:
                     _tool_left = max(
                         3.0, min(float(CONFIG.llm.chat_tool_timeout_seconds),
                                  cfg.timeout_seconds - 3.0))
@@ -2576,7 +2589,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                             surface=surface, timeout=_tl)
 
                     answer = await llm_complete_with_tools(
-                        client, cfg, system_prompt, question,
+                        client, cfg, _sp, question,
                         tools=[t.spec() for t in _tool_specs],
                         tool_executor=_run_tool,
                         history=history,
@@ -2589,7 +2602,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         on_tool=_on_tool if on_event is not None else None)
                 else:
                     answer = await llm_complete(
-                        client, cfg, system_prompt, question,
+                        client, cfg, _sp, question,
                         history=history,
                         web_search=_cfor_search,
                         citations_out=_citations if _cfor_search else None,
@@ -2646,7 +2659,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     else:
                         history_tokens = sum(len(m.get("content", "")) // 4
                                              for m in history)
-                        system_tokens = max(1, len(system_prompt or "") // 4)
+                        system_tokens = max(1, len(_sp or "") // 4)
                         prompt_tokens = (system_tokens + history_tokens
                                          + max(1, len(question or "") // 4))
                         completion_tokens = (max(1, len(answer) // 4)
@@ -3715,6 +3728,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # as a fresh message, as it always did.
         if _stream is not None and await _stream.finish(_final):
             return
+        if _stream is not None:
+            # The provisional message could not become the answer, so it
+            # comes down BEFORE the checked answer goes out. What it showed
+            # was the model's raw output — before `_chat_ret` checked it for
+            # a fabricated tool result or a wrong risk:reward — with a caret
+            # on the end: the one reply on the screen nobody had checked,
+            # left directly above the one that was.
+            if await _stream.retract() == "failed":
+                system_log.warning(
+                    "streamed provisional text could not be retracted for %s",
+                    tg_id)
         await self._send(update, _final)
 
     # ── Auth helpers ──────────────────────────────────────────

@@ -26,11 +26,16 @@ where instruction persuades.
 
 REACHABILITY — WHY THIS CANNOT DELETE A TRUE STATEMENT. Checked before
 writing it, because "not every match is a defect" has cost this repository
-real time. The `[skill] result:` shape is produced in exactly one place,
-`skill_memory.skill_result_memory`, and that string is appended to the
-conversation HISTORY. It is never returned through `_chat_ret`, and no
-canned fallback on either surface contains it. So a marker seen HERE was
-written by the model, about a call it did not make.
+real time. Every `[name] <marker>` shape below is produced by a record
+function in `skill_memory` (or the timeout record in `chat_tools.run_tool`),
+and each of those strings is appended to the conversation HISTORY. None is
+returned through `_chat_ret`, no canned fallback on either surface contains
+one, and — the half that matters once the model can call tools — the text
+`run_tool` hands BACK to the model as a tool's output never carries the
+marker either (`tests/test_chat_guards_say_what_ran.py` drives every
+outcome). A model that quotes its own evidence faithfully therefore never
+trips this; a marker seen HERE was written by the model, about a record the
+runtime did not make.
 
 WHY TRUNCATE RATHER THAN EXCISE. Removing just the marker line leaves the
 invented body behind as ordinary prose — the fabrication stripped of the one
@@ -42,26 +47,39 @@ from __future__ import annotations
 
 import re
 
-#: The exact vocabulary `skill_memory` writes, plus the `[PENDING]` shape the
-#: model invented for itself. Anchored to the start of a line (the marker
-#: always begins one) so a user quoting "[analyze_asset] result:" mid-sentence
-#: back at the bot is not what this fires on.
+#: The whole vocabulary the memory layer writes — a tool's result, its
+#: absence, a failure, a timeout, a refusal, an unavailable tool, a routed
+#: answer, a card shown, an answer the website gave — plus the `[PENDING]`
+#: shape the model invented for itself. It was four words for a long time,
+#: while `skill_memory` grew to nine records: a model copying
+#: "[status] SHOWN, CONTENTS NOT RECORDED" was claiming a card it never sent,
+#: in a shape nothing policed. Anchored to the start of a line (the marker
+#: always begins one) so a user quoting "[analyze_asset] result:"
+#: mid-sentence back at the bot is not what this fires on.
 _MARKER = re.compile(
     r"^[ \t]*\[(?:"
     r"PENDING\]"                                  # [PENDING] scanning...
     r"|[A-Za-z_][\w.]*\]"                         # [skill] ...
-    r"[ \t]*(?:result\b|NO OUTPUT\b|FAILED\b|UNAVAILABLE\b)"
+    r"[ \t]*(?:result\b|NO OUTPUT\b|FAILED\b|UNAVAILABLE\b|TIMED OUT\b"
+    r"|NOT RUN\b|ANSWERED WITH NOTHING\b|answered\b|SHOWN\b"
+    r"|shown by the website\b)"
     r")",
     re.MULTILINE,
 )
 
-#: Said instead when nothing survives the truncation. Deliberately plain, and
-#: deliberately not offering a specific command: `_chat_ret` serves the
-#: private, public and web surfaces, and "run /scan" is wrong on two of them.
+#: Said instead when nothing survives the truncation. Deliberately plain,
+#: deliberately not offering a specific command (`_chat_ret` serves the
+#: private, public and web surfaces, and "run /scan" is wrong on two of
+#: them), and deliberately NOT claiming the bot cannot run tools: the first
+#: version said "I cannot run one from this chat", which is true on the
+#: public surface and false on the two where the model is offered tools —
+#: there it had tools and did not call one, and telling the user otherwise
+#: is the fabrication's cousin.
 REFUSAL = (
-    "I started answering as though I had run a tool, and I cannot run one "
-    "from this chat — so nothing ran and I have no result to report. Ask me "
-    "for a scan directly and I will queue a real one."
+    "I started to write a tool result that I do not have, so I have stopped: "
+    "nothing ran for that claim and there is no result to report. Ask the "
+    "question again in plain words and I will answer from what I can "
+    "actually read."
 )
 
 
