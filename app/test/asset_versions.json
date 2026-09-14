@@ -16,8 +16,8 @@
     "v": 1
   },
   "js/app.js": {
-    "sha": "6630b1e4b8e76fed",
-    "v": 13
+    "sha": "c9975b9196240cc5",
+    "v": 14
   },
   "js/arena-risk-model.js": {
     "sha": "77d4026436966cf1",
@@ -104,8 +104,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "sha": "a79a1b2a1f7503b5",
-    "v": 140
+    "sha": "872f7149620d9996",
+    "v": 141
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -140,8 +140,8 @@
     "v": 1
   },
   "js/panel-error-model.js": {
-    "sha": "bde2f75a9947acad",
-    "v": 1
+    "sha": "a1f8f7637e515f47",
+    "v": 2
   },
   "js/radar3d.js": {
     "sha": "bcb4a613a57ea9dc",

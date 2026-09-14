@@ -640,6 +640,7 @@
   ["dd.err_bot_unlinked", "이 사이트는 트레이딩 봇에 연결되어 있지 않습니다 — 운영자가 설정을 마쳐야 합니다."],
   ["dd.err_operator_only", "이 패널은 운영자 계정 전용입니다."],
   ["dd.err_rate_limited", "지금 요청이 너무 많습니다 — 잠시 후 다시 시도하세요."],
+  ["dd.err_unreadable_body", "서버가 응답했지만 내용을 읽을 수 없었습니다 — 잠시 후 다시 시도하세요."],
   ["dd.err_panel", "이 패널을 불러오지 못했습니다."],
   ["dd.retry", "다시 시도"],
   ["dd.nothing_here", "아직 아무것도 없습니다."],

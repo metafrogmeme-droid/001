@@ -77,6 +77,22 @@
       key: 'dd.err_rate_limited', action: 'retry', icon: 'icon-offline',
       fallback: 'Too many requests just now — wait a moment and try again.',
     },
+    // The server answered 2xx and the body did not parse. Minted by mustRead
+    // rather than carried over the wire — codeOf reads `data.error`, and the
+    // whole point of this case is that there is no data to read it from.
+    //
+    // It earns its own key rather than falling to GENERIC, and the reason is
+    // structural: renderPanel treats GENERIC as "unnamed" and lets a panel's
+    // own opts.errorText outrank it, so this would surface as "Market data
+    // unavailable" on the market panels — a diagnosis, about the wrong thing.
+    //
+    // 'retry', per this file's own vocabulary: a truncated body or a proxy
+    // interstitial plausibly succeeds next time. The code buys a truer
+    // sentence, not a claim that the condition is permanent.
+    unreadable_body: {
+      key: 'dd.err_unreadable_body', action: 'retry', icon: 'icon-offline',
+      fallback: 'The server answered, but the reply couldn’t be read — try again in a moment.',
+    },
   };
 
   // Status-derived, for the causes that carry no code of their own. 503 is the
