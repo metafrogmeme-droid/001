@@ -64,6 +64,41 @@ ALLOWED_FLAGS: dict[str, dict[str, Any]] = {
     "OF_MIN_DEPTH_USD": {"type": "float", "min": 500, "max": 50_000},
 }
 
+#: FLAGS THE FROZEN BENCHMARK CANNOT EXERCISE, with the reason. This is a
+#: fact about the HARNESS, not about the flag: the backtest never constructs
+#: the object these live on, so no dataset, no window and no night will ever
+#: return anything but the baseline for them.
+#:
+#: Live, 2026-09-14, both proposals on the card came back with the same
+#: sentence — "this benchmark returned the baseline's figures unchanged, so it
+#: did not exercise the change" — and it meant two different things.
+#: SYMBOL_LOSS_STREAK_THRESHOLD IS on the benchmark path (backtest/engine.py
+#: reads it) and the dataset simply never built a three-loss streak; another
+#: dataset could distinguish it. OF_MAX_SPREAD_BPS is not on the path at all:
+#: `backtest/engine.py` sets `order_flow = None` unless
+#: `use_recorded_order_flow`, `run_benchmark` never passes that flag, and even
+#: switched on, `RecordedOrderFlow` reads no spread and no depth. The operator
+#: reading "did not exercise the change" waits for a night that cannot come.
+#:
+#: These two were ADDED to ALLOWED_FLAGS because "the audit found these
+#: measured nightly but untunable by the self-audit" — true in live, where
+#: the env var reaches OrderFlowConfig in the running analyzer. Nobody asked
+#: whether the MEASURING harness could exercise them. Membership in the
+#: proposal list is not membership in what the benchmark can measure.
+#:
+#: Pinned by tests/test_self_audit_says_not_measurable_apart_from_not_distinguished.py,
+#: which checks the structural claim against the backtest source so this table
+#: cannot drift from the code in either direction.
+BENCHMARK_BLIND: dict[str, str] = {
+    "OF_MAX_SPREAD_BPS": (
+        "the backtest never constructs OrderFlowConfig — its order_flow is "
+        "None unless --use-recorded-order-flow, which the benchmark runner "
+        "does not pass, and RecordedOrderFlow reads no spread"),
+    "OF_MIN_DEPTH_USD": (
+        "the backtest never constructs OrderFlowConfig, and RecordedOrderFlow "
+        "reads no depth"),
+}
+
 _SYSTEM_PROMPT = """You are the nightly self-audit of RUNECLAW, a live \
 crypto perpetuals trading bot. You receive the bot's own recent evidence \
 and may propose changes ONLY to the allowlisted environment flags given, \
@@ -72,7 +107,12 @@ an empty list is a good answer. In the evidence, `null` means NOT MEASURED — \
 never treat it as zero, and never infer a result from a figure that is null \
 or from a summary carrying an `error` key. `summary.scored` is how many \
 closes could be priced; when it is small or zero the record is too thin to \
-support any proposal. Respond with STRICT JSON only — an array \
+support any proposal. `brain` is the LLM thesis engine's state at audit time \
+and how long it has held (`degraded_seconds`) — not a per-close attribution. \
+While `degraded`, entries are made by the rule engine, which these flags do \
+not govern the same way, so weigh how much of the window fell inside that \
+span before tuning the AI path off it; `null` means the brain state could \
+not be read. Respond with STRICT JSON only — an array \
 of at most {max_proposals} objects, no prose, no markdown fences:
 [{{"flag": "<ALLOWLISTED_FLAG>", "value": <bool|number>, \
 "rationale": "<one sentence tied to the evidence>"}}]"""
@@ -610,6 +650,30 @@ class SelfAudit:
                 ev["throttle"] = risk.equity_throttle_state()
         except Exception:
             pass
+        # WHETHER THE BRAIN WAS ANSWERING. The evidence recorded closes, win
+        # rate, PF, net and gates, and nothing about which SYSTEM produced
+        # them: a window traded entirely by the rule engine (brain degraded)
+        # was indistinguishable from one traded by the AI path, and the model
+        # was asked to explain a losing window without being told the system
+        # that produced it was running in a different mode. This is the
+        # state AT AUDIT TIME and how long it has held — not a per-close
+        # attribution, which the record does not carry. `null` is unreadable.
+        try:
+            from bot.formatters.brain_state import brain_state
+            analyzer = getattr(engine, "analyzer", None)
+            if analyzer is None or not hasattr(analyzer, "llm_health"):
+                ev["brain"] = None
+            else:
+                h = analyzer.llm_health()
+                ev["brain"] = {
+                    "state": brain_state(h),
+                    "degraded_streak": h.get("degraded_streak"),
+                    "degraded_seconds": h.get("degraded_seconds"),
+                    "last_ok_seconds_ago": h.get("last_ok_seconds_ago"),
+                }
+        except Exception as exc:
+            logger.warning("self-audit brain state unreadable: %s", exc)
+            ev["brain"] = None
         return ev
 
     # ── the run ───────────────────────────────────────────────────
@@ -729,7 +793,17 @@ class SelfAudit:
         for r in results:
             m = r.get("measured") or {}
             ret = m.get("return_pct")
-            if ret is None or base_ret is None:
+            if r.get("flag") in BENCHMARK_BLIND:
+                # FIRST, before the run's own outcome is read: a failed run or
+                # an identical run of a knob the harness cannot reach is the
+                # same non-measurement, and the operator needs the fact that
+                # sends them elsewhere, not the run's incidental result.
+                verdict = ("⬜ NOT MEASURABLE HERE — no benchmark run can "
+                           f"exercise {r['flag']}: {BENCHMARK_BLIND[r['flag']]}. "
+                           "A property of the harness, not of this dataset; "
+                           "another night will not answer it. Only live can, "
+                           "and nothing here measured live.")
+            elif ret is None or base_ret is None:
                 verdict = "⬜ NOT VERIFIED (benchmark run failed)"
             elif _identical_run(m, baseline):
                 # EVERY headline figure matched the baseline's, to the digit.
@@ -748,9 +822,11 @@ class SelfAudit:
                 # benchmark running at PF 1.87 never reaches it. The live book
                 # was at 25% and net-negative, where it binds constantly. A
                 # null from the wrong instrument is not evidence of no effect.
-                verdict = ("⬜ NOT DISTINGUISHED — this benchmark returned the "
-                           "baseline's figures unchanged, so it did not "
-                           "exercise the change. That is not evidence the "
+                verdict = ("⬜ NOT DISTINGUISHED ON THIS DATASET — the "
+                           "benchmark returned the baseline's figures "
+                           "unchanged, so this dataset did not reach the "
+                           "condition the change binds on. A different "
+                           "dataset or window may; that is not evidence the "
                            "change is neutral in live.")
             else:
                 delta = ret - base_ret
