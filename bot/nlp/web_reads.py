@@ -2,17 +2,17 @@
 does not — and the door each one is given, on both surfaces.
 
 `app/routes/chat.js` answers fifteen shapes of question before any bot
-round-trip. Six have a Telegram command that renders the same reading and
+round-trip. Twelve have a Telegram command that renders the same reading and
 are routed to it (`networth`, `rwa`, `research`, and — since the website's
-own cards became commands — `nft`, `spot`, `airdrops`); three collide by
-NAME with a Telegram command that does something else (`/alerts` is the
-anomaly-alert scope, `/venues` picks which connected venues trade,
-`/memeplan` is a buy preflight); and three have nothing on Telegram at all
-(the what-if replay, the weekly letter, the DeFi positions). Typed on
-Telegram, "replay every signal with $1k" ran a SYNTHETIC BACKTEST — the
-backtest rule carried a bare `replay` — and the others reached the social
-gate or a model told nothing about the website, which then answered from
-nothing.
+own cards became fetchable — `nft`, `spot`, `airdrops`, `replay`, `letter`,
+`venue_router`, `meme_radar`, `wallet`, `defi`); one is a WRITE the website
+alone can do (a price alert, whose push channel is there) and collides by
+NAME with `/alerts`, the anomaly-alert scope; the idle-yield read shares its
+optimiser with the operator's `/idleyield` and is a different reading. This
+table holds the one door. Typed on Telegram before any of that, "replay
+every signal with $1k" ran a SYNTHETIC BACKTEST — the backtest rule carried
+a bare `replay` — and the other eight reached the social gate or a model
+told nothing about the website, which then answered from nothing.
 
 A read the product has on one surface and not the other gets a DOOR, never a
 narrator: the notice names the surface that answers it, the phrasing that

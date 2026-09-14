@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 94 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 100 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 85 of the 94 reach the tool-less chat model and 9
+typed as the card prints them, 91 of the 100 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **48 names including `halt`,
+whole vocabulary plus every chat tool: **49 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 45), because the
+surface than for the one it modelled best (telegram, 46), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1092,6 +1092,142 @@ exists here must never be answered "ask the web app".
 
 **Twenty-nine mutations, each killed, and the two that survived the first round were one of each kind.** The route's guard against a renderer answering no card survived because no renderer in the tree can — each has its own honest unavailable card — so the branch could not be driven from the product's own inputs; it is driven now by patching the export the route reads at call time, because a 200 carrying no `reply_html` reaches Telegram as "the channel did not answer", a different fact from the truth. The other was the driver's: routing an unlinked caller through the DB with a null id reads no row and hands back the same public radar, an EQUIVALENT mutant, and the line's real claim — a linked caller gets THEIR card, hints and all — is the mutation now, killed by the linked-wallet test.
 
+**The other six doors came down the same way, and the two that are somebody's
+wallet needed a third word.** The what-if replay, the weekly letter, the
+venue router and the meme radar have no account in them — the operator
+agent's record mirrored at the caller's stake, the agent's letter, the
+funding-cost table, DEXScreener's feed — so they went the way `/nft` did:
+`replayChatCard`, `letterChatCard`, `venueRouterChatCard` and `memeChatCard`
+are the intercepts' own renderers, exported, each intercept a regex test in
+front of one, and `/replay`, `/letter`, `/venue_router` and `/meme_radar`
+fetch the card over the same route. The wallet mirror and the DeFi positions
+are different: they ARE the caller's linked wallet, which the website maps
+from their Telegram id, so a caller nobody could map cannot be handed the
+public anything — there is no public wallet. The route answers `unlinked`
+for that caller, a fact of its own beside "a card" and "the channel did not
+answer", because the three get three different sentences: `_link_hint` for
+a channel that did not answer, `_unlinked_hint` for an account the website
+could not map (Telegram names `/link`; a web caller is mapped by
+construction, so that sentence claims no door), and the card. The route has
+to say which — `credential_pull._request` folds a 404 into None, so a 404
+for "no such account" would have reached Telegram as "the web-app channel
+did not answer", and an operator would have gone looking for a dead tunnel
+over a missing link. The door table (`web_reads.json`) is down to the one
+row that is a WRITE — a price alert, whose push channel the website owns —
+and the idle-yield read stays where it is on purpose: `/idleyield` exists as
+the operator's account through the executor, the website's is the caller's
+wallet through the gateway, different holdings under one optimiser, so a
+command of that name would answer a different question than the intercept.
+
+**Three of the six take an argument the intercept reads out of the
+sentence, and the reader has to be the intercept's.** "replay every signal
+with $1k", "best venue for BTC", "my wallet on base" — the stake, the asset
+and the chain are capture groups in `replay.js`, `venue_router.js` and
+`wallet.js`, and the router's rules carry no kwargs for them. A default
+written on the Python side would be a second copy of the website's, so
+`bot/nlp/web_card_args.py` mirrors the three capture groups and answers
+"none named" (`None`, `''`) rather than a figure: the route defaults the
+stake to the website's $1000, the asset to the top five, the chain to every
+chain, in one place. The slash forms (`/replay 500`, `/venue_router BTC`,
+`/wallet base`) read their token through the same helpers, and the web seams
+receive the WORDS — `_WEB_SEAM` callables take the raw text as a fourth
+argument — because the argument was decided by a regex on the surface these
+phrasings came from, not by the router. `fetch_web_card` sends a card's own
+parameters and RAISES on one the card does not take (`WEB_CARD_PARAMS`): a
+seam handing a card an argument it does not take is a programming error,
+not a value to drop quietly. And the route parses each parameter the way
+the intercept's regex would have — `cardBase` demands two to ten
+alphanumerics, because its first draft turned `<b>` into a one-letter asset
+"B" the scan then reported as missing. **The stake's spelling was a
+rounding.** The first draft sent it through `:g`, which keeps six
+significant digits, so `/replay 12345.67` reached the route as `12345.7`
+and a stake of `999999.99` as a round million — the caller's own figure,
+printed back on the card as a different one, on the one argument the card
+exists to take. Twelve significant digits round-trip anything a human
+types, and the pin is the round trip (`float(sent) == typed`), not the
+spelling.
+
+**Escaping belongs at the forwarding boundary, and the boundary has two
+halves.** Slice 4 filed the NFT card's unescaped collection names; the
+sweep it promised found the same shape in six of the eight remaining
+intercepts and two `<span class="muted">` tags on conditional branches
+(`wallet.js`, and `idle_yield.js`, whose card is not forwarded — the
+idle-yield collision above — so its span stays and the converter below is
+what would carry it). The browser's markup allowlist tolerates a
+token named `<b`; Telegram's HTML parser refuses the WHOLE message, and the
+send chokepoint's fallback then strips every tag — the card arriving
+without its bold is the quiet failure, and a DEXScreener symbol is
+attacker-controlled text. So the renderers escape every third-party string
+(`app/lib/esc.js` is the one helper now; `letter.js`, `alerts.js` and
+`research.js` each carried a private copy), the unreadable-chains line is an
+`<i>` rather than a `<span>`, and `web_card_text` keeps only the tags
+Telegram renders (`b`, `i`, `code`) and drops any other tag with its text
+kept — so a `<span>` a website card grows tomorrow arrives without the span
+rather than not at all, and an escaped `&lt;b` inside a `<b>` stays text on
+both surfaces. The Node route test sweeps every card for tags outside that
+set; the Python side drives a span, a bold and an escaped angle bracket
+through the converter.
+
+**The router's smallest change was the one word the social gate had.**
+`wallet` had no rule at all — "my wallet" is two words, no trading word,
+greeted — so it gained one, registered before the Portfolio keyword rules so
+"wallet balance" is the wallet and a bare "balance" stays `get_portfolio`,
+and the word went into the social vocabulary. The FULL gate then found what
+the slice's own suites could not: the scan corpus pins "scan my wallet" as
+a decoy — "not a scan at all" — to the MODEL, which was the honest
+destination while Telegram had no wallet read, and the new rule claims it.
+The website answers those words with its wallet card, so the pin moved to
+the wallet card rather than the rule bending around a sentence the product
+now reads; the row is still not a scan. The other five rules kept
+their place (order decides which rule answers) with their explanations
+naming the command, and their intents moved from the door table to the
+command table on both surfaces the way the first three did: `_WEB_SEAM`,
+`WEB_ROUTED_PERMISSION`, `ROUTED_INTENT_SEAM` and the literal pin each grew
+the same six rows under permissions of their own names held by trader,
+paper and viewer; the catalogue lists them under Market context and
+Portfolio & record with twelve locale descriptions; the guarded-commands
+baseline, the INCOME_MAP rows and this file's driven counts moved in the
+same commit (47 record sites; 100 catalogue commands, 91 reaching the model;
+nine commands with an underscore).
+
+**The review found the route could not map the one identity the website
+hands the bot for a web-only account.** `lib/identity.js` resolves a
+Telegram-linked account to its Telegram id and a web-only account to
+`web:<uid>` — "the caller by construction", in its own words — and
+`webUserFor` looked both up as a Telegram id, so a web-only account was
+`unlinked` to its own wallet card, under a web sentence telling them their
+account was "not linked to a RUNECLAW web account". Two of the router's
+other per-person reads (`/exposure`, the duel) carried their own copy of the
+same lookup. Reachability is narrow and worth stating: on the web the Node
+intercepts claim every wallet, DeFi and airdrop phrasing before the turn
+reaches Python — the Python rules are the intercepts' own patterns, or
+narrower — so no web-only caller reaches the card route through chat today.
+But the route is the bot's door to these cards for any caller, its answer
+for the website's own identity vocabulary was wrong, and the sentence over
+it was false: "not linked" is a Telegram fact. One mapper now, every
+per-person read on the router asks it, and the web sentence says what the
+website answered — it could not map this chat to an account.
+(`tests/test_the_public_and_wallet_reads_are_telegram_commands.py`,
+`app/test/sync_card_route_serves_the_public_and_wallet_cards.test.js`.)
+
+**Forty-three mutations, each killed on the first round — and one kill was
+for the wrong reason.** The stake spelled with `str()` instead of `:g` died on a
+pin of the SPELLING, and the route reads both spellings as one number: an
+equivalent mutant, killed by an assertion about bytes, which is a kill that
+proves nothing. Asking what the spelling has to do — round-trip the figure —
+is what found the six-digit rounding above; the mutation is the `:g` format
+now, and it dies on `12345.67`. Three more are worth naming for what they
+prove about the guards rather than the code. The route
+answering a 500 for a caller nobody can map, and the seam rendering
+`unlinked` as the channel-down sentence, each survive every assertion on the
+card itself and die only on the sentence being a DIFFERENT one from
+`_link_hint`'s — the hedge that reads right until an operator goes looking
+for a dead tunnel over a missing link. The escape helper leaving `<` alone
+dies on a DEXScreener token named `<b`, driven through the route's own card
+rather than read off the helper. And `wallet` leaving the social vocabulary
+dies on the one word typed alone: no rule claims it, so without the word it
+is greeted, and the router test types it bare.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
@@ -1115,9 +1251,10 @@ driven off `SCAN_DISPATCH` now, which is the question it was really asking.
 > just as easy to do to yourself in the dev loop.
 
 **And one regex acquitted every command with an underscore.** `_SLASH_COMMAND`
-was `/[a-z]{2,}`, which stops at the underscore: seven catalogue commands
+was `/[a-z]{2,}`, which stops at the underscore: nine catalogue commands
 carry one (`emergency_stop`, `open_positions`, `grant_live`, `revoke_live`,
-`set_tier`, `daily_report`, `latest_signal`), so `/emergency_stop` was checked
+`set_tier`, `daily_report`, `latest_signal`, and since the website's cards
+became commands `venue_router` and `meme_radar`), so `/emergency_stop` was checked
 as the string `/emergency`, which is not a command — a false ACQUITTAL in the
 web card's no-slash check and in `test_no_phrase_names_a_command`. A false
 accusation is loud; that one just sat there.
@@ -1268,7 +1405,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-one call sites across the two entry points today, one on
+never happened. Forty-seven call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

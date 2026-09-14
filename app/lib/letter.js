@@ -24,9 +24,7 @@ function money(v) {
   return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const { esc } = require('./esc');
 
 /**
  * The week's figures, computed once for both composers.
@@ -712,8 +710,13 @@ function startLetterSweep(intervalMs = 3_600_000) {
 
 const CHAT_RE = /\b(?:(?:this |last )?week'?s letter|weekly (?:agent )?letter|agent letter)\b/i;
 
-async function maybeHandleLetterChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The last completed week's letter as the chat card — ONE renderer for both
+ * surfaces; the bot's /letter fetches it over the sync channel
+ * (`GET /api/bot/sync/card/letter`). The operator agent's week, for every
+ * reader; a week whose record could not be read says so inside the letter.
+ */
+async function letterChatCard() {
   try {
     const { letter } = await getLetter(lastCompletedWeek());
     const secs = letter.sections.map(s => `<b>${esc(s.title)}</b><br>${s.html}`).join('<br><br>');
@@ -726,6 +729,11 @@ async function maybeHandleLetterChat(userId, text) {
   } catch (e) {
     return { reply_html: 'The letter press jammed — try again in a moment.', intent: 'letter' };
   }
+}
+
+async function maybeHandleLetterChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return letterChatCard();
 }
 
 module.exports = { CHAT_RE,
@@ -744,5 +752,5 @@ module.exports = { CHAT_RE,
   listLetters,
   sweepLetters,
   startLetterSweep,
-  maybeHandleLetterChat,
+  maybeHandleLetterChat, letterChatCard,
 };

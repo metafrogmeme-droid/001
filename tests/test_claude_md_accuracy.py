@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Forty-one call sites across the two entry points", DOC)
+    m = re.search(r"Forty-seven call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 41, f"CLAUDE.md says forty-one; the two entry points have {n}"
+    assert n == 47, f"CLAUDE.md says forty-seven; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -404,16 +404,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "48 names including `halt`" in flat
+    assert "49 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 48, len(old)
+    assert len(old) == 49, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 45)" in flat
+    assert "(telegram, 46)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 45, len(tg)
+    assert len(tg) == 46, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):
@@ -435,12 +435,13 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     assert left <= routed_skill_names(), left - routed_skill_names()
     assert (two | left) <= {t.name for t in CHAT_TOOLS}
 
-    # "seven catalogue commands carry one" — the underscore commands the
-    # slash extractor used to truncate.
+    # "nine catalogue commands carry one" — the underscore commands the
+    # slash extractor used to truncate (seven until the website's venue
+    # router and meme radar became commands under their intent names).
     from bot.skills.command_catalog import all_entries
     under = sorted(c for c in all_entries() if "_" in c)
-    assert "seven catalogue commands carry one" in flat
-    assert len(under) == 7, under
+    assert "nine catalogue commands carry one" in flat
+    assert len(under) == 9, under
     for name in under:
         assert f"`{name}`" in DOC, name
 

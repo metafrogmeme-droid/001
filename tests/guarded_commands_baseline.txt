@@ -20,6 +20,7 @@ _cmd_costs
 _cmd_daily_report
 _cmd_dashboard
 _cmd_deepscan
+_cmd_defi
 _cmd_dip
 _cmd_emergency_stop
 _cmd_enforcing
@@ -36,6 +37,7 @@ _cmd_lang
 _cmd_latest_signal
 _cmd_leaderboard
 _cmd_learn
+_cmd_letter
 _cmd_leverage
 _cmd_linkwallet
 _cmd_livebalance
@@ -45,6 +47,7 @@ _cmd_llmreset
 _cmd_llmstatus
 _cmd_llmtiers
 _cmd_macro
+_cmd_meme_radar
 _cmd_memeplan
 _cmd_mode
 _cmd_momentum
@@ -65,6 +68,7 @@ _cmd_postmortem
 _cmd_proposals
 _cmd_quant
 _cmd_rejected
+_cmd_replay
 _cmd_research
 _cmd_reset
 _cmd_resume
@@ -83,8 +87,10 @@ _cmd_stockscan
 _cmd_sweep
 _cmd_swing
 _cmd_token
+_cmd_venue_router
 _cmd_venues
 _cmd_walkforward
+_cmd_wallet
 _cmd_watch
 _cmd_whynot
 _cmd_xray

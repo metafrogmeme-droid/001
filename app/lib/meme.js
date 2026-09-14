@@ -165,6 +165,8 @@ async function getRadar() {
 // reports it has no radar access (live incident, 2026-07-20 screenshot).
 const CHAT_RE = /\b(meme ?(radar|coins?|tokens?)|dexscreener|degen|pump\.?fun|ai[- ]agent tokens?)\b/i;
 
+const { esc } = require('./esc');
+
 function fmtVol(v) {
   const n = Number(v) || 0;
   if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
@@ -173,8 +175,14 @@ function fmtVol(v) {
   return '$' + Math.round(n);
 }
 
-async function maybeHandleMemeChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The meme radar as the chat card — ONE renderer for both surfaces; the bot's
+ * /meme_radar fetches it over the sync channel
+ * (`GET /api/bot/sync/card/meme_radar`). Public: DEXScreener's feed, no
+ * account in it. Token symbols and chain labels are the FEED's text, so they
+ * are escaped: a token named `<b` must not break the card on either surface.
+ */
+async function memeChatCard() {
   try {
     const r = await getRadar();
     if (!r.summary.tokens) {
@@ -183,7 +191,7 @@ async function maybeHandleMemeChat(userId, text) {
     const top = r.tokens.slice(0, 5).map((t) => {
       const chg = t.change_24h_pct == null ? '' : ` ${t.change_24h_pct >= 0 ? '+' : ''}${t.change_24h_pct}%`;
       const risk = t.risk.tier === 'extreme' ? ' ⚠️ extreme' : '';
-      return `• <b>${t.symbol}</b> (${t.chain_label})${chg} · ${fmtVol(t.volume_24h_usd)} vol · ${fmtVol(t.liquidity_usd)} liq${risk}`;
+      return `• <b>${esc(t.symbol)}</b> (${esc(t.chain_label)})${chg} · ${fmtVol(t.volume_24h_usd)} vol · ${fmtVol(t.liquidity_usd)} liq${risk}`;
     });
     return {
       reply_html:
@@ -200,7 +208,12 @@ async function maybeHandleMemeChat(userId, text) {
   }
 }
 
+async function maybeHandleMemeChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return memeChatCard();
+}
+
 module.exports = { CHAT_RE,
   CHAINS, riskRead, normalizePair, buildRadar,
-  getRadar, setPairFetcher, maybeHandleMemeChat,
+  getRadar, setPairFetcher, maybeHandleMemeChat, memeChatCard,
 };

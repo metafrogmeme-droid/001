@@ -194,7 +194,7 @@ def _is_social_message(text: str) -> bool:
             # by the halt suite's neighbour table.
             "defi", "aave", "nft", "nfts", "airdrop", "airdrops", "testnet",
             "testnets", "meme", "memes", "spot", "letter", "replay",
-            "opensea", "dexscreener",
+            "opensea", "dexscreener", "wallet",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -1118,18 +1118,21 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # "how do airdrops work") is the model's, as it is for `rwa` above. Six
 # dispatch to no skill: both surfaces answer with `web_read_notice`, which
 # names the surface that has the read, the words it takes, and the
-# same-named command here when there is one. Three — `airdrops`, `nft`,
-# `spot` — are commands now (`/airdrops`, `/nft`, `/spot` render the
-# website's own card) and route to them the way `rwa` does; the rules keep
-# their place here because order is what decides which rule answers.
+# same-named command here when there is one. Eight of the nine are commands
+# now (`/airdrops`, `/nft`, `/spot`, `/replay`, `/letter`, `/venue_router`,
+# `/meme_radar`, `/defi` render the website's own card) and route to them the
+# way `rwa` does; the price alert stays a door, being a WRITE the website's
+# push channel does. The rules keep their place here because order is what
+# decides which rule answers. `wallet` — the website's mirror of the caller's
+# linked wallet — never had a rule: two words, greeted.
 _EDU = r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
 _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
       r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
       r"(?:every|all|each) (?:signal|trade|position)s?)\b"
       r"|^\s*replay\s*[?!.]*$",
-      "replay", explanation="What-if replay of every past signal (a website read)")
+      "replay", explanation="What-if replay of every recorded agent trade (the website's card, /replay)")
 _rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|agent letter|fund letter)\b",
-      "letter", explanation="The weekly letter (a website read)")
+      "letter", explanation="The agent's weekly letter (the website's card, /letter)")
 _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
       "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
@@ -1137,7 +1140,9 @@ _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor p
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
       "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
-      "defi", explanation="DeFi positions and liquidation risk (a website read)")
+      "defi", explanation="DeFi positions and liquidation risk (the website's card, /defi)")
+_rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",
+      "wallet", explanation="The caller's linked on-chain wallet, mirrored (the website's card, /wallet)")
 _rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"
       r"|tell me when \S+ (?:drops?|falls?|goes|rises?|hits|breaks?|crosses)|notify me (?:when|if)"
       r"|(?:show |list )?my (?:price )?alerts)\b",
@@ -1145,9 +1150,9 @@ _rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if
 _rule(r"\b((?:best|cheapest) (?:venue|exchange)"
       r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
       r"|venue router|cheapest funding)\b",
-      "venue_router", explanation="Cheapest venue by funding cost (a website read)")
+      "venue_router", explanation="Cheapest venue by funding cost (the website's card, /venue_router)")
 _rule(_EDU + r"\b(meme ?(?:radar|coins?|tokens?)|dexscreener|pump\.?fun|ai[- ]agent tokens?)\b",
-      "meme_radar", explanation="Meme and AI-token snapshot (a website read)")
+      "meme_radar", explanation="Meme and AI-token snapshot (the website's card, /meme_radar)")
 
 # --- The book and the risk engine, before the chart ---
 #

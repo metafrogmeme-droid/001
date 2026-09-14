@@ -91,6 +91,12 @@ class PortfolioCommands:
 
         def _get_tg_id(self, update: Update) -> str: ...
 
+        async def _web_card_text(self, name: str, surface: str,
+                                 telegram_id: str = "", params: Optional[dict] = None) -> str: ...
+
+        @staticmethod
+        def _unlinked_hint(surface: str = "telegram") -> str: ...
+
         def _lang(self, update: Update) -> str: ...
 
         def _caller_executor(self, update: Update): ...
@@ -176,6 +182,84 @@ class PortfolioCommands:
         reading = await networth_reading(self.engine, str(user_id))
         return self._format_networth(reading["paper"], reading["cex"],
                                      surface=surface)
+
+    # ── The website chat's own cards, as commands ─────────────────────────
+    # /replay and /letter are the operator agent's RECORD, rendered by the
+    # website for every reader; /wallet and /defi are the CALLER's linked
+    # on-chain wallet, which the website maps from their Telegram id. Each
+    # fetches the card the web intercept renders (one renderer, two
+    # surfaces) through `_web_card_text`; nothing here re-formats a payload.
+
+    @guard("replay")
+    async def _cmd_replay(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                          *, stake: Optional[float] = None) -> None:
+        """/replay [stake] — what every recorded agent trade would have made
+        at your stake, mirrored from the real record (hypothetical, never a
+        forecast). The card is `replay_card_text`, the seam the routed
+        "replay every signal with $1k" renders on both surfaces; ``stake`` is
+        how the free-text branch hands the figure in."""
+        from bot.nlp.web_card_args import stake_from_token
+        args = getattr(ctx, "args", None) or []
+        want = stake if stake is not None else (stake_from_token(args[0]) if args else None)
+        await self._send(update, await self.replay_card_text(want))
+
+    async def replay_card_text(self, stake: Optional[float] = None, *,
+                               surface: str = "telegram") -> str:
+        """The what-if replay card — the website's own rendering, both
+        surfaces; ``stake`` None lets the website apply its own default. The
+        figure travels at twelve significant digits: ``:g`` keeps six, which
+        sent ``12345.67`` as ``12345.7`` and ``999999.99`` as a round million
+        — the caller's own number, printed back on the card as a different
+        one — while twelve round-trips anything a human types."""
+        return await self._web_card_text("replay", surface=surface,
+                                         params={"stake": (f"{stake:.12g}" if stake is not None else None)})
+
+    @guard("letter")
+    async def _cmd_letter(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/letter — the agent's letter for the last completed week, composed
+        by the website from the recorded data (a week whose record could not
+        be read says so inside the letter). The card is `letter_card_text`,
+        the seam the routed "this week's letter" renders on both surfaces."""
+        await self._send(update, await self.letter_card_text())
+
+    async def letter_card_text(self, *, surface: str = "telegram") -> str:
+        """The weekly letter card — the website's own rendering, both surfaces."""
+        return await self._web_card_text("letter", surface=surface)
+
+    @guard("wallet")
+    async def _cmd_wallet(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                          *, chain: str = "") -> None:
+        """/wallet [chain] — the caller's linked on-chain wallet, mirrored
+        read-only by the website (balances read straight from the chain;
+        nothing here can move them). A caller whose Telegram account is not
+        linked to a web account is told so, never shown somebody else's
+        wallet. The card is `wallet_card_text`, the seam the routed "my
+        wallet" renders on both surfaces."""
+        args = getattr(ctx, "args", None) or []
+        want = str(chain or (args[0] if args else "")).strip().lower()
+        await self._send(update, await self.wallet_card_text(self._get_tg_id(update), want))
+
+    async def wallet_card_text(self, user_id: str, chain: str = "", *,
+                               surface: str = "telegram") -> str:
+        """The wallet mirror card — the website's own rendering, both
+        surfaces, for THIS caller's linked wallet; ``chain`` narrows it."""
+        return await self._web_card_text("wallet", surface=surface,
+                                         telegram_id=str(user_id or ""), params={"chain": chain or ""})
+
+    @guard("defi")
+    async def _cmd_defi(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/defi — the caller's Aave, Lido and Uniswap positions with their
+        liquidation risk, read by the website straight from the protocols'
+        contracts for the wallet linked to their web account. The card is
+        `defi_card_text`, the seam the routed "my defi positions" renders on
+        both surfaces."""
+        await self._send(update, await self.defi_card_text(self._get_tg_id(update)))
+
+    async def defi_card_text(self, user_id: str, *, surface: str = "telegram") -> str:
+        """The DeFi positions card — the website's own rendering, both
+        surfaces, for THIS caller's linked wallet."""
+        return await self._web_card_text("defi", surface=surface,
+                                         telegram_id=str(user_id or ""))
 
     @guard("exposure")
     async def _cmd_exposure(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

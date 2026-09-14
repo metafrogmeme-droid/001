@@ -85,9 +85,9 @@ class TestThePull:
     def test_a_name_outside_the_tuple_never_reaches_the_wire(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         monkeypatch.setattr(wdp, "_request", lambda *a, **k: pytest.fail("must not be called"))
-        for bad in ("rwa", "nope", "../exposure", "", "__proto__"):
+        for bad in ("rwa", "nope", "../exposure", "", "__proto__", "price_alert", "idleyield"):
             assert fetch_web_card(bad) is None, bad
-        assert WEB_CARDS == CARDS
+        assert WEB_CARDS[:3] == CARDS and set(CARDS) <= set(WEB_CARDS)
 
     def test_the_telegram_id_is_quoted_and_bounded(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)

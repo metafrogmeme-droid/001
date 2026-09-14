@@ -15,10 +15,12 @@ one, and ends by saying nothing was read. Both surfaces answer from
 `bot/nlp/web_reads.py`, whose table the Node side pins against the
 intercepts' own patterns (`app/test/web_reads_examples_reach_the_intercepts.test.js`).
 
-Three of the nine — airdrops, nft, spot — are COMMANDS since the website's
-own cards became fetchable (`tests/test_the_website_cards_are_telegram_commands.py`):
-their phrasings still route to the same intents (ROWS below), the intents
-now dispatch a command rather than a door, and the table holds six.
+Eight of the nine are COMMANDS since the website's own cards became
+fetchable (`tests/test_the_website_cards_are_telegram_commands.py`,
+`tests/test_the_public_and_wallet_reads_are_telegram_commands.py`): their
+phrasings still route to the same intents (ROWS below), the intents now
+dispatch a command rather than a door, and the table holds the one door
+left — the price alert, a WRITE the website's push channel does.
 
 Plant the phrase, drive the surface, read the STORE and the words.
 """
@@ -171,8 +173,9 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert r.row in rows, r
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
-    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 6
-    assert not {"airdrops", "nft", "spot"} & set(WEB_READS), "commands now, not doors"
+    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
+    assert not {"airdrops", "nft", "spot", "replay", "letter", "defi",
+                "venue_router", "meme_radar"} & set(WEB_READS), "commands now, not doors"
 
 
 @pytest.mark.parametrize("intent", sorted(WEB_READS))
@@ -219,24 +222,23 @@ def test_the_collision_sentence_is_the_catalogues_own_words():
 
 class TestTelegram:
     @pytest.mark.asyncio
-    async def test_replay_sends_the_door_dispatches_nothing_and_records(self, bot):
-        # RED HERRING: before this slice the same words dispatched
-        # `run_backtest` — a synthetic-smoke backtest card.
+    async def test_a_price_alert_sends_the_door_dispatches_nothing_and_records(self, bot):
+        # RED HERRING: "replay every signal with $1k" used to be this test's
+        # phrase, and before slice 3 those words dispatched `run_backtest`;
+        # the replay is a command now, so the one door left is the alert.
         store = _store(bot)
-        await bot._handle_message(_update(OPERATOR, "replay every signal with $1k"), None)
+        await bot._handle_message(_update(OPERATOR, "tell me when BTC drops below 100k"), None)
         assert bot.registry.dispatched == []
-        assert bot.sent[-1] == web_read_notice("replay", surface="telegram")
+        assert bot.sent[-1] == web_read_notice("price_alert", surface="telegram")
         turns = [(m.role, m.content) for m in store.get_recent(str(OPERATOR), limit=5)]
-        assert turns[0] == ("user", "replay every signal with $1k")
-        assert turns[1][1] == routed_answer_memory("replay", bot.sent[-1])
+        assert turns[0] == ("user", "tell me when BTC drops below 100k")
+        assert turns[1][1] == routed_answer_memory("price_alert", bot.sent[-1])
         assert "no tool ran" in turns[1][1]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("text,intent", [
-        ("my defi positions", "defi"),
-        ("show me this week's letter", "letter"),
-        ("best venue for BTC", "venue_router"), ("meme radar", "meme_radar"),
         ("tell me when BTC drops below 100k", "price_alert"),
+        ("set an alert for eth at 3000", "price_alert"),
     ])
     async def test_each_read_gets_its_door_and_the_model_never_runs(self, bot, text, intent):
         rec = AsyncMock(return_value="narrated")
@@ -259,8 +261,7 @@ class TestTelegram:
 
 class TestTheWeb:
     @pytest.mark.parametrize("text,intent", [
-        ("replay every signal with $1k", "replay"), ("my defi positions", "defi"),
-        ("alert me when sol hits 200", "price_alert"),
+        ("alert me when sol hits 200", "price_alert"), ("my alerts", "price_alert"),
     ])
     def test_the_python_path_answers_with_the_intercepts_words_and_records(self, monkeypatch, text, intent):
         ug, h = _web(monkeypatch)

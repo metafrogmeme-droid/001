@@ -551,6 +551,8 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/spot` | spot pairs across venues and the spot/perp basis, read-only |
 | `/nft` | NFT collections by real 7-day volume, floor and volume, read-only |
 | `/airdrops` | airdrop and testnet radar — guided only, never farmed for you |
+| `/venue_router` | cheapest venue to hold a position by funding cost — /venue_router [BASE] |
+| `/meme_radar` | on-chain meme and AI-token snapshot with a safety read, read-only |
 
 ### 💼 Portfolio & record
 
@@ -561,6 +563,10 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/postmortem` | post-mortem of one closed trade — /postmortem [SYMBOL or trade id] |
 | `/networth` | cross-venue net worth snapshot |
 | `/exposure` | net per-asset exposure |
+| `/wallet` | your linked on-chain wallet, mirrored read-only — /wallet [chain] |
+| `/defi` | your Aave, Lido and Uniswap positions with liquidation risk, read-only |
+| `/replay` | what-if replay of every recorded agent trade at your stake — /replay [stake] |
+| `/letter` | the agent's letter for the last completed week, from the recorded data |
 | `/risk` | risk status and circuit breaker |
 | `/enforcing` | which controls would refuse a trade right now |
 | `/signals` | per-pair signal stats |

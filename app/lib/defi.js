@@ -187,13 +187,21 @@ async function getDefiPositions(address) {
 
 const CHAT_RE = /\b(my )?(defi( positions| status| health)?|aave( positions| health)?|health factor)\b/i;
 
+const { esc } = require('./esc');
+
 function fmtUsd(v) {
   return v == null ? '—'
     : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-async function maybeHandleDefiChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The DeFi positions as the chat card — ONE renderer for both surfaces; the
+ * bot's /defi fetches it over the sync channel
+ * (`GET /api/bot/sync/card/defi?telegram_id=…`) for a linked caller, and the
+ * route answers `unlinked` for one it cannot map. Labels and notes are
+ * escaped because the card is forwarded to Telegram's HTML parser as-is.
+ */
+async function defiChatCard(userId) {
   try {
     const address = await walletAddressOf(userId);
     if (!address) {
@@ -209,17 +217,17 @@ async function maybeHandleDefiChat(userId, text) {
     const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
     const parts = [];
     for (const a of d.aave) {
-      parts.push(`<b>Aave v3 · ${a.label}</b><br>`
+      parts.push(`<b>Aave v3 · ${esc(a.label)}</b><br>`
         + `Collateral ${fmtUsd(a.collateral_usd)} · Debt ${fmtUsd(a.debt_usd)}`
         + (a.health_factor !== null
           ? ` · Health factor <b>${a.health_factor}</b>` : ' · no debt — nothing to liquidate'));
     }
     if (d.lido) {
       parts.push(`<b>Lido</b><br>stETH ${d.lido.steth_amount.toLocaleString('en-US', { maximumFractionDigits: 6 })}`
-        + ` — ${fmtUsd(d.lido.usd)} <i>(${d.lido.pricing_note})</i>`);
+        + ` — ${fmtUsd(d.lido.usd)} <i>(${esc(d.lido.pricing_note)})</i>`);
     }
     for (const u of d.uniswap) {
-      parts.push(`<b>Uniswap v3 · ${u.label}</b><br>${u.positions} LP position(s) — counted, not valued.`);
+      parts.push(`<b>Uniswap v3 · ${esc(u.label)}</b><br>${u.positions} LP position(s) — counted, not valued.`);
     }
     if (!parts.length) {
       return {
@@ -228,11 +236,11 @@ async function maybeHandleDefiChat(userId, text) {
       };
     }
     const warn = d.warnings.length
-      ? '<br><br>⚠️ ' + d.warnings.map(w => `<b>${w}</b>`).join('<br>⚠️ ') : '';
+      ? '<br><br>⚠️ ' + d.warnings.map(w => `<b>${esc(w)}</b>`).join('<br>⚠️ ') : '';
     return {
       reply_html: `🏦 <b>DeFi positions — ${short}</b> (read-only)<br><br>`
         + parts.join('<br><br>') + warn
-        + `<br><br><i>${d.note}</i>`,
+        + `<br><br><i>${esc(d.note)}</i>`,
       intent: 'defi',
     };
   } catch (e) {
@@ -240,11 +248,16 @@ async function maybeHandleDefiChat(userId, text) {
   }
 }
 
+async function maybeHandleDefiChat(userId, text) {
+  if (!CHAT_RE.test(String(text || ''))) return null;
+  return defiChatCard(userId);
+}
+
 module.exports = { CHAT_RE,
   AAVE_POOLS,
   buildDefiPositions,
   getDefiPositions,
-  maybeHandleDefiChat,
+  maybeHandleDefiChat, defiChatCard,
   setProviderFactory,
   setTickerFetcher,
 };

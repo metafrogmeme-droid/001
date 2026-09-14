@@ -504,6 +504,8 @@ python -m bot.main --mode scan
 | `/spot` | 跨交易所現貨交易對與現貨/永續基差（唯讀） |
 | `/nft` | 依真實 7 日成交量排序的 NFT 系列：地板價與成交量（唯讀） |
 | `/airdrops` | 空投與測試網雷達——僅提供指引，絕不代你刷任務 |
+| `/venue_router` | 依資金費率成本找最便宜的持倉交易所 — /venue_router [幣種] |
+| `/meme_radar` | 鏈上迷因與 AI 代幣快照，附安全判讀（唯讀） |
 
 ### 💼 投資組合與紀錄
 
@@ -514,6 +516,10 @@ python -m bot.main --mode scan
 | `/postmortem` | 單筆已平倉交易的覆盤 |
 | `/networth` | 跨平台淨資產快照 |
 | `/exposure` | 各資產淨曝險 |
+| `/wallet` | 你已連結的鏈上錢包，唯讀鏡像 — /wallet [鏈] |
+| `/defi` | 你的 Aave、Lido 與 Uniswap 部位及清算風險（唯讀） |
+| `/replay` | 以你的本金重播每一筆已記錄的代理交易 — /replay [本金] |
+| `/letter` | 上一個完整週的代理週報，來自已記錄的資料 |
 | `/risk` | 風險狀態與熔斷器 |
 | `/enforcing` | 目前哪些控制會攔下一筆交易 |
 | `/signals` | 各交易對訊號統計 |

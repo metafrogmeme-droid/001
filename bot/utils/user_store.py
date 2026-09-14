@@ -120,6 +120,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "patterns", "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops",
+        "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
         # to exactly the role that can confirm trades.
@@ -145,6 +146,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "patterns", "proposals", "optimize", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops",
+        "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
         "mystrategy",
     },
     "viewer": {
@@ -153,6 +155,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops",
+        "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
     },
     # "journal" STAYS here even though /journal moved to an operator group.
     # It is not /journal's permission alone — `/daily_report` is `@guard("journal")`

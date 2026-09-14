@@ -78,7 +78,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/api/reports` |
 | Basis trades | partial | `/spot`, `/api/spot/basis`, `/api/market/dex` |
 | Triangular arbitrage | — | — |
-| CEX/DEX arbitrage | partial | `/api/market/dex`, `/api/market/venue-router` |
+| CEX/DEX arbitrage | partial | `/venue_router`, `/api/market/dex`, `/api/market/venue-router` |
 | Copy trading | partial | `/api/arena/follow`, `/api/copy`, `/api/copy/unfollow`, `/api/copy/picks`, `/api/strategies`, `/api/bot-strategy`, `/mystrategy` |
 | Algo/bot trading | **shipped** | `/autoconfirm`, `/mystrategy`, `/run`, `/momentum`, `/dip`, `/halt`, `/pause`, `/resume`, `/reset`, `/emergency_stop`, `/enforcing`, `/risk`, `/gates`, `/shadow`, `/backtest`, `/walkforward`, `/optimize`, `/api/lab`, `/api/controls`, `/api/bot-strategy` |
 
@@ -309,7 +309,7 @@ elite) nominally gate behind $RCLAW, though that gate is off by default.
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Core portfolio holding | partial | `/livebalance`, `/networth`, `/holdings`, `/exposure`, `/classpf`, `/api/networth`, `/api/holdings`, `/api/wallet/portfolio`, `/api/tax/report` |
+| Core portfolio holding | partial | `/livebalance`, `/networth`, `/holdings`, `/exposure`, `/wallet`, `/classpf`, `/api/networth`, `/api/holdings`, `/api/wallet/portfolio`, `/api/tax/report` |
 | Seed/private rounds | — | — |
 | Public sales (ICO/IDO/IEO) | — | — |
 | Governance token accumulation | — | — |
@@ -353,10 +353,10 @@ read
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Staking (native + liquid) | partial | `/api/idleyield`, `/api/defi`, `/idleyield`, `/yield`, `/api/dapps` |
+| Staking (native + liquid) | partial | `/api/idleyield`, `/api/defi`, `/defi`, `/idleyield`, `/yield`, `/api/dapps` |
 | Restaking | — | — |
-| Lending/borrowing spreads | partial | `/api/idleyield`, `/api/defi`, `/api/crossyield` |
-| LP provision | partial | `/api/defi`, `/escape`, `/api/dapps` |
+| Lending/borrowing spreads | partial | `/api/idleyield`, `/api/defi`, `/defi`, `/api/crossyield` |
+| LP provision | partial | `/api/defi`, `/defi`, `/escape`, `/api/dapps` |
 | Yield farming | — | — |
 | Delta-neutral vaults | — ⟲ | `/fundingscan`, `/arb`, `/funding`, `/api/reports` |
 | Stablecoin yield strategies | partial | `/api/idleyield`, `/stake`, `/unstake`, `/yield`, `/api/staking/fixed`, `/api/reports/yield` |

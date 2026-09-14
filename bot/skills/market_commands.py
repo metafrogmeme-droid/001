@@ -1,8 +1,8 @@
 """The market-context command group — a slice out of the handler.
 
 `/macro` (and `/macro brief`), `/eventrisk`, `/news`, `/funding`,
-`/fundingscan`, `/arb`, `/rwa`, the three website-card commands `/nft`,
-`/spot` and `/airdrops`, plus the operator's `/compliance` and
+`/fundingscan`, `/arb`, `/rwa`, the website-card commands `/nft`, `/spot`,
+`/airdrops`, `/venue_router` and `/meme_radar`, plus the operator's `/compliance` and
 `/readiness`, and the two helpers `/news` shares with the free-text
 intercept: the digest renderer and the held-symbol read. Read-only cards
 over macro, funding and news data; nothing here places an order. Their
@@ -19,7 +19,7 @@ reads them); it is declared below as a host staticmethod.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -50,6 +50,9 @@ class MarketCommands:
 
         @staticmethod
         def _link_hint(surface: str = "telegram") -> str: ...
+
+        @staticmethod
+        def _unlinked_hint(surface: str = "telegram") -> str: ...
 
         async def _send(self, update: Update, text: str,
                         reply_markup=None, edit: bool = False) -> None: ...
@@ -131,19 +134,55 @@ class MarketCommands:
         return await self._web_card_text("airdrops", surface=surface,
                                          telegram_id=str(user_id or ""))
 
-    async def _web_card_text(self, name: str, *, surface: str,
-                             telegram_id: str = "") -> str:
+    async def _web_card_text(self, name: str, surface: str,
+                             telegram_id: str = "", params: Optional[dict] = None) -> str:
         """Fetch one website card off the event loop (blocking urllib) and
-        hand it back as Telegram HTML; the channel not answering is said in
-        the transport's own words (`_link_hint`), never rendered as a card."""
+        hand it back as Telegram HTML. Three absences, three sentences: the
+        channel not answering is `_link_hint`, a caller the website could not
+        map to a web account is `_unlinked_hint`, and a card is the card —
+        never one of the first two rendered as the third. ``params`` are the
+        card's own arguments (`WEB_CARD_PARAMS`), a dict so the host contract
+        can declare the method."""
         import asyncio as _aio
 
-        from bot.utils.web_data_pull import fetch_web_card, web_card_text
-        payload = await _aio.to_thread(fetch_web_card, name, telegram_id)
+        from bot.utils.web_data_pull import fetch_web_card, web_card_text, web_card_unlinked
+        payload = await _aio.to_thread(fetch_web_card, name, telegram_id, **(params or {}))
+        if web_card_unlinked(payload):
+            return self._unlinked_hint(surface)
         text = web_card_text(payload)
         if text is None:
             return self._link_hint(surface)
         return text
+
+    @guard("venue_router")
+    async def _cmd_venue_router(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                                *, base: str = "") -> None:
+        """/venue_router [BASE] — the cheapest venue to hold a position on, by
+        funding cost, from the hourly cross-venue scan (read-only; nothing is
+        routed). The card is `venue_router_card_text`, the seam the routed
+        "best venue for BTC" renders on both surfaces; ``base`` is how the
+        free-text branch hands the asset in."""
+        args = getattr(ctx, "args", None) or []
+        want = str(base or (args[0] if args else "")).strip()
+        await self._send(update, await self.venue_router_card_text(want))
+
+    async def venue_router_card_text(self, base: str = "", *, surface: str = "telegram") -> str:
+        """The venue-router card — the website's own rendering, both surfaces;
+        ``base`` narrows it to one asset, '' is the top five."""
+        return await self._web_card_text("venue_router", surface=surface,
+                                         params={"base": base or ""})
+
+    @guard("meme_radar")
+    async def _cmd_meme_radar(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/meme_radar — the on-chain meme and AI-token snapshot with its
+        safety read (DEXScreener, read-only; nothing is bought and nothing is
+        launched). The card is `meme_radar_card_text`, the seam the routed
+        "meme radar" renders on both surfaces."""
+        await self._send(update, await self.meme_radar_card_text())
+
+    async def meme_radar_card_text(self, *, surface: str = "telegram") -> str:
+        """The meme radar card — the website's own rendering, both surfaces."""
+        return await self._web_card_text("meme_radar", surface=surface)
 
     async def _cmd_funding(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/funding [SYMBOL] — live funding rates for a perp across every

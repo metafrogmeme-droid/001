@@ -211,6 +211,12 @@ ROUTED_INTENT_SEAM = {
     "nft": "nft_card_text",
     "spot": "spot_card_text",
     "airdrops": "airdrops_card_text",
+    "replay": "replay_card_text",
+    "letter": "letter_card_text",
+    "venue_router": "venue_router_card_text",
+    "meme_radar": "meme_radar_card_text",
+    "wallet": "wallet_card_text",
+    "defi": "defi_card_text",
 }
 
 

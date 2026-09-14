@@ -15,6 +15,7 @@
  */
 
 const https = require('https');
+const { esc } = require('./esc');
 
 const API = 'https://api.opensea.io/api/v2';
 const RADAR_TTL_MS = 10 * 60_000;
@@ -139,7 +140,7 @@ async function nftChatCard() {
         : 'OpenSea is unreachable right now.') };
   }
   const rows = radar.entries.map(e =>
-    `• <b>${String(e.name).slice(0, 40)}</b> — floor ${e.floor_eth ?? '?'} ETH, `
+    `• <b>${esc(String(e.name).slice(0, 40))}</b> — floor ${e.floor_eth ?? '?'} ETH, `
     + `7d vol ${e.seven_day_volume != null ? Math.round(e.seven_day_volume) : '?'} ETH`);
   return { reply_html: ['🖼 <b>NFT radar</b> — top collections by real 7-day volume:',
     ...rows, `<i>${radar.disclaimer}</i>`].join('<br>') };

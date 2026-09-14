@@ -441,9 +441,7 @@ function __testResetEngineState() {
 
 // ── Chat handler ─────────────────────────────────────────────────────────────
 
-function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const { esc } = require('./esc');
 
 /**
  * If `text` is an alert command, handle it and return a chat-shaped reply

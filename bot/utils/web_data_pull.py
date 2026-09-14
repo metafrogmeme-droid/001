@@ -26,11 +26,30 @@ from bot.utils.credential_pull import _request, SYNC_SECRET  # reuse the channel
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 
 #: The website chat cards a Telegram command renders verbatim. A fixed tuple,
-#: not whatever a caller names: the route whitelists the same three, and a
-#: name outside it never reaches the wire.
-WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops")
+#: not whatever a caller names: the route whitelists the same nine, and a
+#: name outside it never reaches the wire. The last two are the caller's own
+#: wallet, so the route reads `telegram_id` for them and answers `unlinked`
+#: for a caller it cannot map to a web account.
+WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
+                              "venue_router", "meme_radar", "wallet", "defi")
+
+#: The one argument each of three cards takes — the intercept's own capture
+#: group, as a query parameter (`bot/nlp/web_card_args.py` reads it from the
+#: words). A card not listed takes none; a name not listed for a card raises
+#: at the call, because a seam handing a card an argument it does not take is
+#: a programming error and not a value to drop quietly.
+WEB_CARD_PARAMS: dict[str, tuple[str, ...]] = {
+    "replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
+}
 
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+#: Every tag Telegram's HTML parser renders that a website card uses. Any
+#: other tag is dropped and its text kept: the website's `<span class="muted">`
+#: would otherwise refuse the WHOLE message at Telegram, and the send
+#: chokepoint's fallback then strips every tag — the card arriving without
+#: its bold is a worse outcome than one muted line arriving plain.
+_TAG_RE = re.compile(r"</?([A-Za-z][A-Za-z0-9]*)[^<>]*>")
+_TELEGRAM_TAGS = frozenset({"b", "i", "code"})
 
 
 def fetch_exposure(telegram_id: str) -> dict | None:
@@ -59,22 +78,44 @@ def fetch_rwa() -> dict | None:
     return _request("/api/bot/sync/rwa")
 
 
-def fetch_web_card(name: str, telegram_id: str = "") -> dict | None:
+def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict | None:
     """One of the website chat's own cards (`WEB_CARDS`), as the website
-    renders it: ``{"reply_html", "intent"}``.
+    renders it: ``{"reply_html", "intent"}`` — or ``{"reply_html": None,
+    "unlinked": True}`` for a per-person card whose caller the website could
+    not map to a web account.
 
-    ``telegram_id`` is passed only so the airdrops card can add the caller's
-    wallet-readiness hints when their Telegram account is linked to a web
-    account; the website answers the public radar for anybody it cannot map.
+    ``telegram_id`` is passed for the cards with a per-person half: the
+    airdrops card adds the caller's wallet-readiness hints when their
+    Telegram account is linked to a web account and answers the public radar
+    otherwise; the wallet and DeFi cards ARE the caller's wallet and answer
+    `unlinked` instead. ``params`` are the card's own arguments
+    (`WEB_CARD_PARAMS`), sent when given and never defaulted here.
     None = channel unconfigured, name not a card, or the fetch failed — the
     command says which surface could not be read rather than inventing one.
     """
     if not SYNC_SECRET or name not in WEB_CARDS:
         return None
-    query = ""
+    allowed = WEB_CARD_PARAMS.get(name, ())
+    unknown = set(params) - set(allowed)
+    if unknown:
+        raise TypeError(f"the {name} card takes no {sorted(unknown)} argument")
+    parts = []
     if telegram_id:
-        query = "?telegram_id=" + urllib.parse.quote(str(telegram_id)[:32])
+        parts.append("telegram_id=" + urllib.parse.quote(str(telegram_id)[:32]))
+    for key in allowed:
+        value = params.get(key)
+        if value is None or not str(value).strip():
+            continue
+        parts.append(f"{key}=" + urllib.parse.quote(str(value).strip()[:32]))
+    query = ("?" + "&".join(parts)) if parts else ""
     return _request(f"/api/bot/sync/card/{name}{query}")
+
+
+def web_card_unlinked(payload: object) -> bool:
+    """True when the website answered that this caller maps to no web
+    account — a fact of its own, kept apart from a card and from a channel
+    that did not answer, because the three get three different sentences."""
+    return isinstance(payload, dict) and payload.get("unlinked") is True
 
 
 def web_card_text(payload: object) -> Optional[str]:
@@ -82,16 +123,20 @@ def web_card_text(payload: object) -> Optional[str]:
 
     The website's cards join their lines with ``<br>``, which Telegram's HTML
     parser rejects (the whole message fails to send); ``<b>``, ``<i>`` and
-    ``<code>`` it renders as the browser does, and the website uses nothing
-    else. A payload with no string ``reply_html`` — an error body, a proxy
-    page parsed as JSON, an older website — answers None, never an empty card.
+    ``<code>`` it renders as the browser does. Any other tag is dropped and
+    its text kept (`_TELEGRAM_TAGS`), so a card that grows a ``<span>`` on
+    the website arrives here without the span rather than not at all. A
+    payload with no string ``reply_html`` — an error body, a proxy page parsed
+    as JSON, an older website, the `unlinked` answer — answers None, never an
+    empty card.
     """
     if not isinstance(payload, dict):
         return None
     html = payload.get("reply_html")
     if not isinstance(html, str) or not html.strip():
         return None
-    return _BR_RE.sub("\n", html)
+    text = _BR_RE.sub("\n", html)
+    return _TAG_RE.sub(lambda m: m.group(0) if m.group(1).lower() in _TELEGRAM_TAGS else "", text)
 
 
 def fetch_onchain_flow() -> dict | None:

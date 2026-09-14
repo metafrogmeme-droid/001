@@ -50,6 +50,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
+from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
@@ -1135,6 +1136,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("nft", self._cmd_nft),
             ("spot", self._cmd_spot),
             ("airdrops", self._cmd_airdrops),
+            ("replay", self._cmd_replay),
+            ("letter", self._cmd_letter),
+            ("venue_router", self._cmd_venue_router),
+            ("meme_radar", self._cmd_meme_radar),
+            ("wallet", self._cmd_wallet),
+            ("defi", self._cmd_defi),
         ]:
             # Every slash command's turn reaches the transcript through this
             # one line — the command typed and what it replied — because a
@@ -3626,6 +3633,40 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("airdrops"))
                 return
+            # Six more of the website's cards, the same way. The three that
+            # take an argument read it from the words with the intercept's
+            # own reader (`bot/nlp/web_card_args.py`), so "best venue for
+            # BTC" narrows here exactly as it does there.
+            if intent.skill == "replay":
+                await self._cmd_replay(update, ctx, stake=replay_stake(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("replay"))
+                return
+            if intent.skill == "letter":
+                await self._cmd_letter(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("letter"))
+                return
+            if intent.skill == "venue_router":
+                await self._cmd_venue_router(update, ctx, base=venue_base(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("venue_router"))
+                return
+            if intent.skill == "meme_radar":
+                await self._cmd_meme_radar(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("meme_radar"))
+                return
+            if intent.skill == "wallet":
+                await self._cmd_wallet(update, ctx, chain=wallet_chain(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("wallet"))
+                return
+            if intent.skill == "defi":
+                await self._cmd_defi(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("defi"))
+                return
 
             # ── The reads only the website answers → a door, never a narrator ──
             # "replay every signal with $1k" ran a synthetic backtest here and
@@ -4711,6 +4752,25 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "
                       "set it up and /link your account, then try again.")
+
+    @staticmethod
+    def _unlinked_hint(surface: str = "telegram") -> str:
+        """The sentence for a caller the website could not map to a web
+        account — a different fact from a channel that did not answer, and
+        the route says which (`unlinked`), so the two are never one hedged
+        sentence. Telegram names `/link`, because there an unmapped caller
+        is one who has not linked. A web caller is mapped by construction —
+        the website resolved the identity itself, their linked Telegram id
+        or `web:<uid>` — so `unlinked` there means the website found no
+        account for its own identity, and the sentence says that: "not
+        linked" is a Telegram fact and would be false on the web. Neither
+        claims a wallet was read."""
+        if surface == "web":
+            return ("\U0001f517 The website could not map this chat to a web account, so "
+                    "there is no wallet to read. Nothing was read.")
+        return ("\U0001f517 Your Telegram account is not linked to a RUNECLAW web "
+                "account, so there is no wallet to read from here — /link it "
+                "first, then try again. Nothing was read.")
 
     @staticmethod
     def _link_hint(surface: str = "telegram") -> str:
