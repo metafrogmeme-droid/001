@@ -61,9 +61,21 @@ def is_profit_locking_stop(
 # price_drift / stale_pending, all $0 PnL) among 292 "trades", diluting the
 # headline win rate from ~48% of real fills down to 36%. Performance stats
 # must exclude them; trade-history views may still show them.
+#
+# THE ONE DEFINITION. Three modules each held a copy of this set and each
+# called itself the definition — this one, `trade_filter.NON_TRADE_CLOSE_
+# REASONS` (the cards') and `live_stats.NON_TRADE_REASONS` (the win rate's)
+# — and they differed by three words. `live_executor` writes `close_reason =
+# order_status` for canceled / cancelled / rejected / expired, so `rejected`
+# is a real non-fill this set did not know and `is_filled_close` counted; and
+# it books `stale_pending` and `duplicate_fill_suppressed`, which the other
+# two did not know, so those rows counted as trades on every card that read
+# them. The other two names are this object now, and the guard reads every
+# reason the executor writes for a never-filled order out of its source and
+# checks each is here — a writer and a reader that agree by construction.
 NON_FILL_CLOSE_REASONS = frozenset({
-    "expired", "canceled", "cancelled", "price_drift", "stale_pending",
-    "duplicate_fill_suppressed",
+    "expired", "canceled", "cancelled", "rejected", "price_drift",
+    "stale_pending", "duplicate_fill_suppressed",
 })
 
 

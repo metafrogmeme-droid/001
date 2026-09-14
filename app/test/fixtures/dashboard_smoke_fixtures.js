@@ -34,12 +34,37 @@ module.exports = [
   ['/api/portfolio', { mode: 'PAPER', equity: 10000, start_equity: 10000, total_pnl: 12.5, total_pnl_pct: 0.125,
     daily_pnl: 1.5, daily_pnl_pct: 0.015, win_rate: 0.55, trades: 20, live_unavailable: false,
     open_positions: [{ symbol: 'BTC/USDT', direction: 'LONG', entry_price: 60000, current_price: 60500, size_usd: 100, pnl: 0.83, pnl_pct: 0.83, stop_loss: 59000, take_profit: 63000, opened_at: '2026-09-02T00:00:00Z' }],
-    closed_trades: [], recent: [] }],
+    closed_trades: [], recent: [],
+    // Per-figure provenance and the bot's own stamp, exactly as the gateway
+    // branch of routes/portfolio.js publishes them. The metric cluster
+    // THROWS on a payload that names no source (a labelled dash would claim
+    // we looked), so a fixture without these lands in the generic error
+    // state and the smoke fails — which is the fixture drifting from the
+    // route, and the right answer.
+    updated_at: new Date().toISOString(),
+    provenance: { equity: 'gateway', open_positions: 'gateway', daily_pnl: 'gateway' },
+    as_of: { equity: new Date().toISOString(), open_positions: new Date().toISOString(), daily_pnl: new Date().toISOString() } }],
   // The server always sends these (routes/arena.js builds positions and
   // limits before it answers); an empty body is a shape it never produces.
   ['/api/arena/account', { start_balance: 10000, balance: 10000, equity: 10000, return_pct: 0,
     limits: { min_margin: 5, max_leverage: 20, max_open: 5 }, positions: [], trades: [], follow: false }],
   ['/api/market/tickers', { data: tickers, updated_at: new Date().toISOString() }],
+  // The positions payload as routes/positions.js relays it from the bot:
+  // `book_read` says the book was READ (the instrument row's empty state is
+  // reachable only then), and one live row with a stop on the exchange so
+  // the row's populated branch — mark, move, R, sparkline — renders in a
+  // real browser rather than only its empty state.
+  ['/api/positions', { live: true, read_only: true, book_read: true, count: 1, protected_count: 1, unprotected_count: 0, unknown_count: 0,
+    updated_at: new Date().toISOString(),
+    positions: [{ symbol: 'BTC/USDT:USDT', pair: 'BTC', direction: 'LONG', entry_price: 59000, stop_loss: 57000, take_profit: 64000,
+      sl_dist_pct: 3.39, tp_dist_pct: 8.47, size_usd: 100, leverage: 5, quantity: 0.01, sl_order: 'exchange', tp_order: 'exchange',
+      sl_protected: true, tp_protected: true, unprotected: false, sl_unknown: false, strategy_type: 'swing', opened_at: '2026-09-02T00:00:00Z' }] }],
+  // Bitget candle rows ([ts, open, high, low, close, ...]) for the sparkline:
+  // 24 hourly closes that move, so a line is drawn rather than words.
+  ['/api/market/candles', { code: '00000', data: Array.from({ length: 24 }, (_, i) => {
+    const c = 59000 + Math.round(400 * Math.sin(i / 3));
+    return [String(1757800000000 + i * 3600000), String(c - 50), String(c + 120), String(c - 130), String(c), '10', '600000'];
+  }) }],
   ['/api/reputation', { score: null, grade: null, unrated: true,
     subscores: { performance: null, risk_discipline: null, cost_efficiency: null, consistency: null },
     metrics: { trades: 0, win_rate: null, profit_factor: null, expectancy_r: null, max_drawdown_pct: null, fee_drag_pct: null },

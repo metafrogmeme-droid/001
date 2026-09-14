@@ -178,6 +178,32 @@ _ACT_WORDING: dict[str, dict[str, str]] = {
 }
 
 
+_TELEGRAM_CLOSE_DOOR = ("To CLOSE a position or CANCEL a pending order: open it on the "
+                        "positions card and tap Close or Cancel.")
+_WEB_CLOSE_DOOR = ("To CLOSE a position or CANCEL a pending order: that is done from "
+                   "the positions card in the Telegram bot — open it there and tap "
+                   "Close or Cancel; nothing in this web chat can.")
+
+
+def cannot_act_rule(surface: str = "telegram") -> str:
+    """`_CHAT_CANNOT_ACT_RULE` with the close/cancel door named for THIS
+    surface.
+
+    The constant says "open it on the positions card and tap Close or
+    Cancel" — Telegram's door, on a page that has no such card: the web has
+    the trade ticket and the 'Trade this' button (both named) and no chat
+    door for closing, and `act_intent_notice` already sends a web caller to
+    "the positions card in Telegram". The prompt rule and the routed notice
+    now name the same door, which is the reason the notice was one function.
+    Asserted rather than searched, so a reworded constant fails here instead
+    of silently shipping the Telegram sentence to the web again.
+    """
+    if surface != "web":
+        return _CHAT_CANNOT_ACT_RULE
+    assert _TELEGRAM_CLOSE_DOOR in _CHAT_CANNOT_ACT_RULE, "the close door moved"
+    return _CHAT_CANNOT_ACT_RULE.replace(_TELEGRAM_CLOSE_DOOR, _WEB_CLOSE_DOOR)
+
+
 def act_intent_notice(kind: str, symbol: str | None = None,
                       surface: str = "telegram", *, also_asked: bool = False) -> str:
     """What a routed request to act is told, on both surfaces.
@@ -387,8 +413,8 @@ _CHAT_TOOLS_RULE = (
     "- You have TOOLS in this conversation (they are listed in the API tool "
     "definitions). When the answer depends on the user's account, positions, "
     "open or pending orders, PnL, risk state, costs, the macro calendar, what "
-    "is moving, or why a trade was rejected, CALL the tool and answer from "
-    "what it returns. A "
+    "is moving, or why a trade was rejected, and a tool offered on this turn "
+    "reads it, CALL the tool and answer from what it returns. A "
     "tool's output is a measurement; your memory of an earlier turn is not — "
     "positions close and prices move. Earlier assistant turns may contain "
     "blocks like '[get_portfolio] result: ...': those were written by the "
@@ -404,6 +430,33 @@ _CHAT_TOOLS_RULE = (
     "backtest, a deep scan — is not a tool here; tell the user to ask for "
     "it directly, e.g. 'analyze BTC'.\n\n"
 )
+
+
+def tools_rule_for(offered) -> str:
+    """The tools rule for ONE turn: `_CHAT_TOOLS_RULE` plus the names that
+    are actually attached, or the no-tools rule when none is.
+
+    `_CHAT_TOOLS_RULE` lists subjects — costs, the macro calendar, why a
+    trade was rejected — as though every caller held a tool for each, while
+    `tools_for()` filters the catalogue per role, tier and surface. A viewer
+    with three tools was told to CALL one for a subject none of them read,
+    which is an instruction to invent the call or its answer. The rule now
+    carries the offered names, so "not offered" is something the model can
+    read rather than discover by trying.
+
+    Empty means the no-tools rule, which is what a turn with nothing attached
+    IS — the vision path attaches images instead of tools and used to keep
+    the tools rule anyway (see `_llm_chat`).
+    """
+    names = sorted({str(n) for n in (offered or ()) if n})
+    if not names:
+        return _CHAT_NO_TOOLS_RULE
+    # Appended as its own rule line, so `_CHAT_TOOLS_RULE` itself stays a
+    # verbatim substring of the prompt and every pin on it still holds.
+    return (_CHAT_TOOLS_RULE
+            + "- The tools offered on THIS turn are: " + ", ".join(names)
+            + ". A subject none of them reads cannot be measured from here — "
+            "say so rather than guessing.\n\n")
 
 
 #: THE RESPONSE CONTRACT FOR ONE TURN, and the rule is the one
@@ -683,6 +736,43 @@ class TelegramStream:
             except Exception as exc:
                 logger.debug("telegram stream final edit failed: %s", exc)
                 return False
+
+    async def retract(self) -> str:
+        """Take the provisional message off the screen when `finish` could
+        not turn it into the answer.
+
+        `finish` declines a dead stream and an answer over 4000 characters,
+        and the caller then sends the checked answer as a fresh message — so
+        the message this class had been editing stayed exactly as its last
+        edit left it: the model's RAW output, before `_chat_ret` checked it
+        for a fabricated tool result or a wrong risk:reward, with a caret on
+        the end. The one reply nobody had checked was the one that stayed on
+        screen, directly above the checked one. Deleted when Telegram allows
+        it, edited down to an ellipsis when it does not (a message the user
+        already deleted fails both, and then there is nothing left to show).
+
+        Returns what happened — ``deleted`` / ``edited`` / ``failed`` /
+        ``nothing`` (no provisional message was ever sent) — so the caller
+        can log a screen it could not clean rather than assume it did.
+        """
+        if self.message is None:
+            return "nothing"
+        delete = getattr(self.message, "delete", None)
+        if callable(delete):
+            try:
+                await delete()
+                return "deleted"
+            except Exception as exc:
+                logger.debug("telegram stream retract delete failed: %s", exc)
+        try:
+            # Through the seam like every other edit here: an ellipsis carries
+            # nothing to scrub, and a guard that admits one exception is a
+            # guard with a second thing to remember.
+            await self.message.edit_text(reply_safe("…"), parse_mode=None)
+            return "edited"
+        except Exception as exc:
+            logger.debug("telegram stream retract edit failed: %s", exc)
+            return "failed"
 
 
 def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None):

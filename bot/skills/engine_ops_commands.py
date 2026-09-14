@@ -26,7 +26,7 @@ chokepoint for a failed operator call).
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -79,7 +79,7 @@ def _each_executor(engine):
             yield ex
 
 
-def _r_tag(r) -> str:
+def _r_tag(r, reason: Optional[str] = None) -> str:
     """One trade's R, or a mark that it has none. Never a formatted `None`.
 
     A journal entry carries `r_multiple = None` when the close had no stop on
@@ -89,6 +89,8 @@ def _r_tag(r) -> str:
     invented from `pnl / entry_price`.
     """
     if r is None:
+        if reason == "no_quantity":
+            return "R unknown — size not on record (journaled before sizes were)"
         return "R unknown — no stop on record"
     try:
         return f"{float(r):.1f}R"
@@ -1139,10 +1141,10 @@ class EngineOpsCommands:
                 "",
                 f"\U0001f3c6 Best: {review['best_trade']['symbol']} "
                 f"${review['best_trade']['pnl']:+.2f} "
-                f"({_r_tag(review['best_trade']['r'])})",
+                f"({_r_tag(review['best_trade']['r'], review['best_trade'].get('r_reason'))})",
                 f"\U0001f4a9 Worst: {review['worst_trade']['symbol']} "
                 f"${review['worst_trade']['pnl']:+.2f} "
-                f"({_r_tag(review['worst_trade']['r'])})",
+                f"({_r_tag(review['worst_trade']['r'], review['worst_trade'].get('r_reason'))})",
             ]
 
             # Top lessons

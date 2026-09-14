@@ -26,9 +26,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const http = require('node:http');
 const vm = require('node:vm');
-const express = require('express');
 
 const APP = path.join(__dirname, '..');
 const SRC = fs.readFileSync(path.join(APP, 'public', 'js', 'dashboard.js'), 'utf8');
@@ -72,49 +70,13 @@ test('all three renderers read it — none rebuilds the claim', () => {
     'no renderer re-derives LIVE from the raw payload');
 });
 
-// ── the payload ────────────────────────────────────────────────────────────
-
-function server({ configured = true, status = 200, throws = false } = {}) {
-  const pool = {
-    execute: async (sql) => {
-      if (/FROM equity_snapshots/.test(sql)) return [[{ equity: '1234.50', snapshot_at: new Date() }]];
-      if (/status = 'OPEN'/.test(sql)) return [[]];
-      return [[]];
-    },
-  };
-  const dbPath = require.resolve(path.join(APP, 'db.js'));
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { pool } };
-  const authPath = require.resolve(path.join(APP, 'auth.js'));
-  require.cache[authPath] = { id: authPath, filename: authPath, loaded: true,
-    exports: { authMiddleware: (req, _res, next) => { req.user = { user_id: 7, email: 'u@test.io' }; next(); } } };
-  const gwPath = require.resolve(path.join(APP, 'lib', 'gateway.js'));
-  require.cache[gwPath] = { id: gwPath, filename: gwPath, loaded: true, exports: {
-    isConfigured: () => configured,
-    getGateway: async () => { if (throws) throw new Error('socket hang up'); return { status, data: {} }; },
-  } };
-  const idPath = require.resolve(path.join(APP, 'lib', 'identity.js'));
-  require.cache[idPath] = { id: idPath, filename: idPath, loaded: true, exports: {
-    resolveBotIdentity: async () => ({ id: '7', linked: true }),
-  } };
-  delete require.cache[require.resolve(path.join(APP, 'routes', 'portfolio.js'))];
-  const app = express();
-  app.use(express.json());
-  app.use('/api/portfolio', require(path.join(APP, 'routes', 'portfolio.js')));
-  return http.createServer(app);
-}
-
-function get(opts) {
-  return new Promise((resolve, reject) => {
-    const s = server(opts);
-    s.listen(0, '127.0.0.1', () => {
-      http.get({ port: s.address().port, path: '/api/portfolio' }, (res) => {
-        let b = '';
-        res.on('data', (d) => { b += d; });
-        res.on('end', () => { s.close(); resolve({ status: res.statusCode, body: JSON.parse(b || '{}') }); });
-      }).on('error', (e) => { s.close(); reject(e); });
-    });
-  });
-}
+// ── the payload ───────────────────────────────────────────────────────────
+// The PER-USER path: BOT_USER_ID is somebody else, the caller is user 7 and
+// the mode comes back through the gateway. One harness for every suite that
+// drives this route — see helpers/portfolio_route.js.
+const { get: getRoute } = require('./helpers/portfolio_route');
+const get = ({ configured = true, status = 200, throws = false } = {}) =>
+  getRoute({ operator: false, equity: '1234.50', gateway: { configured, status, throws, data: {} } });
 
 test('a gateway that answered non-200 leaves the mode unknown', async () => {
   const { body } = await get({ status: 503 });

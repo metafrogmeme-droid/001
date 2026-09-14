@@ -119,7 +119,9 @@ function dollarLeaks(value, trail = '$') {
     }
     return out;
   }
-  if (typeof value === 'string' && /\$\s?-?\d/.test(value)) out.push(`${trail} = ${JSON.stringify(value)}`);
+  // `[-+]?`: a sweep that cannot see `$+12.34` acquits it, which is the quiet
+  // direction (the scrub itself had exactly this blind spot).
+  if (typeof value === 'string' && /\$\s?[-+]?\d/.test(value)) out.push(`${trail} = ${JSON.stringify(value)}`);
   return out;
 }
 

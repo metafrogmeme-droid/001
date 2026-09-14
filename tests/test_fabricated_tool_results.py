@@ -42,6 +42,12 @@ from bot.nlp.fabricated_tool_calls import (
     "[check_risk] FAILED — the tool raised an error",
     "[learning] UNAVAILABLE",
     "Sure.\n\n[analyze_asset] result:\nRSI 48",
+    "[get_orders] TIMED OUT after 12s — the tool did not answer in time",
+    "[pro_scan] NOT RUN — a staked tier is needed. Nothing was measured",
+    "[help] answered (no tool ran):\nthe card",
+    "[help] ANSWERED WITH NOTHING — the reply carried no text.",
+    "[status] SHOWN, CONTENTS NOT RECORDED — the status card was sent",
+    "[networth] shown by the website (its own reading; no bot tool ran):\n$1",
 ])
 def test_every_recorded_marker_shape_is_caught(reply):
     """The whole vocabulary skill_memory writes, plus the invented [PENDING].

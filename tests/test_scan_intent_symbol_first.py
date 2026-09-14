@@ -81,7 +81,9 @@ class TestSymbolFirstScanRouting:
         for text, want in [
             ("deep scan", "scan_deep"),
             ("full scan", "scan_full"),
-            ("quick scan", "scan_scalp"),
+            # "quick" is how fast the answer is wanted, not a 5-minute
+            # timeframe: the movers table, not the scalp ladder.
+            ("quick scan", "scan_market"),
             ("market scan", "scan_market"),
             ("swing scan", "scan_swing"),
             ("intraday scan", "scan_intraday"),

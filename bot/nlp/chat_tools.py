@@ -331,6 +331,10 @@ def _normalise_symbol(raw) -> Optional[str]:
     Runs the same strict validator the intent router uses so a model-supplied
     string can never reach CCXT unchecked."""
     s = str(raw or "").strip().upper().replace("$", "")
+    # `HYPE/USDT:USDT` is how ACTIVE POSITIONS prints a perpetual, and a model
+    # that copies it verbatim used to be refused ("not a symbol I can look
+    # up") for the one spelling the evidence itself taught it.
+    s = s.split(":", 1)[0]
     if not s:
         return None
     if "/" not in s:
@@ -411,9 +415,9 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
             skill.execute(handler.engine, user_id=user_id, **kwargs),
             timeout=max(1.0, float(timeout)))
     except asyncio.TimeoutError:
-        text = (f"[{name}] TIMED OUT after {int(timeout)}s — the tool did not "
-                "answer in time and returned no result. Nothing was measured.")
-        _remember(conversations, user_id, text,
+        text = (f"TIMED OUT after {int(timeout)}s — the tool did not answer "
+                "in time and returned no result. Nothing was measured.")
+        _remember(conversations, user_id, f"[{name}] {text}",
                   {"skill": name, "surface": surface, "via": "tool_call",
                    "timed_out": True})
         audit(system_log, f"Chat tool timed out: {name}",
@@ -440,11 +444,29 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
     # Hand the model the plain-text body the store recorded (tags to spaces,
     # entities unescaped, truncation announced) minus the memory prefix.
     _prefix, _, body = record.partition("\n")
-    if body:
-        if "TRUNCATED" in _prefix:
-            return f"{_prefix}\n{body}"
+    if body and "TRUNCATED" not in _prefix:
         return body
-    return record
+    return _for_the_model(record)
+
+
+def _for_the_model(record: str) -> str:
+    """A memory record as the MODEL may read it: the same words minus the
+    ``[name]`` marker that opens every record.
+
+    The marker is what `fabricated_tool_calls` polices in the model's reply,
+    on the argument that the runtime writes it into HISTORY and never hands
+    it to the model. That argument was false for two outcomes: a truncated
+    result went back as ``[scan_market] result (TRUNCATED — …)`` and a timeout
+    as ``[get_orders] TIMED OUT …``, so a model that quoted its own evidence
+    faithfully — "the scan timed out", copied from the line it was given —
+    had that sentence struck out as an invention, and the refusal put in its
+    place said no tool had run. The evidence keeps every word; only the
+    marker stays behind in the store.
+    """
+    head, sep, rest = record.partition("] ")
+    if not sep or not head.startswith("["):
+        return record
+    return rest.replace("result (TRUNCATED", "(TRUNCATED", 1)
 
 
 def _remember(conversations, user_id: str, text: str, metadata: dict) -> None:

@@ -111,6 +111,45 @@ test('every dashboard view renders in Chromium without a runtime error', SKIP ? 
   assert.deepStrictEqual(errors, [], 'runtime errors while rendering the dashboard:\n  ' + errors.join('\n  '));
 });
 
+// REACHABILITY, which no source scan can see. The home shell is a template
+// string, and `${LOGGED_IN ? \`<section id="p-metrics">…\` : ''}` mutated to
+// `${false ? …}` keeps the id in the SOURCE, in order, so every scan that
+// pins the deck's panel order stays green while the browser renders nothing
+// there. This asks the DOM: the deck's account panels exist, in the order the
+// layout guards pin, and each holds its RENDERED component rather than the
+// skeleton or the error state.
+test('the signed-in home renders the deck\'s account panels, in order, each with its component', SKIP ? { skip: SKIP } : {}, async () => {
+  const { server, base } = await serve();
+  const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.addCookies([{ name: 'rc_auth', value: '1', url: base }]);
+    await ctx.route('**/api/**', (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtureFor(u.pathname)) });
+    });
+    await ctx.route('**/api/stream*', (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': ok\n\n' }));
+    await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
+    const page = await ctx.newPage();
+    await page.goto(`${base}/dashboard#home`, { waitUntil: 'load' });
+    await page.waitForSelector('#c-metrics .mcl', { timeout: 8000 });
+    const seen = await page.$$eval('.stack > section.panel[id]', (els) => els.map((e) => e.id));
+    const deck = ['p-mode', 'p-hero', 'p-metrics', 'p-cmd'];
+    assert.deepStrictEqual(seen.filter((id) => deck.includes(id)), deck, `deck panels in DOM order; saw ${seen.join(', ')}`);
+    assert.ok(await page.$('#c-mode .ms-strip'), 'the status strip rendered');
+    assert.ok(await page.$('#c-metrics .mcl'), 'the metric cluster rendered');
+    assert.strictEqual(await page.$('#c-metrics .skel'), null, 'the cluster is past its skeleton');
+    assert.strictEqual(await page.$('#c-metrics .state-block'), null, 'the cluster is not in an error state');
+    // And the cluster read the fixture: three cells, a figure in each.
+    const cells = await page.$$eval('#c-metrics .v', (els) => els.map((e) => e.textContent.trim()));
+    assert.strictEqual(cells.length, 3, `three cells, saw ${JSON.stringify(cells)}`);
+    assert.ok(cells.every((t) => /\d/.test(t)), `every cell shows a figure: ${JSON.stringify(cells)}`);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+});
+
 test('the smoke reports itself as SKIPPED, never as passed, when it cannot run', () => {
   // A skip is visible in TAP as "# SKIP <reason>"; this test exists so the
   // reason is printed even when the run above is skipped.

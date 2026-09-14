@@ -65,9 +65,22 @@ def test_no_producer_falls_back_to_the_entry_price(pattern, label):
 
 def test_the_producers_still_read_the_price_at_all():
     """A derived guard that stops matching passes vacuously. If these lookups
-    vanished entirely the test above would pass while nothing worked."""
-    assert "_last_prices.get(pos.asset)" in TH
+    vanished entirely the test above would pass while nothing worked.
+
+    The paper row's mark comes through ``_paper_mark_of`` now — the chat's
+    evidence carries the mark's AGE, so the lookup moved into a seam that
+    answers ``(mark, age)`` — and a pin on the old ``_last_prices.get(...)``
+    spelling failed the day it moved. The seam is DRIVEN instead: a book that
+    never priced the asset answers None, never the entry."""
+    assert "_paper_mark_of(user_portfolio, pos.asset)" in TH
     assert "live_prices.get(pos.symbol)" in SR
+    from types import SimpleNamespace as NS
+
+    from bot.skills.telegram_handler import _paper_mark_of
+    book = NS(_last_prices={"ETH/USDT": 3000.0})
+    assert _paper_mark_of(book, "ETH/USDT") == (3000.0, None)
+    assert _paper_mark_of(book, "BTC/USDT") == (None, None), (
+        "a missing price is None, not the entry — and not a zero")
 
 
 # ── the renderers do the right thing once they can see a None ────────────────

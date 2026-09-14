@@ -405,11 +405,58 @@ class ConversationStore:
         if self._persist_path:
             self._persist_summary(user_id, note, written)
 
-    def clear_user(self, user_id: str) -> None:
-        """Clear all conversation history for a user."""
+    def clear_user(self, user_id: str) -> bool:
+        """Erase everything held for one user — in memory AND in the file
+        memory is reloaded from. True when anything was held.
+
+        The JSONL is append-only and `_load` replays it on the next boot, so
+        popping the in-memory rows alone was a deletion that lasted until the
+        next restart — and `handle_account_purge` did not even do that: this
+        method had no caller outside a test, so a purged account's whole
+        chat history, its rolling summary and its "last discussed" recall
+        came back with the process. The file is rewritten without the user's
+        rows, and an OSError there PROPAGATES: a purge that could not reach
+        the disk must say so, not report the memory half as the whole.
+
+        The rewrite runs under the lock; `append` persists its row outside
+        it, so a row another user appends in the microseconds between the
+        read and the replace can be lost — the window `_maybe_compact` has
+        always had, and a chat message, never a credential.
+        """
         with self._lock:
-            self._conversations.pop(user_id, None)
-            self._user_contexts.pop(user_id, None)
+            had_rows = self._conversations.pop(user_id, None) is not None
+            had_ctx = self._user_contexts.pop(user_id, None) is not None
+            had_disk = self._forget_on_disk(user_id)
+        return had_rows or had_ctx or had_disk
+
+    def _forget_on_disk(self, user_id: str) -> bool:
+        """Rewrite the JSONL without one user's rows. True when any were there.
+
+        A line that does not parse as one of this store's rows is kept as it
+        is: it is not evidence about the user, and dropping it would make a
+        deletion into a repair. Raises on a disk fault, for `clear_user`'s
+        reason.
+        """
+        if not self._persist_path or not self._persist_path.exists():
+            return False
+        with open(self._persist_path) as f:
+            lines = f.readlines()
+        kept: list[str] = []
+        dropped = 0
+        for line in lines:
+            try:
+                owner = json.loads(line).get("user_id")
+            except (ValueError, AttributeError):
+                kept.append(line)
+                continue
+            if str(owner) == str(user_id):
+                dropped += 1
+            else:
+                kept.append(line)
+        if not dropped:
+            return False
+        atomic_write_text(self._persist_path, "".join(kept))
+        return True
 
     def clear_all(self) -> None:
         """Clear all conversation data."""

@@ -634,12 +634,12 @@ the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
 replaced a false refusal with a mostly-false answer**: `_cmd_help` names 91 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 79 of the 91 reach the tool-less chat model and 12
+typed as the card prints them, 82 of the 91 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
 hint's scale, and the signed-in prompt forbids the model from suggesting slash
-commands, so the 79 land on a model told not to give the answer the card just
+commands, so the 82 land on a model told not to give the answer the card just
 gave. The answer is what this caller can ASK FOR, in words, from `SKILL_SAYS` —
 a COLUMN on the permission table rather than a map in the renderer, because a
 map elsewhere is the `/setllm` ten-of-eleven shape and a skill added later would
@@ -852,10 +852,12 @@ unioned the static `CHAT_TOOLS` tuple, while the catalogue the model is
 actually offered is `_chat_tools_for` — the only thing `_llm_chat` reads —
 which applies two filters the tuple knows nothing about
 (`CONFIG.llm.chat_tools_enabled`, `registry.get(name) is not None`) plus a bare
-`except: return []`. Four rows have no router rule at all, so a chat tool is
-their ONLY door: driven with chat tools switched off, the model held zero tools
-and the card still offered `proposals`, `rejected_trades`, `check_event_risk`
-and `macro_brief` under "Ask me in your own words". Both call sites pass the
+`except: return []`. Two rows have no router rule at all today — `proposals`
+and `rejected_trades`; it was four until `check_event_risk` and `macro_brief`
+gained rules of their own with the macro shorthand — so a chat tool is their
+ONLY door: driven with chat tools switched off, the model held zero tools and
+the card still offered `proposals`, `rejected_trades`, `check_event_risk` and
+`macro_brief` under "Ask me in your own words". Both call sites pass the
 caller's real catalogue now; `tools=None` means *no caller* — the question is
 what the PRODUCT does — and is right only for the signed-out card.
 
@@ -1840,6 +1842,36 @@ Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.
 
+**A scrub pattern that allows a minus sign and not a plus redacts every loss
+and publishes every gain.** `app/lib/flight.js`'s `DOLLAR_TEXT` was
+`/\$\s?-?\d…/`, and the scan payload's daily-loss chip printed
+`Daily PnL: $+12.34` — Python's `:+.2f` — so on the anonymous
+`GET /api/bot/sync/scan` a losing day read `Daily PnL: ⋯` and a winning day
+read the dollars, verbatim. Driven, `scrub({label: 'Daily PnL: $+12.34'})`
+came back unchanged beside a redacted `$-5.00`. The producer prints the RATIO
+the cap is on now (percent is public by the rule above), the scrub knows both
+signs as the backstop, and the test helper that sweeps payloads for dollar
+figures had the same blind spot — a sweep that cannot see `$+` acquits it.
+
+**The same payload was publishing the venue's error text on that route.** The
+gate chip called `entry_gate(engine)` with its default `include_detail=True`,
+whose venue-auth reason appends the credential preflight's exception — host
+and path — under a docstring that says why the public form exists
+("Scrubbed is not the same as public"). `/health` asked for the public form;
+the scan payload, on an equally unauthenticated route, did not. Coverage of a
+REDACTOR is not coverage of every caller that could have asked for less.
+
+**And the chip beside it printed the PAPER book's daily P&L next to the LIVE
+equity.** `state.daily_pnl` off `engine.portfolio`, which live fills never
+touch (`risk_engine.py`'s DAILY_LOSS check says so and reads its own live
+accumulator instead), so in live mode the chip said `$+0.00` — a flat day on
+an account that may have lost 4%. `RiskEngine.live_daily_pnl_today()` is the
+reading, and writing it found that the accumulator's UTC-day rollover ran on
+the next CLOSE: a reader at 00:30 UTC before the first close would have been
+handed yesterday's total under today's name. The day rule is one method with
+four callers now, and the chip says "realized" because that is all the
+accumulator holds.
+
 ## A URL is a surface, and a slash in a path segment does not survive a hop
 
 **Every symbol this product names has a slash in it, and two panels sent the
@@ -1963,6 +1995,138 @@ whichever scans predate the fix for it.
 Prefer exercising a property over matching text: run the function, drive the
 failure, assert the outcome. Source matching is for shapes a unit test cannot
 reach (a guard being *reached* at every call site, a cap being configurable).
+
+**A translation guard that resolves through the fallback cannot see a missing
+translation.** `i18n.translate(key, lang)` ends `return e.en != null ? e.en :
+null`, so a key that exists in one language answers English for the other
+thirteen, and a guard written as `translate(key, code)` non-empty detects only
+a wholly-missing key. The deck study's status-strip design credited its
+mutation table with "forgetting 13 translations fails test 9", and driven,
+`translate('dd.err_panel', 'zz')` came back "Couldn't load this panel." — the
+kill it claimed belonged to `i18n.test.js`'s sweep of `STRINGS`, not to the
+test that said so. Read `i18n.STRINGS[key][code]`, the convention
+`panel_failure_honesty.test.js` already uses, and the stated mutation dies
+where it is claimed to.
+
+**Three panels reading one endpoint is three answers to one question.** The
+home view resolved the trading mode from up to three `/api/portfolio`
+responses — the hero's forced fetch, the command bar's cached-or-fetched one,
+and the topbar chip fed by whichever won — behind a limiter of thirty a
+minute, so a gateway blip between them printed LIVE one panel above MODE ?.
+`renderHome` makes one read and every consumer takes it; the component that
+CLAIMS the mode (the strip) reads it strictly and the ones that print figures
+keep their stale-beats-blank, because those are different questions.
+
+**A flag that answers a different question on every branch cannot be read as
+one flag, and the client was reading `stale` as "memory".** `/api/portfolio`
+sends `stale` as the equity ROW's age on the operator path, `false` by
+construction on the gateway path, and `false` stamped over a `dbFallback`
+payload on a site with no gateway configured — correctly, since there it
+describes the DEPLOYMENT — so a client inferring "the last thing this site
+stored" from it printed months-old rows as a reading of now on a deployment
+whose gateway secret had been rotated away, and called a seconds-old
+scan-cache balance a memory whenever the snapshot row beside it was old. The
+route names the source PER FIGURE now (`provenance`, one closed vocabulary
+across the three branches) with `as_of` as the figure's own time or null,
+and `metric-cluster-model.js` decides a cell's state from nothing else: read,
+synced, memory (under a band that says so), unread (a dash WITH its reason),
+or no cell at all — a labelled dash for a figure the payload never carries
+claims we looked. `as_of` is never the request clock: a gateway payload
+without the bot's stamp carries no age, because "now" manufactured for a
+figure nobody dated is the `fmtAgo(0)` shape in a new spelling.
+
+**Two things in the first draft were removed rather than tested.** A reason
+sentence — "no trading bot on this deployment" — reachable only through a
+snapshot row whose equity would not parse on an unconfigured site, where it
+would have been the wrong reason; and a `record` provenance field written on
+every branch and read by nothing (the fifth granularity with the arrow the
+other way). A sentence no payload produces is a door painted on a wall, and
+a field nobody reads is one the next reader will trust because it is there.
+"just now" was taken out of the gateway's source sentence for the same
+reason the age exists: a line reading *read from the bot just now · 3m ago*
+is two answers about one figure.
+
+**Every cell unread WITH its reason is a reading, and the draft threw on it.**
+The renderer throws for a payload that names no source — an older server, a
+junk body — because a row of bare dashes claims we looked; the first draft
+also threw when every figure was unread, which painted *Couldn't load this
+panel* over an account whose honest answer was "nothing stored for this
+account yet", three times. An error state manufactured from a true reading is
+the failed-read-as-empty defect with the sign flipped.
+
+**A source scan cannot see `${false ? …}`, and neither could the strip's
+guard.** Both deck panels are mounted by a template string under
+`${LOGGED_IN ? …}`, and mutating that to `${false ? …}` leaves the id in the
+SOURCE, in order, so every guard that pins the deck's panel order stayed
+green while the browser rendered nothing there — the one mutation of
+twenty-seven the node suites could not kill, and the same hole under the
+strip shipped a slice earlier. `dashboard_views_render.smoke.test.js` asks
+the DOM now: the four deck panels in order, each holding its rendered
+component and neither its skeleton nor its error state. Its fixture had to
+grow the route's real shape first, because a cluster that throws on a
+sourceless payload throws on a stub written before the source existed —
+which is the fixture drifting from the route, and the right answer.
+`node:assert`'s `equal(x, null)` acquits `undefined`, so both new suites use
+the strict module; a model passing `as_of` through unparsed would have
+passed the loose check with a value the renderer prints as `--`.
+
+**Direction is the sign of every number on a position row, and it arrives as
+a venue-supplied string.** The instrument row's first design tested it two
+ways — `isLong(direction)`, everything else a SHORT — while `dirChip`, fifteen
+lines away in `app.js`, had already declared the boundary in its own comment
+(*"a chip is a claim: it must be able to decline"*) and accepts LONG/BUY,
+SHORT/SELL and mutes the rest. Driven, `direction: 'BUY'` printed a red
+−10.00% and −1.00R beside a green ▲ LONG chip, on one row, from one payload;
+`''` and `'UNKNOWN'` printed the same numbers beside a chip that had correctly
+declined. The live row publishes `getattr(pos, "direction", "")` raw and an
+adopted position's side is `(p.get("side") or "long").upper()`, so the decoys
+are real. `side()` is three-valued and shares dirChip's vocabulary, the row's
+chip is built from the same reading that signs its numbers, and the guard's
+table holds the decoys — the design's own guard drove LONG and SHORT only, so
+no mutation in its round could reach the defect.
+
+**Each absence gets its own reason, decided where the absence is decided.**
+The move cell borrowed the MARK's sentence, and an adopted position's entry is
+recorded as `0.0` (named in `adoption_unread`), so *entry unread + mark READ*
+is reachable — and printed `$63,000.00` beside a "move —" whose title said the
+instrument was not on the reference feed: a false statement about a read that
+succeeded one cell away. A stop AT entry has no risk distance and is the same
+absence as no stop, and it is a fact about the stop, so it is decided before
+the mark is asked — the first draft answered "the mark could not be read" for
+a stop-at-entry position whose mark was unreadable, implying a usable stop.
+And the stop chip read the FLAGS alone: the paper row builder stamps
+`sl_order: 'manual', unprotected: false` unconditionally over a raw
+`stop_loss` that can be `0.0`, so a paper position with no stop wore
+"🤖 bot-managed" — the most reassuring label on the panel — beside "stop none
+on record" and "R unknown". The chip reads the level too, and has a fifth
+state.
+
+**An empty list is not a reading of a flat book, and the payload could not say
+which.** `handle_positions` built `positions: []` from the executor's local
+cache with `if executor else []`, so a flat account, an executor that could
+not be resolved and an executor with no book all arrived as a 200 with an
+empty list and `live: true`, and the website rendered every one of them as
+"No open positions" — a confident negative about the reader's own money from
+a read that never happened. The list stays `[]` (an older client keeps
+working); `book_read` says which, and the panel's empty state is reachable
+only when it is true. The row's other seams were declined on purpose: no
+dollar exposure (`size_usd` is notional on a paper row and margin-or-notional
+on a live one) and no leverage (defaulted to 1.0 for a field nobody read) —
+quantity is the one size figure with one meaning — and the mark is labelled as
+the public reference feed, because `/api/positions` carries no venue mark.
+
+**Two fetches of one endpoint on one screen are two answers.** The Portfolio
+view already read `/api/positions` for the protection list, and the home view
+read it twice — the command bar and the positions panel — against a limiter of
+thirty a minute; one 200 beside one 502 within a single paint is the shape
+slice 3 fixed for `/api/portfolio`. Each view makes one read now and every
+consumer takes it, which moves the fetch OUT of the loader bodies that
+`panel_timeout_budget.test.js` slices — so the arithmetic that gate can no
+longer see is stated beside each budget, and the command bar's budget, which
+had been 14000ms over a shared 16000ms portfolio read since slice 3, is 17000.
+A sparkline is a claim too: its colour was going to follow the reference
+feed's window, so a rising reference beside a SHORT painted green next to a
+red move. It is a muted stroke, and the move cell states the direction.
 
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:

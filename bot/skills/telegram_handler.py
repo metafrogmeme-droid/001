@@ -24,7 +24,7 @@ import re
 import time
 from datetime import datetime
 from bot.compat import UTC
-from typing import Optional
+from typing import Optional, Any
 from bot.utils.paths import state_path
 from bot.utils.outbound import reply_safe
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
@@ -43,6 +43,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
     ACT_INTENTS, ACT_KIND, HALT_INTENTS, RateLimiter, TelegramStream, _CHAT_CANNOT_ACT_RULE,
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
+    tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
     skill_failure_notice, thinking_phrase,
 )
@@ -238,7 +239,82 @@ def _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark, *,
     return parts
 
 
-def _paper_position_row(pos, mark) -> str:
+_NO_AGE = object()
+
+
+def _mark_age_words(age_sec) -> str:
+    """How old a paper mark is, in words the model cannot mistake for
+    "current". ``None`` is a price with no recorded time — restored from a
+    previous run — and is said so; past the ticker block's own freshness
+    bound the mark is named NOT current, in capitals, because a bare
+    `MARK $x` on a paper row read exactly like a live one."""
+    if age_sec is None:
+        return ("mark age unknown — a price restored from a previous run; "
+                "treat it as NOT current")
+    try:
+        age = max(0.0, float(age_sec))
+    except (TypeError, ValueError):
+        return "mark age unknown"
+    if age <= TelegramHandler.CHAT_TICKER_MAX_AGE_SEC:
+        n = int(round(age))
+        return "marked just now" if n == 0 else f"marked {n} s ago"
+    if age < 3600:
+        return f"mark is {int(age // 60)} min old — NOT current"
+    return f"mark is {age / 3600:.1f} h old — NOT current"
+
+
+def _with_mark_age(parts, age_sec):
+    """The row's parts with the age appended to the MARK part, and only
+    there: an unavailable mark has no age to print."""
+    return [f"{p} ({_mark_age_words(age_sec)})" if p.startswith("MARK $") else p
+            for p in parts]
+
+
+def _paper_mark_of(portfolio, asset):
+    """``(mark, age_sec)`` off the book's own reading (`paper_mark`), or —
+    for a stand-in that only carries a price map — the price with no time on
+    it, which is what an unknown age IS."""
+    fn = getattr(portfolio, "paper_mark", None)
+    if callable(fn):
+        try:
+            return fn(asset)
+        except Exception:
+            return None, None
+    return getattr(portfolio, "_last_prices", {}).get(asset), None
+
+
+def _refresh_paper_marks(handler, portfolio) -> None:
+    """Mark the paper book from the same fresh ws snapshot the ticker block
+    prints, for the positions it holds — what /portfolio does before it
+    renders. The paper book is otherwise marked only when a command reads
+    it, so the chat's mark could be a restart old. A snapshot that cannot be
+    read, or a book that cannot be marked, keeps the recorded mark and its
+    recorded age; nothing here invents a price."""
+    marks_fn = getattr(handler, "_chat_marks", None)
+    mtm = getattr(portfolio, "mark_to_market", None)
+    if not callable(marks_fn) or not callable(mtm):
+        return
+    try:
+        fresh = marks_fn() or {}
+        held = {getattr(p, "asset", None) for p in getattr(portfolio, "open_positions", [])}
+        to_mark = {a: fresh[a] for a in held if a in fresh}
+        if to_mark:
+            mtm(to_mark)
+    except Exception:
+        pass
+
+
+def _tick_age_words(tick, now) -> str:
+    """``  — N s ago`` for one ticker row, off the tick's own timestamp."""
+    try:
+        age = (now - tick.timestamp).total_seconds()
+    except Exception:
+        return "  — age unknown"
+    n = int(round(max(0.0, float(age))))
+    return "  — just now" if n == 0 else f"  — {n} s ago"
+
+
+def _paper_position_row(pos, mark, mark_age_sec=_NO_AGE) -> str:
     """One ACTIVE POSITIONS line for a PAPER position — the live row's rules,
     read from the paper book's vocabulary.
 
@@ -268,7 +344,31 @@ def _paper_position_row(pos, mark) -> str:
     tp = _read_price(getattr(pos, "take_profit", None))
     parts = _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark,
                                 is_short=is_short, side=side)
+    if mark_age_sec is not _NO_AGE:
+        parts = _with_mark_age(parts, mark_age_sec)
     return f"  - {direction or '?'} {getattr(pos, 'asset', '?')}: " + ", ".join(parts)
+
+
+def _unpriced_note(state) -> str:
+    """The clause that turns "equity ~$X" into a partial when the book held
+    positions at cost. A count of zero — or a snapshot with no count — says
+    nothing; only a positive count is a fact about the figure."""
+    # Three values, not `getattr(..., 0) or 0`: a snapshot with no count, or
+    # a None, has not counted anything and gets no clause (OMIT — the line
+    # is a composite and this source is missing), a real count of zero says
+    # nothing because there is nothing to say, and only a positive count is
+    # a fact about the figure. The honesty ratchet caught the first draft.
+    raw = getattr(state, "unpriced_positions", None)
+    if raw is None or isinstance(raw, bool):
+        return ""
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    return (f"; {n} of {getattr(state, 'open_positions', '?')} open position(s) "
+            "have no mark and are held at cost, so this equity is PARTIAL")
 
 
 _MISSING = object()
@@ -430,9 +530,11 @@ def _live_positions_block(executor, marks: dict | None = None) -> str:
                 + "\n".join(plines)
                 + "\nNever describe these as open positions or as "
                 "something the user is holding. They may already have been "
-                "cancelled or expired; the get_orders tool asks the exchange "
-                "(so does /orders) -- call it before telling the user what "
-                "is resting.")
+                "cancelled or expired; only the exchange knows what is "
+                "resting. The get_orders tool asks the exchange (so does "
+                "/orders) -- call it when it is offered on this turn; when "
+                "it is not, say this list is the bot's own record and not "
+                "confirmed.")
     return out
 
 
@@ -1507,13 +1609,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "the end of this prompt, when one is present. Never state a price "
         "from memory or from earlier in this conversation — prices move, and "
         "a recalled one is already wrong. When that block is present its "
-        "prices are real: state them as of the timestamp it carries, and only "
+        "prices are real: state them as of the age each row carries, and only "
         "for the symbols it lists. If it is absent, or says NONE AVAILABLE, "
         "or does not list the symbol you were asked about, then you do not "
         "know that price — say so and offer to run a scan (e.g. 'scan "
         "BTC').\n"
-        "- Only cite specific entry/SL/TP/PnL numbers that appear in this "
-        "prompt's ACTIVE POSITIONS / RECENT CLOSED TRADES sections. Never "
+        "- Only cite specific prices, entries, stops, targets and P&L figures "
+        "that appear in this prompt's own blocks — LIVE MARKET, ACTIVE "
+        "POSITIONS, UNFILLED LIMIT ORDERS, RECENT CLOSED TRADES, PENDING TRADE "
+        "IDEAS — and cite each with the age or label its block gives it. Never "
         "make numbers up to sound complete.\n"
         # The boundary the PUBLIC prompt has always stated and this one never
         # did — on the surface with the money. One constant, in the runtime
@@ -1644,8 +1748,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     #: How old a tick may be and still be quoted in chat. Looser than the
     #: stop-logic freshness (ws_max_tick_age_sec) on purpose — a conversation
     #: is not an exit decision — but bounded, because the whole point is that
-    #: the number is CURRENT. The age is printed either way, so a reader can
-    #: judge it themselves rather than taking "live" on trust.
+    #: the number is CURRENT. Each row prints its own age, so a reader can
+    #: judge it rather than take "live" on trust. (This comment said "the age
+    #: is printed either way" for as long as the block stamped the prompt's
+    #: build time over ticks up to this old — a claim about the code that the
+    #: code did not make good on, found by the audit rather than by any test.)
     CHAT_TICKER_MAX_AGE_SEC = 90
     #: Majors first, then whatever else is fresh, capped so the prompt does not
     #: turn into a price list.
@@ -1690,6 +1797,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "recall any price; say the feed is down and offer to run a "
                     "scan when it returns.")
 
+        # `_dt` is a function-local import elsewhere in this class, so it is
+        # not in scope here — caught by driving the block, not by compiling it.
+        import datetime as _dtm
+        now = _dtm.datetime.now(UTC)
         lead = [s for s in self.CHAT_TICKER_LEAD if s in ticks]
         rest = sorted(s for s in ticks if s not in lead)
         rows = []
@@ -1729,22 +1840,27 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # a price that reads as though a digit went missing. Sub-dollar
             # tokens need the extra places; dollar-plus ones must keep both.
             dp = 2 if px >= 1 else 6
-            rows.append(f"  {sym}  ${px:,.{dp}f}" + chg_txt)
+            # THE ROW'S OWN AGE. The header used to stamp the moment the
+            # prompt was built while admitting ticks up to 90 s old, so an
+            # 80-second-old price read as this second's. The snapshot only
+            # admits ticks with a readable timestamp, so the fallback below
+            # is defensive; it says "unknown" rather than pretending.
+            rows.append(f"  {sym}  ${px:,.{dp}f}" + chg_txt + _tick_age_words(t, now))
 
         if not rows:
             return ("\n\nLIVE MARKET DATA: NONE AVAILABLE right now — the feed "
                     "returned no usable prices. Do not state or estimate any "
                     "price.")
 
-        # `_dt` is a function-local import elsewhere in this class, so it is
-        # not in scope here — caught by driving the block, not by compiling it.
-        import datetime as _dtm
-        stamp = _dtm.datetime.now(UTC).strftime("%H:%M:%S UTC")
-        return ("\n\nLIVE MARKET (exchange feed, as of " + stamp + "; 24h change "
-                "shown where the feed provides it):\n" + "\n".join(rows)
-                + "\nState ONLY these prices, and only as of that timestamp. For "
-                "any symbol not listed you do NOT know the current price — say "
-                "so and offer to run a scan. Never recall a price from memory.")
+        stamp = now.strftime("%H:%M:%S UTC")
+        return ("\n\nLIVE MARKET (exchange feed, read as of " + stamp + " — each "
+                "price carries its own age, none older than "
+                f"{self.CHAT_TICKER_MAX_AGE_SEC} s; 24h change shown where the "
+                "feed provides it):\n" + "\n".join(rows)
+                + "\nState ONLY these prices, each as of its own age — a price "
+                "read 80 s ago is 80 s old, not this second. For any symbol not "
+                "listed you do NOT know the current price — say so and offer to "
+                "run a scan. Never recall a price from memory.")
 
     def _build_chat_system_prompt(self, user_id: str, user_name: str = "",
                                   surface: str = "telegram") -> str:
@@ -1755,6 +1871,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         (`_LINK_DOOR`) and nothing else.
         """
         base = self._CHAT_SYSTEM_PROMPT
+        if surface == "web":
+            # The static prompt carries Telegram's close door ("open it on
+            # the positions card and tap Close or Cancel"); the web has no
+            # such card in chat, and its routed notice already says so.
+            base = base.replace(_CHAT_CANNOT_ACT_RULE, cannot_act_rule("web"))
 
         # Inject user-specific context
         # NOT "" either, for the reason positions_detail gives below: this
@@ -1908,7 +2029,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 portfolio_summary = (
                     f"{state.open_positions} open positions, "
                     f"equity ~${eq_display:,.2f} (PAPER — a simulated account, "
-                    "not real money), "
+                    "not real money" + _unpriced_note(state) + "), "
                     f"{_tp_ctx}, "
                     f"win rate {_wr_paper}"
                     + (f" (over {_pws['scored']} of {state.total_trades} — "
@@ -1982,8 +2103,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # `except` below turned into "could not be read" for the
                 # positions AND the closed trades at once. The mark is the
                 # paper book's own last price, absent -> stated.
+                # The paper book is marked only when a command reads it, so
+                # its mark could be a restart old and `_last_prices` carried
+                # no time to say so. Refresh it from the fresh ws snapshot
+                # (what /portfolio does before it renders), then read each
+                # mark WITH its age, and let the row say when it is not
+                # current.
+                _refresh_paper_marks(self, user_portfolio)
                 pos_lines = [
-                    _paper_position_row(pos, user_portfolio._last_prices.get(pos.asset))
+                    _paper_position_row(pos, *_paper_mark_of(user_portfolio, pos.asset))
                     for pos in user_portfolio.open_positions
                 ]
                 positions_detail = (
@@ -2132,12 +2260,21 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         ticker block: an absent section reads as "nothing pending" whether the
         queue is empty or unreadable.
         """
+        _unread = ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
+                   "not say the queue is empty — you do not know what is in "
+                   "it.")
         try:
-            all_ideas = list(getattr(self.engine, "pending_ideas", None) or [])
+            raw: Any = getattr(self.engine, "pending_ideas", _MISSING)
+            if raw is _MISSING or raw is None:
+                # An engine with no queue attribute, or a queue that is None,
+                # is a queue nobody read. `or []` turned both into "none
+                # queued — the bot is not about to place anything on its
+                # own": the confident negative this docstring names, built
+                # from an absence.
+                return _unread
+            all_ideas = list(raw)
         except Exception:
-            return ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
-                    "not say the queue is empty — you do not know what is in "
-                    "it.")
+            return _unread
         # The queue is GLOBAL and a manual idea (/trade, the web ticket) is
         # somebody's proposal — under multi-user it is as often another
         # user's, with their symbol, entry and stop, and the only ownership
@@ -2165,10 +2302,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _conf_txt = (f", confidence {_conf:.0%}"
                              if isinstance(_conf, (int, float))
                              and not isinstance(_conf, bool) else "")
-                _entry = getattr(idea, "entry_price", None)
-                _entry_txt = (f", entry ${_entry:,.4f}"
-                              if isinstance(_entry, (int, float)) and _entry
-                              else "")
+                _entry_raw = getattr(idea, "entry_price", _MISSING)
+                if _entry_raw is _MISSING:
+                    _entry_txt = ""
+                else:
+                    # An entry of 0.0 is what the record holds where none
+                    # was set. It used to vanish from the row, and a row
+                    # with no entry reads as an idea with nothing to state.
+                    _entry = _read_price(_entry_raw)
+                    _entry_txt = (f", entry ${_entry:,.4f}" if _entry is not None
+                                  else ", entry NOT ON RECORD")
                 rows.append(f"  - {_d} {getattr(idea, 'asset', '?')}"
                             f"{_entry_txt}{_conf_txt}")
             except Exception:
@@ -2330,9 +2473,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # registry gets none — an unreadable role holds nothing.
         _tool_specs = _chat_tools_for(self, user_id, surface, public)
         _tool_names = {t.name for t in _tool_specs}
-        if _tool_specs:
-            system_prompt = system_prompt.replace(_CHAT_NO_TOOLS_RULE,
-                                                  _CHAT_TOOLS_RULE)
+        # The rule about tools is chosen PER CANDIDATE, in the loop below,
+        # from what that candidate is actually handed. It used to be swapped
+        # in here, once for the turn, whenever the caller held tools — and
+        # the vision candidate attaches images and NO tools (the two are not
+        # combined), so an operator sending a chart was answered by a model
+        # told to CALL tools it had not been given. `system_prompt` keeps the
+        # no-tools rule; the tools rule, carrying the offered names, replaces
+        # it only on a call that carries the tools.
+        _tools_rule = tools_rule_for(_tool_names) if _tool_specs else None
 
         # AI-WEBSEARCH: real-time web search is admin/ULTRA-only (it bills per
         # search against the operator's Anthropic key, and only the admin path
@@ -2563,7 +2712,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "type": "tool", "name": name, "phase": phase,
                         **({"ok": ok} if ok is not None else {})})
 
-                if _tool_specs and not _vision_ok:
+                _tools_attached = bool(_tool_specs) and not _vision_ok
+                # ONE document, ONE rule about tools — the one that is true
+                # of THIS call. A test drives the vision candidate and reads
+                # the prompt it was given (test_chat_guards_say_what_ran).
+                _sp = (system_prompt.replace(_CHAT_NO_TOOLS_RULE, _tools_rule)
+                       if _tools_attached and _tools_rule else system_prompt)
+                if _tools_attached:
                     _tool_left = max(
                         3.0, min(float(CONFIG.llm.chat_tool_timeout_seconds),
                                  cfg.timeout_seconds - 3.0))
@@ -2576,7 +2731,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                             surface=surface, timeout=_tl)
 
                     answer = await llm_complete_with_tools(
-                        client, cfg, system_prompt, question,
+                        client, cfg, _sp, question,
                         tools=[t.spec() for t in _tool_specs],
                         tool_executor=_run_tool,
                         history=history,
@@ -2589,7 +2744,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         on_tool=_on_tool if on_event is not None else None)
                 else:
                     answer = await llm_complete(
-                        client, cfg, system_prompt, question,
+                        client, cfg, _sp, question,
                         history=history,
                         web_search=_cfor_search,
                         citations_out=_citations if _cfor_search else None,
@@ -2646,7 +2801,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     else:
                         history_tokens = sum(len(m.get("content", "")) // 4
                                              for m in history)
-                        system_tokens = max(1, len(system_prompt or "") // 4)
+                        system_tokens = max(1, len(_sp or "") // 4)
                         prompt_tokens = (system_tokens + history_tokens
                                          + max(1, len(question or "") // 4))
                         completion_tokens = (max(1, len(answer) // 4)
@@ -3715,6 +3870,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # as a fresh message, as it always did.
         if _stream is not None and await _stream.finish(_final):
             return
+        if _stream is not None:
+            # The provisional message could not become the answer, so it
+            # comes down BEFORE the checked answer goes out. What it showed
+            # was the model's raw output — before `_chat_ret` checked it for
+            # a fabricated tool result or a wrong risk:reward — with a caret
+            # on the end: the one reply on the screen nobody had checked,
+            # left directly above the one that was.
+            if await _stream.retract() == "failed":
+                system_log.warning(
+                    "streamed provisional text could not be retracted for %s",
+                    tg_id)
         await self._send(update, _final)
 
     # ── Auth helpers ──────────────────────────────────────────

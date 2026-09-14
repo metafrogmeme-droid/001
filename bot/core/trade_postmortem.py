@@ -39,9 +39,9 @@ import re
 from typing import Any, Optional
 
 from bot.core.live_executor import position_size_basis
+from bot.core.trade_journal import r_multiple_for
 from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
 from bot.utils.leveraged_return import realized_margin_return_pct
-from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS
 
 #: A close reason as the record writes it: "TP HIT (exchange)", "SL HIT
 #: (inferred)", "TRAILING SL HIT", "manually closed", "CLOSED (unknown)",
@@ -121,12 +121,12 @@ def valid_trade_id(raw: Any) -> Optional[str]:
 
 def never_filled(pos: Any) -> bool:
     """An order that never became a position: a non-fill close reason with no
-    P&L. Two vocabularies say which reasons those are — ``close_reason``'s
-    (the parity report's) and ``trade_filter``'s (the cards') — and they
-    differ by three words, so both are read. A non-zero P&L under a non-fill
-    label is a mislabelled real trade and is never dropped."""
+    P&L. One vocabulary says which reasons those are — ``close_reason``'s;
+    the cards' ``trade_filter`` name is the same object now, where it used to
+    be a copy three words apart. A non-zero P&L under a non-fill label is a
+    mislabelled real trade and is never dropped."""
     reason = str(_attr(pos, "close_reason") or "").strip().lower()
-    if reason not in NON_FILL_CLOSE_REASONS and reason not in NON_TRADE_CLOSE_REASONS:
+    if reason not in NON_FILL_CLOSE_REASONS:
         return False
     pnl = _f(_attr(pos, "pnl_usd", "pnl"))
     return pnl is None or abs(pnl) < 1e-9
@@ -232,13 +232,13 @@ def realized_r(entry: Optional[float], sl: Optional[float], qty: Optional[float]
                pnl: Optional[float]) -> Optional[float]:
     """Net P&L over the DOLLAR risk the stop defined — ``|entry - stop| *
     quantity`` — with the sign of the P&L, for either direction. None when
-    any of the three is not on record or the risk is zero. (The journal's own
-    R divides by the PRICE distance alone and negates it for shorts, which is
-    why it is not printed here.)"""
-    if entry is None or sl is None or pnl is None or not qty or qty <= 0:
+    any of the three is not on record or the risk is zero. This IS the
+    journal's ``r_multiple_for`` — one arithmetic, so the card and the review
+    cannot disagree about what an R is (they did: the journal divided by the
+    price distance alone and negated it for shorts)."""
+    if entry is None or sl is None or pnl is None:
         return None
-    risk = abs(entry - sl) * qty
-    return pnl / risk if risk > 0 else None
+    return r_multiple_for(entry, sl, pnl, qty)
 
 
 def _planned_r(entry: Optional[float], sl: Optional[float], tp: Optional[float],

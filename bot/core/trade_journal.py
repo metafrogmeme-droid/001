@@ -58,6 +58,9 @@ class JournalEntry:
     volatility: str = ""
     confidence: float = 0.0
     signals_used: list = field(default_factory=list)
+    #: Base-currency size the R was scored against; ``None`` for an entry
+    #: journaled before sizes were recorded, whose stored R is then NOT loaded.
+    quantity: Optional[float] = None
 
     # Analysis
     exit_reason: str = ""  # "sl_hit", "tp_hit", "trailing", "manual", "partial_tp"
@@ -79,7 +82,7 @@ class JournalEntry:
 
 
 def r_multiple_for(entry_price: float, stop_loss: float, pnl: float,
-                   direction: str) -> Optional[float]:
+                   quantity: Optional[float]) -> Optional[float]:
     """R for this close, or ``None`` when the risk it is a ratio OF is unknown.
 
     THE OLD ARITHMETIC FABRICATED ONE. It was::
@@ -109,6 +112,23 @@ def r_multiple_for(entry_price: float, stop_loss: float, pnl: float,
     the ghost close booked at its entry price, one module over.
 
     ``None`` for both cases. A stop of zero is not a stop.
+
+    AND THE ARITHMETIC THAT SURVIVED THAT FIX WAS STILL NOT AN R. It divided
+    by ``|entry - stop|`` — the risk per UNIT — with no quantity, so it equalled
+    R only for a trade of exactly one coin: a 0.1 ETH trade risking $10 that
+    made +$11.40 read +0.11R, and a 5,000 DOGE trade over-read by 5,000x. And it
+    negated the divisor for a SHORT, so a losing short printed a POSITIVE R and
+    a winning short a negative one — on the weekly review's Avg R, Best and
+    Worst, and in ``_generate_lessons`` ("Full stop hit" fires on ``r < -0.8``)
+    and ``_generate_tags`` ("runner" on ``r >= 3.0``). The post-mortem leaf had
+    already computed its own R over dollar risk and declined to print the
+    journal's, which is how this was found.
+
+    R is net P&L over the DOLLAR risk the stop defined — ``|entry - stop| *
+    quantity`` — with the sign of the P&L, for either direction. ``None`` when
+    the quantity is not on record (an entry journaled before sizes were), so
+    that the review counts it as unscored rather than averaging in a number
+    that is not an R. ``trade_postmortem.realized_r`` is this function.
     """
     try:
         entry = float(entry_price)
@@ -120,13 +140,48 @@ def r_multiple_for(entry_price: float, stop_loss: float, pnl: float,
     # A real stop is a positive price on every venue this trades.
     if entry <= 0 or stop <= 0:
         return None
-    initial_risk = abs(entry - stop)
-    if initial_risk <= 0:
+    try:
+        qty = float(quantity) if quantity is not None else None
+    except (TypeError, ValueError):
+        return None
+    if qty is None or qty <= 0:
+        return None
+    risk_usd = abs(entry - stop) * qty
+    if risk_usd <= 0:
         return None
     try:
-        return pnl / (initial_risk * (1 if direction == "LONG" else -1))
+        return float(pnl) / risk_usd
     except (TypeError, ValueError, ZeroDivisionError):
         return None
+
+
+def r_unknown_reason(entry) -> Optional[str]:
+    """Why an entry carries no R — ``"no_stop"``, ``"no_quantity"`` — or
+    ``None`` when it carries one (or the reason is not one of those two). The
+    card prints the reason, because "R unknown" alone reads as a defect and
+    the two causes have different remedies: a stop nobody recorded cannot be
+    recovered; a quantity missing from an entry journaled before sizes were
+    recorded is a fact about the record's age."""
+    if getattr(entry, "r_multiple", None) is not None:
+        return None
+    # Read as three values, never coerced: an absent price is not a price of
+    # zero, and a zero on record is exactly the absent-stop shape this reads.
+    if not (_positive(getattr(entry, "stop_loss", None))
+            and _positive(getattr(entry, "entry_price", None))):
+        return "no_stop"
+    if not _positive(getattr(entry, "quantity", None)):
+        return "no_quantity"
+    return None
+
+
+def _positive(v) -> bool:
+    """True only for a value that reads as a number greater than zero."""
+    if v is None:
+        return False
+    try:
+        return float(v) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def average_r(entries) -> dict:
@@ -184,10 +239,12 @@ class TradeJournal:
         exit_reason: str = "",
         venue: str = "bitget",
         user_id: str = "",
+        quantity: Optional[float] = None,
     ) -> JournalEntry:
         """Record a completed trade in the journal."""
-        # R, or None when the risk it is a ratio of could not be read.
-        r_multiple = r_multiple_for(entry_price, stop_loss, pnl, direction)
+        # R, or None when the risk it is a ratio of could not be read —
+        # the stop OR the size; both are the denominator.
+        r_multiple = r_multiple_for(entry_price, stop_loss, pnl, quantity)
 
         # Calculate PnL %
         pnl_pct = (pnl / (entry_price * 1)) * 100 if entry_price > 0 else 0  # simplified
@@ -226,6 +283,7 @@ class TradeJournal:
             tags=tags,
             timestamp=time.time(),
             user_id=str(user_id or ""),
+            quantity=quantity,
         )
 
         self._entries.append(entry)
@@ -328,8 +386,10 @@ class TradeJournal:
             "r_scored": _r["scored"],
             "r_unscored": _r["total"] - _r["scored"],
             "avg_holding_hours": round(avg_hold, 1),
-            "best_trade": {"symbol": best.symbol, "pnl": best.pnl, "r": best.r_multiple},
-            "worst_trade": {"symbol": worst.symbol, "pnl": worst.pnl, "r": worst.r_multiple},
+            "best_trade": {"symbol": best.symbol, "pnl": best.pnl, "r": best.r_multiple,
+                           "r_reason": r_unknown_reason(best)},
+            "worst_trade": {"symbol": worst.symbol, "pnl": worst.pnl, "r": worst.r_multiple,
+                            "r_reason": r_unknown_reason(worst)},
             "by_regime": dict(regime_stats),
             "by_strategy": dict(strat_stats),
             "top_lessons": top_lessons,
@@ -432,6 +492,7 @@ class TradeJournal:
                     "signals": e.signals_used, "exit_reason": e.exit_reason,
                     "lessons": e.lessons, "tags": e.tags, "ts": e.timestamp,
                     "venue": e.venue, "uid": e.user_id,
+                    "qty": e.quantity,
                 })
             with open(self._journal_file, "w") as f:
                 json.dump(data, f)
@@ -457,7 +518,12 @@ class TradeJournal:
                     # lacks the key — both are "no R", and defaulting them to
                     # 0 puts a measured break-even into the average on the way
                     # back off disk. The same shape the writer just lost.
-                    r_multiple=d.get("r_mult"), holding_hours=d.get("hold_hrs", 0),
+                    # An entry recorded before sizes were journaled carries an
+                    # R computed over the PRICE distance (and negated for a
+                    # short): known-wrong, not unknown-but-plausible. It loads
+                    # as None, and the review counts it as unscored.
+                    r_multiple=(d.get("r_mult") if d.get("qty") is not None else None),
+                    holding_hours=d.get("hold_hrs", 0),
                     regime=d.get("regime", ""), session=d.get("session", ""),
                     volatility=d.get("vol", ""), confidence=d.get("conf", 0),
                     signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),
@@ -467,6 +533,7 @@ class TradeJournal:
                     # those really are Bitget — a back-fill of a fact.
                     venue=d.get("venue", "bitget"),
                     user_id=str(d.get("uid", "") or ""),
+                    quantity=d.get("qty"),
                 ))
             logger.info("Loaded %d journal entries", len(self._entries))
         except Exception as exc:

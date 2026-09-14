@@ -589,6 +589,27 @@ class RiskEngine:
         replay (see set_sim_time), wall-clock otherwise."""
         return self._sim_now if self._sim_now is not None else time.time()
 
+    def _utc_day(self) -> str:
+        """The UTC day the LIVE daily-PnL accumulator is keyed by, from the
+        engine's own clock. One rule: the writer (`record_live_trade_result`),
+        the restore (`_restore_live_daily`), the reset and the reader below
+        all ask this, so no two of them can disagree about when a day ends."""
+        return time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+
+    def live_daily_pnl_today(self) -> float:
+        """The LIVE realized daily PnL the DAILY_LOSS breaker gates on, for the
+        current UTC day — a READ of the accumulator with the writer's own day
+        rule applied. The writer only rolls the day over on the next close, so
+        a reader at 00:30 UTC before the first close of the day would otherwise
+        be handed yesterday's total under today's name. ``0.0`` here is a
+        measurement: no live close has been recorded for today. Realized only —
+        open positions are not marked into it, and a surface printing it must
+        say so. Never raises past the lock."""
+        with self._lock:
+            if self._live_daily_day != self._utc_day():
+                return 0.0
+            return float(self._live_daily_pnl)
+
     def record_trade_result(self, pnl: float) -> None:
         """Track consecutive losses for streak-based circuit breaker."""
         with self._lock:
@@ -606,7 +627,7 @@ class RiskEngine:
         try:
             with self._lock:
                 self._record_trade_result_locked(float(pnl))
-                day = time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+                day = self._utc_day()
                 if day != self._live_daily_day:
                     self._live_daily_day = day
                     self._live_daily_pnl = 0.0
@@ -3364,7 +3385,7 @@ class RiskEngine:
             day = data.get("live_daily_day")
             if not isinstance(day, str) or not day:
                 return
-            today = time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+            today = self._utc_day()
             if day != today:
                 return
             pnl = data.get("live_daily_pnl")
@@ -3711,7 +3732,7 @@ class RiskEngine:
             # re-seed. Losses that accrue after the reset accumulate from zero and
             # will trip the breaker again — so protection is refreshed, not lost.
             self._live_daily_pnl = 0.0
-            self._live_daily_day = time.strftime("%Y-%m-%d", time.gmtime(int(self._now())))
+            self._live_daily_day = self._utc_day()
             self._last_known_daily_loss_pct = 0.0
             audit(risk_log, "Circuit breaker manually reset (live peak + daily-loss re-seeded)",
                   action="circuit_breaker", result="RESET")

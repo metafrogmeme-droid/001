@@ -40,76 +40,20 @@
  * under bot/web version skew or a partial write; 1, 2, 5 and 6 are live.
  */
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
-process.env.BOT_USER_ID = '1';
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const http = require('node:http');
 const vm = require('node:vm');
-const express = require('express');
 
 const APP = path.join(__dirname, '..');
 const SRC = fs.readFileSync(path.join(APP, 'public', 'js', 'dashboard.js'), 'utf8');
+// One harness for every suite that drives this route — see helpers/portfolio_route.js.
+const { get: getRoute, scanRow, FRESH, OLD } = require('./helpers/portfolio_route');
 
-const FRESH = () => new Date();
-const OLD = () => new Date(Date.now() - 2 * 60 * 60 * 1000);   // two hours
-
-/**
- * Serve routes/portfolio.js for the OPERATOR (user 1 === BOT_USER_ID).
- *   scan     -- what the scan_cache query answers: a row list, or a thrower
- *   snapAt   -- the equity snapshot's timestamp (freshness of the "memory")
- */
-function server({ scan, snapAt = FRESH } = {}) {
-  const pool = {
-    execute: async (sql) => {
-      if (/FROM equity_snapshots/.test(sql)) {
-        return [[{ equity: '8200.50', snapshot_at: snapAt() }]];
-      }
-      if (/FROM scan_cache/.test(sql)) {
-        if (typeof scan === 'function') return scan();
-        return [scan];
-      }
-      if (/status = 'OPEN'/.test(sql)) return [[]];
-      if (/FROM trades/.test(sql)) {
-        return [[{ total: 0, scored: 0, wins: 0, net_pnl: null }]];
-      }
-      if (/INSERT INTO equity_snapshots/.test(sql)) return [{ affectedRows: 1 }];
-      return [[]];
-    },
-  };
-  const dbPath = require.resolve(path.join(APP, 'db.js'));
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { pool } };
-  const authPath = require.resolve(path.join(APP, 'auth.js'));
-  require.cache[authPath] = { id: authPath, filename: authPath, loaded: true,
-    exports: { authMiddleware: (req, _res, next) => {
-      req.user = { user_id: 1, email: 'op@test.io' }; next();
-    } } };
-  delete require.cache[require.resolve(path.join(APP, 'routes', 'portfolio.js'))];
-  const app = express();
-  app.use(express.json());
-  app.use('/api/portfolio', require(path.join(APP, 'routes', 'portfolio.js')));
-  return http.createServer(app);
-}
-
-function get(opts) {
-  return new Promise((resolve, reject) => {
-    const s = server(opts);
-    s.listen(0, '127.0.0.1', () => {
-      http.get({ port: s.address().port, path: '/api/portfolio' }, (res) => {
-        let b = '';
-        res.on('data', (d) => { b += d; });
-        res.on('end', () => { s.close(); resolve({ status: res.statusCode, body: JSON.parse(b || '{}') }); });
-      }).on('error', (e) => { s.close(); reject(e); });
-    });
-  });
-}
-
-const scanRow = (cb, received = FRESH) => [{
-  scan_json: JSON.stringify({ circuit_breaker: cb, received_at: received().toISOString() }),
-  updated_at: received(),
-}];
+/** The OPERATOR path (user 1 === BOT_USER_ID). */
+const get = (opts = {}) => getRoute({ operator: true, ...opts });
 
 // ── the six unread cases ───────────────────────────────────────────────────
 
@@ -138,8 +82,13 @@ for (const [name, opts] of UNREAD) {
 test('the six unread payloads are identical to each other', async () => {
   const bodies = [];
   for (const [, opts] of UNREAD) bodies.push((await get(opts)).body);
-  const strip = (b) => JSON.stringify({ ...b, open_positions: undefined });
+  // `as_of.equity` is the snapshot's timestamp, minted per request by the
+  // harness, so it is stripped; `provenance` is NOT — six unread modes must
+  // name the same sources, or one of them has been read as something else.
+  const strip = (b) => JSON.stringify({ ...b, open_positions: undefined, as_of: undefined });
   for (const b of bodies.slice(1)) assert.strictEqual(strip(b), strip(bodies[0]));
+  for (const b of bodies) assert.deepStrictEqual(b.provenance,
+    { equity: 'snapshot', open_positions: 'sync_rows', daily_pnl: 'absent' });
 });
 
 // ── the two READ cases, which must stay readings ───────────────────────────
@@ -199,31 +148,10 @@ test('a live account whose balance the bot could not read says so, rather than P
 
 test('an unread mode never takes the LIVE branch that writes through to the equity curve', async () => {
   let inserted = 0;
-  const pool = {
-    execute: async (sql) => {
-      if (/INSERT INTO equity_snapshots/.test(sql)) { inserted += 1; return [{ affectedRows: 1 }]; }
-      if (/FROM equity_snapshots/.test(sql)) return [[{ equity: '100.00', snapshot_at: OLD() }]];
-      if (/FROM scan_cache/.test(sql)) return [[]];
-      if (/FROM trades/.test(sql)) return [[{ total: 0, scored: 0, wins: 0, net_pnl: null }]];
-      return [[]];
-    },
-  };
-  const dbPath = require.resolve(path.join(APP, 'db.js'));
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { pool } };
-  const authPath = require.resolve(path.join(APP, 'auth.js'));
-  require.cache[authPath] = { id: authPath, filename: authPath, loaded: true,
-    exports: { authMiddleware: (req, _res, next) => { req.user = { user_id: 1, email: 'op@test.io' }; next(); } } };
-  delete require.cache[require.resolve(path.join(APP, 'routes', 'portfolio.js'))];
-  const app = express();
-  app.use('/api/portfolio', require(path.join(APP, 'routes', 'portfolio.js')));
-  const s = http.createServer(app);
-  await new Promise((resolve) => s.listen(0, '127.0.0.1', resolve));
-  await new Promise((resolve, reject) => {
-    http.get({ port: s.address().port, path: '/api/portfolio' }, (res) => {
-      res.resume(); res.on('end', resolve);
-    }).on('error', reject);
+  await get({
+    scan: [], snapAt: OLD, equity: '100.00',
+    intercept: (sql) => (/INSERT INTO equity_snapshots/.test(sql) ? (inserted += 1, [{ affectedRows: 1 }]) : undefined),
   });
-  s.close();
   assert.strictEqual(inserted, 0, 'a mode nobody read must not drive a write');
 });
 

@@ -8,8 +8,13 @@ gateway handlers).
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import json
 from types import SimpleNamespace
+
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 from bot.web import user_gateway as ug
 
@@ -90,3 +95,81 @@ def test_positions_handler_is_read_only_and_uses_sl_order_truth():
     # says it "closes" nothing; assert on actual method calls, not prose).
     assert "place_order" not in src
     assert "close_position" not in src and ".close(" not in src
+
+
+# ── book_read: an empty list is not a reading of a flat book ────────────────
+#
+# `positions: []` used to be the answer for three different facts -- a flat
+# account, an executor that could not be resolved, and an executor with no
+# book -- and the website rendered every one of them as "No open positions".
+# The list stays [] (an older client keeps working); `book_read` says which.
+# Driven through the real handler with a mocked request, because the flag is
+# decided by a branch a source scan cannot see the reachability of.
+
+
+def _drive_positions(monkeypatch, *, live: bool, executor, tracker=None):
+    app = web.Application()
+    app["engine"] = SimpleNamespace(
+        _executor_for=lambda tg_id: executor,
+        user_portfolios=SimpleNamespace(get=lambda tg_id: tracker),
+    )
+    app["tg_handler"] = SimpleNamespace(users=SimpleNamespace(register=lambda *a, **k: None))
+    monkeypatch.setattr(ug, "_guard_user", lambda *a, **k: None)
+    # CONFIG is a frozen dataclass: replace the module attribute the handler
+    # reads, not a field on the frozen object.
+    monkeypatch.setattr(ug, "CONFIG", SimpleNamespace(is_live=lambda: live))
+    req = make_mocked_request("GET", "/positions?telegram_id=123456", app=app)
+    resp = asyncio.run(ug.handle_positions(req))
+    return resp.status, json.loads(resp.text)
+
+
+def test_a_live_executor_that_cannot_be_resolved_is_not_a_flat_book(monkeypatch):
+    status, body = _drive_positions(monkeypatch, live=True, executor=None)
+    assert status == 200
+    assert body["positions"] == []
+    assert body["count"] == 0
+    assert body["live"] is True
+    assert body["book_read"] is False, "no executor means nobody read a book"
+
+
+def test_an_executor_with_no_book_attribute_is_not_a_flat_book(monkeypatch):
+    status, body = _drive_positions(monkeypatch, live=True, executor=SimpleNamespace())
+    assert status == 200
+    assert body["positions"] == []
+    assert body["book_read"] is False
+
+
+def test_a_live_executor_with_an_empty_book_IS_a_read_flat_book(monkeypatch):
+    status, body = _drive_positions(monkeypatch, live=True,
+                                    executor=SimpleNamespace(open_positions=[]))
+    assert status == 200
+    assert body["positions"] == []
+    assert body["book_read"] is True, "an empty list the executor holds is a measured, flat book"
+
+
+def test_a_live_book_with_a_position_is_read_and_serialised(monkeypatch):
+    status, body = _drive_positions(monkeypatch, live=True,
+                                    executor=SimpleNamespace(open_positions=[_live()]))
+    assert status == 200
+    assert body["book_read"] is True
+    assert body["count"] == 1
+    assert body["positions"][0]["symbol"] == "BTC/USDT:USDT"
+
+
+def test_the_paper_tracker_is_a_read_book(monkeypatch):
+    status, body = _drive_positions(monkeypatch, live=False, executor=None,
+                                    tracker=SimpleNamespace(open_positions=[_paper()]))
+    assert status == 200
+    assert body["live"] is False
+    assert body["book_read"] is True
+    assert body["count"] == 1
+
+
+def test_a_raising_read_is_still_a_503_and_never_a_read_empty_book(monkeypatch):
+    class Boom:
+        @property
+        def open_positions(self):
+            raise RuntimeError("venue down")
+    status, body = _drive_positions(monkeypatch, live=True, executor=Boom())
+    assert status == 503
+    assert body == {"error": "positions_unavailable"}

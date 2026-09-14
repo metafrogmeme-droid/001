@@ -520,6 +520,37 @@ def _journal_exit_price(pos) -> float:
     return 0.0
 
 
+def _tradable_base_symbols() -> Optional[frozenset]:
+    """The base symbols this engine can enter — the deep-scan universe plus
+    the scanner's, one set — or None when neither could be read. Never an
+    empty set: an unreadable universe must not make every symbol an
+    operator names look untradable."""
+    try:
+        from bot.guardian.intent_policy import _base_symbol
+        from bot.skills.scan_skill import UNIVERSE as _scan
+        from bot.skills.skill_registry import DEEPSCAN_UNIVERSE, TRADFI_PERPETUALS
+        syms = {_base_symbol(s) for s in (*DEEPSCAN_UNIVERSE, *TRADFI_PERPETUALS, *_scan)}
+        syms.discard("")
+        return frozenset(syms) or None
+    except Exception:  # noqa: BLE001 - an unreadable universe is None, never []
+        return None
+
+
+def _journal_quantity(pos) -> Optional[float]:
+    """The base-currency size to journal, or None when the record has none.
+    Both books carry `quantity` (LivePosition and the paper TradeExecution);
+    an absent or non-positive one is NOT zero — zero would make the journal's
+    R a division by no risk and read as unknown for the wrong reason."""
+    v = getattr(pos, "quantity", None)
+    if v is None:
+        return None
+    try:
+        q = float(v)
+    except (TypeError, ValueError):
+        return None
+    return q if q > 0 else None
+
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -1361,6 +1392,7 @@ class RuneClawEngine:
                     exit_price=_journal_exit_price(pos),
                     stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
                     take_profit=float(getattr(pos, "take_profit", 0) or 0),
+                    quantity=_journal_quantity(pos),
                     pnl=float(_jpnl),
                     regime=self._outcome_regime(getattr(pos, "symbol", "")),
                     holding_hours=_hold,
@@ -1543,8 +1575,12 @@ class RuneClawEngine:
 
     def _intent_engine_caps(self) -> dict:
         """The authoritative engine caps a compiled policy is clamped against
-        (so a policy can only tighten). Missing caps are simply omitted."""
+        (so a policy can only tighten). Missing caps are simply omitted — except
+        the tradable universe, which is ALWAYS present and ``None`` when it
+        could not be read, because "not supplied" and "could not read" are
+        different answers and only the second should say so on the card."""
         caps = {
+            "tradable_symbols": _tradable_base_symbols(),
             "max_position_pct": getattr(CONFIG.risk, "max_position_pct", None),
             "max_symbol_exposure_pct": getattr(CONFIG.risk, "max_symbol_exposure_pct", None),
             "max_portfolio_exposure_pct": getattr(CONFIG.risk, "max_portfolio_exposure_pct", None),
@@ -6249,7 +6285,10 @@ class RuneClawEngine:
 
         if risk_check.verdict == RiskVerdict.REJECTED:
             # Store rejection for /whynot command
-            symbol_key = idea.asset.replace("/USDT", "").upper()
+            # The one normaliser: a perp's `HYPE/USDT:USDT` used to key as
+            # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
+            # of a perpetual was ever found by name.
+            symbol_key = normalize_symbol(idea.asset)
             self._last_rejections[symbol_key] = {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,
@@ -8144,6 +8183,7 @@ class RuneClawEngine:
                         exit_price=getattr(c, 'exit_price', None) or 0,
                         stop_loss=c.stop_loss,
                         take_profit=c.take_profit,
+                        quantity=_journal_quantity(c),
                         pnl=c.pnl,
                         confidence=getattr(c, '_confidence', 0),
                         signals_used=getattr(c, '_signals_used', []),

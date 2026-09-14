@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 176,
-    "sha": "9f4c1aca7ad1c6f9"
+    "v": 180,
+    "sha": "ebec5dae3f0e9bd2"
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -76,8 +76,8 @@
     "v": 7
   },
   "js/engine-card-model.js": {
-    "sha": "c233fd013d7bde98",
-    "v": 1
+    "sha": "418892c49d573faa",
+    "v": 2
   },
   "js/engine-status-model.js": {
     "sha": "d5bf6c25140efa4f",
@@ -104,12 +104,16 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 143,
-    "sha": "93cc7b2f46cc4814"
+    "v": 146,
+    "sha": "5a1a7bb29cc37616"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
     "v": 6
+  },
+  "js/instrument-row-model.js": {
+    "sha": "cd65ddb9c8ee7002",
+    "v": 1
   },
   "js/intent-model.js": {
     "sha": "d288c395a7e14720",
@@ -127,12 +131,20 @@
     "sha": "913fea490b4eec25",
     "v": 5
   },
+  "js/metric-cluster-model.js": {
+    "sha": "df5a16034376c919",
+    "v": 1
+  },
   "js/miniapp-arena.js": {
     "sha": "e03fb9b5a2417f94",
     "v": 1
   },
   "js/miniapp-view.js": {
     "sha": "50ebb19d4a1813f7",
+    "v": 1
+  },
+  "js/mode-strip-model.js": {
+    "sha": "8523737307e06ee9",
     "v": 1
   },
   "js/palette.js": {
@@ -228,8 +240,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "b364180da2d29b41",
-    "v": 39
+    "sha": "6dad4ce07bd38f5d",
+    "v": 42
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",

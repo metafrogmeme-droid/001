@@ -388,14 +388,28 @@ class ScanMarketSkill(BaseSkill):
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         signals = await engine.scanner.scan()
+        # Which venue answered. `scan()` folds a venue that did not answer
+        # into an empty half of the universe, so an empty list is two
+        # different facts: a quiet market, or nothing read. Both failing is
+        # a failed read — the card says so and the last good scan is kept
+        # for every other reader, because an absence must not erase a
+        # measurement. One failing is a partial, and the card carries it.
+        errs = getattr(engine.scanner, "last_fetch_errors", None) or {}
+        failed = [f"{k}: {v}" for k, v in errs.items() if v]
+        if errs and failed and all(errs.get(k) for k in errs):
+            return (f"{_BAD} <b>SCANNER</b>\n\n<i>Could not read the market — "
+                    f"{_esc('; '.join(failed))}. Nothing was read; this is not a "
+                    f"quiet market.</i>")
         # Stash structured results so the Telegram handler can render the grid
         # card from them (non-breaking: this method still returns its text).
         try:
             engine._last_scan_signals = signals or []
         except Exception:
             pass
+        partial = (f"\n<i>\u26a0 {_esc('; '.join(failed))} — that venue was not read, "
+                   f"so this scan covers part of the universe.</i>") if failed else ""
         if not signals:
-            return f"{_NEU} <b>SCANNER</b>\n\n<i>No signals detected.</i>"
+            return f"{_NEU} <b>SCANNER</b>\n\n<i>No signals detected.</i>{partial}"
 
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         top = signals[:10]
@@ -404,7 +418,7 @@ class ScanMarketSkill(BaseSkill):
 
         lines = [
             f"\U0001f50e <b>MARKET SCANNER</b>\n{SEP}",
-            f"<i>\u23f0 {now}  \u2022  {len(signals)} pairs detected</i>\n",
+            f"<i>\u23f0 {now}  \u2022  {len(signals)} pairs detected</i>{partial}\n",
         ]
 
         # Group by category (shared helper \u2014 identical ordering everywhere)
@@ -1328,15 +1342,25 @@ class RejectedTradesSkill(BaseSkill):
     description = "Recent risk-rejected trades"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        history = engine.risk.rejection_history
+        # The CALLER's risk engine when there is one (per-user live), else the
+        # shared engine — and the card says which, because a stranger reading
+        # the operator's rejections as their own is the shape #86 recorded.
+        user_id = str(kwargs.get("user_id") or "")
+        risk = engine.risk_for(user_id) if user_id and hasattr(engine, "risk_for") else engine.risk
+        scope = "" if (not user_id or risk is not engine.risk) else "  <i>(engine-wide record)</i>"
+        history = risk.rejection_history
         if not history:
-            return (f"{_NEU} <b>REJECTED TRADES</b>\n\n"
-                    "<i>\u2714 No rejections yet. The risk gate is working.</i>")
+            # A count, never a verdict: an empty record says the gate has had
+            # nothing to judge since it started — not that it is working.
+            return (f"{_NEU} <b>REJECTED TRADES</b>{scope}\n\n"
+                    "<i>No rejections recorded since this risk engine started. "
+                    "That is a count, not a verdict on the gate — a gate with "
+                    "nothing to judge rejects nothing.</i>")
 
         count = int(kwargs.get("count", 5))
         recent = history[-count:]
 
-        lines = [f"{_WARN} <b>REJECTED TRADES</b>  ({len(recent)}/{len(history)})\n{SEP}"]
+        lines = [f"{_WARN} <b>REJECTED TRADES</b>  ({len(recent)}/{len(history)}){scope}\n{SEP}"]
         lines.append("")
         for r in reversed(recent):
             d_icon = _OK if r["direction"] == "LONG" else _BAD
@@ -1675,13 +1699,24 @@ class TradeJournalSkill(BaseSkill):
 
         total_pnl = 0.0
         wins = 0
+        losses = 0
+        flat = 0
         for trade in reversed(recent):
+            # Three outcomes: the paper book always prices a close, and a
+            # measured 0.0 is a break-even — it used to be filed as a LOSS,
+            # and the record line counted it in the L column.
             is_win = trade.pnl > 0
-            if is_win: wins += 1
+            is_loss = trade.pnl < 0
+            if is_win:
+                wins += 1
+            elif is_loss:
+                losses += 1
+            else:
+                flat += 1
             total_pnl += trade.pnl
-            icon = _OK if is_win else _BAD
-            arrow = "\u25b2" if is_win else "\u25bc"
-            tag = "WIN" if is_win else "LOSS"
+            icon = _OK if is_win else (_BAD if is_loss else _NEU)
+            arrow = "\u25b2" if is_win else ("\u25bc" if is_loss else "\u25ac")
+            tag = "WIN" if is_win else ("LOSS" if is_loss else "FLAT")
             dur = ""
             if trade.closed_at and trade.opened_at:
                 h = (trade.closed_at - trade.opened_at).total_seconds() / 3600
@@ -1695,13 +1730,19 @@ class TradeJournalSkill(BaseSkill):
                 f"  - PnL: <code>${trade.pnl:+,.2f}</code>  |  Size: <code>${size:,.0f}</code>{dur}"
             )
 
-        wr = wins / len(recent) if recent else 0
-        wr_bar = _bar(wr, 1.0, 8)
+        # The rate is over DECIDED closes (a flat is neither), and the line
+        # says it is the last N shown — the window, not the record.
+        decided = wins + losses
+        wr = wins / decided if decided else None
+        wr_bar = _bar(wr if wr is not None else 0.0, 1.0, 8)
+        flat_s = f" / {flat}F" if flat else ""
+        rate_s = (f"<code>{wr:.0%}</code> of {decided} decided" if wr is not None
+                  else "<code>\u2014</code> (no decided close)")
         lines.append(f"\n{SEP}")
         lines.append(
-            f"<b>Session Summary</b>\n"
-            f"- Record: <b>{wins}W / {len(recent)-wins}L</b>  "
-            f"\u2502{wr_bar}\u2502 <code>{wr:.0%}</code>\n"
+            f"<b>Last {len(recent)} closes</b>\n"
+            f"- Record: <b>{wins}W / {losses}L{flat_s}</b>  "
+            f"\u2502{wr_bar}\u2502 {rate_s}\n"
             f"- Net PnL: <code>${total_pnl:+,.2f}</code>"
         )
         return "\n".join(lines)
@@ -2893,7 +2934,10 @@ class WhyNotSkill(BaseSkill):
 
         if symbol:
             # Normalize: strip /USDT if provided
-            sym_key = symbol.replace("/USDT", "").replace("/", "")
+            # The same normaliser the engine keys with (`HYPE/USDT:USDT` → HYPE),
+            # so a perpetual's rejection is found by the name the user types.
+            from bot.core.live_executor import normalize_symbol
+            sym_key = normalize_symbol(symbol)
             rej = rejections.get(sym_key)
             if not rej:
                 available = ", ".join(sorted(rejections.keys())[-10:])

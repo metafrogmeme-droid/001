@@ -94,6 +94,35 @@ def skill_result_memory(skill: str, result: object) -> str:
     return f"[{skill}] result:\n{body}"
 
 
+def web_answer_memory(intent: str, reply: object) -> str:
+    """The assistant turn to record when the WEBSITE answered the question.
+
+    app/routes/chat.js answers a dozen shapes of question with no bot
+    round-trip — alerts, replay, the weekly letter, net worth, research — and
+    POSTs the exchange to /chat/record so the next turn can build on it. That
+    record took the ``[intent] result:`` shape above, and the shape is a
+    CLAIM: both tool rules tell the model such a block "was written by the
+    runtime after a tool really ran", and ``[networth] result:`` names a tool
+    no surface holds. On Telegram the model was then told to call it again
+    for a fresh figure — a tool it has never been offered.
+
+    The website DID read something (its own records), so this is not the
+    ``routed_answer_memory`` case either: "no tool ran" would undersell it.
+    It is a third thing and gets its own words — who answered, and that no
+    bot tool did. Same cap, same announced truncation, and the marker word
+    is in the fabrication guard's vocabulary like every other record here.
+    """
+    body = _plain(reply)
+    head = f"[{intent}] shown by the website (its own reading; no bot tool ran"
+    if body is None:
+        return (f"{head}; the reply carried no text, so nothing of it is "
+                "recorded).")
+    if len(body) > MEMORY_CAP:
+        return (f"{head}; TRUNCATED — first {MEMORY_CAP} of {len(body)} "
+                "characters; the rest is not recorded):\n" + body[:MEMORY_CAP])
+    return f"{head}):\n{body}"
+
+
 def skill_failure_memory(skill: str) -> str:
     """The assistant turn to record when a skill raised.
 

@@ -141,7 +141,11 @@ class TestTheBudgetCanAddUp:
         assert "prompt_tokens=500 + history_tokens" not in code, (
             "500 against a ~1,030-token system prompt let the daily budget "
             "guard pass roughly three times what it was set")
-        assert "len(system_prompt or \"\") // 4" in code
+        # `_sp` is the prompt the candidate was actually handed — the tools
+        # rule is chosen per candidate now, so `system_prompt` (the no-tools
+        # document) is not always the string that was sent, and an estimate
+        # of the string that was sent is the more honest of the two.
+        assert "len(_sp or \"\") // 4" in code
 
     def test_a_bigger_prompt_books_a_bigger_cost(self):
         """The property, driven: the estimate must track the real string."""

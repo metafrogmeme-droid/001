@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
+
 # Orphan-adopted and diagnostic-injected positions. These are not decisions
 # the engine made, so they do not belong in the engine's record.
 ORPHAN_PREFIXES: tuple[str, ...] = ("TI-adopted", "TI-injected")
@@ -33,9 +35,12 @@ ORPHAN_PREFIXES: tuple[str, ...] = ("TI-adopted", "TI-injected")
 # Closes where no position ever existed. An order that was cancelled, expired,
 # rejected, or abandoned on price drift has no P&L and no outcome — counting
 # it as a trade dilutes the win rate with events that were never trades.
-NON_TRADE_CLOSE_REASONS: frozenset[str] = frozenset({
-    "canceled", "cancelled", "expired", "price_drift", "rejected",
-})
+#
+# The same OBJECT as `close_reason.NON_FILL_CLOSE_REASONS`, kept under the
+# name the six card readers import. This used to be a second copy, five words
+# to the other's six, so `stale_pending` and `duplicate_fill_suppressed` rows
+# counted as trades here and `rejected` counted as a fill there.
+NON_TRADE_CLOSE_REASONS: frozenset[str] = NON_FILL_CLOSE_REASONS
 
 
 def is_adopted(trade: Any) -> bool:
