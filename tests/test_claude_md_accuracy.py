@@ -324,17 +324,25 @@ def test_the_outbound_seam_is_at_a_boundary_not_a_call_site_list():
         "a per-return scrub is the shape the boundary replaced")
 
 
-def test_the_seam_knows_the_token_shape_the_old_one_did_not():
-    """The paragraph's sharpest claim, and the reason it is a named function
-    rather than an import of `_redact_string`."""
+def test_the_seam_and_the_old_scrub_read_one_vocabulary_now():
+    """The paragraph's sharpest claim was that `reply_safe` knew a shape
+    `_redact_string` did not, and the paragraph after it records how that gap
+    closed: one table, every reader. So the assertion this test used to make
+    — that the shared scrub MISSES the bot token — is the one that must fail
+    now. The walk is proved one in `test_one_secret_vocabulary.py` by planting
+    a shape in the table rather than by comparing outputs, because a
+    byte-identical copy agrees on every fixture."""
+    from bot.utils.exc_text import _safe_exc_text
     from bot.utils.logger import _redact_string
     from bot.utils.outbound import reply_safe
 
     flat = re.sub(r"\s+", " ", DOC)
     assert "the shared key=value redactor does not know it" in flat
+    assert "`bot/utils/secret_shapes.py`" in flat, "the paragraph names the one table"
     tok = "bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
-    assert "1234567890:AAF" in _redact_string(tok), "the old scrub misses it"
+    assert "1234567890:AAF" not in _redact_string(tok), "one vocabulary: the old scrub reads it too"
     assert "1234567890:AAF" not in reply_safe(tok)
+    assert "1234567890:AAF" not in _safe_exc_text(RuntimeError(tok))
 
 
 def test_the_six_records_it_names_all_exist_and_differ():

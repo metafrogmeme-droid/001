@@ -37,18 +37,24 @@ written, and says in its own docstring that "the shared key=value redactor
 does not know it". So the exception path knew about the worst single secret
 in the process and the general outbound path did not — two redactors side by
 side, one of them a copy that knew less.
+
+THAT GAP IS CLOSED THE ONLY WAY IT STAYS CLOSED: not by teaching this function
+one more shape, but by `bot/utils/secret_shapes.py` being the one table every
+scrub reads. `_redact_string`, `_safe_exc_text`, `scrub_reason`, `_safe_detail`
+and this function answer from it, and its docstring says what it deliberately
+leaves alone (a bare 64-hex value, a card's non-credential query parameters).
 """
 from __future__ import annotations
 
-from bot.utils.exc_text import _TG_TOKEN_RE
-from bot.utils.logger import _redact_string
+from bot.utils.secret_shapes import scrub_secrets
 
 
 def reply_safe(text: str) -> str:
     """``text`` with inline secrets scrubbed. Never raises, never blocks.
 
-    Order matches `_safe_exc_text`'s and for its stated reason: the bot-token
-    shape goes first because the shared key=value redactor does not know it.
+    The vocabulary is `secret_shapes.SHAPES`, applied in its own order
+    (token-shaped patterns first, the key=value families after), and it is
+    the same table `_safe_exc_text` and `_redact_string` read.
 
     It does NOT escape. `_safe_exc_text` escapes because it is handing an
     exception's message into HTML; this runs over text that is ALREADY the
@@ -62,6 +68,6 @@ def reply_safe(text: str) -> str:
     if not text:
         return text
     try:
-        return _redact_string(_TG_TOKEN_RE.sub("***REDACTED***", text))
+        return scrub_secrets(text)
     except Exception:
         return text

@@ -45,19 +45,12 @@ itself stays exactly where it is, on the money path, unchanged.
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Iterator
 
 __all__ = ["entry_gate", "gate_label", "gate_sentence", "UNREADABLE"]
 
 #: Reason text when a field could not be read at all.
 UNREADABLE = "status unreadable"
-
-#: A bare URL can carry credentials in its query string once it is one token,
-#: and no key=value pattern catches "?apiKey=...". Keep the host — "which
-#: venue" is the diagnostic — and drop the rest. Same rule as _safe_exc_text.
-_URL_QUERY_RE = re.compile(r"(https?://[^\s?]+)\?[^\s]*")
-
 
 def _safe_detail(raw: str, limit: int = 80) -> str:
     """The venue auth detail, safe to put on ANY surface.
@@ -82,12 +75,11 @@ def _safe_detail(raw: str, limit: int = 80) -> str:
     if not msg:
         return ""
     try:
-        from bot.utils.logger import _redact_string
-        msg = _redact_string(msg)
+        from bot.utils.secret_shapes import scrub_diagnostic
+        msg = scrub_diagnostic(msg)
     except Exception:
         # Never let a scrub failure decide to emit the UNSCRUBBED string.
         return ""
-    msg = _URL_QUERY_RE.sub(r"\1?***", msg)
     msg = msg.replace("<", "").replace(">", "").replace("&", " and ")
     return " ".join(msg.split())[:limit]
 

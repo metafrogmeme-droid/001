@@ -23,6 +23,8 @@ from bot.compat import UTC
 from pathlib import Path
 from typing import Any
 
+from bot.utils.secret_shapes import INLINE_SECRET_RE, REDACTED, scrub_secrets
+
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -38,14 +40,13 @@ _SENSITIVE_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Inline patterns for strings (e.g. "BITGET_API_KEY=abc123" in tracebacks)
-_INLINE_SECRET_RE = re.compile(
-    r"(api[_-]?key|api[_-]?secret|passphrase|password|token|secret|credential)"
-    r"\s*[=:]\s*['\"]?([^\s'\"]{4,})",
-    re.IGNORECASE,
-)
+# Inline patterns for strings (e.g. "BITGET_API_KEY=abc123" in tracebacks).
+# The `key=value` shape lived here alone until `bot/utils/secret_shapes.py`
+# became the one vocabulary every scrub reads; the name is kept for its
+# importers and `_redact_string` now applies the whole table, not one row.
+_INLINE_SECRET_RE = INLINE_SECRET_RE
 
-_REDACTED = "***REDACTED***"
+_REDACTED = REDACTED
 
 
 def _redact_dict(obj: Any, depth: int = 0) -> Any:
@@ -68,8 +69,13 @@ def _redact_dict(obj: Any, depth: int = 0) -> Any:
 
 
 def _redact_string(s: str) -> str:
-    """Scrub inline secrets from string values (tracebacks, error messages)."""
-    return _INLINE_SECRET_RE.sub(r"\1=***REDACTED***", s)
+    """Scrub inline secrets from string values (tracebacks, error messages).
+
+    Every shape in `secret_shapes.SHAPES`, not the `key=value` row alone: this
+    is the chokepoint the log formatter, the venue-rejection reasons and the
+    MCP traceback all read, so a shape added to the table covers them at once.
+    """
+    return scrub_secrets(s)
 
 
 class _JSONFormatter(logging.Formatter):

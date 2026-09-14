@@ -1443,6 +1443,44 @@ vocabulary: `Authorization: Bearer …` still passes, and fixing that is its own
 slice, because a second vocabulary is a second answer — the rule
 `honesty_vocabulary.json` exists to state.
 
+**That slice is one table, and driving it before writing it found the gap was
+wider than the header.** `bot/utils/secret_shapes.py` holds every shape, each
+row carrying its own example and decoy so the table pins itself, and
+`_redact_string`, `reply_safe`, `_safe_exc_text`, `scrub_reason` and
+`_safe_detail` all answer from it — the last three had byte-for-byte copies of
+the same three lines, two of them a private `_URL_QUERY_RE`. Driven through
+`reply_safe` first: `Authorization: Bearer …` passed, and so did a bare `sk-…`
+provider key, a session JWT, `api key: …` spelled with a space, and the three
+names whose values encrypt everything else on the box —
+`WEB3_SIGNER_PRIVATE_KEY=`, `RUNECLAW_SECRETS_KEY=`, `WEB_CREDS_KEY=` — because
+the `key=value` family knew `api_key` and `secret`, and `_KEY` is neither while
+`SECRETS_KEY=` is not `secret=`. A config error is exactly the message that
+prints one of those with its value. Two things it deliberately leaves alone,
+stated because a scrub whose coverage is overstated is the failure this file is
+about: a bare 64-hex value, because a transaction hash has precisely that shape
+and a swap card is right to print one (labelled, it is scrubbed); and a card's
+link, which keeps its query string except for parameters NAMED like credentials
+— `?symbol=BTC%2FUSDT` survives, `?sign=` does not — where the exception path
+still drops the whole query, since a diagnostic never carries a link a user
+needs. Behind a prose label the value must LOOK like a credential (a digit, or
+twenty characters), or `api key: not configured` would print as a redacted key
+that exists. It is Python only: `app/lib/safe_error.js` has its own vocabulary,
+wider on labels and narrower on token shapes, and one file read by two
+runtimes is filed, not done. **Two guards had pinned the gap as a fact** —
+"the old scrub misses it", asserted in two suites — and both moved to the
+claim that replaced it; the walk is proved one by PLANTING a shape in the
+table and reading every reader, because a byte-identical copy agrees on every
+fixture.
+
+**Twenty mutations, each killed, and the one that survived the first round
+was the driver's.** "Escape before scrub" changed no verdict on any fixture the
+suites held, because no shape in the table contains a character escaping
+rewrites — the docstring's order claim was true and undriven. The input that
+tells the orders apart is a driver's echoed request body, query-shaped behind
+no URL: escaped first, `&sign=` becomes `&amp;sign=`, the parameter row never
+sees the `&` it anchors on, and the signature reaches the user. That fixture
+is in the leak guard now, and the mutation dies on it.
+
 **And a docstring was the entire defect in the third place.**
 `quant_skill._safe_reason` promised *"never a key, never a URL with a token"*
 over `" ".join(str(exc).split())[:120]` — a trim and a truncation, no

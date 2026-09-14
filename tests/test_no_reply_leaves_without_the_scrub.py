@@ -22,11 +22,13 @@ pins defence in depth, and the argument for it is that "every producer
 remembers" is a property no test can check. A chokepoint new code inherits
 cannot be forgotten.
 
-The scrub is deliberately the EXISTING vocabulary (`_redact_string`'s named
+The scrub was first the EXISTING vocabulary (`_redact_string`'s named
 `key=value` shapes) plus the bot-token pattern `_safe_exc_text` already knew
-and the outbound path did not. Widening the vocabulary would be its own
-slice: a second vocabulary is a second answer, which is the rule
-`honesty_vocabulary.json` exists to state.
+and the outbound path did not, and this file said widening it would be its
+own slice because a second vocabulary is a second answer. That slice is
+`bot/utils/secret_shapes.py`: ONE table every scrub reads, driven row by row
+in `tests/test_one_secret_vocabulary.py`. This file keeps pinning the SEAMS —
+that every reply on both transports reaches the scrub at all.
 """
 from __future__ import annotations
 
@@ -49,14 +51,19 @@ def test_the_named_key_shapes_are_scrubbed():
     assert "api_key=***REDACTED***" in out
 
 
-def test_it_knows_the_bot_token_shape_the_outbound_path_did_not():
-    """`_redact_string` matches `key=value`; a bot token carries no `=` at
-    all. `_safe_exc_text` has scrubbed it since it was written and says so in
+def test_the_bot_token_shape_is_known_to_every_scrub_now():
+    """`_redact_string` matched `key=value`; a bot token carries no `=` at
+    all. `_safe_exc_text` had scrubbed it since it was written and said so in
     its own docstring — so the EXCEPTION path knew about the worst single
-    secret in the process and the general outbound path did not."""
+    secret in the process and the general outbound path did not. The first
+    version of this test pinned that GAP as a fact ("the old scrub misses
+    it"). There is one vocabulary now, so the old scrub knows it too, and the
+    proof that they are one walk rather than two agreeing copies is in
+    `test_one_secret_vocabulary.py` (plant a shape in the table, read every
+    reader)."""
     from bot.utils.logger import _redact_string
 
-    assert "1234567890:AAF" in _redact_string(TOKEN), "the old scrub misses it"
+    assert "1234567890:AAF" not in _redact_string(TOKEN)
     assert "1234567890:AAF" not in reply_safe(TOKEN)
 
 
@@ -80,7 +87,7 @@ def test_a_fault_returns_the_text_rather_than_breaking_a_chat(monkeypatch):
     def _boom(_s):
         raise RuntimeError("redactor down")
 
-    monkeypatch.setattr(ob, "_redact_string", _boom)
+    monkeypatch.setattr(ob, "scrub_secrets", _boom)
     assert ob.reply_safe("hello") == "hello"
 
 

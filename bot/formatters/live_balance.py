@@ -33,17 +33,9 @@ failed read as that claim is the same defect one section down.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-from bot.utils.logger import _redact_string
-
-#: A bare URL can carry credentials in its query string and no key=value
-#: redactor catches "?apiKey=..." once it is one token. Keep the host — which
-#: venue is the diagnostic — and drop the rest. Same rule as
-#: telegram_handler._safe_exc_text, applied to a string rather than an
-#: exception, because `error` has already been through `str(exc)`.
-_URL_QUERY_RE = re.compile(r"(https?://[^\s?]+)\?[^\s]*")
+from bot.utils.secret_shapes import scrub_diagnostic
 
 UNKNOWN = "unknown"
 
@@ -55,8 +47,11 @@ def scrub_reason(raw) -> str:
     """A venue error string, safe to show an operator.
 
     Never the raw text: a ccxt message carries the request URL, and on some
-    venues the API key rides in that URL's query string. Routed through the
-    same shared chokepoint the logger uses so there is one place to fix.
+    venues the API key rides in that URL's query string. `scrub_diagnostic`
+    is the one reading — the whole secret vocabulary, then every URL query
+    dropped — so a shape added to the table covers this reason too. This
+    function used to carry its own copy of the query pattern beside a call to
+    the key=value redactor, which is the second-copy shape.
     """
     try:
         msg = str(raw or "")
@@ -64,10 +59,7 @@ def scrub_reason(raw) -> str:
         return ""
     if not msg:
         return ""
-    msg = _redact_string(msg)
-    msg = _URL_QUERY_RE.sub(r"\1?***", msg)
-    msg = " ".join(msg.split())
-    return msg[:_REASON_LIMIT]
+    return scrub_diagnostic(msg)[:_REASON_LIMIT]
 
 
 @dataclass(frozen=True)
