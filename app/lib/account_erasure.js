@@ -62,6 +62,12 @@ const USER_SCOPED_TABLES = [
   'copy_subscriptions',
   'user_profiles',
   'user_alerts',
+  // The trips of those alerts: one row per firing, carrying the alert's
+  // own title and body and the Telegram delivery stamp. Keyed to the
+  // person like the alert it came from, and the price-alert slice's own
+  // review found it missing here — app/test/account_erasure.test.js is
+  // the guard that said so.
+  'user_alert_trips',
   'user_strategies',
   'user_watchlist',
   'arena_follows',
