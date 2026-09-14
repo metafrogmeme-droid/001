@@ -329,7 +329,8 @@ def test_the_paper_arms_render_through_the_seams():
     src = "\n".join(code_only(p.read_text(encoding="utf-8")) for p in handler_sources())
     i = src.index("def _build_chat_system_prompt")
     body = src[i:src.index("async def _llm_chat", i)]
-    for must in ("_paper_position_row(pos, user_portfolio._last_prices.get(pos.asset))",
+    for must in ("_paper_position_row(pos, *_paper_mark_of(user_portfolio, pos.asset))",
+                 "_refresh_paper_marks(self, user_portfolio)",
                  "trade_lines = [_closed_trade_line(t) for t in recent_trades]",
                  "RECENT CLOSED TRADES (PAPER", "ACTIVE POSITIONS (PAPER"):
         assert must in body, must

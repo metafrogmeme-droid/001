@@ -274,6 +274,12 @@ class PortfolioState(BaseModel):
     equity_usd: float
     open_positions: int
     total_trades: int
+    #: Open positions with NO mark on record, valued at their entry price in
+    #: `equity_usd` — so with this above zero the equity is a partial, and a
+    #: surface that prints it as the account's worth is printing a guess for
+    #: those positions. A count rather than a flag: "one of nine" and "nine
+    #: of nine" are different facts.
+    unpriced_positions: int = 0
     win_rate: float = 0.0
     total_pnl: float = 0.0
     total_gross_pnl: float = 0.0

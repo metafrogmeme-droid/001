@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from bot.compat import UTC
@@ -40,6 +41,23 @@ class TrailingStopConfig:
     activation_pct: float = 50.0         # activate after price reaches 50% of TP distance
     trail_distance_atr_mult: float = 2.0  # trail at ATR * this multiplier
     min_profit_lock_pct: float = 0.3      # minimum profit to lock in (0.3% of entry price)
+
+
+def _restore_mark_times(data: dict) -> dict[str, float]:
+    """The saved mark times, or an empty map when the file predates them or
+    holds junk — an unreadable time is an unknown age, never a fresh one."""
+    out: dict[str, float] = {}
+    raw = data.get("last_price_at") if isinstance(data, dict) else None
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f == f and f > 0:
+            out[str(k)] = f
+    return out
 
 
 class PortfolioTracker:
@@ -84,6 +102,12 @@ class PortfolioTracker:
         self._trailing_state: dict[str, dict] = {}
         # Mark-to-market: latest prices for unrealized PnL
         self._last_prices: dict[str, float] = {}  # asset -> price
+        #: asset -> epoch seconds of the mark above. `_last_prices` is
+        #: restored from disk with no time on it, and the paper book is marked
+        #: only when a command reads it, so a mark could be hours or a restart
+        #: old and nothing could say so. Absent for a restored price means
+        #: "age unknown", never "fresh".
+        self._last_price_at: dict[str, float] = {}
         # C2-49: rate-limit missing price warnings per symbol
         self._missing_price_warned: dict[str, int] = {}
         # C2-34: combined state saver — when set, _auto_save delegates to this
@@ -315,13 +339,35 @@ class PortfolioTracker:
         """Update last-known prices for unrealized PnL computation.
         Call this before snapshot() whenever fresh prices are available."""
         with self._lock:
+            now = time.time()
             for asset, price in prices.items():
                 if price > 0:
                     self._last_prices[asset] = price
+                    self._last_price_at[asset] = now
             # LB-4 FIX: Update peak equity on every mark-to-market tick.
             # Without this, peak only updates on trade close / snapshot,
             # so intra-bar equity highs are missed and drawdown is overstated.
             self._update_peak()
+
+    def paper_mark(self, asset: str) -> tuple[Optional[float], Optional[float]]:
+        """``(mark, age_sec)`` for one asset — the price this book values the
+        position at, and how old that price is.
+
+        Three answers, kept apart: ``(None, None)`` is no mark on record;
+        ``(price, None)`` is a mark with no recorded time — a price restored
+        from a previous run, whose age nobody knows and which a reader must
+        not call current; ``(price, age)`` is a mark set by `mark_to_market`
+        in this process. The chat prompt prints the age beside the mark
+        because a stale paper mark printed bare reads exactly like a live one.
+        """
+        with self._lock:
+            price = self._last_prices.get(asset)
+            at = self._last_price_at.get(asset)
+        if price is None or price <= 0:
+            return None, None
+        if at is None:
+            return float(price), None
+        return float(price), max(0.0, time.time() - float(at))
 
     # C-02 FIX: Removed _update_trailing_stops_locked() and its public wrapper
     # update_trailing_stops(). The canonical trailing stop system lives in
@@ -404,10 +450,12 @@ class PortfolioTracker:
         # from balance, so equity = balance + sum(margin + unrealized) for each position.
         open_value = 0.0
         unrealized_pnl = 0.0
+        unpriced = 0
         for p in self._positions.values():
             current_price = self._last_prices.get(p.asset, None)
             if current_price is None:
                 current_price = p.entry_price
+                unpriced += 1
                 # C2-49 FIX: rate-limit warning (shares counter with get_position_value)
                 count = self._missing_price_warned.get(p.asset, 0) + 1
                 self._missing_price_warned[p.asset] = count
@@ -463,6 +511,7 @@ class PortfolioTracker:
             equity_usd=round(equity, 2),
             open_positions=len(self._positions),
             total_trades=total,
+            unpriced_positions=unpriced,
             win_rate=round(len(wins) / total, 2) if total > 0 else 0.0,
             total_pnl=round(sum(t.pnl for t in self._history), 2),
             total_gross_pnl=total_gross,
@@ -540,6 +589,7 @@ class PortfolioTracker:
             "daily_pnl": dict(self._daily_pnl),
             "trailing_state": dict(self._trailing_state),
             "last_prices": dict(self._last_prices),
+            "last_price_at": dict(self._last_price_at),
             "saved_at": datetime.now(UTC).isoformat(),
         }
         try:
@@ -665,10 +715,13 @@ class PortfolioTracker:
                     trade_log.warning("Discarding incomplete trailing state for %s: missing %s", tid, missing)
                     continue
                 self._trailing_state[tid] = ts
-            # Restore last prices
+            # Restore last prices — and WHEN each was marked. An older state
+            # file carries no `last_price_at`, and a price with no time on it
+            # is a price of unknown age (paper_mark answers None for it).
             self._last_prices = {
                 k: float(v) for k, v in data.get("last_prices", {}).items()
             }
+            self._last_price_at = _restore_mark_times(data)
             audit(trade_log, f"Loaded portfolio state from {target}",
                   action="load_state", result="OK",
                   data={"balance": self.balance,
@@ -712,6 +765,7 @@ class PortfolioTracker:
             "daily_pnl": dict(self._daily_pnl),
             "trailing_state": dict(self._trailing_state),
             "last_prices": dict(self._last_prices),
+            "last_price_at": dict(self._last_price_at),
         }
 
     def _load_from_state_dict(self, data: dict[str, Any]) -> None:
@@ -749,6 +803,7 @@ class PortfolioTracker:
         self._last_prices = {
             k: float(v) for k, v in data.get("last_prices", {}).items()
         }
+        self._last_price_at = _restore_mark_times(data)
 
     def _auto_save(self) -> None:
         """Save state after trade execution. Called within the lock.

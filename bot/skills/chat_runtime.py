@@ -178,6 +178,32 @@ _ACT_WORDING: dict[str, dict[str, str]] = {
 }
 
 
+_TELEGRAM_CLOSE_DOOR = ("To CLOSE a position or CANCEL a pending order: open it on the "
+                        "positions card and tap Close or Cancel.")
+_WEB_CLOSE_DOOR = ("To CLOSE a position or CANCEL a pending order: that is done from "
+                   "the positions card in the Telegram bot — open it there and tap "
+                   "Close or Cancel; nothing in this web chat can.")
+
+
+def cannot_act_rule(surface: str = "telegram") -> str:
+    """`_CHAT_CANNOT_ACT_RULE` with the close/cancel door named for THIS
+    surface.
+
+    The constant says "open it on the positions card and tap Close or
+    Cancel" — Telegram's door, on a page that has no such card: the web has
+    the trade ticket and the 'Trade this' button (both named) and no chat
+    door for closing, and `act_intent_notice` already sends a web caller to
+    "the positions card in Telegram". The prompt rule and the routed notice
+    now name the same door, which is the reason the notice was one function.
+    Asserted rather than searched, so a reworded constant fails here instead
+    of silently shipping the Telegram sentence to the web again.
+    """
+    if surface != "web":
+        return _CHAT_CANNOT_ACT_RULE
+    assert _TELEGRAM_CLOSE_DOOR in _CHAT_CANNOT_ACT_RULE, "the close door moved"
+    return _CHAT_CANNOT_ACT_RULE.replace(_TELEGRAM_CLOSE_DOOR, _WEB_CLOSE_DOOR)
+
+
 def act_intent_notice(kind: str, symbol: str | None = None,
                       surface: str = "telegram", *, also_asked: bool = False) -> str:
     """What a routed request to act is told, on both surfaces.
