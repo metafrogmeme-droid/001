@@ -541,7 +541,10 @@ def test_the_catalogue_count_is_written_down_in_exactly_one_place():
 def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     """A card that names a command is claiming the command does something."""
     named, nothing, hits = catalogue_on_the_web()
-    assert (named, nothing, len(hits)) == (91, 79, 12), (named, nothing, hits)
+    # Re-measured when the scan-mode rules became whole-message rules: the
+    # bare `swing`/`scalp`/`intraday` alternatives that matched INSIDE
+    # "/swing" are gone, so three more typed commands reach nothing.
+    assert (named, nothing, len(hits)) == (91, 82, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 
@@ -670,23 +673,23 @@ def test_every_askable_row_reaches_the_skill_it_describes():
 def test_the_card_asks_the_model_what_it_actually_holds():
     """A SECOND COPY OF A GATE, and it decided what the card promises.
 
-    Four of the card's rows — `proposals`, `rejected_trades`,
-    `check_event_risk`, `macro_brief` — have no router rule at all, so a chat
-    TOOL is their only door. `words_reach` read that door off the static
+    Two of the card's rows — `proposals`, `rejected_trades` — have no router
+    rule at all, so a chat TOOL is their only door. (Four when this was
+    written: `check_event_risk` and `macro_brief` have rules of their own
+    now, "event risk on eth" and "is macro cutting size".) `words_reach` read that door off the static
     `CHAT_TOOLS` tuple, while the catalogue the model is actually offered is
     `_chat_tools_for`, which applies two filters the tuple knows nothing about
     (`CONFIG.llm.chat_tools_enabled`, `registry.get(name) is not None`) and a
     bare `except: return []`.
 
     Driven with chat tools switched OFF, the model held ZERO tools and the
-    card still printed all four under "Ask me in your own words for any of
-    these" — a card naming a capability whose only door is shut, which is the
+    card still printed every one of them under "Ask me in your own words for
+    any of these" — a card naming a capability whose only door is shut, which is the
     `/vault` hint shape inverted and this module's own stated subject.
     """
     from bot.nlp.skill_doors import words_reach
 
-    tool_only = {"proposals", "rejected_trades", "check_event_risk",
-                 "macro_brief"}
+    tool_only = {"proposals", "rejected_trades"}
     # The premise: no router rule names any of them, on either surface.
     from bot.nlp.intent_router import routed_skill_names
     assert not (tool_only & routed_skill_names()), tool_only & routed_skill_names()

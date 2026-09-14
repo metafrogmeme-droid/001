@@ -634,12 +634,12 @@ the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
 replaced a false refusal with a mostly-false answer**: `_cmd_help` names 91 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 79 of the 91 reach the tool-less chat model and 12
+typed as the card prints them, 82 of the 91 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
 hint's scale, and the signed-in prompt forbids the model from suggesting slash
-commands, so the 79 land on a model told not to give the answer the card just
+commands, so the 82 land on a model told not to give the answer the card just
 gave. The answer is what this caller can ASK FOR, in words, from `SKILL_SAYS` —
 a COLUMN on the permission table rather than a map in the renderer, because a
 map elsewhere is the `/setllm` ten-of-eleven shape and a skill added later would
@@ -852,10 +852,12 @@ unioned the static `CHAT_TOOLS` tuple, while the catalogue the model is
 actually offered is `_chat_tools_for` — the only thing `_llm_chat` reads —
 which applies two filters the tuple knows nothing about
 (`CONFIG.llm.chat_tools_enabled`, `registry.get(name) is not None`) plus a bare
-`except: return []`. Four rows have no router rule at all, so a chat tool is
-their ONLY door: driven with chat tools switched off, the model held zero tools
-and the card still offered `proposals`, `rejected_trades`, `check_event_risk`
-and `macro_brief` under "Ask me in your own words". Both call sites pass the
+`except: return []`. Two rows have no router rule at all today — `proposals`
+and `rejected_trades`; it was four until `check_event_risk` and `macro_brief`
+gained rules of their own with the macro shorthand — so a chat tool is their
+ONLY door: driven with chat tools switched off, the model held zero tools and
+the card still offered `proposals`, `rejected_trades`, `check_event_risk` and
+`macro_brief` under "Ask me in your own words". Both call sites pass the
 caller's real catalogue now; `tools=None` means *no caller* — the question is
 what the PRODUCT does — and is right only for the signed-out card.
 

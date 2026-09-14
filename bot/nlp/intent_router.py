@@ -167,6 +167,17 @@ def _is_social_message(text: str) -> bool:
             "bitget", "bybit", "binance", "hyperliquid", "settings",
             # macro
             "cpi", "fomc", "nfp", "pce", "ppi", "fed", "events", "calendar",
+            "payrolls", "unemployment", "jobs", "claims", "print", "blackout",
+            "brief", "report",
+            # the scanner's vocabulary, short
+            "scanner", "gainers", "losers", "movers", "ideas", "plays", "hourly",
+            "daily", "weekly", "monthly", "top",
+            # the research surface: registered skills and their arguments, so
+            # "walk forward test" and "optimise the params" reach a model that
+            # can say what runs where, not the greeter
+            "walk", "forward", "walkforward", "walk-forward", "optimize",
+            "optimise", "optimizer", "optimiser", "params", "parameters",
+            "strategy", "validation",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -603,6 +614,29 @@ def _names_a_non_asset(text: str, match) -> bool:
                for w in re.findall(r"[A-Za-z]{2,}", leftover))
 
 
+_JOURNAL_COUNT = re.compile(r"\b(?:last|recent|past|previous)\s+(\d{1,3})\s+(?:trades|closes)\b", re.IGNORECASE)
+_JOURNAL_SUPERLATIVE = re.compile(
+    r"\b(?:worst|biggest|largest|best)\s+(?:loss|loser|losing trade|win|winner|winning trade|trade)\b",
+    re.IGNORECASE)
+#: The window a superlative is read over. The journal card ranks nothing —
+#: it prints the last N closes with their P&L — so "my worst loss" is
+#: answered by a window wide enough for the reader to find it, and the card's
+#: own header says which window that was.
+JOURNAL_SUPERLATIVE_COUNT = 50
+
+
+def journal_count(text: str) -> Optional[int]:
+    """How many closes the question asked for, or None for the card's own
+    default: "my last 10 trades" names ten, "my worst loss" needs a window
+    wide enough to hold it, and "recent trades" names nothing."""
+    m = _JOURNAL_COUNT.search(text or "")
+    if m:
+        return max(1, min(200, int(m.group(1))))
+    if _JOURNAL_SUPERLATIVE.search(text or ""):
+        return JOURNAL_SUPERLATIVE_COUNT
+    return None
+
+
 def _rule(pattern: str, skill: str, needs_symbol: bool = False, explanation: str = ""):
     """Register a rule-based intent pattern."""
     _INTENT_RULES.append((
@@ -948,15 +982,47 @@ _COMPOUND_ACTION_PATTERNS = frozenset({_INTENT_RULES[-1][0], _INTENT_RULES[-2][0
 
 # --- Scan / market overview ---
 # RUNECLAW natural language triggers — scan modes
-_rule(r"\b(swing(?: (?:scan|mode|trade))?|4h scan|swing by swing)\b",
+# A mode request is the WHOLE message, the way a trader types it short —
+# "15m setups", "any scalps?", "4h ideas", "give me 3 setups" — or an
+# explicit multi-word form anywhere in a sentence ("run a swing scan"). The
+# bare words `swing` / `scalp` / `intraday` used to match ANYWHERE, so
+# "whats the average win rate for swing trading" — an education question —
+# ran a real 4h ProScan behind the premium paywall, and every short form a
+# trader actually types ("15m setups", "hourly ideas", "any good swings")
+# reached nothing at all. Timeframes name the mode: 4h is the swing ladder,
+# 1h/2h/15m/30m/hourly/daily the intraday one (a "daily setup" is a setup
+# for today), 5m the scalp one; "weekly" names no ladder this scanner runs
+# and stays with the model. "setups" with no timeframe is the ladder card at
+# its default — the movers table carries no entry, stop or target and cannot
+# answer "what setups do you see".
+_MODE_LEAD = (r"^\s*(?:(?:any|some|show me|give me|gimme|run|do|lets|let's|please|"
+              r"can you|could you|find me|got any)\s+)*(?:(?:a|the|me|good|best|top|"
+              r"nice|fresh|new|\d{1,2})\s+)*")
+_MODE_TAIL = r"(?:\s+(?:please|pls|now|rn|today|right now|for today|atm))*\s*[?!.]*\s*$"
+_SWING_TF = r"(?:4h|4 ?hours?|four hour)"
+_INTRADAY_TF = r"(?:1h|2h|15m|30m|1 ?hour|2 ?hour|hourly|daily)"
+_SCALP_TF = r"(?:5m|1m|3m|5 ?min(?:ute)?s?)"
+_SCAN_NOUN = r"(?:scans?|setups?|ideas?|plays?|trades?|mode|signals?|opportunities|opps)"
+_rule(rf"{_MODE_LEAD}(?:swings?|{_SWING_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|\b(?:swing (?:scan|mode)|{_SWING_TF} scan|swing by swing)\b",
       "scan_swing", explanation="Swing scan (4h)")
-_rule(r"\b(scalp(?: (?:scan|mode|trade))?|5m scan|quick scan|fast scan)\b",
+_rule(rf"{_MODE_LEAD}(?:scalps?|{_SCALP_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|\b(?:scalp (?:scan|mode)|{_SCALP_TF} scan)\b",
       "scan_scalp", explanation="Scalp scan (5m)")
-_rule(r"\b(intraday(?: (?:scan|mode|trade))?|15m scan|day ?trade scan)\b",
+_rule(rf"{_MODE_LEAD}(?:intraday|day ?trades?|{_INTRADAY_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|\b(?:intraday (?:scan|mode)|{_INTRADAY_TF} scan|day ?trade scan)\b"
+      rf"|{_MODE_LEAD}setups?{_MODE_TAIL}"
+      r"|\bwhat setups? (?:do you see|are there|have you got|you got|you seeing|are you watching)\b"
+      r"|\banything (?:worth|good to) (?:trad(?:e|ing)|buy(?:ing)?)(?: today| right now| rn| atm)?\b",
       "scan_intraday", explanation="Intraday scan (15m)")
 # `\d{2,3} symbols?` rather than the literal `67`: the universe was 67 when
 # that alternative was written and is larger now, and somebody who learned the
 # phrase from an older card still types the old number. Both are the same ask.
+# "deep scan eth" names ONE asset: the deep read of it, not the universe
+# sweep, which is what the rule below answered with. Only a word the ticker
+# list knows counts, so "deep scan now" and "deep scan please" still sweep.
+_rule(rf"\bdeep ?scan\s+(?:on |for |of )?\$?(?:{_TICKER_WORDS})\b",
+      "analyze_asset", needs_symbol=True, explanation="Deep read of one asset")
 _rule(r"\b(deep ?scan|full universe|scan (all|everything)|\d{2,3} symbols?)\b",
       "scan_deep", explanation="Deep scan (full universe)")
 _rule(r"\b(full ?scan|complete scan|scan with patterns)\b",
@@ -966,13 +1032,50 @@ _rule(r"\b(claw scan|run the bot scan|market read|read the trend)\b",
       "scan_market", explanation="RUNECLAW market scan request")
 _rule(r"\b(what does the claw see|what.?s the claw (reading|saying|showing))\b",
       "analyze_asset", needs_symbol=True, explanation="RUNECLAW asset read request")
-_rule(r"\b(scan (the )?market|what.?s moving|anything moving|top movers?|market (scan|overview)|show me movers)\b",
+# "quick scan" moved here from the scalp rule: "quick" is how fast the
+# caller wants the answer, not a 5-minute timeframe, and a card headed
+# "SCALP SCAN · 5M" answered a request that named no timeframe at all.
+_rule(r"\b(sca+n+ (the )?market|run (a |the )?(market |quick )?scan|quick scan|fast scan"
+      r"|what.?s moving|anything moving|top (movers?|gainers|losers)|biggest (gainers|losers|movers)( today| rn)?"
+      r"|market (scan|overview)|show me movers)\b",
       "scan_market", explanation="Market scan request")
 _rule(r"\b(volume spike|big moves?|unusual (volume|activity))\b",
       "scan_market", explanation="Volume/movement alert request")
 # Bare "scan" as last resort → general market scan
 _rule(r"^scan$",
       "scan_market", explanation="General scan request")
+
+# --- The book and the risk engine, before the chart ---
+#
+# "hows my pnl looking" matched the analysis rule's `how's … looking` below
+# and asked "which coin?"; "whats my drawdown", "whats my exposure" and "am i
+# close to the daily loss limit" fell to the bare Portfolio keyword rule
+# (`loss`) or to the model; "my last 10 trades" and "show me my trade
+# history" met the `my trades` alternative of the positions rule fifty lines
+# before the journal's own. These are questions about the BOOK, the RISK
+# ENGINE and the RECORD, and they sit here — above the chart rules that share
+# their words — because the rule that answers is decided by ORDER.
+#
+# The record's own vocabulary stays with the model where no card can answer
+# it: a profit factor or a Sharpe over the caller's record is printed by no
+# surface, "in general" and "for swing trading" are education, and "how am i
+# doing this week" names a window no card can filter to.
+_rule(r"^(?!.*\b(?:in general|for (?:swing|scalp|day|intraday) trading"
+      r"|on average|average|typical|good|normal|healthy)\b)"
+      r".*?(?:\bhow.?s (?:my|the) (?:pnl|p&l|portfolio|book|equity|balance|account)\b(?: (?:looking|doing|going))?"
+      r"|\bam i (?:up|down|green|red|in profit|in the red)(?: today| this week| this month| rn| right now)?\b"
+      r"|\bup or down today\b|\bhow.?s today(?: going| looking)?\b|\btoday.?s (?:pnl|p&l)\b"
+      r"|\bwin ?rate\b|\bhit rate\b|\bwhat percent(?:age)? of (?:my )?trades (?:win|are winners|are wins))",
+      "get_portfolio", explanation="Account status question")
+_rule(r"\b(?:my|the|current|whats my|what.?s my|hows my|how.?s my|is my)\s+"
+      r"(?:max(?:imum)? |current )?(?:drawdown|exposure)\b"
+      r"|\bhow much (?:can|could|will|would) (?:i|we) lose\b|\b(?:daily|the|my|a) loss (?:limit|cap)\b|\bloss limit\b"
+      r"|\bbefore (?:the bot|it|runeclaw) halts\b|\bmax(?:imum)? loss\b",
+      "check_risk", explanation="Risk engine question")
+_rule(r"\b(?:my|the|show(?: me)?(?: my)?|trade|trading) (?:trade )?(?:history|journal|log)\b"
+      r"|\b(?:last|recent|past|previous) (?:\d{1,3} |few |couple of )?(?:trades|closes|closed trades)\b"
+      r"|\b(?:worst|biggest|largest|best) (?:loss|loser|losing trade|win|winner|winning trade|trade)\b",
+      "trade_journal", explanation="Trade journal request")
 
 # --- Analyze specific asset ---
 #
@@ -1046,7 +1149,7 @@ _rule(r"\b(long or short|is this (long|short)|which (direction|side|way))\b",
 _rule(r"\bscan\s+[A-Za-z]{2,6}\b",
       "analyze_asset", needs_symbol=True, explanation="RUNECLAW asset scan")
 # Require stronger signal — "check" alone shouldn't match
-_rule(r"\b(analy[sz]e|look at|check out|how.?s .{0,10}(doing|looking|going))\b",
+_rule(r"\b(analy[sz]e|look at|check out|how(?:.?s|\s+is|\s+are) .{0,10}(doing|looking|going))\b",
       "analyze_asset", needs_symbol=True, explanation="Asset analysis request")
 _rule(r"\b(should i (buy|sell|long|short)|trade setup|give me a signal|trade idea for)\b",
       "analyze_asset", needs_symbol=True, explanation="Trade signal request")
@@ -1154,7 +1257,11 @@ _rule(r"\b(?:post.?mortems?|debrief|autopsy)\b(?!.*\b(?:market|week|day|session|
       rf"|\bwhat went wrong (?:with|on|in)\s+(?:my |the |that |this )?"
       rf"(?:\$?(?:{_TICKER_WORDS})(?:/usdt)?|(?-i:[A-Z]{{2,10}})(?:/USDT)?)\s*[?!.]*$"
       rf"|\bwhat was the (?:thesis|idea|reasoning)\b"
-      rf"(?=.*\b(?:trade|position|entry|long|short|loss|win|\$?(?:{_TICKER_WORDS}))\b)",
+      rf"(?=.*\b(?:trade|position|entry|long|short|loss|win|\$?(?:{_TICKER_WORDS}))\b)"
+      # "why did I lose so much on eth" and "how much did we make on the eth
+      # trade" are questions about ONE closed trade, answered from the record.
+      r"|\bwhy did (?:i|we) (?:lose|win|make|get stopped(?: out)?|get liquidated)\b"
+      r"|\bhow much did (?:i|we) (?:make|lose|win) on (?:the |my |that )?\S+ (?:trade|position|short|long)\b",
       "trade_postmortem", explanation="Post-mortem of a closed trade")
 
 # --- Portfolio ---
@@ -1189,11 +1296,21 @@ _rule(r"\b(pos+i[st]+ions?|posistions?)\b",
 #
 # Specific before generic: every alternative here is a multi-word phrase about
 # ORDERS, so nothing it claims was ever the keyword rule's to answer.
-_rule(r"\b(open orders?|pending orders?|limit orders?|my orders?|show orders?|active orders?|order book|what.?s pending"
-      r"|order status|status of (my |the )?(\w+ )?orders?)\b",
+# "what is a limit order" and "how do limit orders work" are education and
+# were answered with the caller's exchange listing. "should I cancel my
+# order?" keeps the listing: the decision is the caller's and the listing is
+# what it is made from.
+_rule(r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
+      r"\b(open orders?|pending orders?|limit orders?|my orders?|show orders?|active orders?|order book|what.?s pending"
+      r"|order status|status of (my |the )?(\w+ )?orders?"
+      r"|(?:pending|resting|open|active|live) (?:limits?|orders?)"
+      r"|(?:my |the )?(?:limit|order)s? (?:still )?(?:open|resting|pending|live|filled?)"
+      r"|did (?:my |the )?(?:\S+ )?(?:order|limit) (?:fill|go through|execute|get filled|trigger)"
+      r"|any (?:open |pending |resting )?(?:limits?|orders?) (?:on|for) \S+"
+      r"|do i have (?:any )?(?:pending |open |resting )?(?:limits?|orders?))\b",
       "get_orders", explanation="Open/pending orders on exchange")
 
-_rule(r"\b(portfolio|balance|equity|pnl|profit|loss|p&l)\b",
+_rule(r"\b(portfolio|balance|equity|pnl|profit(?! factor)|loss|p&l)\b",
       "get_portfolio", explanation="Portfolio keyword")
 
 # --- Risk ---
@@ -1211,7 +1328,8 @@ _rule(r"\b(how.?s (the )?risk|risk level|am i safe)\b",
 # word: "order status" and "what's the status of my ETH trade" got the ENGINE
 # card. Bare now means the message IS the word, with the usual lead-ins; a
 # status question about the book is the book's rule, above.
-_rule(r"\b(bot (status|state)|engine (status|state)|show (me )?(the )?dashboard|system status|is .{0,5}bot (running|alive|on))\b"
+_rule(r"\b(bot (status|state)|engine (status|state)|show (me )?(the )?dashboard|system status|is .{0,5}bot (running|alive|on)"
+      r"|scanner (still )?(running|alive|on|working|up|going))\b"
       r"|^\s*(?:what'?s (?:the )?|what is (?:the )?|show (?:me )?(?:the )?|the )?(?:status|dashboard)\s*[?!.]*$",
       "status", explanation="System status request")
 
@@ -1220,8 +1338,48 @@ _rule(r"\b(trade (journal|history|log)|recent trades?|past trades?|show (my )?tr
       "trade_journal", explanation="Trade journal request")
 
 # --- Macro ---
-_rule(r"\b(macro (calendar|events?)|fomc|cpi (data|release)|fed (meeting|decision)|nfp (data|release)|economic (calendar|data))\b",
+# "why is the bot not trading, is it macro" is the rejection explainer's
+# question, and it is registered ahead of the macro rules because "the fed"
+# and "macro" would otherwise claim it.
+_rule(r"\bwhy (?:is|isn.?t|isnt|is not|ain.?t) (?:the |my )?bot (?:not )?"
+      r"(?:trading|taking trades|entering|doing anything)\b"
+      r"|\bwhy (?:no|not a?) trade\b",
+      "whynot", explanation="Rejection explainer request")
+# THREE macro questions, kept apart and in this order. The BRIEF is the
+# gate's own posture — is it cutting size, is there a blackout, should I sit
+# out before the print — and every phrasing of it reached the model though
+# `macro_brief` is registered and permissioned. EVENT RISK is that question
+# about ONE asset. The CALENDAR is the schedule, and a trader asks for it in
+# shorthand: "cpi tomorrow?", "nfp this friday", "pce print", "jobs report"
+# — every one of them greeted as small talk or handed to the model, because
+# the rule knew "cpi data" and "cpi release" and nothing a person types.
+# Education and opinion stay with the model: "what does cpi mean", "is fomc
+# priced in", "rate cut odds", "fed up with this market".
+_MACRO_EVENTS = (r"cpi|fomc|nfp|pce|ppi|payrolls|jobs report|non.?farm|unemployment|jobless claims|"
+                 r"fed meeting|fed decision|fomc meeting|the fed|the print|rate decision|gdp")
+_MACRO_TEACHING = (r"^(?!.*\b(?:how does|how do|what is|what does|what.?s a|explain|mean|means"
+                   r"|lagging|priced in|odds|chances|fed up)\b)")
+_rule(_MACRO_TEACHING
+      + r".*?(?:\bmacro brief\b|\bmacro (?:risk )?(?:state|posture|gate|stance|status|mode)\b"
+      r"|\bblackout(?: window| period)?\b"
+      r"|\bis (?:the )?macro(?: gate)? (?:cutting|blocking|reducing|limiting|pausing|halting|shrinking)\b"
+      r"|\bmacro (?:cutting|blocking|reducing|limiting) (?:my |the |our )?(?:size|entries|trades|sizing)\b"
+      r"|\bsize (?:am i|are we|is the bot) allowed\b"
+      rf"|\b(?:sit out|hold off|stay out|stand aside|wait)\b.{{0,24}}"
+      rf"\b(?:before|until|till|til|after|for)\b.{{0,16}}\b(?:{_MACRO_EVENTS})\b"
+      rf"|\b(?:the )?bot (?:is )?(?:pausing|paused|sitting out|halting|holding off)\b"
+      rf".{{0,24}}\b(?:{_MACRO_EVENTS}|meeting)\b)",
+      "macro_brief", explanation="Macro gate posture and sizing")
+_rule(_MACRO_TEACHING
+      + rf".*?(?:\b(?:event|macro|news) risk\b|\bsafe to (?:trade|enter|long|short|buy|sell)\b"
+      rf".{{0,24}}\b(?:with|before|ahead of|into|around|during)\b.{{0,16}}\b(?:{_MACRO_EVENTS})\b)",
+      "check_event_risk", needs_symbol=True, explanation="Event risk for one asset")
+_rule(_MACRO_TEACHING
+      + rf".*?\b(?:macro (?:calendar|events?)|economic (?:calendar|data)|news events?"
+      rf"|on the calendar|calendar this week"
+      rf"|{_MACRO_EVENTS}|rate (?:cut|hike)s?|fed (?:minutes|meeting|decision)|next macro event)\b",
       "macro_calendar", explanation="Macro event request")
+_rule(r"^\s*macro\s*[?!.]*$", "macro_calendar", explanation="Bare macro request")
 
 # --- Backtest ---
 # Two rules on purpose: the symbol-bearing form carries the coin into the
@@ -1387,6 +1545,10 @@ class IntentRouter:
                     # Not a skill argument: nothing dispatches a routed
                     # action. The surfaces read it to say what did NOT run.
                     kwargs["also_asked"] = True
+                if skill == "trade_journal":
+                    n = journal_count(text)
+                    if n:
+                        kwargs["count"] = n
                 # A symbol is OPTIONAL for these: "post-mortem of my last
                 # trade" names none and must still route, and "post mortem on
                 # the ETH trade" names one the skill should be handed — read

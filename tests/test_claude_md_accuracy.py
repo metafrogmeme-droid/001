@@ -418,14 +418,19 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     for good in SURFACES:
         words_reach(good)
 
-    # "the card still offered `proposals`, `rejected_trades`,
-    # `check_event_risk` and `macro_brief`" — the four whose ONLY door is a
-    # chat tool, so they must be named by no router rule.
-    four = {"proposals", "rejected_trades", "check_event_risk", "macro_brief"}
-    for name in four:
+    # "Two rows have no router rule at all today — `proposals` and
+    # `rejected_trades`; it was four until `check_event_risk` and
+    # `macro_brief` gained rules of their own" — both halves driven: the two
+    # whose ONLY door is a chat tool are named by no router rule, and the two
+    # the sentence says left that set really did.
+    assert "Two rows have no router rule at all today" in flat
+    two = {"proposals", "rejected_trades"}
+    left = {"check_event_risk", "macro_brief"}
+    for name in two | left:
         assert f"`{name}`" in DOC, name
-    assert not (four & routed_skill_names()), four & routed_skill_names()
-    assert four <= {t.name for t in CHAT_TOOLS}
+    assert not (two & routed_skill_names()), two & routed_skill_names()
+    assert left <= routed_skill_names(), left - routed_skill_names()
+    assert (two | left) <= {t.name for t in CHAT_TOOLS}
 
     # "seven catalogue commands carry one" — the underscore commands the
     # slash extractor used to truncate.
