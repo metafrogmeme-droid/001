@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 103 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 104 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 94 of the 103 reach the tool-less chat model and 9
+typed as the card prints them, 95 of the 104 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -1421,7 +1421,9 @@ that let the sentence through. The rule names no linking command now, and
 the notice asks `link_door(surface)`: the table the prompt's no-account
 block already read, moved into the leaf so both readers hold one copy, with
 a third key for how the account was linked (`with /connect`; on the web,
-the dashboard's step).
+the dashboard's step). Three mutations for the fix — the web notice back on
+`/connect`, the rule back on `/connect`, the handler keeping its own copy of
+the table — were driven with the slice's forty-one, and each dies.
 
 **Forty-one mutations, each killed on the first round.** The one worth naming is the fixture's, above: dropping the fallback-executor check survived until the operator stub could answer a balance, and the round was re-run against that stub. The rest die where the drives say — the operator's client never built for a caller, the tag never checked or an empty one accepted, the button branch back on `_yield_client()`, the fixed lock on the operator's margin, the record without its account, the notice saying admin-only again, `paper` holding `stake`, unread holdings an empty list.
 
@@ -1463,6 +1465,44 @@ second reading the seam exists to replace.
 `app/test/arb_panel_prints_the_bots_verdict.test.js`.)
 
 **Twenty-four mutations, each killed — and the two that survived the first round were the driver's.** The point estimate deciding "does not survive" survived because every straddling fixture had a POSITIVE mean, so a mutant that only fires on a negative one changed no verdict; and the interval accepting one sample survived because no fixture had exactly one closed entry. Both are cases the prose had described and no fixture planted — a losing mean whose interval still reaches above zero (thin, not a verdict), and a single closed entry with no interval and a singular sentence — and both mutations die on them now.
+
+**The proposal is the first reading past measurement, and its size is a
+min over READS, never a number-or-zero.** `/arbpair BTC [usd]` takes the
+radar's two legs for one coin and asks the one question the radar and the
+tracker cannot: which of those two venues THIS caller can put a leg on.
+`bot/core/funding_arb.py` reads each leg's equity through `balance_snapshot`
+— the same read-only fetch `/connect` validates with — and a leg's margin is
+SIX-valued (`read`, `unpriced`, `unreachable`, `not_linked`, `unreadable`,
+`unavailable`), each with its own sentence on the card, because "sized to
+$0" over a venue nobody could read is the failed-read-as-empty shape on the
+one card whose figures would decide a real hedge. A leg READ at `$0.00` is a
+seventh sentence, with the figure kept: a real empty account is not a missing
+link. Both legs carry ONE notional — the smaller leg's equity, capped at the
+requested figure — and the card says which bound bit, because a caller who
+asked for $1,000 and is shown $300 needs to know it was hyperliquid's
+balance and not a typo; a leg that could not be sized leaves the pair
+unsized, since half a hedge is a naked position. A snapshot is attempted
+only for a venue the store says is readable — the network is never touched
+for an unlinked one — and the venue's own rejection text is logged and never
+printed. The seam is resolved at CALL time rather than bound as a default
+argument, because a default captures the function object at definition and
+a test planting the module's `balance_snapshot` would have driven the real
+venue read.
+
+**It places nothing, and there is deliberately no flag saying so.** The plan
+for this slice had a `FUNDING_ARB_EXECUTION` switch defaulting off with a
+Confirm button behind it. A flag read by nothing is the fifth granularity
+with the arrow reversed — a field written on every branch and read by nobody
+— and a button behind it would lead to "not built yet", which is the `/vault`
+hint shape: a card naming a door that does nothing. The card ends with what
+THIS message did (nothing placed, nothing armed), the flag arrives with the
+code that reads it, and the evidence line is the tracker's own verdict,
+printed and never recomputed, so the proposal is read beside the record it
+is supposed to be gated on. The catalogue's driven counts moved by one
+(104 commands, 95 reaching the model): a bare "arbpair" is claimed by no rule.
+(`tests/test_a_funding_pair_is_proposed_and_nothing_is_placed.py`.)
+
+**Thirty mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: the venue-read seam bound as a default argument dies only on the test that plants the module's `balance_snapshot` and expects the planted read — every assertion on the card passes with the real seam being called, and the kill is the planted call count; and the first radar row taken whatever coin it is for dies only on a row planted for ANOTHER coin, which no assertion on the card can see because the card prints the row's own base. The rest die where the drives say — a zero read sized, the larger leg bounding the pair, one read leg sizing it, the snapshot attempted for an unlinked venue, a store fault or a no-figure answer read as not linked or as zero, the venue's detail on the card, a flat spread breaking even in zero hours, the bound unnamed, the places-nothing line gone, the requested figure printed as the size, markup or a non-positive size accepted, does-not-survive wearing green, the guard gone or demoted to `status`, a store fault read as an empty store, the short leg read off the long venue, a Confirm button, the record not read, a bad argument falling through, the catalogue row gone or claiming it places, the registration gone, the baseline forgetting it.
 
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every

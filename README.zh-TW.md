@@ -450,6 +450,7 @@ python -m bot.main --mode scan
 | `/venues` | 選擇你已連接的哪些交易所實際下單 |
 | `/stake` | 把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金 |
 | `/unstake` | 把你的活期 Earn 贖回為交易保證金——按鈕確認 |
+| `/arbpair` | 在你已連結的交易所試算 delta 中性資金費率配對 — /arbpair BTC [usd]；只提案，絕不下單 |
 | `/open_positions` | 你的持倉 |
 | `/positions` | 你的持倉（等同 /open_positions） |
 | `/livepositions` | 交易所實盤持倉與掛單 |

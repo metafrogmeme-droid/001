@@ -58,7 +58,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 | Leaf | Classified | Verified | Why |
 |---|---|---|---|
-| Delta-neutral vaults | partial | — | Every door is real and correctly gated, and not one of them opens, sizes, hedges or holds a paired position. The `$1,000` in `/arb` is a module constant accrued against recorded spread snapshots, not a deposit. |
+| Delta-neutral vaults | partial | — | Every door is real and correctly gated; `/arbpair` now SIZES and PRICES the pair over the caller's own linked venues, and still nothing opens, hedges or holds one. The `$1,000` in `/arb` is a module constant accrued against recorded spread snapshots, not a deposit. |
 | Points programs | partial | — | The chip renders, and the product measures, tracks and stores zero points of any kind. Two hits in the whole tree, both the same status-vocabulary literal. |
 | Creator campaigns | partial | — | The row's own evidence sentence concedes it: "a referral/invite program and share tooling, not campaigns". |
 | Ambassador roles | partial | — | One artifact in the entire tree: a rung named `Ambassador`, `state: 'planned'`, whose own `requires` field says it would ride on a token that does not exist. |
@@ -75,7 +75,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Scalping | **shipped** | `/scalp`, `/fullscan`, `/mystrategy`, `/run`, `/trade` |
 | Perp futures | **shipped** | `/trade`, `/positions`, `/open_positions`, `/livepositions`, `/orders`, `/leverage`, `/venues`, `/liveclose`, `/api/trade/propose`, `/api/trade/confirm`, `/api/trade/cancel` |
 | Options | — | — |
-| Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/api/reports` |
+| Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/arbpair`, `/api/reports` |
 | Basis trades | partial | `/spot`, `/api/spot/basis`, `/api/market/dex` |
 | Triangular arbitrage | — | — |
 | CEX/DEX arbitrage | partial | `/venue_router`, `/api/market/dex`, `/api/market/venue-router` |
@@ -207,12 +207,26 @@ from "no history yet"). An on-period still running at the last snapshot is
 counted and never scored. The same reports feed the dashboard's c-xfunding
 and c-arb panels, and the verdict rides the public reports payload in percent
 of the notional, in the bot's own sentence, which the panel prints and never
-derives. app/lib/venue_router.js recommends the cheapest venue to hold a given
+derives. /arbpair BASE [usd] (trading_commands.py, `trade`) is the first
+reading past measurement: for one coin it takes the radar's two legs, asks
+the CALLER's own credential store which of the two venues they linked,
+reads each leg's equity through the same read-only balance snapshot
+/connect validates with (bot/core/funding_arb.py — six-valued per leg:
+read, unpriced, unreachable, not linked, unreadable, store unavailable),
+sizes both legs to the smaller equity capped at the requested notional
+(default the tracker's $1,000), prints the round-trip fee on that size, the
+break-even hold at today's spread and the record's verdict beside it, and
+PLACES NOTHING — a leg that could not be sized leaves the pair unsized
+rather than half-hedged, and the card says what the message did.
+app/lib/venue_router.js recommends the cheapest venue to hold a given
 side by funding cost. Funding also genuinely affects live trading —
 analyzer.py:1612 applies funding_cost_haircut to blended confidence, and
 risk/funding_clock.py times settlements.
 
-*Gap.* Nothing opens, sizes, hedges, rolls or closes a funding position.
+*Gap.* Nothing opens, hedges, rolls or closes a funding position. The
+proposal card is the last reading before an execution path, and there is no
+flag, button or executor for one yet — deliberately: a flag read by nothing
+and a button leading to "not built" are both doors painted on a wall.
 arb_tracker.py:18 states it outright: "Strictly paper: nothing here places,
 sizes, or even proposes an order," and venue_router.js:3 says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
@@ -467,8 +481,10 @@ allowlisted trader/paper/viewer via `_guard(update, "status")`; the web
 mirrors them as the c-xfunding and c-arb panels off /api/reports.
 
 *Gap.* There is no vault. No deposit, no share/receipt token, no managed position, no
-manager, no NAV, and no execution of either leg — arb_tracker.py states in its
-own header that 'nothing here places, sizes, or even proposes an order', and
+manager, no NAV, and no execution of either leg — /arbpair (bot/core/funding_arb.py)
+now sizes and proposes the pair over the caller's linked venues and places
+nothing; arb_tracker.py's own header still holds for the tracker itself
+('nothing here places, sizes, or even proposes an order'), and
 the roadmap framing is explicit that this is the evidence that gates whether a
 real capture strategy is worth building. A user who reads the card has to open
 both legs by hand on two venues. No basis-trade (spot/perp) vault either —

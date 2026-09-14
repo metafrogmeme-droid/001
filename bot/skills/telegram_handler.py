@@ -973,6 +973,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("start", self._cmd_start), ("dashboard", self._cmd_dashboard),
             ("scan", self._cmd_scan), ("analyze", self._cmd_analyze),
             ("portfolio", self._cmd_portfolio), ("trade", self._cmd_trade),
+            ("arbpair", self._cmd_arbpair),
             ("paper", self._cmd_paper),
             ("risk", self._cmd_risk), ("status", self._cmd_status),
             ("enforcing", self._cmd_enforcing),

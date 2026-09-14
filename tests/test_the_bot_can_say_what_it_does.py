@@ -550,7 +550,9 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # /unstake left the operator-only group for the Trading group: typed
     # bare on the web neither reaches a rule (a bare "stake" is a decoy the
     # router deliberately leaves to the model), so both land there too.
-    assert (named, nothing, len(hits)) == (103, 94, 9), (named, nothing, hits)
+    # And again when /arbpair joined the Trading group: a bare "arbpair"
+    # reaches no rule, so it lands on the model like its siblings.
+    assert (named, nothing, len(hits)) == (104, 95, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

@@ -90,6 +90,7 @@ _cmd_sweep
 _cmd_swing
 _cmd_token
 _cmd_unstake
+_cmd_arbpair
 _cmd_venue_router
 _cmd_venues
 _cmd_walkforward

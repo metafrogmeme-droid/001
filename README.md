@@ -497,6 +497,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/venues` | choose which of your connected venues actually trade |
 | `/stake` | put your linked Bitget's idle stables into flexible Earn — nothing moves until Confirm |
 | `/unstake` | redeem your flexible Earn back to trading margin — button-confirmed |
+| `/arbpair` | size a delta-neutral funding pair over your linked venues — /arbpair BTC [usd]; a proposal that places nothing |
 | `/open_positions` | your open positions |
 | `/positions` | your open positions — same as /open_positions |
 | `/livepositions` | live exchange positions and pending orders |

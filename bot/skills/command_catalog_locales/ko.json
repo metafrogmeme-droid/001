@@ -170,6 +170,7 @@
     "idleyield": "소스 통합 최고 금리 스캔",
     "stake": "연결된 내 Bitget 계정의 유휴 스테이블을 유연 Earn에 넣기 — 플랜 카드, 확인을 누르기 전까지 아무것도 옮기지 않음",
     "unstake": "내 유연 Earn을 거래 증거금으로 되돌리기 — 버튼으로 확인",
+    "arbpair": "연결된 거래소에서 델타 중립 펀딩 페어 규모 산정 — /arbpair BTC [usd]; 아무것도 주문하지 않는 제안",
     "postmortem": "청산된 거래 1건의 부검 — /postmortem [심볼 또는 거래 ID]"
   },
   "menu": {

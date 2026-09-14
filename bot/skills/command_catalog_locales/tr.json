@@ -170,6 +170,7 @@
     "idleyield": "kaynaklar arası en iyi oran taraması",
     "stake": "BAĞLI Bitget hesabındaki boşta duran stablecoin'leri esnek Earn'e koy — bir plan kartı, Onayla'ya kadar hiçbir şey taşınmaz",
     "unstake": "esnek Earn'ünü işlem marjına geri al — butonla onaylanır",
+    "arbpair": "bağlı borsalarında delta-nötr bir funding çifti boyutlandır — /arbpair BTC [usd]; hiçbir emir vermeyen bir öneri",
     "postmortem": "kapanmış tek bir işlemin otopsisi — /postmortem [SEMBOL veya işlem kimliği]"
   },
   "menu": {

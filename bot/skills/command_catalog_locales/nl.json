@@ -170,6 +170,7 @@
     "idleyield": "scan van het beste tarief over alle bronnen",
     "stake": "ongebruikte stables van JOUW gekoppelde Bitget-account in flexibel Earn zetten — een plankaart, niets verplaatst tot Bevestigen",
     "unstake": "je flexibele Earn terughalen naar de handelsmarge — met een knop bevestigd",
+    "arbpair": "een delta-neutraal fundingpaar op je gekoppelde beurzen bemeten — /arbpair BTC [usd]; een voorstel dat niets plaatst",
     "postmortem": "autopsie van één gesloten trade — /postmortem [SYMBOOL of trade-id]"
   },
   "menu": {

@@ -170,6 +170,7 @@
     "idleyield": "scansione del miglior tasso tra le fonti",
     "stake": "mettere gli stable inattivi del TUO account Bitget collegato in Earn flessibile — una scheda piano, nulla si muove fino a Conferma",
     "unstake": "riscattare il tuo Earn flessibile verso il margine di trading — confermato con pulsante",
+    "arbpair": "dimensionare una coppia di funding delta-neutrale sulle tue venue collegate — /arbpair BTC [usd]; una proposta che non piazza nulla",
     "postmortem": "autopsia di un'operazione chiusa — /postmortem [SIMBOLO o id dell'operazione]"
   },
   "menu": {
