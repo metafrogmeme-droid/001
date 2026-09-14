@@ -640,6 +640,7 @@
   ["dd.err_bot_unlinked", "Este site não está ligado ao bot de trading — o operador tem de concluir essa configuração."],
   ["dd.err_operator_only", "Este painel é apenas para a conta do operador."],
   ["dd.err_rate_limited", "Demasiados pedidos neste momento — aguarda um instante e tenta de novo."],
+  ["dd.err_unreadable_body", "O servidor respondeu, mas a resposta não pôde ser lida — tenta de novo daqui a pouco."],
   ["dd.err_panel", "Não foi possível carregar este painel."],
   ["dd.retry", "Tentar novamente"],
   ["dd.nothing_here", "Ainda não há nada aqui."],

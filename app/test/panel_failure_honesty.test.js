@@ -17,6 +17,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { codeOnly } = require('./helpers/code_only');
+const M = require('../public/js/panel-error-model');
 
 const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
 // COMMENTS BLANKED FIRST — the rule CLAUDE.md states and this file was missing.
@@ -31,8 +32,15 @@ const APP = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js')
 //
 // Blanking is in place, so `line` still points at the right line, and string
 // contents survive verbatim, so the wording assertions below are unaffected.
-// The `mustRead(` floor is unchanged at 70 either way: no comment was propping
-// it up.
+// The `mustRead(` floor is unchanged either way: no comment was propping it up,
+// and the blanked and raw counts still agree.
+//
+// THAT SENTENCE USED TO CARRY AN INTEGER — "unchanged at 70" — and it was one
+// of FOUR copies of a number that disagreed: this comment said 70, the
+// assertion below says 65, rc_helper_imports.test.js says "65+", and a count
+// says 71 (on 69 lines; one line carries three calls). Only the assertion is
+// load-bearing, so only the assertion states a number now. A number in prose
+// is the part that rots first, and prose cannot be driven.
 const DASH = codeOnly(
   fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
 
@@ -50,8 +58,13 @@ test('no loader treats a non-ok response as emptiness', () => {
 
 test('every panel loader that fetches also guards the read', () => {
   // Sanity floor: the guard is actually in use at scale, not just defined.
+  //
+  // It counts CALLS, not loaders, and those are different numbers — one line
+  // carries three of them, and six calls sit outside any renderPanel body. The
+  // floor sits deliberately below the measurement so that retiring a panel does
+  // not fail it; it exists to catch the guard falling out of use wholesale.
   const guards = (DASH.match(/\bmustRead\(/g) || []).length;
-  assert.ok(guards >= 65, `expected the read guard at 65+ loaders, found ${guards}`);
+  assert.ok(guards >= 65, `expected the read guard at 65+ call sites, found ${guards}`);
 });
 
 /**
@@ -149,6 +162,12 @@ test('mustRead throws on server errors and passes 404 through as empty', () => {
     if (!r || (!r.ok && r.status !== 404)) {
       throw new Error('panel read failed: HTTP ' + (r ? r.status : 'no response'));
     }
+    if (r.ok && r.unreadable) {
+      const e = new Error('panel read failed: HTTP ' + r.status + ' body did not parse');
+      e.status = r.status;
+      e.code = 'unreadable_body';
+      throw e;
+    }
     return r.ok ? r.data : null;
   }
 
@@ -164,6 +183,113 @@ test('mustRead throws on server errors and passes 404 through as empty', () => {
 
   // A good read passes its payload straight through.
   assert.deepStrictEqual(mustRead({ ok: true, status: 200, data: { a: 1 } }), { a: 1 });
+});
+
+/**
+ * The REAL mustRead, sliced out of the shipped app.js and made callable.
+ *
+ * The test above re-declares it by hand, and that copy is pinned against the
+ * source by the "shipped mustRead matches" test — a design this file chose
+ * deliberately and which stays. But a copy can only be pinned on the lines
+ * somebody remembered to pin, and the branch below was added precisely because
+ * nobody could see the case it handles. So this one EVALUATES the shipped text:
+ * there is no second answer to keep in step, and a branch deleted from app.js
+ * fails here on the first assertion rather than on a regex nobody updated.
+ */
+function shippedMustRead() {
+  const from = APP.slice(APP.indexOf('function mustRead(r) {'));
+  const src = from.slice(0, from.indexOf('\n  }') + 4);
+  // `window` is the only global the body reaches for, and only to look up the
+  // error model that is required directly here.
+  // eslint-disable-next-line no-new-func
+  const make = new Function('window', `${src}; return mustRead;`);
+  return { mustRead: make({ PanelErrorModel: M }) };
+}
+
+/** The REAL fetchJSON, sliced out of app.js. It closes over exactly two things
+ *  this harness must supply — `fetch` and `authHeaders` — so it can be driven
+ *  against a real Response rather than a hand-built object. */
+function shippedFetchJSON(fetchStub) {
+  const from = APP.slice(APP.indexOf('async function fetchJSON('));
+  const src = from.slice(0, from.indexOf('\n  }') + 4);
+  // eslint-disable-next-line no-new-func
+  return new Function('fetch', 'authHeaders', `${src}; return fetchJSON;`)(
+    fetchStub, () => ({}));
+}
+
+test('fetchJSON records WHICH of the two nulls it is holding', async () => {
+  // THE HALF THAT MAKES THE REST WORK, and the half a hand-built response
+  // object cannot see. mustRead's new branch reads `r.unreadable`; if fetchJSON
+  // stops setting it the fix is inert and every assertion below mustRead still
+  // passes. This drives the shipped function against real Response bodies.
+  // Drives the shipped function against a real Response — `of(...)` performs
+  // the read, it does not merely build the reader.
+  const of = (body, init) =>
+    shippedFetchJSON(async () => new Response(body, init))('/api/anything');
+
+  const html = await of('<html>gateway interstitial</html>', { status: 200 });
+  assert.strictEqual(html.ok, true, 'the server did answer');
+  assert.strictEqual(html.data, null);
+  assert.strictEqual(html.unreadable, true, 'and the parse failure is on the record');
+
+  // THE DISCRIMINATOR. Both of these carry `data: null`; only one of them is a
+  // failed read. routes/insight.js ends `res.json(r.data)`, so a bot-supplied
+  // JSON null reaches the browser and parses cleanly — and must keep reading
+  // as a reading.
+  const jsonNull = await of('null', { status: 200, headers: { 'content-type': 'application/json' } });
+  assert.strictEqual(jsonNull.data, null);
+  assert.strictEqual(jsonNull.unreadable, false,
+    'a clean parse of the JSON literal null is NOT an unreadable body');
+
+  const good = await of('{"a":1}', { status: 200, headers: { 'content-type': 'application/json' } });
+  assert.deepStrictEqual(good.data, { a: 1 });
+  assert.strictEqual(good.unreadable, false);
+
+  // An empty body does not parse, and nothing reachable through fetchJSON
+  // answers one today (no 204, no res.sendStatus, no no-arg res.json). Pinned
+  // so that adding such a route is a deliberate decision rather than a panel
+  // that quietly starts erroring.
+  const empty = await of('', { status: 200 });
+  assert.strictEqual(empty.unreadable, true);
+});
+
+test('a 2xx whose body did not parse is a failed read, not an empty one', () => {
+  // THE CASE THIS FUNCTION COULD NOT SEE. The status says the server answered;
+  // it says nothing about whether an ANSWER arrived. A proxy interstitial, a
+  // body truncated after the headers landed, a gzip fault: fetchJSON caught the
+  // parse error, returned {ok:true, data:null}, and mustRead handed that null
+  // on — byte-identical to its 404 case, which renderPanel paints as EMPTY.
+  //
+  // Driven rather than scanned, because the whole defect was that the shape
+  // looked right. The two inputs below differ in one field.
+  const { mustRead } = shippedMustRead();
+
+  let e = null;
+  try { mustRead({ ok: true, status: 200, data: null, unreadable: true }); }
+  catch (err) { e = err; }
+  assert.ok(e, 'an unparseable 2xx must throw, or renderPanel paints the empty state');
+  assert.match(String(e.message), /did not parse/);
+  assert.strictEqual(e.status, 200, 'the status travels so the model can read it');
+  assert.strictEqual(e.code, 'unreadable_body', 'and the code, so the sentence is the true one');
+
+  // AND THE HALF THAT MUST NOT THROW. `data === null` cannot carry the parse
+  // outcome: routes/insight.js ends `res.json(r.data)`, so a bot-supplied JSON
+  // `null` reaches the browser and parses CLEANLY to null. Keying the throw on
+  // `data == null` would manufacture a failure on a panel that read perfectly.
+  assert.strictEqual(mustRead({ ok: true, status: 200, data: null, unreadable: false }), null,
+    'a clean parse of the JSON literal null is a real reading');
+
+  // The 404 doctrine is unreachable from the new branch by construction: 404 is
+  // not 2xx. Pinned so a later edit cannot gate the throw on `!r.unreadable`
+  // alone and start throwing on the one absence that is honest.
+  assert.strictEqual(mustRead({ ok: false, status: 404, data: null, unreadable: true }), null,
+    'a 404 stays an empty state even when its body was unparseable HTML');
+
+  // The panel then says something true rather than "Couldn't load this panel."
+  const chosen = M.panelFailure({ status: 200, code: 'unreadable_body' });
+  assert.strictEqual(chosen.action, 'retry');
+  assert.notStrictEqual(chosen.key, M.GENERIC.key,
+    'its own key, or a panel errorText outranks it and names the wrong cause');
 });
 
 test('the shipped mustRead matches the behaviour asserted above', () => {

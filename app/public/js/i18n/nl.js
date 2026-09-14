@@ -640,6 +640,7 @@
   ["dd.err_bot_unlinked", "Deze site is niet verbonden met de trading-bot — de beheerder moet die installatie afronden."],
   ["dd.err_operator_only", "Dit paneel is alleen voor het beheerdersaccount."],
   ["dd.err_rate_limited", "Te veel verzoeken op dit moment — wacht even en probeer opnieuw."],
+  ["dd.err_unreadable_body", "De server antwoordde, maar het antwoord was niet leesbaar — probeer het zo opnieuw."],
   ["dd.err_panel", "Dit paneel kon niet geladen worden."],
   ["dd.retry", "Opnieuw"],
   ["dd.nothing_here", "Hier is nog niets."],

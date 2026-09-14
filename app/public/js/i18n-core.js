@@ -682,6 +682,7 @@
     "dd.err_bot_unlinked": { en: "This site is not connected to the trading bot — the operator needs to finish that setup." },
     "dd.err_operator_only": { en: "This panel is for the operator account only." },
     "dd.err_rate_limited": { en: "Too many requests just now — wait a moment and try again." },
+    "dd.err_unreadable_body": { en: "The server answered, but the reply couldn’t be read — try again in a moment." },
     "dd.err_panel": { en: "Couldn’t load this panel." },
     "dd.retry": { en: "Retry" },
     "dd.nothing_here": { en: "Nothing here yet." },
@@ -1842,7 +1843,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"b06021bb","zh":"f830b6c5","pt":"8afa93f4","fr":"dbbbf504","de":"55de097b","nl":"56d3314d","ja":"cb569fa4","ko":"2584164d","ru":"31b985e5","tr":"13f44568","it":"cddb190c","hi":"a53f3a58","ar":"da9190bb"};
+  var CHUNKS = {"es":"8a8565fe","zh":"130e545d","pt":"62306d07","fr":"c04b6dbc","de":"f6331258","nl":"7b782bdd","ja":"3b10ecc0","ko":"3bd9a443","ru":"cb4b9799","tr":"6ef54241","it":"dd038998","hi":"c7bf5c4a","ar":"b736751c"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

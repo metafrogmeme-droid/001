@@ -640,6 +640,7 @@
   ["dd.err_bot_unlinked", "Bu site işlem botuna bağlı değil — operatörün kurulumu tamamlaması gerekiyor."],
   ["dd.err_operator_only", "Bu panel yalnızca operatör hesabı içindir."],
   ["dd.err_rate_limited", "Şu anda çok fazla istek var — biraz bekleyip tekrar deneyin."],
+  ["dd.err_unreadable_body", "Sunucu yanıt verdi ama yanıt okunamadı — birazdan tekrar deneyin."],
   ["dd.err_panel", "Bu panel yüklenemedi."],
   ["dd.retry", "Yeniden dene"],
   ["dd.nothing_here", "Burada henüz bir şey yok."],

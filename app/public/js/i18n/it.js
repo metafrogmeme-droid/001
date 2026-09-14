@@ -640,6 +640,7 @@
   ["dd.err_bot_unlinked", "Questo sito non è collegato al bot di trading: l’operatore deve completare la configurazione."],
   ["dd.err_operator_only", "Questo pannello è riservato all’account operatore."],
   ["dd.err_rate_limited", "Troppe richieste in questo momento: attendi un attimo e riprova."],
+  ["dd.err_unreadable_body", "Il server ha risposto, ma la risposta non è leggibile — riprova tra poco."],
   ["dd.err_panel", "Impossibile caricare questo pannello."],
   ["dd.retry", "Riprova"],
   ["dd.nothing_here", "Ancora nulla qui."],

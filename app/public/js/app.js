@@ -115,9 +115,23 @@
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
+      // THE PARSE OUTCOME IS RECORDED, because `data === null` cannot carry it.
+      // A route that forwards an upstream value verbatim can legitimately send
+      // the JSON literal `null` — `routes/insight.js` ends `res.json(r.data)` —
+      // so a reader keying on `data == null` would manufacture a failure on a
+      // panel that read perfectly. The flag says which of the two happened.
+      //
+      // Until this flag existed, a 200 whose body did not parse (a proxy
+      // interstitial, a body truncated after the headers landed, a gzip fault)
+      // came back {ok:true, data:null} and `mustRead` handed that null on —
+      // byte-identical to its DOCUMENTED 404 case, which renderPanel paints as
+      // the empty state. CLAUDE.md's "A URL is a surface" records the live
+      // instance: a 404 carrying the WEBSITE'S HTML, which fetchJSON could not
+      // parse. The 200 spelling of that is the one nobody could see.
       let data = null;
-      try { data = await r.json(); } catch (e) { /* non-JSON body */ }
-      return { ok: r.ok, status: r.status, data };
+      let unreadable = false;
+      try { data = await r.json(); } catch (e) { unreadable = true; }
+      return { ok: r.ok, status: r.status, data, unreadable };
     } finally {
       clearTimeout(timer);
     }
@@ -278,6 +292,23 @@
       // js/panel-error-model.js: the code crosses the wire, the words are
       // chosen locally, and an unrecognised code still gets the old message.
       e.code = (window.PanelErrorModel ? PanelErrorModel.codeOf(r && r.data) : '');
+      throw e;
+    }
+    // A 2xx WHOSE BODY DID NOT PARSE IS A FAILED READ, and it used to be the
+    // one failure this function could not see. The status says the server
+    // answered; it says nothing about whether an answer arrived. Gated on
+    // `r.unreadable` rather than on `r.data == null`, because a clean parse of
+    // the JSON literal `null` is a real reading (see fetchJSON above).
+    //
+    // The 404 doctrine below is untouched and cannot be reached from here: 404
+    // is not 2xx, so every one of the call sites that depends on 404 -> null is
+    // safe by construction rather than by care.
+    if (r.ok && r.unreadable) {
+      const e = new Error('panel read failed: HTTP ' + r.status + ' body did not parse');
+      e.status = r.status;
+      // Minted locally. It cannot come over the wire — codeOf reads data.error,
+      // and there is no data.
+      e.code = 'unreadable_body';
       throw e;
     }
     return r.ok ? r.data : null;
