@@ -792,6 +792,7 @@
       <div class="stack">
         ${LOGGED_IN ? `<section class="panel" id="p-mode" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-mode"><div class="skel"></div></div></section>` : ''}
         <section class="panel panel--primary" id="p-hero"><div id="c-hero"><div class="skel"></div><div class="skel"></div></div></section>
+        ${LOGGED_IN ? `<section class="panel" id="p-metrics"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.metrics">Account figures</span></h2><div id="c-metrics"><div class="skel"></div></div></section>` : ''}
         ${LOGGED_IN ? `<section class="panel" id="p-cmd" style="padding-top:var(--s3);padding-bottom:var(--s3)"><div id="c-cmd"><div class="skel"></div></div></section>` : ''}
         <section class="panel" id="p-next"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-rocket"></use></svg><span data-i18n="dp.next">Getting started</span></h2><div id="c-next"><div class="skel"></div></div></section>
         ${LOGGED_IN ? `<section class="panel" id="p-watch"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-radar"></use></svg><span data-i18n="dp.watch">Watchlist</span>
@@ -931,6 +932,82 @@
       // Watchlist strip — starred symbols with live price/24h, each chip a
       // door into the symbol modal; stars extend the pattern-alert pushes.
       renderPanel(C('watch'), watchStripLoader);
+
+      // METRIC CLUSTER — equity, day P&L, open count, each figure carrying
+      // where it came from.
+      //
+      // The decision is a PURE model (metric-cluster-model.js) reading the
+      // route's per-figure PROVENANCE, so "this payload renders that cell"
+      // is assertable, and so a figure this site merely STORED is never
+      // printed as a reading of now — the hero beside it still infers that
+      // from `stale`, which the unconfigured branch stamps false over stored
+      // rows. Same read as the strip and the hero: the home view's one.
+      //
+      // A payload that names NO source (an older server, a junk body) is an
+      // ERROR state, not a row of dashes: a dash with no reason claims we
+      // looked and found nothing. A dash WITH its reason is the model's.
+      renderPanel(C('metrics'), async () => {
+        const M = window.MetricClusterModel;
+        if (!M) throw new Error('metric cluster model unavailable');
+        const r = await portfolioRead;
+        const pf = mustRead(r);
+        if (pf == null) return null;                // 404 only — defensive, the route has no 404
+        const cl = M.clusterCells(pf, readMode(pf));
+        if (!cl.read) throw new Error('portfolio payload carried no reading');
+        // Every key a LITERAL: the i18n sweep proves no `T('dd.…'` dangles,
+        // and a key assembled from a field would be invisible to it.
+        const LBL = {
+          equity: T('dd.m_equity', 'Equity'),
+          daypnl: T('dd.m_daypnl', 'Day P&L'),
+          open: T('dd.m_open', 'Open'),
+        };
+        const WORDS = {
+          'dd.m_unread': T('dd.m_unread', 'not read'),
+          'dd.m_never': T('dd.m_never', 'nothing stored for this account yet'),
+          'dd.m_eq_live': T('dd.m_eq_live', 'exchange balance unavailable'),
+          'dd.m_day_basis': T('dd.m_day_basis', 'realised today + all open'),
+          'dd.m_src_bot': T('dd.m_src_bot', 'read from the bot'),
+          'dd.m_src_scan': T('dd.m_src_scan', 'from the bot’s latest scan'),
+          'dd.m_src_sync': T('dd.m_src_sync', 'as last synced by the bot'),
+          'dd.m_src_stored': T('dd.m_src_stored', 'the last value this site stored'),
+          'dd.m_band': T('dd.m_band', 'Some figures below are the last values this site stored, not a reading of now — each one says which.'),
+          'dd.m_book_nobot': T('dd.m_book_nobot', 'simulated — no trading bot is configured on this deployment'),
+          'dd.m_book_mixed': T('dd.m_book_mixed', 'simulated paper book — not the live account the mode chip names'),
+          'dd.m_book_sync': T('dd.m_book_sync', 'the operator account’s synced book'),
+          'dd.m_book_live': T('dd.m_book_live', 'live exchange account'),
+          'dd.m_book_paper': T('dd.m_book_paper', 'paper book'),
+          'dd.m_book_unknown': T('dd.m_book_unknown', 'book unknown — the mode could not be read'),
+        };
+        const say = (w) => (w ? (WORDS[w.key] || w.en) : '');
+        // One money notation for both money cells: the hero prints
+        // `$1,234.56` beside `+1234.56`, which is two spellings of one unit.
+        const val = (c) => {
+          if (c.value === null) return esc(c.text);
+          if (c.fmt === 'count') return esc(String(c.value));
+          if (c.fmt === 'signed') return esc((signed(c.value).startsWith('-') ? '−' : '+') + fmtMoney(Math.abs(c.value)));
+          return esc(fmtMoney(c.value));
+        };
+        const cellHtml = (c) => {
+          // Colour only where the MODEL says a verdict was earned (a READ
+          // day P&L), and then only through pnlClass, which answers '' for
+          // anything it cannot read. No comparison here.
+          const cls = c.verdict ? pnlClass(c.value) : '';
+          const un = c.state === 'unread' ? ' mcl-unread' : '';
+          const age = c.as_of ? ` · ${esc(fmtAgo(c.as_of))}` : '';
+          const line = c.state === 'unread'
+            ? esc(say(c.why))
+            : `${esc(say(c.src))}${age}${c.why ? ` · ${esc(say(c.why))}` : ''}`;
+          return `<div class="${c.lead ? 'mcl-lead' : 'mcl-cell'}${un}">
+            <div class="k">${esc(LBL[c.id])}</div>
+            <div class="v num ${cls}">${val(c)}</div>
+            <span class="mcl-why">${line}</span></div>`;
+        };
+        const lead = cl.cells.filter((c) => c.lead).map(cellHtml).join('');
+        const rest = cl.cells.filter((c) => !c.lead).map(cellHtml).join('');
+        const band = cl.band ? `<div class="mcl-band">${esc(say(cl.band))}</div>` : '';
+        const book = cl.book ? `<span class="mcl-book">${esc(say(cl.book))}</span>` : '';
+        return `<div class="mcl">${band}<div>${lead}${book}</div>${rest ? `<div class="mcl-row">${rest}</div>` : ''}</div>`;
+      }, { timeoutMs: 18000 });
 
       // Mission-control command bar: a one-glance status strip of the things
       // that matter right now — mode, agent stance, open positions, ⚠️ how many

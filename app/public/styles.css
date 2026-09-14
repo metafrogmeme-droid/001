@@ -1955,3 +1955,63 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   .ms-head { grid-row: 1 / span 2; flex-direction: column; align-items: flex-start; gap: var(--s1); }
   .ms-why, .ms-below { grid-column: 2; }
 }
+
+/* ---- Metric cluster: equity / day P&L / open ---------------------------- */
+/* Four states per figure, three of them printed:
+     READ / SYNCED  a number, rendered, including when it measured zero, with
+                    the line under it saying where it was read from;
+     MEMORY         the number, its age where the site recorded one, and the
+                    band above — a stored figure is never a reading of now;
+     UNREADABLE     an em dash in the muted colour WITH its reason — never 0,
+                    never hidden, because a hidden cell reads as "nothing to
+                    report" and this one was asked for;
+     ABSENT         no cell at all. A labelled dash claims we looked.
+   No @media here on purpose: auto-fit does the work, and there is no new
+   1024px block for dashboard_shell_layout.test.js to mis-slice. */
+.mcl { display: flex; flex-direction: column; gap: var(--s3); }
+.mcl-lead .k,
+.mcl-cell .k {
+  font-size: var(--fs-xs); font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+/* Not a copy of .stat .v.big (its guard pins that selector alone): the
+   clamp and the wrap are stated here for this figure. */
+.mcl-lead .v {
+  font-family: var(--font-data); font-variant-numeric: tabular-nums;
+  font-size: clamp(24px, 8vw, var(--fs-hero)); line-height: 1.1;
+  letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere;
+}
+.mcl-cell .v {
+  font-family: var(--font-data); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md); color: var(--text);
+}
+/* minmax with a MAX so the cells stay cells on a wide screen instead of
+   stretching into lonely columns; justify-content keeps them beside the
+   figure they qualify. */
+.mcl-row {
+  display: grid; justify-content: start;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 200px));
+  gap: var(--s3) var(--s4);
+}
+/* Declared AFTER the two .v rules — same specificity, later wins — so one
+   class mutes either kind of cell. */
+.mcl-unread .v { color: var(--text-3); }
+.mcl-why,
+.mcl-book {
+  display: block; margin-top: 2px;
+  font-family: var(--font-ui); font-size: var(--fs-xs);
+  letter-spacing: 0; text-transform: none; color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.mcl-book { margin-top: var(--s1); color: var(--text-2); }
+/* THE BAND IS NOT DECORATION. Without it a stored number reads as a reading
+   of now. display:block so a full sentence wraps at 400px. Amber is the token
+   chip--paper already wears for "not the real account": a caution about the
+   READING, not a verdict about the money. */
+.mcl-band {
+  display: block; padding: var(--s2) var(--s3);
+  border: 1px solid var(--warn); border-radius: var(--radius-sm);
+  background: var(--warn-dim); color: var(--text);
+  font-size: var(--fs-xs); line-height: 1.45;
+}

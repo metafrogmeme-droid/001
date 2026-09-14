@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 178,
-    "sha": "216a0c364bac0689"
+    "v": 179,
+    "sha": "47e329c5fb77ce1f"
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -104,8 +104,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 144,
-    "sha": "fa1c144e04c36fe6"
+    "v": 145,
+    "sha": "8cda97d76147fc26"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -126,6 +126,10 @@
   "js/mascot3d.js": {
     "sha": "913fea490b4eec25",
     "v": 5
+  },
+  "js/metric-cluster-model.js": {
+    "sha": "df5a16034376c919",
+    "v": 1
   },
   "js/miniapp-arena.js": {
     "sha": "e03fb9b5a2417f94",
@@ -232,8 +236,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "922793afcab6800f",
-    "v": 40
+    "sha": "e708df10cc7511a6",
+    "v": 41
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",

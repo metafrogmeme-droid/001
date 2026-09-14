@@ -82,8 +82,13 @@ for (const [name, opts] of UNREAD) {
 test('the six unread payloads are identical to each other', async () => {
   const bodies = [];
   for (const [, opts] of UNREAD) bodies.push((await get(opts)).body);
-  const strip = (b) => JSON.stringify({ ...b, open_positions: undefined });
+  // `as_of.equity` is the snapshot's timestamp, minted per request by the
+  // harness, so it is stripped; `provenance` is NOT — six unread modes must
+  // name the same sources, or one of them has been read as something else.
+  const strip = (b) => JSON.stringify({ ...b, open_positions: undefined, as_of: undefined });
   for (const b of bodies.slice(1)) assert.strictEqual(strip(b), strip(bodies[0]));
+  for (const b of bodies) assert.deepStrictEqual(b.provenance,
+    { equity: 'snapshot', open_positions: 'sync_rows', daily_pnl: 'absent' });
 });
 
 // ── the two READ cases, which must stay readings ───────────────────────────

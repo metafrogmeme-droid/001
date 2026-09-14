@@ -34,7 +34,16 @@ module.exports = [
   ['/api/portfolio', { mode: 'PAPER', equity: 10000, start_equity: 10000, total_pnl: 12.5, total_pnl_pct: 0.125,
     daily_pnl: 1.5, daily_pnl_pct: 0.015, win_rate: 0.55, trades: 20, live_unavailable: false,
     open_positions: [{ symbol: 'BTC/USDT', direction: 'LONG', entry_price: 60000, current_price: 60500, size_usd: 100, pnl: 0.83, pnl_pct: 0.83, stop_loss: 59000, take_profit: 63000, opened_at: '2026-09-02T00:00:00Z' }],
-    closed_trades: [], recent: [] }],
+    closed_trades: [], recent: [],
+    // Per-figure provenance and the bot's own stamp, exactly as the gateway
+    // branch of routes/portfolio.js publishes them. The metric cluster
+    // THROWS on a payload that names no source (a labelled dash would claim
+    // we looked), so a fixture without these lands in the generic error
+    // state and the smoke fails — which is the fixture drifting from the
+    // route, and the right answer.
+    updated_at: new Date().toISOString(),
+    provenance: { equity: 'gateway', open_positions: 'gateway', daily_pnl: 'gateway' },
+    as_of: { equity: new Date().toISOString(), open_positions: new Date().toISOString(), daily_pnl: new Date().toISOString() } }],
   // The server always sends these (routes/arena.js builds positions and
   // limits before it answers); an empty body is a shape it never produces.
   ['/api/arena/account', { start_balance: 10000, balance: 10000, equity: 10000, return_pct: 0,

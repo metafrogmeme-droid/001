@@ -698,6 +698,24 @@
     "dd.cta_verify": { en: "Resend verification" },
     "dd.cta_live": { en: "Review live controls" },
     "dd.e_portfolio": { en: "No portfolio data yet." },
+    "dd.m_equity": { en: "Equity" },
+    "dd.m_daypnl": { en: "Day P&L" },
+    "dd.m_open": { en: "Open" },
+    "dd.m_unread": { en: "not read" },
+    "dd.m_never": { en: "nothing stored for this account yet" },
+    "dd.m_eq_live": { en: "exchange balance unavailable" },
+    "dd.m_day_basis": { en: "realised today + all open" },
+    "dd.m_src_bot": { en: "read from the bot" },
+    "dd.m_src_scan": { en: "from the bot’s latest scan" },
+    "dd.m_src_sync": { en: "as last synced by the bot" },
+    "dd.m_src_stored": { en: "the last value this site stored" },
+    "dd.m_band": { en: "Some figures below are the last values this site stored, not a reading of now — each one says which." },
+    "dd.m_book_nobot": { en: "simulated — no trading bot is configured on this deployment" },
+    "dd.m_book_mixed": { en: "simulated paper book — not the live account the mode chip names" },
+    "dd.m_book_sync": { en: "the operator account’s synced book" },
+    "dd.m_book_live": { en: "live exchange account" },
+    "dd.m_book_paper": { en: "paper book" },
+    "dd.m_book_unknown": { en: "book unknown — the mode could not be read" },
     "dd.ms_src_bot": { en: "read from the trading bot" },
     "dd.ms_src_sync": { en: "read from the operator sync feed" },
     "dd.ms_src_site": { en: "not read — this site’s own records" },
@@ -738,6 +756,7 @@
     "dp.macro_link": { en: "open Macro →" },
     "dp.letter": { en: "The Agent Letter" },
     "dp.letter_link": { en: "public archive →" },
+    "dp.metrics": { en: "Account figures" },
     "dp.hpos": { en: "Open positions" },
     "dp.hsig": { en: "Latest engine signals" },
     "dp.away": { en: "While you were away" },
@@ -1863,7 +1882,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"c84556d9","zh":"70634f24","pt":"faf8bb4c","fr":"0535c23f","de":"2a2303c9","nl":"8783d15b","ja":"762c286b","ko":"2353e253","ru":"f232b245","tr":"91755f43","it":"07b1d041","hi":"cb94dad6","ar":"dec54b1a"};
+  var CHUNKS = {"es":"10e4c219","zh":"9482f3f5","pt":"d7e49c8a","fr":"d88fb562","de":"8a8c2319","nl":"01f96b63","ja":"10e4d831","ko":"04b2ab55","ru":"b03fcdb7","tr":"1ee46d4b","it":"a268cd11","hi":"b12b52ef","ar":"63fbee62"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

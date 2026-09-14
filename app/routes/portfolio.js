@@ -110,6 +110,7 @@ async function operatorPortfolio(userId) {
   let cbUnavailable = false;
   let cbEquity = null;
   let cbFresh = false;
+  let cbAt = null;
   try {
     const [rows] = await pool.execute('SELECT scan_json, updated_at FROM scan_cache WHERE id = 1');
     if (rows.length && rows[0].scan_json) {
@@ -119,6 +120,7 @@ async function operatorPortfolio(userId) {
       cbUnavailable = cb.live_unavailable === true;
       const ts = scan.received_at || rows[0].updated_at;
       cbFresh = !!ts && (Date.now() - new Date(ts).getTime()) < 30 * 60 * 1000;
+      if (cbFresh) cbAt = new Date(ts).toISOString();
       const e = parseFloat(cb.equity);
       if (Number.isFinite(e) && e > 0) cbEquity = e;
     }
@@ -192,6 +194,28 @@ async function operatorPortfolio(userId) {
     // by construction (cbFresh gated it), so it is never called stale because
     // an unrelated snapshot row beside it is old.
     stale: equitySource === 'scan' ? false : !fresh,
+    // WHERE EACH FIGURE CAME FROM, per figure, because the flags above each
+    // answer a different question and a client reading them together had to
+    // guess. `stale` is about the equity row; `live_unavailable` is about the
+    // venue; neither says that the open rows are the bot's last sync and the
+    // daily figure is not tracked here at all. The vocabulary is shared with
+    // dbFallback and the gateway branch below, and the metric cluster reads
+    // it instead of inferring "memory" from `stale` — which mislabelled a
+    // seconds-old scan-cache balance whenever the snapshot beside it was old.
+    provenance: {
+      equity: liveUnavailable ? 'unread'
+        : equitySource === 'scan' ? 'scan_cache'
+        : snap ? 'snapshot' : 'never_stored',
+      open_positions: 'sync_rows',
+      daily_pnl: 'absent',
+    },
+    as_of: {
+      equity: equitySource === 'scan' ? cbAt
+        : (snap && !liveUnavailable) ? new Date(snap.snapshot_at).toISOString() : null,
+      // The sync ingest rewrites the open rows wholesale and records no time
+      // per row: an age nobody recorded is not printed.
+      open_positions: null,
+    },
   };
 }
 
@@ -255,16 +279,39 @@ async function writeThrough(userId, pf) {
 // and the header strip reads both.
 async function dbFallback(userId) {
   const [snaps] = await pool.execute(
-    'SELECT equity FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1',
+    'SELECT equity, snapshot_at FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1',
     [userId]);
   const [open] = await pool.execute(
     "SELECT * FROM trades WHERE user_id = ? AND status = 'OPEN' ORDER BY opened_at DESC",
     [userId]);
+  // WHETHER THIS SITE EVER STORED ANYTHING FOR THE ACCOUNT. `open` above is
+  // `[]` both for a book that was synced and is flat and for an account the
+  // gateway never answered — writeThrough only runs on the gateway path — so
+  // an empty list here was a count produced by no read of anything, and the
+  // hero printed "Open 0" over it. A row ever stored, or a snapshot ever
+  // taken, is the reading; neither is "never synced".
+  const [ever] = await pool.execute(
+    'SELECT COUNT(*) AS stored FROM trades WHERE user_id = ?', [userId]);
+  const snap = snaps[0] || null;
+  const everSynced = !!snap || Number(ever && ever[0] && ever[0].stored) > 0;
   return {
-    equity: snaps[0] ? parseFloat(snaps[0].equity) : null,
+    equity: snap ? parseFloat(snap.equity) : null,
     open_positions: open,
     closed_trades: [],
     stale: true,
+    // A MEMORY, named as one per figure — the same vocabulary the operator
+    // and gateway branches publish, so a client never has to infer it from
+    // `stale`, which the unconfigured branch stamps false over this very
+    // object (correctly: it describes the DEPLOYMENT there, not the figures).
+    provenance: {
+      equity: snap ? 'snapshot' : 'never_stored',
+      open_positions: everSynced ? 'db_rows' : 'never_stored',
+      daily_pnl: 'absent',
+    },
+    as_of: {
+      equity: snap ? new Date(snap.snapshot_at).toISOString() : null,
+      open_positions: null,
+    },
   };
 }
 
@@ -296,7 +343,15 @@ router.get('/', pfLimit, async (req, res) => {
     } catch (err) {
       console.error('Portfolio write-through error:', err.stack || err.message);
     }
-    return res.json({ ...pf, linked: ident.linked, stale: false });
+    // Every figure here is the bot's own answer, read just now; `updated_at`
+    // is the bot's serialisation instant, which for a payload read this
+    // second IS the read time.
+    const at = typeof pf.updated_at === 'string' ? pf.updated_at : null;
+    return res.json({
+      ...pf, linked: ident.linked, stale: false,
+      provenance: { equity: 'gateway', open_positions: 'gateway', daily_pnl: 'gateway' },
+      as_of: { equity: at, open_positions: at, daily_pnl: at },
+    });
   } catch (err) {
     console.error('Portfolio proxy error:', err.stack || err.message);
     try {

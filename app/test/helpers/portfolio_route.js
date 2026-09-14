@@ -16,6 +16,10 @@
  *   snapAt    — the equity snapshot's timestamp (freshness of the "memory").
  *   equity    — the snapshot's equity string.
  *   gateway   — { configured, status, throws, data } for the per-user path.
+ *   snapshots — false answers the equity-snapshot query with no row at all
+ *               (an account this site never stored an equity for).
+ *   stored    — whether the trades table holds ANY row for the account (the
+ *               "ever synced" question dbFallback asks); default true.
  *   intercept — (sql) => rows | undefined; a test that needs to SEE a query
  *               (count the INSERTs, say) answers it here and falls through
  *               to the defaults for everything else.
@@ -37,6 +41,7 @@ function stub(rel, exports) {
 function server({
   operator = true, scan = [], snapAt = FRESH, equity = '8200.50',
   gateway = {}, userId = operator ? 1 : 7, intercept = null,
+  snapshots = true, stored = true,
 } = {}) {
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
   process.env.BOT_USER_ID = operator ? String(userId) : '999';
@@ -44,7 +49,8 @@ function server({
   const pool = {
     execute: async (sql) => {
       if (intercept) { const hit = intercept(sql); if (hit !== undefined) return hit; }
-      if (/FROM equity_snapshots/.test(sql)) return [[{ equity, snapshot_at: snapAt() }]];
+      if (/FROM equity_snapshots/.test(sql)) return snapshots ? [[{ equity, snapshot_at: snapAt() }]] : [[]];
+      if (/AS stored FROM trades/.test(sql)) return [[{ stored: stored ? 3 : 0 }]];
       if (/FROM scan_cache/.test(sql)) {
         if (typeof scan === 'function') return scan();
         return [scan];

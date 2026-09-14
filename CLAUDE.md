@@ -2017,6 +2017,59 @@ minute, so a gateway blip between them printed LIVE one panel above MODE ?.
 CLAIMS the mode (the strip) reads it strictly and the ones that print figures
 keep their stale-beats-blank, because those are different questions.
 
+**A flag that answers a different question on every branch cannot be read as
+one flag, and the client was reading `stale` as "memory".** `/api/portfolio`
+sends `stale` as the equity ROW's age on the operator path, `false` by
+construction on the gateway path, and `false` stamped over a `dbFallback`
+payload on a site with no gateway configured — correctly, since there it
+describes the DEPLOYMENT — so a client inferring "the last thing this site
+stored" from it printed months-old rows as a reading of now on a deployment
+whose gateway secret had been rotated away, and called a seconds-old
+scan-cache balance a memory whenever the snapshot row beside it was old. The
+route names the source PER FIGURE now (`provenance`, one closed vocabulary
+across the three branches) with `as_of` as the figure's own time or null,
+and `metric-cluster-model.js` decides a cell's state from nothing else: read,
+synced, memory (under a band that says so), unread (a dash WITH its reason),
+or no cell at all — a labelled dash for a figure the payload never carries
+claims we looked. `as_of` is never the request clock: a gateway payload
+without the bot's stamp carries no age, because "now" manufactured for a
+figure nobody dated is the `fmtAgo(0)` shape in a new spelling.
+
+**Two things in the first draft were removed rather than tested.** A reason
+sentence — "no trading bot on this deployment" — reachable only through a
+snapshot row whose equity would not parse on an unconfigured site, where it
+would have been the wrong reason; and a `record` provenance field written on
+every branch and read by nothing (the fifth granularity with the arrow the
+other way). A sentence no payload produces is a door painted on a wall, and
+a field nobody reads is one the next reader will trust because it is there.
+"just now" was taken out of the gateway's source sentence for the same
+reason the age exists: a line reading *read from the bot just now · 3m ago*
+is two answers about one figure.
+
+**Every cell unread WITH its reason is a reading, and the draft threw on it.**
+The renderer throws for a payload that names no source — an older server, a
+junk body — because a row of bare dashes claims we looked; the first draft
+also threw when every figure was unread, which painted *Couldn't load this
+panel* over an account whose honest answer was "nothing stored for this
+account yet", three times. An error state manufactured from a true reading is
+the failed-read-as-empty defect with the sign flipped.
+
+**A source scan cannot see `${false ? …}`, and neither could the strip's
+guard.** Both deck panels are mounted by a template string under
+`${LOGGED_IN ? …}`, and mutating that to `${false ? …}` leaves the id in the
+SOURCE, in order, so every guard that pins the deck's panel order stayed
+green while the browser rendered nothing there — the one mutation of
+twenty-seven the node suites could not kill, and the same hole under the
+strip shipped a slice earlier. `dashboard_views_render.smoke.test.js` asks
+the DOM now: the four deck panels in order, each holding its rendered
+component and neither its skeleton nor its error state. Its fixture had to
+grow the route's real shape first, because a cluster that throws on a
+sourceless payload throws on a stub written before the source existed —
+which is the fixture drifting from the route, and the right answer.
+`node:assert`'s `equal(x, null)` acquits `undefined`, so both new suites use
+the strict module; a model passing `as_of` through unparsed would have
+passed the loose check with a value the renderer prints as `--`.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 
