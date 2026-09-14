@@ -16,11 +16,15 @@ def test_macro_block_shape_and_json_serializable():
     m = _macro_block()
     assert m is not None
     assert set(m.keys()) >= {
-        "state", "stale", "next_event", "active_event",
-        "seconds_until_next", "evaluated_at",
+        "state", "stale", "unreadable", "has_events", "reading", "next_event",
+        "active_event", "seconds_until_next", "evaluated_at",
     }
     assert m["state"] in {s.value for s in MacroRiskState}
     assert isinstance(m["stale"], bool)
+    # The condition behind the state word, and the one sentence for it
+    # (tests/test_the_scan_payload_says_what_it_could_not_read.py drives each).
+    assert isinstance(m["unreadable"], bool) and isinstance(m["has_events"], bool)
+    assert isinstance(m["reading"], str) and m["reading"]
     # Rides the scan sync payload — must round-trip through JSON untouched.
     json.dumps(m)
     ev = m["next_event"] or m["active_event"]

@@ -210,11 +210,33 @@ class TestItReachesTheOperator:
         # The website is the primary surface. Its "Circuit Breaker" chip is
         # read as "can we trade", and it rendered a green ✓ while the
         # warning-rate breaker was rejecting every live entry.
-        src = code_only(
-            open("bot/skills/scan_skill.py", encoding="utf-8").read())
-        assert "entry_gate(engine)" in src
-        # The chip must go red on ANY blocker, not just the narrow one.
-        assert 'bool(_blocked) or cb_active' in src
+        #
+        # DRIVEN, not grepped: this used to pin the spelling of the call
+        # (`entry_gate(engine)`) and of the verdict (`bool(_blocked) or
+        # cb_active`), and both spellings changed the day the payload learned
+        # to ask for the gate's public form and to say "unknown". A scan
+        # cannot see what the chip renders; the payload can be built.
+        from types import SimpleNamespace as NS
+        from unittest.mock import MagicMock, patch
+
+        import bot.skills.scan_skill as ss
+        tripped = NS(trading_blocked_by="warning_rate:api_errors",
+                     circuit_breaker_active=False)   # NOT the narrow flag
+        engine = NS(_halted=False, risk=tripped, risk_for=lambda uid="": tripped,
+                    live_auth_healthy=lambda uid="": True, _live_auth_detail={},
+                    portfolio=NS(snapshot=lambda: NS(equity_usd=1000.0, open_positions=0,
+                                                     daily_pnl=0.0), _history=[]))
+        cfg = MagicMock()
+        cfg.simulation_mode, cfg.live_trading_enabled = True, False
+        cfg.is_live.return_value = False
+        cfg.risk.max_daily_loss_pct, cfg.risk.max_open_positions = 5.0, 5
+        with patch("bot.config.CONFIG", cfg), \
+             patch.object(ss, "_build_features_block", return_value={}):
+            cb = ss._build_scan_payload([], engine)["circuit_breaker"]
+        chip = cb["rules"][0]
+        assert chip["active"] is True, "the chip must go red on ANY blocker, not just the narrow one"
+        assert "warning_rate:api_errors" in chip["label"], "and must NAME it"
+        assert cb["gate"]["blocked"] is True and cb["gate"]["unknown"] is False
 
     def test_the_widening_still_covers_the_breaker_this_file_is_about(self):
         """The re-point above must not have dropped the original coverage.

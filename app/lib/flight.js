@@ -61,7 +61,13 @@ const RATIO_KEY = /(_pct|_percent|_ratio|_bps|_r|_multiple|_rate)$/i;
 const CURRENCY_TOKEN = /(usd|dollars?|cash|equity|balance)/i;
 const isRatioKey = (k) => RATIO_KEY.test(k) && !CURRENCY_TOKEN.test(k);
 // A currency amount embedded in a free-text string (e.g. "closed +$12.50").
-const DOLLAR_TEXT = /\$\s?-?\d[\d,]*(\.\d+)?/g;
+// `[-+]?`, not `-?`: the bot's daily-loss chip printed `Daily PnL: $+12.34`
+// (an explicit plus from Python's `:+.2f`), and a pattern that allowed a minus
+// and not a plus let every POSITIVE dollar figure through the anonymous scrub
+// verbatim — driven, `scrub({label: 'Daily PnL: $+12.34'})` came back
+// unchanged while `$-5.00` was redacted. The producer no longer prints a
+// dollar there at all; this is the backstop, and it now knows both signs.
+const DOLLAR_TEXT = /\$\s?[-+]?\d[\d,]*(\.\d+)?/g;
 
 function scrub(value) {
   if (value == null) return value;

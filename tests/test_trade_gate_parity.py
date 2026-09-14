@@ -311,7 +311,11 @@ class TestEverySurfaceReadsTheOneHelper:
 
     def test_the_scan_dashboard_chip_uses_it(self):
         src = code_only(open("bot/skills/scan_skill.py", encoding="utf-8").read())
-        assert "entry_gate(engine)" in src
+        # The PUBLIC form: the payload is served unauthenticated by the
+        # website, so the venue's own error text must not ride it —
+        # tests/test_the_scan_payload_says_what_it_could_not_read.py drives
+        # that. What this pin keeps is that the chip asks the one helper.
+        assert "entry_gate(engine, include_detail=False)" in src
         assert 'getattr(risk, "trading_blocked_by"' not in src
 
 

@@ -333,6 +333,108 @@ def _deepscan_block(hits: list[dict], max_symbols: int = 24,
     return out
 
 
+def _num(value) -> Optional[float]:
+    """A real, finite number or None — never a coerced one. ``float(x or 0)``
+    is the shape this repo's honesty gate exists to count."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    f = float(value)
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _read_flag(obj, name: str) -> Optional[bool]:
+    """A boolean attribute, or None when it is absent, None, or raises on
+    read (``circuit_breaker_active`` is a property on a real risk engine)."""
+    try:
+        value = getattr(obj, name)
+    except Exception:
+        return None
+    return None if value is None else bool(value)
+
+
+def gate_block(engine) -> Optional[dict]:
+    """``entry_gate``'s answer shaped for the wire, or None when it could not be
+    asked at all.
+
+    CATEGORY ONLY. This block rides the scan sync to GET /api/bot/sync/scan,
+    which is `optionalAuth` and never 401s: an anonymous reader gets it, and
+    ``app/lib/flight.js``'s scrub strips dollar amounts from strings and
+    nothing else. With the default ``include_detail=True`` the venue-auth
+    reason carried ``_safe_detail`` of the credential preflight's exception —
+    the venue's host and path, in an unauthenticated response — which
+    ``trade_gate``'s own docstring says must not go out that way ("Scrubbed is
+    not the same as public"). /health asks for the same public form.
+
+    ``unknown`` travels because a chip that cannot say "unread" says "clear".
+    """
+    try:
+        from bot.core.trade_gate import entry_gate
+        g = entry_gate(engine, include_detail=False)
+        return {"blocked": bool(g["blocked"]), "unknown": bool(g["unknown"]),
+                "reasons": [str(r) for r in g["reasons"]]}
+    except Exception as exc:
+        log.warning("entry gate could not be read for the scan payload: %s", exc)
+        return None
+
+
+def gate_rule(gate: Optional[dict], cb_active: Optional[bool]) -> dict:
+    """The "can we trade" chip, three-valued.
+
+    ``active`` is True on a POSITIVE blocker (any of the gate's five
+    conditions, or the narrow breaker flag — the chip must go red on any of
+    them, not just the one field), False only when the gate READ clear, and
+    None when nobody could tell: the old two-valued chip rendered a gate that
+    answered "unknown" as a green ✓, which is exactly the headline nobody can
+    justify that ``trade_gate`` refuses to print.
+    """
+    reasons = [str(r) for r in ((gate or {}).get("reasons") or ())]
+    if reasons:
+        return {"label": "Blocked: " + "; ".join(reasons), "active": True}
+    if cb_active is True:
+        return {"label": "Circuit Breaker", "active": True}
+    if gate is None or gate.get("unknown"):
+        return {"label": "Circuit Breaker: status unreadable", "active": None}
+    return {"label": "Circuit Breaker", "active": False}
+
+
+def daily_pnl_rule(pnl: Optional[float], equity: Optional[float],
+                   cap_pct: Optional[float], *, realized_only: bool) -> dict:
+    """The daily-loss chip as the RATIO the breaker measures, never a dollar.
+
+    The label used to be ``f"Daily PnL: ${daily_pnl:+.2f}"`` — the account's
+    dollar P&L on a payload an anonymous caller can read, and the ``$+``
+    spelling walked through the web's dollar scrub, whose pattern allowed a
+    minus sign and not a plus. A percent of equity is what the 5% cap is a
+    cap ON, and it is public-safe by this repo's rule (percent, ratio, count).
+
+    Three answers: unread (no P&L figure), unmeasured (no equity to divide
+    by — a zero denominator is not a flat day), or the ratio with the cap's
+    verdict; a cap nobody could read leaves the verdict None.
+    """
+    head = "Daily PnL (realized today)" if realized_only else "Daily PnL"
+    if pnl is None:
+        return {"label": f"{head}: unread", "active": None}
+    if equity is None or equity <= 0:
+        return {"label": f"{head}: unmeasured (no equity to measure it against)",
+                "active": None}
+    pct = pnl / equity * 100.0
+    if cap_pct is None:
+        return {"label": f"{head}: {pct:+.1f}% of equity (cap unread)", "active": None}
+    return {"label": f"{head}: {pct:+.1f}% of equity (cap {cap_pct:g}%)",
+            "active": bool(pct <= -cap_pct)}
+
+
+def open_positions_rule(count: Optional[int], cap: Optional[float]) -> dict:
+    """The slot chip. ``count`` is None when the book was never read — in live
+    mode with the venue readout AND the engine cache both unavailable the old
+    chip printed ``Open Positions: 0/5 ✓``, a count of a book nobody looked at."""
+    cap_txt = f"{int(cap)}" if cap is not None else "?"
+    if count is None:
+        return {"label": f"Open Positions: unread/{cap_txt}", "active": None}
+    active = None if cap is None else bool(count >= cap)
+    return {"label": f"Open Positions: {count}/{cap_txt}", "active": active}
+
+
 def _build_scan_payload(results: list[dict], engine=None,
                         deepscan_hits: "list[dict] | None" = None) -> dict:
     """Convert raw scan results into the website dashboard schema and push.
@@ -473,10 +575,8 @@ def _build_scan_payload(results: list[dict], engine=None,
     elif engine and not live_data_loaded:
         # Genuine paper mode — the paper portfolio IS the account.
         try:
-            risk = engine.risk
             portfolio = engine.portfolio
             state = portfolio.snapshot()
-            cb_active = risk.circuit_breaker_active
             cb_equity = state.equity_usd
             cb_open_count = state.open_positions
             # Compute stats from portfolio history
@@ -501,33 +601,46 @@ def _build_scan_payload(results: list[dict], engine=None,
         except Exception as exc:
             log.warning("Paper portfolio data unavailable: %s", exc)
 
+    # ── The gate and the three chips, each read on its own ──
+    # This chip is read as "can we trade". circuit_breaker_active answers
+    # something narrower — daily_loss / drawdown / streak / manual — so the
+    # dashboard showed a green ✓ Circuit Breaker while the warning-rate
+    # breaker was rejecting every live entry; entry_gate carries the whole
+    # list (kill switch, both breakers, the venue auth halt). One raise used
+    # to drop every chip at once, so a snapshot that could not be taken also
+    # deleted the gate reading that had nothing to do with it.
+    cb_gate: Optional[dict] = None
     if engine:
-        try:
-            risk = engine.risk
-            portfolio = engine.portfolio
-            state = portfolio.snapshot()
-            cb_active = risk.circuit_breaker_active
-            # This chip is read as "can we trade". circuit_breaker_active
-            # answers something narrower — daily_loss / drawdown / streak /
-            # manual — so the dashboard showed a green ✓ Circuit Breaker while
-            # the warning-rate breaker was rejecting every live entry. Drive it
-            # from trading_blocked_by, which is "" exactly when trades are
-            # going through, and name the blocker in the label so the chip is
-            # actionable rather than merely red.
-            #
-            # trading_blocked_by was itself only PART of the answer — the kill
-            # switch, the caller's own breaker and the venue auth halt are all
-            # outside it. entry_gate carries the whole list.
-            from bot.core.trade_gate import entry_gate
-            _blocked = "; ".join(entry_gate(engine)["reasons"])
-            cb_rules = [
-                {"label": f"Blocked: {_blocked}" if _blocked else "Circuit Breaker",
-                 "active": bool(_blocked) or cb_active},
-                {"label": f"Daily PnL: ${state.daily_pnl:+.2f}", "active": state.daily_pnl < -state.equity_usd * 0.05},
-                {"label": f"Open Positions: {cb_open_count}/{CONFIG.risk.max_open_positions}", "active": cb_open_count >= CONFIG.risk.max_open_positions},
-            ]
-        except Exception as exc:
-            log.warning("CB rules unavailable: %s", exc)
+        cb_gate = gate_block(engine)
+        _risk = getattr(engine, "risk", None)
+        cb_rules.append(gate_rule(cb_gate, _read_flag(_risk, "circuit_breaker_active")))
+        _risk_cfg = getattr(CONFIG, "risk", None)
+        _cap_pct = _num(getattr(_risk_cfg, "max_daily_loss_pct", None))
+        if _live_mode:
+            # The paper snapshot's daily_pnl is ~0 in live mode because live
+            # fills never touch the paper book (risk_engine.py, DAILY_LOSS),
+            # and this chip printed it beside the LIVE equity: a flat day on
+            # an account that may have lost 4%. The breaker's own accumulator
+            # is the reading, realized only, and the chip says so.
+            _fn = getattr(_risk, "live_daily_pnl_today", None)
+            try:
+                _live_daily = _num(_fn()) if callable(_fn) else None
+            except Exception:
+                _live_daily = None
+            cb_rules.append(daily_pnl_rule(_live_daily, cb_equity, _cap_pct, realized_only=True))
+        else:
+            try:
+                _st = engine.portfolio.snapshot()
+                _daily = _num(getattr(_st, "daily_pnl", None))
+                _eq = _num(getattr(_st, "equity_usd", None))
+            except Exception as exc:
+                log.warning("paper snapshot unavailable for the daily-loss chip: %s", exc)
+                _daily, _eq = None, None
+            cb_rules.append(daily_pnl_rule(_daily, _eq, _cap_pct, realized_only=False))
+        _count = cb_open_count if isinstance(cb_open_count, int) and not isinstance(cb_open_count, bool) else None
+        cb_rules.append(open_positions_rule(
+            None if (_live_mode and not live_data_loaded) else _count,
+            _num(getattr(_risk_cfg, "max_open_positions", None))))
 
     # ── Symbols table ──
     symbols = {}
@@ -651,6 +764,9 @@ def _build_scan_payload(results: list[dict], engine=None,
         "regime": regime,
         "circuit_breaker": {
             "rules": cb_rules,
+            # entry_gate's structured answer — blocked / unknown / reasons —
+            # category-only (see gate_block). None when it could not be asked.
+            "gate": cb_gate,
             "equity": cb_equity,
             # Tri-state, all the way to the browser. `round(None, 2)` would
             # raise and `cb_net_pnl or 0` would fabricate, so neither: null
@@ -699,9 +815,11 @@ def _macro_block() -> Optional[dict]:
     omitted (the web side already renders a "no calendar yet" fallback).
     """
     try:
-        from bot.macro.calendar import MacroCalendar
+        from bot.macro.calendar import MacroCalendar, macro_state_words
 
-        snap = MacroCalendar().evaluate()
+        calendar = MacroCalendar()
+        snap = calendar.evaluate()
+        has_events = bool(calendar.has_events())
 
         def _ev(ev) -> Optional[dict]:
             if not ev:
@@ -716,6 +834,16 @@ def _macro_block() -> Optional[dict]:
         return {
             "state": snap.state.value,
             "stale": bool(snap.stale),
+            # One state word hides three conditions: a CRASHED evaluation and
+            # an EXHAUSTED schedule both say BLACKOUT, and an EMPTY calendar
+            # says NORMAL — a confident all-clear from no data, by
+            # calendar.py's own docstring. The browser rendered all of them as
+            # the state alone. `reading` is macro_state_words, the one
+            # sentence every other surface prints for these, so the website
+            # does not grow a second copy of the vocabulary.
+            "unreadable": bool(getattr(snap, "unreadable", False)),
+            "has_events": has_events,
+            "reading": macro_state_words(snap, has_events),
             "next_event": _ev(snap.next_event),
             "active_event": _ev(snap.active_event),
             "seconds_until_next": (

@@ -124,3 +124,40 @@ test('values are coerced and clamped; garbage is dropped', () => {
   assert.equal(m.fear_greed.value, 100);      // clamped to 0..100
   assert.equal(m.fear_greed.previous, 0);     // clamped
 });
+
+test('the calendar\'s condition travels beside its state, and an older bot leaves it unstated', () => {
+  // A crashed evaluation and an exhausted schedule are both BLACKOUT, and an
+  // empty calendar is NORMAL; the bot now names which, with its own sentence.
+  const crashed = assembleMacro({ fng: { value: '50', classification: 'Neutral' }, calendar: {
+    state: 'BLACKOUT', stale: false, unreadable: true, has_events: true,
+    reading: 'Blackout (calendar evaluation FAILED — nothing was measured; fail-closed)',
+    next_event: null, active_event: null,
+  } });
+  assert.equal(crashed.event.state, 'BLACKOUT');
+  assert.equal(crashed.event.unreadable, true);
+  assert.equal(crashed.event.has_events, true);
+  assert.match(crashed.event.reading, /evaluation FAILED/);
+  assert.doesNotMatch(crashed.brief, /macro event/i, 'a crash must not be narrated as an event window');
+
+  const empty = assembleMacro({ fng: { value: '50', classification: 'Neutral' }, calendar: {
+    state: 'NORMAL', stale: false, unreadable: false, has_events: false,
+    reading: 'Normal (no calendar loaded — no events on the schedule at all)',
+  } });
+  assert.equal(empty.event.has_events, false);
+  assert.match(empty.event.reading, /no calendar loaded/);
+
+  // An older bot sends none of the three: unstated is null, never "fine".
+  const older = assembleMacro({ fng: { value: '50', classification: 'Neutral' }, calendar: {
+    state: 'BLACKOUT', stale: true,
+  } });
+  assert.equal(older.event.unreadable, false);
+  assert.equal(older.event.has_events, null);
+  assert.equal(older.event.reading, null);
+  assert.equal(older.event.stale, true);
+  // Junk in the slot is not a reading either.
+  const junk = assembleMacro({ fng: { value: '50', classification: 'Neutral' }, calendar: {
+    state: 'NORMAL', has_events: 'yes', reading: '   ',
+  } });
+  assert.equal(junk.event.has_events, null);
+  assert.equal(junk.event.reading, null);
+});

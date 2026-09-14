@@ -4330,6 +4330,16 @@
       ${scan?.key_call ? `<div class="mt-3 small" style="color:var(--text-2)">${sanitizeBotHtml(scan.key_call)}</div>` : ''}`;
     }, { empty: OFFLINE });
 
+    // `active` is three-valued from the bot: true (a positive blocker), false
+    // (the gate READ clear) and null (nobody could tell — an unreadable gate
+    // or a book nobody looked at). The old `r.active ? '⚠' : '✓'` painted the
+    // third one green. The decision lives in engine-card-model.js beside the
+    // card's cells, so a test can plant a rule and read the chip.
+    function ruleChipThreeValued(r) {
+      const model = (self.EngineCardModel || {}).ruleChip;
+      const c = model ? model(r) : null;
+      return c ? `<span class="chip ${c.cls}">${c.mark} ${esc(c.label)}</span>` : '';
+    }
     renderPanel(C('ecb'), async () => {
       const cb = scan?.circuit_breaker;
       if (!cb || (cb.equity == null && !cb.total_trades)) return null;
@@ -4347,7 +4357,7 @@
         <div class="stat"><div class="k">Open</div><div class="v">${c.open.text}</div></div>
       </div>
       ${c.note ? `<div class="small mt-2" style="color:var(--text-2)">${esc(c.note)}</div>` : ''}
-      <div class="row mt-3">${(cb.rules || []).map(r => `<span class="chip ${r.active ? 'chip--down' : 'chip--up'}">${r.active ? '⚠' : '✓'} ${esc(r.label)}</span>`).join('')}</div>`;
+      <div class="row mt-3">${(cb.rules || []).map(ruleChipThreeValued).join('')}</div>`;
     }, { empty: OFFLINE });
 
     renderPanel(C('emods'), async () => {
@@ -7846,7 +7856,20 @@
   }
   // Colored banner for elevated macro-event windows (quiet on NORMAL).
   function macroEventBanner(ev) {
-    if (!ev || !ev.state || ev.state === 'NORMAL') return '';
+    if (!ev || !ev.state) return '';
+    // Three conditions hide behind one state word — a CRASHED evaluation and
+    // an EXHAUSTED schedule both say BLACKOUT, and an EMPTY calendar says
+    // NORMAL. Rendered as the state alone, a crash read "⛔ Calendar blackout
+    // · a high-impact macro event" (no event: the name was invented) and an
+    // empty schedule read as a quiet market. The bot publishes the condition
+    // and its own sentence for it; this prints that, and claims no event.
+    if (ev.unreadable || ev.stale || ev.has_events === false) {
+      const why = ev.reading || (ev.unreadable ? 'calendar evaluation failed — nothing was measured'
+        : ev.stale ? 'calendar exhausted — every scheduled event is in the past'
+        : 'no macro calendar is loaded');
+      return `<div class="muted small" style="border:1px solid var(--line);border-radius:var(--radius);padding:var(--s2) var(--s3);margin-bottom:var(--s3)">⚠ Macro calendar: ${esc(why)}. Event risk is not being measured from a schedule right now.</div>`;
+    }
+    if (ev.state === 'NORMAL') return '';
     const info = {
       PRE_EVENT_CAUTION: { col: '#e0a63a', label: 'Pre-event caution', icon: '⏳' },
       EVENT_LOCKDOWN: { col: 'var(--down)', label: 'Event lockdown', icon: '🔒' },

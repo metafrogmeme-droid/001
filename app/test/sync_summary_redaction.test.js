@@ -227,3 +227,34 @@ test('THE REAL summaryFor redacts for anonymous and not for authed', () => {
   // A null summary stays null rather than becoming an object of disclosure.
   assert.equal(summaryFor({}, null), null);
 });
+
+test('a plus-signed dollar figure inside a chip label is scrubbed for the anonymous view', () => {
+  // The bot's daily-loss chip printed `Daily PnL: $+12.34` (Python's `:+.2f`),
+  // and DOLLAR_TEXT allowed a minus sign and not a plus — so every POSITIVE
+  // dollar figure walked through the anonymous scrub verbatim while `$-5.00`
+  // was redacted. The producer prints a percent now; this is the backstop.
+  const { scanFor } = require('../routes/sync');
+  const SCAN = {
+    regime: 'CHOP',
+    circuit_breaker: {
+      equity: 141.22, win_rate: 50, total_trades: 4, open_count: 1, live_mode: true,
+      rules: [
+        { label: 'Blocked: venue auth marked down, a restart re-runs the check', active: true },
+        { label: 'Daily PnL: $+12.34', active: false },
+        { label: 'Daily PnL: $-5.00', active: true },
+        { label: 'Open Positions: unread/5', active: null },
+      ],
+      gate: { blocked: true, unknown: false, reasons: ['venue auth marked down, a restart re-runs the check'] },
+    },
+  };
+  const anon = scanFor({}, SCAN);
+  const labels = anon.circuit_breaker.rules.map((r) => r.label);
+  for (const l of labels) assert.doesNotMatch(l, /\$\s?[-+]?\d/, `dollar figure served anonymously: ${l}`);
+  assert.equal(labels[1], 'Daily PnL: ⋯');
+  assert.equal(labels[2], 'Daily PnL: ⋯');
+  // The gate's structured answer is a category and three flags — public by
+  // this repo's rule (no dollars), and the chip row's third value survives.
+  assert.deepEqual(anon.circuit_breaker.gate, SCAN.circuit_breaker.gate);
+  assert.equal(anon.circuit_breaker.rules[3].active, null, 'an unread chip became a verdict');
+  assert.equal(anon.circuit_breaker.rules[0].label, SCAN.circuit_breaker.rules[0].label);
+});

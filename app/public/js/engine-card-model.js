@@ -113,5 +113,26 @@
     };
   }
 
-  return { engineCardCells, DASH };
+  /**
+   * One chip of the card's rule row, three-valued.
+   *
+   * `active` arrives from the bot as true (a POSITIVE blocker), false (the
+   * gate READ clear) or null (nobody could tell — an unreadable gate, or a
+   * book nobody looked at). The inline `r.active ? '⚠' : '✓'` painted the
+   * third one green, on the chip the operator reads as "can we trade" — the
+   * headline nobody can justify. Anything that is not exactly true or false
+   * is unread; a string "true" from a future producer is not a verdict.
+   *
+   * @param {object|null} rule  one entry of `circuit_breaker.rules`
+   * @returns {{cls:string, mark:string, label:string, state:string}}
+   */
+  function ruleChip(rule) {
+    const r = rule || {};
+    const label = typeof r.label === 'string' ? r.label : '';
+    if (r.active === true) return { cls: 'chip--down', mark: '⚠', label, state: 'blocked' };
+    if (r.active === false) return { cls: 'chip--up', mark: '✓', label, state: 'clear' };
+    return { cls: 'chip--offline', mark: '?', label, state: 'unread' };
+  }
+
+  return { engineCardCells, ruleChip, DASH };
 }));

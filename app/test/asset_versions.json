@@ -48,8 +48,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 176,
-    "sha": "9f4c1aca7ad1c6f9"
+    "v": 177,
+    "sha": "6364b615218a94fb"
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -76,8 +76,8 @@
     "v": 7
   },
   "js/engine-card-model.js": {
-    "sha": "c233fd013d7bde98",
-    "v": 1
+    "sha": "418892c49d573faa",
+    "v": 2
   },
   "js/engine-status-model.js": {
     "sha": "d5bf6c25140efa4f",

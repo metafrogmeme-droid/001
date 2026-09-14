@@ -154,3 +154,34 @@ test('the dashboard actually calls the model', () => {
   assert.match(html, /engine-card-model\.js\?v=/,
     'the model must be loaded by the page, with a cache-busting version');
 });
+
+// ── the rule row: a chip is three-valued, and dashboard.js asks the model ────
+
+test('a rule chip is three-valued: an unread gate is neither green nor red', () => {
+  const { ruleChip } = require('../public/js/engine-card-model.js');
+  assert.deepEqual(ruleChip({ label: 'Blocked: kill switch engaged', active: true }),
+    { cls: 'chip--down', mark: '⚠', label: 'Blocked: kill switch engaged', state: 'blocked' });
+  assert.deepEqual(ruleChip({ label: 'Circuit Breaker', active: false }),
+    { cls: 'chip--up', mark: '✓', label: 'Circuit Breaker', state: 'clear' });
+  // null is the bot's "nobody could tell"; undefined is an older payload with
+  // no verdict at all; a string or a number is not a verdict either.
+  for (const v of [null, undefined, 'true', 'false', 1, 0]) {
+    const c = ruleChip({ label: 'Circuit Breaker: status unreadable', active: v });
+    assert.equal(c.state, 'unread', `active=${JSON.stringify(v)} became a verdict`);
+    assert.notEqual(c.cls, 'chip--up', 'unread painted green');
+    assert.notEqual(c.cls, 'chip--down', 'unread painted red');
+    assert.equal(c.mark, '?');
+  }
+  assert.equal(ruleChip(null).state, 'unread');
+  assert.equal(ruleChip({ active: true, label: 42 }).label, '', 'a non-string label is not printed as one');
+});
+
+test('the dashboard chip row reaches the model rather than deciding inline', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { codeOnly } = require('./helpers/code_only.js');
+  const src = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
+  assert.match(src, /\(cb\.rules \|\| \[\]\)\.map\(ruleChipThreeValued\)/, 'the ecb row no longer maps its chips through the helper');
+  assert.match(src, /\(self\.EngineCardModel \|\| \{\}\)\.ruleChip/, 'the helper no longer asks the model');
+  assert.doesNotMatch(src, /r\.active \? '⚠' : '✓'/, 'the two-valued inline chip is back');
+});

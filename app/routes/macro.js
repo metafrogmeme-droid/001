@@ -172,6 +172,15 @@ function assembleMacro({ global, fng, regime, calendar } = {}) {
     event: (calendar && calendar.state) ? {
       state: String(calendar.state),
       stale: !!calendar.stale,
+      // The state word hides three conditions the bot now names beside it: a
+      // CRASHED evaluation (BLACKOUT, `unreadable`), an EXHAUSTED schedule
+      // (BLACKOUT, `stale`) and an EMPTY calendar (NORMAL, `has_events`
+      // false — an all-clear from no data). `reading` is the bot's own
+      // sentence for whichever holds, so the banner prints one vocabulary.
+      // An older bot that sends none of them is "not stated", never "fine".
+      unreadable: !!calendar.unreadable,
+      has_events: typeof calendar.has_events === 'boolean' ? calendar.has_events : null,
+      reading: (typeof calendar.reading === 'string' && calendar.reading.trim()) ? calendar.reading.trim() : null,
       next: ev(calendar.next_event),
       active: ev(calendar.active_event),
     } : null,

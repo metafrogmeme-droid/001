@@ -1842,6 +1842,36 @@ Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.
 
+**A scrub pattern that allows a minus sign and not a plus redacts every loss
+and publishes every gain.** `app/lib/flight.js`'s `DOLLAR_TEXT` was
+`/\$\s?-?\d…/`, and the scan payload's daily-loss chip printed
+`Daily PnL: $+12.34` — Python's `:+.2f` — so on the anonymous
+`GET /api/bot/sync/scan` a losing day read `Daily PnL: ⋯` and a winning day
+read the dollars, verbatim. Driven, `scrub({label: 'Daily PnL: $+12.34'})`
+came back unchanged beside a redacted `$-5.00`. The producer prints the RATIO
+the cap is on now (percent is public by the rule above), the scrub knows both
+signs as the backstop, and the test helper that sweeps payloads for dollar
+figures had the same blind spot — a sweep that cannot see `$+` acquits it.
+
+**The same payload was publishing the venue's error text on that route.** The
+gate chip called `entry_gate(engine)` with its default `include_detail=True`,
+whose venue-auth reason appends the credential preflight's exception — host
+and path — under a docstring that says why the public form exists
+("Scrubbed is not the same as public"). `/health` asked for the public form;
+the scan payload, on an equally unauthenticated route, did not. Coverage of a
+REDACTOR is not coverage of every caller that could have asked for less.
+
+**And the chip beside it printed the PAPER book's daily P&L next to the LIVE
+equity.** `state.daily_pnl` off `engine.portfolio`, which live fills never
+touch (`risk_engine.py`'s DAILY_LOSS check says so and reads its own live
+accumulator instead), so in live mode the chip said `$+0.00` — a flat day on
+an account that may have lost 4%. `RiskEngine.live_daily_pnl_today()` is the
+reading, and writing it found that the accumulator's UTC-day rollover ran on
+the next CLOSE: a reader at 00:30 UTC before the first close would have been
+handed yesterday's total under today's name. The day rule is one method with
+four callers now, and the chip says "realized" because that is all the
+accumulator holds.
+
 ## A URL is a surface, and a slash in a path segment does not survive a hop
 
 **Every symbol this product names has a slash in it, and two panels sent the
