@@ -16,6 +16,7 @@ const { pool, withTransaction } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
+const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
 const { broadcast } = require('./stream');
 
@@ -226,7 +227,9 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       total_trades: cb.total_trades ?? null,
       win_rate: cb.win_rate ?? null,
       record_unreadable: !!cb.record_unreadable,
-      mode: cb.live_mode ? 'LIVE' : 'PAPER',
+      // Three-valued through lib/live_mode: a payload with no live_mode
+      // in it is not PAPER, it is unread. Same reading as the operator path.
+      mode: modeWord(readLiveMode(cb)),
       live_unavailable: !!cb.live_unavailable,
       updated_at: latestScan.received_at || latestScan.timestamp || new Date().toISOString()
     };
@@ -881,7 +884,9 @@ router.post('/scan', async (req, res) => {
         total_trades: cb.total_trades ?? null,
         win_rate: cb.win_rate ?? null,
         record_unreadable: !!cb.record_unreadable,
-        mode: cb.live_mode ? 'LIVE' : 'PAPER',
+        // Three-valued through lib/live_mode: a payload with no live_mode
+        // in it is not PAPER, it is unread. Same reading as the operator path.
+        mode: modeWord(readLiveMode(cb)),
         live_unavailable: !!cb.live_unavailable,
         updated_at: latestScan.received_at,
       };

@@ -19,6 +19,7 @@ const { pool } = require('../db');
 // number written into prose is the part that rots first, which is why this is
 // derived from the same list the credential route validates against.
 const { VENUES } = require('../lib/venues');
+const { readLiveMode, modeWord } = require('../lib/live_mode');
 
 /**
  * Split a column of raw P&L values into the four outcomes a record can hold.
@@ -115,7 +116,7 @@ router.get('/track-record', async (req, res) => {
       const [rows] = await pool.execute('SELECT scan_json FROM scan_cache WHERE id = 1');
       if (rows.length && rows[0].scan_json) {
         const cb = (JSON.parse(rows[0].scan_json) || {}).circuit_breaker || {};
-        if (typeof cb.live_mode === 'boolean') mode = cb.live_mode ? 'LIVE' : 'PAPER';
+        mode = modeWord(readLiveMode(cb));
       }
     } catch (e) { /* badge stays unknown */ }
 
