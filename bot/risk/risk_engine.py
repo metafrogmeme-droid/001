@@ -909,6 +909,28 @@ class RiskEngine:
         """
         self._person_totals_fn = fn
 
+    def _person_totals_state(self) -> tuple:
+        """``(state, totals)`` — the cross-venue read with its own failure kept
+        apart from its absence.
+
+        ``("unset", None)`` when nothing supplies the totals (a single-venue
+        deployment: the count this engine holds IS the person's count);
+        ``("read", totals)`` when the aggregator answered, which may still
+        name venues it could not read; ``("raised", None)`` when it threw.
+        `_person_totals` folds the last two-into-one for the gate, which fails
+        CLOSED on it either way; a surface that prints the count needs the
+        third word, because a raised aggregator rendered as "single venue"
+        prints an exact ``2 / 5`` over a count whose cross-venue half failed.
+        """
+        fn = self._person_totals_fn
+        if fn is None:
+            return "unset", None
+        try:
+            return "read", fn()
+        except Exception as exc:
+            risk_log.warning("person-level totals unreadable: %s", exc)
+            return "raised", None
+
     def _person_totals(self):
         """The cross-venue totals, or ``None`` when nothing supplies them.
 
@@ -916,14 +938,7 @@ class RiskEngine:
         behaviour — rather than to a zeroed total, which would read as a
         person holding nothing anywhere and open every cap wide.
         """
-        fn = self._person_totals_fn
-        if fn is None:
-            return None
-        try:
-            return fn()
-        except Exception as exc:
-            risk_log.warning("person-level totals unreadable: %s", exc)
-            return None
+        return self._person_totals_state()[1]
 
     def _person_open_positions(self) -> Optional[int]:
         t = self._person_totals()
@@ -3788,6 +3803,70 @@ class RiskEngine:
                 "override_pct": RUNTIME.live_drawdown_override_pct,
                 "live_hardening": self._live_hardening(),
             }
+        except Exception:
+            return {}
+
+    def slot_status(self, open_count: Optional[int] = None) -> dict:
+        """The open-position SLOT reading the MAX_POSITIONS gate enforces, for
+        a surface to print: ``{used, floor, note, cap, person}``.
+
+        ``open_count`` is the caller's count of THIS book — the live venue's
+        count when the caller holds one, the paper snapshot's in paper mode —
+        and ``None`` when the caller could not read it. It is a parameter and
+        not a read of ``self`` on purpose: the only count reachable from here
+        is the PAPER book, and publishing that against the LIVE binding cap is
+        the defect ``drawdown_status`` was cured of one method up ("an
+        operator could read ~0% from a gate that was refusing trades at 9%"),
+        one field over. An unread count stays ``None``; it is never the paper
+        number.
+
+        ``used`` is raised to the person's cross-venue total when one is read
+        (TIGHTENS only, as the gate does). ``floor`` is True when the count
+        may be low: the aggregator named venues it could not read, or it
+        RAISED — the gate fails closed on both and cannot tell them apart; a
+        card must, because a raised aggregator rendered as "single venue" is
+        an exact ``2 / 5`` over half a count. ``note`` says which.
+
+        ``cap`` is the BINDING one: in live mode the executor's own cap bounds
+        the count as well as the risk engine's, so the lower of the two is
+        the one that refuses — `/risk` took that min() alone while the status
+        cards printed the higher one. One home for it now.
+
+        ``{}`` on any fault, like ``drawdown_status``: the only failure signal
+        this family of readers has, and a caller that needs three values
+        reads the empty dict as "could not be read", never as a flat book.
+        """
+        try:
+            used: Optional[int] = None
+            if (isinstance(open_count, int) and not isinstance(open_count, bool)
+                    and open_count >= 0):
+                used = int(open_count)
+            state, totals = self._person_totals_state()
+            floor = False
+            note = ""
+            if state == "raised":
+                floor = True
+                note = "the cross-venue position total could not be read"
+            elif state == "read" and totals is not None:
+                # A total the aggregator did not carry is not a total of
+                # zero: it leaves the caller's count as it is.
+                person = getattr(totals, "open_positions", None)
+                if (isinstance(person, int) and not isinstance(person, bool)
+                        and (used is None or person > used)):
+                    used = person
+                missing = tuple(getattr(totals, "unreadable", ()) or ())
+                if missing:
+                    floor = True
+                    note = f"could not read {', '.join(missing)}"
+            cap: Optional[int] = None
+            try:
+                cap = int(CONFIG.risk.max_open_positions)
+                if CONFIG.is_live():
+                    cap = min(cap, int(CONFIG.execution.max_live_open_positions))
+            except Exception:
+                cap = None
+            return {"used": used, "floor": floor, "note": note, "cap": cap,
+                    "person": state}
         except Exception:
             return {}
 

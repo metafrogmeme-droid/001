@@ -695,14 +695,17 @@ class PortfolioCommands:
             pass
         # In LIVE mode two independent caps bound the position count — the risk
         # engine's and the executor's — so the BINDING one is the lower. Showing
-        # only the higher would promise room the other refuses.
+        # only the higher would promise room the other refuses. That min() has
+        # ONE home now, `RiskEngine.slot_status`, which the website's backstop
+        # panel reads too, so the two cards cannot disagree about the cap; the
+        # configured risk cap stays the fallback when the reading fails.
         _max_trades = CONFIG.risk.max_open_positions
-        if CONFIG.is_live():
-            try:
-                _max_trades = min(_max_trades,
-                                  int(CONFIG.execution.max_live_open_positions))
-            except Exception:
-                pass
+        try:
+            _cap = (self.engine.risk.slot_status(open_count) or {}).get("cap")
+            if isinstance(_cap, int) and not isinstance(_cap, bool):
+                _max_trades = _cap
+        except Exception:
+            pass
         data = {
             "daily_loss_limit": CONFIG.risk.max_daily_loss_pct,
             "drawdown_limit": _dd_limit,

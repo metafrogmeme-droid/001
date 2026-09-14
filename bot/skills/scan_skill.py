@@ -609,6 +609,14 @@ def _build_scan_payload(results: list[dict], engine=None,
     # list (kill switch, both breakers, the venue auth halt). One raise used
     # to drop every chip at once, so a snapshot that could not be taken also
     # deleted the gate reading that had nothing to do with it.
+    # ── The backstop block for the website's risk panel ──
+    # Present in EVERY payload this build makes: an absent key means an older
+    # build, and the UNREADABLE marker means this one could not assemble the
+    # reading — two events the panel keeps apart, because one is fixed by a
+    # redeploy and the other by looking at the risk engine.
+    from bot.formatters.risk_backstop import UNREADABLE as _BS_UNREADABLE
+    from bot.formatters.risk_backstop import backstop_block
+    _bs: dict = dict(_BS_UNREADABLE)
     cb_gate: Optional[dict] = None
     if engine:
         cb_gate = gate_block(engine)
@@ -638,9 +646,13 @@ def _build_scan_payload(results: list[dict], engine=None,
                 _daily, _eq = None, None
             cb_rules.append(daily_pnl_rule(_daily, _eq, _cap_pct, realized_only=False))
         _count = cb_open_count if isinstance(cb_open_count, int) and not isinstance(cb_open_count, bool) else None
+        _slot_count = None if (_live_mode and not live_data_loaded) else _count
         cb_rules.append(open_positions_rule(
-            None if (_live_mode and not live_data_loaded) else _count,
-            _num(getattr(_risk_cfg, "max_open_positions", None))))
+            _slot_count, _num(getattr(_risk_cfg, "max_open_positions", None))))
+        # The count the slot chip reads is the count the backstop reads: a
+        # live book nobody could read stays None on both, never the paper
+        # number under the live cap.
+        _bs = backstop_block(engine, open_count=_slot_count, gate=cb_gate)
 
     # ── Symbols table ──
     symbols = {}
@@ -783,6 +795,7 @@ def _build_scan_payload(results: list[dict], engine=None,
             # Agent stance (RUNTIME.strategy_mode) so the website's "Your
             # agent" panel can show the posture the engine is trading with.
             "strategy_mode": _current_strategy_mode(),
+            "backstop": _bs,
         },
         "symbols": symbols,
         "entry_cards": entry_cards,

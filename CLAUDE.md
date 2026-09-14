@@ -2239,6 +2239,53 @@ this box can see. The model spells it into ISO before parsing, and an
 unparseable stamp names the tick as not reported rather than falling through
 the topbar model's NaN age to "ENGINE OFFLINE".
 
+**The website could not reach the backstop, and the number it could reach
+has the same name.** Nothing under `app/` carried the live drawdown, the halt
+threshold, the slot cap or the gate state, and every `drawdown` the website
+holds is the HISTORICAL drawdown of its own closed-trade curve — a different
+quantity under the same name, which is exactly what an implementer greps to
+and wires under "halt threshold" with every test green. `circuit_breaker.
+backstop` carries the engine's own figures now, composed from the readings
+the Telegram cards already share (`enforced_drawdown`, `live_risk_status`)
+rather than re-derived, so no two surfaces can disagree about what the
+breaker enforces. Every field is a percent, a count or a flag; the equity
+peak is deliberately not sent, because the payload is served to anonymous
+callers and a dollar figure has no business on it.
+
+**The slot count comes from where it EXISTS, and the method the design
+wanted could not see it.** `live_open_count` is a PARAMETER of `evaluate()`,
+supplied by the engine's caller; the only count a method on `RiskEngine` can
+reach is the PAPER book's. A `slot_status()` built the way the design drew it
+would have published the paper count against the LIVE binding cap — the
+defect `drawdown_status` was cured of one method up ("an operator could read
+~0% from a gate that was refusing trades at 9%"), one field over, under a
+label that makes it a lie rather than a mislabel. `slot_status(open_count)`
+takes the caller's count, the scan builder hands it the same count its slot
+chip reads, and an unread live book stays `None`: never the paper number. The
+binding cap — `min()` of the risk engine's and the executor's, which only
+`/risk` took while the status cards printed the higher one — has one home in
+it now, and the `/risk` pin that grepped for the `min(` moved to the seam.
+
+**A raised aggregator is not a single venue.** `_person_totals` folds an
+exception into `None`, which is right for the gate (it fails CLOSED either
+way) and wrong for a card, which would print an exact `2 / 5` over a count
+whose cross-venue half failed to read. `_person_totals_state` keeps the third
+word, and a total the aggregator did not carry leaves the caller's count
+alone rather than reading as zero — the gate's own reader still does
+`getattr(t, "open_positions", 0) or 0`, and the honesty ratchet caught the
+copy of that shape in the first draft of the new one.
+
+**A composer fault is a marker, not an absence.** The key is present in every
+payload this build makes; an ABSENT key means a bot build that predates the
+reading — a redeploy instruction — so a fault in the composer must not be
+reported that way, or it sends the operator to redeploy the build they are
+already running. `{"unreadable": true}` is the fault, the shape
+`credential_state()` and `master_key_state()` use; `drawdown_status() == {}`
+is NOT a fault, it is that reader's one failure signal, and it renders as an
+unread drawdown beside a read gate. The panel that reads all of this is the
+next slice; it cannot begin until this one is deployed to the bot box and
+confirmed serving, because `app/` and `bot/` are different deploy targets.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 
