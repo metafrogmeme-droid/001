@@ -337,17 +337,20 @@ def test_the_seam_knows_the_token_shape_the_old_one_did_not():
     assert "1234567890:AAF" not in reply_safe(tok)
 
 
-def test_the_four_records_it_names_all_exist_and_differ():
+def test_the_six_records_it_names_all_exist_and_differ():
     from bot.nlp import skill_memory as sm
 
-    assert "Four records now" in DOC
+    assert "Six records now" in DOC
     heads = {sm.skill_result_memory("s", "x")[:30],
              sm.routed_answer_memory("s", "x")[:30],
              sm.card_shown_memory("s")[:30],
-             sm.not_run_memory("s", "x")[:30]}
-    assert len(heads) == 4, heads
+             sm.not_run_memory("s", "x")[:30],
+             sm.web_answer_memory("s", "x")[:30],
+             sm.command_reply_memory("s", ["x"])[:30]}
+    assert len(heads) == 6, heads
     for name in ("skill_result_memory", "routed_answer_memory",
-                 "card_shown_memory", "not_run_memory", "record_routed_turn"):
+                 "card_shown_memory", "not_run_memory", "web_answer_memory",
+                 "command_reply_memory", "record_routed_turn"):
         assert name in DOC and hasattr(sm, name)
 
 

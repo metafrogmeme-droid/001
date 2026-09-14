@@ -18,10 +18,12 @@ holds every mixin to the split's rules, derived from this class's MRO.
 from __future__ import annotations
 
 import asyncio
+import functools
 import html
 import logging
 import re
 import time
+from contextvars import ContextVar
 from datetime import datetime
 from bot.compat import UTC
 from typing import Optional, Any
@@ -725,13 +727,15 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
-from bot.nlp.skill_memory import (card_shown_memory, not_run_memory,
+from bot.nlp.skill_memory import (card_shown_memory, command_reply_memory,
+                                  command_turn_text, not_run_memory,
                                   record_routed_turn, routed_answer_memory,
                                   skill_failure_memory, skill_result_memory,
                                   skill_unavailable_memory)
 from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CATALOG,
                               create_llm_client, fallback_chain, llm_complete,
                               llm_complete_with_tools, resolve_tier_config)
+
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
@@ -748,7 +752,6 @@ from bot.formatters.rich_cards import (
     display_symbol,
     fetch_analysis_data,
 )
-
 
 # RateLimiter lives in bot/skills/chat_runtime.py (imported at the top of
 # this file, with the rest of the chat runtime).
@@ -773,6 +776,25 @@ from bot.nlp.sanitize import (
 # +10.19 over 50 trades here, -10.74 over 95 there, same account, same day.
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.win_rate import win_stats as _win_stats
+
+#: What the send chokepoint DELIVERED during one slash command, or None outside
+#: one. `_remembering` sets a fresh list around the handler it wraps; `_send`
+#: and `_send_photo` append each chunk they actually got through. A context
+#: variable rather than an attribute on the handler because `build_app` runs
+#: every update as its own task and two commands are routinely in flight at
+#: once — a list on `self` would put one user's card into another's
+#: transcript. Outside a command the variable is None and the chokepoint
+#: appends nothing, so the free-text path, alerts and callbacks are untouched.
+_REPLY_CAPTURE: ContextVar[Optional[list[str]]] = ContextVar(
+    "runeclaw_reply_capture", default=None)
+
+
+def _capture_reply(text: str) -> None:
+    """Record one delivered chunk for the slash command in flight, if any."""
+    cap = _REPLY_CAPTURE.get()
+    if cap is not None:
+        cap.append(text)
+
 
 
 # CHAT_MIN_ATTEMPT_SEC, CHAT_TOOL_ATTEMPT_SEC, THINKING_PHRASE_KEYS,
@@ -1109,6 +1131,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("memeplan", self._cmd_memeplan),
             ("rwa", self._cmd_rwa),
         ]:
+            # Every slash command's turn reaches the transcript through this
+            # one line — the command typed and what it replied — because a
+            # turn the user can see and the model cannot is a hole exactly
+            # where the answer was (`_remembering`).
+            handler = self._remembering(cmd, handler)
             app.add_handler(CommandHandler(cmd, handler))
             self._known_commands.append(cmd)
         app.add_handler(CallbackQueryHandler(self._handle_callback))
@@ -1255,12 +1282,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
 
             try:
                 await send_method(chunk, parse_mode="HTML", reply_markup=markup)
+                # Captured AFTER the send returns, so the transcript holds what
+                # was delivered and never a chunk Telegram refused.
+                _capture_reply(chunk)
             except Exception as e:
                 # If editing failed (e.g. photo message), fall back to new message
                 if edit and update.callback_query and update.callback_query.message:
                     fallback_method = update.callback_query.message.reply_text
                     try:
                         await fallback_method(chunk, parse_mode="HTML", reply_markup=markup)
+                        _capture_reply(chunk)
                         continue
                     except Exception:
                         pass
@@ -1272,6 +1303,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     plain_method = update.callback_query.message.reply_text
                 try:
                     await plain_method(plain, parse_mode=None, reply_markup=markup)
+                    _capture_reply(plain)
                 except Exception as e2:
                     system_log.error("Failed to send message chunk %d/%d: %s", i + 1, len(chunks), e2)
 
@@ -1376,6 +1408,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 chat_id=int(chat_id), photo=buf,
                 caption=cap, parse_mode="HTML",
                 reply_markup=reply_markup)
+            _capture_reply(cap)
             return True
         except Exception as exc:
             system_log.debug("send_photo HTML failed (%s), retrying plain", exc)
@@ -1386,6 +1419,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     chat_id=int(chat_id), photo=buf,
                     caption=plain_cap, parse_mode=None,
                     reply_markup=reply_markup)
+                _capture_reply(plain_cap)
                 return True
             except Exception as exc2:
                 system_log.warning("send_photo failed: %s", exc2)
@@ -2932,6 +2966,76 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "own words. "
         "Merge with the existing note, drop what it makes redundant. Plain "
         "text, third person ('the user'), at most 120 words.")
+
+    def _remembering(self, cmd: str, handler):
+        """Wrap one registered command so its turn reaches the transcript.
+
+        A slash command rendered its card through `_send` and wrote NOTHING to
+        the conversation store, so `/networth` followed by "which is biggest?"
+        reached the model with a history in which nothing had been shown —
+        the hole `bot/nlp/skill_memory.py` exists for, on 147 commands at
+        once, while the website's own intercepts record what they showed and
+        the routed free-text path records the same commands' cards. This is
+        the one leaf: the registration loop is the only place every command
+        passes through (four are module-level functions a method decorator
+        would miss), and the reply is CAPTURED at the send chokepoint rather
+        than asked for, because `_send` returns nothing and a command sends
+        zero, one or many messages.
+
+        The command's own return value is dropped — python-telegram-bot
+        ignores it — and its exception propagates to `_on_error` after the
+        failure is recorded, so the user's generic apology and the model's
+        record describe the same event.
+        """
+        @functools.wraps(handler)
+        async def _wrapped(update, ctx):
+            token = _REPLY_CAPTURE.set([])
+            try:
+                await handler(update, ctx)
+            except Exception:
+                # The failure record is made HERE, in the except that caught
+                # it — the placement `test_skill_memory_records_the_result`
+                # pins, because a failure record built somewhere a raise
+                # never reaches is a record nobody writes.
+                self._remember_command(update, ctx, cmd, skill_failure_memory(cmd))
+                raise
+            else:
+                self._remember_command(
+                    update, ctx, cmd,
+                    command_reply_memory(cmd, _REPLY_CAPTURE.get() or []))
+            finally:
+                _REPLY_CAPTURE.reset(token)
+        _wrapped.__runeclaw_command__ = cmd  # type: ignore[attr-defined]
+        return _wrapped
+
+    def _remember_command(self, update, ctx, cmd: str, record: str) -> None:
+        """Write a slash command's turn — after it ran, so a `/start` that
+        admits its own caller is recorded and a stranger's is not.
+
+        Not admitted, no transcript: `_handle_message` refuses free text from
+        a caller the bot has not admitted before touching the store, and a
+        command must do the same, because the store evicts its least-recent
+        users at 200 and strangers typing commands would otherwise push
+        admitted users' history out. The user turn is the command and the
+        COUNT of its arguments, never the arguments (`command_turn_text` says
+        why); the assistant turn — what the chokepoint delivered, or the
+        failure — is built by the wrapper where it knows which. Memory is
+        context, never a dependency: nothing here raises.
+        """
+        try:
+            tg_id = self._get_tg_id(update)
+            user = self.users.get(tg_id)
+            if not user or not user.get("authorized", False):
+                return
+            if not self._is_allowlisted(update):
+                return
+            n_args = len(getattr(ctx, "args", None) or [])
+            record_routed_turn(self.conversations, tg_id,
+                               command_turn_text(cmd, n_args), cmd, record,
+                               surface="telegram", skill=cmd, via="command")
+        except Exception:
+            system_log.debug("command turn not recorded for /%s", cmd,
+                             exc_info=True)
 
     def _remember_routed(self, tg_id: str, text: str, intent: str,
                          record: str, *, skill: Optional[str] = None) -> None:

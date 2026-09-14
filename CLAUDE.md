@@ -972,6 +972,57 @@ the Telegram drive plants a refusing `_guard` rather than a mocked command.
 The round clears `__pycache__` between mutations, for the reason the
 preflight chapter gives.
 
+**A slash command's card was the one reply on Telegram that reached the
+transcript nowhere, and the fix is a capture, not a return value.** The routed
+free-text path records every command's card (`card_shown_memory`), the website
+records what its own intercepts showed (`web_answer_memory`), and `/networth`
+— typed as the command the card itself names — wrote nothing at all, on all
+147 registered commands: "which is biggest?" one turn later reached the model
+with a history in which nothing had been shown, which is `skill_memory.py`'s
+whole subject arriving through the product's oldest door. Nobody had blessed
+the gap; nobody had asked. The registration loop in `build_app` is the one
+place every command passes through (four are module-level functions a method
+decorator would miss), so `_remembering` wraps each callback there and records
+the turn after it ran. The reply cannot be RETURNED — `_send` returns None and
+a command sends zero, one or many messages — so it is CAPTURED: a context
+variable the wrapper sets, and the chokepoint appends each chunk it DELIVERED.
+What the user saw is what the model reads, a `@guard` refusal included (every
+`return False` in `_guard` sits directly under an `await self._send`, and a
+test pins it), and a chunk Telegram refused is not in the transcript.
+
+**The record says who answered, and it is not a tool.** `command_reply_memory`
+is a sixth record rather than `skill_result_memory` with the card's text, for
+the reason `web_answer_memory` already gives one transport over: the
+`[x] result:` shape tells the model a tool it holds really ran, and
+`/setexchange` is no tool the model holds. Its marker word is `SHOWN`, which
+the fabrication guard already polices. And nothing captured is not "the
+command sent nothing": twenty commands reply through the bot object directly
+and a rate-limited `/help` returns in silence, and from the wrapper's side
+those are one absence — so that record names the absence and claims no send
+it did not see, where `card_shown_memory` says "was sent to the user" because
+its callers know it was.
+
+**The user turn is the command and the COUNT of its arguments, never the
+arguments.** Five commands take a SECRET as theirs (`/setexchange`,
+`/setgateway`, `/setsigner`, `/setllm`, `/connect`), and the conversation
+store is both a file on disk and the model's prompt. The routed path records
+the message verbatim and the slash path cannot, and a list of the commands
+whose arguments are safe would be the `/setllm` ten-of-eleven shape — a
+command added later would leak by default — so `/setexchange bitget KEY
+SECRET` is recorded as `/setexchange (3 arguments not recorded)`, and the
+captured card usually carries what the argument named. Two more rules travel
+with it: not admitted, no transcript (the free-text handler's own rule, and
+here it also keeps strangers typing commands from evicting admitted users out
+of a 200-user LRU store), and the turn is recorded AFTER the command ran, so a
+`/start` that admits its own caller is recorded and a stranger's is not. The
+failure record is built inside the wrapper's own `except`, which is where
+`test_skill_memory_records_the_result` pins the file's first such call: the
+first draft built it in a conditional expression the raise never reached
+on its own, and the full preflight — not the slice's suites — said so.
+(`tests/test_a_slash_command_is_in_the_transcript.py`.)
+
+**Twenty-seven mutations, each killed.** The driver's first run aborted on its own anchor: the truncation tail written for the new record was byte-identical to the website record's, so the anchor matched twice — the second-copy shape showing up inside the instrument built to find it, and a second copy in the product. The tail is one helper now (`_headed`), the router's and the website's records read it too, and the round was re-run against it: every mutation dies, the gate refusal that returns without sending (so the AST pin is live) and the record written before the command runs included.
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1157,13 +1208,16 @@ fall-through, the news digest, and the five-return limit-price flow that
 CONFIRMS AND EXECUTES A TRADE. The web's news intercept was the same defect with a
 placeholder instead of silence: `"[news] radar digest"` says a digest happened
 and not one headline from it, which is `"executed successfully"` in new
-clothes, three modules from the docstring that deletes it. **Four records now,
-because four things happen and only one is a measurement** —
+clothes, three modules from the docstring that deletes it. **Six records now,
+because six things happen and only one is a measurement** —
 `skill_result_memory` (a tool ran), `routed_answer_memory` (the router spoke;
 "no tool ran"), `card_shown_memory` (a command's card, "CONTENTS NOT
 RECORDED", so the model's honest continuation is *I do not have that in front
-of me* rather than a reconstruction) and `not_run_memory` (a gate said no,
-which is neither a failure inviting a retry nor an absent tool). The name
+of me* rather than a reconstruction), `not_run_memory` (a gate said no,
+which is neither a failure inviting a retry nor an absent tool),
+`web_answer_memory` (the website answered from its own reading; no bot tool
+ran) and `command_reply_memory` (a slash command replied, captured where it
+was sent — its section below). The name
 recorded is the skill that RAN — `scan_deep` dispatches `deepscan` — and
 `record_routed_turn` writes both turns from one leaf, so the transports cannot
 drift about what the model remembers.
