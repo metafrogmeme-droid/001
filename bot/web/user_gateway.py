@@ -37,12 +37,15 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import cast
+from typing import cast, TYPE_CHECKING
 
 from aiohttp import web
 
 from bot.config import CONFIG
 from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from bot.skills.telegram_handler import TelegramHandler
+
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -200,6 +203,37 @@ _WEB_SKILL_PERMISSION: dict[str, str] = {
 # Routed intents the web answers itself still go through the SAME gate. A
 # question answered above the permission check is a question with no gate.
 _WEB_SKILL_PERMISSION.update(WEB_ROUTED_PERMISSION)
+
+
+async def _seam_networth(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.networth_card_text(tg_id, surface="web")
+
+
+async def _seam_rwa(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    return await tg_handler.rwa_card_text(surface="web")
+
+
+async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+    # The routed block runs at confidence 1.0, where the needs-symbol rule has
+    # always found one; the sentence below is for the shape, not a case a
+    # drive has reached, and it names no command.
+    sym = str(kwargs.get("symbol") or "").strip()
+    if not sym:
+        return "Which asset should I research? Name one ticker, e.g. research SOL."
+    return await tg_handler.research_card_text(sym)
+
+
+#: Routed intents the web answers from a SEAM on the Telegram handler — the
+#: reading the slash command renders — keyed by intent. Every key is also in
+#: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
+#: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
+#: `status` keeps its own branch above: it predates the table and three
+#: guards index that branch's literal.
+_WEB_SEAM = {
+    "networth": _seam_networth,
+    "rwa": _seam_rwa,
+    "research": _seam_research,
+}
 
 
 #: The `error` codes `_web_skill_denied` answers with, as a sentence the next
@@ -783,6 +817,41 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                                skill_result_memory("status", _card),
                                surface="web", skill="status")
             return web.json_response({"reply_html": _card, "intent": "status"})
+
+        # ── net worth / RWA / research → the seams the commands render ──
+        # Three reads the website answers from its own Node intercepts before
+        # any turn reaches this process, so for a web caller these branches
+        # see only the phrasings those intercepts miss ("how much am i
+        # worth", "can you research SOL for me"). They exist so that residue
+        # is answered by the same reading Telegram's routed branch renders,
+        # under the same gate, recorded the same way — never by a model with
+        # no such tool. `_WEB_SEAM` is the table the reachability ratchet
+        # asks, so a fourth entry is a branch without anybody writing one.
+        if intent.skill in _WEB_SEAM:
+            denied = _web_skill_denied(tg_handler, tg_id, intent.skill)
+            if denied is not None:
+                _why = _denial_reason(
+                    str(json.loads(denied.text or "{}").get("error", "")))
+                record_routed_turn(tg_handler.conversations, tg_id, text,
+                                   intent.skill, not_run_memory(intent.skill, _why),
+                                   surface="web")
+                return denied
+            try:
+                _card = await _WEB_SEAM[intent.skill](tg_handler, tg_id,
+                                                      dict(intent.kwargs or {}))
+            except Exception:
+                tg_handler.conversations.append(
+                    tg_id, "assistant", skill_failure_memory(intent.skill),
+                    metadata={"skill": intent.skill, "surface": "web",
+                              "failed": True})
+                from bot.skills.chat_runtime import skill_failure_notice
+                return web.json_response(
+                    {"reply_html": skill_failure_notice(intent.skill),
+                     "intent": intent.skill}, status=200)
+            record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                               skill_result_memory(intent.skill, _card),
+                               surface="web", skill=intent.skill)
+            return web.json_response({"reply_html": _card, "intent": intent.skill})
         skill_name = _INTENT_ALIASES.get(intent.skill, intent.skill)
         # THE ARGUMENTS, from the same table as the skill. The web dispatched
         # `**intent.kwargs`, and driven, `intent.kwargs` is `{}` for all five
@@ -2433,8 +2502,6 @@ async def handle_networth(request: web.Request) -> web.Response:
     the response; nothing here can place, modify, or cancel an order — it is
     the same read-only call the connect-time validators make.
     """
-    import asyncio
-
     engine = request.app["engine"]
     tg_handler = request.app["tg_handler"]
     tg_id = str(request.query.get("telegram_id") or "").strip()
@@ -2442,43 +2509,15 @@ async def handle_networth(request: web.Request) -> web.Response:
     if err is not None:
         return err
 
-    paper = None
-    try:
-        snap = engine.user_portfolios.get(tg_id).snapshot()
-        paper = {"equity_usd": round(float(snap.equity_usd), 2),
-                 "total_pnl": round(float(snap.total_pnl), 2),
-                 "simulated": True}
-    except Exception:
-        paper = None                                   # section says so
-
-    cex: dict = {"connected": False}
-    try:
-        from bot.core.exchange_credentials import (
-            get_credential_store, balance_snapshot)
-        store = get_credential_store()
-        if store.has(tg_id):
-            venue = store.get_venue(tg_id)
-            fields = store.get(tg_id)
-            if not fields:
-                cex = {"connected": True, "venue": venue, "ok": False,
-                       "equity_usd": None, "detail": "credentials unreadable"}
-            else:
-                try:
-                    snap_cex = await asyncio.wait_for(
-                        balance_snapshot(venue, fields), timeout=25)
-                except asyncio.TimeoutError:
-                    snap_cex = {"ok": False, "venue": venue,
-                                "equity_usd": None, "detail": "venue timeout"}
-                cex = {"connected": True, **snap_cex}
-    except Exception as exc:
-        audit(system_log, f"Net-worth CEX read failed for {tg_id}: {exc}",
-              action="web_networth", result="ERROR")
-        cex = {"connected": False, "error": "cex_unavailable"}
-
+    # ONE reading. This handler and /networth carried byte-for-byte copies
+    # of the same read and had drifted on the branch that matters — a
+    # credential store that raised — see bot/core/networth_reading.py.
+    from bot.core.networth_reading import networth_reading
+    reading = await networth_reading(engine, tg_id)
     return web.json_response({
         "read_only": True,
-        "paper": paper,
-        "cex": cex,
+        "paper": reading["paper"],
+        "cex": reading["cex"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
 

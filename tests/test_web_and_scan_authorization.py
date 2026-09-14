@@ -200,6 +200,12 @@ def test_scan_confirm_checks_live_permission():
 #: is keyed by.
 ROUTED_INTENT_SEAM = {
     "status": "status_card_text",
+    # The website's own intercept reads, routed on both surfaces: each seam
+    # is what the guarded slash command renders, so the walk below finds
+    # `_cmd_networth` / `_cmd_rwa` / `_cmd_research` through it.
+    "networth": "networth_card_text",
+    "rwa": "rwa_card_text",
+    "research": "research_card_text",
 }
 
 

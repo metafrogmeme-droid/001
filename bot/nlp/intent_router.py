@@ -178,6 +178,14 @@ def _is_social_message(text: str) -> bool:
             "walk", "forward", "walkforward", "walk-forward", "optimize",
             "optimise", "optimizer", "optimiser", "params", "parameters",
             "strategy", "validation",
+            # the reads the website answers from its own intercepts, typed
+            # short. Not "net"/"worth": every short net-worth phrasing is
+            # claimed by its rule, which this gate consults below, so a word
+            # here would be one nothing reaches. These are the ones a rule
+            # deliberately does NOT claim — "what is rwa", "research report",
+            # "radar" — which must reach the model rather than the greeter.
+            "rwa", "rwas", "radar", "research", "dossier", "diligence",
+            "tokenized", "tokenised",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -548,9 +556,13 @@ def _extract_symbol(text: str) -> Optional[str]:
                   # widget's own phrasing, and without this an unknown ticker
                   # in that shape resolved to None while "scan HYPE" worked.
                   "analysis",
+                  # The dossier's own verbs: "research PENDLE" names a
+                  # listing the known-ticker list may not hold, and the
+                  # caps token after the verb is how the caller spells it.
+                  "research", "dossier", "diligence", "due",
                   # Particles of the multi-word verbs above. Without these,
                   # "check out the news" reads OUT as the asset.
-                  "out", "at", "on", "up", "into"}
+                  "out", "at", "on", "up", "into", "for"}
     has_cmd = any(w in _CMD_WORDS for w in words)
     if has_cmd:
         # Case-preserving tokens, in order, so "the" and "DOCS" stay tellable
@@ -1044,6 +1056,48 @@ _rule(r"\b(volume spike|big moves?|unusual (volume|activity))\b",
 # Bare "scan" as last resort → general market scan
 _rule(r"^scan$",
       "scan_market", explanation="General scan request")
+
+# --- The reads the website answers from its own intercepts ---
+# Three of `app/routes/chat.js`'s intercept rows have a Telegram command that
+# renders the same reading (/networth, /rwa, /research <sym>) and, typed as
+# WORDS, reached nothing on Telegram: "my net worth" and "rwa radar" were
+# GREETED by the social gate, "research SOL" reached a chat model with no
+# dossier tool. The phrasings are the intercepts' own (`networth.js`,
+# `rwa.js`, `research.js`), so one sentence reaches one reading on both
+# surfaces — with one deliberate difference: an education question ("what is
+# rwa", "what are real world assets") is the model's on Telegram, where the
+# web hands it the radar. Registered ABOVE the Portfolio keyword rule, which
+# `total balance` and `total equity` would otherwise feed.
+#
+# `deep dive on <sym>` is NOT here: the web's research intercept claims it as
+# a dossier and Telegram's analysis rules read it as the chart, and that
+# divergence is recorded rather than resolved by this rule.
+_rule(r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
+      r"\b(net\s?worth|networth|total (?:balance|holdings|equity)(?: across| everywhere)?"
+      r"|balance across (?:all )?(?:exchanges|venues|accounts|everything)"
+      r"|everything i (?:own|hold)|how much am i worth)\b",
+      "networth", explanation="Net worth across the caller's own accounts")
+_rule(r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
+      r"\b(rwas?|real[- ]world assets?|tokeni[sz]ed (?:assets?|treasuries|rwas?))\b",
+      "rwa", explanation="Tokenized real-world-asset sector radar")
+# Anchored like the intercept: the whole message is the ask and its object.
+# `needs_symbol` so a bare "research" is answered with WHICH asset rather
+# than a dossier on nothing, and so the symbol rides in `kwargs` for the
+# command the branch dispatches. The object slot refuses a determiner or a
+# document noun ("research the docs", "research report") so those reach the
+# model rather than a "which asset?" about a question that named none — the
+# `_names_a_non_asset` lesson, applied before the match rather than after it,
+# because an anchored rule leaves no leftover to inspect. Two objects joined
+# by and/&/vs match, so the needs-symbol path can ask WHICH, naming both.
+_RESEARCH_OBJECT = (r"(?!(?:the|my|this|that|these|those|some|an?|it|its|our|your"
+                    r"|report|reports|paper|papers|note|notes|docs?|it)\b)"
+                    r"\$?[A-Za-z0-9]{2,12}(?:/USDT)?")
+_rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:research|dossier|due diligence)"
+      r"(?:\s+(?:on|for|into|about))?"
+      r"(?:\s+" + _RESEARCH_OBJECT + r"(?:\s*(?:,|and|&|vs\.?)\s*" + _RESEARCH_OBJECT + r")*)?"
+      r"(?:\s+(?:for me|please|pls))?\s*[?!.]*$",
+      "research", needs_symbol=True,
+      explanation="Research dossier for one symbol")
 
 # --- The book and the risk engine, before the chart ---
 #

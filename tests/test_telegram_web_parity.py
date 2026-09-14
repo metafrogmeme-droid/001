@@ -104,7 +104,9 @@ def test_commands_registered_and_guarded():
 
 def test_commands_fetch_off_the_event_loop():
     # The sync-channel fetch is blocking urllib — it must run in a thread so a
-    # slow website can never stall the Telegram event loop.
-    for meth in ("_cmd_exposure", "_cmd_research", "_cmd_rwa"):
+    # slow website can never stall the Telegram event loop. /research and
+    # /rwa fetch inside the seam their routed intents share, so the seam is
+    # what is read.
+    for meth in ("_cmd_exposure", "research_card_text", "rwa_card_text"):
         src = inspect.getsource(getattr(TelegramHandler, meth))
         assert "to_thread" in src, f"{meth} must not block the loop"

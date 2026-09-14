@@ -243,10 +243,16 @@ async def test_a_paywalled_scan_records_that_it_did_not_run(bot):
     ("my open orders", "orders"),
     ("help", "help"),
     ("status", "status"),
+    # The website's own intercept reads, typed as words: greeted, greeted,
+    # and narrated by a model with no dossier tool before they were routed.
+    ("my net worth", "networth"),
+    ("rwa radar", "rwa"),
+    ("research SOL", "research"),
 ])
 async def test_a_command_branch_records_that_its_card_is_not_in_the_transcript(bot, text, card):
     store = _store(bot)
-    for name in ("_cmd_orders", "_cmd_help", "_cmd_status"):
+    for name in ("_cmd_orders", "_cmd_help", "_cmd_status", "_cmd_networth",
+                 "_cmd_rwa", "_cmd_research"):
         setattr(bot, name, AsyncMock())
     await bot._handle_message(_update(OPERATOR, text), None)
     turns = _turns(store)
@@ -561,6 +567,8 @@ def test_no_router_intent_falls_to_the_unavailable_notice_today():
             continue          # answered by the stance reply
         if skill in aliased or f'if intent.skill == "{skill}"' in src:
             continue          # an alias, or a branch of its own
+        if skill in ug._WEB_SEAM:
+            continue          # a seam the table-driven branch renders
         unhandled.append(skill)
     assert sorted(set(unhandled)) == [], sorted(set(unhandled))
 

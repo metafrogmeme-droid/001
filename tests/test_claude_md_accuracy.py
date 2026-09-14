@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Thirty-one call sites across the two entry points", DOC)
+    m = re.search(r"Thirty-six call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 31, f"CLAUDE.md says thirty-one; the two entry points have {n}"
+    assert n == 36, f"CLAUDE.md says thirty-six; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -401,16 +401,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "36 names including `halt`" in flat
+    assert "39 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 36, len(old)
+    assert len(old) == 39, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 33)" in flat
+    assert "(telegram, 36)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 33, len(tg)
+    assert len(tg) == 36, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):

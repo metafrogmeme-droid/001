@@ -47,6 +47,9 @@ class MarketCommands:
         registry: SkillRegistry
         _WEB_LINK_HINT: str
 
+        @staticmethod
+        def _link_hint(surface: str = "telegram") -> str: ...
+
         async def _send(self, update: Update, text: str,
                         reply_markup=None, edit: bool = False) -> None: ...
 
@@ -59,14 +62,24 @@ class MarketCommands:
 
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/rwa — the tokenized-RWA sector radar (live venue tickers)."""
+        """/rwa — the tokenized-RWA sector radar (live venue tickers). The
+        card is `rwa_card_text`, the seam the routed "rwa radar" renders on
+        both surfaces."""
+        await self._send(update, await self.rwa_card_text())
+
+    async def rwa_card_text(self, *, surface: str = "telegram") -> str:
+        """The RWA radar as text — the reading BOTH surfaces render.
+
+        The fetch runs off the event loop (blocking urllib). ``surface`` keys
+        only the sentence for a channel that did not answer: the Telegram one
+        names `/link`, which a web caller cannot run.
+        """
         import asyncio as _aio
         from bot.utils.web_data_pull import fetch_rwa
         data = await _aio.to_thread(fetch_rwa)
         if not data or "sector" not in data:
-            await self._send(update, self._WEB_LINK_HINT)
-            return
-        await self._send(update, self._format_rwa(data))
+            return self._link_hint(surface)
+        return self._format_rwa(data)
 
     async def _cmd_funding(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/funding [SYMBOL] — live funding rates for a perp across every

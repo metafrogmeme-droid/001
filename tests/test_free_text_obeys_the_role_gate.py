@@ -409,6 +409,14 @@ class TestTheTableDoesNotDrift:
             # /postmortem is @guard("portfolio") — one of the caller's own
             # closed trades, off the book get_portfolio describes.
             "trade_postmortem": "portfolio",
+            # ROUTED INTENTS, like `status`: the three reads the website's own
+            # intercepts answer and Telegram rendered only as slash commands.
+            # Each string is the `@guard` on the command that renders the same
+            # seam (`_cmd_networth`, `_cmd_rwa`, `_cmd_research`), and the
+            # web goes through the same gate before it reads the seam.
+            "networth": "networth",
+            "rwa": "rwa",
+            "research": "research",
         }
 
     def test_halt_reaches_no_chat_transport(self):

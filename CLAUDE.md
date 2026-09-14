@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **36 names including `halt`,
+whole vocabulary plus every chat tool: **39 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 33), because the
+surface than for the one it modelled best (telegram, 36), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -904,6 +904,74 @@ sentence, beside the handler it describes), `client_capabilities` rides every
 turn, and the Python side treats a missing or malformed field as ABSENT rather
 than as an error, because Telegram is a caller too and has no intercepts.
 
+**The website answers fifteen phrasings from its own intercepts, and on
+Telegram three of the same sentences were GREETED.** `app/routes/chat.js`
+claims `networth`, `rwa` and `research` before a turn reaches this process,
+and each has a Telegram command that renders the same reading (`/networth`,
+`/rwa`, `/research <sym>`). Typed as words on Telegram, driven: "my net
+worth" was small talk, "rwa radar" was small talk, and "research SOL" reached
+a chat model with no dossier tool. Parity is not a nicety here: a linked
+account's web turns are recorded into the same store the Telegram model reads
+(`web_answer_memory`), so that model had been told `[networth] shown by the
+website` and could not show one. They are routed intents on both surfaces
+now, with the intercepts' own phrasings (`networth.js`, `rwa.js`,
+`research.js`) so one sentence reaches one reading — and two differences are
+recorded rather than resolved: an education question ("what is rwa", "what
+are real world assets") is the model's on Telegram where the web hands it the
+radar, and "deep dive on <sym>" is the chart's on Telegram (a pinned routing)
+where the web's research intercept claims it as a dossier.
+
+**The Telegram branch goes THROUGH the guarded command and never to the
+seam.** The seams (`networth_card_text`, `rwa_card_text`,
+`research_card_text`) exist so the web's Python path can render the same
+reading under `WEB_ROUTED_PERMISSION`; on Telegram the `@guard` on `_cmd_*`
+IS the role gate, so a branch that called the seam directly would answer a
+caller the command refuses. Driven both ways — the guard refused, the seam is
+never awaited and no card is sent. The research symbol rides in by KEYWORD
+(`_cmd_research(update, ctx, symbol=…)`): a text message has no `ctx.args`,
+and a synthesized context would have been handed to the guard. **And the web's
+Python path sees only the residue**: the Node intercepts claim their phrasings
+before the turn reaches this process, for a non-linked web user too, so the
+web branches answer the phrasings those regexes miss ("how much am i worth",
+"can you research SOL for me") — worth stating because the branch reads as
+though it answers every net-worth question, and a drive of `_chat_turn` with
+"my net worth" is driving a sentence the website will never send.
+
+**Two copies of the net-worth reading, and the drift was on the branch that
+matters.** `_cmd_networth` and the web gateway's `handle_networth` were
+byte-for-byte copies of paper-plus-one-balance-fetch, except on a credential
+store that RAISED: the web stamped `error: cex_unavailable` on the answer
+and the command folded it into `{"connected": False}`, which the card printed
+as "Exchange: not connected — /connect to link one" — a store nobody could
+ask, rendered as an account nobody linked, under a door that re-links it.
+`bot/core/networth_reading.py` is the one reading; `cex` has four words (no
+venue; unreadable or timed out, with its reason; read; could not be asked) and
+`_format_networth` prints the fourth as *could not be read … not a missing
+link*, on both surfaces. The wire shape is unchanged. The hint for a web-app
+channel that did not answer is keyed by transport too: `_link_hint("web")`
+names no `/link` — a web caller IS linked to the web app, so that half of the
+Telegram sentence is false there — and ends "Nothing was read".
+
+**A social-gate word every rule already claims is a word nothing reaches.**
+The first draft added "net", "worth" and "networth" to `trading_words`;
+driven, every short net-worth phrasing was already claimed by its rule, which
+the gate consults before deciding, so the three words were the fifth
+granularity inside a set literal. Kept are only the words a decoy needs:
+"rwa" (so "what is rwa" reaches the model rather than the greeter),
+"research" ("research report"), "radar", "dossier", "diligence",
+"tokenized" — each with a table row that dies without it.
+
+**Thirty mutations, each killed on the first round.** Two are worth naming
+for what they prove about the guard rather than the code: the web branch
+reading the seam BEFORE the gate refuses survives every assertion on the 403
+itself and dies only on the seam's await count — a refusal that has already
+done the read it exists to refuse is invisible from the response; and the
+branch calling the seam directly instead of the guarded command passes
+every record assertion and dies only on the guard's own await, which is why
+the Telegram drive plants a refusing `_guard` rather than a mocked command.
+The round clears `__pycache__` between mutations, for the reason the
+preflight chapter gives.
+
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
 `test_no_router_intent_falls_to_the_unavailable_notice_today`,
@@ -1079,7 +1147,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Thirty-one call sites across the two entry points today, one on
+never happened. Thirty-six call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

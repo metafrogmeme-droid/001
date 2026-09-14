@@ -3467,6 +3467,35 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                       card_shown_memory("status"))
                 return
 
+            # ── net worth / RWA / research → the real commands ─────────
+            # Three reads the website answers from its own intercepts and
+            # Telegram rendered only as slash commands. Typed as WORDS, "my
+            # net worth" and "rwa radar" were GREETED by the social gate and
+            # "research SOL" reached a chat model with no dossier tool. Each
+            # dispatches the guarded command that already renders the
+            # reading — the guard is the role gate, so the branch must go
+            # THROUGH the command and never to the seam directly — and
+            # records the card the way status does.
+            if intent.skill == "networth":
+                await self._cmd_networth(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("networth"))
+                return
+            if intent.skill == "rwa":
+                await self._cmd_rwa(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("rwa"))
+                return
+            if intent.skill == "research":
+                # The symbol rides in the intent's kwargs (a text message
+                # has no `ctx.args`); the command takes it by keyword so the
+                # guard still runs with the real context.
+                await self._cmd_research(
+                    update, ctx, symbol=str(intent.kwargs.get("symbol") or ""))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("research"))
+                return
+
             # ── Close intent → the positions card, NEVER a close ──
             # "close my ETH" has no honest free-text door: /liveclose is
             # admin-only, takes a trade id and closes with no confirmation,
@@ -4443,15 +4472,29 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         return re.sub(r"<(?!/?(?:b|i|code)>)[^>]*>", "", s)
 
     @staticmethod
-    def _format_networth(paper: Optional[dict], cex: dict) -> str:
+    def _format_networth(paper: Optional[dict], cex: dict,
+                         surface: str = "telegram") -> str:
         lines = ["💰 <b>Net worth</b> — read-only, your own accounts\n"]
         if paper:
             lines.append(f"📄 Paper: <b>${paper['equity_usd']:,.2f}</b> "
                          f"(PnL {paper['total_pnl']:+,.2f}, simulated)")
         else:
             lines.append("📄 Paper: no snapshot yet")
-        if not cex.get("connected"):
-            lines.append("🏦 Exchange: not connected — /connect to link one")
+        if cex.get("error"):
+            # The store itself could not be asked (`networth_reading`'s
+            # fourth word). NOT "not connected": an exchange nobody could ask
+            # is not an exchange nobody linked, and the /connect door under
+            # that sentence sends the caller to re-link an account they may
+            # have linked already.
+            lines.append("🏦 Exchange: could not be read just now — the "
+                         "credential store did not answer. That is not a "
+                         "missing link.")
+        elif not cex.get("connected"):
+            # `surface` keys only the door: /connect is a command a web
+            # caller cannot run.
+            lines.append("🏦 Exchange: not connected"
+                         + (" — /connect to link one" if surface == "telegram"
+                            else " on this account"))
         elif cex.get("equity_usd") is not None:
             lines.append(f"🏦 {str(cex.get('venue', '')).capitalize()}: "
                          f"<b>${float(cex['equity_usd']):,.2f}</b>")
@@ -4524,6 +4567,18 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "
                       "set it up and /link your account, then try again.")
+
+    @staticmethod
+    def _link_hint(surface: str = "telegram") -> str:
+        """The sentence for a web-app channel that did not answer, keyed by
+        the transport the turn arrived on. The Telegram sentence names
+        `/link`, which is a door painted on a wall for a web caller — and a
+        web caller IS linked to the web app by definition, so the half about
+        linking is false there. Neither sentence claims anything was read."""
+        if surface == "web":
+            return ("🔌 The bot could not read this from the web app just now — "
+                    "the channel between them did not answer. Nothing was read.")
+        return TelegramHandler._WEB_LINK_HINT
 
     @guard("backup")
     async def _cmd_backup(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
