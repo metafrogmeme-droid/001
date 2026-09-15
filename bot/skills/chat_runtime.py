@@ -136,10 +136,23 @@ _CHAT_NO_TOOLS_RULE = (
 #: this" button under a setup both go through /api/trade/propose -> confirm
 #: (`chat.js appendSetupAction`, `dashboard.js ticketForm`); and /liveclose
 #: is deliberately NOT named — admin-only, and it closes unconfirmed.
+#: THE DOOR TO OPENING A TRADE, per surface. The GRAMMAR half is true of
+#: both — `manual_trade.looks_like_manual_trade` is the one reading and both
+#: handlers consult it before the router — and only the button half differs.
+#: Written here because `_CHAT_CANNOT_ACT_RULE` above makes the same claims to
+#: the MODEL, and two copies of a door are two answers the day one moves.
+_TRADE_GRAMMAR = "buy SOL 71 sl 70 tp 76"
+_TELEGRAM_OPEN_DOOR = (f"type it with its levels \u2014 <code>{_TRADE_GRAMMAR}</code> "
+                       "(entry, stop, target) \u2014 or use <code>/trade</code>")
+_WEB_OPEN_DOOR = (f"type it with its levels \u2014 <code>{_TRADE_GRAMMAR}</code> "
+                  "(entry, stop, target) \u2014 or use the trade ticket, or the "
+                  "<b>Trade this</b> button under a setup")
+
+
 _CHAT_CANNOT_ACT_RULE = (
     "- You cannot place, modify, cancel or close trades or orders from this "
     "chat, and no tool here can. If asked to, say so and name the door. To "
-    "OPEN a trade: type it in this chat as `buy SOL 71 sl 70 tp 76` (entry, "
+    f"OPEN a trade: type it in this chat as `{_TRADE_GRAMMAR}` (entry, "
     "stop, target — Telegram or web) or use /trade in Telegram; a Confirm "
     "card appears and nothing is placed until Confirm is tapped. On the web "
     "the trade ticket and the 'Trade this' button under a setup do the "
@@ -276,10 +289,11 @@ def strip_bot_mention(text: str, username: str | None) -> str:
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
 #: act on a surface that cannot act meets a door and never a narrator.
-ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position", "stake_request")
+ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position",
+                                "stake_request", "place_order")
 ACT_KIND: dict[str, str] = {
     "close_position": "close", "cancel_order": "cancel", "modify_position": "modify",
-    "stake_request": "stake",
+    "stake_request": "stake", "place_order": "place",
 }
 
 _UNSTAKE_VERB = re.compile(r"\b(?:unstake|redeem|withdraw)\b", re.IGNORECASE)
@@ -332,7 +346,7 @@ def cannot_act_rule(surface: str = "telegram") -> str:
 
 def act_intent_notice(kind: str, symbol: str | None = None,
                       surface: str = "telegram", *, also_asked: bool = False,
-                      verb: str | None = None) -> str:
+                      verb: str | None = None, setup_follows: bool = False) -> str:
     """What a routed request to act is told, on both surfaces.
 
     One function so the Telegram card, the web reply and the prompt rule
@@ -350,6 +364,19 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     action ("close my ETH and scan the market"). One card answering a message
     with two asks, and no sentence about the other, reads as though both were
     handled — the same silence the routed action itself exists to end.
+
+    `place` is the FIFTH kind and the one whose door needs a key. Its door
+    is a GRAMMAR that demands an entry, a stop and a target
+    (`looks_like_manual_trade` refuses a line with no ` sl `, deliberately),
+    and a caller who typed "buy eth" has none of the three — so a bare door
+    would be a door they cannot open. When the message named exactly one
+    asset (`intent_router.place_target`), that asset's own read follows and
+    `setup_follows` adds the sentence tying the two together; the sentence is
+    written only when the card really came, because a notice promising a card
+    that failed is the `/vault` hint shape one turn long. When no asset was
+    named — "place a limit order", a bare "long" — the notice stands alone:
+    there is nothing to read a setup for, and naming an asset nobody named
+    would be the invention the door exists to prevent.
 
     `stake` is the fourth kind and its door is not a button: /stake and
     /unstake show a plan card over the Bitget account the caller LINKED (the
@@ -383,6 +410,17 @@ def act_intent_notice(kind: str, symbol: str | None = None,
                 "where YOUR idle assets could earn, " + read
                 + "\u201c<i>put my idle cash to work</i>\u201d \u2014 a recommendation, never a "
                 f"move. Nothing has been staked or redeemed.{rest}")
+    if kind == "place":
+        here = ("nothing here can" if surface == "web"
+                else "nothing in this conversation can")
+        door = _WEB_OPEN_DOOR if surface == "web" else _TELEGRAM_OPEN_DOOR
+        card = ((f" The current read on {symbol} is below \u2014 the entry, stop and "
+                 "target it names are what that line takes, and its buttons place "
+                 "nothing until you tap one.") if setup_follows else "")
+        return ("I don't place, size or open trades from chat, and " + here + ". "
+                f"To open one, {door}; a Confirm card appears and nothing is "
+                f"placed until Confirm is tapped.{card} "
+                f"Nothing has been placed.{rest}")
     if kind == "modify":
         where = ("are below" if surface != "web"
                  else "are on the positions card in Telegram")

@@ -542,7 +542,13 @@ def _web_handler(recorder):
         conversations=_Conversations(),
         users=SimpleNamespace(get_tier=lambda uid: "elite",
                               is_authorized=lambda uid: True,
-                              get_role=lambda uid: "trader"),
+                              get_role=lambda uid: "trader",
+                              # the role IS trader, so the shared web gate
+                              # (`_web_skill_denied`) must answer "allowed" —
+                              # a stub short of the attribute made the branch
+                              # that asks it raise instead of deciding.
+                              permission_denial=lambda uid, perm: None,
+                              get=lambda uid: {"role": "trader"}),
         _llm_chat=recorder,
     )
 

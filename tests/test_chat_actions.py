@@ -230,11 +230,16 @@ class FakeConvos:
 
 
 class FakeHandler:
-    def __init__(self, *, users=None, intent=None, skills=None):
+    def __init__(self, *, users=None, intent=None, skills=None, real_router=False):
         self.users = FakeUsers(users)
         self._limiter = SimpleNamespace(allow=lambda uid: True)
-        self.intent_router = SimpleNamespace(
-            classify_rules=lambda text: intent or FakeIntent())
+        # `real_router` because the stub below answers the SAME intent for
+        # every text, so a test of a branch the ROUTER selects would be
+        # testing the stub. The bare-directional tests need the real rules:
+        # their branch used to be a private regex in `user_gateway` and is
+        # `place_order` now, which only `IntentRouter` can produce.
+        self.intent_router = (IntentRouter() if real_router else SimpleNamespace(
+            classify_rules=lambda text: intent or FakeIntent()))
         self.registry = SimpleNamespace(get=lambda name: (skills or {}).get(name))
         self.conversations = FakeConvos()
         self.llm_calls = []
@@ -287,15 +292,25 @@ async def test_bare_long_routes_to_analyze_with_setup_card(monkeypatch):
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     engine = FakeEngine()
     analyzer = FakeIdeaSkill()
-    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer})
+    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer},
+                          real_router=True)
     async with gateway_client(engine, handler) as c:
         r = await c.post("/chat", json={"telegram_id": "7", "text": "long ETH"},
                          headers=HDRS)
         assert r.status == 200
         data = await r.json()
-        assert data["intent"] == "analyze_asset"
-        assert data["reply_html"] == "<b>analysis</b>"
-        assert analyzer.calls[0]["symbol"] == "ETH"
+        # A BARE DIRECTIONAL IS A REQUEST TO OPEN, and it is the router's
+        # `place_order` now rather than this file's own regex — one reading
+        # for both surfaces. The setup still rides with it, because the door
+        # it names is a grammar that demands an entry, a stop and a target
+        # and "long ETH" carries none of the three; what changed is that the
+        # reply now SAYS nothing was bought, which the analysis card alone
+        # never did.
+        assert data["intent"] == "place_order"
+        assert "Nothing has been placed." in data["reply_html"]
+        assert data["analysis_html"] == "<b>analysis</b>"
+        # the symbol is the router's reading, not a bare upper-cased token
+        assert analyzer.calls[0]["symbol"] == "ETH/USDT"
         # Setup card is a READ-ONLY hint — nothing was proposed or executed.
         assert data["setup"]["symbol"] == "ETH"
         assert "pending_trade" not in data
@@ -306,14 +321,17 @@ async def test_bare_long_routes_to_analyze_with_setup_card(monkeypatch):
 async def test_bare_paper_short_routes_to_analyze(monkeypatch):
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     analyzer = FakeIdeaSkill()
-    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer})
+    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer},
+                          real_router=True)
     async with gateway_client(FakeEngine(), handler) as c:
         r = await c.post("/chat",
                          json={"telegram_id": "7", "text": "paper short sol"},
                          headers=HDRS)
         assert r.status == 200
-        assert (await r.json())["intent"] == "analyze_asset"
-        assert analyzer.calls[0]["symbol"] == "SOL"
+        _d = await r.json()
+        assert _d["intent"] == "place_order"
+        assert "Nothing has been placed." in _d["reply_html"]
+        assert analyzer.calls[0]["symbol"] == "SOL/USDT"
 
 
 async def test_directional_with_levels_still_proposes_not_analyzes(monkeypatch):
@@ -411,3 +429,52 @@ async def test_status_is_answered_by_the_status_card_not_the_portfolio(monkeypat
         assert body["intent"] == "status"
         assert "<b>Engine</b> for 7 via web" == body["reply_html"]
         assert port.calls == [], "the account card answered it again"
+
+
+# ── The place door on the WEB, driven ───────────────────────────────────────
+# Both of these exist because a mutation round said so. The Telegram arm has
+# equivalents that kill their mutations; the web arm had none, so blanking its
+# permission gate and swapping `place_target` for `symbol_mentioned` each left
+# 554 tests green. A guard that only covers one of two surfaces is the shape
+# CLAUDE.md records about `TestItIsActuallyReached` being one file short.
+
+async def test_a_role_that_may_not_read_still_gets_the_web_door(monkeypatch):
+    """THE DOOR IS UNGATED AND THE READ IS NOT. The branch calls the skill
+    directly, which skips the gate every other web route to `analyze_asset`
+    goes through — without it a viewer typing "buy eth" is handed a read
+    their role forbids."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    analyzer = FakeIdeaSkill()
+    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer},
+                          real_router=True)
+    handler.users.permission_denial = lambda uid, perm: "role"
+    async with gateway_client(FakeEngine(), handler) as c:
+        r = await c.post("/chat", json={"telegram_id": "7", "text": "buy eth"},
+                         headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "place_order"
+        assert "Nothing has been placed." in data["reply_html"]
+        assert "is below" not in data["reply_html"]
+        assert "analysis_html" not in data
+        assert analyzer.calls == [], "the gated read ran for a denied role"
+
+
+async def test_two_assets_named_is_the_web_door_alone(monkeypatch):
+    """`symbol_mentioned` answers the FIRST (ETH); `place_target` answers
+    None. A branch re-deriving the target its own way is indistinguishable
+    from this one on every SINGLE-asset fixture, so the phrase has to be one
+    that routes AND names two."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    analyzer = FakeIdeaSkill()
+    handler = FakeHandler(users=AUTHED, skills={"analyze_asset": analyzer},
+                          real_router=True)
+    async with gateway_client(FakeEngine(), handler) as c:
+        r = await c.post("/chat", json={
+            "telegram_id": "7",
+            "text": "place a limit order on eth and btc"}, headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "place_order"
+        assert "Nothing has been placed." in data["reply_html"]
+        assert analyzer.calls == [], "a setup was read for a half-answered ask"

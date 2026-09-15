@@ -324,6 +324,67 @@ feeding the `net_pnl` a card prints. The guard over it was a **grep for a
 literal that was present and correct the whole time** — a scan cannot see which
 quantity a name holds, which was the entire defect.
 
+**A COST THE BACKTEST CANNOT READ WAS SUBTRACTED AS ZERO, and the module that
+already fixed it one floor down said exactly how.** `BacktestTrade.net_pnl_usd`
+was `pnl - commission` and its own field comment said so: no funding term in
+either close path, so every net the backtest published was wrong by a signed
+amount it never named. `bot/proofofpnl/csf.py` records the identical defect —
+`compute_metrics` emitting `funding: "0"` under a comment saying it was
+"PENDING (not in v0 data)", *"an unmeasured cost rendered as a measured zero"*,
+inside a commitment hash — and its cure is the shape reused here: **"no
+funding" has to be READABLE**, because on a market that pays none it means
+there was nothing to charge and on one that does it means nobody priced it,
+*"and those must not produce the same number"*.
+
+**The obvious reuse was a trap, and driving it is what said so.**
+`csf.market_is_perp` answers perp-ness off the ccxt `BASE/QUOTE:SETTLE` suffix
+— and driven, `market_is_perp("BTC/USDT")` is **False** while
+`BacktestConfig().symbol` *is* `"BTC/USDT"`. Wiring that seam in would have
+answered "not a perpetual, no funding applies" for every backtest this product
+runs: a confident negative read off a field that cannot be there, from the one
+function whose name says it answers the question. Its own docstring forbids the
+fallback anybody would reach for next — *"guessing from the quote currency
+would call every USDT market a perp"*. So perp-ness is an INPUT
+(`BacktestConfig.market_is_perp`), never an inference, and unstated is
+`unpriced`. `data_loader` loads OHLCV and nothing else, so the RATE is an input
+too, and `None` rather than `0.0` for the reason the whole slice exists.
+`funding_clock` already owns the settlement grid the live path reads
+(`SETTLEMENT_INTERVAL_SEC`, "Bitget USDT perps: 00/08/16 UTC") and the side
+convention (`pays_funding`: positive rate, longs pay shorts), so neither is
+restated.
+
+**Settlements are BOUNDARIES CROSSED, and a division gets it wrong in both
+directions.** A position opened 07:59 and closed 08:01 is open two minutes and
+pays once; one opened 00:01 and closed 07:59 is open nearly eight hours and
+pays nothing. `duration / 8h` answers 0 and 1 — backwards on both. Four states
+follow from that: `charged`, `no_settlement` (priced, crossed none),
+`not_perp` (stated as a market that pays none) and `unpriced`. The middle two
+are both `0.0` and are **different facts**, which is the `funding_applies`
+distinction and the whole reason this is a state rather than a float; and
+`combine` makes a run UNPRICED if any position in it was, because a sum over a
+set holding unreadable rows printed as a total is the shape tabulated above.
+
+**Twenty-two mutations, each killed — and the round bought three defects in the
+fix and one in a guard.** Two were lines of mine no input could reach: a
+`rate == 0` guard where `magnitude` is already `0.0`, and an `UNPRICED in seen`
+clause the subset test beside it already answered. Both were EQUIVALENT
+MUTANTS, and an equivalent mutant is the round saying the code claims a check
+it does not make. The third was real and only a DRIVE could find it: the
+partial-close path read `getattr(pos, "entry_time", None)` on an object that
+carries no such field, so every scaled-out leg came back `unpriced` **even with
+a rate supplied** — the defect the slice exists to remove, rebuilt inside the
+fix for it, on the second of the two close paths. The first draft drove only
+the final close; `if False:` around the partial charge survived, which is the
+round reporting a coverage gap rather than a code one.
+
+> **And the guard for the printed card matched its own comment.** It asserted
+> `"Funding:" in inspect.getsource(_format_result_summary)` — and the comment I
+> had written above the f-string says "Funding:" too, so deleting the actual
+> row left the assertion green over the defect it was written for. That is the
+> FALSE PASS this file's source-scanning section opens with, committed in the
+> same session as reading the rule. It renders the card and reads it now.
+> (`tests/test_the_backtest_says_what_funding_cost.py`.)
+
 **A gate that scolds the cure teaches the wrong thing.** The first draft of
 `bare-compare-verdict` flagged 104 lines and most were
 `size > 0 ? pnl / size : null` — the honest guard, the shape the whole gate
@@ -716,13 +777,13 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **53 names including `halt`,
+whole vocabulary plus every chat tool: **54 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 48), because the
+sweep's own timeframes got rules and 53 before `place_order`.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 49), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1297,6 +1358,111 @@ further along the same sentence: a pin on a word the sentence carries
 twice checks nothing about either. It names the claims now — the verbs,
 whose door it is, that the card moves nothing until Confirm, and the
 "never say" — and the mutation dies on the first of them.
+
+**A REQUEST TO OPEN was the one action with no door, and THREE SOURCE
+COMMENTS ALREADY NAMED THE RULE THAT WOULD GIVE IT ONE.** `manual_trade.py`
+twice and `telegram_handler.py` once said that what the full grammar declines
+"is the router's `place_order` rule's, which answers with this grammar as the
+door". No such rule existed. That is the `/vault` hint shape inside a code
+COMMENT — a claim about a door nobody built, which the next reader trusts
+because three files agree. Driven over 54 ordinary phrasings, what the
+grammar declined reached the orders card, the positions card, the greeter or
+the model: **six came back a CONFIDENT WRONG CARD** — "place a limit order on
+pendle", "place a limit order" and "put in a limit order for btc" reached
+`get_orders`, whose `limit orders?` alternative matches INSIDE the sentence,
+so a request to PLACE one was answered with the card that LISTS the resting
+ones, and "open a position in sol", "add to my eth position" and "double my
+eth position" reached `get_portfolio`. That is the `get_orders` lesson one
+VERB over: a rule matching inside a sentence routes the sentence's verb as
+the command. A bare "long"/"short"/"buy"/"sell" was GREETED — one word, no
+symbol, no trading word — which is "stake my usdc" one action over.
+
+**THE DOOR NEEDS A KEY, and that is what makes this act intent different
+from the other four.** Close, cancel, modify and stake each name a door the
+caller can walk through as they are. This one names a GRAMMAR that demands an
+entry, a stop and a target (`looks_like_manual_trade` refuses a line with no
+` sl `, deliberately), and a caller who typed "buy eth" has none of the
+three — so a bare door would be a door they cannot open. When the message
+names exactly ONE asset that asset's own read follows, the same card
+`analyze_asset` sends, with the same Confirm/Limit/Skip buttons, which place
+nothing until one is tapped: the `stake` arm's shape, and never the positions
+card, which is not this request's door. The read is attempted BEFORE the
+notice is built, so the sentence about the card is written only when the card
+really came — a notice promising a card that failed is the `/vault` hint shape
+one turn long — and it is three-valued (`read` / `failed` / `absent`), because
+a FAILED read is a tool failure in the model's record and a build with no
+analyzer registered attempted nothing.
+
+**The web had a private copy of the reading and Telegram had none.**
+`user_gateway` carried `^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$`,
+so "long eth", "buy eth" and "short btc" got the agent's setup on the web and
+a tool-less chat model on Telegram, and every other phrasing of the same
+request got the model on both. It also answered with the card and NO SENTENCE:
+a caller who typed "buy eth" was shown a chart and never told nothing had been
+bought, which is the silence the routed act intents exist to end. And it
+passed the skill a bare upper-cased token where every other caller passes
+`_extract_symbol`'s `ETH/USDT` — a second copy disagreeing about the shape of
+its own argument. `place_target` is the one reading: it answers None for TWO
+assets named ("buy eth and btc" — taking the first answers half the message
+with a card) and None for a name the 49-symbol list cannot resolve, where the
+door still shows and no setup is named for an asset nobody could read.
+
+**THE OBJECT HAD TO BE PERMISSIVE, and the argument is the live book.**
+`_KNOWN_SYMBOLS` holds 49 names; the bot filled PENDLE, NATGAS, TRUMP and RAVE
+live on 2026-09-15 and not one of them is on it, so an object restricted to
+that list would refuse the door to the assets the product actually trades —
+the `67+ symbols` lesson one noun over. It is a token NOT in `_NOT_A_TICKER`
+instead, and that list grew the nouns the product's OTHER rules already own as
+objects (`position`, `order`, `trade`, `wallet`, `portfolio`, `balance`,
+`dashboard`), because without them "open the dashboard" and "get my balance"
+are requests to open a trade in an asset called `dashboard` and one called
+`balance`. Same argument as the mode lead's determiners: a word another rule
+treats as its OBJECT is not a ticker for this one. The rule is whole-message
+anchored, so what is left costs one notice saying nothing was placed — the
+trade `_CLOSE_TARGET` already makes and states.
+
+**The two tests that guarded the deleted branch were guarding a stub.**
+`test_chat_actions`'s `FakeHandler` builds `intent_router` as a
+`SimpleNamespace` answering the SAME intent for every text, so the
+bare-directional tests could only ever have been exercising the private regex
+beside them — a fixture that cannot reach the router cannot test a branch the
+router selects. They take the real `IntentRouter` now.
+
+> **And all three fresh assertions failed for their own reasons, not the
+> code's.** A naive slash-command pattern matched `</code>` and `</b>` and
+> accused a notice that was telling the truth; the web's chat turn is
+> `_chat_turn`, not `_chat`; and `ast.unparse` normalises `"place"` to
+> `'place'`, so an anchor written with double quotes matched zero nodes.
+> *When a fresh assertion fails, check whether the code or the assertion is
+> wrong before touching the code* — this file's own advice, a fourth time.
+
+**And the full gate refused the branch, from a guard that reads the FIRST call
+site and a window of 600 characters.** `test_the_failure_record_is_inside_the_except`
+took `src.index("skill_failure_memory(")` and required an `except` in the code
+before it. That is a PROXIMITY scan with a blind spot pointing each way. It
+ACQUITTED every call site past the first — three of the four in
+`user_gateway.py` — and it acquitted on an `except` belonging to a sibling
+block, which is the quiet direction. And it ACCUSED the place branch, which
+catches the raise and folds it into the four-valued reading the whole slice is
+built on, so the record IS written on the raise, one seam away: the accusation
+a checker with a blind spot manufactures, on correct code. Restructuring the
+branch to sit under a literal `except` would be the `I001` argument — rewriting
+correct code to satisfy an analyser. It is DRIVEN on both surfaces now: plant a
+skill that raises, run the turn, read what reached the history. Each drive was
+mutated to prove it bites, and the drives are shorter than the scan was.
+
+> **And the first draft of that drive leaked a MagicMock into the rest of the
+> session.** It reached the halt suite's fixture by hand —
+> `gen = bot.__wrapped__(tmp_path); next(gen)` … `gen.close()` — and that
+> fixture's teardown is a bare `patch.stopall()` AFTER its `yield`, with no
+> `try`/`finally`. `close()` throws `GeneratorExit` at the yield, so the
+> teardown never ran and `telegram_handler.CONFIG` stayed a MagicMock for
+> every later test. The only symptom was **eleven errors in a different file**,
+> and the new suite was green run alone — *a leak is invisible from any single
+> run's verdict*, this file's own sentence, arriving in the test written to
+> replace a scan. `yield from` inside a `@pytest.fixture` is the fix: pytest
+> drives the generator to completion, which is the one thing `close()` does
+> not do.
 
 **The last door row was a WRITE, and the door became the write.** The website
 owned price alerts end to end — a parser, a once-a-minute evaluator over
@@ -1892,7 +2058,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-nine call sites across the two entry points today, one on
+never happened. Fifty-one call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -2622,6 +2788,125 @@ want me to look at?* for a message that had named a timeframe and no asset.
 A word one rule treats as filler is not a ticker for another, so the mode
 lead's determiners are in `_NOT_A_TICKER` now.
 (`tests/test_the_scanner_takes_its_own_verb.py`.)
+
+**AN EDUCATION OPENER IS NOT AN EDUCATION QUESTION, AND THE EXCLUSION WAS
+NEVER AN ABSTENTION.** `what is a limit order` asks about the CONCEPT;
+`what are my limit orders` asks for the caller's own listing, in question
+form. They open identically, so the opener is not the reading — what the
+sentence asks ABOUT is, and the POSSESSIVE is where that is written. The
+lookahead read only the opener and declined both, so `what are my open
+orders`, the plainest English there is for the question, reached nothing.
+Driven over the possessive form of every row it guards, **27 of 28 missed
+their own read**: twenty-two reached no rule at all, and five reached a
+CONFIDENT WRONG CARD — `what is my balance across all exchanges` answered
+with the SINGLE-ACCOUNT portfolio card, the one read that cannot answer
+"across all exchanges", and `what are my defi positions` with the EXCHANGE
+positions card for an on-chain ask. That is the `get_orders` lesson one noun
+over, where a request to PLACE a limit order was answered with the card that
+LISTS the resting ones.
+
+**A lookahead narrows only the rule that carries it, which makes a decline a
+HAND-OFF and not a refusal.** The two widest rules in the file sit below
+every user of this one and carried none — the bare Portfolio keyword rule
+(`portfolio|balance|equity|pnl|profit|loss|p&l`) and the typo-tolerant
+positions rule — so a sentence declined above did not reach the model, it
+fell to whichever of those shared a word with it. Driven, **ten education
+questions reached the POSITIONS CARD at confidence 1.0**: `what is a stop
+loss` (the word `loss`), `what is pnl`, `what is a position`, `how is equity
+calculated`. The gate written to send education to the model was sending it
+to a card. `what is profit factor` was the only escape, and only because
+somebody hand-wrote `profit(?! factor)` there for an unrelated reason — a
+per-WORD exclusion standing in for a per-SENTENCE one. Both catchers carry
+the reading now, which is the whole fix for that half.
+
+**Five copies, and they agreed with each other on every fixture.** `_EDU`
+plus four written out by hand, two of them byte-identical and only because
+their rules are registered ABOVE where it used to be defined. A second copy
+of a gate is a second answer about what counts as education, decided in five
+places. `_EDU_DECLINE` is the lookahead and `_EDU` is it with the lazy opener
+the rules need; the price-alert rule takes the bare one, for the reason its
+own comment gives. Nothing in the guard asserts the shape of a regex: a rule
+holding a private copy declines its own possessive form and a rule that lost
+the reading answers education with a card, so both die on the corpus, which
+is the only honest way to prove ONE definition when a byte-identical copy
+agrees with every fixture.
+
+**And the card promised a half the orders vocabulary could not hear.** The
+capability card's `get_orders` row says *"your resting limit orders and
+stop/take-profit triggers, as the exchange reports them"*, and the chat
+tool's description promises the same triggers. The earlier fix reordered the
+rules so that SENTENCE stopped reaching the positions card — it works because
+the sentence contains the words `limit orders`. Ask for the half it names
+SECOND and nothing claimed it: `my stop orders`, `my tp orders`, `do i have
+any stop orders` and `my triggers` reached NOTHING, while `my take profit
+orders`, `my stop loss orders` and `my stop and take profit orders` reached
+`get_portfolio` at 1.0 — down the very path that rule's own comment
+describes, the keyword rule matching `profit` inside "take profit" and `loss`
+inside "stop loss". **Fixed for the phrase that was measured, not for the
+class it belongs to**, which is the `/vault` hint shape with two cards making
+the promise. The trigger alternatives demand the noun, never a bare "my stop
+loss" — that is a question about ONE position's protection, and the positions
+card is what carries a position's stop level.
+
+> **And appending them after the group's closing paren put them outside the
+> lookahead entirely.** A top-level `|` splits the whole pattern, `^(?!…)`
+> included, so `what is a stop order` reached the listing — the new
+> vocabulary guarded by nothing, in the commit that added the guard. The
+> corpus caught it on its first run; no reading of the diff would have.
+
+**And the anchor the whole reading hangs on was walked past by one word.**
+The lookahead is `^`-anchored, and has to be, or it would decline a question
+mid-sentence. Driven, a single conversational lead defeated it in BOTH
+directions: **ten of eleven** education questions behind one reached a card
+— `ok so what is a stop loss`, `actually what is a position` and `well what
+is equity` to the POSITIONS card, `so what is defi` to the DeFi card,
+`anyway what is rwa` to the RWA one — while `so what are my open orders`
+reached nothing. `_EDU_LEAD` is the same shape as `_HALT_LEAD`,
+which this file already carries for the action rules, and the same fix. Its
+vocabulary is a FIXED conversational list rather than "any word": each of
+`airdrops what is the schedule`, `nft radar what is trending` and `meme radar
+what is hot` NAMES its own read before asking, and a lead that took any word
+would eat the name and decline the card the caller asked for.
+
+**It is deliberately not `CAPABILITY_ASK`'s lead list, and the difference is
+a defect one gate over.** That third list carries GREETINGS (`hey|hi|yo|erm|
+um`), because a capability question is the first thing somebody types. A
+greeting lead is the SOCIAL GATE's subject, not this one — driven, `hey what
+is my balance` and `hey what are my open orders` are **GREETED**, before any
+rule is consulted, which is the `HALT_SOCIAL_LEAD` fix having reached only
+the whole-message ACTION rules. Widening this list to greetings would leave
+that untouched while hiding it, so it is filed with its measurement rather
+than resolved here: a greeting lead greets a question about the caller's own
+money, and the fix belongs where the gate consults its rules.
+
+Two misses are recorded rather than patched around. A comparison naming the
+caller's own order ("what is the difference between my limit order and a stop
+order") reaches the listing, which is the reading the orders rule's own
+comment already takes for "should I cancel my order?" — the decision is the
+caller's and the listing is what it is made from. And `what is this week's
+letter` stays with the model where `this week's letter` reaches the letter:
+widening the escape to demonstratives was refused because `what is the spot
+market` is education with a definite article, so definiteness does not
+separate the two, and a rule that cannot be stated in one sentence is a rule
+nobody can check.
+(`tests/test_a_question_about_my_own_book_is_not_education.py`.)
+
+**Thirty mutations, each killed — and the three that survived a round were
+the corpus's, never the code's.** Dropping the possessive-or-state qualifier from the
+bare `triggers?` alternative changed no verdict, because both education forms
+in the table (`what is a trigger`, `what are triggers`) are declined by the
+lookahead whatever that alternative says. The only input that measures the
+qualifier uses the word as a VERB — `what triggers a margin call` does not
+open `what is/are/do/does`, so the rule is live and the qualifier is the one
+thing declining it. Those rows are in the table now and the mutation dies.
+The round also needed the social gate: this slice taught the rules the word
+`triggers`, and a term the rules know and the gate does not is a trading
+question answered with "hey!" — `what are triggers` is three words, and it
+was greeted. And the arbitrary half of the lead was removed rather than
+pinned: a `{0,2}` bound on how many lead words may stack survived, because
+no input distinguishes two from three — an equivalent mutant is the round
+saying the code claims a check it does not make, so the bound is gone and
+the VOCABULARY is the check.
 
 **A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
 LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a
