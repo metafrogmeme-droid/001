@@ -2789,6 +2789,125 @@ A word one rule treats as filler is not a ticker for another, so the mode
 lead's determiners are in `_NOT_A_TICKER` now.
 (`tests/test_the_scanner_takes_its_own_verb.py`.)
 
+**AN EDUCATION OPENER IS NOT AN EDUCATION QUESTION, AND THE EXCLUSION WAS
+NEVER AN ABSTENTION.** `what is a limit order` asks about the CONCEPT;
+`what are my limit orders` asks for the caller's own listing, in question
+form. They open identically, so the opener is not the reading — what the
+sentence asks ABOUT is, and the POSSESSIVE is where that is written. The
+lookahead read only the opener and declined both, so `what are my open
+orders`, the plainest English there is for the question, reached nothing.
+Driven over the possessive form of every row it guards, **27 of 28 missed
+their own read**: twenty-two reached no rule at all, and five reached a
+CONFIDENT WRONG CARD — `what is my balance across all exchanges` answered
+with the SINGLE-ACCOUNT portfolio card, the one read that cannot answer
+"across all exchanges", and `what are my defi positions` with the EXCHANGE
+positions card for an on-chain ask. That is the `get_orders` lesson one noun
+over, where a request to PLACE a limit order was answered with the card that
+LISTS the resting ones.
+
+**A lookahead narrows only the rule that carries it, which makes a decline a
+HAND-OFF and not a refusal.** The two widest rules in the file sit below
+every user of this one and carried none — the bare Portfolio keyword rule
+(`portfolio|balance|equity|pnl|profit|loss|p&l`) and the typo-tolerant
+positions rule — so a sentence declined above did not reach the model, it
+fell to whichever of those shared a word with it. Driven, **ten education
+questions reached the POSITIONS CARD at confidence 1.0**: `what is a stop
+loss` (the word `loss`), `what is pnl`, `what is a position`, `how is equity
+calculated`. The gate written to send education to the model was sending it
+to a card. `what is profit factor` was the only escape, and only because
+somebody hand-wrote `profit(?! factor)` there for an unrelated reason — a
+per-WORD exclusion standing in for a per-SENTENCE one. Both catchers carry
+the reading now, which is the whole fix for that half.
+
+**Five copies, and they agreed with each other on every fixture.** `_EDU`
+plus four written out by hand, two of them byte-identical and only because
+their rules are registered ABOVE where it used to be defined. A second copy
+of a gate is a second answer about what counts as education, decided in five
+places. `_EDU_DECLINE` is the lookahead and `_EDU` is it with the lazy opener
+the rules need; the price-alert rule takes the bare one, for the reason its
+own comment gives. Nothing in the guard asserts the shape of a regex: a rule
+holding a private copy declines its own possessive form and a rule that lost
+the reading answers education with a card, so both die on the corpus, which
+is the only honest way to prove ONE definition when a byte-identical copy
+agrees with every fixture.
+
+**And the card promised a half the orders vocabulary could not hear.** The
+capability card's `get_orders` row says *"your resting limit orders and
+stop/take-profit triggers, as the exchange reports them"*, and the chat
+tool's description promises the same triggers. The earlier fix reordered the
+rules so that SENTENCE stopped reaching the positions card — it works because
+the sentence contains the words `limit orders`. Ask for the half it names
+SECOND and nothing claimed it: `my stop orders`, `my tp orders`, `do i have
+any stop orders` and `my triggers` reached NOTHING, while `my take profit
+orders`, `my stop loss orders` and `my stop and take profit orders` reached
+`get_portfolio` at 1.0 — down the very path that rule's own comment
+describes, the keyword rule matching `profit` inside "take profit" and `loss`
+inside "stop loss". **Fixed for the phrase that was measured, not for the
+class it belongs to**, which is the `/vault` hint shape with two cards making
+the promise. The trigger alternatives demand the noun, never a bare "my stop
+loss" — that is a question about ONE position's protection, and the positions
+card is what carries a position's stop level.
+
+> **And appending them after the group's closing paren put them outside the
+> lookahead entirely.** A top-level `|` splits the whole pattern, `^(?!…)`
+> included, so `what is a stop order` reached the listing — the new
+> vocabulary guarded by nothing, in the commit that added the guard. The
+> corpus caught it on its first run; no reading of the diff would have.
+
+**And the anchor the whole reading hangs on was walked past by one word.**
+The lookahead is `^`-anchored, and has to be, or it would decline a question
+mid-sentence. Driven, a single conversational lead defeated it in BOTH
+directions: **ten of eleven** education questions behind one reached a card
+— `ok so what is a stop loss`, `actually what is a position` and `well what
+is equity` to the POSITIONS card, `so what is defi` to the DeFi card,
+`anyway what is rwa` to the RWA one — while `so what are my open orders`
+reached nothing. `_EDU_LEAD` is the same shape as `_HALT_LEAD`,
+which this file already carries for the action rules, and the same fix. Its
+vocabulary is a FIXED conversational list rather than "any word": each of
+`airdrops what is the schedule`, `nft radar what is trending` and `meme radar
+what is hot` NAMES its own read before asking, and a lead that took any word
+would eat the name and decline the card the caller asked for.
+
+**It is deliberately not `CAPABILITY_ASK`'s lead list, and the difference is
+a defect one gate over.** That third list carries GREETINGS (`hey|hi|yo|erm|
+um`), because a capability question is the first thing somebody types. A
+greeting lead is the SOCIAL GATE's subject, not this one — driven, `hey what
+is my balance` and `hey what are my open orders` are **GREETED**, before any
+rule is consulted, which is the `HALT_SOCIAL_LEAD` fix having reached only
+the whole-message ACTION rules. Widening this list to greetings would leave
+that untouched while hiding it, so it is filed with its measurement rather
+than resolved here: a greeting lead greets a question about the caller's own
+money, and the fix belongs where the gate consults its rules.
+
+Two misses are recorded rather than patched around. A comparison naming the
+caller's own order ("what is the difference between my limit order and a stop
+order") reaches the listing, which is the reading the orders rule's own
+comment already takes for "should I cancel my order?" — the decision is the
+caller's and the listing is what it is made from. And `what is this week's
+letter` stays with the model where `this week's letter` reaches the letter:
+widening the escape to demonstratives was refused because `what is the spot
+market` is education with a definite article, so definiteness does not
+separate the two, and a rule that cannot be stated in one sentence is a rule
+nobody can check.
+(`tests/test_a_question_about_my_own_book_is_not_education.py`.)
+
+**Thirty mutations, each killed — and the three that survived a round were
+the corpus's, never the code's.** Dropping the possessive-or-state qualifier from the
+bare `triggers?` alternative changed no verdict, because both education forms
+in the table (`what is a trigger`, `what are triggers`) are declined by the
+lookahead whatever that alternative says. The only input that measures the
+qualifier uses the word as a VERB — `what triggers a margin call` does not
+open `what is/are/do/does`, so the rule is live and the qualifier is the one
+thing declining it. Those rows are in the table now and the mutation dies.
+The round also needed the social gate: this slice taught the rules the word
+`triggers`, and a term the rules know and the gate does not is a trading
+question answered with "hey!" — `what are triggers` is three words, and it
+was greeted. And the arbitrary half of the lead was removed rather than
+pinned: a `{0,2}` bound on how many lead words may stack survived, because
+no input distinguishes two from three — an equivalent mutant is the round
+saying the code claims a check it does not make, so the bound is gone and
+the VOCABULARY is the check.
+
 **A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
 LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a
 card named a COMMAND that did nothing, here a card asks for a VALUE that
