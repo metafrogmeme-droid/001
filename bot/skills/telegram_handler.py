@@ -47,10 +47,11 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
-    stake_verb, LINK_DOOR,
+    stake_verb, LINK_DOOR, strip_bot_mention, live_account_absence,
+    no_live_account_line,
     skill_failure_notice, thinking_phrase,
 )
-from bot.nlp.intent_router import halt_verb, symbol_mentioned
+from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 # The second slice: the Guardian command group is a mixin the handler class
@@ -543,21 +544,10 @@ def _live_positions_block(executor, marks: dict | None = None) -> str:
     return out
 
 
-def _live_account_absence(user_id: str) -> str:
-    """WHY the engine mapped this caller to no account: ``"absent"`` (never
-    linked — /connect is an invitation), ``"unreadable"`` (linked, and the
-    stored keys will not decrypt — a different sentence and a different
-    remedy; the /exchange lesson) or ``"unresolved"`` (the store could not
-    be asked, or it says readable and the engine still bound no executor).
-    Never raises, and an exception here is not "absent": a status read must
-    not take the prompt down, and it must not dress a fault as a clean bill.
-    """
-    try:
-        from bot.core.exchange_credentials import get_credential_store
-        state = get_credential_store().credential_state(user_id)
-    except Exception:
-        return "unresolved"
-    return state if state in ("absent", "unreadable") else "unresolved"
+#: WHY a caller maps to no live account — `chat_runtime.live_account_absence`,
+#: the one reading the record cards ask too; kept under this name for the
+#: no-account block and the tests that pin it.
+_live_account_absence = live_account_absence
 
 
 #: The door to a linked account, per surface — `chat_runtime.LINK_DOOR`, the
@@ -3227,6 +3217,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         tg_id = self._get_tg_id(update)
         user = self.users.get(tg_id)
         text = update.message.text.strip()
+        # "@RuneClawBot halt" in a group is "halt" addressed to this bot. The
+        # handle is stripped ONCE, from either end, before the router or the
+        # firewall reads the text — an anchored rule cannot see past a
+        # mention it was never told about, and until this the sentence
+        # reached the chat model as a decoy. Unknown handle: nothing stripped.
+        text = strip_bot_mention(text, await self._bot_username())
 
         # Auto-detect group chats for channel forwarder
         chat = update.effective_chat
@@ -3766,7 +3762,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _door = halt_intent_notice(
                     "halt_ambiguous", surface="telegram", verb=halt_verb(intent.raw_text),
                     live=CONFIG.is_live(), scope=_scope,
-                    engine_state=_engine_halt_state(self.engine))
+                    engine_state=_engine_halt_state(self.engine),
+                    casual=casual_halt(intent.raw_text))
                 await self._send(update, _door)
                 self._remember_routed(
                     tg_id, text, intent.skill,

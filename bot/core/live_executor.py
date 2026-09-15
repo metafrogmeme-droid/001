@@ -45,6 +45,7 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
+from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, first_reading,
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
@@ -6226,9 +6227,29 @@ class LiveExecutor:
             # cancelled by this cleanup.
             existing_plans = [p for p in (existing_plans or [])
                               if self._venue.is_plan_order(p)]
-            if existing_plans:
+            # THIS side's stops only. The sweep used to cancel every plan
+            # order on the symbol, both sides, so on a hedge-mode account
+            # re-placing the long's protection stripped a manual or adopted
+            # short's stop and placed one. `plan_rows_to_cancel` is the rule:
+            # one-way keeps the full sweep (one side is all there is), hedge
+            # mode and an undetected mode cancel only rows that definitely
+            # protect this side and KEEP a row whose side could not be read
+            # — a same-side survivor is reduce-only and cannot double-close,
+            # a stripped other-side stop leaves real money naked.
+            _protects = "long" if direction == Direction.LONG else "short"
+            to_cancel, kept_unread = plan_rows_to_cancel(
+                existing_plans, hedge_mode=self._hedge_mode, protects=_protects)
+            if kept_unread:
+                audit(trade_log,
+                      f"Kept {len(kept_unread)} plan order(s) on {symbol} whose side could "
+                      f"not be read (hedge rule) before placing new SL/TP",
+                      action="plan_order_kept", result="UNREAD_SIDE",
+                      data={"symbol": symbol, "kept": len(kept_unread),
+                            "hedge_mode": self._hedge_mode,
+                            "ids": [str(k.get("id")) for k in kept_unread][:10]})
+            if to_cancel:
                 cancelled = 0
-                for plan in existing_plans:
+                for plan in to_cancel:
                     try:
                         await exchange.cancel_order(plan["id"], ccxt_sym)
                         cancelled += 1
@@ -6238,7 +6259,8 @@ class LiveExecutor:
                     audit(trade_log,
                           f"Cleared {cancelled} existing plan order(s) for {symbol} before placing new SL/TP",
                           action="plan_order_cleanup", result="OK",
-                          data={"symbol": symbol, "cancelled": cancelled})
+                          data={"symbol": symbol, "cancelled": cancelled,
+                                "side": _protects, "hedge_mode": self._hedge_mode})
         except Exception as plan_exc:
             # Non-critical: some exchanges don't support isPlan filter
             logger.debug("Plan order check failed for %s: %s", symbol, plan_exc)

@@ -23,23 +23,52 @@
  * ("text is required") that a caller needs to see, so this scrubs rather than
  * blanks — a generic "something went wrong" would trade a leak for a support
  * burden.
+ *
+ * THE VOCABULARY IS NOT THIS FILE'S. It used to be: four patterns written here
+ * beside the bot's eight, "wider on labels and narrower on token shapes" in
+ * `secret_shapes.py`'s own words, which is a second answer to one question.
+ * Driven, this file published a Telegram bot token, a bare `sk-…`/`xai-…` key,
+ * a JWT, `RUNECLAW_SECRETS_KEY=`, `WEB3_SIGNER_PRIVATE_KEY=`, `WEB_CREDS_KEY=`
+ * and `api key: bg_…`, and turned `Authorization: Bearer sk-ant-…` into
+ * `Authorization: ***REDACTED*** sk-ant-…` — the label redacted, the key
+ * printed, under a marker that reads as proof the line was scrubbed. The
+ * label list matched `authorization` and then `(\S+)` took the word *Bearer*
+ * as the value. The shared rows come from `./secret_shapes` now.
+ *
+ * WHAT STAYS HERE, and why it is not a second vocabulary: three shapes that
+ * belong to an ERROR BODY and not to a chat card. A connection string, an
+ * absolute path and the label words a driver uses (`session=`, `cookie=`,
+ * `pwd=`) are diagnostics nobody's card prints, and the whole query string
+ * goes rather than its credential-named parameters — the bot draws the same
+ * line with `drop_url_queries`, its exception path's stricter rule. Each is
+ * declared below with its reason; none of them re-states a shared row.
  */
 
-/** key=value / key: value secrets, however they are spelled. */
-const INLINE_SECRET = new RegExp(
+const { scrubSecrets, looksLikeCredential, REDACTED } = require('./secret_shapes');
+
+/**
+ * Label words a DRIVER spells that no card does. The shared table's
+ * `named_key_value` row holds the seven a user-facing surface can meet; these
+ * are the rest — and `apikey` is NOT among them, because that row's
+ * `api[_-]?key` already matches a bare one, which the guard below found by
+ * refusing any shared spelling in this file. The value must look like a
+ * credential before it goes —
+ * which is what keeps `Authorization: Bearer ***REDACTED***` from losing its
+ * scheme word to a second pass.
+ */
+const DRIVER_LABEL = new RegExp(
   '\\b(' + [
-    'api[_-]?key', 'apikey', 'secret', 'token', 'password', 'passwd', 'pwd',
-    'passphrase', 'authorization', 'auth', 'bearer', 'private[_-]?key',
-    'session', 'cookie', 'credential', 'access[_-]?key',
-  ].join('|') + ')(\\s*[=:]\\s*)(\\S+)',
+    'passwd', 'pwd', 'authorization', 'auth',
+    'private[_-]?key', 'session', 'cookie', 'access[_-]?key',
+  ].join('|') + ')(\\s*[=:]\\s*)([^\\s\'"]+)',
   'gi',
 );
 
-/** A bare URL can carry credentials in its query string. Keep the host. */
-const URL_QUERY = /(https?:\/\/[^\s?]+)\?\S*/gi;
-
 /** Connection strings name the host, the database and often the user. */
 const CONN_STRING = /\b[a-z][a-z0-9+.-]*:\/\/[^\s@]*@\S+/gi;
+
+/** A bare URL can carry credentials in its query string. Keep the host. */
+const URL_QUERY = /(https?:\/\/[^\s?]+)\?\S*/gi;
 
 /** Absolute filesystem paths disclose the deployment layout. */
 const ABS_PATH = /(?:^|\s)(\/(?:home|root|usr|var|etc|opt|srv)\/\S*)/g;
@@ -54,21 +83,36 @@ const LIMIT = 200;
  * scrubber that raises inside a catch block turns a handled failure into an
  * unhandled one.
  *
+ * The second argument takes a NUMBER (a character limit) or a STRING (the
+ * sentence the reader gets instead of the driver's words). It had only the
+ * first meaning, and two callers in `routes/agents.js` passed a sentence:
+ * `Number('Your agents could not be read') || LIMIT` is 200, so the sentence
+ * vanished and the driver's text was published under it — a caller's own
+ * defence, silently discarded. Both of those callers `console.error` the stack
+ * first, so the diagnosis stays in the log where it belongs and the reader
+ * gets the sentence its author wrote.
+ *
  * @param {unknown} err
- * @param {number} [limit]
+ * @param {number|string} [limitOrMessage]
  * @returns {string} scrubbed text, or "" when there is nothing usable
  */
-function safeErrorText(err, limit = LIMIT) {
+function safeErrorText(err, limitOrMessage = LIMIT) {
+  const fixed = typeof limitOrMessage === 'string' ? limitOrMessage : null;
+  const limit = fixed === null ? limitOrMessage : LIMIT;
   let msg;
   try {
     msg = err && err.message ? String(err.message) : String(err == null ? '' : err);
   } catch (_) {
-    return '';
+    return fixed === null ? '' : fixed;
   }
+  if (fixed !== null) return fixed;
   if (!msg) return '';
   try {
-    msg = msg.replace(INLINE_SECRET, '$1$2***REDACTED***');
-    msg = msg.replace(CONN_STRING, '***REDACTED***');
+    msg = scrubSecrets(msg);
+    msg = msg.replace(DRIVER_LABEL, (whole, label, sep, value) => (
+      looksLikeCredential(value) ? `${label}${sep}${REDACTED}` : whole
+    ));
+    msg = msg.replace(CONN_STRING, REDACTED);
     msg = msg.replace(URL_QUERY, '$1?***');
     msg = msg.replace(ABS_PATH, ' ***path***');
     msg = msg.replace(/\s+/g, ' ').trim();

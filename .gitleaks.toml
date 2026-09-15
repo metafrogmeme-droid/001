@@ -101,6 +101,21 @@ stopwords = [
   "sk-abcdefghijklmnopqrs",
   "bg_1234567890abcdef1234567890abcdef",
   "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4YQ",
+  # THE FOURTH EXAMPLE WAS INVISIBLE UNTIL IT WAS RENDERED. The same table's
+  # JWT row is written in the .py across TWO adjacent string literals, so the
+  # upstream `jwt` rule — which wants header.payload.signature unbroken — never
+  # matched it there and it needed no stopword. `scripts/render_secret_shapes.py`
+  # writes the table into app/lib/secret_shapes.generated.json for the website
+  # to read, where the value is one JSON string on one line, and the rule fired
+  # on the first push. It is the public jwt.io fixture token, signed with the
+  # documented "your-256-bit-secret", and it is here BY VALUE like the other
+  # three: the generated file stays scanned, so a real token rendered into it
+  # tomorrow is still caught.
+  #
+  # A row whose example is realistic enough to scan as a secret needs its value
+  # here, and the scan is what says so. Splitting a literal is not a fix: it
+  # hides the example from the scanner in one file and not in the other.
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
 ]
 
 # ── The one closed incident is suppressed by FINGERPRINT, not by this file ──

@@ -34,6 +34,7 @@ from telegram.ext import ContextTypes
 from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.trade_gate import entry_gate
+from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
@@ -117,7 +118,16 @@ class PortfolioCommands:
         closed trades; nothing surfaced this breakdown before."""
         from bot.core.market_scanner import category_for_symbol, category_icon
 
-        trades = list(self.engine.live_executor.closed_positions or [])
+        # The book THIS caller may view, not the operator's. `live_view` is the
+        # same reading the chat prompt and /positions take, and it answers None
+        # rather than falling back — a per-class record of somebody else's
+        # trades is not this caller's evidence base.
+        user_id = self._get_tg_id(update)
+        executor = self.engine.live_view(user_id).get("executor")
+        if executor is None:
+            await self._send(update, no_live_account_line(live_account_absence(user_id)))
+            return
+        trades = list(executor.closed_positions or [])
         if not trades:
             await self._send(update, "📊 No closed live trades yet — "
                                      "per-class stats appear after the first close.")
@@ -342,7 +352,13 @@ class PortfolioCommands:
             _eq_str = (f"${display_equity:,.2f}" if display_equity is not None
                        else "unavailable")
 
-            executor = self.engine.live_executor
+            # The equity line above is already this caller's; the positions
+            # below were the OPERATOR's, so one card carried two accounts —
+            # the shape the status card was cured of. One reading now.
+            executor = self.engine.live_view(user_id).get("executor")
+            if executor is None:
+                await self._send(update, no_live_account_line(live_account_absence(user_id)))
+                return
             live_open = executor.open_positions
             all_closed = executor.closed_positions
 
@@ -915,7 +931,14 @@ class PortfolioCommands:
 
         # LIVE mode: use real trade data from executor + exchange fallback
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
-            executor = self.engine.live_executor
+            # "Performance summary — per-user", and it read the operator's
+            # book for every caller: win rate, all-time net, today and this
+            # week, in dollars. `live_view` answers the book this caller may
+            # see, and None rather than a fallback.
+            executor = self.engine.live_view(user_id).get("executor")
+            if executor is None:
+                await self._send(update, no_live_account_line(live_account_absence(user_id)))
+                return
             live_closed = executor.closed_positions
 
             # ── Exchange trade history fallback ──
@@ -1162,7 +1185,12 @@ class PortfolioCommands:
 
         # LIVE mode: use real trade data from executor
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
-            executor = self.engine.live_executor
+            # The day's closes, wins and losses — this caller's, not the
+            # operator's.
+            executor = self.engine.live_view(user_id).get("executor")
+            if executor is None:
+                await self._send(update, no_live_account_line(live_account_absence(user_id)))
+                return
             from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_daily
             closed = [t for t in executor.closed_positions
                        if not any(getattr(t, "trade_id", "").startswith(p)

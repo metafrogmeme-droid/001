@@ -198,6 +198,80 @@ def link_door(surface: str) -> dict[str, str]:
     no-account block always has: the bridge is the operator's."""
     return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
 
+def live_account_absence(user_id: str) -> str:
+    """WHY the engine mapped this caller to no live account: ``"absent"``
+    (never linked), ``"unreadable"`` (linked, and the stored keys will not
+    decrypt — a different sentence and a different remedy; the /exchange
+    lesson) or ``"unresolved"`` (the store could not be asked, or it says
+    readable and the engine still bound no executor).
+
+    Never raises, and an exception here is not "absent": a status read must not
+    take a card down, and it must not dress a fault as a clean bill. The chat
+    prompt's block and the record cards read this ONE function, because "you
+    hold nothing" is true of the first absence and a fabrication for the
+    second, and two copies of that judgement are two answers.
+    """
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+        state = get_credential_store().credential_state(user_id)
+    except Exception:
+        return "unresolved"
+    return state if state in ("absent", "unreadable") else "unresolved"
+
+
+def no_live_account_line(absence: str, surface: str = "telegram") -> str:
+    """One sentence for a CARD whose account could not be resolved.
+
+    `telegram_handler._no_live_account_block` is the same reading in the shape
+    a MODEL reads; this is the shape a person reads. Neither says "none" or
+    "$0.00": a flat book is a measurement and no book is not. The door is the
+    surface's own — a web caller is never told a slash command.
+    """
+    door = link_door(surface)
+    if absence == "unreadable":
+        return ("\U0001F512 Your exchange keys are stored but could not be decrypted, "
+                "so nothing of your account could be read — not an empty account. "
+                f"Re-link to fix it ({door['link']}). Nothing was measured.")
+    if absence == "absent":
+        return ("\U0001F512 No exchange account is linked to you, so there is no equity, "
+                "P&L, win rate or trade count of yours on record here — "
+                f"{door['link']}. Nothing was measured.")
+    # Any other word — including one this function does not know — is the
+    # sentence that claims least. A reading nobody recognises is not a reading
+    # that somebody never linked.
+    return ("\U0001F512 The credential store could not be asked, so which account "
+            "to read could not be resolved — unknown, not empty. Nothing was "
+            "measured.")
+
+
+
+_MENTION_EDGE = " ,:;!-\u2013\u2014\t"
+
+
+def strip_bot_mention(text: str, username: str | None) -> str:
+    """The message with THIS bot's @handle removed once from its start or its
+    end. "@RuneClawBot halt" in a group is "halt" addressed to this bot, and
+    the router's anchored rules — the whole fix for "matched inside any
+    sentence" — cannot see past a handle they were never told about.
+
+    Only this bot's handle, compared case-insensitively as Telegram does,
+    and only as a whole token: "@RuneClawBotty halt" and "x@RuneClawBot"
+    are left alone, and so is a mention of any OTHER bot, which is part of
+    the sentence. With no handle known (the API never answered) nothing is
+    stripped — the message reaches the router as typed, which is what it
+    always did."""
+    if not username or not text:
+        return text
+    handle = "@" + str(username).lstrip("@")
+    s = text.strip()
+    low, h = s.lower(), handle.lower()
+    n = len(h)
+    if low.startswith(h) and (len(s) == n or not (s[n].isalnum() or s[n] == "_")):
+        return s[n:].lstrip(_MENTION_EDGE).strip()
+    if low.endswith(h) and (len(s) == n or not (s[-n - 1].isalnum() or s[-n - 1] == "_")):
+        return s[:-n].rstrip(_MENTION_EDGE).strip()
+    return s
+
 
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
@@ -441,7 +515,7 @@ _WEB_HALT_DOOR = (
 
 def halt_intent_notice(kind: str, surface: str = "telegram", verb: str | None = None, *,
                        live: bool | None = None, scope: str | None = None,
-                       engine_state: str | None = None) -> str:
+                       engine_state: str | None = None, casual: bool = False) -> str:
     """What a routed halt-shaped message is told when it is NOT dispatched.
 
     Telegram answers only the bare verb (`halt_ambiguous`): a stop-word with
@@ -457,12 +531,19 @@ def halt_intent_notice(kind: str, surface: str = "telegram", verb: str | None = 
     `engine_state` lets the closing sentence say the engine is ALREADY
     halted rather than claim the world is running. `verb` is the rule's own
     vocabulary, never free input; None is worded as a stop-word, never as a
-    default verb.
+    default verb. `casual` is `intent_router.casual_halt`'s reading: the
+    message reached this door behind a social lead ("bro stop the bot"),
+    which may well have named the bot — so the sentence says it was read
+    as casual, not that nothing was named.
     """
     if kind not in HALT_INTENTS:
         raise KeyError(kind)
-    bare = (f"a bare <code>{verb}</code> with nothing named" if verb is not None
-            else "a stop-word with nothing named")
+    if casual:
+        bare = ((f"a casual <code>{verb}</code>" if verb is not None else "a casual sentence")
+                + " \u2014 a halt that stops every account is the command itself, typed on its own")
+    else:
+        bare = (f"a bare <code>{verb}</code> with nothing named" if verb is not None
+                else "a stop-word with nothing named")
     if surface == "web":
         lead = (f"I wouldn't act on {bare} anywhere — too easy to send by accident "
                 "for a switch that stops every account. "

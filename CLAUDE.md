@@ -1239,8 +1239,8 @@ that has the read, the words it takes, and what this chat's same-named
 command does, off the catalogue. The rule is narrower than the web's on
 purpose — the intercept takes a bare "idle" and "stake my …", and here
 "stake my usdc" is a request to ACT that `/stake`'s confirm card owns, so it
-stays out of the door and in the decoy table (today it is greeted, which is
-its own gap, filed). The intercept exports its pattern now, so the JS side
+stays out of the door and in the decoy table (greeted at the time, which was
+its own gap; the act-door slice below claims it as `stake_request`). The intercept exports its pattern now, so the JS side
 checks the example the notice quotes, as it does for the other row. And
 `exposure` stays where slice 1 pinned it: the website answers "my exposure"
 with its cross-venue netting card, which `/exposure` renders here by name,
@@ -1504,6 +1504,33 @@ is supposed to be gated on. The catalogue's driven counts moved by one
 
 **Thirty mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: the venue-read seam bound as a default argument dies only on the test that plants the module's `balance_snapshot` and expects the planted read — every assertion on the card passes with the real seam being called, and the kill is the planted call count; and the first radar row taken whatever coin it is for dies only on a row planted for ANOTHER coin, which no assertion on the card can see because the card prints the row's own base. The rest die where the drives say — a zero read sized, the larger leg bounding the pair, one read leg sizing it, the snapshot attempted for an unlinked venue, a store fault or a no-figure answer read as not linked or as zero, the venue's detail on the card, a flat spread breaking even in zero hours, the bound unnamed, the places-nothing line gone, the requested figure printed as the size, markup or a non-positive size accepted, does-not-survive wearing green, the guard gone or demoted to `status`, a store fault read as an empty store, the short leg read off the long venue, a Confirm button, the record not read, a bad argument falling through, the catalogue row gone or claiming it places, the registration gone, the baseline forgetting it.
 
+**The re-place sweep cancelled every plan order on the symbol, both sides,
+and the rule it needed was already written one module over.** `_place_sl_tp`
+clears the resting stops it finds before it places new ones — the right idea,
+its own comment names the double-close it prevents — with no side filter. The
+bot's own book never holds both sides of one symbol (the duplicate-symbol
+guard is direction-agnostic), so the hazard needs a position the bot did not
+open — an operator's manual short beside a bot long, an adopted orphan — on a
+HEDGE-mode account, where re-placing the long's protection stripped the
+short's stop and placed one: a real position, unprotected, by the code whose
+job is protection. `order_state.rows_for_side` states the asymmetry for
+position rows ("a row is dropped only when it is DEFINITELY somebody else's");
+`bot/core/plan_cleanup.py` is the same asymmetry pointed the other way — a row
+is CANCELLED only when it definitely protects THIS side, read off `posSide` or
+`holdSide` (the UTA listing documents both) or the normalised order side (a
+stop that closes a long is a sell). In hedge mode a row whose side could not
+be read is KEPT and audited, because the two mistakes are not the same size:
+a reduce-only survivor on the same side cannot double-close, a stripped
+other-side stop leaves real money naked. One-way keeps the sweep it always
+had — one side is all there is — and an undetected mode takes the hedge rule
+for the same reason. The task had been filed rather than fixed because the
+classic v2 listing's side field was unverified; the fix reads three
+spellings and refuses to guess on a fourth, which is what "needs a payload"
+turns into when the payload does not come.
+(`tests/test_the_plan_cleanup_keeps_the_other_sides_stop.py`.)
+
+**Twelve mutations, each killed on the first round.** Seven on the rule and five on the executor's use of it — an undetected mode sweeping everything, hedge mode sweeping everything, the other side cancelled too, an unreadable row cancelled in hedge mode, the close side read backwards, the raw position side ignored, `holdSide` alone dropped; the loop reading the listing instead of the rule's answer, the executor always claiming one-way, the kept rows unaudited, the side computed backwards, and a cancel the venue rejected counted as cleared. The last is worth naming for what it proves about the fixture rather than the code: the count is asserted against a planted `cancel_order` that RAISES, because a stub that always succeeds cannot tell an increment above the await from one below it, and the mutation is exactly that swap.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
@@ -1673,9 +1700,7 @@ link, which keeps its query string except for parameters NAMED like credentials
 still drops the whole query, since a diagnostic never carries a link a user
 needs. Behind a prose label the value must LOOK like a credential (a digit, or
 twenty characters), or `api key: not configured` would print as a redacted key
-that exists. It is Python only: `app/lib/safe_error.js` has its own vocabulary,
-wider on labels and narrower on token shapes, and one file read by two
-runtimes is filed, not done. **Two guards had pinned the gap as a fact** —
+that exists. **Two guards had pinned the gap as a fact** —
 "the old scrub misses it", asserted in two suites — and both moved to the
 claim that replaced it; the walk is proved one by PLANTING a shape in the
 table and reading every reader, because a byte-identical copy agrees on every
@@ -1689,6 +1714,58 @@ tells the orders apart is a driver's echoed request body, query-shaped behind
 no URL: escaped first, `&sign=` becomes `&amp;sign=`, the parameter row never
 sees the `&` it anchors on, and the signature reaches the user. That fixture
 is in the leak guard now, and the mutation dies on it.
+
+**"Python only" was that slice's own stated hole, and the second runtime was
+not merely narrower — it published seven of the eight shapes and redacted a
+LABEL.** `app/lib/safe_error.js` is the website's error body, and its header
+calls itself "the same rule the bot enforces with `_safe_exc_text`". Driven
+through it, a Telegram bot token, a bare `sk-`/`xai-` key, a JWT,
+`RUNECLAW_SECRETS_KEY=`, `WEB3_SIGNER_PRIVATE_KEY=`, `WEB_CREDS_KEY=` and
+`api key: bg_…` all came back verbatim — and
+`Authorization: Bearer sk-ant-…` came back as
+`Authorization: ***REDACTED*** sk-ant-…`, because its label list matched
+`authorization` and the `(\S+)` after it took the word *Bearer* as the value.
+**That is worse than a miss**: the reader sees a redaction marker and concludes
+the line was scrubbed. `POST /api/tool/invoke` is public and unauthenticated —
+the file's own header says so, and says those handlers' errors carry connection,
+schema and gateway detail.
+
+**The rows TRAVEL now rather than being re-read by a second author.**
+`scripts/render_secret_shapes.py` renders `SHAPES` — patterns, flags,
+replacement as DATA, and each row's own example and decoy — into
+`app/lib/secret_shapes.generated.json`, the committed artifact
+`app/lib/secret_shapes.js` compiles;
+`tests/test_the_website_reads_this_vocabulary.py` renders it again and compares
+byte for byte, the README command tables' rule. It is committed rather than
+generated at boot because `app/` and `bot/` are different deploy targets, and a
+website that had to run a Python script to learn what a secret looks like would
+fail open on the box where that script is missing. A table that will not load
+THROWS at require time: an unreadable vocabulary is not an empty one, and a
+scrubber that quietly became a no-op is invisible from every response it lets
+through.
+
+**What stays node-side is declared, and the guard found a row that should not
+have.** A connection string, an absolute path and the label words a driver
+spells (`session=`, `cookie=`, `pwd=`) belong to an error body and to no card,
+and the whole query string goes rather than its credential-named parameters —
+the line `drop_url_queries` already draws. But `apikey` was in that list, and
+the shared `api[_-]?key` row already matches a bare one: the JS guard, which
+refuses any shared spelling in that file, is what said so. The same rule
+(`looksLikeCredential`, the Python twin's arithmetic) is what keeps the scheme
+word: "Bearer" carries no digit and is six characters, so a label row leaves it
+where it stands and the bearer row takes the token after it.
+
+**And two callers had written a sentence the parameter could not carry.**
+`routes/agents.js` calls `safeErrorText(err, 'Your agents could not be read')`
+— and the second parameter was a character LIMIT, so
+`Number('Your agents could not be read') || 200` is 200 and the driver's text
+was published under a sentence its author thought they were sending: *connect
+ECONNREFUSED 10.0.0.7:3306 (db agents_prod)*, host, port and database, to a
+browser panel. Both call sites `console.error` the stack first, so the
+diagnosis was never the thing at risk. A string second argument IS the sentence
+now, and a number is still a limit.
+
+**Eighteen mutations, each killed — and the one that survived the first round was the driver's TWICE over.** "Cut before scrub" was written as a comment appended to the return line: a no-op, so it changed no verdict and proved nothing. Made real — the slice moved above the scrub — it STILL survived, because the fixture was a LABELLED secret (`api_key=sk-…`) and a label row matches the stump just as well as the whole: the cut leaves `api_key=sk-abcdef` and the scrub, running after, redacts it anyway. Only one shape of input can tell the orders apart — a BARE token whose row demands a minimum length, positioned so the cut leaves a fragment too short to match, which is then published as text. That fixture is in the suite now and the mutation dies on it. The other seventeen die where the drives say — any value or no value looking like a credential, the Python backreference untranslated, an unreadable table read as an empty one, the case flag dropped on either side of the render, `keep_words` redacting the label instead of the value, the shared table never applied, a sentence read as a limit again or shown only when there is nothing else, a driver label redacting whatever follows it, the two node-only rows removed, a conditional replacement rendered as a plain redaction, the decoys not travelling, the separator dropped from the rule, and the staleness check that always passes.
 
 **And a docstring was the entire defect in the third place.**
 `quant_skill._safe_reason` promised *"never a key, never a URL with a token"*
@@ -1852,7 +1929,12 @@ deployed, handed to a model then told to reason only from those fields.
 `never_filled` reads BOTH non-fill vocabularies, because there are three
 (`close_reason.NON_FILL_CLOSE_REASONS`, `trade_filter.NON_TRADE_CLOSE_REASONS`,
 `live_stats.NON_TRADE_REASONS`), each documented as the one definition, and
-they differ by three words; consolidating them is filed, not done. The
+they differed by three words — `rejected` was a real non-fill one set did not
+know and `is_filled_close` counted it, while `stale_pending` and
+`duplicate_fill_suppressed` counted as trades on every card the other two fed.
+The first is THE ONE DEFINITION now and the other two names are that object,
+under a guard that reads every reason the executor writes for a never-filled
+order out of its source. The
 close-reason gate accepted a bare identifier, so every exchange-reconciled
 reason — `TP HIT (exchange)`, `SL HIT (inferred)`, `TRAILING SL HIT` — rendered
 as "not recorded": an absence manufactured from a value on record, on the one
@@ -1951,6 +2033,49 @@ an empty id one line earlier — so the planted registry refuses one too. A
 symmetric fixture is a fixture that cannot tell the two books apart, and a
 stub that prints a label the code did not is a stub that cannot see silence.
 
+**FOUR MORE SIBLINGS, and one of them mixed two accounts in a single card.**
+`check_risk`, `playbook`, `GetPortfolioSkill`, `/positions`, the chat prompt and
+the `pro_scan` header were each cured of reading the operator's book for a
+caller. `/performance` — whose own docstring says *per-user* — opened its live
+branch with `executor = self.engine.live_executor` and used `user_id` only on
+the PAPER branch, so every caller was shown the OPERATOR's win rate, all-time
+net P&L in dollars, today's and this week's. `/daily_report` counted the
+operator's closes, wins and losses; `/classpf` published the operator's
+per-asset-class record. And `/portfolio` is the sharpest of the four:
+`resolve_display_equity(user_id)` — already the caller's — sits three lines
+above `self.engine.live_executor`, so one card carried the reader's equity
+beside somebody else's positions, which is the shape the status card was cured
+of one chapter up. `engine.live_view(user_id)` is the one reading now, with no
+`getattr` fallback: an engine without the seam answers None, never the
+operator's book.
+
+**A card's absence sentence is the prompt block's reading in the other
+shape.** `live_account_absence` moved into the chat-runtime leaf so the prompt
+and the four cards ask ONE function — "you hold nothing" is true of a caller
+who never linked and a fabrication for one whose keys stopped decrypting, and
+two copies of that judgement are two answers. `no_live_account_line` is the
+person-shaped half beside `_no_live_account_block`'s model-shaped one; neither
+says "none" or "$0.00", both name the surface's own door, and a word the
+reading does not recognise gets the sentence that claims least rather than
+the one about never linking.
+
+**Ten mutations, each killed on the first round.** Four put each card back on
+`self.engine.live_executor`; a fifth kept the view and added an `or` fallback
+to it, which is the shape a later reader adds "just in case" and which the
+raising stub kills on the first read. Four more are the reading's: every
+absence collapsed into the never-linked sentence, an unknown word read as
+never linked, a store FAULT read as never linked (the claim about a person
+that a failed read cannot support), and the store's own word passed through
+unchecked. The tenth gives the handler back a private copy of the reading,
+and dies on the identity pin.
+
+**The operator's book RAISES in the fixture, which is the only way the test
+can tell.** A stub that answers plausibly for both accounts agrees with a card
+that reads the wrong one — the symmetric-fixture failure this file records
+from the prompt slice, where four of its own tests passed over the defect. The
+caller's book carries one close worth $137.42 that the operator's does not, and
+the operator's raises on any read.
+
 **A rule that matches inside a sentence routes the sentence's quote, negation
 and question as the command.** The halt rule was `\b(halt (the )?bot|stop (the
 )?(bot|trading|…)|…)\b` under `pattern.search`, so "ignore previous
@@ -1978,9 +2103,46 @@ both halt cards named a word that routes nowhere** — `Say "reset" to resume`,
 model — and `/resume` was the wrong door after an emergency stop anyway, since
 it clears only the shared breaker while `engine._halted` is cleared by `/reset`
 alone. The `/vault` hint shape: a card that names a command is claiming the
-command does something. Known and left open: a leading `bro`/`lol`/`thanks`
-still wins the social gate before any rule runs, and `@BotName halt` in a group
-is not mention-stripped; both now reach a model that has been told the door.
+command does something. Two things were left open there — a leading
+`bro`/`lol`/`thanks` won the social gate before any rule ran, and
+`@BotName halt` in a group was not mention-stripped — and both are closed
+below.
+
+**A social lead on a whole-message action is INFORMALITY, and informality
+goes to the door.** The social gate consults the anchored action rules
+first, and every one of them begins with `_HALT_LEAD`, which knows
+politeness (`please`, `ok`, `can you`) and nothing casual — so "bro stop the
+bot", "lol stop" and "thanks, stop the bot" met `_SOCIAL_CHAT`'s `^bro`,
+the three-word rule and `_THANKS_PATTERNS`' unanchored search, and were
+greeted: an operator in a hurry, answered "hey!". Two of those were PINNED
+social by the halt suite ("a LEADING thanks is still social"), and a
+recorded decision is overturned by a new argument or not at all. The
+argument: the lead is a signal about the SENTENCE, and a casual fleet halt
+is exactly the kind `_cmd_halt`'s missing confirmation was anchored
+against — so `HALT_SOCIAL_LEAD` routes it to the ambiguous DOOR (the notice
+says the sentence was read as casual and names the command), never to the
+dispatch; the emergency phrase keeps its confirm card, which is the
+confirmation; a `my`-scoped pause keeps `/pause`, the caller's own and
+reversible; and a bare verb behind the lead is the bare door it always
+was. Politeness may sit on either side ("ok bro, please stop the bot").
+"thanks bro", "lol ok", "thanks for stopping the bot" and "lol the bot
+stopped again" (a REPORT) stay social: the lead alone is not an action,
+and a sentence whose remainder matches no rule is what it was.
+
+**And the handler strips THIS bot's handle before the router reads the
+text.** `_handle_message` handed `update.message.text` to the router raw,
+so `@RuneClawBot halt` in a group — the one shape a group message takes —
+was a decoy by construction: an anchored rule cannot see past a mention it
+was never told about. `strip_bot_mention` (the chat-runtime leaf) removes
+the handle ONCE from either end, only this bot's (`_bot_username`, the
+cached API read the close callbacks already use — never a config value
+that outlives a rename), only as a whole token (`@RuneClawBotty halt` and
+`x@RuneClawBot` stay as typed), and strips nothing when the handle is
+unknown, which is the behaviour every message had before. It runs before
+the firewall scan and the forward check, so those read the sentence too.
+(`tests/test_a_social_lead_is_an_action_at_the_door.py`.)
+
+**Seventeen mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: any word accepted as a social lead dies on the halt suite's own decoys rather than on the new table — "never halt the bot" becomes a lead plus a halt and routes, which is the decoy list doing the job it was written for one slice ago; and the handler stripping nothing dies twice, on the drive where `@RuneClawBot halt` must run `/halt` and on the source pin that orders the strip before the firewall — the drive is the proof, the pin says where. The rest die where the drives say — a casual fleet halt dispatched, the social forms leaving the gate's list, the casual emergency phrase losing its confirm card, the casual own-pause becoming the fleet door, a casual bare verb dispatched, `halt_verb` blind to the social form, nothing ever casual, the notice ignoring or contradicting it on either surface, a longer handle stripped as this one, the strip repeating, the handle matched case-sensitively, a trailing handle left as a word.
 
 **The review of that fix drove the router over the phrases a trader types
 in a hurry, and the rule was in the wrong slot with the wrong object.** It
