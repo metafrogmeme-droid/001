@@ -324,6 +324,67 @@ feeding the `net_pnl` a card prints. The guard over it was a **grep for a
 literal that was present and correct the whole time** — a scan cannot see which
 quantity a name holds, which was the entire defect.
 
+**A COST THE BACKTEST CANNOT READ WAS SUBTRACTED AS ZERO, and the module that
+already fixed it one floor down said exactly how.** `BacktestTrade.net_pnl_usd`
+was `pnl - commission` and its own field comment said so: no funding term in
+either close path, so every net the backtest published was wrong by a signed
+amount it never named. `bot/proofofpnl/csf.py` records the identical defect —
+`compute_metrics` emitting `funding: "0"` under a comment saying it was
+"PENDING (not in v0 data)", *"an unmeasured cost rendered as a measured zero"*,
+inside a commitment hash — and its cure is the shape reused here: **"no
+funding" has to be READABLE**, because on a market that pays none it means
+there was nothing to charge and on one that does it means nobody priced it,
+*"and those must not produce the same number"*.
+
+**The obvious reuse was a trap, and driving it is what said so.**
+`csf.market_is_perp` answers perp-ness off the ccxt `BASE/QUOTE:SETTLE` suffix
+— and driven, `market_is_perp("BTC/USDT")` is **False** while
+`BacktestConfig().symbol` *is* `"BTC/USDT"`. Wiring that seam in would have
+answered "not a perpetual, no funding applies" for every backtest this product
+runs: a confident negative read off a field that cannot be there, from the one
+function whose name says it answers the question. Its own docstring forbids the
+fallback anybody would reach for next — *"guessing from the quote currency
+would call every USDT market a perp"*. So perp-ness is an INPUT
+(`BacktestConfig.market_is_perp`), never an inference, and unstated is
+`unpriced`. `data_loader` loads OHLCV and nothing else, so the RATE is an input
+too, and `None` rather than `0.0` for the reason the whole slice exists.
+`funding_clock` already owns the settlement grid the live path reads
+(`SETTLEMENT_INTERVAL_SEC`, "Bitget USDT perps: 00/08/16 UTC") and the side
+convention (`pays_funding`: positive rate, longs pay shorts), so neither is
+restated.
+
+**Settlements are BOUNDARIES CROSSED, and a division gets it wrong in both
+directions.** A position opened 07:59 and closed 08:01 is open two minutes and
+pays once; one opened 00:01 and closed 07:59 is open nearly eight hours and
+pays nothing. `duration / 8h` answers 0 and 1 — backwards on both. Four states
+follow from that: `charged`, `no_settlement` (priced, crossed none),
+`not_perp` (stated as a market that pays none) and `unpriced`. The middle two
+are both `0.0` and are **different facts**, which is the `funding_applies`
+distinction and the whole reason this is a state rather than a float; and
+`combine` makes a run UNPRICED if any position in it was, because a sum over a
+set holding unreadable rows printed as a total is the shape tabulated above.
+
+**Twenty-two mutations, each killed — and the round bought three defects in the
+fix and one in a guard.** Two were lines of mine no input could reach: a
+`rate == 0` guard where `magnitude` is already `0.0`, and an `UNPRICED in seen`
+clause the subset test beside it already answered. Both were EQUIVALENT
+MUTANTS, and an equivalent mutant is the round saying the code claims a check
+it does not make. The third was real and only a DRIVE could find it: the
+partial-close path read `getattr(pos, "entry_time", None)` on an object that
+carries no such field, so every scaled-out leg came back `unpriced` **even with
+a rate supplied** — the defect the slice exists to remove, rebuilt inside the
+fix for it, on the second of the two close paths. The first draft drove only
+the final close; `if False:` around the partial charge survived, which is the
+round reporting a coverage gap rather than a code one.
+
+> **And the guard for the printed card matched its own comment.** It asserted
+> `"Funding:" in inspect.getsource(_format_result_summary)` — and the comment I
+> had written above the f-string says "Funding:" too, so deleting the actual
+> row left the assertion green over the defect it was written for. That is the
+> FALSE PASS this file's source-scanning section opens with, committed in the
+> same session as reading the rule. It renders the card and reads it now.
+> (`tests/test_the_backtest_says_what_funding_cost.py`.)
+
 **A gate that scolds the cure teaches the wrong thing.** The first draft of
 `bare-compare-verdict` flagged 104 lines and most were
 `size > 0 ? pnl / size : null` — the honest guard, the shape the whole gate

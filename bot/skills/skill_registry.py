@@ -1279,6 +1279,7 @@ class RunBacktestSkill(BaseSkill):
         # a module because this function runs a live engine, so nothing could
         # plant a result and read what the operator would actually see.
         from bot.backtest import scorecard as _sc
+        from bot.backtest.funding import funding_figure, funding_note
 
         wr_bar = _sc.bar(r.win_rate, 1.0, 8)
         pf_bar = _sc.bar(min(r.profit_factor, 3.0), 3.0, 8)
@@ -1308,8 +1309,13 @@ class RunBacktestSkill(BaseSkill):
             f"  Equity         {_money(r.final_equity):>12}\n"
             f"  Net PnL        {_money(r.net_pnl, sign=True):>12}\n"
             f"  Commission     {_money(r.total_commission):>12}\n"
-            f"  Slippage       {_money(r.total_slippage):>12}"
-            f"</pre>\n\n"
+            f"  Slippage       {_money(r.total_slippage):>12}\n"
+            # A scorecard that prints a net with no funding row reads as a
+            # complete net. Three-valued, from the backtest's own reading.
+            f"  Funding        "
+            f"{funding_figure(getattr(r, 'funding_state', 'unpriced'), getattr(r, 'total_funding', None)):>12}"
+            f"</pre>\n"
+            f"<i>{funding_note(getattr(r, 'funding_state', 'unpriced'), getattr(r, 'total_funding', None))}</i>\n\n"
             # ── Factor bars ──
             f"\U0001f4ca <b>Quality Factors</b>\n"
             f"<pre>"

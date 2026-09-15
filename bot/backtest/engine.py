@@ -16,6 +16,8 @@ import numpy as np
 from bot.backtest.models import (
     BacktestBar, BacktestConfig, BacktestResult, BacktestTrade, EquityPoint,
 )
+from bot.backtest.funding import combine as funding_combine
+from bot.backtest.funding import funding_for_position
 from bot.backtest.metrics import PF_UNDEFINED
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
@@ -1015,6 +1017,20 @@ class BacktestEngine:
         idea = bt_meta["idea"]
         size_usd = bt_meta["adjusted_entry"] * closed.quantity
 
+        # Funding, on the NOTIONAL and only when the caller priced it. An
+        # unstated rate or unstated perp-ness answers `unpriced` with
+        # `usd=None`, so nothing is charged rather than a zero nobody measured
+        # — the `funding: "0"` shape `bot/backtest/funding.py` is named for.
+        _fund = funding_for_position(
+            idea.direction.value, size_usd, entry_time, bar.timestamp,
+            self.config.funding_rate, self.config.market_is_perp)
+        if _fund.usd is not None:
+            net_pnl += _fund.usd
+            # close_position already settled `closed.pnl` into the balance, so
+            # the transfer lands there too, or equity and the trade record
+            # disagree about the same close.
+            self.portfolio.balance += _fund.usd
+
         bt_trade = BacktestTrade(
             trade_id=trade_id,
             symbol=idea.asset,
@@ -1030,6 +1046,9 @@ class BacktestEngine:
             commission_usd=round(closed.commission, 2),
             slippage_usd=round(total_slippage, 2),
             net_pnl_usd=round(net_pnl, 2),
+            funding_usd=(round(_fund.usd, 4) if _fund.usd is not None else None),
+            funding_state=_fund.state,
+            funding_settlements=_fund.intervals,
             exit_reason=reason,
             confidence=idea.confidence,
             risk_verdict=bt_meta["risk_verdict"],
@@ -1283,6 +1302,14 @@ class BacktestEngine:
         else:
             commission = (size_usd + exit_notional) * (self.config.commission_pct / 100.0)
         net_pnl = pnl - commission
+        # Each scaled-out leg is charged on ITS OWN notional for the span it
+        # was open; the runner is charged on its own at final close, so the
+        # legs do not overlap.
+        _fund = funding_for_position(
+            pos.direction.value, size_usd, bt_meta.get("entry_time"),
+            bar.timestamp, self.config.funding_rate, self.config.market_is_perp)
+        if _fund.usd is not None:
+            net_pnl += _fund.usd
         lev = getattr(pos, "leverage", 1) or 1
         margin = size_usd / lev
 
@@ -1324,6 +1351,9 @@ class BacktestEngine:
             commission_usd=round(commission, 2),
             slippage_usd=round(total_slippage, 2),
             net_pnl_usd=round(net_pnl, 2),
+            funding_usd=(round(_fund.usd, 4) if _fund.usd is not None else None),
+            funding_state=_fund.state,
+            funding_settlements=_fund.intervals,
             exit_reason=reason,
             confidence=idea.confidence,
             risk_verdict=bt_meta["risk_verdict"],
@@ -1503,6 +1533,15 @@ class BacktestEngine:
             total_pnl=round(sum(t.pnl_usd for t in trades), 2),
             total_commission=round(total_comm, 2),
             total_slippage=round(total_slip, 2),
+            # UNPRICED WINS over the run: a total that is the sum of some
+            # priced positions and some unpriced ones is a partial sum printed
+            # as a whole, which is the shape CLAUDE.md tabulates. `combine`
+            # owns that rule so no reader re-derives it.
+            total_funding=(
+                round(sum(t.funding_usd or 0.0 for t in trades), 4)
+                if funding_combine([t.funding_state for t in trades]) != "unpriced"
+                else None),
+            funding_state=funding_combine([t.funding_state for t in trades]),
             net_pnl=round(sum(t.net_pnl_usd for t in trades), 2),
             total_trades=total,
             winning_trades=len(winners),
