@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue}이(가) 응답하지 않았습니다</b> — 아무것도 스캔되지 않았습니다. 이는 읽기 실패이지 빈 시장이 아닙니다.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b>이(가) {markets}개 시장으로 응답했지만 거래량 기준을 넘은 것이 없습니다 — 보여줄 것이 없으며, 이것은 측정 결과입니다.",
   "venue_scan_header": "🔎 <b>{venue} 스캔</b> — 24시간 변동 기준 {markets}개 시장 중 상위 {n}개",
-  "venue_scan_list": "🏦 <b>스캔할 수 있는 거래소</b> — <code>/scan &lt;venue&gt;</code>는 거기서 거래하든 안 하든 거래소의 자체 시장 목록을 읽습니다:"
+  "venue_scan_list": "🏦 <b>스캔할 수 있는 거래소</b> — <code>/scan &lt;venue&gt;</code>는 거기서 거래하든 안 하든 거래소의 자체 시장 목록을 읽습니다:",
+  "limit_not_armed": "⚠️ 지정가 입력 단계를 열 수 없어서 가격을 여쭤보지 않습니다 — 읽을 것이 없었을 것입니다. 준비된 것이 없고 주문도 들어가지 않았습니다."
 }

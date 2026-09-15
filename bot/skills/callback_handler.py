@@ -29,7 +29,6 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-import time
 from typing import TYPE_CHECKING, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -1499,24 +1498,32 @@ class CallbackHandler:
             pair = display_symbol(idea.asset)
             direction = idea.direction.value if hasattr(idea.direction, 'value') else str(idea.direction)
 
-            # Store that this user is waiting to type a limit price
-            if not hasattr(self, '_pending_limit_input'):
-                self._pending_limit_input: dict = {}
-            self._pending_limit_input[caller_uid] = {
-                "trade_id": trade_id,
-                "asset": idea.asset,
-                "pair": pair,
-                "direction": direction,
-                "current_entry": idea.entry_price,
-                "timestamp": time.time(),
-            }
-
-            await self._send(update,
-                f"\U0001f4b0 <b>Set limit price for {pair} {direction}</b>\n\n"
-                f"Current entry: <code>${idea.entry_price:,.4f}</code>\n"
-                f"SL: <code>${idea.stop_loss:,.4f}</code> | TP: <code>${idea.take_profit:,.4f}</code>\n\n"
-                f"Type your limit price (e.g. <code>84.07</code> or <code>0.0522</code>):",
-                edit=True)
+            # ARM FIRST, ASK ONLY IF ARMED. This door always created the
+            # state before writing it, so it worked — its twin in
+            # `scan_skill` only TESTED for it and asked anyway. One seam now,
+            # because a second copy of this sequence is a second answer and
+            # the copy that broke read perfectly correct on its own.
+            from bot.core.limit_input import (
+                arm_limit_input,
+                limit_prompt_text,
+                limit_unarmed_text,
+            )
+            lang = self._lang(update)
+            armed = arm_limit_input(
+                self, caller_uid,
+                trade_id=trade_id, asset=idea.asset, pair=pair,
+                direction=direction, current_entry=idea.entry_price,
+            )
+            # ONE send, as its twin does: the prompt is only ever the
+            # ARMED branch's text.
+            if not armed:
+                said = limit_unarmed_text(lang)
+            else:
+                said = limit_prompt_text(
+                    lang, asset=pair, direction=direction,
+                    entry=idea.entry_price, stop_loss=idea.stop_loss,
+                    take_profit=idea.take_profit)
+            await self._send(update, said, edit=True)
             return
 
         if data.startswith("confirm:"):
