@@ -2993,6 +2993,82 @@
   }
   // ── the chart read: renderer end ──────────────────────────────────────
 
+  // ── the equity theatre: one reading, both charts ──────────────────────
+  //
+  // Every figure it prints carries the BOOK it describes, from
+  // EquityTheatreModel.DD_KINDS — eight quantities on this site are called
+  // "drawdown" and six were labelled identically, from six endpoints, about
+  // somebody else's record, your own account on two bases, two simulations
+  // and the live gate. The qualifier is visible text and never a title
+  // attribute: a title does not render on touch, which this repo records.
+  function etSay(WORDS, w, n) {
+    if (!w) return '';
+    const s = (WORDS && WORDS[w.key]) || w.en;
+    return n === null || n === undefined ? s : String(s).replace('{n}', String(n));
+  }
+
+  function etWords() {
+    const W = (window.EquityTheatreModel && window.EquityTheatreModel.W) || {};
+    const D = (window.EquityTheatreModel && window.EquityTheatreModel.DD_KINDS) || {};
+    const out = {};
+    for (const k of Object.keys(W)) out[W[k].key] = T(W[k].key, W[k].en);
+    for (const k of Object.keys(D)) {
+      out[D[k].short.key] = T(D[k].short.key, D[k].short.en);
+      out[D[k].long.key] = T(D[k].long.key, D[k].long.en);
+    }
+    return out;
+  }
+
+  /** The qualifier printed beside a drawdown figure, by kind name. */
+  function ddLabel(kindName) {
+    const M = window.EquityTheatreModel;
+    if (!M) return '';
+    return `<span class="muted small">${esc(etSay(etWords(), M.kind(kindName).short))}</span>`;
+  }
+
+  /** The curve panel's footnote: the sample, the deepest point, the segments
+   *  that were dropped — each printed only when it is a reading. */
+  function etFootHtml(read) {
+    const M = window.EquityTheatreModel;
+    if (!M || !read) return '';
+    const WORDS = etWords();
+    const parts = M.footnote(read).map((f) => esc(etSay(WORDS, f.word, f.n)));
+    if (!parts.length) return '';
+    return `<p class="muted small" style="margin-top:var(--s2)">${parts.join(' · ')}</p>`;
+  }
+
+  /**
+   * Paint the underwater half. ALWAYS writes: `null` means the equity read
+   * failed, and a drawdown chart left standing from an earlier read is a
+   * claim about this account that nothing measured.
+   */
+  function paintUnderwater(read) {
+    const box = document.getElementById('c-underwater');
+    if (!box) return;
+    const M = window.EquityTheatreModel;
+    if (!M) { box.innerHTML = ''; return; }
+    const WORDS = etWords();
+    const said = (w, n) => `<p class="small muted">${esc(etSay(WORDS, w, n))}</p>`;
+    if (!read) { box.innerHTML = said(M.W.unread); return; }
+    if (read.state !== 'read') { box.innerHTML = said(read.word); return; }
+
+    box.innerHTML = '<canvas id="underwaterCanvas" style="width:100%;height:180px;display:block"></canvas>'
+      + `<p class="small muted" style="margin-top:var(--s2)">`
+      + esc(etSay(WORDS, M.kind('yourEquity').long)) + ' '
+      + esc(etSay(WORDS, M.W.notTheGate)) + '</p>';
+
+    const canvas = document.getElementById('underwaterCanvas');
+    if (!canvas || !window.RCCharts) return;   // the sentence above still stands
+    try {
+      const h = window.RCCharts.underwater(canvas, {});
+      _charts.push(h);
+      h.update({ points: read.uw.points });
+    } catch (e) {
+      // A chart that would not draw is not a flat record: leave the words.
+    }
+  }
+  // ── the equity theatre: renderer end ──────────────────────────────────
+
   // geo (optional): { e: entry, sl, tp, d: direction } — a caller with a
   // position or signal passes its own geometry so the modal chart draws it.
   // Dynamic strings share the data-i18n dictionary. The inline English stays
@@ -3757,12 +3833,17 @@
         mustRead(r);
         const s = r.ok && r.data && r.data.stats;
         if (!s) return null;
-        const tile = (k, v, cls) => `<div class="stat"><div class="k">${k}</div><div class="v num ${cls || ''}">${v}</div></div>`;
+        // `note` names the BOOK the figure describes. It was added with the
+        // call site below and the parameter with it: a label passed to a
+        // renderer that ignores it is written on every branch and read by
+        // nobody, which is the defect this labelling exists to end.
+        const tile = (k, v, cls, note) => `<div class="stat"><div class="k">${k}</div><div class="v num ${cls || ''}">${v}</div>`
+          + (note ? `<div class="d">${note}</div>` : '') + `</div>`;
         return `<div class="row" style="gap:var(--s3);flex-wrap:wrap">
             ${tile('Profit factor', s.profit_factor == null ? '—' : s.profit_factor.toFixed(2), (s.profit_factor || 1) >= 1 ? 'up' : 'down')}
             ${tile('Win rate', s.win_rate_pct == null ? '—' : s.win_rate_pct.toFixed(1) + '%')}
             ${tile('Closed trades', s.trades ?? '—')}
-            ${tile('Max drawdown', s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', 'down')}
+            ${tile('Max drawdown', s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', 'down', ddLabel('agentRecord'))}
           </div>
           <p class="small muted" style="margin-top:var(--s2)">${esc(r.data.mode || '')} · every figure re-derivable from sealed fills —
           this is the engine's record, and your account gets the same honest cockpit for yours.</p>`;
@@ -3778,11 +3859,10 @@
           <div id="c-venues"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-curve"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.curve">Equity curve</span></h2><div id="c-curve"><div class="skel"></div></div></section>
-        <section class="panel" id="p-underwater" hidden>
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Drawdown — underwater curve
-            <span class="badge" style="margin-left:auto" title="How far below its running peak your equity has been, over time — the pain chart pro desks watch. Derived from your equity snapshots. Visualization only.">derived</span></h2>
-          <canvas id="underwaterCanvas" style="width:100%;height:180px;display:block"></canvas>
-          <p class="small muted" id="underwaterLegend" style="margin-top:var(--s2)"></p>
+        <section class="panel" id="p-underwater">
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.underwater">Drawdown — underwater curve</span>
+            <span class="badge" style="margin-left:auto">derived</span></h2>
+          <div id="c-underwater"><div class="skel"></div></div>
         </section>
         <section class="panel" id="p-instr">
           <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-chart"></use></svg><span data-i18n="dp.instr">Instruments — mark &amp; R</span>
@@ -3920,42 +4000,30 @@
       </div>${s.unpriced ? `<div class="small mt-2" style="color:var(--text-2)">${s.unpriced} of ${s.total_trades} closes carry no recorded P&amp;L — the rate and net cover the other ${s.total_trades - s.unpriced}.</div>` : ''}`;
     }, { empty: { icon: 'icon-coin', text: 'No trading data yet — your stats build from the first closed trade.', cta: { label: T('dd.cta_paper', 'Place a paper trade'), href: '#trade' } } });
 
+    // THE EQUITY & DRAWDOWN THEATRE — ONE read, two pictures.
+    //
+    // The underwater chart used to be mounted as a SIDE EFFECT of this
+    // loader, inside a catch that swallowed everything, into a panel with no
+    // failure state of its own: `#p-underwater` had three touchers in the
+    // whole tree. So a failed read left whatever was there. Both halves are
+    // painted from one reading now, and a state that is not `read` is a
+    // state BOTH panels show.
     renderPanel(C('curve'), async () => {
       const r = await fetchJSON('/api/trades/equity-curve');
-      mustRead(r);
-      const snaps = r.data?.snapshots || [];
-      if (snaps.length < 2) return null;
-      const ce = r.data?.capital_events || 0;
-      // Same snapshots feed the drawdown "underwater" chart — one fetch, mounted
-      // as a side-effect into its own panel (a canvas that self-cleans on nav).
-      mountUnderwater(snaps);
-      return equitySvg(snaps)
-        + (ce ? `<p class="muted small" style="margin-top:var(--s2)">Capital basis changed ${ce} time${ce === 1 ? '' : 's'}
-            (deposit, withdrawal, or paper→live switch) — the curve shows the current period only, so funding changes never draw as trading losses.</p>` : '');
-    }, { empty: { icon: 'icon-chart', text: 'The equity curve draws once you have a few snapshots — trade and check back.' } });
-
-    // Drawdown underwater curve — derived from the same equity snapshots. Canvas
-    // (RCCharts.underwater), reduced-motion safe, torn down on view change.
-    function mountUnderwater(snaps) {
+      let read;
       try {
-        const panel = document.getElementById('p-underwater');
-        const canvas = document.getElementById('underwaterCanvas');
-        if (!panel || !canvas || !window.RCCharts) return;
-        const pts = snaps.map(s => parseFloat(s.equity)).filter(v => isFinite(v));
-        if (pts.length < 2) return;
-        // Deepest drawdown, for the caption.
-        let peak = -Infinity, worst = 0;
-        for (const v of pts) { if (v > peak) peak = v; if (peak > 0) worst = Math.min(worst, (v - peak) / peak * 100); }
-        panel.hidden = false;
-        const h = window.RCCharts.underwater(canvas, {});
-        _charts.push(h);
-        h.update({ points: pts });
-        const legend = document.getElementById('underwaterLegend');
-        if (legend) legend.textContent = worst < -0.05
-          ? `Deepest drawdown ${worst.toFixed(1)}% below peak across ${pts.length} snapshots. Visualization only — nothing here trades.`
-          : `No meaningful drawdown yet across ${pts.length} snapshots. Visualization only — nothing here trades.`;
-      } catch (_) { /* the underwater chart is decorative — never block the view */ }
-    }
+        mustRead(r);
+        read = window.EquityTheatreModel.theatre(r.data);
+      } catch (e) {
+        // The curve GUARDS (renderPanel paints its error state); the
+        // underwater half is told, so it cannot keep a stale chart.
+        paintUnderwater(null);
+        throw e;
+      }
+      paintUnderwater(read);
+      if (read.state !== 'read') return null;
+      return equitySvg(read.curve) + etFootHtml(read);
+    }, { empty: { icon: 'icon-chart', text: 'The equity curve draws once you have a few snapshots — trade and check back.' } });
 
     // Allocation donut — real balances by source (each connected exchange, each
     // on-chain wallet chain) as a share of the whole. Canvas (RCCharts.donut),
@@ -4075,7 +4143,13 @@
       if (d.payoff_ratio !== null) {
         rows.push(`<div class="kv-row"><span>Payoff ratio <span class="muted small">avg win ÷ avg loss</span></span><b class="num">${d.payoff_ratio}</b></div>`);
       }
-      rows.push(`<div class="kv-row"><span>Max realized drawdown</span><b class="num">$${Math.abs(d.max_drawdown_usd).toFixed(2)}</b></div>`);
+      // The null guard its five siblings already had: Math.abs(null) is 0, so
+      // an absent field printed "$0.00" — a measured zero drawdown. intel.js
+      // always sends the key today, so this is defence in depth against an
+      // older server rather than a live defect.
+      const _ddUsd = window.EquityTheatreModel.num(d.max_drawdown_usd);
+      rows.push(`<div class="kv-row"><span>Max realized drawdown ${ddLabel('yourClosed')}</span>`
+        + `<b class="num">${_ddUsd === null ? '—' : '$' + Math.abs(_ddUsd).toFixed(2)}</b></div>`);
       rows.push(`<div class="kv-row"><span>Longest streaks</span><b class="num">${d.longest_win_streak}W / ${d.longest_loss_streak}L</b></div>`);
       // Attribution — WHERE the net came from. Private surface, so the
       // dollar figures are allowed; an absent bucket is simply not drawn and
@@ -4509,7 +4583,7 @@
             <div class="stat"><div class="k">Win rate</div>
               <div class="v">${fmt(d.win_rate_pct, 0)}%</div>
               <div class="small muted">${d.wins}W / ${d.losses}L</div></div>
-            <div class="stat"><div class="k">Max drawdown</div>
+            <div class="stat"><div class="k">Max drawdown ${ddLabel('replayWhatIf')}</div>
               <div class="v">${fmt(f.max_drawdown_pct, 1)}%</div>
               <div class="small muted">on the fixed-stake bankroll</div></div>
             <div class="stat"><div class="k">Compounded</div>
@@ -6510,7 +6584,7 @@
             <tr><td class="muted">Win rate</td><td class="r num">${m.win_rate == null ? '—' : m.win_rate + '%'}</td></tr>
             <tr><td class="muted">Profit factor</td><td class="r num">${pf}</td></tr>
             <tr><td class="muted">Expectancy (return / trade)</td><td class="r num ${pnlClass(m.expectancy_r)}">${signed(Math.round((m.expectancy_r || 0) * 1000) / 10)}%</td></tr>
-            <tr><td class="muted">Max drawdown</td><td class="r num">${m.max_drawdown_pct == null ? '—' : m.max_drawdown_pct + '%'}</td></tr>
+            <tr><td class="muted">Max drawdown ${ddLabel('agentReputation')}</td><td class="r num">${m.max_drawdown_pct == null ? '—' : m.max_drawdown_pct + '%'}</td></tr>
             <tr><td class="muted">Fee drag</td><td class="r num">${m.fee_drag_pct == null ? '—' : m.fee_drag_pct + '%'}</td></tr>
             <tr><td class="muted">Positive months</td><td class="r num">${m.positive_months}/${m.total_months}</td></tr>
           </tbody></table></div>${basisNote(data)}`;
@@ -7147,13 +7221,14 @@
           ['Return', scPct(m.total_return_pct), pnlClass(m.total_return_pct)],
           ['Profit factor', scNum(m.profit_factor), pnlClass((m.profit_factor || 1) - 1)],
           ['Win rate', m.win_rate == null ? '—' : `${(m.win_rate * 100).toFixed(0)}%`, ''],
-          ['Max DD', m.max_drawdown_pct == null ? '—' : `${(+m.max_drawdown_pct).toFixed(2)}%`, 'neg'],
+          ['Max DD', m.max_drawdown_pct == null ? '—' : `${(+m.max_drawdown_pct).toFixed(2)}%`, 'neg', ddLabel('copyLeader')],
           ['Sharpe', scNum(m.sharpe_ratio), ''],
           ['Trades', m.total_trades == null ? '—' : String(m.total_trades), ''],
         ];
-        const grid = tiles.map(([k, v, cls]) => `
+        const grid = tiles.map(([k, v, cls, note]) => `
           <div style="min-width:70px"><div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.03em">${k}</div>
-            <div class="num ${cls || ''}" style="font-size:var(--fs-md);font-weight:600">${v}</div></div>`).join('');
+            <div class="num ${cls || ''}" style="font-size:var(--fs-md);font-weight:600">${v}</div>`
+          + (note ? `<div>${note}</div>` : '') + `</div>`).join('');
         const low = (m.total_trades != null && m.total_trades < 10)
           ? `<div class="chip chip--warn" style="font-size:10px;margin-top:4px">low sample · ${m.total_trades} trades</div>` : '';
         const prov = `Frozen backtest · ${esc(sc.dataset || '')} · ${sc.bars || '?'} bars${sc.dataset_hash ? ` · #${esc(sc.dataset_hash)}` : ''}`;
@@ -7943,7 +8018,7 @@
         ['Net PnL', usd(res.net_pnl), pnlClass(res.net_pnl)],
         ['Profit factor', res.profit_factor?.toFixed(2) ?? '—', pnlClass((res.profit_factor || 1) - 1)],
         ['Win rate', res.win_rate != null ? `${(res.win_rate * 100).toFixed(0)}%` : '—', ''],
-        ['Max drawdown', res.max_drawdown_pct != null ? `${res.max_drawdown_pct.toFixed(2)}%` : '—', 'neg'],
+        ['Max drawdown', res.max_drawdown_pct != null ? `${res.max_drawdown_pct.toFixed(2)}%` : '—', 'neg', ddLabel('backtestLab')],
         ['Sharpe', res.sharpe_ratio?.toFixed(2) ?? '—', ''],
         ['Trades', res.total_trades ?? '—', ''],
       ];
@@ -7962,7 +8037,8 @@
       host.innerHTML = `
         <p class="muted small">${esc(params?.dataset || '')} · ${esc((params?.symbols || []).join(', '))} · ${esc(String(params?.last_bars || ''))} bars · honest fees/fills · frozen data</p>
         <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--s2);margin-top:var(--s3)">
-          ${tiles.map(([k, v, c]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v num ${c}">${esc(String(v))}</div></div>`).join('')}
+          ${tiles.map(([k, v, c, note]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v num ${c}">${esc(String(v))}</div>`
+            + (note ? `<div class="d">${esc(note)}</div>` : '') + `</div>`).join('')}
         </div>
         ${curveSvg}
         ${perSym.length ? `<div class="tbl-wrap mt-3"><table class="tbl">

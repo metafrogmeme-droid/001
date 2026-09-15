@@ -365,6 +365,7 @@
     "dp.dscards": { en: "Deep Scan" },
     "dp.dslook": { en: "Check any symbol" },
     "dp.curve": { en: "Equity curve" },
+    "dp.underwater": { en: "Drawdown — underwater curve" },
     "dp.breakdown": { en: "By symbol" },
     "dp.venue_pnl": { en: "Results by venue" },
     "dp.cal": { en: "Daily PnL — last 4 weeks" },
@@ -853,6 +854,30 @@
     "dd.cr_swings_from": { en: "read from {n} swing(s) each side" },
     "dd.cr_session_vw": { en: "session VWAP" },
     "dd.cr_window_vw": { en: "full-window VWAP — this session traded no volume" },
+    "dd.et_k_agent_s": { en: "the agent’s record" },
+    "dd.et_k_agent_l": { en: "Deepest fall from peak on the agent’s published track record — not your account." },
+    "dd.et_k_closed_s": { en: "your closed trades" },
+    "dd.et_k_closed_l": { en: "Deepest fall from peak on the running total of your CLOSED trades, in dollars — it does not include open positions." },
+    "dd.et_k_replay_s": { en: "a what-if at your stake" },
+    "dd.et_k_replay_l": { en: "Deepest fall in a replay of the agent’s signals at the stake you chose — nothing here was traded." },
+    "dd.et_k_lab_s": { en: "this backtest" },
+    "dd.et_k_lab_l": { en: "Deepest fall in a backtest of the rules you configured, over frozen historical data — nothing here was traded." },
+    "dd.et_k_rep_s": { en: "the agent’s record" },
+    "dd.et_k_rep_l": { en: "Deepest fall from peak on the agent’s reputation record — not your account." },
+    "dd.et_k_copy_s": { en: "this leader’s record" },
+    "dd.et_k_copy_l": { en: "Deepest fall from peak on this leader’s record — not your account." },
+    "dd.et_k_equity_s": { en: "your equity snapshots" },
+    "dd.et_k_equity_l": { en: "Deepest fall below the running peak of your recorded equity — a history, not the limit the engine enforces." },
+    "dd.et_k_gate_s": { en: "the engine’s live gate" },
+    "dd.et_k_gate_l": { en: "What the breaker measures and halts on right now — a different quantity from any record above." },
+    "dd.et_unread": { en: "Your equity history could not be read." },
+    "dd.et_none": { en: "No equity snapshots recorded yet." },
+    "dd.et_thin": { en: "One snapshot on record — a curve needs at least two." },
+    "dd.et_snaps": { en: "{n} snapshots" },
+    "dd.et_segments": { en: "capital basis changed {n} time(s) — this shows the current period only" },
+    "dd.et_deepest": { en: "deepest {n}% below peak" },
+    "dd.et_flat": { en: "no fall below peak on record" },
+    "dd.et_not_gate": { en: "This is your recorded history. The limit the engine halts on is a separate reading." },
     "dd.ir_spark_unread": { en: "price history not read" },
     "dd.ir_spark_absent": { en: "not on the reference feed" },
     "dd.ir_spark_thin": { en: "too few closes to draw" },
@@ -2111,7 +2136,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"b0acbb5f","zh":"cbfc093d","pt":"8ecee8f2","fr":"e1771ae8","de":"ac5ab08c","nl":"31fb57d3","ja":"b69aa29b","ko":"3e13ad91","ru":"3895e555","tr":"615c8083","it":"c5b924fc","hi":"e672c3e4","ar":"35e842ba"};
+  var CHUNKS = {"es":"d104d07b","zh":"6c769c1d","pt":"cdc98689","fr":"09abc439","de":"56a0a050","nl":"f2c961f6","ja":"a709aace","ko":"a02476b4","ru":"b5a47a6b","tr":"d617bd42","it":"a51981cd","hi":"0ab386a4","ar":"cebc827c"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

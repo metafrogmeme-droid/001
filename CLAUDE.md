@@ -3550,6 +3550,116 @@ rule; the other half is saying plainly which one you did not fix.
 
 **Twenty-six mutations, each killed on the first round.** The two worth naming are the ones only a DRIVE could reach: the renderer's write made conditional again survives every assertion about what a good read paints and dies only on symbol A's verdict still standing after symbol B's read failed; and `measured` set one line ABOVE its guard rather than below it is a mutation that leaves the field present, the flag spelled and the whole slice green except for the ramp — which is the only fixture in the corpus whose swings the detector never finds.
 
+**EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME.**
+This file already records the two-quantity version — *"every `drawdown` the
+website holds is the HISTORICAL drawdown of its own closed-trade curve, a
+different quantity under the same name, which is exactly what an implementer
+greps to and wires under 'halt threshold' with every test green"* — and the
+fix that followed reached the backstop PAYLOAD and not one label. Measured:
+six renderings print a bare `Max drawdown` / `Max DD` from six endpoints, and
+they are somebody else's record (three of them: the agent's track record, the
+agent's reputation row, a copy leader's), the caller's own account on two
+different bases (closed trades in DOLLARS; equity snapshots as PERCENT below
+peak), two simulations that traded nothing (a replay of the agent's signals at
+your stake; a backtest of rules you configured on frozen data), and the live
+gate the breaker halts on. `DD_KINDS` is the vocabulary — one row per
+quantity, naming the BOOK — and `kind()` RAISES on a name it does not hold,
+because a figure printed with no book named is the defect and a quiet fallback
+would be the thing being fixed. The qualifier is VISIBLE TEXT beside the
+figure, never a `title=`: the context row's own lesson, one panel over.
+
+> **The eighth was found by the guard written for the other seven.** The first
+> draft of this slice measured seven quantities and five identical labels, off
+> a grep of the renderings I had found. The guard — *every line that prints a
+> drawdown carries a `ddLabel`* — failed on its first run naming the backtest
+> Lab's tile, a sixth endpoint (`/api/lab/run`) no reading of the five had
+> reached. *Write the assertion, then re-run the search* is already in this
+> file three paragraphs up, with three instances; this is the fourth, and the
+> assertion found it before a human re-read anything.
+
+**AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE.** Both tile consumers
+took `([k, v, cls])`, so a fourth element is passed on every branch and read by
+nobody — the fifth granularity, invisible from the call site, which looks
+correct and complete. Caught on the track record and the scorecard while
+writing them, and then AGAIN on the Lab tile, whose `tiles.map(([k, v, c])`
+is a third copy of the same three-argument shape. The guard is structural
+rather than literal now: every `, ddLabel(...)]` row is walked to the
+`tiles.map((` that consumes it, and the consumer must BIND a fourth name and
+RENDER it. A scan for the two spellings I happened to fix would have acquitted
+the third.
+
+**Two usages carry no book ON PURPOSE, and the guard says why rather than
+filtering them quietly.** The strategy builder's `Max drawdown %` INPUT and
+`_RULE_LABEL.max_drawdown_pct`, which echoes that input back as a chip, prompt
+for a limit the reader is SETTING. There is no book to name, and labelling
+them would miscast a rule as a reading — the inverse of the defect. An
+exclusion nobody can find the reason for is the next reader's false acquittal,
+so the reason is in the guard beside the exclusion, and the exclusion is
+bounded by the rule map's own block rather than by a line match.
+
+**ONE READ, TWO PICTURES, and the second picture had no failure state at
+all.** The equity curve and the underwater chart are two views of one series,
+and the underwater half was mounted as a SIDE EFFECT of the curve panel's
+loader inside a catch that swallowed everything. `#p-underwater` had three
+touchers in the tree — the markup and two reads inside that function — and
+the panel was `hidden` by default, so it could only ever be SHOWN, never told
+a read had failed: a failed equity read left the previous account's drawdown
+chart standing under a caption quoting a depth nothing had measured. That is
+`#chartRead` one slice earlier, with the panel's own visibility as the
+swallow. One reading answers both halves, `paintUnderwater` ALWAYS writes, and
+it is called on the throw path before the curve's error propagates — the
+`_fmt_price(None)` rule, guarded at the boundary.
+
+**A flat record and an unreadable one had one sentence between them.** The old
+caption said *"No meaningful drawdown yet"* for both. `deepest` is `null` when
+nothing could be measured and `0` only when a real series never fell below its
+peak, and the four states (`unread` / `none` / `thin` / `read`) each get their
+own words — a payload with no `snapshots` ARRAY is `unread`, never `none`,
+because "nothing recorded yet" is a claim about the account and an older
+server is a claim about the payload. The footnote states the sample the way
+the chart read's states bars, and the route returns the CURRENT capital
+segment only: *"deepest 4.2% below peak"* over 6 snapshots and over 300 are
+different claims that rendered identically, and a segment count of zero is not
+printed, because a permanent "0 dropped" row trains the reader to stop reading
+the line.
+
+**Forty-three mutations and one browser-only mutation, each killed — and
+SEVEN survived the first round, none of them the code's.** Three were cases
+the prose described and no fixture planted: a series too thin to measure
+reporting `0` rather than `null`, a non-positive equity kept as a reading, and
+the footnote's *"nothing to footnote about a read that did not happen"*, which
+was driven for `unread` and not for `none` or `thin`. Two were the harness:
+its fake `document` answered `null` for the canvas the renderer's own write
+creates, so `paintUnderwater`'s early return fired and the WHOLE chart-library
+branch went undriven — a mutation that cleared the box inside that try
+survived a green suite — and its chart stub counted the `update` CALL without
+reading its argument, so handing the chart an empty series changed nothing.
+One was an assertion a sentence short: the caption's BOOK was pinned and the
+PAIRING sentence beside it, the one that keeps a history from being read as
+the limit, was not. The browser-only mutation registers the model under
+another global name: every node suite requires it through `module.exports`
+and stays green, and only Chromium reaches `self.EquityTheatreModel`.
+
+> **The seventh survivor had been reported as a KILL, and the reason is worth
+> more than the mutation.** Fixing the canvas blind spot introduced a
+> cross-realm comparison — the renderer builds `{points: [...]}` inside the
+> VM, and `assert/strict`'s `deepEqual` compares prototypes, so it could never
+> match a host literal. The suite went RED, and **a red baseline makes every
+> mutation report KILLED**: fifteen rows across three batches were false kills,
+> and the one real survivor (`ddLabel` dropping its escape) was hidden among
+> them. The driver refuses to run against a red baseline now, and the three
+> batches were re-run against a verified-green one. This is the false-KILL
+> direction of the anchor lesson one slice up — there a stray edit broke an
+> unrelated test; here the instrument's own repair did.
+
+**And the driver refuses an anchor that matches twice**, which is how
+`const s = (WORDS && WORDS[w.key]) || w.en;` — byte-identical in the chart
+read's renderer one slice earlier — was caught before it could report a kill
+for editing the wrong block. One more mutation is recorded as EQUIVALENT
+rather than counted: `etFootHtml`'s own `!read` guard is redundant with
+`footnote`'s, so removing it changes no output; the real mutation there is the
+empty-paragraph one.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 
