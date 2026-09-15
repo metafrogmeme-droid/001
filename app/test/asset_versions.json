@@ -31,9 +31,13 @@
     "sha": "b5e9e3bec0ac5f5c",
     "v": 1
   },
+  "js/chart-read-model.js": {
+    "sha": "3d516039e13a2765",
+    "v": 1
+  },
   "js/chartread.js": {
-    "sha": "8129accecb2bbfaf",
-    "v": 5
+    "sha": "4f63e87eb3bc7019",
+    "v": 6
   },
   "js/charts2d.js": {
     "sha": "80eb4148dded43a9",
@@ -52,8 +56,8 @@
     "v": 2
   },
   "js/dashboard.js": {
-    "sha": "8d5f1a1629594093",
-    "v": 186
+    "sha": "08073c304b43cf29",
+    "v": 187
   },
   "js/decision-court-model.js": {
     "sha": "ab1d7c8c9c3cd2d3",
@@ -116,8 +120,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "sha": "074466674df36e90",
-    "v": 150
+    "sha": "c81e41577cf3c719",
+    "v": 151
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",

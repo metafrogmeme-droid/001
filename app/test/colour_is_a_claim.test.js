@@ -88,7 +88,11 @@ const BASELINE = {
   // header records. The root was `lib/tickers.js`, which built the shared
   // ticker map with `change: (parseFloat(t.change24h) || 0) * 100` and handed
   // every one of its twelve consumers a measured 0.
-  'js/dashboard.js': 10,
+  // Was 10. The chart-read chips are gone from here: the Markets view and
+  // the symbol modal each coloured `dist_pct >= 0` on the VWAP chip, which
+  // painted a green "VWAP above +0.00%" at exactly the VWAP. One reading
+  // (ChartReadModel) decides the class now, and it has a third answer.
+  'js/dashboard.js': 8,
   'js/engine-card-model.js': 1,
   'js/sandbox.js': 2,
   'js/strengthmap.js': 1,

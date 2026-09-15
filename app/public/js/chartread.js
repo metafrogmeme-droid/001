@@ -61,8 +61,13 @@
       }
       return { pv: pv, vol: vol, series: series };
     }
-    var seg = accum(start), anchor = start;
-    if (!(seg.vol > 0)) { seg = accum(0); anchor = 0; }
+    var seg = accum(start), anchor = start, session = true;
+    // The fallback is reported rather than hidden: a full-window VWAP on a
+    // session that traded no volume is a different quantity from a session
+    // VWAP, and a chip that labels both "VWAP" makes one claim for two. The
+    // flag is explicit because `anchor` cannot tell them apart when the whole
+    // window is already one UTC day (start is 0 either way).
+    if (!(seg.vol > 0)) { seg = accum(0); anchor = 0; session = false; }
     if (!(seg.vol > 0)) return null;
     // Leading null points (bars before the first traded volume) carry no
     // average yet — drop them and shift the plot anchor accordingly.
@@ -80,7 +85,7 @@
     }
     var dev = Math.sqrt(ss / tail.length);
     return {
-      value: center, series: series,
+      value: center, series: series, session: session, bars: candles.length - anchor,
       anchor_index: anchor + (seg.series.length - series.length),
       upper1: center + dev, lower1: center - dev,
       upper2: center + 2 * dev, lower2: center - 2 * dev,
@@ -168,8 +173,19 @@
     var sw = zigzagSwings(candles, 1.5);
     if (sw.highs.length < 2 || sw.lows.length < 2) sw = findSwings(candles, 5);
     var hs = sw.highs, ls = sw.lows;
-    var out = { structure: 'ranging', bos: false, bos_dir: 0, choch: false, choch_dir: 0, swings: { highs: hs, lows: ls } };
+    // `measured` is the one field that separates a READ range from a window
+    // whose swings the detector could not find. Everything below the early
+    // return is the constructor's defaults — 'ranging', bos false, choch
+    // false — returned BEFORE either break is computed, so without this flag
+    // a 40-bar monotone ramp (no fractal swings at all) reports "ranging ·
+    // no BOS · no CHoCH": the strongest trend there is, printed as the
+    // neutral verdict. The engine's own _analyze_structure has the same
+    // early return, and its comment records the fractal "starving" on short
+    // windows, which is what the ATR-ZigZag above was added to reduce.
+    var out = { structure: 'ranging', bos: false, bos_dir: 0, choch: false, choch_dir: 0,
+                measured: false, swings: { highs: hs, lows: ls } };
     if (hs.length < 2 || ls.length < 2) return out;
+    out.measured = true;
     var hh = hs[hs.length - 1].p > hs[hs.length - 2].p;
     var hl = ls[ls.length - 1].p > ls[ls.length - 2].p;
     var lh = hs[hs.length - 1].p < hs[hs.length - 2].p;

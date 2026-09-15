@@ -3491,6 +3491,65 @@ its context. Two blocks, two harnesses, two guards; and the renderer drive
 immediately bought one the scans could not: a sealed `symbol` of
 `<img src=x onerror=1>` reaching the raw-record block as markup.
 
+**A CHART IS A PICTURE OF A SAMPLE, and neither surface said which.** The
+CROSSFIRE focus room puts a footnote under its chart — *"BITGET PUBLIC MIX
+CANDLES · 15M · 96 BARS · REAL ONLY"* — and that line is the whole difference
+between a read and an assertion: a chart drawn over 6 bars is visually
+identical to one drawn over 200, and so is every verdict computed from it.
+RUNECLAW already HAD the focus room (the symbol modal); what it lacked was the
+footnote, and measuring for one found the reason the two were never comparable.
+The same four chips — VWAP · structure · BOS · CHoCH — were built TWICE in
+`dashboard.js`, same bodies, different sample gates. Driven over identical
+candles: at **6, 10 and 14 bars the Markets view printed a confident VWAP
+verdict and the modal printed nothing**, and only at 15 did they agree. Both
+copies were re-spelling floors that `vwap()` and `structure()` already own
+(`< 5` and `< 15`, each in its own first line), which is exactly how they came
+to disagree — so `chart-read-model.js` spells no floor at all: it CALLS them
+and reads `null`.
+
+**The second copy had lost the line that mattered, again.** The modal cleared
+its box before writing; the Markets copy wrote inside `if (rows && rows.length)`
+and `#chartRead` had exactly TWO touchers in the whole tree — the container and
+that one writer. So a symbol whose read FAILED left the previous symbol's
+*"VWAP above +0.31% · structure bullish · BOS ↑"* on screen beside the new
+symbol's error panel: a confident directional verdict about asset B assembled
+from asset A's candles. Fixing that at each call site is seventeen chances to
+forget, so `chips()` answers an empty list for an unreadable sample and the one
+renderer ALWAYS writes — the `_fmt_price(None)` rule, guarded at the boundary.
+
+**And the verdict itself was the constructor's default.** `structure()` returns
+`ranging / bos:false / choch:false` when its swing detector finds fewer than two
+swings per side — before either break is computed — and driven, a **40-bar
+MONOTONE RAMP takes that branch**: zero swing highs, zero swing lows, reported
+as "structure ranging". The strongest trend there is, printed as the neutral
+verdict, beside a chart that is visibly a straight line up. A flat line takes
+the same branch and is "ranging" by accident, which is why it reads as working.
+`measured` is the one field that separates them, set where the knowledge is and
+never re-derived by a reader; an unmeasured structure gets WORDS, and the two
+flags read off the same empty swing list are not reported as findings, because
+"no break of structure" said without looking is still a claim.
+
+**The engine has the same branch and it is on the SIGNAL CARD.**
+`multi_timeframe._analyze_structure` returns the identical defaults under
+`if len(sh) < 2 or len(sl) < 2`, and its own comment records the fractal
+"starving" on short windows — the ATR-ZigZag was added to improve COVERAGE,
+which does not change what is reported when coverage still fails. The verdict
+string reaches `signal_card.py`, `rich_cards.py`, the position card and the
+chart renderer's BOS marker. That half is FILED with the measurement rather
+than half-fixed here: it is different files, and it needs somebody to decide
+whether any voter reads `bos: False` as evidence against a break rather than as
+an abstention. *Ask which other surface makes the same claim* is only half the
+rule; the other half is saying plainly which one you did not fix.
+
+> **And the guard anchored its own boundary to a comment.** `code_only()`
+> strips comments — that is what it is for — so `indexOf('// geo (optional)')`
+> answered −1 and the renderer guard failed on its own slice rather than on
+> anything it was guarding. Both anchors are code now. That is this file's
+> own "strip comments first" advice, arriving from the direction it does not
+> warn about: not a comment that matched, a comment that was GONE.
+
+**Twenty-six mutations, each killed on the first round.** The two worth naming are the ones only a DRIVE could reach: the renderer's write made conditional again survives every assertion about what a good read paints and dies only on symbol A's verdict still standing after symbol B's read failed; and `measured` set one line ABOVE its guard rather than below it is a mutation that leaves the field present, the flag spelled and the whole slice green except for the ramp — which is the only fixture in the corpus whose swings the detector never finds.
+
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:
 

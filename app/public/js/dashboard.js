@@ -2076,24 +2076,16 @@
       }, { timeoutMs: 14000, empty: { icon: 'icon-chart', text: 'No candle data for this pair right now.' }, errorText: T('dd.err_market', 'Market data unavailable — retry in a moment.') });
 
       // At-a-glance read under the chart — VWAP distance + structure/BOS/
-      // CHoCH from the SAME candles, computed with the engine's formulas
-      // (RCChartRead). Works for both the TV chart and the SVG fallback.
-      try {
-        const box = document.getElementById('chartRead');
-        if (box && window.RCChartRead && rows && rows.length) {
-          const parsed = window.RCChartRead.parseCandles(rows);
-          const chips = [];
-          const vw = parsed.length >= 5 ? window.RCChartRead.vwap(parsed) : null;
-          const st = parsed.length >= 15 ? window.RCChartRead.structure(parsed) : null;
-          if (vw) chips.push(`<span class="chip ${vw.dist_pct >= 0 ? 'chip--up' : 'chip--down'}">VWAP ${vw.dist_pct >= 0 ? 'above' : 'below'} ${vw.dist_pct >= 0 ? '+' : ''}${vw.dist_pct.toFixed(2)}%</span>`);
-          if (st) {
-            chips.push(`<span class="chip ${st.structure === 'bullish' ? 'chip--up' : st.structure === 'bearish' ? 'chip--down' : ''}">structure ${st.structure}</span>`);
-            if (st.bos) chips.push(`<span class="chip ${st.bos_dir > 0 ? 'chip--up' : 'chip--down'}">BOS ${st.bos_dir > 0 ? '↑' : '↓'}</span>`);
-            if (st.choch) chips.push(`<span class="chip ${st.choch_dir > 0 ? 'chip--up' : 'chip--down'}">CHoCH ${st.choch_dir > 0 ? '↑' : '↓'}</span>`);
-          }
-          box.innerHTML = chips.length ? chips.join('') + `<span class="muted small" style="align-self:center">${esc(gran)} · engine formulas</span>` : '';
-        }
-      } catch (e) { /* chips are a bonus read */ }
+      // CHoCH from the SAME candles, with the FOOTNOTE saying how many bars
+      // that was. One reading (ChartReadModel), shared with the symbol
+      // modal: this block and that one used to hold the same four chips with
+      // different sample gates, so between 5 and 14 bars they answered
+      // differently about one symbol.
+      //
+      // The write is UNCONDITIONAL. It used to sit inside `if (rows &&
+      // rows.length)`, so a failed read left the PREVIOUS symbol's verdict
+      // on screen beside the new symbol's error panel.
+      paintChartRead('chartRead', rows, { venue: 'Bitget', gran: gran });
 
       const host = document.getElementById('tvChart');
       if (!host || !window.LightweightCharts || !rows || !rows.length) return;
@@ -2937,6 +2929,70 @@
     }).join('') + `</div>`;
   }
 
+  // ── the chart read: one renderer, both charts ─────────────────────────
+  //
+  // The Markets view and the symbol modal each built the same four chips
+  // (VWAP · structure · BOS · CHoCH) with their own sample gates, so one
+  // symbol at one timeframe had two answers between 5 and 14 bars. The
+  // verdicts come from ChartReadModel now, which spells no floor of its own
+  // — `vwap()` and `structure()` each own theirs — and this renderer spells
+  // no key and picks no colour: every class it prints is the model's.
+  function crSay(WORDS, w, n) {
+    if (!w) return '';
+    const s = (WORDS && WORDS[w.key]) || w.en;
+    return n === null || n === undefined ? s : String(s).replace('{n}', String(n));
+  }
+
+  function crWords() {
+    const W = (window.ChartReadModel && window.ChartReadModel.W) || {};
+    const out = {};
+    for (const k of Object.keys(W)) out[W[k].key] = T(W[k].key, W[k].en);
+    return out;
+  }
+
+  /**
+   * Paint the chart read into `id`. ALWAYS writes: a failed read must clear
+   * the previous symbol's verdict rather than leave it standing beside the
+   * new symbol's error panel, and guarding that here means a new caller
+   * inherits it instead of having to remember.
+   */
+  function paintChartRead(id, rows, opts) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const M = window.ChartReadModel;
+    if (!M || !window.RCChartRead) { box.innerHTML = ''; return; }
+    const o = opts || {};
+    let read;
+    try {
+      read = M.chartRead(rows, window.RCChartRead, { venue: o.venue, gran: o.gran, drawn: o.drawn });
+    } catch (e) {
+      // A reading that threw is not a quiet market. Clearing is the honest
+      // floor: nothing is claimed, and nothing stale survives.
+      box.innerHTML = '';
+      return;
+    }
+    const WORDS = crWords();
+    const chips = read.items.map((it) =>
+      `<span class="${esc(it.cls)}">${esc(crSay(WORDS, it.word))}`
+      + (it.pct === null || it.pct === undefined ? ''
+        : ` ${it.pct > 0 ? '+' : ''}${esc(it.pct.toFixed(2))}%`)
+      + `</span>`).join('');
+    const p = read.provenance;
+    const foot = [];
+    if (p.src.gran) foot.push(esc(p.src.gran));
+    if (p.state === 'read') {
+      for (const part of p.parts) foot.push(esc(crSay(WORDS, part.word, part.n)));
+      foot.push(esc(crSay(WORDS, M.W.formulas)));
+      if (o.levelsFrom4h) foot.push(esc(crSay(WORDS, M.W.levels4h)));
+    } else {
+      foot.push(esc(crSay(WORDS, p.word)));
+    }
+    const thin = read.thin ? `<span class="chip dl-unread">${esc(crSay(WORDS, read.thin, read.thinN))}</span>` : '';
+    box.innerHTML = chips + thin
+      + `<span class="muted small" style="align-self:center">${foot.join(' · ')}</span>`;
+  }
+  // ── the chart read: renderer end ──────────────────────────────────────
+
   // geo (optional): { e: entry, sl, tp, d: direction } — a caller with a
   // position or signal passes its own geometry so the modal chart draws it.
   // Dynamic strings share the data-i18n dictionary. The inline English stays
@@ -3006,9 +3062,17 @@
         const c = candleCache[gran];
         if (c && Date.now() - c.at < 120000) return c.rows;
         const r = await fetchJSON(`/api/market/candles/${base}USDT?granularity=${gran}&limit=120`, { auth: false, timeoutMs: 12000 }).catch(() => null);
-        const rows = r && r.ok && r.data && Array.isArray(r.data.data) ? r.data.data : [];
-        if (rows.length) candleCache[gran] = { at: Date.now(), rows };
-        return rows.length ? rows : (c ? c.rows : []);
+        const ok = !!(r && r.ok && r.data && Array.isArray(r.data.data));
+        const rows = ok ? r.data.data : null;
+        if (rows && rows.length) candleCache[gran] = { at: Date.now(), rows };
+        if (rows && rows.length) return rows;
+        // A read that FAILED and one the venue answered empty are different
+        // facts, and this used to answer `[]` for both — so the chart read
+        // could not tell "nothing to show" from "we could not ask". The
+        // stale-cache fallback is unchanged: a chart is better drawn from the
+        // last good candles than not at all.
+        if (c) return c.rows;
+        return ok ? [] : null;
       };
       const paintTfRow = () => {
         const tf = document.getElementById('symTf');
@@ -3045,18 +3109,12 @@
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
               waves: ew ? window.RCChartRead.elliottWavePoints(ew) : [] }));
         }
-        box.innerHTML = '';
-        if (parsed.length < 15) return;
-        const vw = window.RCChartRead.vwap(parsed);
-        const st = window.RCChartRead.structure(parsed);
-        const chips = [];
-        if (vw) chips.push(`<span class="chip ${vw.dist_pct >= 0 ? 'chip--up' : 'chip--down'}">VWAP ${vw.dist_pct >= 0 ? 'above' : 'below'} ${vw.dist_pct >= 0 ? '+' : ''}${vw.dist_pct.toFixed(2)}%</span>`);
-        if (st) {
-          chips.push(`<span class="chip ${st.structure === 'bullish' ? 'chip--up' : st.structure === 'bearish' ? 'chip--down' : ''}">structure ${st.structure}</span>`);
-          if (st.bos) chips.push(`<span class="chip ${st.bos_dir > 0 ? 'chip--up' : 'chip--down'}">BOS ${st.bos_dir > 0 ? '↑' : '↓'}</span>`);
-          if (st.choch) chips.push(`<span class="chip ${st.choch_dir > 0 ? 'chip--up' : 'chip--down'}">CHoCH ${st.choch_dir > 0 ? '↑' : '↓'}</span>`);
-        }
-        if (chips.length) box.innerHTML = chips.join('') + `<span class="muted small" style="align-self:center">${gran} candles · engine formulas · levels &amp; waves from the 4h read</span>`;
+        // The SAME renderer the Markets view uses. `candlesAt` answers []
+        // for a failed fetch, which the model reads as "the venue answered
+        // no candles"; the distinction it cannot make from here is the
+        // fetch's own, and `rows` is passed through unchanged so the model
+        // decides rather than this block.
+        paintChartRead('symReadChips', rows, { venue: 'Bitget', gran: gran, levelsFrom4h: true });
       };
       paintTfRow();
       paintChartAt().catch(() => { /* the chart is a bonus read */ });
