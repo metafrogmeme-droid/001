@@ -2588,6 +2588,42 @@ guard stopped it. close/cancel/modify/stake are routed action intents with
 doors; placing was never given one, and its door is `/trade`.
 (`tests/test_a_limit_prompt_is_never_sent_unarmed.py`.)
 
+**THE HELP THAT TEACHES THE FORMAT SHOWED AN EXAMPLE THE PARSER REJECTS.**
+`parse_manual_trade`'s own error message offers two, and typed back verbatim
+the second one answers **"SHORT: SL ($1,695.0000) must be above entry
+($1,721.0000)"** — a SHORT written with a long's geometry. So a caller who
+mistypes the format, reads the help and copies the example gets a *different*
+error and still no trade, on the one chat path that opens a real position.
+The same string is `trade_help` in **all fourteen languages** (the inline
+table and twelve locale files) and a code comment beside the intercept. That
+is the `/vault` hint shape pointed at a FORMAT: a card names the thing to
+type and nothing checked that typing it works. The example is corrected
+everywhere, and the guard DRIVES it — every `<code>` block in `trade_help`,
+in every language, and both examples in the parser's error, are fed back
+through `parse_manual_trade` and must parse. Eyeballing an example is how
+this one survived however many years it has been there.
+
+**And the gate that decides whether a message IS the grammar was written
+twice.** `telegram_handler._handle_message` and `user_gateway._chat` each
+carried the same six lines — lower, strip a leading `trade `, test four verb
+prefixes, require `" sl "` — and they agreed, which is what a second copy
+looks like from outside until one of them is edited. That is the shape the
+limit-price arming had one slice earlier, where the second copy had lost the
+line that mattered. `manual_trade.looks_like_manual_trade` is the one
+reading, and it answers the BODY rather than a boolean because both callers
+then needed that string and both were re-deriving it.
+
+> **And collapsing the two copies into one NAME broke every web chat turn.**
+> `user_gateway` reused `trade_text` twice — once as the grammar's body, and
+> forty lines down as the normalised text the BARE-DIRECTIONAL branch matches
+> (`long ETH`). The seam answers `None` for everything that is not the full
+> grammar, so `re.match(pattern, None)` raised and `/chat` returned **500 on
+> every ordinary message**. Consolidating a second copy is right; giving two
+> different readings one name is how the consolidation itself becomes the
+> defect. Caught by `test_chat_actions.py`, which drives the route rather
+> than reading it — five failures on the first run, and a scan of either file
+> would have shown a tidy single call.
+
 **The server said why the turn failed and the browser threw the sentence
 away, then diagnosed the deployment instead.** `app/lib/gateway.js` writes
 `event: error` into the chat stream with the reason it has — "Timed out
@@ -3357,6 +3393,103 @@ edit breaks some unrelated test — is the one to remember. The browser-only
 mutation registers the model under another global name: every node suite
 requires it through `module.exports` and stays green, and only Chromium
 reaches `self.RiskBackstopModel`.
+
+**A ROUTE SERVED TO NOBODY is the fifth granularity with the arrow pointed at
+an endpoint.** `GET /api/guardian/flight/:decisionId` has returned one whole
+sealed record — idea, risk, macro, compliance, result, explanation — plus the
+hash chain, scrubbed for anonymous callers, since the Guardian slice. Grepped
+across `app/public/`, it had **zero** readers; the only caller in the tree was
+`guardian_redaction.test.js`. Module, def, method, registration, field — and
+now a ROUTE, answered and read by nothing, which no reachability ratchet here
+can see because the route is mounted and its handler runs.
+
+What the decision LOG shows is a row: event, thesis, gate, disposition, fill.
+The thesis is cut at 180 characters, every named risk check beyond the count
+is dropped, `macro` and `compliance` are never shown at all, and **the chain
+is nowhere on the row** — which is the half that makes a record EVIDENCE
+rather than a claim. The Decision Court is that dossier, opened from the
+sequence cell, and it leads with `sequence` / `entry_hash` / `prev_hash`.
+
+**ONE READING, THREE READERS.** Every judgement the Court needs already
+existed in `DecisionLogModel` — what a sealed price of 0 means, when a gate
+verdict is a verdict, the six fill states, the direction vocabulary — so
+`decision-court-model.js` READS them rather than restating them, and the
+guard drives `LOG.gate(` / `LOG.fill(` / `LOG.price(` being called rather
+than grepping that they are absent. Its three absence words for time, symbol
+and direction ARE the log model's objects, not new keys carrying the same
+sentence: a second key with the same words is two answers the moment one is
+reworded.
+
+**A CONFIDENCE OF 0 IS AN ABSENCE, and the producer is why.** `scan_skill`
+seals `float(cp.get("confidence", 0) or 0)`, so an unread confidence arrives
+as `0` — and a card reading *"at 0% confidence"* asserts the agent acted on a
+signal it had none in. Same rule the sibling applies to prices, from the same
+`or 0`. Out of range is not a measurement either, and a numeric STRING in a
+sealed float is junk rather than a value.
+
+**Every section names its own absence, and two of them are FOUR states.** A
+`macro` block that is missing and one that is present but holds no scalar the
+card can print are different facts and get different sentences; so are a
+record with no `risk` at all (*"This is not a pass: nothing about the gate can
+be read"*) and one whose verdict was sealed `UNKNOWN` because the recorder
+could not read the risk object at seal time (*also* not a pass). A 404 from
+the route is a fact about the published WINDOW — the record still exists in
+the chain — so it goes to the model rather than through `mustRead`, which
+would paint "could not load" over a decision that merely aged out. A 200 that
+did not parse THROWS: an empty dossier would assert the chain holds nothing
+for this decision.
+
+**The renderer spells no key and picks no colour.** Both are the rule the
+risk-backstop panel's guard states; here the guard slices the Court's block
+out of `dashboard.js` and fails on any `T('...')` in it, because a key the
+renderer spells and the model does not is a second vocabulary — and the Court
+is fourteen languages wide.
+
+**And the guard's own boundary manufactured the accusation it exists to
+make.** Its first draft sliced from the Court's first function to the end of
+the FILE (the end anchor searched forward for a function that sits *above* the
+block, so `indexOf` answered −1), swept six thousand lines of unrelated
+`dashboard.js` into the scan, and reported ten keys as a "second vocabulary" —
+none of them the Court's. Two more of its eight assertions were wrong before
+the code was: the definition regex for CSS custom properties was anchored
+`^\s*`, so on a ramp written `--s1: 4px; --s2: 8px; …` it saw only the first
+token per line and called every later step undefined; and `indexOf('js/
+dashboard.js')` found the phrase in a COMMENT above the container rather than
+the script tag. *When a fresh assertion fails, check whether the code or the
+assertion is wrong before touching the code* — three times in one file.
+
+**What the new CSS found was a token used six times and defined nowhere.**
+`--s5` was referenced by six live declarations, one of them a bare
+`padding: var(--s5)` on a panel — and an undefined custom property is invalid
+at computed-value time, so that padding was simply not there. Exactly the
+`--font-display` shape this file already records at thirty pages' scale, and
+found the same way: by a new rule reaching for the step that was not in the
+ramp (4 · 8 · 12 · 16 · **—** · 24 · 32). One line defines it; the guard
+fails on any `--sN` used and never defined, so the next gap is loud.
+(`app/test/decision_court_model.test.js`,
+`app/test/decision_court_is_reached.test.js`,
+`app/test/decision_court_renders.test.js`.)
+
+**Twenty-six mutations, each killed — and the two that survived the first
+round were one of each kind.** The door losing its `aria-label` was a REAL
+gap: nothing asserted the button had an accessible name, and its only content
+is `#4212`, which announces a number rather than what pressing it does. The
+other was the driver's — prepending `nl: ''` to a JS object literal that
+already carries an `nl` is a NO-OP, because the last key wins, so it could
+never earn a kill; it replaces the existing value now. A mutation that cannot
+change behaviour is not evidence about the guard, and reading it as one is
+how a round reports coverage it does not have.
+
+**And the renderer had only scans until that round asked for it.** The model
+was driven and the wiring was scanned, and nothing ran the HTML — which is
+the #999 shape (a card present, correct-looking and rendered zero times) with
+the arrow pointed at a dossier. The Court's renderers now sit in a block of
+their own with their own markers, below the decision log's, because they had
+been inserted INSIDE the block the log's guard slices out and runs in a VM —
+which is why that guard tried to evaluate Court code and found no model in
+its context. Two blocks, two harnesses, two guards; and the renderer drive
+immediately bought one the scans could not: a sealed `symbol` of
+`<img src=x onerror=1>` reaching the raw-record block as markup.
 
 **When there is no seam, make one.** That advice is easy to skip because the
 seam is usually the reason the scan was written. Three cases from 2026-07-30:

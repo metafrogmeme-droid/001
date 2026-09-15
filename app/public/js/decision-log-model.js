@@ -85,6 +85,11 @@
     written:    { key: 'dd.dl_written',     en: 'Ledger last written {when}.' },
     writtenWhy: { key: 'dd.dl_written_why', en: 'That is when the bot last pushed, not when it last thought: a push happens on a live confirm, rejection or close, so a quiet ledger and a quiet engine look the same from here.' },
     thesisCut:  { key: 'dd.dl_thesis_cut',  en: 'shortened — the full thesis is in the tooltip' },
+    // The DOOR's accessible name. A button whose only content is "#4212"
+    // announces a number; this says what pressing it does. It lives here
+    // rather than in the renderer because the renderer holding a word the
+    // model does not is the split this file's own guard forbids.
+    openDossier: { key: 'dd.dl_open_dossier', en: 'Open the sealed record' },
   };
   const KEYS = Object.keys(W).map(function (k) { return W[k].key; });
 
@@ -206,6 +211,10 @@
     const thesis = text(idea.reasoning);
     const seqOk = r.chain && typeof r.chain.sequence === 'number' && isFinite(r.chain.sequence);
     return {
+      // The DOSSIER's address. A row without one cannot be opened, so the
+      // renderer paints no door for it — naming a door that leads nowhere is
+      // the shape `/vault`'s command hint was cured of.
+      id: text(r.decision_id) || null,
       kind: 'decision', ms: ms, when: ms === null ? W.noTime : null, timestamp: ms === null ? null : r.timestamp,
       sym: sym || null, symWord: sym ? null : W.noSym,
       side: side(idea.direction), sideWord: side(idea.direction) ? null : W.noDir,

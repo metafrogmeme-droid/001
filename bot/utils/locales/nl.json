@@ -119,7 +119,7 @@
   "positions_none_short": "Op dit moment geen open posities.",
   "hdr_open_positions_title": "OPEN POSITIES",
   "lbl_total": "totaal",
-  "trade_help": "<b>Handmatige trade</b>\n\nFormaat:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = optionele vaste marge in USD",
+  "trade_help": "<b>Handmatige trade</b>\n\nFormaat:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = optionele vaste marge in USD",
   "trade_invalid": "<b>Ongeldige trade:</b> {detail}",
   "lbl_manual_trade": "Handmatige trade",
   "lbl_margin": "Marge",

@@ -119,7 +119,7 @@
   "positions_none_short": "현재 보유 포지션이 없습니다.",
   "hdr_open_positions_title": "보유 포지션",
   "lbl_total": "합계",
-  "trade_help": "<b>수동 거래</b>\n\n형식:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = 롱\n• <code>sell/short</code> = 숏\n• <code>margin</code> = 선택적 고정 증거금(USD)",
+  "trade_help": "<b>수동 거래</b>\n\n형식:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = 롱\n• <code>sell/short</code> = 숏\n• <code>margin</code> = 선택적 고정 증거금(USD)",
   "trade_invalid": "<b>잘못된 거래:</b> {detail}",
   "lbl_manual_trade": "수동 거래",
   "lbl_margin": "증거금",

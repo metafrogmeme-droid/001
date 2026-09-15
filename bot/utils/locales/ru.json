@@ -119,7 +119,7 @@
   "positions_none_short": "Сейчас нет открытых позиций.",
   "hdr_open_positions_title": "ОТКРЫТЫЕ ПОЗИЦИИ",
   "lbl_total": "всего",
-  "trade_help": "<b>Ручная сделка</b>\n\nФормат:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = ЛОНГ\n• <code>sell/short</code> = ШОРТ\n• <code>margin</code> = необязательная фиксированная маржа в USD",
+  "trade_help": "<b>Ручная сделка</b>\n\nФормат:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = ЛОНГ\n• <code>sell/short</code> = ШОРТ\n• <code>margin</code> = необязательная фиксированная маржа в USD",
   "trade_invalid": "<b>Неверная сделка:</b> {detail}",
   "lbl_manual_trade": "Ручная сделка",
   "lbl_margin": "Маржа",

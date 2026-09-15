@@ -54,6 +54,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
 from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
+from bot.skills.manual_trade import looks_like_manual_trade
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
@@ -3402,13 +3403,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
         # ── Manual trade via natural language ──────────────────────
-        # Intercept "buy SOL 71 sl 70 tp 76" or "trade short ETH 1721 sl 1695 tp 1842"
+        # Intercept "buy SOL 71 sl 70 tp 76" or "trade short ETH 1721 sl 1748 tp 1610"
         # before the intent router can misroute it
-        _trade_text = text.lower().strip()
-        if _trade_text.startswith("trade "):
-            _trade_text = _trade_text[6:].strip()
-        _trade_prefixes = ("buy ", "long ", "short ", "sell ")
-        if any(_trade_text.startswith(p) for p in _trade_prefixes) and " sl " in _trade_text:
+        # The reading is `manual_trade.looks_like_manual_trade` — ONE copy,
+        # because these six lines were also in `user_gateway._chat`, and two
+        # copies of a gate are two answers about whether a message opens a
+        # trade. Everything it declines is the router's `place_order` rule's,
+        # which answers with this grammar as the door.
+        _trade_text = looks_like_manual_trade(text)
+        if _trade_text is not None:
             # Looks like a manual trade command — delegate to _cmd_trade
             # Simulate the /trade command by prepending it
             original_text = update.message.text

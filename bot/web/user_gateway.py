@@ -57,6 +57,7 @@ from bot.nlp.skill_memory import (
 )
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
+from bot.skills.manual_trade import looks_like_manual_trade
 from bot.skills.skill_permissions import (
     SKILL_PERMISSION,
     WEB_CHAT_SKILLS,
@@ -700,15 +701,22 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                                   "model": (meta or {}).get("model", ""),
                                   "provider": (meta or {}).get("provider", "")})
 
-    # Manual trade via natural language — same intercept as _handle_message:
-    # "buy SOL 71 sl 70 tp 76" proposes a pending trade (never executes).
-    trade_text = text.lower().strip()
-    if trade_text.startswith("trade "):
-        trade_text = trade_text[6:].strip()
-    if (any(trade_text.startswith(p) for p in ("buy ", "long ", "short ", "sell "))
-            and " sl " in trade_text):
+    # Manual trade via natural language — the same reading as
+    # `_handle_message`: `manual_trade.looks_like_manual_trade`, which answers
+    # the BODY or None. "buy SOL 71 sl 70 tp 76" proposes a pending trade
+    # (never executes).
+    grammar = looks_like_manual_trade(text)
+    if grammar is not None:
         return _propose_from_text(request.app, tg_handler, engine, tg_id,
-                                  trade_text, name=name)
+                                  grammar, name=name)
+    # The bare-directional branch below reads the same message WITHOUT the
+    # grammar, so it needs the normalised text whether or not this was a
+    # trade line. Keeping one name for both is what broke it: the seam
+    # answers None for everything that is not the full grammar, and
+    # `re.match(pattern, None)` raises — a 500 on every ordinary chat turn.
+    bare_text = str(text or "").lower().strip()
+    if bare_text.startswith("trade "):
+        bare_text = bare_text[6:].strip()
 
     # Bare directional ask — "long ETH" / "paper short sol" (no explicit
     # levels). NEVER loosened into an order: it routes to analyze_asset, so
@@ -716,7 +724,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # with the one-tap "Trade this" card. SL discipline stays mandatory —
     # only the strict "buy X <entry> sl <sl> tp <tp>" form proposes directly.
     _bare = re.match(r"^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$",
-                     trade_text)
+                     bare_text)
     if _bare:
         skill = tg_handler.registry.get("analyze_asset")
         if skill:

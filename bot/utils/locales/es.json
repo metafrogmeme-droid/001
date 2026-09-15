@@ -119,7 +119,7 @@
   "positions_none_short": "No hay posiciones abiertas ahora mismo.",
   "hdr_open_positions_title": "POSICIONES ABIERTAS",
   "lbl_total": "total",
-  "trade_help": "<b>Operación manual</b>\n\nFormato:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = LARGO\n• <code>sell/short</code> = CORTO\n• <code>margin</code> = margen fijo opcional en USD",
+  "trade_help": "<b>Operación manual</b>\n\nFormato:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LARGO\n• <code>sell/short</code> = CORTO\n• <code>margin</code> = margen fijo opcional en USD",
   "trade_invalid": "<b>Operación no válida:</b> {detail}",
   "lbl_manual_trade": "Operación manual",
   "lbl_margin": "Margen",
