@@ -119,7 +119,7 @@
   "positions_none_short": "अभी कोई खुली पोज़िशन नहीं।",
   "hdr_open_positions_title": "खुली पोज़िशन",
   "lbl_total": "कुल",
-  "trade_help": "<b>मैनुअल ट्रेड</b>\n\nप्रारूप:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = लॉन्ग\n• <code>sell/short</code> = शॉर्ट\n• <code>margin</code> = वैकल्पिक निश्चित मार्जिन (USD में)",
+  "trade_help": "<b>मैनुअल ट्रेड</b>\n\nप्रारूप:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = लॉन्ग\n• <code>sell/short</code> = शॉर्ट\n• <code>margin</code> = वैकल्पिक निश्चित मार्जिन (USD में)",
   "trade_invalid": "<b>अमान्य ट्रेड:</b> {detail}",
   "lbl_manual_trade": "मैनुअल ट्रेड",
   "lbl_margin": "मार्जिन",

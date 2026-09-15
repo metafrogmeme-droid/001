@@ -93,7 +93,13 @@
   --fs-lg: 22px; --fs-xl: 28px; --fs-hero: 36px;
 
   /* Spacing (4-base) */
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  /* 4 · 8 · 12 · 16 · 20 · 24 · 32. `--s5` was the missing step and SIX
+     declarations already referenced it — an undefined custom property is
+     invalid at computed-value time, so `padding: var(--s5)` on a panel was
+     no padding at all, silently, wherever it appeared. Same shape as the
+     `--font-display` token that thirty pages referenced and nothing
+     defined; found by a new rule reaching for the step that was not there. */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
   /* The scale STOPPED at 32px, which is why the page had no room to breathe:
      there was no token capable of generous whitespace, so every "increase the
      spacing" pass could only re-shuffle values between 24 and 32. These are
@@ -2214,3 +2220,85 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 /* The rows stack intrinsically — no grid, no columns, so nothing to collapse
    at any width. The chip row wraps. */
 .rb-chips { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+
+/* ---- Decision Court: the dossier behind a decision-log row -------------- */
+/*
+   CROSSFIRE's DENSITY in RUNECLAW's own tokens. Not one colour literal here:
+   the mono label ramp is --text-3, the values are --text, the accent is the
+   brand's --gold, and the only semantic colour is --down on a failed check.
+   A dossier is read to decide whether to trust the engine, so nothing on it
+   is decorative and nothing is coloured that is not a claim. */
+.dl-door {
+  font: inherit; font-family: var(--font-data); font-size: var(--fs-xs);
+  color: var(--text-3); background: transparent; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 2px var(--s2); cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.dl-door:hover { color: var(--gold-bright); border-color: var(--gold); background: var(--gold-dim); }
+.dl-door:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.dc-card { width: min(760px, 100%); padding: 0; }
+.dc-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4);
+  padding: var(--s5) var(--s5) var(--s4); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--surface-2); z-index: 1;
+}
+.dc-title { font-size: var(--fs-md); margin: 0; color: var(--gold-bright); }
+.dc-sub { font-size: var(--fs-xs); color: var(--text-3); margin: 2px 0 0; max-width: 46ch; }
+.dc-body { padding: var(--s4) var(--s5) var(--s5); }
+
+/* The strip. Labels are mono and quiet; an unread cell keeps the label and
+   states the absence in words — never a dash on its own, which reads as a
+   value nobody bothered to print. */
+.dc-strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 1px; background: var(--line); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden; margin-bottom: var(--s5);
+}
+.dc-stat { background: var(--surface); padding: var(--s3); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dc-stat-l {
+  font-family: var(--font-data); font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.dc-stat-v { font-size: var(--fs-sm); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dc-stat--unread .dc-stat-v { color: var(--text-3); font-size: var(--fs-xs); font-style: italic; }
+
+.dc-sec { border-top: 1px solid var(--line); padding-top: var(--s4); margin-top: var(--s4); }
+.dc-sec:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.dc-sec-t {
+  font-family: var(--font-data); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--gold); margin: 0 0 var(--s3);
+}
+.dc-rows { display: flex; flex-direction: column; gap: 2px; }
+.dc-row {
+  display: grid; grid-template-columns: minmax(96px, 148px) 1fr; gap: var(--s3);
+  align-items: baseline; padding: var(--s2) 0;
+}
+.dc-k { font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-3); }
+.dc-v { font-size: var(--fs-sm); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
+.dc-row--mono .dc-v { font-family: var(--font-data); font-size: var(--fs-xs); }
+.dc-row--bad .dc-v { color: var(--down); }
+.dc-prose { font-size: var(--fs-sm); color: var(--text); line-height: 1.6; margin: 0; max-width: 68ch; }
+
+/* An absence is a SENTENCE, in the muted ramp — it is a reading, so it gets
+   the room a reading needs and never the colour of a verdict. */
+.dc-none { font-size: var(--fs-xs); color: var(--text-3); margin: 0; line-height: 1.55; max-width: 68ch; }
+.dc-note {
+  font-size: var(--fs-xs); color: var(--text-3); margin: 0 0 var(--s4);
+  padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); line-height: 1.55;
+}
+.dc-note--loud { color: var(--text-2); border-color: var(--line-2); }
+
+.dc-raw {
+  font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2);
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: var(--s3); margin: 0; max-height: 280px; overflow: auto; white-space: pre;
+}
+
+@media (max-width: 560px) {
+  .dc-row { grid-template-columns: 1fr; gap: 0; }
+  .dc-head { padding: var(--s4); }
+  .dc-body { padding: var(--s3) var(--s4) var(--s4); }
+}

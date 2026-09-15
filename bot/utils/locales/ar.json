@@ -119,7 +119,7 @@
   "positions_none_short": "لا مراكز مفتوحة الآن.",
   "hdr_open_positions_title": "المراكز المفتوحة",
   "lbl_total": "الإجمالي",
-  "trade_help": "<b>صفقة يدوية</b>\n\nالصيغة:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = شراء\n• <code>sell/short</code> = بيع\n• <code>margin</code> = هامش ثابت اختياري بالدولار",
+  "trade_help": "<b>صفقة يدوية</b>\n\nالصيغة:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = شراء\n• <code>sell/short</code> = بيع\n• <code>margin</code> = هامش ثابت اختياري بالدولار",
   "trade_invalid": "<b>صفقة غير صالحة:</b> {detail}",
   "lbl_manual_trade": "صفقة يدوية",
   "lbl_margin": "الهامش",

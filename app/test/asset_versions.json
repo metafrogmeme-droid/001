@@ -16,8 +16,8 @@
     "v": 1
   },
   "js/app.js": {
-    "v": 15,
-    "sha": "7d42f545580f374e"
+    "sha": "7d42f545580f374e",
+    "v": 15
   },
   "js/arena-risk-model.js": {
     "sha": "77d4026436966cf1",
@@ -43,17 +43,25 @@
     "sha": "5322acffb4caf8b7",
     "v": 33
   },
+  "js/context-chips-model.js": {
+    "sha": "e89e7947af99dd26",
+    "v": 1
+  },
   "js/creds-gate-model.js": {
-    "v": 2,
-    "sha": "062325eb3c39125a"
+    "sha": "062325eb3c39125a",
+    "v": 2
   },
   "js/dashboard.js": {
-    "v": 185,
-    "sha": "7446067f2db2d58a"
+    "sha": "8d5f1a1629594093",
+    "v": 186
+  },
+  "js/decision-court-model.js": {
+    "sha": "ab1d7c8c9c3cd2d3",
+    "v": 1
   },
   "js/decision-log-model.js": {
-    "sha": "6e81e1b8accbccd1",
-    "v": 1
+    "sha": "9d1e3bdb5454e8e6",
+    "v": 2
   },
   "js/duel.js": {
     "sha": "5dbbfd3297612824",
@@ -108,8 +116,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 149,
-    "sha": "71101b2434a8470f"
+    "sha": "074466674df36e90",
+    "v": 150
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -156,8 +164,8 @@
     "v": 1
   },
   "js/panel-error-model.js": {
-    "v": 3,
-    "sha": "301378d481241821"
+    "sha": "301378d481241821",
+    "v": 3
   },
   "js/radar3d.js": {
     "sha": "bcb4a613a57ea9dc",
@@ -173,6 +181,10 @@
   },
   "js/reveal.js": {
     "sha": "04b3822436eb04e1",
+    "v": 1
+  },
+  "js/risk-backstop-model.js": {
+    "sha": "6e482731fe53921c",
     "v": 1
   },
   "js/rune-card.js": {
@@ -204,12 +216,12 @@
     "v": 2
   },
   "js/swap-page.js": {
-    "v": 2,
-    "sha": "bbff4870494d760f"
+    "sha": "bbff4870494d760f",
+    "v": 2
   },
   "js/swap-sign-model.js": {
-    "v": 2,
-    "sha": "93a650c4329ff1f1"
+    "sha": "93a650c4329ff1f1",
+    "v": 2
   },
   "js/theater.js": {
     "sha": "2d1bbf1c17554a79",
@@ -228,8 +240,8 @@
     "v": 1
   },
   "js/venue-picker-model.js": {
-    "v": 2,
-    "sha": "761e89248a87aeb5"
+    "sha": "761e89248a87aeb5",
+    "v": 2
   },
   "js/venue-rows.js": {
     "sha": "89842fe2d768161f",
@@ -244,19 +256,11 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "dcf90af179bd83f1",
-    "v": 45
+    "sha": "5408ffb606cdab71",
+    "v": 46
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
-    "v": 1
-  },
-  "js/context-chips-model.js": {
-    "sha": "e89e7947af99dd26",
-    "v": 1
-  },
-  "js/risk-backstop-model.js": {
-    "sha": "6e482731fe53921c",
     "v": 1
   }
 }

@@ -4798,6 +4798,16 @@
       return decisionLogHtml(log, dlWords());
     }, { timeoutMs: 21000, empty: { icon: 'icon-seal', text: T('dd.dl_empty', 'Nothing has been sealed into the decision ledger yet. The engine seals a record when it confirms or rejects a LIVE trade — on a paper or unarmed bot there is nothing to seal, and this says nothing about what the agent has been thinking.') } });
 
+    // THE DOOR to the Decision Court, delegated on the PANEL. renderPanel
+    // replaces the panel's innerHTML on every refresh, so a handler bound per
+    // row would be attached to elements the next paint has already replaced.
+    C('declog').addEventListener('click', (e) => {
+      const btn = e.target.closest ? e.target.closest('[data-dc-id]') : null;
+      if (!btn) return;
+      const id = btn.getAttribute('data-dc-id');
+      if (id) openDecisionCourt(id, btn);
+    });
+
     const scan = await getScan(45000, scanRead);
     const OFFLINE = { icon: 'icon-offline', text: 'Engine telemetry arrives when the bot pushes its next scan. Market data stays live meanwhile.' };
 
@@ -9113,6 +9123,7 @@
       'dd.dl_scope': T('dd.dl_scope', 'The operator agent’s sealed ledger — the same record for every viewer, not your own account.'),
       'dd.dl_written': T('dd.dl_written', 'Ledger last written {when}.'),
       'dd.dl_written_why': T('dd.dl_written_why', 'That is when the bot last pushed, not when it last thought: a push happens on a live confirm, rejection or close, so a quiet ledger and a quiet engine look the same from here.'),
+      'dd.dl_open_dossier': T('dd.dl_open_dossier', 'Open the sealed record'),
       'dd.dl_thesis_cut': T('dd.dl_thesis_cut', 'shortened — the full thesis is in the tooltip'),
     };
   }
@@ -9172,8 +9183,26 @@
       + thesis
       + '<span class="dl-gate">' + dlChip(row.gate, WORDS) + (why ? '<span class="dl-gate-why">' + why + '</span>' : '') + '</span>'
       + '<span class="dl-out">' + dlChip(row.disposition, WORDS) + dlFillHtml(row.fill, WORDS) + '</span>'
-      + '<span class="dl-seq">' + (row.seq === null ? '' : '#' + esc(String(row.seq))) + '</span>'
+      + '<span class="dl-seq">' + dlSeqHtml(row, WORDS) + '</span>'
       + '</li>';
+  }
+
+  // The door to the DOSSIER. A real <button>, not a clickable row: the grid
+  // cell that already carries the chain sequence is exactly the affordance
+  // ("open sealed record #4212"), and a button is keyboard-reachable and
+  // announced without re-implementing any of it on an <li>.
+  //
+  // NO id, NO door. A record the window did not carry a decision_id for
+  // cannot be fetched, so nothing is painted — naming a door that leads
+  // nowhere is the shape the `/vault` command hint was cured of.
+  function dlSeqHtml(row, WORDS) {
+    const seq = row.seq === null ? '' : '#' + esc(String(row.seq));
+    if (!row.id) return seq;
+    return '<button type="button" class="dl-door" data-dc-id="' + esc(row.id) + '"'
+      + ' title="' + esc(dlSay(WORDS, { key: 'dd.dl_open_dossier', en: 'Open the sealed record' })) + '"'
+      + ' aria-label="' + esc(dlSay(WORDS, { key: 'dd.dl_open_dossier', en: 'Open the sealed record' })) + '">'
+      + (seq || '<svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>')
+      + '</button>';
   }
 
   function dlIncidentRowHtml(row, WORDS) {
@@ -9204,7 +9233,129 @@
       + esc(dlSay(WORDS, log.footer.written).replace('{when}', when)) + ' '
       + esc(dlSay(WORDS, log.footer.why)) + '</p>';
   }
+
   // ── decision log: renderers end ───────────────────────────────────────
+
+  // ── the Decision Court: renderers ─────────────────────────────────────
+  //
+  // `GET /api/guardian/flight/:decisionId` has been served since the Guardian
+  // slice and, until this panel, had no reader in `app/public/` at all. Every
+  // judgement below is `DecisionCourtModel`'s (js/decision-court-model.js),
+  // which in turn reads `DecisionLogModel` for the gate, the fill and the
+  // price rule — one reading, three readers.
+  function dcSay(WORDS, w) {
+    if (!w) return '';
+    return WORDS[w.key] || w.en;
+  }
+
+  function dcWords() {
+    const out = {};
+    const M = self.DecisionCourtModel;
+    const both = M.KEYS.concat(self.DecisionLogModel.KEYS);
+    const dict = {};
+    [M.W, self.DecisionLogModel.W].forEach(function (table) {
+      Object.keys(table).forEach(function (k) { dict[table[k].key] = table[k].en; });
+    });
+    both.forEach(function (key) { out[key] = T(key, dict[key] || ''); });
+    return out;
+  }
+
+  // Pure. `court` is the model's reading; null never reaches here.
+  function decisionCourtHtml(court, WORDS) {
+    if (court.notFound) {
+      return '<p class="dc-note dc-note--loud">' + esc(dcSay(WORDS, court.word)) + '</p>';
+    }
+    const h = court.head;
+    const V = self.DecisionCourtModel.W;
+    const strip = [
+      dcStat('when', h.when === null ? esc(dcSay(WORDS, h.whenWord)) : esc(fmtAgo(h.when)),
+        h.when === null, dcSay(WORDS, V.lWhen)),
+      dcStat('sym', esc(h.sym === null ? dcSay(WORDS, h.symWord) : h.sym), h.sym === null,
+        dcSay(WORDS, V.lSym)),
+      dcStat('side', esc(h.side === null ? dcSay(WORDS, h.sideWord) : h.side.toUpperCase()),
+        h.side === null, dcSay(WORDS, V.lSide)),
+      dcStat('conf', h.conf === null ? esc(dcSay(WORDS, h.confWord)) : esc(fmt(h.conf * 100, 0)) + '%',
+        h.conf === null, dcSay(WORDS, V.lConf)),
+      dcStat('book', esc(dcSay(WORDS, h.bookWord)), false, dcSay(WORDS, V.lBook)),
+      dcStat('act', dlChip(h.action, WORDS), false, dcSay(WORDS, V.lDisp)),
+    ].join('');
+    const sections = court.sections.map(function (sec) {
+      return '<section class="dc-sec" data-dc-sec="' + esc(sec.id) + '">'
+        + '<h4 class="dc-sec-t">' + esc(dcSay(WORDS, sec.title)) + '</h4>'
+        + (sec.word
+          ? '<p class="dc-none">' + esc(dcSay(WORDS, sec.word)) + '</p>'
+          : '<div class="dc-rows">' + sec.rows.map(function (r) { return dcRowHtml(r, WORDS); }).join('') + '</div>')
+        + '</section>';
+    }).join('');
+    const raw = court.raw
+      ? '<section class="dc-sec"><h4 class="dc-sec-t">' + esc(dcSay(WORDS, V.tRaw)) + '</h4>'
+        + '<pre class="dc-raw">' + esc(court.raw) + '</pre></section>'
+      : '';
+    return (court.anonWord ? '<p class="dc-note">' + esc(dcSay(WORDS, court.anonWord)) + '</p>' : '')
+      + '<div class="dc-strip">' + strip + '</div>' + sections + raw;
+  }
+
+  function dcStat(id, valueHtml, unread, label) {
+    return '<div class="dc-stat' + (unread ? ' dc-stat--unread' : '') + '" data-dc-stat="' + esc(id) + '">'
+      + '<span class="dc-stat-l">' + esc(label) + '</span>'
+      + '<span class="dc-stat-v">' + valueHtml + '</span></div>';
+  }
+
+  function dcRowHtml(r, WORDS) {
+    if (r.prose) return '<p class="dc-prose">' + esc(r.prose) + '</p>';
+    const label = '<span class="dc-k">' + esc(dcSay(WORDS, r.label)) + '</span>';
+    let v;
+    if (r.chip) v = dlChip(r.chip, WORDS);
+    else if (r.fill) v = dlFillHtml(r.fill, WORDS);
+    else if (r.price) v = esc(fmtPrice(r.value));
+    else v = esc(String(r.value));
+    return '<div class="dc-row' + (r.mono ? ' dc-row--mono' : '') + (r.bad ? ' dc-row--bad' : '') + '">'
+      + label + '<span class="dc-v">' + v + '</span></div>';
+  }
+
+  // The DOOR's behaviour. Three outcomes and three sentences, because a
+  // decision outside the published window is a fact about the WINDOW and
+  // must not read as a failed request.
+  async function openDecisionCourt(id, trigger) {
+    const WORDS = dcWords();
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const V = self.DecisionCourtModel.W;
+    modal.setAttribute('aria-label', dcSay(WORDS, V.title));
+    modal.innerHTML = '<div class="modal-card dc-card">'
+      + '<div class="dc-head"><div><h2 class="dc-title">' + esc(dcSay(WORDS, V.title)) + '</h2>'
+      + '<p class="dc-sub">' + esc(dcSay(WORDS, V.sub)) + '</p></div>'
+      + '<button type="button" class="btn btn--ghost dc-close">' + esc(dcSay(WORDS, V.close)) + '</button></div>'
+      + '<div class="dc-body"><div class="skel"></div><div class="skel"></div></div></div>';
+    document.body.appendChild(modal);
+    const a11y = window.RC.modalA11y(modal);
+    const closeBtn = modal.querySelector('.dc-close');
+    a11y.open(closeBtn);
+    const onEsc = (e) => { if (e.key === 'Escape') close(); };
+    function close() {
+      document.removeEventListener('keydown', onEsc, true);
+      try { a11y.close(); } catch (e) { /* fine */ }
+      modal.remove();
+      if (trigger && trigger.focus) trigger.focus();
+    }
+    document.addEventListener('keydown', onEsc, true);
+    closeBtn.onclick = close;
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+    const body = modal.querySelector('.dc-body');
+    const r = await fetchJSON('/api/guardian/flight/' + encodeURIComponent(id), { timeoutMs: 12000 });
+    try {
+      // A 404 is the WINDOW's answer, not a failed read, so it goes to the
+      // model rather than to mustRead — which would paint "could not load".
+      const court = self.DecisionCourtModel.decisionCourt(r.data, r.status);
+      body.innerHTML = decisionCourtHtml(court, WORDS);
+    } catch (err) {
+      body.innerHTML = '<p class="dc-note dc-note--loud">' + esc(dcSay(WORDS, V.unread)) + '</p>';
+    }
+  }
+  // ── the Decision Court: renderers end ─────────────────────────────────
 
   function guardianBlock(data) {
     const recs = (data && data.records) || [];

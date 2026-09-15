@@ -31,7 +31,7 @@ TRADE_HELP_EN = (
     "<b>Manual Trade</b>\n\n"
     "Format:\n"
     "<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n"
-    "<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n"
+    "<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n"
     "• <code>buy/long</code> = LONG\n"
     "• <code>sell/short</code> = SHORT\n"
     "• <code>margin</code> = optional fixed margin in USD"

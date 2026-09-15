@@ -119,7 +119,7 @@
   "positions_none_short": "現在、保有ポジションはありません。",
   "hdr_open_positions_title": "保有ポジション",
   "lbl_total": "合計",
-  "trade_help": "<b>手動取引</b>\n\n形式:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1695 tp 1842 margin 250</code>\n\n• <code>buy/long</code> = ロング\n• <code>sell/short</code> = ショート\n• <code>margin</code> = 任意の固定証拠金（USD）",
+  "trade_help": "<b>手動取引</b>\n\n形式:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = ロング\n• <code>sell/short</code> = ショート\n• <code>margin</code> = 任意の固定証拠金（USD）",
   "trade_invalid": "<b>無効な取引:</b> {detail}",
   "lbl_manual_trade": "手動取引",
   "lbl_margin": "証拠金",
