@@ -1291,10 +1291,9 @@ router.get('/exposure', async (req, res) => {
   try {
     const tg = String(req.query.telegram_id || '').slice(0, 32);
     if (!tg) return res.status(400).json({ error: 'telegram_id required' });
-    const [rows] = await pool.execute(
-      'SELECT id FROM users WHERE telegram_id = ?', [tg]);
-    if (!rows.length) return res.status(404).json({ error: 'No linked web account' });
-    res.json(await require('../lib/exposure').buildExposure(rows[0].id));
+    const userId = await webUserFor(tg);
+    if (userId == null) return res.status(404).json({ error: 'No linked web account' });
+    res.json(await require('../lib/exposure').buildExposure(userId));
   } catch (err) {
     console.error('Sync exposure error:', err.stack || err.message);
     res.status(500).json({ error: 'Exposure unavailable' });
@@ -1326,24 +1325,86 @@ router.get('/rwa', async (req, res) => {
 
 /**
  * The website chat's own cards, for the Telegram commands that render them
- * (/nft /spot /airdrops): ONE renderer per card — the same function the web
- * intercept answers with — so the two surfaces cannot drift, and Python
- * carries no second formatter. Whitelisted by name: an unknown name is a 404,
- * never a lookup on a prototype. `telegram_id` is read only by the airdrops
- * card, which adds the caller's wallet-readiness hints WHEN their Telegram
- * account is linked to a web account and answers the public radar otherwise
- * — a caller nobody could map is unlinked, not somebody else.
+ * (/nft /spot /airdrops /replay /letter /venue_router /meme_radar /wallet
+ * /defi): ONE renderer per card — the same function the web intercept
+ * answers with — so the two surfaces cannot drift, and Python carries no
+ * second formatter. Whitelisted by name: an unknown name is a 404, never a
+ * lookup on a prototype.
+ *
+ * `telegram_id` is read only by the cards with a per-person half. The
+ * airdrops card adds the caller's wallet-readiness hints WHEN their Telegram
+ * account is linked to a web account and answers the public radar otherwise;
+ * the wallet and DeFi cards ARE the caller's wallet, so a caller nobody could
+ * map gets `unlinked` (a fact the bot puts into its own words) and never a
+ * guessed wallet. The three query parameters are each one card's own
+ * argument, read through the same parser the intercept's regex feeds: a
+ * stake for the replay, an asset for the venue router, a chain for the
+ * wallet. Anything else on the query string is ignored.
  */
+/**
+ * The web account behind the identity the bot passes on — ONE mapper for
+ * every per-person read on this router. The website resolves that identity
+ * itself (lib/identity.js): a Telegram-linked account is its telegram_id, a
+ * web-only account is `web:<uid>` — "the caller by construction", in that
+ * module's words — and the first draft looked both up as a Telegram id, so a
+ * web-only account was `unlinked` to its own wallet card. null = no account
+ * for that identity, never somebody else's row.
+ */
+async function webUserFor(tg) {
+  const id = String(tg || '').trim();
+  if (!id) return null;
+  const web = /^web:(\d{1,18})$/.exec(id);
+  const [rows] = web
+    ? await pool.execute('SELECT id FROM users WHERE id = ?', [Number(web[1])])
+    : await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [id]);
+  return rows.length ? rows[0].id : null;
+}
+const UNLINKED = { reply_html: null, unlinked: true };
+const cardStake = (q) => {
+  const n = parseFloat(String(q.stake ?? ''));
+  return Number.isFinite(n) && n > 0 ? n : 1000;
+};
+const cardBase = (q) => {
+  // The intercept's own shape: two to ten alphanumerics, USDT dropped. A
+  // parameter that is not an asset name narrows to nothing rather than to a
+  // one-letter "asset" the scan then reports as missing.
+  const b = String(q.base || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/USDT$/, '');
+  return /^[A-Z0-9]{2,10}$/.test(b) ? b : '';
+};
+const cardChain = (q) => {
+  const c = String(q.chain || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 12);
+  return c || null;
+};
+// The price-alert intercept's argument is the SENTENCE: its own parser reads
+// it, so the bot hands the words over rather than a second reading of them.
+const cardText = (q) => String(q.text ?? '').slice(0, 240);
 const CHAT_CARDS = {
   nft: () => require('../lib/opensea').nftChatCard(),
   spot: () => require('../lib/spot').spotChatCard(),
-  airdrops: async (tg) => {
-    let userId = null;
-    if (tg) {
-      const [rows] = await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [tg]);
-      if (rows.length) userId = rows[0].id;
-    }
-    return require('../lib/airdrops').airdropChatCard(userId);
+  airdrops: async (tg) => require('../lib/airdrops').airdropChatCard(await webUserFor(tg)),
+  replay: (tg, q) => require('../lib/replay').replayChatCard(cardStake(q)),
+  letter: () => require('../lib/letter').letterChatCard(),
+  venue_router: (tg, q) => require('../lib/venue_router').venueRouterChatCard(cardBase(q)),
+  meme_radar: () => require('../lib/meme').memeChatCard(),
+  wallet: async (tg, q) => {
+    const userId = await webUserFor(tg);
+    return userId == null ? UNLINKED : require('../lib/wallet').walletChatCard(userId, cardChain(q));
+  },
+  defi: async (tg) => {
+    const userId = await webUserFor(tg);
+    return userId == null ? UNLINKED : require('../lib/defi').defiChatCard(userId);
+  },
+  // The website's price-alert intercept for a linked Telegram caller: arms,
+  // lists, or says "didn't catch the condition" in the intercept's own
+  // sentences, with the delivery sentence in Telegram's words. A sentence
+  // that is no alert at all gets the same help card the intercept gives an
+  // unparsed one, never an empty answer.
+  alerts: async (tg, q) => {
+    const userId = await webUserFor(tg);
+    if (userId == null) return UNLINKED;
+    const alerts = require('../lib/alerts');
+    const card = await alerts.maybeHandleAlertChat(userId, cardText(q), { channel: 'telegram' });
+    return card || alerts.alertHelpCard();
   },
 };
 
@@ -1354,12 +1415,46 @@ router.get('/card/:name', async (req, res) => {
   }
   try {
     const tg = String(req.query.telegram_id || '').slice(0, 32);
-    const card = await CHAT_CARDS[name](tg);
+    const card = await CHAT_CARDS[name](tg, req.query || {});
+    if (card && card.unlinked === true) {
+      return res.json({ reply_html: null, intent: name, unlinked: true });
+    }
     if (!card || typeof card.reply_html !== 'string') throw new Error('card renderer answered nothing');
     res.json({ reply_html: card.reply_html, intent: name });
   } catch (err) {
     console.error(`Sync card ${name} error:`, err.stack || err.message);
     res.status(500).json({ error: 'Card unavailable' });
+  }
+});
+
+// The bot's Telegram delivery of tripped alerts: undelivered trips for linked
+// accounts, oldest first, and the acks that stamp them. A failed send is
+// stamped with its reason so one trip cannot retry forever — the rule the
+// stance ack states — and the stamp says sent or failed, never one word for
+// both.
+router.get('/alerts/pending', async (req, res) => {
+  try {
+    const rows = await require('../lib/alerts').pendingTelegramTrips(Number(req.query.limit) || 50);
+    res.json({
+      trips: rows.map((t) => ({
+        id: t.id, alert_id: t.alert_id, telegram_id: String(t.telegram_id),
+        title: t.title, body: t.body, tripped_at: t.tripped_at,
+      })),
+    });
+  } catch (err) {
+    console.error('Sync alerts/pending error:', err.stack || err.message);
+    res.status(500).json({ error: 'Alert trips unavailable' });
+  }
+});
+
+router.post('/alerts/ack', async (req, res) => {
+  try {
+    const acks = Array.isArray(req.body && req.body.acks) ? req.body.acks : [];
+    const n = await require('../lib/alerts').ackTelegramTrips(acks);
+    res.json({ ok: true, acked: n });
+  } catch (err) {
+    console.error('Sync alerts/ack error:', err.stack || err.message);
+    res.status(500).json({ error: 'Ack failed' });
   }
 });
 
@@ -1428,9 +1523,9 @@ getLatestFlight.lastReadFailed = false;
 async function duelUserFor(req) {
   const tg = String(req.query.telegram_id || (req.body || {}).telegram_id || '').slice(0, 32);
   if (!tg) return { error: 'telegram_id required', status: 400 };
-  const [rows] = await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [tg]);
-  if (!rows.length) return { error: 'No linked web account', status: 404 };
-  return { id: rows[0].id };
+  const userId = await webUserFor(tg);
+  if (userId == null) return { error: 'No linked web account', status: 404 };
+  return { id: userId };
 }
 
 router.get('/duel', async (req, res) => {

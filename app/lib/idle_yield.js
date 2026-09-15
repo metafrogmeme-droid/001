@@ -118,4 +118,4 @@ async function maybeHandleIdleYieldChat(ident, userId, text) {
   }
 }
 
-module.exports = { buildIdleYield, holdingsFromWallet, maybeHandleIdleYieldChat };
+module.exports = { CHAT_RE, buildIdleYield, holdingsFromWallet, maybeHandleIdleYieldChat };

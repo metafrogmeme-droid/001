@@ -99,20 +99,23 @@ def _best_apy(product: dict) -> Optional[float]:
     return max(candidates) if candidates else None
 
 
-def fetch_savings_catalog(client) -> dict[str, dict]:
+def fetch_savings_catalog(client) -> Optional[dict[str, dict]]:
     """Best APY per coin from Bitget Earn savings, split flexible vs fixed.
 
     Returns {coin: {"flexible": apy, "fixed": apy, "flexible_id": productId}}
-    (keys may be missing). Empty dict on any API/schema failure.
+    (keys may be missing). **None on any API/schema failure** — an empty dict
+    is a catalog that was READ and lists nothing, and the two used to be one
+    value, so a venue that did not answer these keys was indistinguishable
+    from a venue with no products. `build_report` says which.
     """
     try:
         resp = client.request("GET", "/api/v2/earn/savings/product?filter=available")
     except Exception as exc:
         log.warning("Yield radar: savings catalog fetch failed: %s", exc)
-        return {}
+        return None
     if not isinstance(resp, dict) or str(resp.get("code")) not in ("00000", "0"):
         log.warning("Yield radar: savings catalog error: %s", resp)
-        return {}
+        return None
     catalog: dict[str, dict] = {}
     for p in resp.get("data") or []:
         coin = str(p.get("coin", "")).upper()
@@ -191,9 +194,15 @@ def build_report(client, futures_free_usdt: Optional[float] = 0.0,
     report = YieldReport()
 
     catalog = fetch_savings_catalog(client)
+    if catalog is None:
+        # Account-neutral: the same report is built over a linked caller's
+        # keys now, and "the operator keys" named the wrong account for them.
+        report.error = ("Earn catalog could not be read — Bitget Earn did not "
+                        "answer these keys.")
+        return report
     if not catalog:
-        report.error = ("Earn catalog unavailable — Bitget Earn API not "
-                        "reachable with the operator keys.")
+        report.error = ("Bitget Earn lists no savings products right now — the "
+                        "catalog was read and is empty.")
         return report
 
     idle: dict[str, tuple[float, str]] = {}
@@ -322,19 +331,23 @@ def _post(client, path: str, body: dict) -> ActionResult:
     return ActionResult(False, f"Bitget error: {msg}")
 
 
-def fetch_savings_assets(client) -> list[dict]:
+def fetch_savings_assets(client) -> Optional[list[dict]]:
     """Current FLEXIBLE savings holdings: [{product_id, coin, amount, apy}].
 
-    [] on any failure — the caller treats that as "nothing to redeem".
+    **None on any failure.** This used to answer [] and its docstring said
+    "the caller treats that as 'nothing to redeem'" — a confident negative
+    about the caller's own money, manufactured from a read that never
+    happened, on the card whose whole job is to show what is held. [] is a
+    venue that answered and holds nothing.
     """
     try:
         resp = client.request(
             "GET", "/api/v2/earn/savings/assets?periodType=flexible")
     except Exception as exc:
         log.warning("Yield radar: savings assets fetch failed: %s", exc)
-        return []
+        return None
     if not isinstance(resp, dict) or str(resp.get("code")) not in ("00000", "0"):
-        return []
+        return None
     data = resp.get("data") or {}
     rows = data.get("resultList") if isinstance(data, dict) else data
     out: list[dict] = []
@@ -484,7 +497,11 @@ def execute_stake_fixed(client, coin: str, product_id: str, days: int,
 def execute_unstake(client, product_id: str) -> ActionResult:
     """Redeem a flexible savings holding IN FULL and (for stables) move the
     proceeds back to futures margin so the engine can trade them again."""
-    holding = next((h for h in fetch_savings_assets(client)
+    holdings = fetch_savings_assets(client)
+    if holdings is None:
+        return ActionResult(False, "Earn holdings could not be read — nothing "
+                            "was redeemed and nothing was moved. Try again.")
+    holding = next((h for h in holdings
                     if h["product_id"] == str(product_id)), None)
     if holding is None:
         return ActionResult(False, "That savings position no longer exists — "

@@ -126,25 +126,22 @@ const CHAT_RE = new RegExp(
   + '(?:every|all|each)\\s+(?:signal|trade|position)s?'
   + '(?:.*?\\$?([\\d][\\d,]*\\.?\\d*)\\s*(k|m)?)?', 'i');
 
+const { esc } = require('./esc');
+
 function fmtMoney(v) {
   const n = Number(v);
   return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 /**
- * If `text` is a what-if ask, run the replay and return a chat-shaped reply;
- * otherwise null. Never throws.
+ * The what-if replay as the chat card — ONE renderer for both surfaces. The
+ * web intercept below answers with it, and the bot's /replay command fetches
+ * this same card over the sync channel (`GET /api/bot/sync/card/replay`).
+ * The record replayed is the operator agent's, for every reader; the stake
+ * is the caller's. Never throws.
  */
-async function maybeHandleReplayChat(userId, text) {
-  const m = String(text || '').trim().match(CHAT_RE);
-  if (!m) return null;
+async function replayChatCard(stake) {
   try {
-    let stake = 1000;
-    if (m[1]) {
-      stake = parseFloat(m[1].replace(/,/g, ''));
-      if ((m[2] || '').toLowerCase() === 'k') stake *= 1e3;
-      if ((m[2] || '').toLowerCase() === 'm') stake *= 1e6;
-    }
     const r = await runReplay({ stake });
     if (!r.trades) {
       return {
@@ -162,7 +159,7 @@ async function maybeHandleReplayChat(userId, text) {
         + `${sign} Net: <b>${fmtMoney(f.net_pnl_usd)}</b> (${f.return_pct >= 0 ? '+' : ''}${f.return_pct}% on a per-trade stake)<br>`
         + `• Win rate: <b>${r.win_rate_pct}%</b> (${r.wins}W / ${r.losses}L)<br>`
         + `• Max drawdown: ${f.max_drawdown_pct}%<br>`
-        + (f.best_trade ? `• Best: ${f.best_trade.symbol} ${fmtMoney(f.best_trade.pnl_usd)} · Worst: ${f.worst_trade.symbol} ${fmtMoney(f.worst_trade.pnl_usd)}<br>` : '')
+        + (f.best_trade ? `• Best: ${esc(f.best_trade.symbol)} ${fmtMoney(f.best_trade.pnl_usd)} · Worst: ${esc(f.worst_trade.symbol)} ${fmtMoney(f.worst_trade.pnl_usd)}<br>` : '')
         + `• Compounding the bankroll instead: ${fmtMoney(r.stake)} → <b>${fmtMoney(r.compound.final_usd)}</b><br><br>`
         + '<i>Hypothetical mirror of real recorded trades — past performance ≠ future results. '
         + 'The Portfolio view has the full curve and filters.</i>',
@@ -173,4 +170,25 @@ async function maybeHandleReplayChat(userId, text) {
   }
 }
 
-module.exports = { CHAT_RE, computeReplay, runReplay, maybeHandleReplayChat };
+/** The stake a what-if ask names ("$1k", "500", "2m"), or the default. */
+function stakeFromMatch(m) {
+  let stake = 1000;
+  if (m && m[1]) {
+    stake = parseFloat(m[1].replace(/,/g, ''));
+    if ((m[2] || '').toLowerCase() === 'k') stake *= 1e3;
+    if ((m[2] || '').toLowerCase() === 'm') stake *= 1e6;
+  }
+  return stake;
+}
+
+/**
+ * If `text` is a what-if ask, run the replay and return a chat-shaped reply;
+ * otherwise null. Never throws.
+ */
+async function maybeHandleReplayChat(userId, text) {
+  const m = String(text || '').trim().match(CHAT_RE);
+  if (!m) return null;
+  return replayChatCard(stakeFromMatch(m));
+}
+
+module.exports = { CHAT_RE, computeReplay, runReplay, maybeHandleReplayChat, replayChatCard };

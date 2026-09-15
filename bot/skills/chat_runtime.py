@@ -157,15 +157,67 @@ _CHAT_CANNOT_ACT_RULE = (
     "/reset clears a halt. On the web, the Controls panel's Emergency stop "
     "and Pause act on the caller's own agent. Never say the bot was halted, "
     "paused, stopped or resumed unless a tool result in THIS turn says so.\n"
+    "- You cannot stake, unstake or move funds into or out of Earn from this "
+    "chat, and no tool here can. If asked to, say so and name the door: "
+    "/stake and /unstake in Telegram act on the Bitget account the caller "
+    "linked to the bot (the trader role is needed; an admin who linked "
+    "none acts on the operator's account) and show a plan card that moves "
+    "nothing until Confirm is tapped; the website's chat can say where a "
+    "caller's own idle assets could earn (a recommendation, never a move). "
+    "Never say funds were staked or redeemed unless a tool result in THIS "
+    "turn says so.\n"
 )
+
+#: The door to a linked exchange account, per surface. A slash command told
+#: to a web caller is a door painted on a wall: the web chat cannot run
+#: /connect, and the dashboard has its own step — Account -> "Connect an
+#: exchange" (API keys), which is also where the key state is shown.
+#: Telegram and the operator's API bridge get the commands. Keyed by the
+#: transport the turn arrived on (`_llm_chat`'s ``surface``), never guessed
+#: from the id. ONE table for the prompt's no-account block and the stake
+#: notice, and the rule above names no linking command at all: it is one
+#: string every surface reads, and its first draft said "linked with
+#: /connect" — the guard against exactly that shape caught it on the full
+#: run, and no suite the slice had been running could have.
+LINK_DOOR: dict[str, dict[str, str]] = {
+    "web": {"link": "the dashboard's Account > Connect an exchange step links "
+                    "exchange keys",
+            "state": "the dashboard's Account > API keys page shows the key "
+                     "state, and re-entering the keys there replaces them",
+            "linked": "on the dashboard's Account > Connect an exchange step"},
+    "telegram": {"link": "/connect links exchange keys",
+                 "state": "/exchange shows the key state, and re-linking with "
+                          "/connect replaces them",
+                 "linked": "with /connect"},
+}
+
+
+def link_door(surface: str) -> dict[str, str]:
+    """The surface's own linking door. A transport the table does not name
+    (the api bridge, an empty string) gets Telegram's commands, as the
+    no-account block always has: the bridge is the operator's."""
+    return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
+
 
 #: The routed ACTION intents: `intent_router` names them, neither transport
 #: dispatches them, and both answer with `act_intent_notice`. A request to
 #: act on a surface that cannot act meets a door and never a narrator.
-ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position")
+ACT_INTENTS: tuple[str, ...] = ("close_position", "cancel_order", "modify_position", "stake_request")
 ACT_KIND: dict[str, str] = {
     "close_position": "close", "cancel_order": "cancel", "modify_position": "modify",
+    "stake_request": "stake",
 }
+
+_UNSTAKE_VERB = re.compile(r"\b(?:unstake|redeem|withdraw)\b", re.IGNORECASE)
+
+
+def stake_verb(text: str) -> str:
+    """Which way a staking request points — "unstake" for a redemption
+    ("unstake my usdc", "redeem my earn"), "stake" for everything else — so
+    the notice names the door that matches (/unstake or /stake) and the
+    Telegram branch dispatches the operator's matching plan card. Read from
+    the words, once, for both surfaces."""
+    return "unstake" if _UNSTAKE_VERB.search(str(text or "")) else "stake"
 
 _ACT_WORDING: dict[str, dict[str, str]] = {
     # verb phrase for the refusal, the door, and the closing claim
@@ -205,7 +257,8 @@ def cannot_act_rule(surface: str = "telegram") -> str:
 
 
 def act_intent_notice(kind: str, symbol: str | None = None,
-                      surface: str = "telegram", *, also_asked: bool = False) -> str:
+                      surface: str = "telegram", *, also_asked: bool = False,
+                      verb: str | None = None) -> str:
     """What a routed request to act is told, on both surfaces.
 
     One function so the Telegram card, the web reply and the prompt rule
@@ -223,10 +276,39 @@ def act_intent_notice(kind: str, symbol: str | None = None,
     action ("close my ETH and scan the market"). One card answering a message
     with two asks, and no sentence about the other, reads as though both were
     handled — the same silence the routed action itself exists to end.
+
+    `stake` is the fourth kind and its door is not a button: /stake and
+    /unstake show a plan card over the Bitget account the caller LINKED (the
+    operator's, for an admin who linked none), and it moves nothing until
+    Confirm is tapped — so the notice names the door (`verb` picks which),
+    says whose account it is over, how it was linked (the SURFACE's own
+    door, `link_door`: /connect here, the dashboard's step on the web,
+    where a slash command is a door painted on a wall), what the role gate is,
+    says where a caller's OWN idle assets can be read about (the website's
+    idle-yield read, a recommendation and never a move), and that nothing
+    was staked or redeemed. The Telegram branch follows it with the plan
+    card for a caller whose role holds `stake` and with nothing for anyone
+    else.
     """
     rest = (" You asked for something else in the same message; that part "
             "has not been run \u2014 send it on its own and I will."
             if also_asked else "")
+    if kind == "stake":
+        door = "/unstake" if verb == "unstake" else "/stake"
+        here = ("nothing here can" if surface == "web"
+                else "nothing in this conversation can")
+        where = ("in the Telegram bot" if surface == "web" else "here")
+        read = ("ask here: " if surface == "web"
+                else "the web app's chat has a read: ")
+        linked = link_door(surface)["linked"]
+        return ("I don't stake or redeem funds from chat, and " + here + ". "
+                f"Staking {where} is <code>{door}</code> \u2014 a plan card over the "
+                f"idle stables of the Bitget account you linked {linked} (the "
+                "trader role; an admin who linked none gets the operator's "
+                "account), and it moves nothing until Confirm is tapped. For "
+                "where YOUR idle assets could earn, " + read
+                + "\u201c<i>put my idle cash to work</i>\u201d \u2014 a recommendation, never a "
+                f"move. Nothing has been staked or redeemed.{rest}")
     if kind == "modify":
         where = ("are below" if surface != "web"
                  else "are on the positions card in Telegram")

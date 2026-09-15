@@ -57,6 +57,22 @@ class TestSecretsAreScrubbed:
         assert "AAH0abcdefghijklmnopqrstuvwxyz123456" not in out
         assert "REDACTED" in out
 
+    def test_the_shapes_no_key_value_regex_could_see_are_scrubbed(self):
+        # Each of these passed `_safe_exc_text` before the one vocabulary:
+        # the Authorization header a provider error echoes, a bare provider
+        # key, and an env name that ends in KEY without starting with api.
+        for msg, secret in (
+            ("401 from provider: Authorization: Bearer sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123",
+             "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123"),
+            ("provider refused sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+             "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"),
+            ("KeyError: WEB3_SIGNER_PRIVATE_KEY=4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a",
+             "4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a"),
+        ):
+            out = _safe_exc_text(_Err(msg))
+            assert secret not in out, msg
+            assert "REDACTED" in out, msg
+
     def test_a_url_query_string_is_dropped(self):
         # Credentials ride in query strings as often as in key=value pairs,
         # and once they are one token no key=value regex sees them.
@@ -95,6 +111,16 @@ class TestItIsStillSafeMarkup:
         out = _safe_exc_text(_Err("<i>api_key=LEAKED123456</i>"))
         assert "LEAKED123456" not in out
         assert "&lt;i&gt;" in out
+        # The input that tells the two orders apart on the table's own rows:
+        # a request body echoed by a driver, query-shaped but behind no URL,
+        # so nothing drops it whole. Escaped first, `&sign=` becomes
+        # `&amp;sign=` and the parameter row never sees the `&` it anchors on
+        # — the signature reaches the user. The first mutation round's one
+        # survivor was exactly "escape before scrub", equivalent on every
+        # fixture the suites then held.
+        out = _safe_exc_text(_Err("bad request body symbol=BTCUSDT&sign=abc123def rejected"))
+        assert "abc123def" not in out
+        assert "symbol=BTCUSDT" in out, "the non-secret parameter is the diagnostic"
 
 
 class TestItNeverBecomesTheFailure:

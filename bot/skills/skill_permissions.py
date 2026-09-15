@@ -179,6 +179,17 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "nft": "nft",
     "spot": "spot",
     "airdrops": "airdrops",
+    # Six more website cards as commands: the four public reads and the two
+    # wallet reads, each under a permission of its own name, held by trader,
+    # paper and viewer — the record is the operator agent's for every reader
+    # and the wallet is the caller's own.
+    "replay": "replay",
+    "letter": "letter",
+    "venue_router": "venue_router",
+    "meme_radar": "meme_radar",
+    "wallet": "wallet",
+    "price_alert": "price_alert",
+    "defi": "defi",
 }
 
 # Skills a chat transport must never `execute()` directly, whatever the

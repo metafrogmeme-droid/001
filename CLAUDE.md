@@ -632,9 +632,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 94 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 104 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 85 of the 94 reach the tool-less chat model and 9
+typed as the card prints them, 95 of the 104 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -716,10 +716,10 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **48 names including `halt`,
+whole vocabulary plus every chat tool: **51 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 45), because the
+surface than for the one it modelled best (telegram, 48), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1092,6 +1092,418 @@ exists here must never be answered "ask the web app".
 
 **Twenty-nine mutations, each killed, and the two that survived the first round were one of each kind.** The route's guard against a renderer answering no card survived because no renderer in the tree can — each has its own honest unavailable card — so the branch could not be driven from the product's own inputs; it is driven now by patching the export the route reads at call time, because a 200 carrying no `reply_html` reaches Telegram as "the channel did not answer", a different fact from the truth. The other was the driver's: routing an unlinked caller through the DB with a null id reads no row and hands back the same public radar, an EQUIVALENT mutant, and the line's real claim — a linked caller gets THEIR card, hints and all — is the mutation now, killed by the linked-wallet test.
 
+**The other six doors came down the same way, and the two that are somebody's
+wallet needed a third word.** The what-if replay, the weekly letter, the
+venue router and the meme radar have no account in them — the operator
+agent's record mirrored at the caller's stake, the agent's letter, the
+funding-cost table, DEXScreener's feed — so they went the way `/nft` did:
+`replayChatCard`, `letterChatCard`, `venueRouterChatCard` and `memeChatCard`
+are the intercepts' own renderers, exported, each intercept a regex test in
+front of one, and `/replay`, `/letter`, `/venue_router` and `/meme_radar`
+fetch the card over the same route. The wallet mirror and the DeFi positions
+are different: they ARE the caller's linked wallet, which the website maps
+from their Telegram id, so a caller nobody could map cannot be handed the
+public anything — there is no public wallet. The route answers `unlinked`
+for that caller, a fact of its own beside "a card" and "the channel did not
+answer", because the three get three different sentences: `_link_hint` for
+a channel that did not answer, `_unlinked_hint` for an account the website
+could not map (Telegram names `/link`; a web caller is mapped by
+construction, so that sentence claims no door), and the card. The route has
+to say which — `credential_pull._request` folds a 404 into None, so a 404
+for "no such account" would have reached Telegram as "the web-app channel
+did not answer", and an operator would have gone looking for a dead tunnel
+over a missing link. The door table (`web_reads.json`) is down to the one
+row that is a WRITE — a price alert, whose push channel the website owns —
+and the idle-yield read stays where it is on purpose: `/idleyield` exists as
+the operator's account through the executor, the website's is the caller's
+wallet through the gateway, different holdings under one optimiser, so a
+command of that name would answer a different question than the intercept.
+
+**Three of the six take an argument the intercept reads out of the
+sentence, and the reader has to be the intercept's.** "replay every signal
+with $1k", "best venue for BTC", "my wallet on base" — the stake, the asset
+and the chain are capture groups in `replay.js`, `venue_router.js` and
+`wallet.js`, and the router's rules carry no kwargs for them. A default
+written on the Python side would be a second copy of the website's, so
+`bot/nlp/web_card_args.py` mirrors the three capture groups and answers
+"none named" (`None`, `''`) rather than a figure: the route defaults the
+stake to the website's $1000, the asset to the top five, the chain to every
+chain, in one place. The slash forms (`/replay 500`, `/venue_router BTC`,
+`/wallet base`) read their token through the same helpers, and the web seams
+receive the WORDS — `_WEB_SEAM` callables take the raw text as a fourth
+argument — because the argument was decided by a regex on the surface these
+phrasings came from, not by the router. `fetch_web_card` sends a card's own
+parameters and RAISES on one the card does not take (`WEB_CARD_PARAMS`): a
+seam handing a card an argument it does not take is a programming error,
+not a value to drop quietly. And the route parses each parameter the way
+the intercept's regex would have — `cardBase` demands two to ten
+alphanumerics, because its first draft turned `<b>` into a one-letter asset
+"B" the scan then reported as missing. **The stake's spelling was a
+rounding.** The first draft sent it through `:g`, which keeps six
+significant digits, so `/replay 12345.67` reached the route as `12345.7`
+and a stake of `999999.99` as a round million — the caller's own figure,
+printed back on the card as a different one, on the one argument the card
+exists to take. Twelve significant digits round-trip anything a human
+types, and the pin is the round trip (`float(sent) == typed`), not the
+spelling.
+
+**Escaping belongs at the forwarding boundary, and the boundary has two
+halves.** Slice 4 filed the NFT card's unescaped collection names; the
+sweep it promised found the same shape in six of the eight remaining
+intercepts and two `<span class="muted">` tags on conditional branches
+(`wallet.js`, and `idle_yield.js`, whose card is not forwarded — the
+idle-yield collision above — so its span stays and the converter below is
+what would carry it). The browser's markup allowlist tolerates a
+token named `<b`; Telegram's HTML parser refuses the WHOLE message, and the
+send chokepoint's fallback then strips every tag — the card arriving
+without its bold is the quiet failure, and a DEXScreener symbol is
+attacker-controlled text. So the renderers escape every third-party string
+(`app/lib/esc.js` is the one helper now; `letter.js`, `alerts.js` and
+`research.js` each carried a private copy), the unreadable-chains line is an
+`<i>` rather than a `<span>`, and `web_card_text` keeps only the tags
+Telegram renders (`b`, `i`, `code`) and drops any other tag with its text
+kept — so a `<span>` a website card grows tomorrow arrives without the span
+rather than not at all, and an escaped `&lt;b` inside a `<b>` stays text on
+both surfaces. The Node route test sweeps every card for tags outside that
+set; the Python side drives a span, a bold and an escaped angle bracket
+through the converter.
+
+**The router's smallest change was the one word the social gate had.**
+`wallet` had no rule at all — "my wallet" is two words, no trading word,
+greeted — so it gained one, registered before the Portfolio keyword rules so
+"wallet balance" is the wallet and a bare "balance" stays `get_portfolio`,
+and the word went into the social vocabulary. The FULL gate then found what
+the slice's own suites could not: the scan corpus pins "scan my wallet" as
+a decoy — "not a scan at all" — to the MODEL, which was the honest
+destination while Telegram had no wallet read, and the new rule claims it.
+The website answers those words with its wallet card, so the pin moved to
+the wallet card rather than the rule bending around a sentence the product
+now reads; the row is still not a scan. The other five rules kept
+their place (order decides which rule answers) with their explanations
+naming the command, and their intents moved from the door table to the
+command table on both surfaces the way the first three did: `_WEB_SEAM`,
+`WEB_ROUTED_PERMISSION`, `ROUTED_INTENT_SEAM` and the literal pin each grew
+the same six rows under permissions of their own names held by trader,
+paper and viewer; the catalogue lists them under Market context and
+Portfolio & record with twelve locale descriptions; the guarded-commands
+baseline, the INCOME_MAP rows and this file's driven counts moved in the
+same commit (47 record sites; 100 catalogue commands, 91 reaching the model;
+nine commands with an underscore).
+
+**The review found the route could not map the one identity the website
+hands the bot for a web-only account.** `lib/identity.js` resolves a
+Telegram-linked account to its Telegram id and a web-only account to
+`web:<uid>` — "the caller by construction", in its own words — and
+`webUserFor` looked both up as a Telegram id, so a web-only account was
+`unlinked` to its own wallet card, under a web sentence telling them their
+account was "not linked to a RUNECLAW web account". Two of the router's
+other per-person reads (`/exposure`, the duel) carried their own copy of the
+same lookup. Reachability is narrow and worth stating: on the web the Node
+intercepts claim every wallet, DeFi and airdrop phrasing before the turn
+reaches Python — the Python rules are the intercepts' own patterns, or
+narrower — so no web-only caller reaches the card route through chat today.
+But the route is the bot's door to these cards for any caller, its answer
+for the website's own identity vocabulary was wrong, and the sentence over
+it was false: "not linked" is a Telegram fact. One mapper now, every
+per-person read on the router asks it, and the web sentence says what the
+website answered — it could not map this chat to an account.
+(`tests/test_the_public_and_wallet_reads_are_telegram_commands.py`,
+`app/test/sync_card_route_serves_the_public_and_wallet_cards.test.js`.)
+
+**Forty-three mutations, each killed on the first round — and one kill was
+for the wrong reason.** The stake spelled with `str()` instead of `:g` died on a
+pin of the SPELLING, and the route reads both spellings as one number: an
+equivalent mutant, killed by an assertion about bytes, which is a kill that
+proves nothing. Asking what the spelling has to do — round-trip the figure —
+is what found the six-digit rounding above; the mutation is the `:g` format
+now, and it dies on `12345.67`. Three more are worth naming for what they
+prove about the guards rather than the code. The route
+answering a 500 for a caller nobody can map, and the seam rendering
+`unlinked` as the channel-down sentence, each survive every assertion on the
+card itself and die only on the sentence being a DIFFERENT one from
+`_link_hint`'s — the hedge that reads right until an operator goes looking
+for a dead tunnel over a missing link. The escape helper leaving `<` alone
+dies on a DEXScreener token named `<b`, driven through the route's own card
+rather than read off the helper. And `wallet` leaving the social vocabulary
+dies on the one word typed alone: no rule claims it, so without the word it
+is greeted, and the router test types it bare.
+
+**The fifteenth intercept had no door and the fourteenth had a pin, and the
+difference is worth writing down.** The website's idle-yield optimiser reads
+the wallet the caller signed in with; this chat's `/idleyield` is the
+OPERATOR's exchange account under the same word, admin-only, and no rule
+claimed the words at all — "idle yield" and "my idle usdc" were greeted,
+"put my idle cash to work" reached a model told nothing about the website.
+It is a door row now, the price alert's shape: the notice names the surface
+that has the read, the words it takes, and what this chat's same-named
+command does, off the catalogue. The rule is narrower than the web's on
+purpose — the intercept takes a bare "idle" and "stake my …", and here
+"stake my usdc" is a request to ACT that `/stake`'s confirm card owns, so it
+stays out of the door and in the decoy table (today it is greeted, which is
+its own gap, filed). The intercept exports its pattern now, so the JS side
+checks the example the notice quotes, as it does for the other row. And
+`exposure` stays where slice 1 pinned it: the website answers "my exposure"
+with its cross-venue netting card, which `/exposure` renders here by name,
+while the words are the risk engine's — a pinned routing from the corpus
+work, kept because a recorded decision is overturned by a new argument or
+not at all, and "one word names two cards" is the argument that was already
+weighed. Fifteen intercepts: twelve commands, two doors, one recorded
+difference — and the two counts this file drives moved by one each, the
+door being a routed name that dispatches nowhere.
+(`tests/test_the_website_only_reads_meet_a_door_on_telegram.py`.)
+
+**Seven mutations, each killed on the first round, and one of them for a
+reason other than its name.** The example swapped for a phrasing the web
+does not claim died on the PYTHON pin — Telegram routes it nowhere either —
+and the JS pin's own direction, a phrasing Telegram routes that the
+intercept declines, has no instance: the rule is narrower than the
+intercept's by construction, so the one mutation the JS side can kill is
+the export leaving the intercept, and it does.
+
+**A request to STAKE was three words, no trading word, and greeted.**
+"stake my usdc" reached no rule — the website's idle-yield intercept reads
+"stake my …" as a yield question, and here `/stake` and `/unstake` move the
+OPERATOR's funds behind a Confirm card, admin-only — so a request to move
+money was answered with "hey!", and "stake my eth" reached a model that
+holds no staking tool. It is the fourth routed action now, the
+close/cancel/modify shape with one difference: its door is not a button.
+The notice says whose door it is (`/stake` or `/unstake`, read off the
+verb), where a caller's OWN idle assets can be read about (the website's
+idle-yield read — a recommendation, never a move), and that nothing was
+staked or redeemed. On Telegram the operator's own plan card follows for an
+admin, because that card moves nothing until Confirm is tapped and refuses
+everyone else, and nothing follows for anyone else — never the positions
+card, which is not this request's door, and never the command's refusal
+under a notice that has already said so. The rule is anchored to the whole
+message like the close rule, so "should i stake eth" and "what is staking"
+stay the model's; its object is written as an asset, an amount of one, the
+stables, Earn or "it all" — and the stables had to be spelled out, because
+they are quote currencies the ticker list never held and the one thing
+people stake, so the first draft matched "stake my eth" and not "stake my
+usdc". The transcript guard refused the next draft: it recorded in each arm
+of the admin `if` and nothing at the branch's own level, which is a record
+the guard cannot see above the return — one record now, written below the
+arm, with the arm adding only the card it showed. The prompt's cannot-act
+rule names the door too.
+(`tests/test_an_action_request_meets_a_door_on_every_surface.py`.)
+
+**Twelve mutations, each killed — and the one that survived the first
+round was the guard's.** The prompt rule's opening verbs were dropped, and
+the pin, reading "stake" as a substring, was satisfied by the "/stake"
+further along the same sentence: a pin on a word the sentence carries
+twice checks nothing about either. It names the claims now — the verbs,
+whose door it is, that the card moves nothing until Confirm, and the
+"never say" — and the mutation dies on the first of them.
+
+**The last door row was a WRITE, and the door became the write.** The website
+owned price alerts end to end — a parser, a once-a-minute evaluator over
+public tickers, delivery by web push ONLY — and the bot had no alert code at
+all, so a linked user who armed one on the web was never told on Telegram and
+on Telegram the words met a notice. One store and one evaluator, the
+website's, with three things around them. The WORDS are the argument:
+`/price_alert tell me when BTC drops below 100k` hands the sentence to the
+intercept's own parser over the card route (`WEB_CARD_PARAMS` gained a `text`
+row and a per-parameter bound, because the 32 that bounds a token cut that
+sentence one character short), so its phrasings are the phrasings, its help
+sentence answers words it could not read — the same card for a sentence that
+is no alert at all, never an empty answer — and the delivery sentence is in
+the channel's words, from one renderer with a channel argument rather than a
+second copy. A trips queue: a trip writes one row BESIDE the push, same title
+and body, and the proactive monitor polls it once a minute and messages the
+linked account through a DM function that RAISES where the alert sender
+swallows, because the ack is three-valued — sent; failed, with the exception's
+class name and never its text; or nothing read — and "sent" acked for a
+blocked bot would either retry forever or lie; an ack that did not land keeps
+the sent ids so a row the website still lists is acked again and never sent
+again. And an unlinked caller is told NOTHING WAS ARMED, a third sentence
+beside the wallet cards' "nothing was read" and the channel's "did not
+answer". The router takes the intercept's trigger words anchored where the
+intercept anchors them (at the start: "can you tell me when btc drops?" is
+nobody's) under the education lookahead the idle-yield rule uses, because
+"what is a price alert" handed to a parser answers "didn't catch the
+condition" — a confident wrong card for a question. The command carries the
+intent's own name, which is what the invariant that walks `_cmd_<intent>` for
+every web seam demands (the first draft was `/pricealert` and that guard
+refused it), and is the tenth catalogue command with an underscore; deletion
+stays on the website's Live Feed panel, where the intercept keeps it too, and
+the card says so.
+(`tests/test_a_price_alert_is_armed_and_delivered_on_telegram.py`,
+`app/test/sync_card_route_arms_price_alerts.test.js`.)
+
+**Thirty-three mutations, each killed on the first round, and one that was not
+run.** The stage that delivers a trip cannot tell an unreadable queue from an
+empty one by what it does — it sends nothing and acks nothing either way — so
+folding `None` into an empty list there is an equivalent mutant, and the
+distinction is pinned where it is a READING: the pull answers `None` for a
+channel that did not answer and a list otherwise, and the mutation that turns
+the first into the second dies on that pin. The other half worth naming is the
+trips listing, which exists twice by necessity: the SQL the MySQL deployment
+runs (a JOIN on the account's Telegram id) and the in-memory store's handler
+that mirrors it by hand for every test in CI. The round mutates the handler,
+which is what CI can drive; the SQL is the untested half, stated rather than
+hidden — the second-copy shape sitting exactly where a test double has to be.
+
+**A door that refuses everyone but the operator, over the account only the
+operator has, is the operator-book leak with the sign flipped.** `/stake`,
+`/stake fixed`, `/unstake` and the three confirm buttons behind them each
+built their client with `BitgetV3Client.from_config()` — the OPERATOR's keys
+— under an `_is_admin` gate, so INCOME_MAP's stablecoin row could say "no
+user can move a cent" while `_executor_for`, `/livebalance` and the
+credential store already knew whose keys a linked caller had. `check_risk`,
+`playbook`, `get_portfolio` and the chat prompt were each cured of reading
+the operator's book FOR a caller; the Earn path never read the caller's at
+all. `bot/core/earn_account.py` is the one ask, made once and asked again at
+press time: eight states, because "no account" is five different facts
+(never linked, keys that will not decrypt, linked elsewhere, a store that
+could not be asked, an explicit revoke) and each gets its own sentence ending
+*Nothing was moved.* A linked account wins for everyone, admin included — an
+admin who brought their own keys stakes their own idle stables, the rule
+`/livebalance` already follows — and the card, the button's owner tag and
+the sealed record all name the account acted on. The caller's client is
+built from the decrypted fields and never through `for_account`, whose
+documented fallback is the operator's keys: the one fallback the module
+exists to make unreachable, so a half-filled record is `unreadable` rather
+than signed with what it has.
+
+**A button is a claim about whose plan it executes, and a tap is a second
+resolution.** The buttons never run the `@guard`, so `_earn_button_account`
+asks the same store the same question — the presser holds `stake`, the
+presser resolves to a usable account, and that account's tag is the one the
+plan was built with (`op`, or the caller's Telegram id). Without the tag, a
+plan over the operator's book tapped by a linked trader would have executed
+against the trader's account with the operator's numbers, and a plan over
+one caller's book tapped by another would have moved the second caller's
+funds. An untagged button is refused the way `_callback_owner_ok` refuses an
+untagged payload: it cannot have come from a button this build sent.
+
+**The permission met a pin whose own message named the wrong fix.** `stake`
+is trader-and-admin, and `test_it_is_trader_minus_exactly_those` pins
+`trader - paper == OPERATOR_CONTROL_PERMISSIONS` with a message saying
+"vouched-for only: add it to OPERATOR_CONTROL_PERMISSIONS and check it
+against the derivation test" — which would have refused it, because `stake`
+reaches no shared state, and that derivation is what keeps the set honest.
+`VOUCHED_ONLY_PERMISSIONS` is the second reason written down: the caller's
+OWN real money, withheld from self-admission because nobody vouched, pinned
+disjoint from the operator set, held by trader and not by paper, viewer or
+pending, and carried by a guarded handler. One set with two reasons is how
+`halt` ends up justified as "the caller's own" or `stake` as an operator
+control.
+
+**The fixture is asymmetric or it proves nothing, and the first draft's
+stub was asymmetric in the wrong direction.** The operator's free margin is
+planted at $1,000 in the engine cache and the caller's at $250 on their own
+executor, under two client keys, so a card built over the wrong book is a
+different card. The operator executor stub had no `fetch_balance`, so the
+mutation that dropped the fallback check (an executor that IS the
+operator's answers `None`) raised inside the code's own `try`, was caught,
+and answered `None` — the right answer for the wrong reason, an equivalent
+mutant on a fixture that could not tell. The stub answers the operator's
+balance now, and the mutation dies on $1,000.
+
+**`fetch_savings_assets` answered `[]` for a failed read and its docstring
+said so** — "the caller treats that as 'nothing to redeem'" — on the card
+whose whole job is to show what the caller holds: the failed-read-as-empty
+shape, written into the definition. `None` now, and `execute_unstake`
+refuses without posting on it; `fetch_savings_catalog` was `{}` for both a
+venue that did not answer and a venue with no products, and `build_report`
+says which. The catalog's error sentence named "the operator keys" and would
+have named the wrong account for every linked caller.
+(`tests/test_a_linked_trader_stakes_their_own_account.py`.)
+
+**And the prompt rule named `/connect` in the one string every surface
+reads.** `_CHAT_CANNOT_ACT_RULE` is base text, and its first draft said the
+account was "linked with /connect" — a slash command told to a web caller,
+the door painted on a wall that
+`test_a_web_caller_is_never_told_a_slash_command` exists for. The FULL gate
+caught it and no suite the slice had been running could have, because the
+two pins that shipped with it asserted `/connect` on BOTH surfaces — the pin
+that let the sentence through. The rule names no linking command now, and
+the notice asks `link_door(surface)`: the table the prompt's no-account
+block already read, moved into the leaf so both readers hold one copy, with
+a third key for how the account was linked (`with /connect`; on the web,
+the dashboard's step). Three mutations for the fix — the web notice back on
+`/connect`, the rule back on `/connect`, the handler keeping its own copy of
+the table — were driven with the slice's forty-one, and each dies.
+
+**Forty-one mutations, each killed on the first round.** The one worth naming is the fixture's, above: dropping the fallback-executor check survived until the operator stub could answer a balance, and the round was re-run against that stub. The rest die where the drives say — the operator's client never built for a caller, the tag never checked or an empty one accepted, the button branch back on `_yield_client()`, the fixed lock on the operator's margin, the record without its account, the notice saying admin-only again, `paper` holding `stake`, unread holdings an empty list.
+
+**A total with a fee sentence under it is a verdict the reader makes, from
+however few entries accrued the total.** `/arb` printed *Total paper carry:
+$+38.12* and *carry must beat that before the capture strategy is worth
+gating in*, and nothing decided whether it had — the same shape as the
+voter card's `62% of 34` and the shadow scoreboard's `+4.1R over 97`, on
+the record whose next step is real capital on two venues. `arb_verdict` is
+the same discipline: each CLOSED on-period's gross carry minus one round
+trip is a sample, the whole 95% interval on the per-entry net has to clear
+zero (`_mean_interval`, the normal interval `mean_r_interval` uses, because
+a signed magnitude is not a proportion), and two floors sit beside it
+(`MIN_VERDICT_ENTRIES`, `MIN_VERDICT_HELD_HOURS`) for the reason
+`MIN_GATE_TRADES` does — identical entries have a sample sd of zero and a
+lower bound at their mean. Four outcomes, one seam, three readers: survives
+fees, does not, too thin to say (a floor unmet, or an interval that
+straddles zero — printed with the interval, never rounded to either side),
+and could not read the record, which `arb_reading` keeps apart from "no
+history yet" because `load_snapshots` answers `[]` for a file that is not
+there and raises for one that will not open, and both reached the card as
+one "report failed" line.
+
+**The samples had to be a decomposition of the total, and building them
+found the last period's exit was decided by nothing.** `compute_paper_carry`
+closes a period on the next interval's EARLIER snapshot, so a period whose
+final observed snapshot was already below the threshold — an exit that was
+observed — stayed open and unscored, one closed entry short on every
+record; the last snapshot decides now, and a row whose spread cannot be
+read is not an observed exit either (counted, never scored — the honesty
+gate flagged the first draft's `.get("spread_apr", 0) or 0` on exactly that
+line, one row of its own table copied from two lines above). The public
+wire carries the same verdict in percent of the notional and no dollar
+figure (`public_verdict_sentence`), without the per-coin sample list, and
+the dashboard panel prints the bot's sentence when present and nothing when
+not — a verdict derived on the panel from the total it prints would be the
+second reading the seam exists to replace.
+(`tests/test_the_arb_record_gets_a_verdict.py`,
+`app/test/arb_panel_prints_the_bots_verdict.test.js`.)
+
+**Twenty-four mutations, each killed — and the two that survived the first round were the driver's.** The point estimate deciding "does not survive" survived because every straddling fixture had a POSITIVE mean, so a mutant that only fires on a negative one changed no verdict; and the interval accepting one sample survived because no fixture had exactly one closed entry. Both are cases the prose had described and no fixture planted — a losing mean whose interval still reaches above zero (thin, not a verdict), and a single closed entry with no interval and a singular sentence — and both mutations die on them now.
+
+**The proposal is the first reading past measurement, and its size is a
+min over READS, never a number-or-zero.** `/arbpair BTC [usd]` takes the
+radar's two legs for one coin and asks the one question the radar and the
+tracker cannot: which of those two venues THIS caller can put a leg on.
+`bot/core/funding_arb.py` reads each leg's equity through `balance_snapshot`
+— the same read-only fetch `/connect` validates with — and a leg's margin is
+SIX-valued (`read`, `unpriced`, `unreachable`, `not_linked`, `unreadable`,
+`unavailable`), each with its own sentence on the card, because "sized to
+$0" over a venue nobody could read is the failed-read-as-empty shape on the
+one card whose figures would decide a real hedge. A leg READ at `$0.00` is a
+seventh sentence, with the figure kept: a real empty account is not a missing
+link. Both legs carry ONE notional — the smaller leg's equity, capped at the
+requested figure — and the card says which bound bit, because a caller who
+asked for $1,000 and is shown $300 needs to know it was hyperliquid's
+balance and not a typo; a leg that could not be sized leaves the pair
+unsized, since half a hedge is a naked position. A snapshot is attempted
+only for a venue the store says is readable — the network is never touched
+for an unlinked one — and the venue's own rejection text is logged and never
+printed. The seam is resolved at CALL time rather than bound as a default
+argument, because a default captures the function object at definition and
+a test planting the module's `balance_snapshot` would have driven the real
+venue read.
+
+**It places nothing, and there is deliberately no flag saying so.** The plan
+for this slice had a `FUNDING_ARB_EXECUTION` switch defaulting off with a
+Confirm button behind it. A flag read by nothing is the fifth granularity
+with the arrow reversed — a field written on every branch and read by nobody
+— and a button behind it would lead to "not built yet", which is the `/vault`
+hint shape: a card naming a door that does nothing. The card ends with what
+THIS message did (nothing placed, nothing armed), the flag arrives with the
+code that reads it, and the evidence line is the tracker's own verdict,
+printed and never recomputed, so the proposal is read beside the record it
+is supposed to be gated on. The catalogue's driven counts moved by one
+(104 commands, 95 reaching the model): a bare "arbpair" is claimed by no rule.
+(`tests/test_a_funding_pair_is_proposed_and_nothing_is_placed.py`.)
+
+**Thirty mutations, each killed on the first round.** Two are worth naming for what they prove about the guards rather than the code: the venue-read seam bound as a default argument dies only on the test that plants the module's `balance_snapshot` and expects the planted read — every assertion on the card passes with the real seam being called, and the kill is the planted call count; and the first radar row taken whatever coin it is for dies only on a row planted for ANOTHER coin, which no assertion on the card can see because the card prints the row's own base. The rest die where the drives say — a zero read sized, the larger leg bounding the pair, one read leg sizing it, the snapshot attempted for an unlinked venue, a store fault or a no-figure answer read as not linked or as zero, the venue's detail on the card, a flat spread breaking even in zero hours, the bound unnamed, the places-nothing line gone, the requested figure printed as the size, markup or a non-positive size accepted, does-not-survive wearing green, the guard gone or demoted to `status`, a store fault read as an empty store, the short leg read off the long venue, a Confirm button, the record not read, a bad argument falling through, the catalogue row gone or claiming it places, the registration gone, the baseline forgetting it.
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
@@ -1115,9 +1527,10 @@ driven off `SCAN_DISPATCH` now, which is the question it was really asking.
 > just as easy to do to yourself in the dev loop.
 
 **And one regex acquitted every command with an underscore.** `_SLASH_COMMAND`
-was `/[a-z]{2,}`, which stops at the underscore: seven catalogue commands
+was `/[a-z]{2,}`, which stops at the underscore: ten catalogue commands
 carry one (`emergency_stop`, `open_positions`, `grant_live`, `revoke_live`,
-`set_tier`, `daily_report`, `latest_signal`), so `/emergency_stop` was checked
+`set_tier`, `daily_report`, `latest_signal`, and since the website's cards
+became commands `venue_router`, `meme_radar` and `price_alert`), so `/emergency_stop` was checked
 as the string `/emergency`, which is not a command — a false ACQUITTAL in the
 web card's no-slash check and in `test_no_phrase_names_a_command`. A false
 accusation is loud; that one just sat there.
@@ -1239,6 +1652,44 @@ vocabulary: `Authorization: Bearer …` still passes, and fixing that is its own
 slice, because a second vocabulary is a second answer — the rule
 `honesty_vocabulary.json` exists to state.
 
+**That slice is one table, and driving it before writing it found the gap was
+wider than the header.** `bot/utils/secret_shapes.py` holds every shape, each
+row carrying its own example and decoy so the table pins itself, and
+`_redact_string`, `reply_safe`, `_safe_exc_text`, `scrub_reason` and
+`_safe_detail` all answer from it — the last three had byte-for-byte copies of
+the same three lines, two of them a private `_URL_QUERY_RE`. Driven through
+`reply_safe` first: `Authorization: Bearer …` passed, and so did a bare `sk-…`
+provider key, a session JWT, `api key: …` spelled with a space, and the three
+names whose values encrypt everything else on the box —
+`WEB3_SIGNER_PRIVATE_KEY=`, `RUNECLAW_SECRETS_KEY=`, `WEB_CREDS_KEY=` — because
+the `key=value` family knew `api_key` and `secret`, and `_KEY` is neither while
+`SECRETS_KEY=` is not `secret=`. A config error is exactly the message that
+prints one of those with its value. Two things it deliberately leaves alone,
+stated because a scrub whose coverage is overstated is the failure this file is
+about: a bare 64-hex value, because a transaction hash has precisely that shape
+and a swap card is right to print one (labelled, it is scrubbed); and a card's
+link, which keeps its query string except for parameters NAMED like credentials
+— `?symbol=BTC%2FUSDT` survives, `?sign=` does not — where the exception path
+still drops the whole query, since a diagnostic never carries a link a user
+needs. Behind a prose label the value must LOOK like a credential (a digit, or
+twenty characters), or `api key: not configured` would print as a redacted key
+that exists. It is Python only: `app/lib/safe_error.js` has its own vocabulary,
+wider on labels and narrower on token shapes, and one file read by two
+runtimes is filed, not done. **Two guards had pinned the gap as a fact** —
+"the old scrub misses it", asserted in two suites — and both moved to the
+claim that replaced it; the walk is proved one by PLANTING a shape in the
+table and reading every reader, because a byte-identical copy agrees on every
+fixture.
+
+**Twenty mutations, each killed, and the one that survived the first round
+was the driver's.** "Escape before scrub" changed no verdict on any fixture the
+suites held, because no shape in the table contains a character escaping
+rewrites — the docstring's order claim was true and undriven. The input that
+tells the orders apart is a driver's echoed request body, query-shaped behind
+no URL: escaped first, `&sign=` becomes `&amp;sign=`, the parameter row never
+sees the `&` it anchors on, and the signature reaches the user. That fixture
+is in the leak guard now, and the mutation dies on it.
+
 **And a docstring was the entire defect in the third place.**
 `quant_skill._safe_reason` promised *"never a key, never a URL with a token"*
 over `" ".join(str(exc).split())[:120]` — a trim and a truncation, no
@@ -1268,7 +1719,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-one call sites across the two entry points today, one on
+never happened. Forty-nine call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

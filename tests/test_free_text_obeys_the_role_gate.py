@@ -425,6 +425,17 @@ class TestTheTableDoesNotDrift:
             "nft": "nft",
             "spot": "spot",
             "airdrops": "airdrops",
+            # Six more: the four public reads and the two wallet reads, each
+            # the `@guard` on the command that renders the website's card.
+            "replay": "replay",
+            "letter": "letter",
+            "venue_router": "venue_router",
+            "meme_radar": "meme_radar",
+            "wallet": "wallet",
+            "defi": "defi",
+            # The last door row became a WRITE the website's alert engine holds
+            # for the caller's linked web account: the `@guard` on /price_alert.
+            "price_alert": "price_alert",
         }
 
     def test_halt_reaches_no_chat_transport(self):

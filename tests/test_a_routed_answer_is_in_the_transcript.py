@@ -253,11 +253,19 @@ async def test_a_paywalled_scan_records_that_it_did_not_run(bot):
     ("nft radar", "nft"),
     ("spot market", "spot"),
     ("airdrop radar", "airdrops"),
+    ("replay every signal with $1k", "replay"),
+    ("show me this week's letter", "letter"),
+    ("best venue for BTC", "venue_router"),
+    ("meme radar", "meme_radar"),
+    ("my wallet", "wallet"),
+    ("my defi positions", "defi"),
 ])
 async def test_a_command_branch_records_that_its_card_is_not_in_the_transcript(bot, text, card):
     store = _store(bot)
     for name in ("_cmd_orders", "_cmd_help", "_cmd_status", "_cmd_networth",
-                 "_cmd_rwa", "_cmd_research", "_cmd_nft", "_cmd_spot", "_cmd_airdrops"):
+                 "_cmd_rwa", "_cmd_research", "_cmd_nft", "_cmd_spot", "_cmd_airdrops",
+                 "_cmd_replay", "_cmd_letter", "_cmd_venue_router", "_cmd_meme_radar",
+                 "_cmd_wallet", "_cmd_defi"):
         setattr(bot, name, AsyncMock())
     await bot._handle_message(_update(OPERATOR, text), None)
     turns = _turns(store)

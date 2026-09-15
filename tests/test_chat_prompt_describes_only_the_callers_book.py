@@ -560,7 +560,13 @@ class TestTheDoorPerSurface:
         assert list(sig.parameters) == ["absence", "surface"]
         assert set(th._LINK_DOOR) == {"web", "telegram"}
         for door in th._LINK_DOOR.values():
-            assert door["link"] and door["state"]
+            assert door["link"] and door["state"] and door["linked"]
+        # One table: the stake notice reads the same door, so the handler's
+        # name is the leaf's object and not a second copy of the sentences.
+        from bot.skills import chat_runtime as cr
+        assert th._LINK_DOOR is cr.LINK_DOOR
+        assert "/" not in cr.link_door("web")["linked"]
+        assert cr.link_door("api") is cr.LINK_DOOR["telegram"]
 
 
 # ── the caches drop what the executor drop invalidates ─────────────────────

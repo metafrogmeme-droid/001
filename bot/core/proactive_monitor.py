@@ -194,6 +194,18 @@ def apply_hourly_budget(shown: list, spill: list, sent_at: list,
     return kept, sorted(set(spill) | extra), fresh + [now] * len(kept)
 
 
+def alert_trip_text(row: dict) -> str:
+    """The Telegram message for one tripped alert: the website's own title and
+    body (the sentence the push carried), escaped for Telegram's HTML parser.
+    A row with neither is still a trip, and says so rather than sending an
+    empty message."""
+    title = _html.escape(str(row.get("title") or "").strip())
+    body = _html.escape(str(row.get("body") or "").strip())
+    if not title and not body:
+        return "\u23f0 A price alert of yours tripped, and its words did not travel with it."
+    return f"<b>{title}</b>\n{body}" if title and body else (title or body)
+
+
 class ProactiveMonitor:
     """Background monitor that generates alerts from engine state.
 
@@ -388,6 +400,13 @@ class ProactiveMonitor:
         self._last_arb_snapshot: float = 0.0
         self._arb_alerted: set = set()
         self._arb_send_fn = None
+        # The website's tripped price alerts, delivered here: a DM function
+        # that RAISES on failure (so an ack can say sent or failed), the ids
+        # sent whose ack did not land (so a row the website still lists is
+        # not sent twice), and the last poll time (one poll a minute).
+        self._dm_fn = None
+        self._delivered_trip_ids: deque = deque(maxlen=500)
+        self._last_trip_poll: float = 0.0
         # Web reports push: hourly funding/arb/parity/yield payload to the
         # website so the dashboard reaches parity with the Telegram reports.
         self._last_reports_push: float = 0.0
@@ -402,6 +421,65 @@ class ProactiveMonitor:
         """Register an async callback(chat_id, idea) that pushes a setup chart
         for signal alerts. Optional — alerts work fine without it."""
         self._chart_fn = chart_fn
+
+    def set_dm_fn(self, dm_fn) -> None:
+        """Register an async callback(chat_id, text) that sends ONE message to
+        ONE chat and RAISES when it could not — unlike the alert sender, which
+        swallows, because here the answer is acked back to the website and
+        "sent" has to mean sent. Unset, the delivery stage reads nothing."""
+        self._dm_fn = dm_fn
+
+    TRIP_POLL_INTERVAL = 60.0
+
+    async def _deliver_web_alert_trips(self) -> None:
+        """Deliver the website's tripped price alerts to linked Telegram accounts.
+
+        The website holds the tripwires and evaluates them; when one trips it
+        writes a row the bot reads here and stamps back. Three outcomes per
+        row, each acked in its own words: sent; failed, with the exception's
+        class name and never its text (a person who blocked the bot must not
+        make the same trip retry forever, and a driver message can carry a
+        token); and, when no DM function is wired, nothing read at all. An
+        unreadable queue (None) sends nothing and acks nothing — "no trips"
+        and "could not ask" are different facts. An ack that did not land
+        keeps the sent ids here, so a row the website still lists is acked
+        again rather than sent again; the memory is bounded.
+        """
+        if self._dm_fn is None:
+            return
+        now = time.monotonic()
+        if now - self._last_trip_poll < self.TRIP_POLL_INTERVAL:
+            return
+        self._last_trip_poll = now
+        from bot.utils.web_data_pull import ack_alert_trips, fetch_alert_trips
+        rows = await asyncio.to_thread(fetch_alert_trips)
+        if rows is None:
+            return
+        acks: list = []
+        for row in rows:
+            try:
+                trip_id = int(row.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if trip_id in self._delivered_trip_ids:
+                acks.append({"id": trip_id, "ok": True})
+                continue
+            chat = str(row.get("telegram_id") or "").strip()
+            if not chat:
+                acks.append({"id": trip_id, "ok": False, "error": "no telegram id"})
+                continue
+            try:
+                await self._dm_fn(chat, alert_trip_text(row))
+            except Exception as exc:
+                acks.append({"id": trip_id, "ok": False, "error": type(exc).__name__})
+                continue
+            self._delivered_trip_ids.append(trip_id)
+            acks.append({"id": trip_id, "ok": True})
+        if acks and await asyncio.to_thread(ack_alert_trips, acks):
+            landed = {a["id"] for a in acks}
+            kept = [i for i in self._delivered_trip_ids if i not in landed]
+            self._delivered_trip_ids.clear()
+            self._delivered_trip_ids.extend(kept)
 
     def set_anomaly_prefs_fn(self, prefs_fn) -> None:
         """Inject the operator's anomaly dials, the way `set_admin_fn` injects
@@ -564,7 +642,8 @@ class ProactiveMonitor:
                 # _check_all's docstring describes, one line earlier.
                 for _stage in (self._refresh_news_radar,
                                self._probe_public_gateway,
-                               self._probe_llm_endpoint):
+                               self._probe_llm_endpoint,
+                               self._deliver_web_alert_trips):
                     try:
                         await _stage()
                     except Exception as exc:

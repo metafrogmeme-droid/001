@@ -868,6 +868,65 @@ class TradingCommands:
         audit(system_log, f"Manual trade created: {idea.id} {direction} {display_pair} entry={entry} sl={sl} tp={tp}",
               action="manual_trade_created", result="PENDING")
 
+    @guard("trade")
+    async def _cmd_arbpair(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/arbpair BASE [usd] — the delta-neutral funding pair for one coin,
+        sized over the CALLER's own linked venues and priced against the fee
+        bar: long the venue where funding is lowest, short where it is
+        highest, one notional per leg at 1x, the round-trip fee on that size,
+        the break-even hold at today's spread, and the paper record's verdict
+        beside it. A PROPOSAL: this build places no pair orders, and the card
+        says so. The radar (/fundingscan) names the direction and the tracker
+        (/arb) scores the record; this is the first reading that asks which
+        of the two venues this caller can actually put the legs on."""
+        from bot.core.arb_tracker import arb_reading
+        from bot.core.exchange_credentials import get_credential_store
+        from bot.core.funding_arb import (
+            format_pair_card,
+            no_pair_card,
+            parse_pair_args,
+            propose_pair,
+            read_leg_margin,
+        )
+        from bot.core.funding_radar import build_comparison
+
+        parsed = parse_pair_args(list(ctx.args or []))
+        if isinstance(parsed, str):
+            await self._send(update, "\u26a0\ufe0f " + parsed)
+            return
+        base, requested = parsed
+        await self._send(update, f"\u23f3 Reading {base} funding across venues\u2026")
+        try:
+            rows = await asyncio.to_thread(build_comparison, [base])
+            row = next((r for r in rows if r.base == base), None)
+            if row is None:
+                await self._send(update, no_pair_card(base))
+                return
+            uid = self._get_tg_id(update)
+            try:
+                store = get_credential_store()
+            except Exception as exc:
+                # Both legs read `unavailable` off a None store — the words
+                # for "could not be asked", never "not linked".
+                system_log.warning("/arbpair: credential store unavailable: %s",
+                                   type(exc).__name__)
+                store = None
+            long_m, short_m = await asyncio.gather(
+                read_leg_margin(row.long_venue, uid, store),
+                read_leg_margin(row.short_venue, uid, store))
+            _carries, verdict = await asyncio.to_thread(arb_reading)
+            proposal = propose_pair(row, long_m, short_m, requested_usd=requested)
+        except Exception as exc:
+            system_log.warning("/arbpair failed: %s", _safe_exc_text(exc))
+            await self._send(update, "\U0001f534 The funding pair could not be built "
+                                     "\u2014 see logs. Nothing was placed.")
+            return
+        await self._send(update, format_pair_card(proposal, verdict))
+        audit(system_log,
+              f"Funding pair proposed: {base} long {row.long_venue} / short "
+              f"{row.short_venue} spread={row.spread_apr:.2f} placeable={proposal.placeable}",
+              action="arb_pair_proposed", result="PROPOSED")
+
     def _parse_manual_trade(self, text: str):
         """Parse manual trade text. Returns (direction, symbol, entry, sl, tp, margin) or error string.
 

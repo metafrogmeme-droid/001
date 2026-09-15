@@ -98,13 +98,19 @@ async function getVenueRouter() {
   return buildRouter(report, cmp, ageMs);
 }
 
+const { esc } = require('./esc');
+
 // ── Chat intercept ───────────────────────────────────────────────────────────
 
 const CHAT_RE = /\b(?:best|cheapest)\s+(?:venue|exchange)(?:\s+(?:for|to)\s+(?:be\s+)?(long|short)?\s*\$?([a-z0-9]{2,10}))?|venue router\b/i;
 
-async function maybeHandleVenueRouterChat(userId, text) {
-  const m = String(text || '').match(CHAT_RE);
-  if (!m) return null;
+/**
+ * The venue router as the chat card — ONE renderer for both surfaces; the
+ * bot's /venue_router fetches it over the sync channel
+ * (`GET /api/bot/sync/card/venue_router?base=BTC`). Public: no account in it.
+ * `wantBase` narrows to one asset ('' for the top five).
+ */
+async function venueRouterChatCard(wantBase) {
   try {
     const r = await getVenueRouter();
     if (!r.rows.length) {
@@ -114,17 +120,16 @@ async function maybeHandleVenueRouterChat(userId, text) {
         intent: 'venue_router',
       };
     }
-    const wantBase = (m[2] || '').toUpperCase().replace(/USDT$/, '');
     const rows = wantBase ? r.rows.filter(x => x.base === wantBase) : r.rows.slice(0, 5);
     if (!rows.length) {
       return {
-        reply_html: `No cross-venue funding data for <b>${wantBase}</b> in the current scan.`,
+        reply_html: `No cross-venue funding data for <b>${esc(wantBase)}</b> in the current scan.`,
         intent: 'venue_router',
       };
     }
     const lines = rows.map(x =>
-      `• <b>${x.base}</b>: long on <b>${x.long_venue}</b> (${x.long_apr >= 0 ? '+' : ''}${x.long_apr}% APR) · `
-      + `short on <b>${x.short_venue}</b> (${x.short_apr >= 0 ? '+' : ''}${x.short_apr}%) · spread ${x.spread_apr}%`);
+      `• <b>${esc(x.base)}</b>: long on <b>${esc(x.long_venue)}</b> (${x.long_apr >= 0 ? '+' : ''}${x.long_apr}% APR) · `
+      + `short on <b>${esc(x.short_venue)}</b> (${x.short_apr >= 0 ? '+' : ''}${x.short_apr}%) · spread ${x.spread_apr}%`);
     return {
       reply_html: `🧭 <b>Venue router</b> — funding-cost read${r.stale ? ' <i>(scan stale)</i>' : ''}<br><br>`
         + lines.join('<br>')
@@ -136,4 +141,15 @@ async function maybeHandleVenueRouterChat(userId, text) {
   }
 }
 
-module.exports = { CHAT_RE, buildRouterTable, buildRouter, getVenueRouter, maybeHandleVenueRouterChat };
+/** The asset a routing ask names ("best venue for BTC"), '' for none. */
+function baseFromMatch(m) {
+  return ((m && m[2]) || '').toUpperCase().replace(/USDT$/, '');
+}
+
+async function maybeHandleVenueRouterChat(userId, text) {
+  const m = String(text || '').match(CHAT_RE);
+  if (!m) return null;
+  return venueRouterChatCard(baseFromMatch(m));
+}
+
+module.exports = { CHAT_RE, buildRouterTable, buildRouter, getVenueRouter, maybeHandleVenueRouterChat, venueRouterChatCard };

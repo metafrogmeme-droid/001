@@ -546,8 +546,13 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # "/swing" are gone, so three more typed commands reach nothing.
     # Re-measured again when /nft, /spot and /airdrops joined the catalogue:
     # typed as commands none of the three reaches a registered skill, so
-    # every one of them lands on the model.
-    assert (named, nothing, len(hits)) == (94, 85, 9), (named, nothing, hits)
+    # every one of them lands on the model. And again when /stake and
+    # /unstake left the operator-only group for the Trading group: typed
+    # bare on the web neither reaches a rule (a bare "stake" is a decoy the
+    # router deliberately leaves to the model), so both land there too.
+    # And again when /arbpair joined the Trading group: a bare "arbpair"
+    # reaches no rule, so it lands on the model like its siblings.
+    assert (named, nothing, len(hits)) == (104, 95, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

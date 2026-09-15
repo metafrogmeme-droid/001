@@ -140,7 +140,10 @@ SCANS = [
     # education, and not a scan at all
     ("weekly scan", "MODEL"),
     ("how does the scanner work", "MODEL"),
-    ("scan my wallet", "MODEL"),
+    # Pinned to the model while Telegram had no wallet read; the wallet mirror
+    # is a command now and the website answers these words with its wallet
+    # card, so "scan my wallet" is the wallet card here too — still not a scan.
+    ("scan my wallet", "wallet"),
     ("scan the docs", "MODEL"),
 ]
 

@@ -10,26 +10,16 @@ and `tests/test_exception_leak_guard.py` say what it must scrub.
 from __future__ import annotations
 
 import html
-import re
 
-from bot.utils.logger import _redact_string
+from bot.utils.secret_shapes import TELEGRAM_BOT_TOKEN_RE, URL_QUERY_RE, scrub_diagnostic
 
-# A Telegram bot token has the shape <digits>:<base64ish>, and PTB puts the
-# request URL — https://api.telegram.org/bot<TOKEN>/sendMessage — into some
-# error messages. The logger's inline redactor only catches `key=value`, so it
-# would not touch that. Strip the token shape explicitly before any exception
-# message can reach a chat.
-#
-# No leading \b: the token appears in the URL as `/bot123456789:AA…`, and
-# there is no word boundary between `bot` and the digits, so a \b-anchored
-# pattern matched nothing and passed the whole token through. The optional
-# `bot` prefix is consumed so the replacement swallows it too.
-_TG_TOKEN_RE = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{20,}")
-
-#: A URL with a query string. Credentials ride there as often as in a
-#: key=value pair, and once they are a single token no key=value regex
-#: sees them. The host answers "which service"; the query never has to.
-_URL_QUERY_RE = re.compile(r"(https?://[^\s?]+)\?[^\s]*")
+# Re-exported under the names their importers use. Both patterns live in
+# `bot.utils.secret_shapes` now, the one vocabulary every scrub reads; the
+# bot-token shape was born here (PTB puts the request URL,
+# https://api.telegram.org/bot<TOKEN>/sendMessage, into some error messages,
+# and a key=value redactor never sees a token that carries no `=`).
+_TG_TOKEN_RE = TELEGRAM_BOT_TOKEN_RE
+_URL_QUERY_RE = URL_QUERY_RE
 
 
 def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
@@ -49,9 +39,11 @@ def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
     operator would learn nothing about why their scan failed. Different
     question, different tool: show the message, but scrub it first.
 
-    Order matters. The bot-token shape goes first because the shared
-    key=value redactor does not know it, then the shared chokepoint, then
-    escaping -- escaping first would break the patterns the redactors match.
+    Order matters. The whole vocabulary first (token-shaped patterns before
+    the key=value families, in the table's own order), then every URL's
+    query string dropped -- a diagnostic never carries a link a user needs --
+    then escaping. Escaping first would break the patterns the redactors
+    match.
     """
     try:
         msg = str(exc)
@@ -59,12 +51,5 @@ def _safe_exc_text(exc: BaseException, *, limit: int = 200) -> str:
         return ""
     if not msg:
         return ""
-    msg = _TG_TOKEN_RE.sub("***REDACTED***", msg)
-    msg = _redact_string(msg)
-    # A bare URL can carry credentials in its query string, and no key=value
-    # pattern catches "?apiKey=..." once it is one token. Keep the host, drop
-    # the rest -- "which venue" is the diagnostic; the path rarely is.
-    msg = _URL_QUERY_RE.sub(r"\1?***", msg)
-    msg = " ".join(msg.split())
+    msg = scrub_diagnostic(msg)
     return html.escape(msg[:limit])
-

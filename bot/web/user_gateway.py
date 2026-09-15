@@ -55,6 +55,7 @@ from bot.nlp.skill_memory import (
     skill_unavailable_memory,
     web_answer_memory,
 )
+from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 from bot.skills.skill_permissions import (
     SKILL_PERMISSION,
@@ -206,15 +207,18 @@ _WEB_SKILL_PERMISSION: dict[str, str] = {
 _WEB_SKILL_PERMISSION.update(WEB_ROUTED_PERMISSION)
 
 
-async def _seam_networth(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_networth(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                         text: str = "") -> str:
     return await tg_handler.networth_card_text(tg_id, surface="web")
 
 
-async def _seam_rwa(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_rwa(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                    text: str = "") -> str:
     return await tg_handler.rwa_card_text(surface="web")
 
 
-async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                         text: str = "") -> str:
     # The routed block runs at confidence 1.0, where the needs-symbol rule has
     # always found one; the sentence below is for the shape, not a case a
     # drive has reached, and it names no command.
@@ -224,16 +228,61 @@ async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
     return await tg_handler.research_card_text(sym)
 
 
-async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                    text: str = "") -> str:
     return await tg_handler.nft_card_text(surface="web")
 
 
-async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                     text: str = "") -> str:
     return await tg_handler.spot_card_text(surface="web")
 
 
-async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict) -> str:
+async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                         text: str = "") -> str:
     return await tg_handler.airdrops_card_text(tg_id, surface="web")
+
+
+# The six cards below read their one argument from the WORDS with the
+# intercept's own reader (`bot/nlp/web_card_args.py`): the router's rules
+# carry no kwargs for them, and the Node intercept's regex is what decided
+# the argument on the surface these phrasings came from.
+async def _seam_replay(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                       text: str = "") -> str:
+    return await tg_handler.replay_card_text(replay_stake(text), surface="web")
+
+
+async def _seam_letter(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                       text: str = "") -> str:
+    return await tg_handler.letter_card_text(surface="web")
+
+
+async def _seam_venue_router(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                             text: str = "") -> str:
+    return await tg_handler.venue_router_card_text(venue_base(text), surface="web")
+
+
+async def _seam_meme_radar(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                           text: str = "") -> str:
+    return await tg_handler.meme_radar_card_text(surface="web")
+
+
+async def _seam_wallet(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                       text: str = "") -> str:
+    return await tg_handler.wallet_card_text(tg_id, wallet_chain(text), surface="web")
+
+
+async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                     text: str = "") -> str:
+    return await tg_handler.defi_card_text(tg_id, surface="web")
+
+
+async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                           text: str = "") -> str:
+    # The Python path sees an alert ask only when the Node intercept's own
+    # regex missed the phrasing; the website's parser then reads the words
+    # again through this seam and answers in its own sentences.
+    return await tg_handler.price_alert_card_text(tg_id, text or "my alerts", surface="web")
 
 
 #: Routed intents the web answers from a SEAM on the Telegram handler — the
@@ -252,6 +301,13 @@ _WEB_SEAM = {
     "nft": _seam_nft,
     "spot": _seam_spot,
     "airdrops": _seam_airdrops,
+    "replay": _seam_replay,
+    "letter": _seam_letter,
+    "venue_router": _seam_venue_router,
+    "meme_radar": _seam_meme_radar,
+    "wallet": _seam_wallet,
+    "price_alert": _seam_price_alert,
+    "defi": _seam_defi,
 }
 
 
@@ -715,12 +771,21 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # A close request has no web door and must never reach the model, which
     # holds no tool that acts and would otherwise narrate one. The notice is
     # the runtime leaf's, so this reply and the Telegram card cannot drift.
-    from bot.skills.chat_runtime import ACT_INTENTS, ACT_KIND, HALT_INTENTS, act_intent_notice, halt_intent_notice
+    from bot.skills.chat_runtime import (
+        ACT_INTENTS,
+        ACT_KIND,
+        HALT_INTENTS,
+        act_intent_notice,
+        halt_intent_notice,
+        stake_verb,
+    )
     if intent.matched and intent.confidence >= 0.8 and intent.skill in ACT_INTENTS:
         from bot.nlp.intent_router import symbol_mentioned
-        _act = act_intent_notice(ACT_KIND[intent.skill],
+        _kind = ACT_KIND[intent.skill]
+        _act = act_intent_notice(_kind,
                                  symbol_mentioned(intent.raw_text), surface="web",
-                                 also_asked=bool(intent.kwargs.get("also_asked")))
+                                 also_asked=bool(intent.kwargs.get("also_asked")),
+                                 verb=stake_verb(intent.raw_text) if _kind == "stake" else None)
         record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
                            routed_answer_memory(intent.skill, _act), surface="web")
         return web.json_response({"reply_html": _act, "intent": intent.skill})
@@ -866,7 +931,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                 return denied
             try:
                 _card = await _WEB_SEAM[intent.skill](tg_handler, tg_id,
-                                                      dict(intent.kwargs or {}))
+                                                      dict(intent.kwargs or {}),
+                                                      intent.raw_text)
             except Exception:
                 tg_handler.conversations.append(
                     tg_id, "assistant", skill_failure_memory(intent.skill),

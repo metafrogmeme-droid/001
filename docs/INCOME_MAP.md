@@ -58,7 +58,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 | Leaf | Classified | Verified | Why |
 |---|---|---|---|
-| Delta-neutral vaults | partial | — | Every door is real and correctly gated, and not one of them opens, sizes, hedges or holds a paired position. The `$1,000` in `/arb` is a module constant accrued against recorded spread snapshots, not a deposit. |
+| Delta-neutral vaults | partial | — | Every door is real and correctly gated; `/arbpair` now SIZES and PRICES the pair over the caller's own linked venues, and still nothing opens, hedges or holds one. The `$1,000` in `/arb` is a module constant accrued against recorded spread snapshots, not a deposit. |
 | Points programs | partial | — | The chip renders, and the product measures, tracks and stores zero points of any kind. Two hits in the whole tree, both the same status-vocabulary literal. |
 | Creator campaigns | partial | — | The row's own evidence sentence concedes it: "a referral/invite program and share tooling, not campaigns". |
 | Ambassador roles | partial | — | One artifact in the entire tree: a rung named `Ambassador`, `state: 'planned'`, whose own `requires` field says it would ride on a token that does not exist. |
@@ -75,10 +75,10 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Scalping | **shipped** | `/scalp`, `/fullscan`, `/mystrategy`, `/run`, `/trade` |
 | Perp futures | **shipped** | `/trade`, `/positions`, `/open_positions`, `/livepositions`, `/orders`, `/leverage`, `/venues`, `/liveclose`, `/api/trade/propose`, `/api/trade/confirm`, `/api/trade/cancel` |
 | Options | — | — |
-| Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/api/reports` |
+| Funding rate farming | partial | `/funding`, `/fundingscan`, `/arb`, `/arbpair`, `/api/reports` |
 | Basis trades | partial | `/spot`, `/api/spot/basis`, `/api/market/dex` |
 | Triangular arbitrage | — | — |
-| CEX/DEX arbitrage | partial | `/api/market/dex`, `/api/market/venue-router` |
+| CEX/DEX arbitrage | partial | `/venue_router`, `/api/market/dex`, `/api/market/venue-router` |
 | Copy trading | partial | `/api/arena/follow`, `/api/copy`, `/api/copy/unfollow`, `/api/copy/picks`, `/api/strategies`, `/api/bot-strategy`, `/mystrategy` |
 | Algo/bot trading | **shipped** | `/autoconfirm`, `/mystrategy`, `/run`, `/momentum`, `/dip`, `/halt`, `/pause`, `/resume`, `/reset`, `/emergency_stop`, `/enforcing`, `/risk`, `/gates`, `/shadow`, `/backtest`, `/walkforward`, `/optimize`, `/api/lab`, `/api/controls`, `/api/bot-strategy` |
 
@@ -195,23 +195,47 @@ capture. /funding (market_commands.py:71, ungated) shows one perp's 8h rate
 and annualized rate across Bitget/Bybit/Hyperliquid with the cross-venue
 spread and a crowding read. /fundingscan (:149) does the same for many coins
 at once, widest spread first, and names the delta-neutral direction. /arb
-(:123) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
-FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots and
+(:241) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
+FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots,
 prints the fee reality check (0.24% of notional for four taker legs,
-arb_tracker.py:43). The same reports feed the dashboard's c-xfunding and c-arb
-panels. app/lib/venue_router.js recommends the cheapest venue to hold a given
+arb_tracker.py:43) and a VERDICT over the record — `arb_verdict`, four
+outcomes: survives fees (the whole 95% interval on the per-entry net carry
+above zero, past floors of 10 closed entries and 72h held), does not survive
+fees (the whole interval below zero), record too thin (a floor unmet, or an
+interval that straddles zero), or the record could not be read (kept apart
+from "no history yet"). An on-period still running at the last snapshot is
+counted and never scored. The same reports feed the dashboard's c-xfunding
+and c-arb panels, and the verdict rides the public reports payload in percent
+of the notional, in the bot's own sentence, which the panel prints and never
+derives. /arbpair BASE [usd] (trading_commands.py, `trade`) is the first
+reading past measurement: for one coin it takes the radar's two legs, asks
+the CALLER's own credential store which of the two venues they linked,
+reads each leg's equity through the same read-only balance snapshot
+/connect validates with (bot/core/funding_arb.py — six-valued per leg:
+read, unpriced, unreachable, not linked, unreadable, store unavailable),
+sizes both legs to the smaller equity capped at the requested notional
+(default the tracker's $1,000), prints the round-trip fee on that size, the
+break-even hold at today's spread and the record's verdict beside it, and
+PLACES NOTHING — a leg that could not be sized leaves the pair unsized
+rather than half-hedged, and the card says what the message did.
+app/lib/venue_router.js recommends the cheapest venue to hold a given
 side by funding cost. Funding also genuinely affects live trading —
 analyzer.py:1612 applies funding_cost_haircut to blended confidence, and
 risk/funding_clock.py times settlements.
 
-*Gap.* Nothing opens, sizes, hedges, rolls or closes a funding position.
+*Gap.* Nothing opens, hedges, rolls or closes a funding position. The
+proposal card is the last reading before an execution path, and there is no
+flag, button or executor for one yet — deliberately: a flag read by nothing
+and a button leading to "not built" are both doors painted on a wall.
 arb_tracker.py:18 states it outright: "Strictly paper: nothing here places,
 sizes, or even proposes an order," and venue_router.js:3 says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
 gated decision that does not exist in this codebase." No delta-neutral pair
 construction, no per-leg margin management, no automated entry at a spread
-threshold. The module headers describe this as the evidence layer that gates
-whether a real capture strategy is worth building.
+threshold. The verdict is the evidence layer's own answer to whether a real
+capture strategy is worth building; the proposal card that would size both
+legs (and place nothing) is the next slice, and execution a decision after
+shadow evidence.
 
 **Basis trades** — partial
 
@@ -309,7 +333,7 @@ elite) nominally gate behind $RCLAW, though that gate is off by default.
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Core portfolio holding | partial | `/livebalance`, `/networth`, `/holdings`, `/exposure`, `/classpf`, `/api/networth`, `/api/holdings`, `/api/wallet/portfolio`, `/api/tax/report` |
+| Core portfolio holding | partial | `/livebalance`, `/networth`, `/holdings`, `/exposure`, `/wallet`, `/classpf`, `/api/networth`, `/api/holdings`, `/api/wallet/portfolio`, `/api/tax/report` |
 | Seed/private rounds | — | — |
 | Public sales (ICO/IDO/IEO) | — | — |
 | Governance token accumulation | — | — |
@@ -353,10 +377,10 @@ read
 
 | Leaf | Today | Doors |
 |---|---|---|
-| Staking (native + liquid) | partial | `/api/idleyield`, `/api/defi`, `/idleyield`, `/yield`, `/api/dapps` |
+| Staking (native + liquid) | partial | `/api/idleyield`, `/api/defi`, `/defi`, `/idleyield`, `/yield`, `/api/dapps` |
 | Restaking | — | — |
-| Lending/borrowing spreads | partial | `/api/idleyield`, `/api/defi`, `/api/crossyield` |
-| LP provision | partial | `/api/defi`, `/escape`, `/api/dapps` |
+| Lending/borrowing spreads | partial | `/api/idleyield`, `/api/defi`, `/defi`, `/api/crossyield` |
+| LP provision | partial | `/api/defi`, `/defi`, `/escape`, `/api/dapps` |
 | Yield farming | — | — |
 | Delta-neutral vaults | — ⟲ | `/fundingscan`, `/arb`, `/funding`, `/api/reports` |
 | Stablecoin yield strategies | partial | `/api/idleyield`, `/stake`, `/unstake`, `/yield`, `/api/staking/fixed`, `/api/reports/yield` |
@@ -384,8 +408,8 @@ four instruction names and every transaction sender is a test harness;
 bot/token/tier_gate.py:438 only READS StakeAccount bytes via
 getProgramAccounts, so a user cannot stake $RCLAW from Telegram, the web, or
 any CLI in the repo. The only staking-shaped EXECUTION in the product is
-Bitget Earn CEX savings, stables-only and operator-only (see the stablecoin
-row).
+Bitget Earn CEX savings, stables-only, on the Bitget account a trader linked
+with /connect (see the stablecoin row).
 
 *The verifier refused part of this row.* partial stands for the liquid-staking READ (that half I confirmed end to end),
 but two of the seven listed doors are not doors. (1) tier_gate.py:438 is
@@ -457,8 +481,10 @@ allowlisted trader/paper/viewer via `_guard(update, "status")`; the web
 mirrors them as the c-xfunding and c-arb panels off /api/reports.
 
 *Gap.* There is no vault. No deposit, no share/receipt token, no managed position, no
-manager, no NAV, and no execution of either leg — arb_tracker.py states in its
-own header that 'nothing here places, sizes, or even proposes an order', and
+manager, no NAV, and no execution of either leg — /arbpair (bot/core/funding_arb.py)
+now sizes and proposes the pair over the caller's linked venues and places
+nothing; arb_tracker.py's own header still holds for the tracker itself
+('nothing here places, sizes, or even proposes an order'), and
 the roadmap framing is explicit that this is the evidence that gates whether a
 real capture strategy is worth building. A user who reads the card has to open
 both legs by hand on two venues. No basis-trade (spot/perp) vault either —
@@ -473,28 +499,36 @@ snapshots, not a deposit. What these doors actually serve is cross-venue fu…
 
 **Stablecoin yield strategies** — partial
 
-Two different products under one word. For an ordinary signed-in user: READ
-ONLY — the idle-yield optimizer matches their wallet's idle USDC/USDT/DAI to
-the best Aave v3 supply rate (non-custodial preferred honestly over a
-marginally higher custodial CEX rate) and says so; the module's own first
-lines are 'RECOMMEND, never auto-deploy' and 'RECOMMENDATION-ONLY — never
-moves funds'. For the OPERATOR only: real execution into Bitget Earn savings.
-/stake shows a plan and the yld:s callback calls yield_radar.execute_stake,
-re-clamped from live balances at press time and holding a 30% margin reserve;
-STAKEABLE_COINS is exactly ('USDT','USDC'); /stake fixed is a two-step lock
-whose second confirm must echo the exact lock end date; /unstake redeems. The
-web twin POST /api/staking/fixed is gated three times — authMiddleware, a TOTP
-step-up, and `_is_admin_id` 403 in the gateway — and /api/reports/yield
-requires plan==='admin'.
+Two different products under one word. On the website, for a signed-in
+user: READ ONLY — the idle-yield optimizer matches their wallet's idle
+USDC/USDT/DAI to the best Aave v3 supply rate (non-custodial preferred
+honestly over a marginally higher custodial CEX rate) and says so; the
+module's own first lines are 'RECOMMEND, never auto-deploy' and
+'RECOMMENDATION-ONLY — never moves funds'. On Telegram, real execution into
+Bitget Earn savings on the CALLER's OWN account: /stake shows a plan over the
+idle stables of the Bitget account they linked with /connect (an admin who
+linked none gets the operator's, as before), and the yld:s callback calls
+yield_radar.execute_stake with THAT account's client, re-clamped from live
+balances at press time and holding a 30% margin reserve; STAKEABLE_COINS is
+exactly ('USDT','USDC'); /stake fixed is a two-step lock whose second confirm
+must echo the exact lock end date; /unstake redeems. The permission is
+`stake`, held by trader and admin — a self-admitted paper user and a viewer
+are refused by role — and the plan card, the button's owner tag and the
+sealed record all name the account acted on (bot/core/earn_account.py is
+the one reading, eight states, asked again at press time so a plan over one
+book cannot execute against another). The web twin POST /api/staking/fixed
+stays operator-only — authMiddleware, a TOTP step-up, and `_is_admin_id` 403
+in the gateway — and /api/reports/yield requires plan==='admin'; /yield and
+/idleyield are still admin-only reads of the operator's book.
 
-*Gap.* No user can move a cent. Every execution path is `_is_admin`/`_is_admin_id`
-and runs against the OPERATOR's Bitget keys — a normal trader/paper/viewer
-gets a rate and nothing to press. The custodial execution is Bitget Earn
-flexible/fixed savings, not on-chain: nothing supplies to Aave, nothing enters
-a stablecoin vault, and non-custodial stablecoin yield is recommendation-only
-end to end. Coverage is four assets (USDC/USDT/DAI on Aave v3, plus whatever
-Bitget Earn lists); no sDAI/sUSDS, no Ethena, no T-bill/RWA stable yield, no
-Curve/Convex stable pools.
+*Gap.* The custodial execution is Bitget Earn flexible/fixed savings, and
+Bitget only: a caller linked to Bybit or BingX is told so and nothing moves
+(their Earn is unserved — recorded rather than guessed at). The website's own
+staking route is still the operator's. Not on-chain: nothing supplies to
+Aave, nothing enters a stablecoin vault, and non-custodial stablecoin yield
+is recommendation-only end to end. Coverage is four assets (USDC/USDT/DAI on
+Aave v3, plus whatever Bitget Earn lists); no sDAI/sUSDS, no Ethena, no
+T-bill/RWA stable yield, no Curve/Convex stable pools.
 
 
 ### Points & Rewards Meta

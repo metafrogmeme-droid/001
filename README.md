@@ -495,6 +495,9 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/paper` | practise risk-free with virtual funds |
 | `/mystrategy` | choose which strategy preset YOUR confirms run through |
 | `/venues` | choose which of your connected venues actually trade |
+| `/stake` | put your linked Bitget's idle stables into flexible Earn — nothing moves until Confirm |
+| `/unstake` | redeem your flexible Earn back to trading margin — button-confirmed |
+| `/arbpair` | size a delta-neutral funding pair over your linked venues — /arbpair BTC [usd]; a proposal that places nothing |
 | `/open_positions` | your open positions |
 | `/positions` | your open positions — same as /open_positions |
 | `/livepositions` | live exchange positions and pending orders |
@@ -551,6 +554,8 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/spot` | spot pairs across venues and the spot/perp basis, read-only |
 | `/nft` | NFT collections by real 7-day volume, floor and volume, read-only |
 | `/airdrops` | airdrop and testnet radar — guided only, never farmed for you |
+| `/venue_router` | cheapest venue to hold a position by funding cost — /venue_router [BASE] |
+| `/meme_radar` | on-chain meme and AI-token snapshot with a safety read, read-only |
 
 ### 💼 Portfolio & record
 
@@ -561,6 +566,10 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/postmortem` | post-mortem of one closed trade — /postmortem [SYMBOL or trade id] |
 | `/networth` | cross-venue net worth snapshot |
 | `/exposure` | net per-asset exposure |
+| `/wallet` | your linked on-chain wallet, mirrored read-only — /wallet [chain] |
+| `/defi` | your Aave, Lido and Uniswap positions with liquidation risk, read-only |
+| `/replay` | what-if replay of every recorded agent trade at your stake — /replay [stake] |
+| `/letter` | the agent's letter for the last completed week, from the recorded data |
 | `/risk` | risk status and circuit breaker |
 | `/enforcing` | which controls would refuse a trade right now |
 | `/signals` | per-pair signal stats |
@@ -576,6 +585,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 |---|---|
 | `/watch` | proactive alerts for this chat |
 | `/alerts` | anomaly alert scope and how often |
+| `/price_alert` | a price alert armed here and delivered here when it trips |
 | `/share` | save a note your agent can use |
 | `/mynotes` | the notes you've shared |
 | `/agent` | your agent's posture, in plain language |
@@ -670,8 +680,6 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/setsigner` | set the on-chain signing key (encrypted) |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
-| `/stake` | put idle stables into flexible Earn |
-| `/unstake` | redeem Earn back to trading margin |
 
 <!-- END generated: telegram commands -->
 

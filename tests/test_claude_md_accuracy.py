@@ -206,7 +206,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Forty-one call sites across the two entry points", DOC)
+    m = re.search(r"Forty-nine call sites across the two entry points", DOC)
     assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
@@ -216,7 +216,7 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 41, f"CLAUDE.md says forty-one; the two entry points have {n}"
+    assert n == 49, f"CLAUDE.md says forty-nine; the two entry points have {n}"
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -324,17 +324,25 @@ def test_the_outbound_seam_is_at_a_boundary_not_a_call_site_list():
         "a per-return scrub is the shape the boundary replaced")
 
 
-def test_the_seam_knows_the_token_shape_the_old_one_did_not():
-    """The paragraph's sharpest claim, and the reason it is a named function
-    rather than an import of `_redact_string`."""
+def test_the_seam_and_the_old_scrub_read_one_vocabulary_now():
+    """The paragraph's sharpest claim was that `reply_safe` knew a shape
+    `_redact_string` did not, and the paragraph after it records how that gap
+    closed: one table, every reader. So the assertion this test used to make
+    — that the shared scrub MISSES the bot token — is the one that must fail
+    now. The walk is proved one in `test_one_secret_vocabulary.py` by planting
+    a shape in the table rather than by comparing outputs, because a
+    byte-identical copy agrees on every fixture."""
+    from bot.utils.exc_text import _safe_exc_text
     from bot.utils.logger import _redact_string
     from bot.utils.outbound import reply_safe
 
     flat = re.sub(r"\s+", " ", DOC)
     assert "the shared key=value redactor does not know it" in flat
+    assert "`bot/utils/secret_shapes.py`" in flat, "the paragraph names the one table"
     tok = "bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
-    assert "1234567890:AAF" in _redact_string(tok), "the old scrub misses it"
+    assert "1234567890:AAF" not in _redact_string(tok), "one vocabulary: the old scrub reads it too"
     assert "1234567890:AAF" not in reply_safe(tok)
+    assert "1234567890:AAF" not in _safe_exc_text(RuntimeError(tok))
 
 
 def test_the_six_records_it_names_all_exist_and_differ():
@@ -404,16 +412,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "48 names including `halt`" in flat
+    assert "51 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 48, len(old)
+    assert len(old) == 51, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 45)" in flat
+    assert "(telegram, 48)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 45, len(tg)
+    assert len(tg) == 48, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):
@@ -435,12 +443,14 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     assert left <= routed_skill_names(), left - routed_skill_names()
     assert (two | left) <= {t.name for t in CHAT_TOOLS}
 
-    # "seven catalogue commands carry one" — the underscore commands the
-    # slash extractor used to truncate.
+    # "ten catalogue commands carry one" — the underscore commands the
+    # slash extractor used to truncate (seven until the website's venue
+    # router and meme radar became commands under their intent names, nine
+    # until the price alert did).
     from bot.skills.command_catalog import all_entries
     under = sorted(c for c in all_entries() if "_" in c)
-    assert "seven catalogue commands carry one" in flat
-    assert len(under) == 7, under
+    assert "ten catalogue commands carry one" in flat
+    assert len(under) == 10, under
     for name in under:
         assert f"`{name}`" in DOC, name
 

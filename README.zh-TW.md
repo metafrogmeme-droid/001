@@ -448,6 +448,9 @@ python -m bot.main --mode scan
 | `/paper` | 用虛擬資金無風險練習 |
 | `/mystrategy` | 選擇你的機器人採用哪個策略預設 |
 | `/venues` | 選擇你已連接的哪些交易所實際下單 |
+| `/stake` | 把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金 |
+| `/unstake` | 把你的活期 Earn 贖回為交易保證金——按鈕確認 |
+| `/arbpair` | 在你已連結的交易所試算 delta 中性資金費率配對 — /arbpair BTC [usd]；只提案，絕不下單 |
 | `/open_positions` | 你的持倉 |
 | `/positions` | 你的持倉（等同 /open_positions） |
 | `/livepositions` | 交易所實盤持倉與掛單 |
@@ -504,6 +507,8 @@ python -m bot.main --mode scan
 | `/spot` | 跨交易所現貨交易對與現貨/永續基差（唯讀） |
 | `/nft` | 依真實 7 日成交量排序的 NFT 系列：地板價與成交量（唯讀） |
 | `/airdrops` | 空投與測試網雷達——僅提供指引，絕不代你刷任務 |
+| `/venue_router` | 依資金費率成本找最便宜的持倉交易所 — /venue_router [幣種] |
+| `/meme_radar` | 鏈上迷因與 AI 代幣快照，附安全判讀（唯讀） |
 
 ### 💼 投資組合與紀錄
 
@@ -514,6 +519,10 @@ python -m bot.main --mode scan
 | `/postmortem` | 單筆已平倉交易的覆盤 |
 | `/networth` | 跨平台淨資產快照 |
 | `/exposure` | 各資產淨曝險 |
+| `/wallet` | 你已連結的鏈上錢包，唯讀鏡像 — /wallet [鏈] |
+| `/defi` | 你的 Aave、Lido 與 Uniswap 部位及清算風險（唯讀） |
+| `/replay` | 以你的本金重播每一筆已記錄的代理交易 — /replay [本金] |
+| `/letter` | 上一個完整週的代理週報，來自已記錄的資料 |
 | `/risk` | 風險狀態與熔斷器 |
 | `/enforcing` | 目前哪些控制會攔下一筆交易 |
 | `/signals` | 各交易對訊號統計 |
@@ -529,6 +538,7 @@ python -m bot.main --mode scan
 |---|---|
 | `/watch` | 為此對話開啟主動提醒 |
 | `/alerts` | 異常警報範圍與頻率 |
+| `/price_alert` | 在此設定價格提醒，觸發時會傳到這裡 |
 | `/share` | 儲存一則代理可參考的筆記 |
 | `/mynotes` | 你分享過的筆記 |
 | `/agent` | 用白話說明你的代理狀態 |
@@ -623,8 +633,6 @@ python -m bot.main --mode scan
 | `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
-| `/stake` | 將閒置穩定幣投入活期 Earn |
-| `/unstake` | 將 Earn 贖回為交易保證金 |
 
 <!-- END generated: telegram commands -->
 

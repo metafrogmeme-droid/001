@@ -246,6 +246,7 @@ class MemoryDB {
     copy_subscriptions: { field: 'copySubs' },
     user_profiles: { field: 'userProfiles', key: 'user_id' },
     user_alerts: { field: 'userAlerts' },
+    user_alert_trips: { field: 'userAlertTrips' },
     user_strategies: { field: 'userStrategies' },
     user_watchlist: { field: 'watchlist' },
     arena_follows: { field: 'arenaFollows', key: 'user_id' },
@@ -331,6 +332,8 @@ class MemoryDB {
     this.pendingFlatten = []; // pending_flatten (UPSERT by user_id)
     this.userAlerts = [];     // custom "tell me when…" tripwires
     this._nextAlertId = 1;
+    this.userAlertTrips = []; // one row per alert trip: the bot's Telegram delivery queue
+    this._nextAlertTripId = 1;
     this.userStrategies = []; // user-authored marketplace strategies (config only)
     this._nextStrategyId = 1;
     this.agentLetters = [];   // weekly agent letters (UPSERT-free; one per week_key)
@@ -644,6 +647,42 @@ class MemoryDB {
         .sort((a, b) => String(b.week_key).localeCompare(String(a.week_key)))
         .slice(0, 52)
         .map(({ week_key, generated_at }) => ({ week_key, generated_at }));
+      return [rows, []];
+    }
+
+    // -- USER ALERT TRIPS (the bot's Telegram delivery queue) --
+    // Checked before USER ALERTS: 'USER_ALERT_TRIPS' must never fall through
+    // to a substring match on 'USER_ALERT'.
+    if (cmd.includes('INSERT INTO USER_ALERT_TRIPS')) {
+      // params: alert_id, user_id, title, body, value, tripped_at
+      this.userAlertTrips.push({
+        id: this._nextAlertTripId++, alert_id: params[0], user_id: params[1],
+        title: params[2], body: params[3], value: params[4], tripped_at: params[5],
+        tg_delivered_at: null, tg_result: null,
+      });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('UPDATE USER_ALERT_TRIPS')) {
+      // params: tg_delivered_at, tg_result, id — stamps an UNDELIVERED row once
+      const t = this.userAlertTrips.find(x => x.id === params[2] && x.tg_delivered_at === null);
+      if (!t) return [{ affectedRows: 0 }, []];
+      t.tg_delivered_at = params[0]; t.tg_result = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM USER_ALERT_TRIPS')) {
+      // the pending read: undelivered rows whose person has a telegram id
+      const rows = this.userAlertTrips
+        .filter(t => t.tg_delivered_at === null)
+        .map(t => {
+          const u = this.users.find(x => x.id === t.user_id);
+          return u && u.telegram_id
+            ? { id: t.id, alert_id: t.alert_id, title: t.title, body: t.body,
+                tripped_at: t.tripped_at, telegram_id: u.telegram_id }
+            : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.id - b.id)
+        .slice(0, 200);
       return [rows, []];
     }
 
@@ -2259,6 +2298,7 @@ const EXPECTED_TABLES = Object.freeze([
   'user_profiles',
   'agent_letters',
   'user_alerts',
+  'user_alert_trips',
   'user_strategies',
   'reports_cache',
   'flight_cache',
@@ -2656,6 +2696,26 @@ async function migrate() {
         triggered_at TIMESTAMP NULL DEFAULT NULL,
         INDEX idx_alerts_user (user_id),
         INDEX idx_alerts_active (active)
+      )
+    `);
+    // One row per TRIP of a user alert, read by the bot's poll so a linked
+    // Telegram account gets the same sentence the push carried. Written
+    // beside the push, never instead of it; `tg_delivered_at` is the bot's
+    // ack and `tg_result` says sent or failed-with-reason, so a blocked bot
+    // does not retry one trip forever.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_alert_trips (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        alert_id INT NOT NULL,
+        user_id INT NOT NULL,
+        title VARCHAR(120) NOT NULL,
+        body VARCHAR(500) NOT NULL,
+        value DOUBLE DEFAULT NULL,
+        tripped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        tg_delivered_at TIMESTAMP NULL DEFAULT NULL,
+        tg_result VARCHAR(80) DEFAULT NULL,
+        INDEX idx_alert_trips_user (user_id),
+        INDEX idx_alert_trips_pending (tg_delivered_at)
       )
     `);
     // User-authored marketplace strategies. A strategy is a CONFIG (intent-rule

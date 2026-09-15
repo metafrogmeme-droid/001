@@ -323,20 +323,29 @@ async function walletAddressOf(userId) {
 // "my wallet on base", "wallet holdings on arbitrum".
 const CHAT_RE = /\b(my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b(?:\s+on\s+([a-z]+))?/i;
 
+const { esc } = require('./esc');
+
 function fmtUsd(v) {
   return v == null ? '—'
     : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-async function maybeHandleWalletChat(userId, text) {
-  const m = String(text || '').match(CHAT_RE);
-  if (!m) return null;
+/**
+ * The wallet mirror as the chat card — ONE renderer for both surfaces; the
+ * bot's /wallet fetches it over the sync channel
+ * (`GET /api/bot/sync/card/wallet?telegram_id=…&chain=base`) for a caller
+ * whose Telegram account is linked to a web account, and the route answers
+ * `unlinked` for one it cannot map — never a guessed wallet. `chainFilter`
+ * narrows to one chain (null for all). Every label and symbol interpolated
+ * below is escaped, and the unreadable-chains line is `<i>`, not a `<span>`:
+ * the card is forwarded to Telegram's HTML parser as-is.
+ */
+async function walletChatCard(userId, chainFilter) {
   try {
-    const chainFilter = m[2] ? String(m[2]).toLowerCase() : null;
     if (chainFilter && !CHAINS.some(c => c.key === chainFilter)) {
       return {
-        reply_html: `I don't mirror <b>${chainFilter.replace(/[^a-z]/g, '')}</b> yet — tracked chains: `
-          + CHAINS.map(c => c.label).join(', ') + '.',
+        reply_html: `I don't mirror <b>${esc(chainFilter.replace(/[^a-z]/g, ''))}</b> yet — tracked chains: `
+          + CHAINS.map(c => esc(c.label)).join(', ') + '.',
         intent: 'wallet',
       };
     }
@@ -358,7 +367,7 @@ async function maybeHandleWalletChat(userId, text) {
     const withAssets = sections.filter(c => c.assets.length);
     if (!withAssets.length) {
       const scope = chainFilter
-        ? `on ${sections[0] ? sections[0].label : chainFilter}` : 'across the tracked chains';
+        ? `on ${esc(sections[0] ? sections[0].label : chainFilter)}` : 'across the tracked chains';
       return {
         reply_html: `👛 <b>${short}</b> — no balances found ${scope} among the tracked assets.`,
         intent: 'wallet',
@@ -366,8 +375,8 @@ async function maybeHandleWalletChat(userId, text) {
     }
     const blocks = withAssets.map(c => {
       const rows = c.assets.slice(0, 6).map(a =>
-        `• <b>${a.symbol}</b> ${a.amount.toLocaleString('en-US', { maximumFractionDigits: 6 })} — ${fmtUsd(a.usd)}`);
-      return `<b>${c.label}</b> · ${fmtUsd(c.total_usd)}<br>${rows.join('<br>')}`;
+        `• <b>${esc(a.symbol)}</b> ${a.amount.toLocaleString('en-US', { maximumFractionDigits: 6 })} — ${fmtUsd(a.usd)}`);
+      return `<b>${esc(c.label)}</b> · ${fmtUsd(c.total_usd)}<br>${rows.join('<br>')}`;
     });
     const total = chainFilter
       ? withAssets.reduce((a, c) => a + (c.total_usd || 0), 0) : p.total_usd;
@@ -377,13 +386,19 @@ async function maybeHandleWalletChat(userId, text) {
         + blocks.join('<br><br>')
         + `<br><br>Total (priced): <b>${fmtUsd(round2(total))}</b>`
         + (p.unpriced && !chainFilter ? ` · ${p.unpriced} asset(s) unpriced` : '')
-        + (unreadable.length ? `<br><span class="muted">${unreadable.join(', ')} unreadable right now (RPC).</span>` : '')
+        + (unreadable.length ? `<br><i>${esc(unreadable.join(', '))} unreadable right now (RPC).</i>` : '')
         + '<br><i>Balances read straight from the chain; RUNECLAW can never move them.</i>',
       intent: 'wallet',
     };
   } catch (e) {
     return { reply_html: 'Wallet read hiccup — the RPC may be busy; try again shortly.', intent: 'wallet' };
   }
+}
+
+async function maybeHandleWalletChat(userId, text) {
+  const m = String(text || '').match(CHAT_RE);
+  if (!m) return null;
+  return walletChatCard(userId, m[2] ? String(m[2]).toLowerCase() : null);
 }
 
 module.exports = {
@@ -394,5 +409,5 @@ module.exports = {
   walletAddressOf,
   setProviderFactory,
   setTickerFetcher,
-  maybeHandleWalletChat,
+  maybeHandleWalletChat, walletChatCard,
 };

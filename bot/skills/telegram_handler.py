@@ -47,9 +47,11 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE, _chat_ret, _emit_event, _say,
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
+    stake_verb, LINK_DOOR,
     skill_failure_notice, thinking_phrase,
 )
 from bot.nlp.intent_router import halt_verb, symbol_mentioned
+from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
@@ -558,21 +560,10 @@ def _live_account_absence(user_id: str) -> str:
     return state if state in ("absent", "unreadable") else "unresolved"
 
 
-#: The door to a linked account, per surface. A slash command told to a web
-#: caller is a door painted on a wall: the web chat cannot run /connect, and
-#: the dashboard has its own step — Account -> "Connect an exchange" (API
-#: keys), which is also where the key state is shown. Telegram and the
-#: operator's API bridge get the commands. Keyed by the transport the turn
-#: arrived on (`_llm_chat`'s ``surface``), never guessed from the id.
-_LINK_DOOR: dict[str, dict[str, str]] = {
-    "web": {"link": "the dashboard's Account > Connect an exchange step links "
-                    "exchange keys",
-            "state": "the dashboard's Account > API keys page shows the key "
-                     "state, and re-entering the keys there replaces them"},
-    "telegram": {"link": "/connect links exchange keys",
-                 "state": "/exchange shows the key state, and re-linking with "
-                          "/connect replaces them"},
-}
+#: The door to a linked account, per surface — `chat_runtime.LINK_DOOR`, the
+#: one table the stake notice reads too; kept under this name for the
+#: no-account block and the tests that pin it.
+_LINK_DOOR = LINK_DOOR
 
 
 def _no_live_account_block(absence: str, surface: str = "telegram") -> tuple[str, str]:
@@ -982,6 +973,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("start", self._cmd_start), ("dashboard", self._cmd_dashboard),
             ("scan", self._cmd_scan), ("analyze", self._cmd_analyze),
             ("portfolio", self._cmd_portfolio), ("trade", self._cmd_trade),
+            ("arbpair", self._cmd_arbpair),
             ("paper", self._cmd_paper),
             ("risk", self._cmd_risk), ("status", self._cmd_status),
             ("enforcing", self._cmd_enforcing),
@@ -1055,6 +1047,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # Proactive alerts
             ("watch", self._cmd_watch),
             ("alerts", self._cmd_alerts),
+            ("price_alert", self._cmd_price_alert),
             # Live trading commands
             ("golive", self._cmd_golive), ("livebalance", self._cmd_livebalance),
             ("livepositions", self._cmd_livepositions), ("liveclose", self._cmd_liveclose),
@@ -1075,7 +1068,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("idleyield", self._cmd_idleyield),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
-            # Admin: stake/redeem flexible Earn (button-confirmed money path)
+            # Stake/redeem flexible Earn on the CALLER's linked account
+            # (button-confirmed money path; `stake` permission, trader+admin)
             ("stake", self._cmd_stake),
             ("unstake", self._cmd_unstake),
             # Multi-symbol funding-spread scan (read-only, public data);
@@ -1135,6 +1129,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("nft", self._cmd_nft),
             ("spot", self._cmd_spot),
             ("airdrops", self._cmd_airdrops),
+            ("replay", self._cmd_replay),
+            ("letter", self._cmd_letter),
+            ("venue_router", self._cmd_venue_router),
+            ("meme_radar", self._cmd_meme_radar),
+            ("wallet", self._cmd_wallet),
+            ("defi", self._cmd_defi),
         ]:
             # Every slash command's turn reaches the transcript through this
             # one line — the command typed and what it replied — because a
@@ -3626,6 +3626,48 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("airdrops"))
                 return
+            # Six more of the website's cards, the same way. The three that
+            # take an argument read it from the words with the intercept's
+            # own reader (`bot/nlp/web_card_args.py`), so "best venue for
+            # BTC" narrows here exactly as it does there.
+            if intent.skill == "replay":
+                await self._cmd_replay(update, ctx, stake=replay_stake(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("replay"))
+                return
+            if intent.skill == "letter":
+                await self._cmd_letter(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("letter"))
+                return
+            if intent.skill == "venue_router":
+                await self._cmd_venue_router(update, ctx, base=venue_base(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("venue_router"))
+                return
+            if intent.skill == "meme_radar":
+                await self._cmd_meme_radar(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("meme_radar"))
+                return
+            if intent.skill == "wallet":
+                await self._cmd_wallet(update, ctx, chain=wallet_chain(intent.raw_text))
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("wallet"))
+                return
+            if intent.skill == "defi":
+                await self._cmd_defi(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("defi"))
+                return
+            if intent.skill == "price_alert":
+                # The website's alert engine holds the tripwire and the bot's
+                # poll delivers a trip here; the WORDS are the argument, read
+                # by the website's own parser (`/price_alert`).
+                await self._cmd_price_alert(update, ctx, text=intent.raw_text)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("price_alert"))
+                return
 
             # ── The reads only the website answers → a door, never a narrator ──
             # "replay every signal with $1k" ran a synthetic backtest here and
@@ -3654,11 +3696,35 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # rows, and a stop change has no door at all, which the notice
             # says instead of naming one.
             if intent.skill in ACT_INTENTS:
+                _kind = ACT_KIND[intent.skill]
+                _verb = stake_verb(intent.raw_text) if _kind == "stake" else None
                 _act = act_intent_notice(
-                    ACT_KIND[intent.skill], symbol_mentioned(intent.raw_text),
+                    _kind, symbol_mentioned(intent.raw_text),
                     surface="telegram",
-                    also_asked=bool(intent.kwargs.get("also_asked")))
+                    also_asked=bool(intent.kwargs.get("also_asked")), verb=_verb)
                 await self._send(update, _act)
+                if _kind == "stake":
+                    # The door is the caller's own plan card — /stake or
+                    # /unstake over the account THEY linked (the operator's
+                    # for an admin who linked none), which moves nothing
+                    # until Confirm is tapped — so for a caller whose role
+                    # holds `stake` it follows the notice, and for anyone
+                    # else nothing does: the notice has already said whose
+                    # door it is, and the command's role refusal under it
+                    # would say so twice. Never the positions card, which is
+                    # not this request's door. The command's own @guard still
+                    # runs inside the call; asking the same store the same
+                    # question here only decides whether a card follows.
+                    # One record, written unconditionally below the arm, so
+                    # the transcript guard can see it above the return; the
+                    # arm only adds the card it showed.
+                    _record = routed_answer_memory(intent.skill, _act)
+                    if self.users.permission_denial(tg_id, "stake") is None:
+                        _plan = self._cmd_unstake if _verb == "unstake" else self._cmd_stake
+                        await _plan(update, ctx)
+                        _record += "\n" + card_shown_memory(f"{_verb} plan")
+                    self._remember_routed(tg_id, text, intent.skill, _record)
+                    return
                 await self._cmd_open_positions(update, ctx)
                 # BOTH halves, because the turn had two: the door, and a card
                 # whose rows are not in the transcript. Recording only the
@@ -4711,6 +4777,25 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "
                       "set it up and /link your account, then try again.")
+
+    @staticmethod
+    def _unlinked_hint(surface: str = "telegram") -> str:
+        """The sentence for a caller the website could not map to a web
+        account — a different fact from a channel that did not answer, and
+        the route says which (`unlinked`), so the two are never one hedged
+        sentence. Telegram names `/link`, because there an unmapped caller
+        is one who has not linked. A web caller is mapped by construction —
+        the website resolved the identity itself, their linked Telegram id
+        or `web:<uid>` — so `unlinked` there means the website found no
+        account for its own identity, and the sentence says that: "not
+        linked" is a Telegram fact and would be false on the web. Neither
+        claims a wallet was read."""
+        if surface == "web":
+            return ("\U0001f517 The website could not map this chat to a web account, so "
+                    "there is no wallet to read. Nothing was read.")
+        return ("\U0001f517 Your Telegram account is not linked to a RUNECLAW web "
+                "account, so there is no wallet to read from here — /link it "
+                "first, then try again. Nothing was read.")
 
     @staticmethod
     def _link_hint(surface: str = "telegram") -> str:

@@ -32,6 +32,18 @@ THE RED HERRINGS: advice and questions about stops, orders and rejections
 still reach the model ("where should I set my stop?", "did my order get
 cancelled?", "why is my pnl negative" keeps its portfolio card); bare
 "status" and "what is the bot status?" keep the engine card.
+
+THE FOURTH KIND, found while building the idle-yield door: "stake my usdc"
+reached no rule — three words, no trading word, GREETED — and "stake my eth"
+reached a model that holds no staking tool. The website's idle-yield
+intercept reads "stake my …" as a yield question; here /stake and /unstake
+moved the OPERATOR's funds behind a Confirm card and were admin-only (they
+act on the account the caller LINKED now, under the trader-only `stake`
+permission — tests/test_a_linked_trader_stakes_their_own_account.py). So a
+staking request is a routed action: the notice says whose door it is and
+that nothing moved, the plan card follows for a caller whose role holds it
+(it moves nothing until Confirm), and nothing follows for anyone else —
+never the positions card, which is not this request's door.
 """
 from __future__ import annotations
 
@@ -41,16 +53,19 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from bot.nlp.intent_router import IntentRouter, symbol_mentioned
+from bot.nlp.skill_memory import routed_answer_memory
 from bot.skills.chat_runtime import (
     _CHAT_CANNOT_ACT_RULE,
     ACT_INTENTS,
     act_intent_notice,
     close_intent_notice,
+    stake_verb,
 )
 from bot.skills.skill_permissions import permission_for
 from bot.skills.skill_registry import build_default_registry
 from tests.source_scan import code_only
-from tests.test_free_text_obeys_the_role_gate import OPERATOR, TRADER, _handler, _update
+from tests.test_free_text_obeys_the_role_gate import OPERATOR, STRANGER, TRADER, _handler, _update
+from tests.test_the_web_intercept_phrasings_reach_the_same_read_on_telegram import _assistant, _turn, _web
 
 MODIFY = [
     "set stop loss at 2900", "change my take profit", "move my stop to 3000",
@@ -62,6 +77,18 @@ CANCEL = [
     "cancel all my orders", "remove the pending order", "can you cancel my SOL limit",
     "cancel it",
 ]
+STAKE = [
+    "stake my usdc", "stake my eth", "stake 500 usdt", "unstake my usdc", "redeem my earn",
+    "restake my eth on eigenlayer", "can you stake my stables", "stake it all",
+    "lock my usdt for 30 days", "stake my usdc please", "please unstake everything",
+]
+# A question about staking, a bare word, and the website's own idle-yield
+# phrasing keep their destinations: none is a request to move funds.
+STAKE_NOT = {
+    "should i stake eth": None, "what is staking": None, "how do i unstake": None,
+    "stake": None, "staking options": None, "stake my claim": None,
+    "put my idle cash to work": "idle_yield",
+}
 # Questions and advice keep their old destination — a question about a stop is
 # not a request to move one.
 STILL_MODEL_OR_READ = {
@@ -147,6 +174,24 @@ class TestTheRouter:
             assert reg.get(name) is None, name
             assert permission_for(name) is None, name
 
+    @pytest.mark.parametrize("text", STAKE)
+    def test_a_stake_or_redeem_request_is_a_routed_action(self, router, text):
+        i = router.classify_rules(text)
+        assert i.skill == "stake_request" and i.confidence == 1.0, (text, i.skill)
+
+    @pytest.mark.parametrize("text,skill", list(STAKE_NOT.items()), ids=list(STAKE_NOT))
+    def test_a_staking_question_or_a_bare_word_is_not(self, router, text, skill):
+        i = router.classify_rules(text)
+        got = i.skill if i.confidence >= 0.8 else None
+        assert got != "stake_request", (text, got)
+        assert got == skill, (text, got)
+
+    def test_the_verb_is_read_from_the_words(self):
+        assert stake_verb("stake my usdc") == "stake"
+        assert stake_verb("unstake my usdc") == "unstake"
+        assert stake_verb("redeem my earn") == "unstake"
+        assert stake_verb("restake my eth") == "stake"
+
 
 # ── Telegram: the positions card, never an action ──────────────────────────
 
@@ -163,6 +208,8 @@ def bot(tmp_path):
         mc.is_live.return_value = False
     h._cmd_open_positions = AsyncMock()
     h._cmd_orders = AsyncMock()
+    h._cmd_stake = AsyncMock()
+    h._cmd_unstake = AsyncMock()
     h.engine.live_executor = NS(close_position=AsyncMock(), cancel_order=AsyncMock(),
                                 open_positions=[])
     yield h
@@ -203,6 +250,53 @@ class TestTelegram:
         await bot._handle_message(_update(OPERATOR, "cancel my order"), None)
         assert bot._cmd_open_positions.await_count == 1
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["stake my usdc", "unstake my usdc"])
+    async def test_a_self_admitted_users_stake_request_meets_the_notice_and_no_card(self, bot, text):
+        # `stake` is vouched-for only: a self-admitted paper user is told
+        # whose door it is, and no card follows — not the positions card (the
+        # wrong door) and not a plan card that would only refuse them under a
+        # notice that already said so.
+        await bot._handle_message(_update(STRANGER, text), None)
+        bot._cmd_stake.assert_not_awaited()
+        bot._cmd_unstake.assert_not_awaited()
+        bot._cmd_open_positions.assert_not_awaited()
+        assert bot.registry.executed == [] and bot.registry.dispatched == []
+        assert bot.sent[-1] == act_intent_notice("stake", None, "telegram", verb=stake_verb(text))
+        assert "Nothing has been staked or redeemed" in bot.sent[-1]
+        assert "put my idle cash to work" in bot.sent[-1]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["stake my usdc", "unstake my usdc"])
+    async def test_a_traders_stake_request_meets_the_notice_then_their_own_plan_card(self, bot, text):
+        # A vouched-for trader holds `stake`, so the notice is followed by the
+        # plan card over THEIR linked account (the command resolves whose;
+        # here it is a mock, so only the dispatch is visible). Never the
+        # positions card.
+        await bot._handle_message(_update(TRADER, text), None)
+        plan = bot._cmd_unstake if stake_verb(text) == "unstake" else bot._cmd_stake
+        other = bot._cmd_stake if plan is bot._cmd_unstake else bot._cmd_unstake
+        assert plan.await_count == 1, text
+        other.assert_not_awaited()
+        bot._cmd_open_positions.assert_not_awaited()
+        assert bot.registry.executed == [] and bot.registry.dispatched == []
+        assert bot.sent[-1] == act_intent_notice("stake", None, "telegram", verb=stake_verb(text))
+
+    @pytest.mark.asyncio
+    async def test_the_operators_stake_request_gets_their_own_plan_card(self, bot):
+        await bot._handle_message(_update(OPERATOR, "stake my usdc"), None)
+        assert bot._cmd_stake.await_count == 1
+        bot._cmd_unstake.assert_not_awaited()
+        bot._cmd_open_positions.assert_not_awaited()
+        assert "/stake" in bot.sent[-1] and "Confirm" in bot.sent[-1]
+
+    @pytest.mark.asyncio
+    async def test_the_operators_redeem_request_gets_the_unstake_card(self, bot):
+        await bot._handle_message(_update(OPERATOR, "redeem my earn"), None)
+        assert bot._cmd_unstake.await_count == 1
+        bot._cmd_stake.assert_not_awaited()
+        assert "/unstake" in bot.sent[-1]
+
 
 # ── the web: the door, never the model ─────────────────────────────────────
 
@@ -216,6 +310,16 @@ def test_the_web_answers_every_action_intent_before_any_alias_or_skill():
     # always about ORDER, and the assignment is what it orders against.
     assert branch < src.index("_INTENT_ALIASES =")
     assert "act_intent_notice(" in src
+
+
+@pytest.mark.parametrize("text", ["stake my usdc", "unstake my usdc"])
+def test_the_web_answers_a_stake_request_with_the_notice_and_records(monkeypatch, text):
+    ug, h = _web(monkeypatch)
+    resp, body = _turn(ug, h, text)
+    assert resp.status == 200
+    assert body["intent"] == "stake_request"
+    assert body["reply_html"] == act_intent_notice("stake", None, "web", verb=stake_verb(text))
+    assert _assistant(h) == routed_answer_memory("stake_request", body["reply_html"])
 
 
 # ── the notice ─────────────────────────────────────────────────────────────
@@ -243,9 +347,50 @@ class TestTheNotice:
         with pytest.raises(KeyError):
             act_intent_notice("liquidate_everything")
 
+    @pytest.mark.parametrize("surface", ["telegram", "web"])
+    @pytest.mark.parametrize("verb", ["stake", "unstake"])
+    def test_stake_names_the_linked_accounts_door_and_claims_nothing_moved(self, surface, verb):
+        n = act_intent_notice("stake", None, surface, verb=verb)
+        assert f"<code>/{verb}</code>" in n and "Confirm" in n
+        # The door is over the account the caller LINKED, with the role gate
+        # named; the operator's account is the admin-without-keys case, and
+        # "admin-only" — the sentence before the money doors opened to linked
+        # traders — would now be a false refusal. HOW it was linked is the
+        # surface's own door: /connect on Telegram, the dashboard's step on
+        # the web, where a slash command is a door painted on a wall (the
+        # first draft of this pin asserted /connect on both surfaces, which is
+        # the pin that let the web sentence name a command it cannot run).
+        assert "trader role" in n and "operator's account" in n
+        if surface == "web":
+            assert "/connect" not in n and "Connect an exchange step" in n
+        else:
+            assert "with /connect" in n and "dashboard" not in n
+        assert "admin-only" not in n
+        assert "Nothing has been staked or redeemed" in n
+        # The caller's OWN idle assets have a read, and it is not a move.
+        assert "put my idle cash to work" in n and "never a move" in n
+        assert ("Telegram" in n) == (surface == "web")
+        assert "positions card" not in n
+        assert act_intent_notice("stake", None, surface, verb=verb, also_asked=True).endswith("I will.")
+
 
 # ── the prompt ─────────────────────────────────────────────────────────────
 
 def test_the_rule_covers_cancel_and_says_a_stop_cannot_be_changed():
     assert "cancel" in _CHAT_CANNOT_ACT_RULE
     assert "cannot be changed" in _CHAT_CANNOT_ACT_RULE
+    # The claims, not substrings the rest of the sentence carries anyway: a
+    # mutation that dropped the rule's opening verbs survived a pin on
+    # "stake" because "/stake" further along still matched it.
+    assert "You cannot stake, unstake or move funds into or out of Earn" in _CHAT_CANNOT_ACT_RULE
+    assert ("/stake and /unstake in Telegram act on the Bitget account the caller "
+            "linked to the bot") in _CHAT_CANNOT_ACT_RULE
+    # The rule is ONE string every surface reads, and a web caller must never
+    # be told a slash command the web chat cannot run: the linking door is
+    # the notice's, per surface (`link_door`), and never the rule's. The
+    # first draft pinned "linked with /connect" here, which is the pin that
+    # let the defect through.
+    assert "/connect" not in _CHAT_CANNOT_ACT_RULE
+    assert "admin-only" not in _CHAT_CANNOT_ACT_RULE
+    assert "moves nothing until Confirm is tapped" in _CHAT_CANNOT_ACT_RULE
+    assert "Never say funds were staked or redeemed" in _CHAT_CANNOT_ACT_RULE

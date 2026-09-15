@@ -194,7 +194,7 @@ def _is_social_message(text: str) -> bool:
             # by the halt suite's neighbour table.
             "defi", "aave", "nft", "nfts", "airdrop", "airdrops", "testnet",
             "testnets", "meme", "memes", "spot", "letter", "replay",
-            "opensea", "dexscreener",
+            "opensea", "dexscreener", "wallet",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -931,6 +931,29 @@ _rule(_CLOSE_LEAD
       r"|cancel\s+(?:it|that|this|them|everything)\s*[!.]*\s*$)",
       "cancel_order",
       explanation="Wants an order cancelled — routed to the positions card's Cancel button, never dispatched")
+# A request to STAKE or REDEEM. The website's idle-yield intercept reads
+# "stake my …" as a yield QUESTION; here /stake and /unstake move the
+# OPERATOR's funds behind a Confirm card and are admin-only, and "stake my
+# usdc" reached no rule at all — three words, no trading word, greeted — so a
+# request to move money was answered with "hey!". It meets the act door now:
+# the notice says whose door it is and that nothing moved, and for the
+# operator the plan card follows (it moves nothing until Confirm is tapped).
+# Anchored to the whole message like the close rule, so "should i stake eth"
+# and "what is staking" stay the model's; the object is written as an asset,
+# an amount of one, the stables, Earn, or "it all" — "stake my claim" is an
+# idiom and reaches nothing here.
+# The stables are NOT in the ticker list — they are quote currencies, never
+# an asset the scanner names — and they are the thing people stake.
+_STAKE_OBJECT = (r"(?:\$?(?:{tickers})(?:/[A-Za-z]{{2,10}})?|(?-i:[A-Z]{{2,10}})"
+                 r"|usd[a-z]{{0,2}}|dai|frax|busd|tusd|pyusd"
+                 r"|stables?|stablecoins?|earn(?:ings)?|savings|it all|all of it|it|everything|the lot)")
+_rule(_CLOSE_LEAD
+      + r"(?:stake|restake|unstake|redeem|lock(?:\s+up)?)\s+(?:(?:my|the|some|all|all my|all of my|some of my)\s+)?"
+      r"(?:\$?\d[\d,.]*\s*k?\s+(?:of\s+(?:my\s+)?)?)?" + _STAKE_OBJECT.format(tickers=_TICKER_WORDS)
+      + r"(?:\s+(?:in|into|on|to|with|for|via)\s+[\w\s]{1,24})?(?:\s+(?:please|now|pls))?\s*[!.]*\s*$",
+      "stake_request",
+      explanation="Wants funds staked or redeemed — the operator's confirm-gated /stake or /unstake is the door, "
+                  "never dispatched")
 
 # --- Halt/emergency ---
 # Anchored to the WHOLE message. This was `\b(halt (the )?bot|stop (the )?
@@ -1118,18 +1141,23 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # "how do airdrops work") is the model's, as it is for `rwa` above. Six
 # dispatch to no skill: both surfaces answer with `web_read_notice`, which
 # names the surface that has the read, the words it takes, and the
-# same-named command here when there is one. Three — `airdrops`, `nft`,
-# `spot` — are commands now (`/airdrops`, `/nft`, `/spot` render the
-# website's own card) and route to them the way `rwa` does; the rules keep
-# their place here because order is what decides which rule answers.
+# same-named command here when there is one. Eight of the nine are commands
+# now (`/airdrops`, `/nft`, `/spot`, `/replay`, `/letter`, `/venue_router`,
+# `/meme_radar`, `/defi` render the website's own card) and route to them the
+# way `rwa` does; the price alert stays a door, being a WRITE the website's
+# push channel does, and the idle-yield read — which had no rule at all, so
+# "idle yield" was greeted — gets a door of the same shape below. The rules
+# keep their place here because order is what decides which rule answers.
+# `wallet` — the website's mirror of the caller's linked wallet — never had
+# a rule: two words, greeted.
 _EDU = r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b).*?"
 _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
       r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
       r"(?:every|all|each) (?:signal|trade|position)s?)\b"
       r"|^\s*replay\s*[?!.]*$",
-      "replay", explanation="What-if replay of every past signal (a website read)")
+      "replay", explanation="What-if replay of every recorded agent trade (the website's card, /replay)")
 _rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|agent letter|fund letter)\b",
-      "letter", explanation="The weekly letter (a website read)")
+      "letter", explanation="The agent's weekly letter (the website's card, /letter)")
 _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
       "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
@@ -1137,17 +1165,44 @@ _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor p
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
       "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
-      "defi", explanation="DeFi positions and liquidation risk (a website read)")
-_rule(r"\b(price alerts?|set (?:up )?(?:an? |a new )?alerts?|alert me (?:when|if|once)"
-      r"|tell me when \S+ (?:drops?|falls?|goes|rises?|hits|breaks?|crosses)|notify me (?:when|if)"
-      r"|(?:show |list )?my (?:price )?alerts)\b",
-      "price_alert", explanation="A price alert (set on the website)")
+      "defi", explanation="DeFi positions and liquidation risk (the website's card, /defi)")
+_rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",
+      "wallet", explanation="The caller's linked on-chain wallet, mirrored (the website's card, /wallet)")
+# The idle-yield read is the website's too — its optimiser reads the wallet
+# the caller signed in with — and this chat's `/idleyield` is the OPERATOR's
+# exchange account under the same word (admin-only), so the words get a
+# door and never that command. Narrower than the web's regex on purpose: the
+# intercept takes a bare "idle" and "stake my …", and here "stake my usdc"
+# is a request to ACT that /stake's confirm card owns — recorded, not
+# routed, so it must not reach this door.
+_rule(_EDU + r"\b(idle[- ]yield(?: optimi[sz]er| scan(?:ner)?| radar)?"
+      r"|(?:my )?idle (?:capital|cash|stables?|usd[ct]|funds?|money|balances?|assets?|coins?)"
+      r"|(?:what|where) (?:to do|can i do) with my idle \w+"
+      r"|best (?:rate|yield|apy) for (?:my )?(?:idle )?(?:stables?|usd[ct]|\w+)"
+      r"|put (?:my )?(?:idle )?\w+ to work|where can i earn (?:more|yield|on)"
+      r"|earn more on my \w+|is my capital idle)\b",
+      "idle_yield", explanation="Idle-yield optimiser over your linked wallet (a website read, ask it there)")
+# The website's alert intercept anchors its trigger phrase at the START of the
+# message ("tell me when…", "alert me if…") and reads the condition itself;
+# this rule takes the same trigger words, anchored the same way, plus the
+# list forms, and hands the whole sentence to that parser.
+# The education lookahead is `_EDU`'s, written out because `_EDU` also opens
+# the match with a lazy `.*?` and the trigger alternative must stay anchored:
+# "what is a price alert" handed to the intercept's parser answers "didn't
+# catch the condition", a confident wrong card for a question.
+_rule(r"^(?!\s*(?:what|how)\s+(?:is|are|do|does)\b)"
+      r"(?:\s*(?:please )?(?:tell me|alert me|notify me|ping me|warn me|let me know) "
+      r"(?:when|if|once|every time|whenever|each time)\b"
+      r"|.*?\b(?:price alerts?|set (?:up )?(?:an? |a new )?(?:price )?alerts?"
+      r"|(?:show |list )?my (?:price )?alerts|(?:show|list) (?:active )?alerts)\b)",
+      "price_alert",
+      explanation="A price alert — armed on the website's alert engine, delivered here too (/price_alert)")
 _rule(r"\b((?:best|cheapest) (?:venue|exchange)"
       r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
       r"|venue router|cheapest funding)\b",
-      "venue_router", explanation="Cheapest venue by funding cost (a website read)")
+      "venue_router", explanation="Cheapest venue by funding cost (the website's card, /venue_router)")
 _rule(_EDU + r"\b(meme ?(?:radar|coins?|tokens?)|dexscreener|pump\.?fun|ai[- ]agent tokens?)\b",
-      "meme_radar", explanation="Meme and AI-token snapshot (a website read)")
+      "meme_radar", explanation="Meme and AI-token snapshot (the website's card, /meme_radar)")
 
 # --- The book and the risk engine, before the chart ---
 #

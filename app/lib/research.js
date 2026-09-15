@@ -27,9 +27,7 @@ let fetchTickers = getTickers;
 function setTickerFetcher(fn) { fetchTickers = fn || getTickers; }
 
 function round2(v) { return Math.round(v * 100) / 100; }
-function esc(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const { esc } = require('./esc');
 function fmtUsd(v) {
   const n = Number(v);
   if (!isFinite(n)) return '—';

@@ -41,16 +41,40 @@ def _funding_section() -> Optional[dict]:
 
 def _arb_section() -> Optional[dict]:
     from bot.core.arb_tracker import (
-        PAPER_NOTIONAL_USD, compute_paper_carry, load_snapshots)
+        PAPER_NOTIONAL_USD, arb_verdict, compute_paper_carry, load_snapshots,
+        public_verdict_sentence)
     snapshots = load_snapshots()
     if not snapshots:
         return None
     carries = compute_paper_carry(snapshots)
+    verdict = arb_verdict(carries)
     return {
         "notional_usd": PAPER_NOTIONAL_USD,
         "snapshots": len(snapshots),
-        "carries": [asdict(c) for c in carries[:10]],
+        "carries": [_carry_row(c) for c in carries[:10]],
+        # The verdict on the PUBLIC wire, in percent of the notional: the
+        # state, the sentence the panel prints, and the numbers it is made
+        # of — no dollar figure, because /api/reports is served to anyone.
+        "verdict": {
+            "state": verdict.state,
+            "sentence": public_verdict_sentence(verdict),
+            "scored": verdict.scored,
+            "total": verdict.total,
+            "held_hours": verdict.held_hours,
+            "fee_pct": round(100.0 * verdict.fee_usd / verdict.notional, 4),
+            "mean_net_pct": verdict.mean_net_pct,
+            "interval_pct": list(verdict.interval_pct) if verdict.interval_pct else None,
+        },
     }
+
+
+def _carry_row(c) -> dict:
+    """A carry row for the wire, minus the per-entry sample list — the
+    verdict is the reading OF those samples, and a list of dollar figures
+    per coin is more than the panel prints or the public route should carry."""
+    row = asdict(c)
+    row.pop("entry_carry_usd", None)
+    return row
 
 
 def _parity_section(engine) -> Optional[dict]:

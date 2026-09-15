@@ -36,6 +36,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.earn_account import EarnAccount, earn_account_line
 from bot.formatters.drift_offer import (
     atr_from_ohlcv,
     flatten_headline,
@@ -186,6 +187,10 @@ class CallbackHandler:
         async def _cmd_strategy(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None: ...
 
         def _engine_free_usdt(self) -> Optional[float]: ...
+
+        async def _free_usdt_for(self, acct: EarnAccount) -> Optional[float]: ...
+
+        async def _earn_button_account(self, update: Update, tag: str) -> Optional[EarnAccount]: ...
 
         def _yield_client(self): ...
 
@@ -424,18 +429,15 @@ class CallbackHandler:
                 "nothing changed.", edit=True)
             return
 
-        # ── Fixed-term Earn LOCK buttons (operator money path, DOUBLE-confirm) ──
+        # ── Fixed-term Earn LOCK buttons (a money path, DOUBLE-confirm) ──
         # Step 1 (yldf:1:...) re-fetches the live catalog and shows the FINAL
         # confirm with the lock END date; step 2 (yldf:2:...) is the only
         # place a fixed-term subscription executes. Buttons carry
-        # coin/productId/days, never an amount — execute_stake_fixed
-        # recomputes, reserve-clamps, and re-validates the product live.
+        # coin/productId/days and the account's owner tag, never an amount —
+        # execute_stake_fixed recomputes, reserve-clamps, and re-validates
+        # the product live, and `_earn_button_account` re-resolves WHOSE
+        # account at press time and refuses a tag that is not the presser's.
         if data.startswith("yldf:"):
-            if not self._is_admin(update):
-                await self._send(update,
-                    "🔒 Earn actions move operator funds — admin only.",
-                    edit=True)
-                return
             parts = data.split(":")
             if len(parts) < 5 or parts[1] not in ("1", "2"):
                 await self._send(update,
@@ -448,18 +450,17 @@ class CallbackHandler:
                 await self._send(update,
                     "Bad lock term — nothing was moved.", edit=True)
                 return
+            earn = await self._earn_button_account(
+                update, parts[5] if len(parts) > 5 else "")
+            if earn is None:
+                return
             from bot.core.yield_radar import (
                 MIN_IDLE_USD, build_report, execute_stake_fixed,
                 lock_end_date)
-            client = self._yield_client()
-            if client is None:
-                await self._send(update,
-                    "🔴 No operator Bitget keys — <code>/setexchange</code> "
-                    "first.", edit=True)
-                return
+            client = earn.client
             if step == "1":
                 report = await asyncio.to_thread(
-                    build_report, client, self._engine_free_usdt())
+                    build_report, client, await self._free_usdt_for(earn))
                 row = (None if report.error else
                        next((r for r in report.rows if r.coin == f_coin), None))
                 term = next(
@@ -477,11 +478,12 @@ class CallbackHandler:
                 kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton(
                         f"🔒 YES — lock until {end}",
-                        callback_data=f"yldf:2:{f_coin}:{f_pid}:{f_days}")],
+                        callback_data=f"yldf:2:{f_coin}:{f_pid}:{f_days}:{earn.tag}")],
                     [InlineKeyboardButton("❌ Cancel", callback_data="yld:x")],
                 ])
                 await self._send(update,
-                    "⚠️ <b>FINAL CONFIRM — fixed-term lock</b>\n\n"
+                    "⚠️ <b>FINAL CONFIRM — fixed-term lock</b>\n"
+                    + earn_account_line(earn) + "\n\n"
                     f"Lock ≈<code>${row.stakeable_usd:,.2f}</code> "
                     f"<b>{f_coin}</b> @ <code>{term['apy']:.2f}%</code> for "
                     f"<b>{f_days} days</b>.\n"
@@ -496,60 +498,63 @@ class CallbackHandler:
             await self._send(update, "⏳ Executing fixed-term lock…", edit=True)
             res = await asyncio.to_thread(
                 execute_stake_fixed, client, f_coin, f_pid, f_days,
-                self._engine_free_usdt())
+                await self._free_usdt_for(earn))
+            # The sealed record names the account it acted on — the owner
+            # and a key fingerprint, never the key — beside who tapped.
             audit(system_log, f"Earn FIXED lock {f_coin} {f_days}d via double-confirm",
                   action="earn_action_fixed", result="OK" if res.ok else "FAIL",
-                  data={"cb": data, "detail": res.message})
+                  data={"cb": data, "detail": res.message,
+                        "by": self._get_tg_id(update), **earn.record()})
             icon = "✅" if res.ok else "🔴"
             await self._send(update,
                 f"{icon} <b>Fixed-term lock {f_coin}</b>\n"
+                + earn_account_line(earn) + "\n"
                 f"{html.escape(res.message)}\n\n"
                 "<i>/yield shows the radar. Fixed terms cannot be redeemed "
                 "early.</i>", edit=True)
             return
 
-        # ── Earn stake/redeem confirm buttons (operator money path) ──
+        # ── Earn stake/redeem confirm buttons (a money path) ──
         # The /stake and /unstake commands only PROPOSE; this is the sole
-        # place funds actually move, and only for an admin. Buttons carry the
-        # coin/productId, never an amount — execute_* recomputes and clamps
-        # from live balances, so a stale button can never over-stake.
+        # place funds actually move. Buttons carry the coin/productId and the
+        # account's owner tag, never an amount — execute_* recomputes and
+        # clamps from live balances, so a stale button can never over-stake,
+        # and `_earn_button_account` re-resolves WHOSE account at press time:
+        # the presser's role, the presser's linked keys, and the tag the plan
+        # was built with, so nobody executes a plan over somebody else's book.
         if data.startswith("yld:"):
-            if not self._is_admin(update):
-                await self._send(update,
-                    "🔒 Earn actions move operator funds — admin only.",
-                    edit=True)
-                return
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else ""
             if action == "x" or len(parts) < 3:
                 await self._send(update,
                     "Cancelled — nothing was moved.", edit=True)
                 return
-            from bot.core.yield_radar import execute_stake, execute_unstake
-            client = self._yield_client()
-            if client is None:
-                await self._send(update,
-                    "🔴 No operator Bitget keys — <code>/setexchange</code> "
-                    "first.", edit=True)
+            if action not in ("s", "r"):
+                await self._send(update, "Unknown Earn action.", edit=True)
                 return
+            earn = await self._earn_button_account(
+                update, parts[3] if len(parts) > 3 else "")
+            if earn is None:
+                return
+            from bot.core.yield_radar import execute_stake, execute_unstake
+            client = earn.client
             await self._send(update, "⏳ Executing Earn action…", edit=True)
             if action == "s":
                 verb = f"Stake {parts[2]}"
                 res = await asyncio.to_thread(
-                    execute_stake, client, parts[2], self._engine_free_usdt())
-            elif action == "r":
+                    execute_stake, client, parts[2], await self._free_usdt_for(earn))
+            else:
                 verb = "Redeem"
                 res = await asyncio.to_thread(execute_unstake, client, parts[2])
-            else:
-                await self._send(update, "Unknown Earn action.", edit=True)
-                return
             audit(system_log, f"Earn {verb} via confirm button",
                   action="earn_action", result="OK" if res.ok else "FAIL",
-                  data={"cb": data, "detail": res.message})
+                  data={"cb": data, "detail": res.message,
+                        "by": self._get_tg_id(update), **earn.record()})
             icon = "✅" if res.ok else "🔴"
             await self._send(update,
-                f"{icon} <b>{verb}</b>\n{html.escape(res.message)}\n\n"
-                "<i>/yield shows the radar · /unstake redeems.</i>", edit=True)
+                f"{icon} <b>{verb}</b>\n" + earn_account_line(earn) + "\n"
+                f"{html.escape(res.message)}\n\n"
+                "<i>/stake shows the plan · /unstake redeems.</i>", edit=True)
             return
 
         # ── War Room menu callbacks ──────────────────────────
