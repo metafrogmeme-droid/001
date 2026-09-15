@@ -55,6 +55,7 @@ from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
 from bot.nlp.web_reads import WEB_READS, web_read_notice
 from bot.skills.manual_trade import looks_like_manual_trade
+from bot.nlp.intent_router import place_target
 # The second slice: the Guardian command group is a mixin the handler class
 # inherits, and the user-facing exception scrubber it needs moved to a leaf
 # so the mixin never imports this file. `_safe_exc_text` keeps its name here
@@ -3205,6 +3206,85 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         text = reply[0] if isinstance(reply, tuple) else reply
         await self._send(update, text or "I couldn't analyze that image.")
 
+    async def _place_setup(self, tg_id: str, symbol: str):
+        """The current read on `symbol` for a request to OPEN a trade.
+
+        `(text, idea, state)`, state being `read`, `denied`, `failed` or
+        `absent` — four values because the four are different facts and only
+        one of them may put a sentence about a card on the door notice.
+        `idea` is None when the read produced no fresh proposal (nothing to
+        attach a Confirm button to), which is still a `read`.
+
+        `denied` IS THE GATE THE GENERIC DISPATCH APPLIES, asked here for the
+        same reason the `stake` arm asks its own: this arm calls the skill
+        directly, which skips the role check every other free-text route to
+        `analyze_asset` goes through, so without it a viewer who typed "buy
+        eth" would be handed a read their role forbids at `/analyze`. The
+        DOOR is ungated on purpose — telling somebody how to open a trade is
+        not the gated read — so the notice still shows and only the card
+        does not.
+
+        `failed` is recorded to the MODEL as a tool failure: the caller sees
+        the door with no card, and a model told nothing would answer "what
+        were the levels?" from a history in which the read never happened —
+        the gap `skill_memory.py`'s docstring names. `absent` is a build with
+        no analyzer registered and is not a failed read; `denied` is a gate
+        saying no, which is `not_run_memory`, neither a failure inviting a
+        retry nor an absent tool.
+        """
+        skill = self.registry.get("analyze_asset")
+        if skill is None:
+            return None, None, "absent"
+        _perm = permission_for("analyze_asset")
+        if _perm is None or self.users.permission_denial(tg_id, _perm):
+            return None, None, "denied"
+        before = {idea.id for idea in self.engine.pending_ideas}
+        try:
+            text = await skill.execute(self.engine, user_id=tg_id, symbol=symbol)
+        except Exception:
+            return None, None, "failed"
+        if not text:
+            return None, None, "failed"
+        fresh = next((i for i in self.engine.pending_ideas if i.id not in before), None)
+        return text, fresh, "read"
+
+    async def _send_idea_with_door(self, update, result: str, new_idea) -> None:
+        """Send a fresh trade idea's card with its Confirm/Limit/Skip door.
+
+        Extracted because `place_order` needs the SAME door: a request to open
+        a trade is answered with the notice and then this card, and a second
+        copy of the three buttons would be a second answer about what a tap
+        does. The photo is best-effort — when it cannot be built the keyboard
+        rides on the text instead, so the door is never lost with the picture.
+        """
+        uid = update.effective_user.id if update.effective_user else ""
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(t("btn_take_it", self._lang(update)),
+                                 callback_data=f"confirm:{new_idea.id}:{uid}"),
+            InlineKeyboardButton(t("lbl_limit", self._lang(update)),
+                                 callback_data=f"setlimit:{new_idea.id}:{uid}"),
+            InlineKeyboardButton(t("btn_skip", self._lang(update)),
+                                 callback_data=f"reject:{new_idea.id}:{uid}"),
+        ]])
+        card_sent = False
+        try:
+            from bot.formatters.signal_card import signal_card_from_idea
+            png = signal_card_from_idea(new_idea, rank=1)
+            if png:
+                pair = display_symbol(new_idea.asset)
+                d = (new_idea.direction.value if hasattr(new_idea.direction, "value")
+                     else str(new_idea.direction))
+                st = getattr(new_idea, "strategy_type", "").upper()
+                st_str = f" [{st}]" if st else ""
+                cap = f"<b>{pair} {d}</b>{st_str} | Conf {new_idea.confidence * 100:.0f}%"
+                card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
+        except Exception:
+            pass
+        if card_sent:
+            await self._send(update, result)
+        else:
+            await self._send(update, result, reply_markup=kb)
+
     async def _handle_message(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle free-text messages — intent routing + AI chat fallback.
 
@@ -3713,6 +3793,47 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if intent.skill in ACT_INTENTS:
                 _kind = ACT_KIND[intent.skill]
                 _verb = stake_verb(intent.raw_text) if _kind == "stake" else None
+                if _kind == "place":
+                    # A REQUEST TO OPEN gets the door, and the door needs a
+                    # key: the grammar the notice names demands an entry, a
+                    # stop and a target, and "buy eth" carries none of them.
+                    # So when the message named exactly ONE asset that read
+                    # follows — the same card `analyze_asset` sends, with the
+                    # same Confirm/Limit/Skip buttons, which place nothing
+                    # until one is tapped. That is the `stake` arm's shape:
+                    # the notice, then the card whose buttons are the door.
+                    # NEVER the positions card, which is not this request's
+                    # door, and never a card for an asset nobody named.
+                    #
+                    # The read is attempted BEFORE the notice is built, so
+                    # the notice's sentence about it is written only when the
+                    # card really came — a notice promising a card that
+                    # failed is the `/vault` hint shape one turn long. ONE
+                    # send for the door, as the limit prompt's lesson says.
+                    _sym = place_target(intent.raw_text)
+                    _setup, _idea, _state = None, None, "absent"
+                    if _sym:
+                        _setup, _idea, _state = await self._place_setup(tg_id, _sym)
+                    _act = act_intent_notice(
+                        "place", _sym, surface="telegram",
+                        also_asked=bool(intent.kwargs.get("also_asked")),
+                        setup_follows=_state == "read")
+                    await self._send(update, _act)
+                    _record = routed_answer_memory(intent.skill, _act)
+                    if _state == "read" and _setup is not None:
+                        if _idea is not None:
+                            await self._send_idea_with_door(update, _setup, _idea)
+                        else:
+                            await self._send(update, _setup)
+                        _record += "\n" + skill_result_memory("analyze_asset", _setup)
+                    elif _state == "failed":
+                        _record += "\n" + skill_failure_memory("analyze_asset")
+                    elif _state == "denied":
+                        _record += "\n" + not_run_memory(
+                            "analyze_asset", "the caller's role does not hold "
+                            "the permission it needs")
+                    self._remember_routed(tg_id, text, intent.skill, _record)
+                    return
                 _act = act_intent_notice(
                     _kind, symbol_mentioned(intent.raw_text),
                     surface="telegram",
@@ -3894,34 +4015,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                 new_idea = idea
                                 break
                         if new_idea:
-                            uid = update.effective_user.id if update.effective_user else ""
-                            kb = InlineKeyboardMarkup([[
-                                InlineKeyboardButton(t("btn_take_it", self._lang(update)),
-                                    callback_data=f"confirm:{new_idea.id}:{uid}"),
-                                InlineKeyboardButton(t("lbl_limit", self._lang(update)),
-                                    callback_data=f"setlimit:{new_idea.id}:{uid}"),
-                                InlineKeyboardButton(t("btn_skip", self._lang(update)),
-                                    callback_data=f"reject:{new_idea.id}:{uid}"),
-                            ]])
-                            # Try to send signal card image
-                            card_sent = False
-                            try:
-                                from bot.formatters.signal_card import signal_card_from_idea
-                                png = signal_card_from_idea(new_idea, rank=1)
-                                if png:
-                                    pair = display_symbol(new_idea.asset)
-                                    d = new_idea.direction.value if hasattr(new_idea.direction, "value") else str(new_idea.direction)
-                                    st = getattr(new_idea, 'strategy_type', '').upper()
-                                    st_str = f" [{st}]" if st else ""
-                                    cap = f"<b>{pair} {d}</b>{st_str} | Conf {new_idea.confidence*100:.0f}%"
-                                    card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
-                            except Exception:
-                                pass
-                            # Send text result (with or without card)
-                            if card_sent:
-                                await self._send(update, result)
-                            else:
-                                await self._send(update, result, reply_markup=kb)
+                            await self._send_idea_with_door(update, result, new_idea)
                             return
 
                     await self._send(update, result)

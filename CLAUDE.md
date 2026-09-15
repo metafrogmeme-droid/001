@@ -716,13 +716,13 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **53 names including `halt`,
+whole vocabulary plus every chat tool: **54 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 48), because the
+sweep's own timeframes got rules and 53 before `place_order`.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 49), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1297,6 +1297,111 @@ further along the same sentence: a pin on a word the sentence carries
 twice checks nothing about either. It names the claims now — the verbs,
 whose door it is, that the card moves nothing until Confirm, and the
 "never say" — and the mutation dies on the first of them.
+
+**A REQUEST TO OPEN was the one action with no door, and THREE SOURCE
+COMMENTS ALREADY NAMED THE RULE THAT WOULD GIVE IT ONE.** `manual_trade.py`
+twice and `telegram_handler.py` once said that what the full grammar declines
+"is the router's `place_order` rule's, which answers with this grammar as the
+door". No such rule existed. That is the `/vault` hint shape inside a code
+COMMENT — a claim about a door nobody built, which the next reader trusts
+because three files agree. Driven over 54 ordinary phrasings, what the
+grammar declined reached the orders card, the positions card, the greeter or
+the model: **six came back a CONFIDENT WRONG CARD** — "place a limit order on
+pendle", "place a limit order" and "put in a limit order for btc" reached
+`get_orders`, whose `limit orders?` alternative matches INSIDE the sentence,
+so a request to PLACE one was answered with the card that LISTS the resting
+ones, and "open a position in sol", "add to my eth position" and "double my
+eth position" reached `get_portfolio`. That is the `get_orders` lesson one
+VERB over: a rule matching inside a sentence routes the sentence's verb as
+the command. A bare "long"/"short"/"buy"/"sell" was GREETED — one word, no
+symbol, no trading word — which is "stake my usdc" one action over.
+
+**THE DOOR NEEDS A KEY, and that is what makes this act intent different
+from the other four.** Close, cancel, modify and stake each name a door the
+caller can walk through as they are. This one names a GRAMMAR that demands an
+entry, a stop and a target (`looks_like_manual_trade` refuses a line with no
+` sl `, deliberately), and a caller who typed "buy eth" has none of the
+three — so a bare door would be a door they cannot open. When the message
+names exactly ONE asset that asset's own read follows, the same card
+`analyze_asset` sends, with the same Confirm/Limit/Skip buttons, which place
+nothing until one is tapped: the `stake` arm's shape, and never the positions
+card, which is not this request's door. The read is attempted BEFORE the
+notice is built, so the sentence about the card is written only when the card
+really came — a notice promising a card that failed is the `/vault` hint shape
+one turn long — and it is three-valued (`read` / `failed` / `absent`), because
+a FAILED read is a tool failure in the model's record and a build with no
+analyzer registered attempted nothing.
+
+**The web had a private copy of the reading and Telegram had none.**
+`user_gateway` carried `^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$`,
+so "long eth", "buy eth" and "short btc" got the agent's setup on the web and
+a tool-less chat model on Telegram, and every other phrasing of the same
+request got the model on both. It also answered with the card and NO SENTENCE:
+a caller who typed "buy eth" was shown a chart and never told nothing had been
+bought, which is the silence the routed act intents exist to end. And it
+passed the skill a bare upper-cased token where every other caller passes
+`_extract_symbol`'s `ETH/USDT` — a second copy disagreeing about the shape of
+its own argument. `place_target` is the one reading: it answers None for TWO
+assets named ("buy eth and btc" — taking the first answers half the message
+with a card) and None for a name the 49-symbol list cannot resolve, where the
+door still shows and no setup is named for an asset nobody could read.
+
+**THE OBJECT HAD TO BE PERMISSIVE, and the argument is the live book.**
+`_KNOWN_SYMBOLS` holds 49 names; the bot filled PENDLE, NATGAS, TRUMP and RAVE
+live on 2026-09-15 and not one of them is on it, so an object restricted to
+that list would refuse the door to the assets the product actually trades —
+the `67+ symbols` lesson one noun over. It is a token NOT in `_NOT_A_TICKER`
+instead, and that list grew the nouns the product's OTHER rules already own as
+objects (`position`, `order`, `trade`, `wallet`, `portfolio`, `balance`,
+`dashboard`), because without them "open the dashboard" and "get my balance"
+are requests to open a trade in an asset called `dashboard` and one called
+`balance`. Same argument as the mode lead's determiners: a word another rule
+treats as its OBJECT is not a ticker for this one. The rule is whole-message
+anchored, so what is left costs one notice saying nothing was placed — the
+trade `_CLOSE_TARGET` already makes and states.
+
+**The two tests that guarded the deleted branch were guarding a stub.**
+`test_chat_actions`'s `FakeHandler` builds `intent_router` as a
+`SimpleNamespace` answering the SAME intent for every text, so the
+bare-directional tests could only ever have been exercising the private regex
+beside them — a fixture that cannot reach the router cannot test a branch the
+router selects. They take the real `IntentRouter` now.
+
+> **And all three fresh assertions failed for their own reasons, not the
+> code's.** A naive slash-command pattern matched `</code>` and `</b>` and
+> accused a notice that was telling the truth; the web's chat turn is
+> `_chat_turn`, not `_chat`; and `ast.unparse` normalises `"place"` to
+> `'place'`, so an anchor written with double quotes matched zero nodes.
+> *When a fresh assertion fails, check whether the code or the assertion is
+> wrong before touching the code* — this file's own advice, a fourth time.
+
+**And the full gate refused the branch, from a guard that reads the FIRST call
+site and a window of 600 characters.** `test_the_failure_record_is_inside_the_except`
+took `src.index("skill_failure_memory(")` and required an `except` in the code
+before it. That is a PROXIMITY scan with a blind spot pointing each way. It
+ACQUITTED every call site past the first — three of the four in
+`user_gateway.py` — and it acquitted on an `except` belonging to a sibling
+block, which is the quiet direction. And it ACCUSED the place branch, which
+catches the raise and folds it into the four-valued reading the whole slice is
+built on, so the record IS written on the raise, one seam away: the accusation
+a checker with a blind spot manufactures, on correct code. Restructuring the
+branch to sit under a literal `except` would be the `I001` argument — rewriting
+correct code to satisfy an analyser. It is DRIVEN on both surfaces now: plant a
+skill that raises, run the turn, read what reached the history. Each drive was
+mutated to prove it bites, and the drives are shorter than the scan was.
+
+> **And the first draft of that drive leaked a MagicMock into the rest of the
+> session.** It reached the halt suite's fixture by hand —
+> `gen = bot.__wrapped__(tmp_path); next(gen)` … `gen.close()` — and that
+> fixture's teardown is a bare `patch.stopall()` AFTER its `yield`, with no
+> `try`/`finally`. `close()` throws `GeneratorExit` at the yield, so the
+> teardown never ran and `telegram_handler.CONFIG` stayed a MagicMock for
+> every later test. The only symptom was **eleven errors in a different file**,
+> and the new suite was green run alone — *a leak is invisible from any single
+> run's verdict*, this file's own sentence, arriving in the test written to
+> replace a scan. `yield from` inside a `@pytest.fixture` is the fix: pytest
+> drives the generator to completion, which is the one thing `close()` does
+> not do.
 
 **The last door row was a WRITE, and the door became the write.** The website
 owned price alerts end to end — a parser, a once-a-minute evaluator over
@@ -1892,7 +1997,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Forty-nine call sites across the two entry points today, one on
+never happened. Fifty-one call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall

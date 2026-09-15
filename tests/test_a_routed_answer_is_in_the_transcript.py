@@ -604,10 +604,18 @@ def test_a_bare_directional_whose_skill_raises_records_the_failure(monkeypatch):
     body = _web_turn(ug, handler, "long eth")
     turns = [(m.role, m.content) for m in store.get_recent("4242", limit=10)]
     assert [r for r, _ in turns] == ["user", "assistant"], turns
+    # The DOOR is the answer now (`place_order`), and the setup read that
+    # failed beside it still reaches the model's record: without it, "what
+    # were the levels?" next turn is answered from a history in which the
+    # read never happened.
     assert "[analyze_asset] FAILED" in turns[1][1]
     assert "Nothing was measured" in turns[1][1]
-    # and the reply is the shared one, not the older "try again" sentence
-    assert "nothing was measured" in body["reply_html"].lower()
+    assert "[place_order]" in turns[1][1]
+    # The person is told the truth too: the door, and NO sentence claiming a
+    # card is below — a notice promising a card that failed is the `/vault`
+    # hint shape one turn long.
+    assert "Nothing has been placed." in body["reply_html"]
+    assert "is below" not in body["reply_html"]
     assert "Couldn't analyze that right now" not in body["reply_html"]
 
 

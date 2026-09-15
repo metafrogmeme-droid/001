@@ -718,6 +718,31 @@ _JOURNAL_SUPERLATIVE = re.compile(
 JOURNAL_SUPERLATIVE_COUNT = 50
 
 
+def place_target(text: str) -> Optional[str]:
+    r"""The ONE asset a request to open a trade named, or None.
+
+    One reading, both surfaces. The web had a private regex
+    (`^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$`) that
+    claimed "long eth", "buy eth" and "short btc" and answered them with the
+    agent's setup, and Telegram had nothing at all — so the same three
+    sentences got a setup card on one surface and a tool-less chat model on
+    the other, and every other phrasing of the same request ("go long eth",
+    "market buy eth", "open a long on eth") got the model on both.
+
+    `symbols_named` is the reading, so the place door and the analysis rules
+    agree about what asset a message named. TWO assets named is not one asset
+    asked about — "buy eth and btc" answers None, and the door notice stands
+    alone rather than picking the first and quietly answering half the
+    message, which is the rule `symbols_named` was written for.
+
+    A name the 49-symbol list cannot resolve (PENDLE, NATGAS, RAVE — all
+    filled live) also answers None: the door is still shown, and no setup is
+    named for an asset nobody could read.
+    """
+    named = symbols_named(text)
+    return named[0] if len(named) == 1 else None
+
+
 def journal_count(text: str) -> Optional[int]:
     """How many closes the question asked for, or None for the card's own
     default: "my last 10 trades" names ten, "my worst loss" needs a window
@@ -925,13 +950,166 @@ CAPABILITY_ASK = re.compile(
     r"(?:[\s,]+(?:please|pls|plz|thanks|thx|ty|mate|bro|dude|lol|here))*"
     r"\s*[?!.]*\s*$", re.IGNORECASE)
 
+_NOT_A_TICKER = (
+    r"the|it|this|that|them|us|me|you|my|mine|"
+    r"today|tomorrow|yesterday|now|later|tonight|"
+    r"everything|anything|something|all|stuff|things|"
+    r"market|markets|price|prices|chart|charts|trading|"
+    r"docs|help|news|here|there|then|what|why|how|"
+    # THE MODE LEAD'S OWN DETERMINERS. `_MODE_LEAD` reads these as "ways of
+    # asking for a ladder" — "any 30m setups", "some 4h ideas" — and the
+    # symbol-first rule read the same first word as the SYMBOL slot, so
+    # "any 30m setups" resolved no ticker and was answered "which coin do you
+    # want me to look at?" for a request that had named a timeframe and no
+    # asset. A word one rule treats as filler is not a ticker for another.
+    r"any|some|good|best|top|nice|fresh|new|show|give|gimme|got|find|run|do|"
+    r"lets|please|"
+    # THE NOUNS THE OTHER RULES ALREADY OWN AS OBJECTS. `place_order`'s
+    # object is written as an asset and its verbs are ordinary English
+    # ("open", "get", "take", "add to"), so without these "open the
+    # dashboard" and "get my balance" are requests to open a trade in an
+    # asset called `dashboard` and one called `balance`. Same argument as
+    # the mode lead's determiners above, one rule over: a word another rule
+    # treats as its OBJECT is not a ticker for this one.
+    r"a|an|our|more|back|up|down|out|in|on|off|again|"
+    r"position|positions|trade|trades|order|orders|limit|limits|"
+    r"dashboard|bot|engine|account|accounts|wallet|portfolio|balance|"
+    r"profit|loss|money|cash|funds|risk|leverage|margin|stop|stops"
+)
+
+
+_CLOSE_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|can u|go ahead and|i want to|"
+               r"i'd like to|i need to|let's|lets|just|now)\s+)*")
+
+
+# --- Open a trade: ROUTED, never dispatched ---
+# A request to PLACE was the one action with no door. Driven over 54 ordinary
+# phrasings before this rule existed: six got a CONFIDENT WRONG CARD — "place
+# a limit order on pendle", "place a limit order" and "put in a limit order
+# for btc" reached `get_orders`, whose `limit orders?` alternative matches
+# inside the sentence, so a request to PLACE one was answered with the card
+# that LISTS the resting ones; "open a position in sol", "add to my eth
+# position" and "double my eth position" reached `get_portfolio`. That is the
+# `get_orders` lesson one VERB over: a rule matching inside a sentence routes
+# the sentence's verb as the command. A bare "long" / "short" / "buy" /
+# "sell" was GREETED — one word, no symbol, no trading word — which is
+# "stake my usdc" one action over. Everything else reached the chat model,
+# which holds read-only tools and would narrate a placement.
+#
+# THREE SOURCE COMMENTS ALREADY NAMED THIS RULE. `manual_trade.py` twice and
+# `telegram_handler.py` once say that what the full grammar declines "is the
+# router's `place_order` rule's, which answers with this grammar as the
+# door". No such rule existed: what the grammar declined reached the orders
+# card, the positions card, the greeter or the model. That is the `/vault`
+# hint shape inside a code comment — a claim about a door nobody built.
+#
+# Registered AFTER close/cancel/modify/stake so each keeps its own words
+# ("close my long", "cancel my order", "sell my eth position", "stake my
+# usdc"), and BEFORE the halt block and every read rule. Anchored to the
+# whole message like the close rule, so a compound ("buy eth and close my
+# btc") falls through to the close-compound rules below, which already
+# decide that of two intents in one message the close door answers.
+#
+# `?` is never a terminal and a leading question or report word disqualifies:
+# "should i long eth" is the chart's, "is it a good time to buy eth", "what
+# is a limit order", "did you buy eth", "do you think eth is a buy", "are we
+# long or short" and "the bot went long eth" are the model's.
+#
+# THE OBJECT IS PERMISSIVE ON PURPOSE. `_KNOWN_SYMBOLS` holds 49 names and
+# the bot filled PENDLE, NATGAS, TRUMP and RAVE live on 2026-09-15 — none of
+# them on it — so an object restricted to that list would refuse the door to
+# the assets the product actually trades, which is the `67+ symbols` lesson
+# one noun over. It is a token NOT in `_NOT_A_TICKER` instead, and the rule
+# is whole-message anchored, so a stray idiom costs one notice saying nothing
+# was placed. That is the same trade `_CLOSE_TARGET` makes and states.
+_PLACE_NOTQ = (r"(?!\s*(?:what|how|why|when|where|which|who|should|would|shall"
+               r"|is|are|was|were|do|does|did|am|has|have|had|the|it|we|they"
+               r"|you|he|she)\b)")
+#: The urgency/politeness tail, with the COMMA the halt rule's own tail
+#: allows. Without it "buy eth, thanks" is a request to open a trade that
+#: `_THANKS_PATTERNS` — an unanchored search — answers with "hey!", which is
+#: the defect the social slice fixed for the halt and left here.
+_PLACE_TAIL = r"(?:[\s,]+(?:now|please|pls|plz|asap|ty|thanks|thx))*\s*[!.]*\s*$"
+#: A CASUAL lead is informality, and informality goes to the door. "bro buy
+#: eth" and "lol long eth" met `_SOCIAL_CHAT`'s `^bro` and the three-word
+#: rule and were GREETED. The halt rule needed a separate intent for this
+#: (a casual fleet halt must not DISPATCH); here nothing is dispatched
+#: either way, so the lead simply joins this rule's own and the request
+#: reaches the same door it always would.
+_PLACE_LEAD = (r"^\s*(?:(?:bro|dude|mate|man|lol|lmao|ok|okay|yo|hey|hi|right|so|"
+               r"alright|thanks|thx|ty|cheers|please|pls|can you|could you|can u|"
+               r"go ahead and|i want to|"
+               r"i'd like to|i need to|let's|lets|just|now)[\s,]+)*")
+_PLACE_ASSET = (rf"(?!(?:{_NOT_A_TICKER})\b)"
+                r"\$?[A-Za-z][A-Za-z0-9]{1,11}(?:[/:][A-Za-z0-9]{2,10})*")
+#: "buy me 0.5 eth", "buy 100 of eth", "buy some eth" — a size between the
+#: verb and the asset. Never read as the size to place: nothing here sizes
+#: anything, and the notice says so.
+_PLACE_SIZE = (r"(?:(?:me|us)\s+)?(?:(?:some|more|a\s+bit\s+of|a\s+little|a\s+few)\s+)?"
+               r"(?:\$?\d[\d,.]*\s*[km]?\s*(?:usd|usdt|worth\s+of|of)?\s+)?"
+               r"(?:(?:some|more)\s+)?")
+_PLACE_LEV = r"(?:\d{1,3}\s*x\s+)?"
+_PLACE_KIND = r"(?:(?:market|limit|stop|spot|perp|perps|paper)\s+)*"
+_PLACE_DIRW = r"(?:(?:buy|sell|long|short)\s+)?"
+_PLACE_VERB = r"(?:long|short|buy|sell)"
+#: The ways of wrapping a directional verb: "go long eth", "take a long on
+#: sol", "put on a long eth", "open a 10x long on eth".
+_PLACE_WRAP = (r"(?:(?:go|take|put on|put|open|enter|get|start|initiate|place|set)\s+"
+               r"(?:(?:a|an|the|my)\s+)?)?")
+_PLACE_PRICE = r"(?:\s+(?:at|around|near|@)\s*\$?\d[\d,.]*\s*[km]?)?"
+_PLACE_TO = r"(?:\s+(?:on|for|in|into|of)\b)?"
+PLACE_ORDER = re.compile(
+    _PLACE_LEAD + _PLACE_NOTQ + r"(?:"
+    # (A) the word ORDER, with a verb that places one. `open` is NOT one of
+    # them: "open orders" is the LISTING, and "open an order" is nobody's
+    # phrasing — "open a trade" is (E).
+    r"(?:place|put in|put|set|submit|create|leave|rest|send)\s+"
+    r"(?:(?:a|an|the|my|another)\s+)?" + _PLACE_LEV + _PLACE_KIND + _PLACE_DIRW
+    + r"orders?(?:\s+(?:on|for|in|at|to|with)\s+.{1,40})?"
+    # (A2) an order named by its KIND — "Place limit PENDLE", the filed case
+    # that reached no rule at all.
+    r"|(?:place|put in|submit|rest|leave|set)\s+(?:(?:a|an|another)\s+)?"
+    + _PLACE_LEV + r"(?:market|limit|stop)\s+" + _PLACE_DIRW + _PLACE_ASSET
+    + _PLACE_PRICE
+    # (B) a directional verb and something written as an asset. The
+    # preposition is `on|for|into` and never a bare `in`: "buy in bulk" is an
+    # idiom, "buy into eth" is (C).
+    + r"|" + _PLACE_WRAP + _PLACE_LEV + _PLACE_KIND + _PLACE_VERB
+    + r"\s+(?:(?:on|for|into)\s+)?(?:the\s+dip\s+(?:on|in)\s+)?"
+    + _PLACE_SIZE + _PLACE_ASSET + _PLACE_PRICE
+    # (C) into an asset — "scale into btc", "get me into eth". `get` and
+    # `buy` need `into` or `in on`, or "get in touch" and "buy in bulk"
+    # become requests to open a trade in an asset called `touch`.
+    + r"|(?:(?:scale|size|ape|lean|load)\s+(?:(?:me|us|back|up)\s+)?(?:in|into|on)"
+    r"|(?:get|buy|ape)\s+(?:(?:me|us)\s+)?(?:into|in\s+on))"
+    r"\s+(?:(?:some|more)\s+)?" + _PLACE_ASSET
+    # (D) grow an existing position — "add to my eth position".
+    + r"|(?:add(?:\s+to)?|double|increase|top\s+up)\s+(?:(?:my|the|our)\s+)?"
+    r"(?:" + _PLACE_ASSET + r"\s+)?(?:positions?|trades?|longs?|shorts?|bags?)"
+    # (E) "open a position in SOL". An ARTICLE and a SINGULAR, or an
+    # explicitly named asset — "open positions" and "my positions" are the
+    # read, and this rule sits above it.
+    + r"|(?:open|start|enter|take)\s+(?:(?:a|an|another)\s+" + _PLACE_LEV
+    + r"(?:position|trade)"
+    r"|(?:a|an|another|my|the)?\s*" + _PLACE_LEV
+    + r"(?:positions?|trades?)\s+(?:in|on|for)\s+" + _PLACE_ASSET + r")"
+    r"(?:\s+(?:in|on|for)\s+" + _PLACE_ASSET + r")?"
+    # (F) symbol first — "eth long", "btc short".
+    + r"|" + _PLACE_ASSET + r"\s+" + _PLACE_LEV + r"(?:long|short)"
+    # (G) the bare verb, nothing named. Answered with the door and no setup:
+    # there is no asset to read one for, and naming one nobody named would be
+    # the invention the door exists to prevent.
+    + r"|" + _PLACE_VERB
+    + r")" + _PLACE_TO + _PLACE_TAIL, re.IGNORECASE)
+
+
 #: Whole-message ACTION rules: a message that IS one of these is never social,
 #: whatever thanks or greeting it also carries (the social gate consults this
 #: tuple before its own unanchored politeness pattern). The doc-comment used to
 #: sit twenty lines up, above `CAPABILITY_ASK`, where an insertion had orphaned
 #: it onto the wrong name.
 _ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
-                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB,
+                          HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB, PLACE_ORDER,
                           HALT_SOCIAL_LEAD, EMERGENCY_SOCIAL_LEAD, PAUSE_SOCIAL_LEAD,
                           BARE_SOCIAL_LEAD,
                           CAPABILITY_ASK)
@@ -972,9 +1150,6 @@ _rule(BARE_SOCIAL_LEAD.pattern, "halt_ambiguous",
 # my BTC?" and "how do I close a trade?" to the model, which is who answers
 # advice. Registered before the portfolio rules because `my positions?` would
 # otherwise take "close my position" first.
-_CLOSE_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|can u|go ahead and|i want to|"
-               r"i'd like to|i need to|let's|lets|just|now)\s+)*")
-
 #: "close my ETH", "exit BTC", "get out of sol" — the bare-ticker close, with
 #: no `positions?` noun to anchor on. Named because the compound rules below
 #: reuse it: a second copy of this would be a second answer.
@@ -1063,6 +1238,9 @@ _rule(_CLOSE_LEAD
       "stake_request",
       explanation="Wants funds staked or redeemed — the operator's confirm-gated /stake or /unstake is the door, "
                   "never dispatched")
+
+_rule(PLACE_ORDER.pattern, "place_order",
+      explanation="Wants a trade opened — routed to the grammar and the Confirm card, never dispatched")
 
 # --- Halt/emergency ---
 # Anchored to the WHOLE message. This was `\b(halt (the )?bot|stop (the )?
@@ -1529,21 +1707,6 @@ _rule(r"\b(what.?s the (price|entry) (of|for))\b",
 #: indicator; "btc rsi" is a request to read it on a chart.
 _TEACHING_WORDS = (r"explain|define|describe|teach|tell|show|what|whats|what.s|why|how|when|"
                    r"is|are|does|do|can|should|would|could|give|help")
-_NOT_A_TICKER = (
-    r"the|it|this|that|them|us|me|you|my|mine|"
-    r"today|tomorrow|yesterday|now|later|tonight|"
-    r"everything|anything|something|all|stuff|things|"
-    r"market|markets|price|prices|chart|charts|trading|"
-    r"docs|help|news|here|there|then|what|why|how|"
-    # THE MODE LEAD'S OWN DETERMINERS. `_MODE_LEAD` reads these as "ways of
-    # asking for a ladder" — "any 30m setups", "some 4h ideas" — and the
-    # symbol-first rule read the same first word as the SYMBOL slot, so
-    # "any 30m setups" resolved no ticker and was answered "which coin do you
-    # want me to look at?" for a request that had named a timeframe and no
-    # asset. A word one rule treats as filler is not a ticker for another.
-    r"any|some|good|best|top|nice|fresh|new|show|give|gimme|got|find|run|do|"
-    r"lets|please"
-)
 #: THE CHART VOCABULARY, AS WORDS. One list, two readers: the symbol-first
 #: analysis rule builds its pattern from it, and `_is_social_message` folds it
 #: into `trading_words` — a term the analysis rules know and the social gate
