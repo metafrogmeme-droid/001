@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue} yanıt vermedi</b> — hiçbir şey taranmadı. Bu başarısız bir okuma, boş bir piyasa değil.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b> {markets} piyasayla yanıt verdi ve hiçbiri hacim eşiğini geçemedi — gösterilecek bir şey yok ve bu bir ölçüm.",
   "venue_scan_header": "🔎 <b>{venue} taraması</b> — 24 saatlik harekete göre {markets} piyasadan ilk {n}",
-  "venue_scan_list": "🏦 <b>Tarayabileceğiniz borsalar</b> — <code>/scan &lt;venue&gt;</code>, orada işlem yapsanız da yapmasanız da bir borsanın kendi piyasa listesini okur:"
+  "venue_scan_list": "🏦 <b>Tarayabileceğiniz borsalar</b> — <code>/scan &lt;venue&gt;</code>, orada işlem yapsanız da yapmasanız da bir borsanın kendi piyasa listesini okur:",
+  "limit_not_armed": "⚠️ Limit fiyat adımını açamadım, bu yüzden senden fiyat istemiyorum — hiçbir şey onu okumayacaktı. Hiçbir şey hazırlanmadı ve emir verilmedi."
 }

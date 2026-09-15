@@ -662,6 +662,18 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
 
     # ── Limit order flow ──
+    # Sent INSTEAD of `limit_prompt` when the capture could not be armed.
+    # Asking for a price nothing will read is the defect this pair exists to
+    # make impossible, so the two strings are never both right.
+    "limit_not_armed": {
+        "en": ("\u26a0\ufe0f I could not open the limit-price step, so I am "
+               "not asking you for a price — nothing would have read it. "
+               "Nothing was armed and no order was placed."),
+        "zh": ("\u26a0\ufe0f 無法開啟限價步驟，所以我不會向你要價格 "
+               "— 沒有任何東西會讀取它。"
+               "沒有準備任何東西，也沒有下單。"),
+    },
+
     "limit_prompt": {
         "en": (
             "\U0001f4b0 Set limit price for {asset} {direction}\n\n"

@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue} antwoordde niet</b> — er is niets gescand. Dit is een mislukte uitlezing, geen lege markt.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b> antwoordde met {markets} markten en geen enkele haalde de volumedrempel — niets te tonen, en dat is een meting.",
   "venue_scan_header": "🔎 <b>{venue}-scan</b> — top {n} van {markets} markten op 24u-beweging",
-  "venue_scan_list": "🏦 <b>Venues die je kunt scannen</b> — <code>/scan &lt;venue&gt;</code> leest de eigen marktlijst van een venue, of je er nu handelt of niet:"
+  "venue_scan_list": "🏦 <b>Venues die je kunt scannen</b> — <code>/scan &lt;venue&gt;</code> leest de eigen marktlijst van een venue, of je er nu handelt of niet:",
+  "limit_not_armed": "⚠️ Ik kon de limietprijs-stap niet openen, dus ik vraag je niet om een prijs — niets zou hem hebben gelezen. Er is niets klaargezet en er is geen order geplaatst."
 }

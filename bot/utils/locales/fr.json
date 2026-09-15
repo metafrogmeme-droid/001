@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue} n'a pas répondu</b> — rien n'a été scanné. C'est une lecture échouée, pas un marché vide.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b> a répondu avec {markets} marchés et aucun n'a franchi le seuil de volume — rien à afficher, et c'est une mesure.",
   "venue_scan_header": "🔎 <b>Scan {venue}</b> — les {n} premiers sur {markets} marchés par variation 24h",
-  "venue_scan_list": "🏦 <b>Plateformes que vous pouvez scanner</b> — <code>/scan &lt;venue&gt;</code> lit la liste propre des marchés d'une plateforme, que vous y tradiez ou non :"
+  "venue_scan_list": "🏦 <b>Plateformes que vous pouvez scanner</b> — <code>/scan &lt;venue&gt;</code> lit la liste propre des marchés d'une plateforme, que vous y tradiez ou non :",
+  "limit_not_armed": "⚠️ Je n'ai pas pu ouvrir l'étape du prix limite, donc je ne vous demande pas de prix — rien ne l'aurait lu. Rien n'a été armé et aucun ordre n'a été placé."
 }

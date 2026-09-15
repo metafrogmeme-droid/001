@@ -1639,27 +1639,41 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
         engine._pending_ideas[idea.id] = idea
         engine._pending_atr[idea.id] = atr_val
 
-        # Store limit input state in the telegram handler
+        # ARM FIRST, ASK ONLY IF ARMED. This block used to write the pending
+        # state `if hasattr(handler, "_pending_limit_input")` and send the
+        # prompt regardless — and that attribute is a bare annotation on the
+        # callback mixin ("created on first use"), so on a process where the
+        # other door had not run, the card asked for a price with nothing
+        # listening and the typed number fell through to the chat model.
+        # `arm_limit_input` CREATES the state and answers whether this caller
+        # is being listened to; the prompt is the True branch and nothing
+        # else.
+        from bot.core.limit_input import (
+            arm_limit_input,
+            caller_lang,
+            limit_prompt_text,
+            limit_unarmed_text,
+        )
         handler = context.bot_data.get("telegram_handler")
         caller_uid = str(update.effective_user.id) if update.effective_user else ""
-        if handler and hasattr(handler, '_pending_limit_input'):
-            import time as _time
-            handler._pending_limit_input[caller_uid] = {
-                "trade_id": idea.id,
-                "asset": symbol.replace("/USDT", ""),
-                "pair": symbol,
-                "direction": direction.value,
-                "current_entry": price,
-                "timestamp": _time.time(),
-            }
-
         sym_short = symbol.replace("/USDT", "")
-        await query.message.reply_text(
-            f"\U0001f4b0 <b>Set limit price for {sym_short} {direction.value}</b>\n\n"
-            f"Current entry: <code>${price:,.6g}</code>\n"
-            f"SL: <code>${sl:,.6g}</code> | TP: <code>${tp:,.6g}</code>\n\n"
-            f"Type your limit price (e.g. <code>{price * 0.99:,.4g}</code> or <code>{price * 0.98:,.4g}</code>):",
-            parse_mode="HTML")
+        lang = caller_lang(handler, update)
+        armed = arm_limit_input(
+            handler, caller_uid,
+            trade_id=idea.id, asset=sym_short, pair=symbol,
+            direction=direction.value, current_entry=price,
+        )
+        # ONE send, and the prompt is only ever the ARMED branch's text.
+        # Two `reply_text` calls would be two chances for a later edit to
+        # move one of them out from under the verdict, which is how the
+        # unconditional prompt got there in the first place.
+        if not armed:
+            said = limit_unarmed_text(lang)
+        else:
+            said = limit_prompt_text(
+                lang, asset=sym_short, direction=direction.value,
+                entry=price, stop_loss=sl, take_profit=tp)
+        await query.message.reply_text(said, parse_mode="HTML")
         return
 
     if not data.startswith("scan_confirm:"):

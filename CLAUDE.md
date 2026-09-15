@@ -2530,6 +2530,64 @@ A word one rule treats as filler is not a ticker for another, so the mode
 lead's determiners are in `_NOT_A_TICKER` now.
 (`tests/test_the_scanner_takes_its_own_verb.py`.)
 
+**A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
+LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a
+card named a COMMAND that did nothing, here a card asks for a VALUE that
+nothing reads. Found in a live transcript, on the flow that CONFIRMS AND
+EXECUTES A TRADE. The scan card's Limit button printed *"Type your limit
+price"* for PENDLE LONG, the caller typed `$2.367`, and the bot answered with
+a macro-risk card in a different language. Nothing was broken about the
+capture — it was never armed:
+
+```python
+if handler and hasattr(handler, '_pending_limit_input'):   # arming
+    handler._pending_limit_input[caller_uid] = {...}
+await query.message.reply_text("... Type your limit price ...")  # prompt
+```
+
+The arming is CONDITIONAL and the prompt is not, and `_pending_limit_input` is
+a bare ANNOTATION on the callback mixin whose own comment says *"created on
+first use"* — so `hasattr` is False until the OTHER door has run once in the
+process. The typed price then matched no router rule (`skill=''`,
+`conf=0.0`) and fell through to the chat model. **A second copy that lost the
+line that mattered**: `callback_handler` writes the same six lines and CREATES
+the dict first, so that door worked, and each file reads correct on its own.
+`bot/core/limit_input.py` is the one seam both ask, arming answers a VERDICT,
+and the prompt is the True branch and nothing else.
+
+**An empty caller id is a refusal, not a key.** Both doors compute
+`str(update.effective_user.id) if update.effective_user else ""` — their own
+authors anticipated no user — and the capture looks up `str(uid)`, so the old
+code armed a row nobody can match: the same silent no-listener a second way,
+and the reason the unarmed branch is reachable rather than a door painted on a
+wall.
+
+**The Dutch prompt had been in the table the whole time.** `limit_prompt`
+carries all fourteen; both doors hand-wrote the English, so the caller read an
+English prompt and a Dutch answer in one exchange with `Typ je limietprijs`
+sitting unused. `callback_handler` also offered *"e.g. 84.07 or 0.0522"*
+whatever the asset — two numbers from some other trade, printed with the
+confidence of an example — so the examples derive from the entry now. **ONE
+SEND per door**: the text is chosen, then sent once, because two `reply_text`
+calls are two chances for a later edit to move one out from under the verdict.
+
+**And the first draft of the fix put twelve translations in the wrong
+store.** `i18n.py` keeps `_INLINE_LANGS = ("en", "zh")` inline and the other
+twelve one file each under `locales/`, merged at import. Writing all fourteen
+inline is a SECOND STORE, and `test_i18n_locales` could not see it — that
+guard reads the FILES, and the files were exactly what was missing, so it
+failed for the right reason with the wrong diagnosis available. The inline
+table had zero violations, so the new guard holds from here with no baseline.
+
+Two things fall out, **filed with the evidence**: a bare number typed with no
+prompt pending still reaches the model; and `place a limit order on pendle`
+routes to `get_orders` at confidence 1.0 — a request to PLACE answered with
+the card that LISTS resting orders — while `Place limit pendle` reaches no
+rule at all, so the model began narrating a placement and the fabrication
+guard stopped it. close/cancel/modify/stake are routed action intents with
+doors; placing was never given one, and its door is `/trade`.
+(`tests/test_a_limit_prompt_is_never_sent_unarmed.py`.)
+
 **The server said why the turn failed and the browser threw the sentence
 away, then diagnosed the deployment instead.** `app/lib/gateway.js` writes
 `event: error` into the chat stream with the reason it has — "Timed out

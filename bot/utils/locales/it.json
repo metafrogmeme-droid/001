@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue} non ha risposto</b> — non è stato scansionato nulla. È una lettura fallita, non un mercato vuoto.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b> ha risposto con {markets} mercati e nessuno ha superato la soglia di volume — niente da mostrare, e questa è una misurazione.",
   "venue_scan_header": "🔎 <b>Scansione {venue}</b> — i primi {n} di {markets} mercati per variazione 24h",
-  "venue_scan_list": "🏦 <b>Venue che puoi scansionare</b> — <code>/scan &lt;venue&gt;</code> legge la lista dei mercati propria di un venue, che tu ci operi o no:"
+  "venue_scan_list": "🏦 <b>Venue che puoi scansionare</b> — <code>/scan &lt;venue&gt;</code> legge la lista dei mercati propria di un venue, che tu ci operi o no:",
+  "limit_not_armed": "⚠️ Non sono riuscito ad aprire il passaggio del prezzo limite, quindi non ti chiedo un prezzo — nulla lo avrebbe letto. Non è stato preparato nulla e nessun ordine è stato piazzato."
 }

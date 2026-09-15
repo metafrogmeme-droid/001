@@ -266,5 +266,6 @@
   "venue_scan_unreachable": "🔴 <b>{venue} hat nicht geantwortet</b> — nichts wurde gescannt. Das ist ein fehlgeschlagenes Lesen, kein leerer Markt.\n<code>{detail}</code>",
   "venue_scan_empty": "⚪ <b>{venue}</b> hat mit {markets} Märkten geantwortet, und keiner hat die Volumenschwelle erreicht — nichts anzuzeigen, und das ist eine Messung.",
   "venue_scan_header": "🔎 <b>{venue}-Scan</b> — Top {n} von {markets} Märkten nach 24h-Bewegung",
-  "venue_scan_list": "🏦 <b>Handelsplätze, die du scannen kannst</b> — <code>/scan &lt;venue&gt;</code> liest die eigene Marktliste eines Handelsplatzes, ob du dort handelst oder nicht:"
+  "venue_scan_list": "🏦 <b>Handelsplätze, die du scannen kannst</b> — <code>/scan &lt;venue&gt;</code> liest die eigene Marktliste eines Handelsplatzes, ob du dort handelst oder nicht:",
+  "limit_not_armed": "⚠️ Ich konnte den Limitpreis-Schritt nicht öffnen, daher frage ich nicht nach einem Preis — nichts hätte ihn gelesen. Es wurde nichts vorbereitet und keine Order platziert."
 }
