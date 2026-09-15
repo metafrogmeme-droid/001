@@ -19,6 +19,13 @@ after any change to `SHAPES`:
     python3 scripts/render_secret_shapes.py           # write the artifact
     python3 scripts/render_secret_shapes.py --check   # exit 1 if it is stale
 
+A rendered row can scan as a secret where the Python source did not. The JWT
+row is written in `secret_shapes.py` across two adjacent string literals, so
+gitleaks' `jwt` rule never matched it there; rendered, it is one JSON string on
+one line and the rule fires. Its value is in `.gitleaks.toml`'s stopwords with
+the other three examples — BY VALUE, so this file stays scanned. A new example
+realistic enough to trip the scan goes there too, and the scan is what says so.
+
 Patterns are emitted verbatim. Every row in this table is written in the subset
 both engines read the same way (character classes, `\\b`, `(?:…)`, bounded
 repeats); a row that needs a Python-only construct — a named group, a lookbehind
