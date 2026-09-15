@@ -66,16 +66,70 @@ def trend_word(direction: float) -> str:
     return "flat"
 
 
-def overall_trend_label(htf_trend: str, bos_dir: int, choch_dir: int) -> str:
-    """Headline label in the exchange-card idiom."""
-    t = (htf_trend or "").lower()
+#: What the headline says when the trend was never read. A verdict word and
+#: this are different facts, so they are different strings — see
+#: `overall_trend_label`.
+TREND_UNREAD = "Trend not read"
+
+#: The only three words `htf_trend` can carry (multi_timeframe sets exactly
+#: these). Anything else is an ABSENCE, not a reading.
+_TREND_WORDS = ("bullish", "bearish", "neutral")
+
+
+def _dir_or_abstain(v: Any) -> int:
+    """A break/flip direction, or 0 when it cannot be read.
+
+    0 is what `_analyze_structure` itself returns when it found too few swings
+    to judge, and every confluence voter reads that as an abstention — so an
+    unreadable direction lands in the same place rather than raising. Guarded
+    HERE rather than at each call site, the `_fmt_price(None)` rule: a new
+    caller inherits the honest behaviour instead of remembering to check."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return 0
+    # NaN needs no branch of its own: `nan > 0` and `nan < 0` are both False,
+    # so it falls to the 0 this chain ends in. The first draft guarded it
+    # anyway and the mutation round called that out as an equivalent mutant —
+    # a line no input can reach is not a check, it is a claim that there is
+    # one.
+    return 1 if v > 0 else -1 if v < 0 else 0
+
+
+def overall_trend_label(htf_trend: Any, bos_dir: Any = 0,
+                        choch_dir: Any = 0) -> str:
+    """Headline label in the exchange-card idiom.
+
+    "Range / Mixed" used to be the fall-through for EVERY input this function
+    did not recognise, so four different facts printed one sentence:
+
+        neutral   → a measured range                      (a reading)
+        ""        → the MTF block raised and wrote nothing (a failed read)
+        None      → the key was never on the payload       (an absent read)
+        "nonsense"→ a word this function cannot place      (not a reading)
+
+    `build_alpha_insight` writes `htf_trend` INSIDE a try whose except only
+    logs at debug, so the second of those is the ordinary shape of an MTF
+    failure — and the operator was shown `Chart analysis — Range / Mixed`, the
+    calmest verdict on the card, assembled from an analysis that crashed. Only
+    a word the engine actually sets is a reading now; everything else answers
+    `TREND_UNREAD`.
+
+    `bos_dir` / `choch_dir` keep taking 0 as an abstention, which is correct:
+    `_analyze_structure` returns 0 for both when it could not find enough
+    swings, and "no break detected" is the honest reading of that — the
+    direction refines a trend that was read, it does not assert one.
+    """
+    t = (htf_trend or "").strip().lower() if isinstance(htf_trend, str) else ""
+    if t not in _TREND_WORDS:
+        return TREND_UNREAD
+    bos = _dir_or_abstain(bos_dir)
+    choch = _dir_or_abstain(choch_dir)
     if t == "bullish":
-        return "Breakout Continuation" if bos_dir > 0 else "Uptrend"
+        return "Breakout Continuation" if bos > 0 else "Uptrend"
     if t == "bearish":
-        return "Breakdown Continuation" if bos_dir < 0 else "Downtrend"
-    if choch_dir > 0:
+        return "Breakdown Continuation" if bos < 0 else "Downtrend"
+    if choch > 0:
         return "Possible Reversal Up"
-    if choch_dir < 0:
+    if choch < 0:
         return "Possible Reversal Down"
     return "Range / Mixed"
 
@@ -238,8 +292,11 @@ def format_alpha_card(d: dict) -> str:
     lines.append("")
 
     # ── Chart analysis ──
+    # No `int()` here: the reading guards its own arguments, and an int() that
+    # raises would take down the whole card for a junk direction — which is
+    # exactly the shape the signal card's `except` had.
     label = overall_trend_label(
-        d.get("htf_trend", ""), int(d.get("bos_dir", 0)), int(d.get("choch_dir", 0)))
+        d.get("htf_trend"), d.get("bos_dir"), d.get("choch_dir"))
     lines.append(f"📈 <b>Chart analysis</b> — {label}")
     per_tf = d.get("per_tf") or {}
     if per_tf:

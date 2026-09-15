@@ -8,6 +8,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from bot.core.alpha_card import (
+    TREND_UNREAD,
     build_alpha_insight,
     fmt_price,
     format_alpha_card,
@@ -47,7 +48,12 @@ def test_overall_trend_labels():
     assert overall_trend_label("bullish", 0, 0) == "Uptrend"
     assert overall_trend_label("bearish", -1, 0) == "Breakdown Continuation"
     assert overall_trend_label("neutral", 0, 1) == "Possible Reversal Up"
-    assert overall_trend_label("", 0, 0) == "Range / Mixed"
+    assert overall_trend_label("neutral", 0, 0) == "Range / Mixed"
+    # This line used to read `overall_trend_label("", 0, 0) == "Range / Mixed"`,
+    # pinning the defect: "" is what `build_alpha_insight` leaves behind when
+    # the MTF block RAISES, and a failed read is not a measured range. See
+    # tests/test_the_trend_headline_says_when_it_read_nothing.py.
+    assert overall_trend_label("", 0, 0) == TREND_UNREAD
 
 
 # ── formatter ────────────────────────────────────────────────────────
