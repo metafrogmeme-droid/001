@@ -3453,12 +3453,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # is how this one got to be wrong.
             from bot.skills.skill_registry import deepscan_universe_size
             _n_sym = deepscan_universe_size()
+            # One row per `SCAN_DISPATCH` intent, and a guard pins the two key
+            # sets EQUAL: this dict is the gate below, so a dispatch row added
+            # without its sentence reaches nothing on Telegram while the web
+            # (whose alias map is derived) runs it — a surface split invisible
+            # from either file. Prose only; the skill and its arguments are the
+            # table's, which is what the source guard over this block checks.
             scan_thinking = {
                 "scan_swing": "<i>Checking the 4H chart...</i>",
                 "scan_scalp": "\u26a1 <i>Scalp scan — 5M candles, tight zones...</i>",
                 "scan_intraday": "\U0001f4ca <i>Intraday scan — 15M structure...</i>",
                 "scan_deep": f"\u2694\ufe0f <i>Deep scanning {_n_sym} symbols...</i>",
                 "scan_full": "\u2694\ufe0f <i>Full scan with patterns...</i>",
+                "scan_deep_1h": f"\u2694\ufe0f <i>Sweeping {_n_sym} symbols on the 1H...</i>",
+                "scan_deep_1d": f"\u2694\ufe0f <i>Sweeping {_n_sym} symbols on the 1D...</i>",
             }
             if intent.skill in scan_thinking:
                 thinking_msg = scan_thinking[intent.skill]
@@ -3474,7 +3482,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # dispatcher used. A second copy of a map is a second answer.
                 from bot.nlp.skill_doors import dispatch_kwargs, dispatches_to
                 _ran = dispatches_to(intent.skill)
-                _kw = dispatch_kwargs(intent.skill)
+                # The ROUTER's own kwargs under the table's, the way the web
+                # already merges them. Driven, `intent.kwargs` is empty for
+                # every scan intent today, so this changes no dispatch — and
+                # the two surfaces disagreeing about whether the router may
+                # carry an argument into a scan is the drift that made
+                # `SCAN_DISPATCH` one table in the first place. The table wins
+                # on a key both hold: what runs is never the sentence's to
+                # decide.
+                _kw = {**(intent.kwargs or {}), **dispatch_kwargs(intent.skill)}
                 # The FEATURE the skill is sold as, read from `tier_gate`
                 # rather than spelled here. This was
                 # `"deepscan" if _deep else "premium_scan"` off a local

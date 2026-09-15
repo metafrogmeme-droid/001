@@ -92,6 +92,8 @@ TYPED = {
     "scan_swing": "swing scan",
     "scan_scalp": "scalp scan",
     "scan_intraday": "intraday scan",
+    "scan_deep_1h": "1h scan",
+    "scan_deep_1d": "1d scan",
 }
 
 

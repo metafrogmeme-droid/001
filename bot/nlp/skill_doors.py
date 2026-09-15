@@ -105,9 +105,36 @@ class ScanRow(TypedDict):
 #: That is a decision about what a paid scan costs, not a transcription, so
 #: this table reproduces what Telegram has always dispatched rather than
 #: quietly changing it. Written down is how it stops being invisible.
+#: TWO TABLES ANSWER "WHAT TIMEFRAME CAN BE SWEPT", AND THE ROUTER WAS READING
+#: ONE. `ProScanSkill.MODE_CFG` is the LADDER CARD's — three modes, 5m, 15m and
+#: 4h, each card carrying an entry, a stop and a target — and
+#: `candles.SUPPORTED_TIMEFRAMES` is the FULL-UNIVERSE SWEEP's: 5m, 15m, 1h, 4h
+#: and 1d, expanded by `resolve_timeframes` inside `DeepScanSkill`. So `1h` and
+#: `1d` really are swept, through `deepscan` and not through the ladder — and
+#: the router folded `1h`, `2h`, `30m` and `hourly` into `scan_intraday`, whose
+#: card is headed **15M**. A caller who typed 1h was answered with a 15m card
+#: and nothing on it said the timeframe had been changed, which is the defect
+#: the market-scan rule was cured of one rule over (it dropped a named 4h and
+#: printed the untimed movers table).
+#:
+#: `scan_deep_1h` and `scan_deep_1d` are the two rows that were missing. They
+#: run the same skill under the same feature as `scan_deep` — the paywall
+#: follows the skill that can actually do it, so a 1h sweep is sold as `deep`
+#: where the 15m ladder is sold as `premium_scan`, and that is a real change
+#: for a caller who typed "1h scan": a different tier, and a card that names
+#: the hour they asked for.
+#:
+#: `2h`, `30m`, `1m` and `3m` are swept by NEITHER table, so no rule claims
+#: them any more: they reach the model, where `weekly` already goes for the
+#: same reason. Aliasing them to the nearest ladder is what printed the wrong
+#: timeframe in the first place. `daily` is the one word that stays on the
+#: intraday ladder, on the recorded reading that "a daily setup is a setup for
+#: today" — the chart spelling `1d` is the unambiguous one and it sweeps.
 SCAN_DISPATCH: dict[str, ScanRow] = {
     "scan_deep": {"skill": "deepscan", "kwargs": {"timeframe": "4h"}},
     "scan_full": {"skill": "deepscan", "kwargs": {"timeframe": "4h"}},
+    "scan_deep_1h": {"skill": "deepscan", "kwargs": {"timeframe": "1h"}},
+    "scan_deep_1d": {"skill": "deepscan", "kwargs": {"timeframe": "1d"}},
     "scan_swing": {"skill": "pro_scan", "kwargs": {"mode": "swing"}},
     "scan_scalp": {"skill": "pro_scan", "kwargs": {"mode": "scalp"}},
     "scan_intraday": {"skill": "pro_scan", "kwargs": {"mode": "intraday"}},

@@ -57,7 +57,11 @@ from bot.nlp.intent_router import (
     IntentRouter,
     _names_a_non_asset,
 )
-from bot.nlp.skill_doors import dispatch_kwargs, dispatches_to
+from bot.nlp.skill_doors import (
+    SCAN_DISPATCH,
+    dispatch_kwargs,
+    dispatches_to,
+)
 
 
 @pytest.fixture(scope="module")
@@ -93,17 +97,22 @@ VERB_FIRST = [
     # the intraday ladder
     ("scan 15m", "scan_intraday"),
     ("scan the 15m", "scan_intraday"),
-    ("scan 1h", "scan_intraday"),
-    ("scan 2h", "scan_intraday"),
-    ("scan 30m", "scan_intraday"),
     ("scan on 15m", "scan_intraday"),
     ("scan in 15m", "scan_intraday"),
     ("scan intraday", "scan_intraday"),
-    ("scan hourly", "scan_intraday"),
     ("scan daily", "scan_intraday"),
     ("scan the daily", "scan_intraday"),
-    ("scan 1 hour", "scan_intraday"),
     ("scan for 15m setups", "scan_intraday"),
+    # the full-universe sweep's own timeframes, which the ladder card has no
+    # mode for — these used to print a card headed 15M
+    ("scan 1h", "scan_deep_1h"),
+    ("scan the 1h", "scan_deep_1h"),
+    ("scan hourly", "scan_deep_1h"),
+    ("scan 1 hour", "scan_deep_1h"),
+    ("scan on the 1h", "scan_deep_1h"),
+    ("scan 1d", "scan_deep_1d"),
+    ("scan the 1d", "scan_deep_1d"),
+    ("scan 1 day", "scan_deep_1d"),
     ("scan for setups", "scan_intraday"),
     # "setups, for me" — the possessive before the scan NOUN, which is not
     # the possessive before a MODE word (see the decoys). It had been
@@ -129,12 +138,15 @@ VERB_FIRST = [
     ("can you scan the 15m", "scan_intraday"),
     ("screen 4h", "scan_swing"),
     ("sweep the 15m", "scan_intraday"),
+    ("screen the 1d", "scan_deep_1d"),
     # a market scan that names a ladder is a ladder request
     ("scan the market on 4h", "scan_swing"),
     ("scan the market on the 4h", "scan_swing"),
     ("market scan on 4h", "scan_swing"),
     ("market scan on the 15m", "scan_intraday"),
     ("run a market scan on 5m", "scan_scalp"),
+    ("scan the market on 1d", "scan_deep_1d"),
+    ("market scan on the 1h", "scan_deep_1h"),
 ]
 
 #: Spellings that were already right and must stay right — the whole-message
@@ -142,10 +154,9 @@ VERB_FIRST = [
 #: moved any of these would be trading one drift for another.
 ALREADY_RIGHT = [
     ("4h", "scan_swing"), ("15m", "scan_intraday"), ("5m", "scan_scalp"),
-    ("1h", "scan_intraday"), ("30m", "scan_intraday"), ("2h", "scan_intraday"),
     ("4h setups", "scan_swing"), ("15m setups", "scan_intraday"),
-    ("5m setups", "scan_scalp"), ("1h ideas", "scan_intraday"),
-    ("4h scan", "scan_swing"), ("1h scan", "scan_intraday"),
+    ("5m setups", "scan_scalp"),
+    ("4h scan", "scan_swing"),
     ("15m scan", "scan_intraday"), ("5m scan", "scan_scalp"),
     ("daily scan", "scan_intraday"), ("daily setups", "scan_intraday"),
     ("show me 4h setups", "scan_swing"), ("run the 4h", "scan_swing"),
@@ -159,19 +170,34 @@ ALREADY_RIGHT = [
     ("scan all", "scan_deep"), ("full scan", "scan_full"),
 ]
 
-#: A sweep the LADDER CARD has no mode for. `weekly` was already recorded as
-#: the model's; these are the same request in every other spelling, and the
-#: point of the row is that they all agree now rather than splitting three
-#: ways. It is not the destination these deserve — `/deepscan 1d` is a real
-#: daily sweep of the universe — but it is an honest one, and routing them
-#: there needs a dispatch row per timeframe, which is filed rather than done.
-UNRUN_LADDER = [
-    ("1d", "MODEL"), ("1w", "MODEL"), ("d1", "MODEL"), ("w1", "MODEL"),
-    ("1d scan", "MODEL"), ("1D scan", "MODEL"), ("d1 scan", "MODEL"),
-    ("1w scan", "MODEL"), ("weekly scan", "MODEL"), ("monthly scan", "MODEL"),
-    ("scan 1d", "MODEL"), ("scan 1w", "MODEL"), ("scan the 1d", "MODEL"),
-    ("1d setups", "MODEL"), ("1d ideas", "MODEL"),
+#: THE SWEEP'S OWN TIMEFRAMES, which the ladder card has no mode for. These
+#: used to print a card headed 15M (for `1h`) or reach nothing at all (for
+#: `1d`); they run `deepscan` at the timeframe the caller named, under the
+#: `deep` feature rather than the ladder's `premium_scan`.
+SWEPT_TIMEFRAMES = [
+    ("1h", "scan_deep_1h"), ("h1", "scan_deep_1h"), ("hourly", "scan_deep_1h"),
+    ("1 hour", "scan_deep_1h"), ("1h scan", "scan_deep_1h"),
+    ("1h ideas", "scan_deep_1h"), ("1h setups", "scan_deep_1h"),
+    ("hourly ideas", "scan_deep_1h"),
+    ("1d", "scan_deep_1d"), ("1D", "scan_deep_1d"), ("d1", "scan_deep_1d"),
+    ("1 day", "scan_deep_1d"), ("1d scan", "scan_deep_1d"),
+    ("1D scan", "scan_deep_1d"), ("d1 scan", "scan_deep_1d"),
+    ("1d setups", "scan_deep_1d"), ("1d ideas", "scan_deep_1d"),
+]
+
+#: A timeframe NEITHER table runs. `weekly` was already recorded as the
+#: model's; `2h`, `30m`, `1m` and `3m` join it, because the alternative is the
+#: one this slice exists to remove — a card headed 15M over a 30m ask, or 5M
+#: over a 1m one, with nothing saying the timeframe was changed. Aliasing a
+#: request to the nearest answer is the confident wrong answer this router
+#: records about the orders card.
+UNSWEPT_TIMEFRAMES = [
+    ("1w", "MODEL"), ("w1", "MODEL"), ("1w scan", "MODEL"),
+    ("weekly scan", "MODEL"), ("monthly scan", "MODEL"), ("scan 1w", "MODEL"),
     ("weekly", "MODEL"), ("monthly", "MODEL"),
+    ("2h", "MODEL"), ("30m", "MODEL"), ("1m", "MODEL"), ("3m", "MODEL"),
+    ("2h scan", "MODEL"), ("30m scan", "MODEL"), ("scan 2h", "MODEL"),
+    ("scan 30m", "MODEL"), ("30m plays", "MODEL"), ("2h setups", "MODEL"),
 ]
 
 #: Phrases that carry the scan verb, or a timeframe, and are NOT a sweep of
@@ -203,12 +229,11 @@ DECOYS = [
     ("scan the docs", "MODEL"),
     ("scan the news", "MODEL"),
     ("scan for new listings", "MODEL"),
-    # a market scan naming a ladder the scanner does not run keeps the market
-    # card. "scan the market" IS the request there and the daily is a
-    # qualifier nothing can honour; the 4h case is different only because a
-    # correct answer exists to be dropped.
-    ("scan the market on 1d", "scan_market"),
-    ("market scan on the 1d", "scan_market"),
+    # a market scan naming a timeframe NEITHER table runs keeps the market
+    # card: "scan the market" IS the request there and the week is a qualifier
+    # nothing can honour. The 1d case is different now — a correct answer
+    # exists, so it is in the sweep table above.
+    ("scan the market on 1w", "scan_market"),
     # two ladders named is not one ladder asked for. The scanner runs one
     # mode per card, so this reaches the model rather than picking one and
     # printing a card that looks like an answer to the question that was
@@ -254,33 +279,61 @@ class TestTheVerbFirstAsk:
         with no symbol is answered "which coin?", which is a question about
         one asset asked of a request for the universe — a confident wrong
         door, not a clarification."""
-        asked = [t for t, _ in VERB_FIRST + UNRUN_LADDER
+        asked = [t for t, _ in VERB_FIRST + SWEPT_TIMEFRAMES + UNSWEPT_TIMEFRAMES
                  if route(router, t).startswith("ASK:")]
         assert asked == [], asked
 
     def test_the_ladder_the_words_name_is_the_mode_that_runs(self, router):
-        """The intent's own name anchors the mode, through the one dispatch
+        """The intent's own name anchors what runs, through the one dispatch
         table — a retarget that carried only the name would render a card
-        headed with a different timeframe and nothing would raise."""
+        headed with a different timeframe and nothing would raise.
+
+        Two shapes, because there are two engines: `scan_<mode>` is the LADDER
+        CARD at that mode, and `scan_deep_<tf>` is the FULL SWEEP at that
+        timeframe. Reading one as the other is the mistake this slice is
+        about, so the assertion names which it expects from the intent's own
+        spelling rather than from a lookup that would agree with anything.
+        """
         for text, expected in VERB_FIRST:
-            mode = expected.removeprefix("scan_")
             intent = router.classify_rules(text).skill
             assert intent == expected, text
-            assert dispatches_to(intent) == "pro_scan", text
-            assert dispatch_kwargs(intent) == {"mode": mode}, text
+            if expected.startswith("scan_deep_"):
+                assert dispatches_to(intent) == "deepscan", text
+                assert dispatch_kwargs(intent) == {
+                    "timeframe": expected.removeprefix("scan_deep_")}, text
+            else:
+                assert dispatches_to(intent) == "pro_scan", text
+                assert dispatch_kwargs(intent) == {
+                    "mode": expected.removeprefix("scan_")}, text
 
 
-class TestTheLadderItDoesNotRun:
-    @pytest.mark.parametrize("text, expected", UNRUN_LADDER)
-    def test_every_spelling_of_it_has_one_destination(self, router, text, expected):
+class TestTheSweepsOwnTimeframes:
+    @pytest.mark.parametrize("text, expected", SWEPT_TIMEFRAMES)
+    def test_it_reaches_the_sweep_at_the_timeframe_it_named(self, router, text, expected):
         assert route(router, text) == expected, text
+
+    @pytest.mark.parametrize("text, expected", UNSWEPT_TIMEFRAMES)
+    def test_a_timeframe_neither_table_runs_reaches_the_model(self, router, text, expected):
+        assert route(router, text) == expected, text
+
+    def test_the_sweep_runs_the_timeframe_the_words_named(self, router):
+        """The card is headed with what the caller asked for. `deepscan` reads
+        `resolve_timeframes(kwargs["timeframe"])`, so the argument IS the
+        header — a row carrying the wrong one would render a 4H sweep under a
+        1H ask and nothing would raise."""
+        for text, expected in SWEPT_TIMEFRAMES:
+            tf = expected.removeprefix("scan_deep_")
+            intent = router.classify_rules(text).skill
+            assert intent == expected, text
+            assert dispatches_to(intent) == "deepscan", text
+            assert dispatch_kwargs(intent) == {"timeframe": tf}, text
 
     def test_it_is_not_greeted(self, router):
         """`daily` and `weekly` were trading words and `1d`/`1w` were not, so
         the chart spelling was small talk and the English one was not. The
         gate consults the rules before it decides, so a word a rule claims
         needs no entry — these are the ones no rule claims."""
-        for text, _ in UNRUN_LADDER:
+        for text, _ in SWEPT_TIMEFRAMES + UNSWEPT_TIMEFRAMES:
             assert route(router, text) != "SOCIAL", text
 
     def test_the_scan_timeframes_are_read_from_the_skills_own_tables(self):
@@ -353,3 +406,88 @@ class TestTheReadingUnderIt:
         assert _SWEEP_TRIGGER.search("Deep Scan") and _SWEEP_TRIGGER.search("sweep")
         assert not _SWEEP_TRIGGER.search("analyze")
         assert not _SWEEP_TRIGGER.search("look at")
+
+
+class TestBothTablesAreRead:
+    """The two tables that answer "what can be swept", and the one gate that
+    decides whether a dispatch row reaches Telegram at all."""
+
+    def test_the_sweeps_own_label_is_read_from_its_table(self):
+        """`/deepscan all` PRINTS what it covers, and it read `5m\u21921d` from
+        memory — the `67+ symbols` shape one noun over, a sentence shown to the
+        caller naming the sweep's range and kept in step with the table by hand.
+
+        A seam was written for this first (`scan_timeframes`, answering both
+        tables) and deleted before it shipped: nothing in the product asks both
+        questions at once, so it had test callers only, which is the one thing
+        a reachable-looking function must never have. The flag arrives with the
+        code that reads it; here the reader is two lines and the table is
+        already imported beside them.
+
+        This is a SCAN and not a drive, which the rule allows only for a shape
+        a unit test cannot reach: `_tf_label` is a local inside a guarded async
+        handler that dispatches the sweep, so reaching it means standing up the
+        token gate, the registry and the card renderer to read one string. The
+        assertion is anchored to its own line rather than to a short literal.
+        """
+        import pathlib as _pl
+
+        from tests.source_scan import code_only
+
+        src = code_only(
+            _pl.Path("bot/skills/scan_commands.py").read_text())
+        label = [ln for ln in src.splitlines() if "_tf_label = " in ln]
+        assert len(label) == 1, label
+        assert "SUPPORTED_TIMEFRAMES" in label[0], (
+            "the sweep's label must be derived from the table it describes, "
+            f"not written out: {label[0]!r}")
+
+        from bot.utils.candles import SUPPORTED_TIMEFRAMES
+
+        rendered = f"ALL TIMEFRAMES ({', '.join(SUPPORTED_TIMEFRAMES)})"
+        for tf in SUPPORTED_TIMEFRAMES:
+            assert tf in rendered, tf
+        assert "1h" in rendered and "1d" in rendered, (
+            "the two the sweep adds over the ladder card are the ones this "
+            "slice routes, so they must appear in what the caller is shown")
+
+    def test_every_dispatch_row_has_a_waiting_sentence_on_telegram(self):
+        """`scan_thinking` is the GATE (`if intent.skill in scan_thinking`),
+        so a `SCAN_DISPATCH` row added without its sentence reaches nothing on
+        Telegram while the web — whose alias map is DERIVED from the same
+        table — runs it happily. That is a surface split invisible from either
+        file, and it is the shape `SCAN_DISPATCH` was made one table to stop.
+        """
+        import ast
+        import pathlib as _pl
+
+        src = _pl.Path("bot/skills/telegram_handler.py").read_text()
+        keys: set[str] = set()
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == "scan_thinking"
+                       for t in node.targets):
+                continue
+            assert isinstance(node.value, ast.Dict), ast.unparse(node)[:120]
+            keys = {k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant)}
+        assert keys, "scan_thinking was not found — the handler changed shape"
+        assert keys == set(SCAN_DISPATCH), sorted(keys ^ set(SCAN_DISPATCH))
+
+    def test_telegram_merges_the_routers_kwargs_under_the_tables(self):
+        """The web does `{**intent.kwargs, **dispatch_kwargs(...)}` and
+        Telegram did `dispatch_kwargs(...)` alone. `intent.kwargs` is empty for
+        every scan intent today, so this changes no dispatch — and two
+        surfaces disagreeing about whether the router may carry an argument
+        into a scan is the drift `SCAN_DISPATCH` was consolidated to end."""
+        import pathlib as _pl
+
+        from tests.source_scan import code_only
+
+        tg = code_only(_pl.Path("bot/skills/telegram_handler.py").read_text())
+        web = code_only(_pl.Path("bot/web/user_gateway.py").read_text())
+        assert "_kw = {**(intent.kwargs or {}), **dispatch_kwargs(intent.skill)}" in tg, (
+            "Telegram stopped merging the router's kwargs under the table's")
+        assert "_routed_kwargs = {**intent.kwargs, **_dispatch_kwargs(intent.skill)}" in web, (
+            "the web stopped merging them, which is where the shape came from")
