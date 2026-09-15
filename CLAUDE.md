@@ -2033,6 +2033,49 @@ an empty id one line earlier — so the planted registry refuses one too. A
 symmetric fixture is a fixture that cannot tell the two books apart, and a
 stub that prints a label the code did not is a stub that cannot see silence.
 
+**FOUR MORE SIBLINGS, and one of them mixed two accounts in a single card.**
+`check_risk`, `playbook`, `GetPortfolioSkill`, `/positions`, the chat prompt and
+the `pro_scan` header were each cured of reading the operator's book for a
+caller. `/performance` — whose own docstring says *per-user* — opened its live
+branch with `executor = self.engine.live_executor` and used `user_id` only on
+the PAPER branch, so every caller was shown the OPERATOR's win rate, all-time
+net P&L in dollars, today's and this week's. `/daily_report` counted the
+operator's closes, wins and losses; `/classpf` published the operator's
+per-asset-class record. And `/portfolio` is the sharpest of the four:
+`resolve_display_equity(user_id)` — already the caller's — sits three lines
+above `self.engine.live_executor`, so one card carried the reader's equity
+beside somebody else's positions, which is the shape the status card was cured
+of one chapter up. `engine.live_view(user_id)` is the one reading now, with no
+`getattr` fallback: an engine without the seam answers None, never the
+operator's book.
+
+**A card's absence sentence is the prompt block's reading in the other
+shape.** `live_account_absence` moved into the chat-runtime leaf so the prompt
+and the four cards ask ONE function — "you hold nothing" is true of a caller
+who never linked and a fabrication for one whose keys stopped decrypting, and
+two copies of that judgement are two answers. `no_live_account_line` is the
+person-shaped half beside `_no_live_account_block`'s model-shaped one; neither
+says "none" or "$0.00", both name the surface's own door, and a word the
+reading does not recognise gets the sentence that claims least rather than
+the one about never linking.
+
+**Ten mutations, each killed on the first round.** Four put each card back on
+`self.engine.live_executor`; a fifth kept the view and added an `or` fallback
+to it, which is the shape a later reader adds "just in case" and which the
+raising stub kills on the first read. Four more are the reading's: every
+absence collapsed into the never-linked sentence, an unknown word read as
+never linked, a store FAULT read as never linked (the claim about a person
+that a failed read cannot support), and the store's own word passed through
+unchecked. The tenth gives the handler back a private copy of the reading,
+and dies on the identity pin.
+
+**The operator's book RAISES in the fixture, which is the only way the test
+can tell.** A stub that answers plausibly for both accounts agrees with a card
+that reads the wrong one — the symmetric-fixture failure this file records
+from the prompt slice, where four of its own tests passed over the defect. The
+caller's book carries one close worth $137.42 that the operator's does not, and
+the operator's raises on any read.
+
 **A rule that matches inside a sentence routes the sentence's quote, negation
 and question as the command.** The halt rule was `\b(halt (the )?bot|stop (the
 )?(bot|trading|…)|…)\b` under `pattern.search`, so "ignore previous

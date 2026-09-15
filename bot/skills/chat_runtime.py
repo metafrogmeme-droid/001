@@ -198,6 +198,52 @@ def link_door(surface: str) -> dict[str, str]:
     no-account block always has: the bridge is the operator's."""
     return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
 
+def live_account_absence(user_id: str) -> str:
+    """WHY the engine mapped this caller to no live account: ``"absent"``
+    (never linked), ``"unreadable"`` (linked, and the stored keys will not
+    decrypt — a different sentence and a different remedy; the /exchange
+    lesson) or ``"unresolved"`` (the store could not be asked, or it says
+    readable and the engine still bound no executor).
+
+    Never raises, and an exception here is not "absent": a status read must not
+    take a card down, and it must not dress a fault as a clean bill. The chat
+    prompt's block and the record cards read this ONE function, because "you
+    hold nothing" is true of the first absence and a fabrication for the
+    second, and two copies of that judgement are two answers.
+    """
+    try:
+        from bot.core.exchange_credentials import get_credential_store
+        state = get_credential_store().credential_state(user_id)
+    except Exception:
+        return "unresolved"
+    return state if state in ("absent", "unreadable") else "unresolved"
+
+
+def no_live_account_line(absence: str, surface: str = "telegram") -> str:
+    """One sentence for a CARD whose account could not be resolved.
+
+    `telegram_handler._no_live_account_block` is the same reading in the shape
+    a MODEL reads; this is the shape a person reads. Neither says "none" or
+    "$0.00": a flat book is a measurement and no book is not. The door is the
+    surface's own — a web caller is never told a slash command.
+    """
+    door = link_door(surface)
+    if absence == "unreadable":
+        return ("\U0001F512 Your exchange keys are stored but could not be decrypted, "
+                "so nothing of your account could be read — not an empty account. "
+                f"Re-link to fix it ({door['link']}). Nothing was measured.")
+    if absence == "absent":
+        return ("\U0001F512 No exchange account is linked to you, so there is no equity, "
+                "P&L, win rate or trade count of yours on record here — "
+                f"{door['link']}. Nothing was measured.")
+    # Any other word — including one this function does not know — is the
+    # sentence that claims least. A reading nobody recognises is not a reading
+    # that somebody never linked.
+    return ("\U0001F512 The credential store could not be asked, so which account "
+            "to read could not be resolved — unknown, not empty. Nothing was "
+            "measured.")
+
+
 
 _MENTION_EDGE = " ,:;!-\u2013\u2014\t"
 
