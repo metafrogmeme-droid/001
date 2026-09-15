@@ -98,6 +98,13 @@ def _keep_words(group_label: int, group_value: int, sep: str = "=") -> Callable[
             return m.group(0)
         return f"{m.group(group_label)}{sep}{REDACTED}"
     _sub.__name__ = f"keep_words_{group_label}_{group_value}"
+    # The rule as DATA, so a second runtime can be handed this row rather than a
+    # second author's reading of it. `scripts/render_secret_shapes.py` renders it;
+    # a closure cannot be inspected from outside, and a renderer that guessed the
+    # separator from the function name would be the second copy all over again.
+    _sub.spec = {  # type: ignore[attr-defined]
+        "kind": "keep_words", "label": group_label, "value": group_value, "sep": sep,
+    }
     return _sub
 
 
@@ -194,6 +201,58 @@ TX_HASH_SHAPED_DECOY = (
 )
 
 
+def replacement_spec(replacement: Replacement) -> dict:
+    """``replacement`` as data: what a second runtime has to do with a match.
+
+    Three kinds, and the table holds all three: ``redact`` (the whole match
+    goes), ``template`` (a backreference string, ``\\1`` spelled the way
+    Python spells it), and ``keep_words`` (the conditional one, whose rule is
+    `looks_like_credential` — the row keeps its label and redacts its value
+    only when the value looks like a credential).
+    """
+    spec = getattr(replacement, "spec", None)
+    if spec is not None:
+        return dict(spec)
+    if replacement == REDACTED:
+        return {"kind": "redact"}
+    if isinstance(replacement, str):
+        return {"kind": "template", "template": replacement}
+    raise TypeError(f"replacement with no spec: {replacement!r}")
+
+
+def table_rows() -> list[dict]:
+    """`SHAPES` as data, in table order — the one description of this table.
+
+    `app/lib/safe_error.js` is a SECOND RUNTIME reading these shapes, and the
+    module docstring recorded that as "filed, not done" while its own vocabulary
+    knew less: driven, it published a Telegram bot token, a bare provider key, a
+    JWT, `RUNECLAW_SECRETS_KEY=`, `WEB3_SIGNER_PRIVATE_KEY=`, `WEB_CREDS_KEY=`
+    and `api key: …`, and its `Authorization: Bearer <token>` rule redacted the
+    word *Bearer* and printed the token after it. A reader saw a redaction
+    marker and concluded the line was scrubbed.
+
+    So the rows travel rather than being re-read by a second author:
+    `scripts/render_secret_shapes.py` renders this into
+    `app/lib/secret_shapes.generated.json`, the committed artifact the website
+    compiles, and `tests/test_the_website_reads_this_vocabulary.py` regenerates
+    it and compares byte for byte, so the artifact cannot go stale — the rule
+    the README command tables already follow. Each row carries its own example
+    and decoy, so the JS side drives the rows from the table exactly as
+    `tests/test_one_secret_vocabulary.py` drives them here.
+    """
+    return [
+        {
+            "name": s.name,
+            "pattern": s.pattern.pattern,
+            "ignorecase": bool(s.pattern.flags & re.IGNORECASE),
+            "replacement": replacement_spec(s.replacement),
+            "example": s.example,
+            "decoy": s.decoy,
+        }
+        for s in SHAPES
+    ]
+
+
 def scrub_secrets(text: str) -> str:
     """``text`` with every shape in `SHAPES` redacted, in table order.
 
@@ -225,6 +284,8 @@ def scrub_diagnostic(text: str) -> str:
 
 __all__ = [
     "REDACTED",
+    "replacement_spec",
+    "table_rows",
     "Shape",
     "SHAPES",
     "TX_HASH_SHAPED_DECOY",

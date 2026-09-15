@@ -1239,8 +1239,8 @@ that has the read, the words it takes, and what this chat's same-named
 command does, off the catalogue. The rule is narrower than the web's on
 purpose — the intercept takes a bare "idle" and "stake my …", and here
 "stake my usdc" is a request to ACT that `/stake`'s confirm card owns, so it
-stays out of the door and in the decoy table (today it is greeted, which is
-its own gap, filed). The intercept exports its pattern now, so the JS side
+stays out of the door and in the decoy table (greeted at the time, which was
+its own gap; the act-door slice below claims it as `stake_request`). The intercept exports its pattern now, so the JS side
 checks the example the notice quotes, as it does for the other row. And
 `exposure` stays where slice 1 pinned it: the website answers "my exposure"
 with its cross-venue netting card, which `/exposure` renders here by name,
@@ -1700,9 +1700,7 @@ link, which keeps its query string except for parameters NAMED like credentials
 still drops the whole query, since a diagnostic never carries a link a user
 needs. Behind a prose label the value must LOOK like a credential (a digit, or
 twenty characters), or `api key: not configured` would print as a redacted key
-that exists. It is Python only: `app/lib/safe_error.js` has its own vocabulary,
-wider on labels and narrower on token shapes, and one file read by two
-runtimes is filed, not done. **Two guards had pinned the gap as a fact** —
+that exists. **Two guards had pinned the gap as a fact** —
 "the old scrub misses it", asserted in two suites — and both moved to the
 claim that replaced it; the walk is proved one by PLANTING a shape in the
 table and reading every reader, because a byte-identical copy agrees on every
@@ -1716,6 +1714,58 @@ tells the orders apart is a driver's echoed request body, query-shaped behind
 no URL: escaped first, `&sign=` becomes `&amp;sign=`, the parameter row never
 sees the `&` it anchors on, and the signature reaches the user. That fixture
 is in the leak guard now, and the mutation dies on it.
+
+**"Python only" was that slice's own stated hole, and the second runtime was
+not merely narrower — it published seven of the eight shapes and redacted a
+LABEL.** `app/lib/safe_error.js` is the website's error body, and its header
+calls itself "the same rule the bot enforces with `_safe_exc_text`". Driven
+through it, a Telegram bot token, a bare `sk-`/`xai-` key, a JWT,
+`RUNECLAW_SECRETS_KEY=`, `WEB3_SIGNER_PRIVATE_KEY=`, `WEB_CREDS_KEY=` and
+`api key: bg_…` all came back verbatim — and
+`Authorization: Bearer sk-ant-…` came back as
+`Authorization: ***REDACTED*** sk-ant-…`, because its label list matched
+`authorization` and the `(\S+)` after it took the word *Bearer* as the value.
+**That is worse than a miss**: the reader sees a redaction marker and concludes
+the line was scrubbed. `POST /api/tool/invoke` is public and unauthenticated —
+the file's own header says so, and says those handlers' errors carry connection,
+schema and gateway detail.
+
+**The rows TRAVEL now rather than being re-read by a second author.**
+`scripts/render_secret_shapes.py` renders `SHAPES` — patterns, flags,
+replacement as DATA, and each row's own example and decoy — into
+`app/lib/secret_shapes.generated.json`, the committed artifact
+`app/lib/secret_shapes.js` compiles;
+`tests/test_the_website_reads_this_vocabulary.py` renders it again and compares
+byte for byte, the README command tables' rule. It is committed rather than
+generated at boot because `app/` and `bot/` are different deploy targets, and a
+website that had to run a Python script to learn what a secret looks like would
+fail open on the box where that script is missing. A table that will not load
+THROWS at require time: an unreadable vocabulary is not an empty one, and a
+scrubber that quietly became a no-op is invisible from every response it lets
+through.
+
+**What stays node-side is declared, and the guard found a row that should not
+have.** A connection string, an absolute path and the label words a driver
+spells (`session=`, `cookie=`, `pwd=`) belong to an error body and to no card,
+and the whole query string goes rather than its credential-named parameters —
+the line `drop_url_queries` already draws. But `apikey` was in that list, and
+the shared `api[_-]?key` row already matches a bare one: the JS guard, which
+refuses any shared spelling in that file, is what said so. The same rule
+(`looksLikeCredential`, the Python twin's arithmetic) is what keeps the scheme
+word: "Bearer" carries no digit and is six characters, so a label row leaves it
+where it stands and the bearer row takes the token after it.
+
+**And two callers had written a sentence the parameter could not carry.**
+`routes/agents.js` calls `safeErrorText(err, 'Your agents could not be read')`
+— and the second parameter was a character LIMIT, so
+`Number('Your agents could not be read') || 200` is 200 and the driver's text
+was published under a sentence its author thought they were sending: *connect
+ECONNREFUSED 10.0.0.7:3306 (db agents_prod)*, host, port and database, to a
+browser panel. Both call sites `console.error` the stack first, so the
+diagnosis was never the thing at risk. A string second argument IS the sentence
+now, and a number is still a limit.
+
+**Eighteen mutations, each killed — and the one that survived the first round was the driver's TWICE over.** "Cut before scrub" was written as a comment appended to the return line: a no-op, so it changed no verdict and proved nothing. Made real — the slice moved above the scrub — it STILL survived, because the fixture was a LABELLED secret (`api_key=sk-…`) and a label row matches the stump just as well as the whole: the cut leaves `api_key=sk-abcdef` and the scrub, running after, redacts it anyway. Only one shape of input can tell the orders apart — a BARE token whose row demands a minimum length, positioned so the cut leaves a fragment too short to match, which is then published as text. That fixture is in the suite now and the mutation dies on it. The other seventeen die where the drives say — any value or no value looking like a credential, the Python backreference untranslated, an unreadable table read as an empty one, the case flag dropped on either side of the render, `keep_words` redacting the label instead of the value, the shared table never applied, a sentence read as a limit again or shown only when there is nothing else, a driver label redacting whatever follows it, the two node-only rows removed, a conditional replacement rendered as a plain redaction, the decoys not travelling, the separator dropped from the rule, and the staleness check that always passes.
 
 **And a docstring was the entire defect in the third place.**
 `quant_skill._safe_reason` promised *"never a key, never a URL with a token"*
@@ -1879,7 +1929,12 @@ deployed, handed to a model then told to reason only from those fields.
 `never_filled` reads BOTH non-fill vocabularies, because there are three
 (`close_reason.NON_FILL_CLOSE_REASONS`, `trade_filter.NON_TRADE_CLOSE_REASONS`,
 `live_stats.NON_TRADE_REASONS`), each documented as the one definition, and
-they differ by three words; consolidating them is filed, not done. The
+they differed by three words — `rejected` was a real non-fill one set did not
+know and `is_filled_close` counted it, while `stale_pending` and
+`duplicate_fill_suppressed` counted as trades on every card the other two fed.
+The first is THE ONE DEFINITION now and the other two names are that object,
+under a guard that reads every reason the executor writes for a never-filled
+order out of its source. The
 close-reason gate accepted a bare identifier, so every exchange-reconciled
 reason — `TP HIT (exchange)`, `SL HIT (inferred)`, `TRAILING SL HIT` — rendered
 as "not recorded": an absence manufactured from a value on record, on the one
