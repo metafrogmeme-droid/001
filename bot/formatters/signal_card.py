@@ -81,6 +81,17 @@ _CLOSE_REASON_LABELS: dict[str, tuple[str, str]] = {
 }
 
 
+#: `alpha_card.TREND_UNREAD`, re-exported so this card and the reading cannot
+#: drift about the words for "nothing was read" — the same reason
+#: `live_executor` re-exports `CLOSE_KEPT_OPEN_MARKERS`. The literal fallback
+#: is for the one path that CANNOT ask: the lazy import below failing. A guard
+#: pins the two equal.
+try:
+    from bot.core.alpha_card import TREND_UNREAD as _TREND_UNREAD
+except Exception:  # pragma: no cover - the card must still render
+    _TREND_UNREAD = "Trend not read"
+
+
 def _num(v):
     """A real number, or None. Bools and NaN are not readings."""
     if isinstance(v, bool) or not isinstance(v, (int, float)):
@@ -1984,19 +1995,33 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     y += 12
 
     # ── Trend badge + per-TF dots ──
+    #
+    # This block used to end `except Exception: label = "Range / Mixed"` — a
+    # failed read printed as the calmest verdict on the card, under a heading
+    # that says OVERALL TREND, in an image about a trade. Two things reached
+    # it: the lazy import failing, and `int(data.get("bos_dir", 0))` raising on
+    # a junk direction. Neither is a measurement of a range.
+    #
+    # A junk DIRECTION no longer takes the label down with it either — the
+    # reading guards its own arguments, so the raw payload values go straight
+    # in and an unreadable one abstains at 0 exactly as `_analyze_structure`'s
+    # own starved default does.
     label = str(data.get("trend_label") or "")
     if not label:
         # Derive lazily so callers can pass either the label or the raw parts.
         try:
             from bot.core.alpha_card import overall_trend_label
             label = overall_trend_label(
-                data.get("htf_trend", ""), int(data.get("bos_dir", 0)),
-                int(data.get("choch_dir", 0)))
+                data.get("htf_trend", ""), data.get("bos_dir"),
+                data.get("choch_dir"))
         except Exception:
-            label = "Range / Mixed"
+            label = _TREND_UNREAD
     draw.text((PAD, y), "OVERALL TREND", fill=_GRAY, font=f_label)
     y += 16
-    draw.text((PAD, y), label, fill=_CYAN, font=f_value)
+    # Colour is a claim: an unread trend gets the muted one, never the accent
+    # every measured verdict on this card wears.
+    draw.text((PAD, y), label,
+              fill=_GRAY if label == _TREND_UNREAD else _CYAN, font=f_value)
     # per-TF dots to the right of the label
     per_tf = data.get("per_tf") or {}
     dot_x = PAD + draw.textlength(label, font=f_value) + 24

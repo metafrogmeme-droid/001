@@ -3622,17 +3622,78 @@ never re-derived by a reader; an unmeasured structure gets WORDS, and the two
 flags read off the same empty swing list are not reported as findings, because
 "no break of structure" said without looking is still a claim.
 
-**The engine has the same branch and it is on the SIGNAL CARD.**
+**The engine has the same branch, and where it goes was FILED rather than
+driven — so the file carried a false claim about it for a fortnight.**
 `multi_timeframe._analyze_structure` returns the identical defaults under
 `if len(sh) < 2 or len(sl) < 2`, and its own comment records the fractal
 "starving" on short windows — the ATR-ZigZag was added to improve COVERAGE,
-which does not change what is reported when coverage still fails. The verdict
-string reaches `signal_card.py`, `rich_cards.py`, the position card and the
-chart renderer's BOS marker. That half is FILED with the measurement rather
-than half-fixed here: it is different files, and it needs somebody to decide
-whether any voter reads `bos: False` as evidence against a break rather than as
-an abstention. *Ask which other surface makes the same claim* is only half the
-rule; the other half is saying plainly which one you did not fix.
+which does not change what is reported when coverage still fails. That much
+is true and driven: a 40-bar MONOTONE RAMP yields zero swings per side and
+reports `structure ranging · no BOS · no CHoCH`.
+
+The sentence that stood here said the verdict string *"reaches `signal_card.py`,
+`rich_cards.py`, the position card and the chart renderer's BOS marker"*.
+**Driven, it reaches none of them.** `MTFResult` carries no `structure` field
+at all — the word never leaves `_analyze_single_tf`'s per-TF dict, and the only
+consumer of that dict reads `trend_score`. The `structure` those two cards print
+is `rich_cards.fetch_analysis_data`'s own price-range description
+("Breakout from $X base → $Y high"), a different producer entirely. And every
+reader of the two FLAGS treats `False`/`0` as an abstention, driven through the
+real vote builder: the three `mtf_*` voters, `_build_narrative`, the
+strategy-mode scores and the chart renderer's marker all decline to say
+anything. `TestTheStarvedStructureAbstains` pins that, so the day one starts
+reading `bos: False` as evidence AGAINST a break, it fails here.
+
+**A measurement you remember is not a measurement** — this file's own rule,
+applied to this file, and it is the second time (the catalogue's 79/10/5 was
+the first). The retraction is the correction: a filed follow-up is a claim,
+and a claim nobody drove is exactly what the rest of this document is about.
+
+**What the follow-up was RIGHT about was the surface, and the defect there is
+one module over.** `overall_trend_label` — the `📈 Chart analysis` headline on
+the alpha card and the `OVERALL TREND` badge on its PNG — ended
+`return "Range / Mixed"` as the fall-through for every input it did not
+recognise, so four facts printed one sentence: `"neutral"` (a measured range),
+`""` (the MTF block raised and wrote nothing), `None` (the key was never on the
+payload) and `"nonsense"` (a word it cannot place). `build_alpha_insight`
+writes `htf_trend` INSIDE a try whose except only logs at debug, so the second
+is the ORDINARY shape of an MTF failure — and the operator was shown the
+calmest verdict on the card, assembled from an analysis that crashed. Only the
+three words the engine actually sets are readings now; everything else answers
+`TREND_UNREAD`.
+
+**The PNG sibling was worse, and it is the `_status_lines` shape in an
+image.** `except Exception: label = "Range / Mixed"`, drawn in the ACCENT
+colour under a heading reading OVERALL TREND. Two things reached it: the lazy
+import failing, and `int(data.get("bos_dir", 0))` raising on a junk direction —
+so an unreadable DIRECTION deleted the TREND reading beside it. The direction
+refines a trend that was read; it does not assert one, so it abstains at 0
+exactly as `_analyze_structure`'s own starved default does, and it is guarded
+at the boundary (`_fmt_price(None)`'s rule) rather than at each call site. The
+unread headline wears the muted colour, because colour is a claim.
+
+**Twenty mutations, each killed — and five survived the first round, none of
+them the code's.** Two were fixtures that could not tell: every junk-direction
+case drove `bos_dir` under a BULLISH trend, so guarding only the break was
+indistinguishable from guarding both (a CHoCH is only reachable on a neutral
+trend), and every card fixture carried a real `0`, which `int()` reads happily —
+so the byte-identical drive against a real `0` is what kills the `int()` now.
+One was the starved-structure fixture: on a ramp the swing count is ZERO, so
+the `< 2` floor and a mutant `< 1` agree, and only a window with exactly ONE
+swing per side reaches `sh[-2]` and raises. One was an assertion that passed
+for an unrelated reason — `to_confluence_votes` returns empty for EVERY input
+when `confidence` is 0, which the first fixture left at its default, so the
+abstention it claimed to prove was proved by nothing. **And one was mine:** a
+NaN branch in the new direction reader that no input can reach, because
+`nan > 0` and `nan < 0` are both False and the chain already ends in 0. A line
+no input can reach is not a check; it is a claim that there is one, and the
+round is what said so.
+
+> **And the guard anchored its own slice to a comment, again.** `code_only`
+> blanks comments — that is what it is for — so `SRC.index("# ── Trend badge")`
+> raised on its first run. The identical mistake is recorded four sections up
+> about the chart read's renderer guard, in this same file, by the same hand.
+> Both anchors are code.
 
 > **And the guard anchored its own boundary to a comment.** `code_only()`
 > strips comments — that is what it is for — so `indexOf('// geo (optional)')`
