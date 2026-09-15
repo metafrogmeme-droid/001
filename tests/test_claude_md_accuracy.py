@@ -412,9 +412,9 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "51 names including `halt`" in flat
+    assert "53 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 51, len(old)
+    assert len(old) == 53, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
     assert "(telegram, 48)" in flat
@@ -711,10 +711,12 @@ def test_the_scan_section_names_numbers_a_drive_returns():
     assert tg.feature_for("pro_scan") == "premium_scan"
     assert "Eight of the nine paid skills" in flat
 
-    # "all five scan rules" / "all three scan skills"
-    assert len(SCAN_DISPATCH) == 5
+    # "all seven scan rules" / "all three scan skills". Five until the sweep's
+    # own timeframes got rows of their own (`scan_deep_1h`, `scan_deep_1d`):
+    # three skills still, because both run `deepscan`.
+    assert len(SCAN_DISPATCH) == 7
     assert len({dispatches_to(i) for i in SCAN_DISPATCH} | {"scan_market"}) == 3
-    assert "all five scan rules" in flat and "all three" in flat
+    assert "all seven scan rules" in flat and "all three" in flat
 
     # "swapping `scan_swing`'s mode to `intraday`" — both are real modes.
     assert dispatch_kwargs("scan_swing") == {"mode": "swing"}

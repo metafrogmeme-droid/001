@@ -472,10 +472,14 @@ def test_the_alias_extractor_sees_the_map_and_ONLY_the_map():
     """The overrun this guards against is gone with the literal, and what
     replaced it is the thing worth pinning: the gateway reads one table."""
     al = _web_aliases()
-    # The five scan modes are the map. `status` LEFT it — it is a routed
+    # The seven scan intents are the map. `status` LEFT it — it is a routed
     # intent with its own permission now, not an alias onto the account card.
+    # `scan_deep_1h` and `scan_deep_1d` joined it when the router stopped
+    # folding 1h into the 15m ladder card: the sweep runs those timeframes and
+    # the ladder has no mode for them.
     assert set(al) == {"scan_scalp", "scan_swing", "scan_intraday",
-                       "scan_deep", "scan_full"}, al
+                       "scan_deep", "scan_full",
+                       "scan_deep_1h", "scan_deep_1d"}, al
     for stray in ("skill", "surface", "intent", "reply_html"):
         assert stray not in al, f"{stray} is not an alias; the reader overran"
 

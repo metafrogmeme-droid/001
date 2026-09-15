@@ -182,7 +182,12 @@ def _is_social_message(text: str) -> bool:
             # claim ("4h", "15m", "5m") need no entry here for the same reason
             # "net" and "worth" are absent: the gate consults the rules before
             # it decides, so a word a rule claims is a word nothing reaches.
-            "1d", "1w", "1mo", "d1", "w1", "3d", "2d", "1day", "1week",
+            # `1d` and `1h` are claimed by the sweep rules now, so they need
+            # no entry (the gate consults the rules before it decides). These
+            # are the spellings NO rule claims: the timeframes neither the
+            # ladder card nor the full sweep runs.
+            "1w", "1mo", "w1", "3d", "2d", "1week", "2h", "30m", "1m", "3m",
+            "h4", "m15", "m5",
             # the research surface: registered skills and their arguments, so
             # "walk forward test" and "optimise the params" reach a model that
             # can say what runs where, not the greeter
@@ -1148,8 +1153,25 @@ _MODE_LEAD = (r"^\s*(?:(?:any|some|show me|give me|gimme|run|do|lets|let's|pleas
               r"nice|fresh|new|\d{1,2})\s+)*")
 _MODE_TAIL = r"(?:\s+(?:please|pls|now|rn|today|right now|for today|atm))*\s*[?!.]*\s*$"
 _SWING_TF = r"(?:4h|4 ?hours?|four hour)"
-_INTRADAY_TF = r"(?:1h|2h|15m|30m|1 ?hour|2 ?hour|hourly|daily)"
-_SCALP_TF = r"(?:5m|1m|3m|5 ?min(?:ute)?s?)"
+# ONE CARD PER TIMEFRAME, AND THE CARD NAMES THE TIMEFRAME THAT WAS ASKED FOR.
+# These lists used to be wider than the ladders behind them: `_INTRADAY_TF`
+# carried `1h`, `2h`, `30m`, `1 hour`, `2 hour` and `hourly`, and
+# `ProScanSkill.MODE_CFG["intraday"]` is 15m — so "1h scan" printed a card
+# headed **15M** with nothing on it saying the timeframe had been changed, the
+# defect the market-scan rule was cured of one rule over. `_SCALP_TF` did the
+# same with `1m` and `3m` over a 5m card.
+#
+# `1h` and `1d` are swept for real, by `deepscan` over
+# `candles.SUPPORTED_TIMEFRAMES` — they have their own intents below. `2h`,
+# `30m`, `1m` and `3m` are run by NEITHER table, so no rule claims them: they
+# reach the model, where `weekly` already goes for exactly this reason.
+# `daily` stays here on its recorded reading — a "daily setup" is a setup for
+# today, and the unambiguous chart spelling `1d` sweeps instead.
+_INTRADAY_TF = r"(?:15m|daily)"
+_SCALP_TF = r"(?:5m|5 ?min(?:ute)?s?)"
+#: The two the FULL SWEEP runs and the ladder card has no mode for.
+_DEEP_1H_TF = r"(?:1h|1 ?hour|hourly|h1)"
+_DEEP_1D_TF = r"(?:1d|1 ?day|d1)"
 _SCAN_NOUN = r"(?:scans?|setups?|ideas?|plays?|trades?|mode|signals?|opportunities|opps)"
 # THE SCANNER'S OWN VERB IS THE ONE VERB THESE RULES DID NOT TAKE. `_MODE_LEAD`
 # accepts run / do / show me / give me / find me / got any — every way of asking
@@ -1217,6 +1239,22 @@ _rule(rf"{_MODE_LEAD}(?:intraday|day ?trades?|{_INTRADAY_TF})(?:\s+{_SCAN_NOUN})
       r"|\bwhat setups? (?:do you see|are there|have you got|you got|you seeing|are you watching)\b"
       r"|\banything (?:worth|good to) (?:trad(?:e|ing)|buy(?:ing)?)(?: today| right now| rn| atm)?\b",
       "scan_intraday", explanation="Intraday scan (15m)")
+# THE SWEEP'S OWN TIMEFRAMES. Same three leads as the ladders above, so
+# "1h", "1h scan", "scan 1h", "scan on the 1h" and "market scan on 1h" all
+# reach a sweep whose card is headed 1H — and the same for 1D. They dispatch
+# `deepscan` under the `deep` feature (`SCAN_DISPATCH`), which is a different
+# paywall from the ladder card's `premium_scan`: the tier follows the skill
+# that can answer, not the one the words used to land on.
+_rule(rf"{_MODE_LEAD}{_DEEP_1H_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_SCAN_VERB_LEAD}{_DEEP_1H_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_MARKET_ON_LEAD}{_DEEP_1H_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|\b(?:{_DEEP_1H_TF} scan)\b",
+      "scan_deep_1h", explanation="Full-universe sweep (1h)")
+_rule(rf"{_MODE_LEAD}{_DEEP_1D_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_SCAN_VERB_LEAD}{_DEEP_1D_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_MARKET_ON_LEAD}{_DEEP_1D_TF}(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|\b(?:{_DEEP_1D_TF} scan)\b",
+      "scan_deep_1d", explanation="Full-universe sweep (1d)")
 # `\d{2,3} symbols?` rather than the literal `67`: the universe was 67 when
 # that alternative was written and is larger now, and somebody who learned the
 # phrase from an older card still types the old number. Both are the same ask.
@@ -1496,7 +1534,15 @@ _NOT_A_TICKER = (
     r"today|tomorrow|yesterday|now|later|tonight|"
     r"everything|anything|something|all|stuff|things|"
     r"market|markets|price|prices|chart|charts|trading|"
-    r"docs|help|news|here|there|then|what|why|how"
+    r"docs|help|news|here|there|then|what|why|how|"
+    # THE MODE LEAD'S OWN DETERMINERS. `_MODE_LEAD` reads these as "ways of
+    # asking for a ladder" — "any 30m setups", "some 4h ideas" — and the
+    # symbol-first rule read the same first word as the SYMBOL slot, so
+    # "any 30m setups" resolved no ticker and was answered "which coin do you
+    # want me to look at?" for a request that had named a timeframe and no
+    # asset. A word one rule treats as filler is not a ticker for another.
+    r"any|some|good|best|top|nice|fresh|new|show|give|gimme|got|find|run|do|"
+    r"lets|please"
 )
 #: THE CHART VOCABULARY, AS WORDS. One list, two readers: the symbol-first
 #: analysis rule builds its pattern from it, and `_is_social_message` folds it

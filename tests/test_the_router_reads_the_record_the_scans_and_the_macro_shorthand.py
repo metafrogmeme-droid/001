@@ -101,11 +101,14 @@ RECORD = [
 
 SCANS = [
     ("15m setups", "scan_intraday"),
-    ("any 30m setups", "scan_intraday"),
-    ("1h scan", "scan_intraday"),
-    ("2h scan", "scan_intraday"),
     ("daily setups", "scan_intraday"),
-    ("hourly ideas", "scan_intraday"),
+    # 1h and 1d are the FULL SWEEP's timeframes, not the ladder card's —
+    # "1h scan" used to print a card headed 15M. 2h and 30m are run by
+    # neither, so they reach the model, where "weekly scan" already goes.
+    ("1h scan", "scan_deep_1h"),
+    ("hourly ideas", "scan_deep_1h"),
+    ("2h scan", "MODEL"),
+    ("any 30m setups", "MODEL"),
     ("intraday plays", "scan_intraday"),
     ("intraday scan", "scan_intraday"),
     ("give me 3 setups", "scan_intraday"),
@@ -141,7 +144,7 @@ SCANS = [
     ("scan the 15m", "scan_intraday"),
     ("scan for scalps", "scan_scalp"),
     ("scan the market on 4h", "scan_swing"),
-    ("1d scan", "MODEL"),
+    ("1d scan", "scan_deep_1d"),
     ("1h chart of btc", "analyze_asset"),
     ("scan btc", "analyze_asset"),
     ("deep scan eth", "analyze_asset"),
@@ -291,7 +294,7 @@ class TestWhatRidesWithTheRoute:
         `mode=<mode>`), so a phrase that says 4h reaches the swing ladder and
         one that says 15m the intraday one — through the one dispatch table."""
         for text, mode in (("4h setups", "swing"), ("15m setups", "intraday"),
-                           ("hourly ideas", "intraday"), ("5m scan", "scalp"),
+                           ("5m scan", "scalp"),
                            ("any scalps?", "scalp"), ("daily setups", "intraday")):
             intent = router.classify_rules(text).skill
             assert intent == f"scan_{mode}", text

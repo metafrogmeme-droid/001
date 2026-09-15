@@ -716,9 +716,12 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **51 names including `halt`,
+whole vocabulary plus every chat tool: **53 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
-deciding what the card may promise. It answered MORE for an unrecognised
+deciding what the card may promise. (The figure is a live drive of what would
+fall through TODAY, not a note of what it was the day the branch was fixed,
+which is why it moves when the router gains an intent — it was 51 before the
+sweep's own timeframes got rules.) It answered MORE for an unrecognised
 surface than for the one it modelled best (telegram, 48), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
@@ -759,7 +762,7 @@ the reading, both surfaces ask it, and the test asks it too. Widening the web
 to Telegram's engine would have made three of the five scan intents free.
 
 **A dispatch table that names the skill and not its ARGUMENTS is half a
-table.** Driven, `intent.kwargs` is `{}` for all five scan rules and all three
+table.** Driven, `intent.kwargs` is `{}` for all seven scan rules and all three
 scan skills are `execute(self, engine, **kwargs)`, so a retarget that carried
 only the name raises NOTHING: `ProScanSkill` does
 `MODE_CFG.get(mode, MODE_CFG["intraday"])`, and a scalp request would have
@@ -2456,6 +2459,75 @@ the timeframe, not the subject.
 > rule over, and `deepscan` runs 1h where `pro_scan` does not. `weekly` and
 > `monthly` really are run by neither.
 
+**And the two tables are read as two now: a typed timeframe reaches the
+engine that runs it.** That is the slice the retraction above scoped. `1h` and
+`1d` are swept for real, by `deepscan` over `SUPPORTED_TIMEFRAMES`, and
+`SCAN_DISPATCH` had no row for either — so `scan_deep_1h` and `scan_deep_1d`
+are two rows and two rules, and "1h scan" now prints a card headed **1H**
+instead of the 15M one.
+
+**And the seam I wrote for it had no reader, which the reachability ratchet
+said before anybody else did.** The first draft added `scan_timeframes()` to
+`skill_doors.py` — one function answering BOTH tables, with a docstring saying
+"both are read here and every reader asks". Driven,
+`test_no_new_unreachable_functions` failed the full preflight on it: no caller
+anywhere outside tests, so "every reader asks" was false of a function no
+reader could ask. Nothing in the product puts both questions at once — the
+capability card's `deepscan` row names no timeframe and its `pro_scan` row
+names the MODES — and the two-table pin that mattered was already reading
+`MODE_CFG` and `SUPPORTED_TIMEFRAMES` directly, so the wrapper was ceremony
+with a test-only caller. It is deleted. **The flag arrives with the code that
+reads it** is this file's own rule from the funding-arb slice, and a seam is
+no different: baselining it would have been recording ceremony as a
+deliberate unbuilt feature, which it was not.
+
+**What it was pointing at was real, and one table wide.** `/deepscan all`
+printed `ALL TIMEFRAMES (5m→1d)` — the range written out by hand, kept in step
+with `SUPPORTED_TIMEFRAMES` by nobody, on a sentence shown to the caller
+naming what the sweep covers. That is the `67+ symbols` shape one noun over.
+The label joins the table's own rows now rather than claiming a first→last
+range, because a range is only true while the list stays ordered and nothing
+enforces that; its sibling in `skill_registry` had always said the honest
+bare "ALL TIMEFRAMES". The guard is a SCAN and says so: `_tf_label` is a local
+inside a guarded async handler that dispatches the sweep, so a drive would
+mean standing up the token gate, the registry and the card renderer to read
+one string — and it is anchored to that line rather than to a short literal,
+which is the assertion this file records as the one that keeps misfiring.
+
+**The paywall follows the skill that can answer, and that is a real change.**
+The ladder card is sold as `premium_scan` and the full sweep as `deep`, so a
+caller who types "1h scan" meets a different gate than they did yesterday.
+Aliasing the words back to the cheaper card is what printed the wrong
+timeframe, so the tier moves with the engine rather than the engine with the
+tier.
+
+**`2h`, `30m`, `1m` and `3m` left the rules entirely.** Neither table runs
+them — `_INTRADAY_TF` folded the first two onto a 15M card and `_SCALP_TF` the
+last two onto a 5M one — so they reach the model, where `weekly` already goes
+for exactly this reason. That is the recorded destination for a timeframe the
+product does not sweep, and a card headed with a timeframe nobody asked for is
+the confident wrong answer this file records about the orders card. `daily`
+stays on the intraday ladder on its own recorded reading: a "daily setup" is a
+setup for today, and the chart spelling `1d` is the unambiguous one.
+
+**Writing the rows found the gate that decides whether a row reaches
+Telegram at all.** `scan_thinking` — the waiting sentence, prose only, and
+blessed as presentation by the guard over that block — is also the branch
+condition (`if intent.skill in scan_thinking`), while the web's alias map is
+DERIVED from `SCAN_DISPATCH`. A row added to the table and not to that dict
+runs on the web and reaches nothing on Telegram, which is invisible from
+either file; the two key sets are pinned equal. And the same drive found
+Telegram dispatching `dispatch_kwargs(intent.skill)` alone where the web
+merges `{**intent.kwargs, **dispatch_kwargs(...)}`: empty for every scan
+intent today, and two surfaces disagreeing about whether the router may carry
+an argument into a scan is the drift the one table was made to end.
+
+**And "any 30m setups" was asking which coin.** `_MODE_LEAD` reads `any` as a
+way of asking for a ladder; the symbol-first analysis rule read the same first
+word as the SYMBOL slot, resolved nothing, and answered *which coin do you
+want me to look at?* for a message that had named a timeframe and no asset.
+A word one rule treats as filler is not a ticker for another, so the mode
+lead's determiners are in `_NOT_A_TICKER` now.
 (`tests/test_the_scanner_takes_its_own_verb.py`.)
 
 **The server said why the turn failed and the browser threw the sentence

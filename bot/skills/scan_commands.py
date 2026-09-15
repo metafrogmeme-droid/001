@@ -972,7 +972,7 @@ class ScanCommands:
         if await self._token_gate_blocks(update, "deep", "deepscan"):
             return
         # Parse optional timeframe from args: /deepscan 1h  (or /deepscan all
-        # to sweep every timeframe 5m→1d in one pass).
+        # to sweep every supported timeframe in one pass).
         from bot.utils.candles import SUPPORTED_TIMEFRAMES
         tf = "4h"
         if ctx.args:
@@ -980,7 +980,14 @@ class ScanCommands:
             if arg == "all" or arg in SUPPORTED_TIMEFRAMES:
                 tf = arg
         _multi = tf == "all"
-        _tf_label = "ALL TIMEFRAMES (5m→1d)" if _multi else tf.upper()
+        # THE RANGE IS THE TABLE'S, NEVER WRITTEN OUT. This read `5m→1d`
+        # from memory, which is the `67+ symbols` shape one noun over: a
+        # sentence printed to the caller naming what the sweep covers, kept
+        # in step with `SUPPORTED_TIMEFRAMES` by hand. The timeframes are
+        # JOINED rather than shown as first→last, because a range claim is
+        # only true while the list stays ordered and nothing enforces that.
+        _tf_label = (f"ALL TIMEFRAMES ({', '.join(SUPPORTED_TIMEFRAMES)})"
+                     if _multi else tf.upper())
         await self._send(update, f"🔬 <i>Deep scanning {_tf_label} — this may take a minute...</i>")
         try:
             result = await asyncio.wait_for(
