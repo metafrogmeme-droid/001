@@ -854,53 +854,158 @@ def preorder_leverage_verdict(target: Any, observed: Any,
 _CLOSE_KEPT_OPEN_MARKERS = CLOSE_KEPT_OPEN_MARKERS
 
 
-def _parse_leverage_readback(payload: Any) -> Optional[int]:
-    """Extract the applied integer leverage from a ccxt ``fetch_leverage`` or
-    position payload, tolerant of the many shapes venues return.
+#: Which payload field decides the fill, per margin mode. Bitget carries BOTH
+#: the crossed and the isolated per-side values on one payload, so "a leverage
+#: parsed from this dict" and "the leverage this order will fill at" are not
+#: the same question — and the tolerant scan below answers the first one.
+_CROSSED_FIELDS: tuple[str, ...] = ("crossMarginLeverage",
+                                   "crossedMarginLeverage")
+_ISOLATED_LONG: tuple[str, ...] = ("isolatedLongLeverage",
+                                  "fixedLongLeverage", "longLeverage")
+_ISOLATED_SHORT: tuple[str, ...] = ("isolatedShortLeverage",
+                                   "fixedShortLeverage", "shortLeverage")
 
-    ccxt's UNIFIED ``fetch_leverage`` exposes ``longLeverage`` /
-    ``shortLeverage`` / ``leverage``, but for some Bitget symbols those unified
-    fields come back ``None`` while the real value sits in the raw ``info``
-    payload as a STRING (``longLeverage``, ``crossMarginLeverage``, the
-    isolated per-side fields, …). Reading only the unified keys made
-    verification return ``None`` for such symbols, so the fail-closed leverage
-    guard aborted a perfectly valid order — the exchange HAD applied the target,
-    the bot just couldn't parse the confirmation (live incident: ETHFI
-    2026-07-21, "Cannot confirm 5x leverage").
+#: The order the old parser used. Kept verbatim as the LAST resort, because it
+#: is what makes an unreadable-but-applied symbol readable at all (ETHFI
+#: 2026-07-21) — it is only wrong when it is asked which value GOVERNS.
+_TOLERANT_ORDER: tuple[str, ...] = (
+    "longLeverage", "shortLeverage", "leverage",
+    "crossMarginLeverage", "crossedMarginLeverage",
+    "fixedLongLeverage", "fixedShortLeverage",
+    "isolatedLongLeverage", "isolatedShortLeverage",
+    "marginLeverage")
 
-    This only makes the READ succeed where it spuriously failed. It never
-    relaxes the fail-closed standard: callers still require the parsed value to
-    EQUAL the target, so a genuinely wrong leverage aborts exactly as before.
-    Returns a positive int, or ``None`` when no leverage field is parseable.
+
+def leverage_readback(payload: Any, margin_mode: Any = None,
+                      side: Any = None) -> dict:
+    """What leverage the venue reports, AND WHICH FIELD it came from.
+
+    The parser this replaced answered "some leverage parsed out of this dict",
+    scanning `longLeverage` before `crossMarginLeverage`. On a CROSSED Bitget
+    account both are present: `longLeverage` still holds the isolated per-side
+    value the bot just set (5x) while `crossMarginLeverage` holds the value the
+    fill actually uses (the account default, 20x). So the read-back confirmed
+    5x, logged nothing, and the position opened at 20x — 13 times across ten
+    symbols on 2026-09-15, every one flattened by the post-fill guard at a
+    round trip of fees.
+
+    A FIELD NAME IS NOT A QUANTITY. This returns both, plus whether the field
+    read is the one that DECIDES the fill for the margin mode in play:
+
+        {"value": int|None, "field": str|None,
+         "governs": True|False|None, "mode": str|None}
+
+    ``governs`` is:
+        True   the field is authoritative for this margin mode
+        False  a real number was read from a field that does not decide the fill
+        None   the margin mode is unknown, so the question cannot be answered
+
+    False and None are both "not a confirmation" and are deliberately kept
+    apart: one is a value we know is the wrong one, the other is a value we
+    cannot place. Neither may be treated as the governing leverage.
+
+    ``mode`` is the mode the reading was placed under, and the payload's own
+    ``marginMode`` wins over the caller's: the caller's is the account as last
+    verified, the payload's is the account as this read found it, and a
+    reading describes its own moment. ``side`` narrows the isolated case to
+    the direction that will fill; with no side given every side the order
+    could take must be at the target, so the WORST (highest) of the two is the
+    reading — a confirmation that holds for one direction only is not one.
     """
     if not isinstance(payload, dict):
-        return None
+        return {"value": None, "field": None, "governs": None, "mode": None}
 
     def _as_pos_int(v: Any) -> Optional[int]:
         try:
             iv = int(float(v))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
         return iv if iv > 0 else None
 
-    # 1) ccxt unified fields (fetch_leverage AND position dicts carry these).
-    for k in ("longLeverage", "leverage", "long", "shortLeverage", "short"):
-        iv = _as_pos_int(payload.get(k))
-        if iv is not None:
-            return iv
-    # 2) Raw venue payload — Bitget returns leverage here as strings, often when
-    #    the unified mapping is empty for a never-configured symbol.
-    info = payload.get("info")
-    if isinstance(info, dict):
-        for k in ("longLeverage", "shortLeverage", "leverage",
-                  "crossMarginLeverage", "crossedMarginLeverage",
-                  "fixedLongLeverage", "fixedShortLeverage",
-                  "isolatedLongLeverage", "isolatedShortLeverage",
-                  "marginLeverage"):
-            iv = _as_pos_int(info.get(k))
+    def _look(keys: tuple[str, ...]) -> tuple:
+        """First readable key, searching the unified dict then ``info``."""
+        for k in keys:
+            iv = _as_pos_int(payload.get(k))
             if iv is not None:
-                return iv
-    return None
+                return iv, k
+        info = payload.get("info")
+        if isinstance(info, dict):
+            for k in keys:
+                iv = _as_pos_int(info.get(k))
+                if iv is not None:
+                    return iv, k
+        return None, None
+
+    def _mode_of(d: Any) -> str:
+        if not isinstance(d, dict):
+            return ""
+        for k in ("marginMode", "marginType"):
+            v = d.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip().lower()
+        return ""
+
+    mode = _mode_of(payload) or _mode_of(payload.get("info")) \
+        or str(margin_mode or "").strip().lower()
+    # Bitget spells it "crossed"; ccxt and our config say "cross".
+    if mode in ("cross", "crossed"):
+        candidates: list[tuple[str, ...]] = [_CROSSED_FIELDS]
+    elif mode in ("isolated", "fixed"):
+        s = str(side or "").strip().lower()
+        if s in ("short", "sell"):
+            candidates = [_ISOLATED_SHORT]
+        elif s in ("long", "buy"):
+            candidates = [_ISOLATED_LONG]
+        else:
+            candidates = [_ISOLATED_LONG, _ISOLATED_SHORT]
+    else:
+        candidates = []
+
+    worst_value: Optional[int] = None
+    worst_field: Optional[str] = None
+    for keys in candidates:
+        v, f = _look(keys)
+        if v is not None and (worst_value is None or v > worst_value):
+            worst_value, worst_field = v, f
+    if worst_value is not None:
+        return {"value": worst_value, "field": worst_field,
+                "governs": True, "mode": mode or None}
+
+    # Nothing authoritative. Fall back to the tolerant scan so the value is
+    # still READABLE — but say plainly that it does not govern, so no caller
+    # can mistake it for a confirmation.
+    value, field = _look(_TOLERANT_ORDER)
+    if value is None:
+        return {"value": None, "field": None, "governs": None,
+                "mode": mode or None}
+    return {"value": value, "field": field,
+            "governs": False if candidates else None, "mode": mode or None}
+
+
+def _leverage_field_phrase(read: Any) -> str:
+    """Where a leverage reading came from, in words, for the operator.
+
+    "exchange stuck at 20x" does not tell an operator that their per-side
+    isolated setting is fine and the CROSSED account default is what fills —
+    which is the one thing that decides what they go and change. Four
+    outcomes, because "read the governing field", "read a field that does not
+    govern", "could not place the field" and "read nothing" are four different
+    facts and only the first is a measurement of the fill.
+    """
+    if not isinstance(read, dict) or read.get("value") is None:
+        return "no leverage field on the payload was readable"
+    field = read.get("field") or "an unnamed field"
+    mode = read.get("mode")
+    governs = read.get("governs")
+    _under = f"under {mode} margin" if mode else "under this margin mode"
+    if governs is True:
+        return f"read from {field}, which governs the fill {_under}"
+    if governs is False:
+        return (f"read from {field}, which does NOT decide the fill {_under}"
+                f" — the governing field was unreadable, so this is not a "
+                f"confirmation")
+    return (f"read from {field}, but the margin mode could not be read, so "
+            f"nothing says whether that field decides the fill")
 
 
 @dataclass
@@ -1097,6 +1202,8 @@ class LiveExecutor:
         self._hedge_mode: Optional[bool] = None  # None=unknown, True=hedge, False=one-way
         self._is_uta: Optional[bool] = None  # None=unknown, cached after first detection
         self._actual_margin_mode: Optional[str] = None  # Actual margin mode reported by exchange
+        #: Symbols whose margin-mode read came back empty, warned once each.
+        self._margin_mode_unread_warned: set = set()
         self._persistence_broken: bool = False  # C-02: set True if position save fails
         self._last_close_data: Optional[dict] = None  # Structured data from most recent close
         # C2-02 FIX: Per-trade-id locks to prevent double-close race condition.
@@ -1358,8 +1465,14 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
-    async def _ensure_leverage(self, symbol: str) -> None:
+    async def _ensure_leverage(self, symbol: str, side: str = "") -> None:
         """Set leverage and margin mode for a symbol (futures only).
+
+        ``side`` is the direction this order will fill in, when the caller
+        knows it. Bitget's ISOLATED margin holds leverage per side, so the
+        field that governs the fill is the one for THAT direction; with no
+        side the read-back requires every side to be at the target (see
+        ``leverage_readback``).
 
         For Bitget UTA accounts, ccxt's set_margin_mode may silently succeed
         without actually changing the mode. We verify by fetching the account
@@ -1471,19 +1584,49 @@ class LiveExecutor:
             else:
                 logger.debug("Margin mode verification failed for %s: %s", symbol, verify_exc)
 
+        # ── Did that block actually read a mode? ─────────────────────────
+        #
+        # Three ways it does not, and all three were `logger.debug` or silent:
+        # the v2 account call raises for a reason other than 40085, the UTA
+        # position fallback raises too, or the payload parses and carries no
+        # `marginMode`. Under an INFO log level none of them appear, so
+        # `grep "MARGIN MODE MISMATCH"` coming back EMPTY says nothing at all
+        # about whether the account's mode is what the config asked for —
+        # which is exactly how the 20x incident's first diagnostic round read
+        # as an all-clear. It also costs the leverage read-back below its
+        # placement: with no mode, a value parsed out of the payload cannot be
+        # told from the value that decides the fill.
+        #
+        # Once per symbol per process, like the leverage warning beside it: a
+        # warning that repeats every tick is a warning nobody reads.
+        if not getattr(self, "_actual_margin_mode", None):
+            if symbol not in self._margin_mode_unread_warned:
+                self._margin_mode_unread_warned.add(symbol)
+                audit(trade_log,
+                      f"Margin mode UNREAD for {symbol}: the account read did "
+                      f"not answer one, so nothing here confirms the account "
+                      f"is {cfg.margin_mode} — and the leverage read-back "
+                      f"below cannot say which field decides the fill. This "
+                      f"is not a mismatch and it is not an all-clear.",
+                      action="margin_mode_unread", result="WARNING",
+                      level=logging.WARNING,
+                      data={"symbol": symbol, "configured": cfg.margin_mode})
+
         # ── Set leverage (dynamic scaling via the shared, reduce-only helper) ──
         _target_leverage = self._compute_target_leverage(symbol)
 
-        # Did the exchange ACCEPT the target? A set_leverage call that returns
-        # without raising means Bitget applied the value — that is itself an
-        # authoritative confirmation, independent of whether the read-back API
-        # later echoes it in a parseable shape (see the fail-closed block).
+        # Did the exchange ACCEPT the target? A bare set_leverage that returns
+        # without raising is NOT a confirmation — see the per-side block below
+        # for the thirteen live fills that proved it. It is attempted because
+        # it is the only call some venues take; whether the target actually
+        # applied is decided by the per-side result and the read-back.
         _lev_set_ok = False
+        _bare_set_ok = False
         try:
             await exchange.set_leverage(
                 _target_leverage, symbol,
                 params=self._venue.futures_params())
-            _lev_set_ok = True
+            _bare_set_ok = True
         except Exception as exc:
             logger.warning("Leverage set failed for %s (may use exchange default): %s", symbol, exc)
 
@@ -1496,15 +1639,52 @@ class LiveExecutor:
         # when the bare call raised. Best-effort: a harmless no-op on venues /
         # margin modes that don't take holdSide (exceptions swallowed). Set
         # LEVERAGE_FORCE_PER_SIDE=0 to restore the old set-once behavior.
+        # AND IT MUST SAY WHETHER IT WORKED. `except Exception: pass` with an
+        # empty body meant this fix could fail on EVERY call and leave no
+        # trace — so "LEVERAGE_FORCE_PER_SIDE is on" and "the per-side set is
+        # applying" were unrelated statements with nothing able to tell them
+        # apart. That is the shape this repo calls telemetry-that-alters-
+        # nothing, pointed at an ACTION: a remedy whose failure is invisible
+        # is a remedy nobody can know is broken. Each side is recorded.
+        _per_side_ok: list = []
+        _per_side_failed: list = []
         if os.environ.get("LEVERAGE_FORCE_PER_SIDE", "1").strip().lower() not in ("0", "false", "no"):
             for _side in ("long", "short"):
                 try:
                     await exchange.set_leverage(
                         _target_leverage, symbol,
                         params={"productType": "USDT-FUTURES", "holdSide": _side})
-                    _lev_set_ok = True
-                except Exception:
-                    pass
+                    _per_side_ok.append(_side)
+                except Exception as _side_exc:
+                    # The CLASS only — a venue rejection can echo request
+                    # params, and this line reaches the operator log.
+                    _per_side_failed.append(f"{_side}:{type(_side_exc).__name__}")
+            if _per_side_failed:
+                audit(trade_log,
+                      f"Per-side leverage set INCOMPLETE for {symbol} "
+                      f"(target {_target_leverage}x): applied "
+                      f"{_per_side_ok or 'neither side'}, refused "
+                      f"{_per_side_failed} — the bare set_leverage above can "
+                      f"return 200 WITHOUT applying the per-side value, so "
+                      f"this is not a confirmation of anything",
+                      action="leverage_per_side", result="INCOMPLETE",
+                      level=logging.WARNING,
+                      data={"symbol": symbol, "target": _target_leverage,
+                            "applied": _per_side_ok, "refused": _per_side_failed})
+
+        # `_lev_set_ok` is the fallback authority when the read-back cannot
+        # confirm, and the comment that used to sit here said a bare
+        # set_leverage returning without raising "means Bitget applied the
+        # value — that is itself an authoritative confirmation". THIRTEEN live
+        # fills across ten symbols on 2026-09-15 disproved that: every bare
+        # call returned 200, every position opened at the sticky 20x default
+        # against a 5x target, and the post-fill guard flattened all of them.
+        # The per-side block above exists BECAUSE the bare call is not
+        # authoritative, so crediting the bare call was the two adjacent
+        # comments contradicting each other with the optimistic one deciding.
+        # Only a per-side success counts now; the bare call is best-effort.
+        if _per_side_ok:
+            _lev_set_ok = True
 
         # Leverage posture (operator directive 2026-07-21, "I can't open trades"):
         # the STOP-LOSS is the risk backstop, not the leverage-confirm abort.
@@ -1528,17 +1708,48 @@ class LiveExecutor:
             "leverage_overshoot_max_ratio", 1.5))
 
         # C2-04 FIX: Verify leverage was actually applied — retry once if mismatch
+        #
+        # A NUMBER READ OUT OF THE PAYLOAD IS NOT A CONFIRMATION. The old read
+        # scanned `longLeverage` before `crossMarginLeverage`, and on a crossed
+        # account both are present — the first holding the per-side value the
+        # block above just set, the second holding the value the fill uses. It
+        # confirmed the target and the position opened at the sticky default.
+        # Only a read from the field that DECIDES the fill counts; a real
+        # number from a field that does not, and a number we cannot place
+        # because the margin mode is unread, are both left unverified and fall
+        # to the audit below.
         _lev_verified = False
+        _lev_read: dict = {"value": None, "field": None,
+                           "governs": None, "mode": None}
+        # The OBSERVED mode only, read ONCE here. `cfg.margin_mode` is what we
+        # asked for, not what the account is, and placing the reading under a
+        # requested mode is how a crossed account reads as isolated. Read
+        # outside the try because an AttributeError inside it is swallowed by
+        # the broad handler below, which turns the whole verification into a
+        # silent no-op — the exact shape this block exists to end.
+        _observed_mode = getattr(self, "_actual_margin_mode", None)
         try:
             lev_info = await exchange.fetch_leverage(symbol, params=self._venue.futures_params())
-            actual_lev = _parse_leverage_readback(lev_info)
-            if actual_lev is not None:
+            _lev_read = leverage_readback(lev_info, _observed_mode, side)
+            actual_lev = _lev_read["value"]
+            # `governs is False` is the defect: a real number read from a
+            # field that does not decide the fill. It is refused.
+            # `governs is None` — a value we cannot PLACE because the margin
+            # mode is unreadable — keeps the confirmation it has always had.
+            # Refusing it too would change nothing under the fail-open default
+            # (the order proceeds either way) and would abort every trade on a
+            # payload with no margin mode under the opt-in strict mode, which
+            # is the "trades can not open" regression recorded above.
+            if actual_lev is not None and _lev_read["governs"] is not False:
                 _lev_verified = True
             if actual_lev is not None and actual_lev != _target_leverage:
                 # Retry: set both long and short leverage explicitly
                 logger.warning(
-                    "LEVERAGE MISMATCH for %s: wanted %dx, exchange reports %dx — retrying",
-                    symbol, _target_leverage, actual_lev)
+                    "LEVERAGE MISMATCH for %s: wanted %dx, exchange reports %dx "
+                    "(field %s, margin mode %s) — retrying",
+                    symbol, _target_leverage, actual_lev,
+                    _lev_read["field"] or "unnamed",
+                    _lev_read["mode"] or "unread")
                 try:
                     await exchange.set_leverage(
                         _target_leverage, symbol,
@@ -1558,9 +1769,12 @@ class LiveExecutor:
                 _confirmed_lev = actual_lev
                 try:
                     lev_info2 = await exchange.fetch_leverage(symbol, params=self._venue.futures_params())
-                    actual_lev2 = _parse_leverage_readback(lev_info2)
-                    if actual_lev2 is not None:
-                        _confirmed_lev = actual_lev2
+                    _read2 = leverage_readback(
+                        lev_info2, _observed_mode, side)
+                    if _read2["value"] is not None:
+                        _confirmed_lev = _read2["value"]
+                        _lev_read = _read2
+                        _lev_verified = _read2["governs"] is not False
                 except Exception:
                     pass  # re-read failed — the first reading is what stands
 
@@ -1568,15 +1782,29 @@ class LiveExecutor:
                     _v = preorder_leverage_verdict(
                         _target_leverage, _confirmed_lev, _lev_overshoot_ratio)
                     _abort = _v["decision"] == "abort" or not _lev_fail_open
+                    _where = _leverage_field_phrase(_lev_read)
                     logger.critical(
-                        "LEVERAGE STILL MISMATCHED for %s after retry: wanted %dx, exchange reports %dx — "
-                        "%s (SL is the risk backstop)",
-                        symbol, _target_leverage, _confirmed_lev,
+                        "LEVERAGE STILL MISMATCHED for %s after retry: wanted %dx, exchange reports %dx "
+                        "(%s) — %s (SL is the risk backstop)",
+                        symbol, _target_leverage, _confirmed_lev, _where,
                         "ABORTING" if _abort else "proceeding with warning")
                     if _abort:
+                        audit(trade_log,
+                              f"Leverage ABORT for {symbol}: wanted "
+                              f"{_target_leverage}x, venue reports "
+                              f"{_confirmed_lev}x ({_where}) — {_v['why']}",
+                              action="leverage_abort", result="ABORT",
+                              level=logging.CRITICAL,
+                              data={"symbol": symbol,
+                                    "target": _target_leverage,
+                                    "observed": _confirmed_lev,
+                                    "field": _lev_read["field"],
+                                    "margin_mode": _lev_read["mode"],
+                                    "governs": _lev_read["governs"],
+                                    "ratio": _v["ratio"]})
                         raise RuntimeError(
                             f"Cannot set leverage to {_target_leverage}x for {symbol} "
-                            f"(exchange stuck at {_confirmed_lev}x). "
+                            f"(exchange stuck at {_confirmed_lev}x, {_where}). "
                             f"{_v['why']}. Aborting order.")
         except RuntimeError:
             raise  # propagate leverage abort
@@ -1595,24 +1823,50 @@ class LiveExecutor:
                 _positions = await exchange.fetch_positions(
                     [symbol], params=self._venue.futures_params())
                 for _p in (_positions or []):
-                    _pl = _parse_leverage_readback(_p)
+                    # The row's own `marginMode` is a closer reading than the
+                    # executor's last verification and `leverage_readback`
+                    # prefers it. The SIDE is not the row's: the question is
+                    # which field governs the order WE are about to place, and
+                    # under hedge mode `fetch_positions` can hand back the
+                    # OTHER direction's row — whose per-side leverage
+                    # confirming the target says nothing about ours. (The
+                    # first draft read `_p["side"]`; the mutation round is
+                    # what said so.)
+                    _pread = leverage_readback(_p, _observed_mode, side)
+                    _pl = _pread["value"]
                     if _pl is None:
                         continue
-                    _lev_verified = True
+                    _lev_read = _pread
+                    _lev_verified = _pread["governs"] is not False
                     if _pl != _target_leverage:
                         _v = preorder_leverage_verdict(
                             _target_leverage, _pl, _lev_overshoot_ratio)
                         _abort = _v["decision"] == "abort" or not _lev_fail_open
+                        _where = _leverage_field_phrase(_pread)
                         logger.critical(
                             "LEVERAGE MISMATCH (position read) for %s: wanted "
-                            "%dx, position reports %dx — %s",
-                            symbol, _target_leverage, _pl,
+                            "%dx, position reports %dx (%s) — %s",
+                            symbol, _target_leverage, _pl, _where,
                             "ABORTING" if _abort
                             else "proceeding with warning (SL is the backstop)")
                         if _abort:
+                            audit(trade_log,
+                                  f"Leverage ABORT for {symbol} (position "
+                                  f"read): wanted {_target_leverage}x, "
+                                  f"position at {_pl}x ({_where}) — "
+                                  f"{_v['why']}",
+                                  action="leverage_abort", result="ABORT",
+                                  level=logging.CRITICAL,
+                                  data={"symbol": symbol,
+                                        "target": _target_leverage,
+                                        "observed": _pl,
+                                        "field": _pread["field"],
+                                        "margin_mode": _pread["mode"],
+                                        "governs": _pread["governs"],
+                                        "ratio": _v["ratio"]})
                             raise RuntimeError(
                                 f"Cannot set leverage to {_target_leverage}x for "
-                                f"{symbol} (position at {_pl}x). "
+                                f"{symbol} (position at {_pl}x, {_where}). "
                                 f"{_v['why']}. Aborting order.")
                     break
             except RuntimeError:
@@ -1644,30 +1898,47 @@ class LiveExecutor:
         # and only THAT still fails closed.
         if not _lev_verified:
             # Fail-OPEN by default (operator 2026-07-21): proceed with a warning
-            # so trades open; the SL is the risk backstop. A successful
-            # set_leverage is extra confirmation. Only the opt-in strict mode
+            # so trades open; the SL is the risk backstop. A per-side set is
+            # extra confirmation. Only the opt-in strict mode
             # (LEVERAGE_FAIL_CLOSED=1) aborts when unverified.
-            proceed = _lev_fail_open or _lev_set_ok
+            #
+            # EXCEPT when the reading is one we KNOW is the wrong field. A
+            # per-side set succeeding says the per-side value applied; on a
+            # crossed account that is not the value the fill uses, so it is no
+            # evidence at all about the governing one and may not carry the
+            # order past a strict gate. Under the fail-open default this
+            # changes nothing — the order proceeds either way, loudly.
+            _set_ok_counts = _lev_set_ok and _lev_read["governs"] is not False
+            proceed = _lev_fail_open or _set_ok_counts
             if symbol not in self._lev_unverified_warned:
                 self._lev_unverified_warned.add(symbol)
-                if _lev_set_ok:
-                    _why = ("read-back unavailable but set_leverage succeeded "
-                            "— order proceeds on the applied value")
+                if _set_ok_counts:
+                    _why = ("read-back could not confirm but the per-side set "
+                            "was accepted — order proceeds on that")
                 elif _lev_fail_open:
                     _why = "order proceeds (fail-open default; SL is the backstop)"
                 else:
                     _why = "ABORTING order (LEVERAGE_FAIL_CLOSED)"
+                _where = _leverage_field_phrase(_lev_read)
                 audit(trade_log,
                       f"Leverage UNVERIFIED for {symbol}: wanted "
-                      f"{_target_leverage}x but the read-back did not confirm — "
-                      + _why,
+                      f"{_target_leverage}x and {_where} — " + _why,
                       action="leverage_unverified",
                       result="WARNING" if proceed else "ABORT",
+                      level=logging.WARNING,
                       data={"symbol": symbol, "target": _target_leverage,
-                            "set_ok": _lev_set_ok})
+                            "set_ok": _lev_set_ok,
+                            "per_side_applied": _per_side_ok,
+                            "per_side_refused": _per_side_failed,
+                            "observed": _lev_read["value"],
+                            "field": _lev_read["field"],
+                            "margin_mode": _lev_read["mode"],
+                            "governs": _lev_read["governs"]})
                 logger.warning(
-                    "Leverage read-back UNVERIFIED for %s (wanted %dx, set_ok=%s)",
-                    symbol, _target_leverage, _lev_set_ok)
+                    "Leverage read-back UNVERIFIED for %s (wanted %dx, %s, "
+                    "per-side applied %s)",
+                    symbol, _target_leverage, _where,
+                    _per_side_ok or "neither side")
             if not proceed:
                 raise RuntimeError(
                     f"Cannot confirm {_target_leverage}x leverage for {symbol} "
@@ -5557,7 +5828,10 @@ class LiveExecutor:
             if is_futures:
                 # AUDIT-FIX: Use swap symbol format for leverage API calls
                 swap_sym = self._venue.swap_symbol(idea.asset)
-                await self._ensure_leverage(swap_sym)
+                # The DIRECTION matters: Bitget isolated margin holds leverage
+                # per side, so the field that decides this fill is that side's.
+                await self._ensure_leverage(
+                    swap_sym, getattr(idea.direction, "value", "") or "")
 
             # Convert symbol to the perpetual/swap format for the futures order
             # path so the market lookup, price rounding, tick snap and

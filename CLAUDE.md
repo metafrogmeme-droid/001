@@ -1534,6 +1534,99 @@ turns into when the payload does not come.
 
 **Twelve mutations, each killed on the first round.** Seven on the rule and five on the executor's use of it — an undetected mode sweeping everything, hedge mode sweeping everything, the other side cancelled too, an unreadable row cancelled in hedge mode, the close side read backwards, the raw position side ignored, `holdSide` alone dropped; the loop reading the listing instead of the rule's answer, the executor always claiming one-way, the kept rows unaudited, the side computed backwards, and a cancel the venue rejected counted as cleared. The last is worth naming for what it proves about the fixture rather than the code: the count is asserted against a planted `cancel_order` that RAISES, because a stub that always succeeds cannot tell an increment above the await from one below it, and the mutation is exactly that swap.
 
+**A FIELD NAME IS NOT A QUANTITY, and the guard that would have caught it was
+already built and already correct.** On 2026-09-15 thirteen live fills across
+ten symbols — BTC, TRUMP (x3), OP, NATGAS (x2), SUI, RAVE, ETC, DFEN, CL,
+TRX — were each requested at 5x, each filled at **20x**, and each flattened
+seconds later by the post-fill overshoot guard at a round trip of fees;
+NATGAS closed at `-$1.86` on a `-0.29%` move, its card reading *Entry
+Aborted — Leverage*. `preorder_leverage_verdict` exists precisely to refuse
+that order before it is placed and it never fired, because the READ-BACK
+confirmed the target. Bitget carries BOTH leverages on one payload and
+`_parse_leverage_readback` scanned `longLeverage` before
+`crossMarginLeverage`: on a CROSSED account the first still holds the
+per-side value the bot set moments earlier (5) and the second holds the value
+the fill uses (20). So *"a leverage parsed out of this dict"* answered 5, the
+equality check passed, and the order went out. `leverage_readback` answers the
+value, the FIELD it came from, the margin mode it was placed under, and
+whether that field DECIDES the fill — and only the last makes it a
+confirmation.
+
+**Three states, and the middle one is the fix while the third is the trap.**
+`governs=True` is a measurement of the fill. `governs=False` is a real number
+we KNOW is the wrong one — refused. `governs=None` is a value we cannot PLACE
+because the margin mode is unreadable, and it KEEPS the confirmation it has
+always had: refusing it changes nothing under the fail-open default (the order
+proceeds either way) and would abort every trade on a payload carrying no
+margin mode under the opt-in strict one, which is the *"trades can not open"*
+regression this file already records for 2026-07-21. A fix whose stricter half
+reintroduces a live incident is not stricter, it is differently broken.
+
+**The mode has to be the OBSERVED one, and `cfg.margin_mode` is a request.**
+Placing the reading under the configured mode is how a crossed account reads
+as isolated — the defect, rebuilt inside the fix for it — so the executor's
+verified `_actual_margin_mode` is what travels, the payload's own `marginMode`
+wins over it (a reading describes its own moment), and neither falls back to
+what we asked for. It is read ONCE, above the `try`: an `AttributeError`
+inside that block is swallowed by its broad handler, which turns the whole
+verification into a silent no-op — and the first draft did exactly that, at a
+second call site, for a whole test run.
+
+**`except Exception: pass` with an empty body is a remedy nobody can know is
+broken.** The per-side `holdSide` loop — the fix written BECAUSE a bare
+`set_leverage` returns 200 without applying the value — swallowed every
+rejection, so *"LEVERAGE_FORCE_PER_SIDE is on"* and *"the per-side set is
+applying"* were unrelated statements with nothing able to tell them apart.
+Each side is recorded now, the refusal is audited at WARNING with the
+exception's CLASS and never its text (a venue rejection can echo request
+params into the operator log), and a clean run records nothing. Beside it,
+`_lev_set_ok` — the fallback authority when the read-back cannot confirm —
+was set by the bare call, under a comment calling that *"itself an
+authoritative confirmation"* eight lines under the block that exists because
+it is not: two adjacent comments contradicting each other with the optimistic
+one deciding. Only a per-side success counts, and on a reading we know is the
+wrong field even that does not stand in, because a per-side set succeeding
+says nothing whatever about the crossed value.
+
+**And `grep "MARGIN MODE MISMATCH"` coming back EMPTY said nothing at all.**
+That was the first diagnostic round's strongest-looking evidence and it was
+not evidence of anything: three ways the account read fails to answer a mode —
+the v2 account call raising for a reason other than 40085, the UTA position
+fallback raising too, a payload that parses and carries no `marginMode` — were
+each `logger.debug` or silent, invisible at INFO. A mismatch is loud and an
+unread mode was quiet, so the quiet case read as the healthy one. It is a
+WARNING now, once per symbol per process, and it says in as many words that it
+is *not a mismatch and not an all-clear* — because with no mode the leverage
+read-back below cannot place its own field either, which is the state where
+this whole fix cannot work.
+
+**"Exchange stuck at 20x" does not say what to go and change.**
+`_leverage_field_phrase` names the field and the mode, in four outcomes, so an
+operator reads *the crossed default is what fills* rather than checking a
+per-side setting that is perfectly correct. And `_parse_leverage_readback` is
+DELETED rather than kept as a wrapper: two functions answering "what leverage"
+where one scans names and one places them are two answers, and after the
+extraction it had no production caller at all — which `test_no_new_unreachable_functions`
+would have said next run.
+
+**Thirty-nine mutations, each killed — and four survived the first round,
+one of them a defect in the fix.** The position read was placed under the
+ROW's own side, on the reasoning that a row places itself. True of its
+`marginMode` and false of its side: under hedge mode `fetch_positions` can
+hand back the OTHER direction's row, whose per-side leverage matching the
+target says nothing about the order we are about to send — a false
+confirmation on the one path the whole slice is about. The other three were
+the guards': the re-read and the position read each confirming a known-wrong
+field are invisible from any assertion about the abort (they change what
+happens LATER, at the strict gate), and "the side is ignored" survived because
+one split fixture cannot tell *read this side* from *take the worst of the
+two* — `MIRROR` puts the overshoot on the other side, and both mutations die
+on it. Three more were refused rather than run, and the refusal is the point:
+typing the tuple constants for mypy reflowed them across lines, so three
+anchors matched ZERO times, and a driver that took that for a kill would have
+reported coverage it did not have.
+
+
 
 **SEVEN guards indexed that map's literal, and consolidating it broke every
 one of them.** Four READ it —
