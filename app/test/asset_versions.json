@@ -56,8 +56,8 @@
     "v": 2
   },
   "js/dashboard.js": {
-    "sha": "08073c304b43cf29",
-    "v": 187
+    "sha": "4355a2a878bea1a5",
+    "v": 188
   },
   "js/decision-court-model.js": {
     "sha": "ab1d7c8c9c3cd2d3",
@@ -99,6 +99,10 @@
     "sha": "d5bf6c25140efa4f",
     "v": 1
   },
+  "js/equity-theatre-model.js": {
+    "sha": "d76fe8d70e3259b1",
+    "v": 1
+  },
   "js/escape-model.js": {
     "sha": "5de9d612a36e126a",
     "v": 2
@@ -120,8 +124,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "sha": "c81e41577cf3c719",
-    "v": 151
+    "sha": "f0a0a8be6aa5dfe4",
+    "v": 152
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
