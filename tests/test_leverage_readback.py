@@ -8,14 +8,25 @@ different "exchange stuck at Nx" abort). The exchange had applied 5x; the bot
 just couldn't read the confirmation because ccxt returned the value only in the
 raw `info` payload, while the parser looked at the unified fields alone.
 
-`_parse_leverage_readback` fixes the READ without relaxing the standard: a
+`leverage_readback` fixes the READ without relaxing the standard: a
 value is only accepted if it parses to a positive int, and callers still
 require it to EQUAL the target (a wrong leverage aborts exactly as before).
 """
 
 from __future__ import annotations
 
-from bot.core.live_executor import _parse_leverage_readback
+from bot.core.live_executor import leverage_readback
+
+
+def _parse_leverage_readback(payload):
+    """The VALUE half of the one reading (this file's subject).
+
+    `leverage_readback` also answers WHICH FIELD the value came from and
+    whether that field decides the fill — the subject of
+    `test_leverage_readback_governs_the_fill.py`. This file is about the
+    READ succeeding at all, which is what the ETHFI incident was.
+    """
+    return leverage_readback(payload)["value"]
 
 
 class TestUnifiedFields:

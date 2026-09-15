@@ -44,6 +44,7 @@ charges two fees for the privilege.
 import pytest
 
 from bot.core.live_executor import leverage_overshoot_verdict, preorder_leverage_verdict
+from tests.leverage_drive import drive_ensure_leverage, lev
 
 RATIO = 1.5
 
@@ -148,82 +149,24 @@ class TestTheThresholdIsRead:
 
 def _drive_ensure_leverage(readings, positions=None, target=5,
                            set_raises=False, fail_open=True, monkeypatch=None):
-    """Run `_ensure_leverage` against a stub venue and return what happened.
+    """(aborted, error_text), over the ONE shared driver.
 
-    `readings` is the sequence `fetch_leverage` answers (each is fed through
-    the real `_parse_leverage_readback`); `positions` is what `fetch_positions`
-    answers. Returns (aborted, error_text).
+    The harness lives in `tests/leverage_drive.py` because
+    `test_leverage_readback_governs_the_fill.py` drives the same method with
+    more knobs (the observed margin mode, a per-side set that refuses, the
+    direction), and two copies of a driver are two answers about what the code
+    does the moment one is edited. This wrapper keeps this file's assertions
+    reading as they did.
     """
-    import asyncio
-
-    from bot.core import live_executor as LE
-
-    monkeypatch.setenv("LEVERAGE_FAIL_OPEN", "1" if fail_open else "0")
-
-    calls = {"set_leverage": 0}
-    seq = list(readings)
-
-    class _Exchange:
-        async def set_margin_mode(self, *a, **k):
-            return None
-
-        async def set_leverage(self, *a, **k):
-            calls["set_leverage"] += 1
-            if set_raises:
-                raise RuntimeError("venue refused set_leverage")
-            return {}
-
-        async def fetch_leverage(self, *a, **k):
-            if not seq:
-                raise RuntimeError("no more readings")
-            nxt = seq.pop(0)
-            if isinstance(nxt, Exception):
-                raise nxt
-            return nxt
-
-        async def fetch_positions(self, *a, **k):
-            if positions is None:
-                raise RuntimeError("fetch_positions unavailable")
-            return positions
-
-    class _Venue:
-        id = "bitget"
-
-        @staticmethod
-        def futures_params():
-            return {}
-
-    ex = LE.LiveExecutor.__new__(LE.LiveExecutor)
-    ex._venue = _Venue()
-    ex._lev_unverified_warned = set()
-    ex._hedge_mode = False
-
-    async def _get_exchange():
-        return ex_obj
-
-    ex_obj = _Exchange()
-    ex._get_exchange = _get_exchange
-    ex._compute_target_leverage = lambda symbol: target
-
-    async def _detect_hold_mode():
-        return None
-
-    ex._detect_hold_mode = _detect_hold_mode
-
-    try:
-        asyncio.run(ex._ensure_leverage("TRX/USDT"))
-    except RuntimeError as exc:
-        return True, str(exc)
-    except Exception:
-        # Anything else means the stub is short a seam, not that the guard
-        # decided something — surface it rather than reading it as "proceed".
-        raise
-    return False, ""
+    d = drive_ensure_leverage(
+        readings, positions=positions, target=target, set_raises=set_raises,
+        fail_open=fail_open, monkeypatch=monkeypatch)
+    return d.aborted, d.why
 
 
 def _lev(x):
-    """A fetch_leverage payload the real parser reads as `x`."""
-    return {"leverage": x, "info": {"leverage": str(x)}}
+    """A fetch_leverage payload the real read-back reads as `x`."""
+    return lev(x)
 
 
 #: The ETHFI shape: the call SUCCEEDS and the payload parses to None. An
