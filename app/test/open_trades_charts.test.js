@@ -152,9 +152,16 @@ test('dashboard: position rows open the symbol drill-down', () => {
 
 test('dashboard: the symbol modal gains a VWAP & structure chip row', () => {
   assert.match(dash, /id="symReadChips"/);
-  assert.match(dash, /RCChartRead\.vwap\(parsed\)/);
-  assert.match(dash, /RCChartRead\.structure\(parsed\)/);
-  assert.match(dash, /CHoCH/);
+  // The verdicts left dashboard.js when the Markets view and this modal
+  // stopped holding two copies of them with different sample gates. The claim
+  // is unchanged — this row still shows VWAP, structure, BOS and CHoCH — so
+  // the guard asks the MODEL for the words and dashboard.js for the wiring.
+  assert.match(dash, /paintChartRead\('symReadChips'/);
+  const CR = require(path.join(__dirname, '..', 'public', 'js', 'chart-read-model.js'));
+  for (const w of ['vwapAbove', 'stBull', 'bosUp', 'chochUp']) {
+    assert.ok(CR.W[w], `the chart read lost its ${w} word`);
+  }
+  assert.match(CR.W.chochUp.en, /CHoCH/);
   const m = dashHtml.match(/dashboard\.js\?v=(\d+)/);
   assert.ok(m && Number(m[1]) >= 98, `dashboard.js version floor (got ${m && m[1]})`);
   assert.match(dashHtml, /chartread\.js\?v=\d+/);
@@ -178,7 +185,11 @@ test('symbol modal: timeframe switcher refetches candles, keeps the 4h engine re
   assert.match(dash, /candleCache\[gran\]/);
   assert.match(dash, /_seq !== _symSeq \|\| symGran !== gran\) return;/);
   // The chips footnote states the TF and that levels/waves stay on the 4h read.
-  assert.match(dash, /levels &amp; waves from the 4h read/);
+  // The sentence lives in ChartReadModel.W (so it is translated, and so the
+  // renderer spells no key); the modal asks for it with a flag.
+  assert.match(dash, /levelsFrom4h: true/);
+  const CR2 = require(path.join(__dirname, '..', 'public', 'js', 'chart-read-model.js'));
+  assert.match(CR2.W.levels4h.en, /levels & waves from the 4h read/);
 });
 
 test('signals (public): every signal row opens its chart with its own levels', () => {
@@ -193,7 +204,9 @@ test('signals (public): every signal row opens its chart with its own levels', (
 
 test('markets (public): at-a-glance read chips under the big chart', () => {
   assert.match(dash, /id="chartRead"/);
-  assert.match(dash, /engine formulas/);
+  assert.match(dash, /paintChartRead\('chartRead'/);
+  const CR3 = require(path.join(__dirname, '..', 'public', 'js', 'chart-read-model.js'));
+  assert.match(CR3.W.formulas.en, /engine formulas/);
   const s = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(s, /\.rc-chart \{ width: 100%/);
   const v = dashHtml.match(/styles\.css\?v=(\d+)/);

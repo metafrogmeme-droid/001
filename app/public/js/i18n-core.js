@@ -831,6 +831,28 @@
     "dd.dc_sub": { en: "The full sealed record behind this decision — nothing added, nothing inferred." },
     "dd.dc_close": { en: "Close" },
     "dd.dc_unread": { en: "This decision could not be read. Nothing here is a statement about what the agent decided — the record was not retrieved." },
+    "dd.cr_vwap_above": { en: "VWAP above" },
+    "dd.cr_vwap_below": { en: "VWAP below" },
+    "dd.cr_vwap_at": { en: "at VWAP" },
+    "dd.cr_st_bull": { en: "structure bullish" },
+    "dd.cr_st_bear": { en: "structure bearish" },
+    "dd.cr_st_range": { en: "structure ranging" },
+    "dd.cr_st_unread": { en: "structure unreadable — no swings found" },
+    "dd.cr_bos_up": { en: "BOS up" },
+    "dd.cr_bos_down": { en: "BOS down" },
+    "dd.cr_choch_up": { en: "CHoCH up" },
+    "dd.cr_choch_down": { en: "CHoCH down" },
+    "dd.cr_thin": { en: "too few bars to read — {n} on record" },
+    "dd.cr_no_bars": { en: "the venue answered no candles for this pair" },
+    "dd.cr_unread": { en: "the candles could not be read" },
+    "dd.cr_bars": { en: "{n} bars" },
+    "dd.cr_dropped": { en: "{n} unreadable row(s) dropped" },
+    "dd.cr_deduped": { en: "{n} repeated timestamp(s) dropped" },
+    "dd.cr_formulas": { en: "engine formulas" },
+    "dd.cr_levels_4h": { en: "levels & waves from the 4h read" },
+    "dd.cr_swings_from": { en: "read from {n} swing(s) each side" },
+    "dd.cr_session_vw": { en: "session VWAP" },
+    "dd.cr_window_vw": { en: "full-window VWAP — this session traded no volume" },
     "dd.ir_spark_unread": { en: "price history not read" },
     "dd.ir_spark_absent": { en: "not on the reference feed" },
     "dd.ir_spark_thin": { en: "too few closes to draw" },
@@ -2089,7 +2111,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"c4559156","zh":"9f62f65d","pt":"40dd533c","fr":"67f3e42c","de":"bf3246bd","nl":"7a1138a0","ja":"863ce6bc","ko":"f8a841d7","ru":"233be598","tr":"831a3611","it":"9a0cc507","hi":"1f4b29da","ar":"114be58a"};
+  var CHUNKS = {"es":"b0acbb5f","zh":"cbfc093d","pt":"8ecee8f2","fr":"e1771ae8","de":"ac5ab08c","nl":"31fb57d3","ja":"b69aa29b","ko":"3e13ad91","ru":"3895e555","tr":"615c8083","it":"c5b924fc","hi":"e672c3e4","ar":"35e842ba"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

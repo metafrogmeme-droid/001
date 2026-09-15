@@ -1,5 +1,5 @@
 {
-  "_comment": "Recorded shapes of \"unreadable is never zero\" in the JS surfaces. A hit is a place to LOOK, not a defect — see app/test/js_honesty_ratchet.test.js. Two-way ratchet: growth fails, and an improvement must be re-recorded in the same commit. Regenerate with node app/test/update_js_honesty_baseline.js",
+  "_comment": "Recorded shapes of \"unreadable is never zero\" in the JS surfaces. A hit is a place to LOOK, not a defect \u2014 see app/test/js_honesty_ratchet.test.js. Two-way ratchet: growth fails, and an improvement must be re-recorded in the same commit. Regenerate with node app/test/update_js_honesty_baseline.js",
   "rules_fingerprint": "d74252e19bbf247e",
   "roots": [
     "public/js",
@@ -51,7 +51,7 @@
     },
     "bare-compare-verdict": {
       "public/js/arena-risk-model.js": 1,
-      "public/js/dashboard.js": 14,
+      "public/js/dashboard.js": 10,
       "public/js/duel.js": 1,
       "public/js/engine-card-model.js": 1,
       "public/js/firewall-model.js": 1,
