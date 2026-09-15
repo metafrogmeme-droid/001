@@ -2377,7 +2377,86 @@ folds it into `trading_words`, because a term the rules know and the gate does
 not is a chart question answered with "hey!" and invisible from either side
 alone. (`tests/test_the_router_reads_what_a_trader_types.py`; the other four
 families of that corpus — timeframe scans, the performance record, macro
-shorthand and order phrasings — are filed, not fixed.)
+shorthand and order phrasings — are
+`tests/test_the_router_reads_the_record_the_scans_and_the_macro_shorthand.py`.)
+
+**And the scanner's own verb was the one verb its rules did not take.** A
+drive of that timeframe family in every ordinary spelling found the half
+nobody had typed. `_MODE_LEAD` accepts run / do / show me / give me / find me
+/ got any — every way of asking for a ladder except the word the product calls
+the thing — so "4h", "4h scan" and "show me 4h setups" have always worked, and
+every spelling that STARTS with the verb failed. "scan 4h", "scan 15m",
+"scan 1h", "scan 5m", "scan 30m", "scan intraday", "scan for swings" and
+"scan 4 hour" reached NO rule at all and fell to a chat model that holds no
+scan tool; "scan the 4h", "scan the 15m", "scan on 15m", "scan at 4h",
+"scan swings", "scan hourly" and "scan daily" reached `analyze_asset` with no
+symbol and were answered **"which coin do you want me to look at?"** — a
+question about ONE asset, asked of a request for the whole universe, which a
+reader takes as a clarification rather than as the wrong door it is. The
+prepositions are the other half: a verb-first ask puts one between the verb
+and the timeframe ("scan on 15m", "scan for swings"), where `_MODE_LEAD`'s own
+second group carries only articles.
+
+**`my` is split between two leads, and the mutation round is what settled
+it.** Before a MODE word a possessive names the caller's OWN book — "scan my
+trades", "scan my positions", "scan my wallet" and "scan my portfolio" are
+each claimed by their own card already, and "scan my swings" would be a claim
+about this caller's swing trades answered with a market ladder. Before the
+scan NOUN it means something else: "scan my setups" is *setups, for me*, the
+ladder card at its default, and it was reaching `analyze_asset` with no symbol
+because `setups` is in `_FILLER`, so nothing was left over for
+`_names_a_non_asset` to object with. The first draft excluded `my` from both
+and said in a comment that it would otherwise steal the wallet card; the
+mutation that added `my` SURVIVED, because the lead still has to reach a mode
+word and `wallet` is not one. **A reason that does not survive being driven is
+not a reason**, and the survivor was the comment rather than the code.
+
+**A market scan that NAMES a ladder was answered with the untimed table.**
+"scan the market on 4h" and "market scan on 4h" matched the general
+market-scan rule, which carries no timeframe at all, so the movers table — no
+entry, no stop, no target — answered a request that had said which ladder it
+wanted, with nothing on the card saying the timeframe had been dropped. The
+new alternative is anchored to the literal word "market", because the OBJECT
+decides: "scan eth on the 4h" names an asset and stays the one-asset read.
+
+**And `1d` was three destinations for one timeframe.** The ladder card runs
+three modes — `ProScanSkill.MODE_CFG` holds 5m, 15m and 4h — and the mode-rule
+comment in `intent_router.py` records `weekly` as naming none of them and
+staying with the model. `1d` is the same shape in the spelling a chart uses,
+and it went somewhere else entirely: `1d scan`, `1D scan` and `d1 scan`
+reached `analyze_asset` with no symbol, `1d` and `1w` typed alone were
+GREETED, and `1d setups` reached nothing — while `daily` and `weekly` were
+trading words the gate already knew. The cause is one reading in
+`_names_a_non_asset`, the seam whose whole job is *the user named an object
+and it was not an asset*: it counts runs of two or more LETTERS, so every
+chart timeframe is INVISIBLE to it — `1d` is a digit and a single letter, `d1`
+the same backwards — and a message whose only object was a timeframe was read
+as naming no object at all, which is the branch that asks which coin. It is
+scoped to a SWEEP trigger, read off the matched trigger rather than kept as a
+second list of rule names, because "analyze 4h" leaves the same token over and
+asking which coin IS the answer there: that caller wants a chart and has named
+the timeframe, not the subject.
+
+> **And the follow-up I filed was itself a claim I had not driven.** The first
+> draft of the paragraph above, of the docstring under it and of the suite's
+> own table each said `1d` names *a ladder this scanner does not run*, and
+> proposed a door that would say so. Driven one command over, it is false of
+> the PRODUCT: `MODE_CFG` is the ladder CARD's table, and the full-universe
+> sweep reads `candles.SUPPORTED_TIMEFRAMES` — `5m, 15m, 1h, 4h, 1d` — so
+> `/deepscan 1d` really does sweep the universe daily, and `/deepscan all`
+> does 5m→1d in one pass. A door built on the first reading would have told a
+> caller the product cannot do a thing it does, which is the `/vault` hint
+> shape with the sign flipped twice. Two things fall out and both are filed
+> rather than done: a typed `1d` belongs on the deep scan at the timeframe it
+> names, which needs a dispatch row per timeframe (`SCAN_DISPATCH` is keyed by
+> intent name and `scan_deep` carries a fixed `4h`); and `_INTRADAY_TF` folds
+> `1h`, `2h`, `30m` and `hourly` into the intraday ladder, whose card is
+> headed **15M**, so "1h scan" answers a 1h request with a 15m card and
+> nothing on it says the timeframe was changed — the market-scan defect one
+> rule over, and `deepscan` runs 1h where `pro_scan` does not. `weekly` and
+> `monthly` really are run by neither.
+
+(`tests/test_the_scanner_takes_its_own_verb.py`.)
 
 **The server said why the turn failed and the browser threw the sentence
 away, then diagnosed the deployment instead.** `app/lib/gateway.js` writes

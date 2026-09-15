@@ -172,6 +172,17 @@ def _is_social_message(text: str) -> bool:
             # the scanner's vocabulary, short
             "scanner", "gainers", "losers", "movers", "ideas", "plays", "hourly",
             "daily", "weekly", "monthly", "top",
+            # The CHART spellings of the same timeframes. The English ones
+            # above are words this set already knew; `1d` and `1w` are not,
+            # and neither is claimed by a rule (the scanner runs 5m, 15m and
+            # 4h — a daily or weekly sweep is none of them), so the gate's
+            # final rule sweep acquitted nothing and both were GREETED, while
+            # "daily" and "weekly" one line up reached the model. One
+            # timeframe, two spellings, two destinations. The ones a rule DOES
+            # claim ("4h", "15m", "5m") need no entry here for the same reason
+            # "net" and "worth" are absent: the gate consults the rules before
+            # it decides, so a word a rule claims is a word nothing reaches.
+            "1d", "1w", "1mo", "d1", "w1", "3d", "2d", "1day", "1week",
             # the research surface: registered skills and their arguments, so
             # "walk forward test" and "optimise the params" reach a model that
             # can say what runs where, not the greeter
@@ -621,6 +632,18 @@ _FILLER = {"the", "a", "an", "my", "your", "our", "this", "that", "these",
            "level", "levels", "setup", "setups", "trend", "chartings"}
 
 
+#: A chart timeframe written the way a chart writes it — `1d`, `4H`, `15m`,
+#: `1w`, and the MT4 order (`d1`, `w1`). Bounded on both sides so a price
+#: (`63000`), a count (`5 trades`) and a word (`m5x`) are not timeframes.
+_TIMEFRAME_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])(?:\d{1,2}\s?[mhdwMHDW]|[mhdwMHDW]\d{1,2})(?![A-Za-z0-9])")
+
+#: The trigger words that make a message a request to SWEEP the universe
+#: rather than to read one asset. Read from the matched trigger itself, so a
+#: rule added later is classified by what it says and not by a second list.
+_SWEEP_TRIGGER = re.compile(r"sca+n+|screen|sweep", re.IGNORECASE)
+
+
 def _names_a_non_asset(text: str, match) -> bool:
     """Did the user name an object, and was it not an asset?
 
@@ -639,10 +662,44 @@ def _names_a_non_asset(text: str, match) -> bool:
     Anything INSIDE the match is part of the trigger phrase, not an object;
     "check the setup" is matched whole by its own rule and correctly has
     nothing left over. Only leftover, non-filler words count.
+
+    A TIMEFRAME IS AN OBJECT WHEN THE TRIGGER IS A SWEEP AND A MODIFIER WHEN
+    IT IS AN ANALYSIS, and the word-based reading above could see neither.
+    `re.findall(r"[A-Za-z]{2,}")` reads runs of two or more letters, so every
+    chart spelling of a timeframe is INVISIBLE to it — `1d` is a digit and one
+    letter, `d1` the same backwards — while the English spellings are ordinary
+    words. That split the one request in two: "weekly scan" left the word
+    `weekly` over, was read as naming a non-asset object and correctly reached
+    the model, and "1d scan" left `1d` over, was read as naming NOTHING, and
+    so took the bare-verb branch — answered "which coin do you want me to look
+    at?" for a request that had named the sweep's own parameter and no asset
+    at all. `1D scan` and `d1 scan` did the same.
+
+    It is scoped to a SWEEP trigger on purpose. "analyze 4h" leaves the same
+    token over and asking which coin IS the answer there: the caller wants a
+    chart and has named the timeframe, not the subject. The trigger word is
+    what tells the two apart, so it is read from the match rather than guessed.
+
+    The destination for such a sweep today is the model, which is where
+    `weekly` has been recorded as going since the mode rules were anchored.
+    That is better than asking which coin and it is still not the door, and
+    the reason is worth stating precisely because a first draft of this
+    docstring got it wrong: the LADDER CARD (`ProScanSkill.MODE_CFG`) runs
+    three modes — 5m, 15m and 4h — but the FULL-UNIVERSE SWEEP takes any of
+    `candles.SUPPORTED_TIMEFRAMES`, which includes `1d`, so `/deepscan 1d` is
+    a real daily sweep of the whole universe and "a ladder this scanner does
+    not run" was true of one skill and false of the product. Routing a typed
+    `1d` to the deep scan at the timeframe it names is the follow-up, and it
+    needs a dispatch row per timeframe: `SCAN_DISPATCH` is keyed by intent
+    name and `scan_deep` carries a fixed `{"timeframe": "4h"}`. `weekly` and
+    `monthly` really are run by neither. Filed, not done.
     """
     leftover = text[:match.start()] + " " + text[match.end():]
-    return any(w.lower() not in _FILLER
-               for w in re.findall(r"[A-Za-z]{2,}", leftover))
+    if any(w.lower() not in _FILLER
+           for w in re.findall(r"[A-Za-z]{2,}", leftover)):
+        return True
+    return bool(_SWEEP_TRIGGER.search(match.group(0) or "")
+                and _TIMEFRAME_TOKEN.search(leftover))
 
 
 _JOURNAL_COUNT = re.compile(r"\b(?:last|recent|past|previous)\s+(\d{1,3})\s+(?:trades|closes)\b", re.IGNORECASE)
@@ -1094,15 +1151,69 @@ _SWING_TF = r"(?:4h|4 ?hours?|four hour)"
 _INTRADAY_TF = r"(?:1h|2h|15m|30m|1 ?hour|2 ?hour|hourly|daily)"
 _SCALP_TF = r"(?:5m|1m|3m|5 ?min(?:ute)?s?)"
 _SCAN_NOUN = r"(?:scans?|setups?|ideas?|plays?|trades?|mode|signals?|opportunities|opps)"
+# THE SCANNER'S OWN VERB IS THE ONE VERB THESE RULES DID NOT TAKE. `_MODE_LEAD`
+# accepts run / do / show me / give me / find me / got any — every way of asking
+# for a ladder except the word the product calls the thing. Driven over the
+# whole family: "scan 4h", "scan 15m", "scan 1h", "scan 5m", "scan 30m",
+# "scan intraday", "scan for swings", "scan for setups", "scan 4 hour" and
+# "scan 1 hour" reached NO rule at all and fell to a chat model that holds no
+# scan tool, while "scan the 4h", "scan the 15m", "scan on 15m", "scan at 4h",
+# "scan using 4h", "scan swings", "scan scalps", "scan hourly" and "scan daily"
+# reached `analyze_asset` with NO symbol — a request for the whole universe
+# answered by asking WHICH COIN. "4h", "4h scan" and "show me 4h setups" have
+# always worked; only the spelling that starts with the verb failed, and it is
+# the spelling a caller who thinks of the scanner as a command types first.
+#
+# The prepositions are the other half. A verb-first ask puts one between the
+# verb and the timeframe — "scan on 15m", "scan for swings", "scan at 4h" —
+# where `_MODE_LEAD`'s own second group carries only articles and adjectives.
+#
+# `my` is the one word split between the two leads, and the mutation round is
+# what settled it. Before a MODE word a possessive names the caller's OWN
+# book: "scan my trades", "scan my positions", "scan my wallet" and "scan my
+# portfolio" are each claimed by their own card already, and "scan my swings"
+# would be a claim about this caller's swing trades answered with a market
+# ladder. Before the scan NOUN it means something else entirely — "scan my
+# setups" is "setups, for me", the ladder card at its default — and that one
+# was reaching `analyze_asset` with no symbol, because `setups` is in
+# `_FILLER`, so nothing was left over for `_names_a_non_asset` to object with.
+# (The first draft of this comment claimed `my` was excluded because it would
+# steal the wallet card. Driven, it does not: the lead still has to reach a
+# mode word, and `wallet` is not one. A reason that does not survive being
+# driven is not a reason.)
+_SCAN_LEAD_HEAD = (r"^\s*(?:(?:please|pls|can you|could you|lets|let's|go|just|"
+                   r"now)\s+)*(?:sca+n+|screen|sweep)\s+")
+_SCAN_LEAD_WORDS = (r"the|a|an|me|for|on|in|at|using|over|with|some|any|good|"
+                    r"best|top|new|fresh")
+_SCAN_VERB_LEAD = rf"{_SCAN_LEAD_HEAD}(?:(?:{_SCAN_LEAD_WORDS})\s+)*"
+_SCAN_FOR_ME_LEAD = rf"{_SCAN_LEAD_HEAD}(?:(?:{_SCAN_LEAD_WORDS}|my)\s+)*"
+# A MARKET SCAN THAT NAMES A LADDER IS A LADDER REQUEST. "scan the market on
+# 4h" and "market scan on 4h" matched the general market-scan rule below, which
+# carries no timeframe at all, so the movers table — no entry, no stop, no
+# target — answered a request that had named the ladder it wanted, with nothing
+# on the card saying the timeframe had been dropped. Anchored to the literal
+# word "market" so "scan eth on the 4h" stays the one-asset read it is: the
+# object decides, and an asset is not the universe.
+_MARKET_ON_LEAD = (r"^\s*(?:(?:please|pls|can you|could you|lets|let's|run|do|"
+                   r"go|just)\s+)*(?:(?:a|the)\s+)*"
+                   r"(?:market\s+sca+n+|sca+n+\s+(?:the\s+)?market)\s+"
+                   r"(?:on|in|at|using|over|for)\s+(?:the\s+)?")
 _rule(rf"{_MODE_LEAD}(?:swings?|{_SWING_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_SCAN_VERB_LEAD}(?:swings?|{_SWING_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_MARKET_ON_LEAD}(?:swings?|{_SWING_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
       rf"|\b(?:swing (?:scan|mode)|{_SWING_TF} scan|swing by swing)\b",
       "scan_swing", explanation="Swing scan (4h)")
 _rule(rf"{_MODE_LEAD}(?:scalps?|{_SCALP_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_SCAN_VERB_LEAD}(?:scalps?|{_SCALP_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_MARKET_ON_LEAD}(?:scalps?|{_SCALP_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
       rf"|\b(?:scalp (?:scan|mode)|{_SCALP_TF} scan)\b",
       "scan_scalp", explanation="Scalp scan (5m)")
 _rule(rf"{_MODE_LEAD}(?:intraday|day ?trades?|{_INTRADAY_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_SCAN_VERB_LEAD}(?:intraday|day ?trades?|{_INTRADAY_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
+      rf"|{_MARKET_ON_LEAD}(?:intraday|day ?trades?|{_INTRADAY_TF})(?:\s+{_SCAN_NOUN})?{_MODE_TAIL}"
       rf"|\b(?:intraday (?:scan|mode)|{_INTRADAY_TF} scan|day ?trade scan)\b"
       rf"|{_MODE_LEAD}setups?{_MODE_TAIL}"
+      rf"|{_SCAN_FOR_ME_LEAD}setups?{_MODE_TAIL}"
       r"|\bwhat setups? (?:do you see|are there|have you got|you got|you seeing|are you watching)\b"
       r"|\banything (?:worth|good to) (?:trad(?:e|ing)|buy(?:ing)?)(?: today| right now| rn| atm)?\b",
       "scan_intraday", explanation="Intraday scan (15m)")

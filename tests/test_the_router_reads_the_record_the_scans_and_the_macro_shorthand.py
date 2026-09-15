@@ -131,6 +131,17 @@ SCANS = [
     ("deep scan", "scan_deep"),
     ("full scan with patterns", "scan_full"),
     ("full scan", "scan_full"),
+    # The verb-first spelling of a ladder. Kept in THIS table as well as in
+    # its own suite because destination is decided by rule ORDER, which is
+    # invisible from any one rule: "scan the 15m" reached `analyze_asset`
+    # with no symbol until the mode rules learned the scanner's own verb, and
+    # nothing but a table of phrases shows that.
+    # (tests/test_the_scanner_takes_its_own_verb.py is the full family.)
+    ("scan 4h", "scan_swing"),
+    ("scan the 15m", "scan_intraday"),
+    ("scan for scalps", "scan_scalp"),
+    ("scan the market on 4h", "scan_swing"),
+    ("1d scan", "MODEL"),
     ("1h chart of btc", "analyze_asset"),
     ("scan btc", "analyze_asset"),
     ("deep scan eth", "analyze_asset"),
