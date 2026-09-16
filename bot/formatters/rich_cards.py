@@ -993,7 +993,12 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
             hold_str = f"{hold_h / 24:.1f}d"
 
         lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
-        rr_str = f" | R:R {rr_live:.1f}" if rr_live else ""
+        # `is not None`, NOT falsiness. The omission for an absent R:R
+        # is the recorded decision (an orphan has no thesis, so there
+        # is no ratio to print) and it stands -- but `if rr_live` also
+        # swallowed a MEASURED zero, which is a real reading: both legs
+        # on record and a mark that has reached the target.
+        rr_str = f" | R:R {rr_live:.1f}" if rr_live is not None else ""
         sl_tag = f" {t('lbl_on_exchange', lang)}" if sl_order == "exchange" else ""
         # THREE STATES, NOT TWO. "None" is a finding — this position has no
         # protective order. It was also what an UNREADABLE order book produced,

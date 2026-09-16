@@ -194,13 +194,44 @@ class TestTheHandlerCarriesTheGapRatherThanPapering:
         )
 
     def test_the_derived_fields_go_absent_when_the_mark_is_absent(self):
-        src = self._src()
-        for field in ("pnl_pct", "pnl_usd", "sl_dist_pct",
-                      "tp_dist_pct", "rr_live"):
-            assert f'"{field}": None if _unread' in src, (
-                f"{field} is derived from the mark; a zero here is the same "
-                f"false claim one field over"
-            )
+        """STRUCTURAL, not literal. This asserted the exact spelling
+        `"<field>": None if _unread`, which is a claim about one condition's
+        NAME -- and it failed on a change that made the same fields absent for
+        MORE reasons (a stop or target the record does not hold), while the
+        property it guards held throughout. A scan bound to a spelling reports
+        the rename and misses the unconditional value, which is the direction
+        that matters.
+
+        The property is: each of these keys can publish None. An `IfExp` with
+        a None branch satisfies it; a bare `round(x, 2)` does not.
+        """
+        import ast
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        tree = ast.parse((root / "bot" / "skills" / "trading_commands.py")
+                         .read_text(encoding="utf-8"))
+        wanted = {"pnl_pct", "pnl_usd", "sl_dist_pct", "tp_dist_pct", "rr_live"}
+
+        def _mentions_none(node):
+            return any(isinstance(n, ast.Constant) and n.value is None
+                       for n in ast.walk(node))
+
+        rows = None
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            keys = {k.value for k in node.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            if wanted <= keys and "price_unavailable" in keys:
+                rows = node
+                break
+        assert rows is not None, "the /positions wire dict was not found"
+        for k, v in zip(rows.keys, rows.values):
+            if isinstance(k, ast.Constant) and k.value in wanted:
+                assert isinstance(v, ast.IfExp) and _mentions_none(v), (
+                    f"{k.value} is derived from the mark; a value that cannot "
+                    f"be None publishes a measured zero for an unread field"
+                )
 
     def test_the_row_is_flagged_for_the_renderer(self):
         assert '"price_unavailable": _unread' in self._src()

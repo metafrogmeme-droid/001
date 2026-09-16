@@ -1977,6 +1977,66 @@ same call — it files a measured break-even as a loss (`pnl <= 0`) beside a
 `wins` on `> 0` — and its own baseline note already explains that its feed is
 dark and that wiring it "is a real piece of work, not a wiring line".
 
+**`R:R 0.0x` ON A POSITION WHOSE STOP THE RECORD DOES NOT HOLD, and the cure
+was already written in a fifth place.** Four surfaces computed the live
+reward-to-risk by hand, byte for byte — the per-position detail card, the
+`/positions` wire, the limit-order card and `/status` — as
+`reward / risk if risk > 0 else 0`. `0` is not an absence: as an R:R it is a
+real and damning verdict, no reward per unit of risk, printed for a position
+whose DENOMINATOR nobody could read. **The two legs failed differently and
+rendered identically**, which is why neither reader could tell them apart: an
+absent STOP reached the card through the `else` arm, while an absent
+TAKE-PROFIT reached it through a real division (`0 / risk`). The input is
+ordinary — `live_executor` builds an adopted position with
+`stop_loss=0, take_profit=0` on both adoption paths and names the fields in
+`adoption_unread`, and the restore path reads
+`float(item.get("stop_loss") or 0)`. Driven on one at a $63,000 mark, the
+detail card read `R:R 0.0x` beside `SL 0.000000 (100.0%) bot-managed` — the
+worst ratio there is, a stop printed as a price of zero, a hundred percent of
+room to fall, and a bot-managed tag over an order that does not exist, all on
+the card an operator opens *because they do not know what is out there*.
+`orphan_position_row` has published `"rr_live": None` since it was written,
+under a comment saying "0 is a ratio; this is the absence of one", and it
+feeds the same two renderers.
+
+**`0.0` SURVIVES, and only where it is measured**: both legs on record and a
+mark that has REACHED the target, so there is genuinely no reward left from
+here. The two renderers that already guarded the field did it on FALSINESS
+(`if rr_live`, `if rr`), so they hid that reading along with the three
+absences — this file's own *test `is None`, not falsiness*, one field over.
+
+**The guards for two of those surfaces were scans, and the scans were the
+defect.** `test_unread_mark_is_not_break_even` asserted the literal
+`sl_dist_pct = None` and `_money(cost)` inside a ninety-line block with no
+seam, and both failed on this slice's rename while the property they guard
+held throughout — a scan measuring the spelling rather than the claim.
+`status_position_row` is that seam now, and the extraction bought three
+defects on its first drive, each the shape this file is about:
+`Exposure: {exp_pct:.1f}%` was UNCONDITIONAL over a value that is `None`
+whenever the equity read failed, so an unreadable equity did not print a dash,
+it RAISED and deleted the whole ACTIVE POSITIONS block; the leverage fallback
+`notional / cost` answered `0.0x` for an adopted position with no mark,
+because `notional` is `0.0` when unpriced; and `cost` was
+`cost_usd if cost_usd > 0 else entry * quantity` — the margin OR the notional
+under the name "Size", ten times larger at 10x, with the Exposure beneath it
+computed from the same value. `position_leverage` and `position_size_basis`
+are the readings, both already written for exactly this.
+
+**And the fix reintroduced its own subject one line later.** The first draft
+gated the SL DISTANCE on the LEVEL, and `sl_dist_pct` is `None` whenever the
+MARK was not read — so a position with a real stop and no mark raised on
+`{None:.1f}`, which is the `exp_pct` defect three lines down rebuilt inside the
+cure for it. Two conditions, not one: the distance rides the distance, the
+order tag rides the level. The DRIVE found it; no scan of that row could have.
+
+`scan_skill`'s copy of the same `else 0` is recorded rather than changed,
+because it CANNOT FIRE: its entry and stop are both placed off the ATR
+(`risk_dist == 2.2 × atr`) and `atr` falls back to `price * 0.02`, so reaching
+the else arm needs `price == 0`, at which point every figure on the card is
+already nonsense. *Don't fix what cannot fire* — and the arithmetic is driven
+in the suite so the day either half changes, that fails rather than the card
+quietly starting to publish 0.
+
 **Two of the round's findings were in the instrument, not the code.** A text
 slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
 (two live callers) and later duplicated `_record_analyze_throughput`; the mypy

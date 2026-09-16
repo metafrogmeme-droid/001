@@ -18,7 +18,15 @@ from pathlib import Path
 from bot.compat import UTC
 from typing import Any, Optional
 
+from bot.core.live_executor import position_size_basis
 from bot.core.live_readiness import mode_label
+from bot.utils.leveraged_return import position_leverage
+from bot.core.position_telemetry import (
+    format_level,
+    format_rr,
+    live_rr,
+    price_on_record,
+)
 from bot.formatters.rich_cards import display_symbol, mode_badge
 from bot.formatters.thesis_text import provenance_tag, thesis_prose
 
@@ -278,6 +286,173 @@ def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
     if prose is None:
         return ""
     return f"<blockquote>{_esc(prose[:limit])}</blockquote>{tail}"
+
+def status_position_row(pos: Any, mark: Optional[float],
+                        display_equity: Optional[float],
+                        now: Optional[datetime] = None) -> list[str]:
+    """One LIVE position on the /status card, as lines.
+
+    A SEAM, because nothing could stand where this code stands. It was
+    ninety-odd lines inside an async skill behind an engine, a user store, two
+    exchange handles and a ticker fetch, so the only instrument that could
+    reach it was a source scan -- and two of those scans failed on this
+    slice's rename while the property they guard still held, which is the
+    scan measuring the spelling rather than the claim.
+
+    Extracting it bought two defects on the first drive, both the shape this
+    file is about:
+
+      * `Exposure: {exp_pct:.1f}%` was UNCONDITIONAL over an `exp_pct` that is
+        `None` whenever the equity could not be read -- so an unreadable
+        equity did not print a dash, it raised, and the whole ACTIVE POSITIONS
+        block went with it.
+      * `leverage = getattr(pos, 'leverage', 0) or (notional / cost ...)`
+        answered `0.0x` for an adopted position with no stored leverage and no
+        mark, because `notional` is `0.0` when unpriced. `position_leverage`
+        is the reading, and it answers None rather than 1.0 for the reason its
+        own docstring gives.
+
+    `mark` is the last price if it was read, else None. `display_equity` is
+    the caller's own equity, or None when it could not be read.
+    """
+    d_icon = _OK if pos.direction == "LONG" else _BAD
+    d_arrow = "\u25b2" if pos.direction == "LONG" else "\u25bc"
+    # ONE unread mark fabricated SIX figures here: PnL, current
+    # price, notional, both SL/TP distances and the live R:R —
+    # every one of them derived from `cur_price`, which silently
+    # became the entry price. The position then reads as sitting
+    # exactly at entry, perfectly break-even, with its stop a
+    # measured distance away.
+    _mark = mark
+    _priced = _mark is not None and _mark > 0
+    cur_price = _mark if _priced else pos.entry_price
+    # TWO DIFFERENT QUANTITIES UNDER ONE NAME. `cost` was
+    # `cost_usd if cost_usd > 0 else entry * quantity` -- the MARGIN, or the
+    # NOTIONAL, selected by the falsy check whose zero means "the venue never
+    # told us", i.e. the orphan. So an adopted 10x position printed its
+    # notional as `Size` and an `Exposure` ten times what it is, on the row an
+    # operator reads to decide whether they are over-committed.
+    # `position_size_basis` answers both separately, and unrecorded stays
+    # unrecorded rather than becoming the other one.
+    margin, entry_notional = position_size_basis(pos)
+    # The CELL is the notional right now, so it needs a mark; falling back to
+    # the entry notional would put two different quantities under one label,
+    # selected by whether a ticker fetch happened to succeed -- which is the
+    # defect this row is being cured of, one cell over. Qty is the size figure
+    # that means one thing with or without a price.
+    notional = cur_price * pos.quantity if _priced else None
+
+    # Unrealized PnL
+    if not _priced:
+        upnl = None
+        upnl_pct = None
+        pnl_icon = "⚪"      # neither green nor red
+    elif pos.direction == "LONG":
+        upnl = (cur_price - pos.entry_price) * pos.quantity
+        upnl_pct = ((cur_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else 0
+        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
+    else:
+        upnl = (pos.entry_price - cur_price) * pos.quantity
+        upnl_pct = ((pos.entry_price - cur_price) / pos.entry_price * 100) if pos.entry_price else 0
+        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
+
+    # Hold time
+    from datetime import timezone
+    hold_secs = ((now or datetime.now(timezone.utc)) - pos.opened_at).total_seconds()
+    if hold_secs < 3600:
+        hold_str = f"{hold_secs / 60:.0f}m"
+    elif hold_secs < 86400:
+        hold_str = f"{hold_secs / 3600:.1f}h"
+    else:
+        hold_str = f"{hold_secs / 86400:.1f}d"
+
+    # Distance to SL/TP — price facts, so unknown without a
+    # mark. "1.0% away" computed off the entry price is a
+    # statement about where the market is right now.
+    # A LEVEL IS THREE-VALUED INDEPENDENTLY OF THE MARK. The
+    # `_priced` branch answered the mark's question for all
+    # three, so an adopted position -- built with
+    # `stop_loss=0, take_profit=0` -- printed its stop as
+    # `$0.000000`, `100.0% away`, and `Live R:R 0.00x`, which
+    # are three confident statements about a position nobody
+    # had recorded a stop for.
+    _sl_px = price_on_record(pos.stop_loss)
+    _tp_px = price_on_record(pos.take_profit)
+    sl_dist_pct = (abs(cur_price - _sl_px) / cur_price * 100
+                   if _priced and cur_price and _sl_px is not None else None)
+    tp_dist_pct = (abs(_tp_px - cur_price) / cur_price * 100
+                   if _priced and cur_price and _tp_px is not None else None)
+    rr_live = live_rr(cur_price if _priced else None,
+                      pos.stop_loss, pos.take_profit)
+
+    # Leverage. The old fallback was `notional / cost`, and `notional` is
+    # `0.0` when the mark was not read -- so an adopted position with no
+    # stored leverage printed `Leverage: 0.0x`, a figure no venue reports and
+    # no reader can act on. `position_leverage` answers None for the reason
+    # its own docstring gives: 1.0x is a real leverage that a spot position
+    # has, so "unlevered" and "nobody could say" must not share a number.
+    # Derived against the ENTRY notional, not the current one: leverage is
+    # fixed when the position opens, and `current_notional / entry_margin`
+    # is that leverage times the price move.
+    leverage = position_leverage(getattr(pos, 'leverage', 0), margin,
+                                 entry_notional)
+
+    # Exposure % of equity -- of the MARGIN committed, which is the number a
+    # reader is deciding about. Unrecorded margin is not an exposure of zero
+    # and it is not the notional either.
+    exp_pct = (margin / display_equity * 100
+               if display_equity and margin is not None else None)
+
+    # SL/TP order status
+    sl_status = "\u2705" if pos.sl_order_id else "\u26a0\ufe0f manual"
+    tp_status = "\u2705" if pos.tp_order_id else "\u26a0\ufe0f manual"
+
+    # Built as a list so the price-dependent lines can simply
+    # be omitted. Every one of these is derived from cur_price;
+    # without a mark they are claims about where the market is,
+    # not facts about the position.
+    _row = [
+        f"  {d_icon}{d_arrow} <b>{_esc(pos.symbol)}</b>  \u00b7  {hold_str}",
+        (f"  {pnl_icon} PnL: <code>{_money(upnl, sign=True)} "
+         f"({upnl_pct:+.2f}%)</code>" if _priced else
+         f"  {pnl_icon} PnL: <i>price unavailable \u2014 not computed</i>"),
+        f"  - Entry: <code>${pos.entry_price:,.6f}</code>",
+        (f"  - Current: <code>${cur_price:,.6f}</code>" if _priced
+         else "  - Current: <code>\u2014</code>"),
+        # NAMED. "Size" said neither margin nor notional, which is how the
+        # two came to share a variable in the first place.
+        (f"  - Margin: <code>{_money(margin)}</code> \u00b7 Notional: "
+         f"<code>{_money(notional)}</code>"),
+        # BOTH HALVES WERE FORMATTED UNCONDITIONALLY over values that are
+        # three-valued. `exp_pct` is None whenever the equity could not be
+        # read, and `{None:.1f}` RAISES -- so an unreadable equity did not
+        # print a dash here, it deleted the whole ACTIVE POSITIONS block.
+        ("  - Leverage: <code>"
+         + (f"{leverage:.1f}x" if leverage is not None else "\u2014")
+         + "</code> \u00b7 Exposure: <code>"
+         + (f"{exp_pct:.1f}%" if exp_pct is not None else "\u2014")
+         + "</code>"),
+        # TWO CONDITIONS, NOT ONE. The first draft gated the distance on the
+        # LEVEL -- and `sl_dist_pct` is None whenever the MARK was not read,
+        # so a position with a real stop and no mark raised on `{None:.1f}`.
+        # That is the `exp_pct` defect three lines down, rebuilt inside the
+        # fix for it; the drive found it, and no scan of this row could have.
+        # The order tag is a fact about the ORDER, so it rides with the level.
+        (f"  - SL: {format_level(_sl_px, '$')}"
+         + (f" ({sl_dist_pct:.1f}% away)" if sl_dist_pct is not None else "")
+         + (f" {sl_status}" if _sl_px is not None else "")),
+        (f"  - TP: {format_level(_tp_px, '$')}"
+         + (f" ({tp_dist_pct:.1f}% away)" if tp_dist_pct is not None else "")
+         + (f" {tp_status}" if _tp_px is not None else "")),
+        # ALWAYS PRINTED. Dropping the row for an unpriced
+        # mark took the Qty with it and said nothing about
+        # why; the dash says the ratio was attempted and the
+        # two rows above say which leg was missing.
+        (f"  - Live R:R: <code>{format_rr(rr_live, 'x', 2)}</code> \u00b7 "
+         f"Qty: <code>{pos.quantity:,.4f}</code>"),
+    ]
+    return _row
+
 
 def _money(v: Optional[float], sign: bool = False) -> str:
     """Money, or an em dash when nobody could read it.
@@ -3241,95 +3416,8 @@ class PlaybookSkill(BaseSkill):
 
                 lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS (LIVE)</b>\n{SEP}")
                 for pos in live_positions[:5]:
-                    d_icon = _OK if pos.direction == "LONG" else _BAD
-                    d_arrow = "\u25b2" if pos.direction == "LONG" else "\u25bc"
-                    # ONE unread mark fabricated SIX figures here: PnL, current
-                    # price, notional, both SL/TP distances and the live R:R —
-                    # every one of them derived from `cur_price`, which silently
-                    # became the entry price. The position then reads as sitting
-                    # exactly at entry, perfectly break-even, with its stop a
-                    # measured distance away.
-                    _mark = live_prices.get(pos.symbol)
-                    _priced = _mark is not None and _mark > 0
-                    cur_price = _mark if _priced else pos.entry_price
-                    cost = pos.cost_usd if pos.cost_usd > 0 else pos.entry_price * pos.quantity
-                    notional = cur_price * pos.quantity if _priced else 0.0
-
-                    # Unrealized PnL
-                    if not _priced:
-                        upnl = None
-                        upnl_pct = None
-                        pnl_icon = "⚪"      # neither green nor red
-                    elif pos.direction == "LONG":
-                        upnl = (cur_price - pos.entry_price) * pos.quantity
-                        upnl_pct = ((cur_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else 0
-                        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
-                    else:
-                        upnl = (pos.entry_price - cur_price) * pos.quantity
-                        upnl_pct = ((pos.entry_price - cur_price) / pos.entry_price * 100) if pos.entry_price else 0
-                        pnl_icon = "\U0001f7e2" if upnl >= 0 else "\U0001f534"
-
-                    # Hold time
-                    from datetime import timezone
-                    hold_secs = (datetime.now(timezone.utc) - pos.opened_at).total_seconds()
-                    if hold_secs < 3600:
-                        hold_str = f"{hold_secs / 60:.0f}m"
-                    elif hold_secs < 86400:
-                        hold_str = f"{hold_secs / 3600:.1f}h"
-                    else:
-                        hold_str = f"{hold_secs / 86400:.1f}d"
-
-                    # Distance to SL/TP — price facts, so unknown without a
-                    # mark. "1.0% away" computed off the entry price is a
-                    # statement about where the market is right now.
-                    if _priced:
-                        sl_dist_pct = abs(cur_price - pos.stop_loss) / cur_price * 100 if cur_price else 0
-                        tp_dist_pct = abs(pos.take_profit - cur_price) / cur_price * 100 if cur_price else 0
-                        risk_from_here = abs(cur_price - pos.stop_loss) if pos.stop_loss else 0
-                        reward_from_here = abs(pos.take_profit - cur_price) if pos.take_profit else 0
-                        rr_live = (reward_from_here / risk_from_here) if risk_from_here > 0 else 0
-                    else:
-                        sl_dist_pct = tp_dist_pct = rr_live = None
-
-                    # Leverage (from position or computed)
-                    leverage = getattr(pos, 'leverage', 0) or (notional / cost if cost > 0 else 1.0)
-
-                    # Exposure % of equity
-                    exp_pct = (cost / display_equity * 100
-                               if display_equity else None)
-
-                    # SL/TP order status
-                    sl_status = "\u2705" if pos.sl_order_id else "\u26a0\ufe0f manual"
-                    tp_status = "\u2705" if pos.tp_order_id else "\u26a0\ufe0f manual"
-
-                    # Built as a list so the price-dependent lines can simply
-                    # be omitted. Every one of these is derived from cur_price;
-                    # without a mark they are claims about where the market is,
-                    # not facts about the position.
-                    _row = [
-                        f"  {d_icon}{d_arrow} <b>{_esc(pos.symbol)}</b>  \u00b7  {hold_str}",
-                        (f"  {pnl_icon} PnL: <code>{_money(upnl, sign=True)} "
-                         f"({upnl_pct:+.2f}%)</code>" if _priced else
-                         f"  {pnl_icon} PnL: <i>price unavailable \u2014 not computed</i>"),
-                        f"  - Entry: <code>${pos.entry_price:,.6f}</code>",
-                        (f"  - Current: <code>${cur_price:,.6f}</code>" if _priced
-                         else "  - Current: <code>\u2014</code>"),
-                        (f"  - Size: <code>{_money(cost)}</code> \u00b7 Notional: "
-                         f"<code>{_money(notional)}</code>" if _priced
-                         else f"  - Size: <code>{_money(cost)}</code>"),
-                        (f"  - Leverage: <code>{leverage:.1f}x</code> \u00b7 "
-                         f"Exposure: <code>{exp_pct:.1f}%</code>"),
-                        (f"  - SL: <code>${pos.stop_loss:,.6f}</code> "
-                         f"({sl_dist_pct:.1f}% away) {sl_status}" if _priced
-                         else f"  - SL: <code>${pos.stop_loss:,.6f}</code> {sl_status}"),
-                        (f"  - TP: <code>${pos.take_profit:,.6f}</code> "
-                         f"({tp_dist_pct:.1f}% away) {tp_status}" if _priced
-                         else f"  - TP: <code>${pos.take_profit:,.6f}</code> {tp_status}"),
-                        (f"  - Live R:R: <code>{rr_live:.2f}x</code> \u00b7 "
-                         f"Qty: <code>{pos.quantity:,.4f}</code>" if _priced
-                         else f"  - Qty: <code>{pos.quantity:,.4f}</code>"),
-                    ]
-                    lines.append("\n".join(_row))
+                    lines.append("\n".join(status_position_row(
+                        pos, live_prices.get(pos.symbol), display_equity)))
             else:
                 lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
                 lines.append(f"  {_NEU} <i>No open positions</i>")
