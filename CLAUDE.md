@@ -2939,13 +2939,15 @@ greeting-led action, because the recursion answers those anyway; it dies only
 on `halt the bot, thanks`, which has no lead to strip and which
 `_THANKS_PATTERNS` claims unanchored — the exact defect the halt slice fixed.
 
-One neighbour is recorded rather than fixed, two steps from this subject:
-`my risk:reward` and `my r:r` are still greeted, because the short-message
+One neighbour was recorded rather than fixed, two steps from this subject:
+`my risk:reward` and `my r:r` were still greeted, because the short-message
 gate matches WHITESPACE-SPLIT words against `trading_words` and the single
 token `risk:reward` is not the word `risk`. A tokenization gap in the gate's
-vocabulary check, not a greeting gap and not a rule gap. The guard asserts
-what the product does TODAY and says so, so a fix trips it and the next reader
-arrives at the note rather than at a silent change.
+vocabulary check, not a greeting gap and not a rule gap. The guard asserted
+what the product did THEN and said so, so a fix would trip it and the next
+reader would arrive at the note rather than at a silent change. **It
+tripped**, the section two below is what replaced it, and the neighbour was a
+class rather than two rows.
 (`tests/test_a_greeting_lead_is_not_small_talk.py`.)
 
 **Thirty mutations, each killed — and the three that survived a round were
@@ -2964,6 +2966,90 @@ pinned: a `{0,2}` bound on how many lead words may stack survived, because
 no input distinguishes two from three — an equivalent mutant is the round
 saying the code claims a check it does not make, so the bound is gone and
 the VOCABULARY is the check.
+
+**ONE TERM, TWO SPELLINGS, TWO DESTINATIONS — a separator is not a word
+boundary the same way in every reader, and three readers of one message
+disagreed about it.** Driven over fourteen pairs of the SAME trading term
+spelled two ways, EIGHT answered differently, and the direction was
+arbitrary: `win rate` reached the positions card and `win-rate` the greeter;
+`profit factor` reached the model and `profit-factor` the positions card;
+`max drawdown`, `api keys` and `risk reward` reached the model while
+`max-drawdown`, `api-keys` and `risk:reward` were answered "hey!"; `win loss`
+reached the card and `win/loss` was asked **"which coin do you want me to
+look at?"**.
+
+**The social gate's vocabulary is written in WORDS and the message was split
+on WHITESPACE.** So every compound a trader writes with an internal `:`, `/`,
+`-` or `%` arrived as ONE token `trading_words` had never heard of, and the
+check that decides whether a short message is small talk was not consulted at
+all: eighteen of thirty-nine ordinary punctuated trading terms were greeted —
+`my sl/tp`, `api-keys`, `max-drawdown`, `r:r ratio`, `drawdown%`, `4h/1d`.
+`_vocabulary_forms` is the reading, and the ORDER inside it is the whole
+design: the whole token FIRST and its separator-delimited parts after,
+because the set holds entries that are themselves compounds — `p&l`,
+`walk-forward` — and splitting alone would lose them, since no part of `p&l`
+is in the vocabulary. It adds spellings and removes none, which is the only
+direction that cannot send a message that reached a read to the greeter
+instead. Two shorthands the RULES already knew and the gate did not went in
+beside it (`sl` and `tp` are alternatives of the orders rule, and `my sl tp`
+was greeted with the space in it, so the separator was not the whole story),
+and the bare letters stay out: a one-letter entry would acquit "r u there",
+so `r:r`, `r/r`, `rr` and `w/l` are WHOLE-token entries, which is the form
+tried first.
+
+**The rules match with `\b`, which treats `-` as a boundary — so a per-WORD
+exclusion written in one separator does not fire.** The bare Portfolio
+keyword rule carries `profit(?! factor)`, hand-written for one phrase, and
+`\bprofit\b` matches INSIDE `profit-factor` while the ` factor` the
+lookahead spells never follows it: `profit factor` reached the model and
+`profit-factor` reached the POSITIONS CARD at confidence 1.0 — the statistic
+the exclusion exists to keep off that card, let through by the exclusion's
+own spelling. The account-status rule spelled `win ?rate`, so `win-rate` was
+nobody's; and the same keyword rule knew `p&l` and not `p/l`.
+
+**And the bare-ticker rule took any two English words with a slash between
+them, on a promise its own docstring makes.** That rule says it is "written
+as a ticker only … so a one-word message that is not a symbol is left exactly
+where it was", and its pair alternative was `[A-Za-z]{2,10}/[A-Za-z]{2,10}`
+while `_extract_symbol` resolves the slash form for `/USDT` alone. So the
+rule CLAIMED the message, the extractor answered nothing, and the caller
+dropped to 0.5 and was asked which coin: `buy/sell`, `risk/reward`,
+`win/loss`, `long/short`, `fear/greed`, `call/put`, `boom/bust`, `sl/tp` and
+`risk/return`, nine for nine — a clarification offered for a question that
+named no coin, which is the `scan the 15m` defect arriving through a
+separator. A pair is a base PRICED IN something, so the quote side is a quote
+currency and nothing else. After: 0 of 18 greeted, 0 of 9 asked which coin, 3
+of 14 pairs still differing — and each of those three differs by something
+that is not a separator (`p l` and `r r` are not spellings of anything, and
+`my drawdown` against `drawdown%` is a POSSESSIVE the risk rule reads
+deliberately), which is stated as a driven test rather than as prose.
+
+**The cost lands entirely on the decoys, and one row paid it.** Reading more
+spellings per token can only make the gate LESS likely to answer "hey!", so
+the only thing that can break is a pleasantry whose punctuation hides a
+trading word. Thirty ordinary ones were driven and one moved: `top` is a
+trading word, so `top-notch` reaches the model rather than the greeter. That
+is stated in the suite rather than filtered out of it, and it falls on the
+safe side — a model that answers conversationally, not a confident wrong
+card.
+(`tests/test_one_term_two_spellings_reach_one_reading.py`.)
+
+**Seventeen mutations, each killed on the first round — and the one that was
+never run is the one worth writing down.** The quote list is spelled
+longest-first, and the first draft of the comment above it said so *"so
+`usdt` is not read as `usd` with a `t` left over"*. Driven both orders, all
+three of `btc/usdt`, `btc/usdc` and `btc/usd` read either way: the rule
+anchors the end of the message, so the engine backtracks out of `usd` into
+`usdt` by itself. The ordering is not load-bearing, a mutation of it would
+have been an EQUIVALENT MUTANT, and the comment claiming a check the code
+does not make is the thing that was deleted. The seventeen die where the
+drives say — the forms reduced to the whole token or to the parts alone, the
+gate reading whitespace tokens again, the separator class narrowed to
+whitespace, the forms undeduped or uncased, `sl`/`tp` or the R shorthand or
+the rule-claimed timeframes leaving the vocabulary, the bare letter `r`
+joining it, each exclusion re-spelled with its one separator, and the quote
+side widened back to any English word, narrowed past the venue's own
+currency, or grown an English one.
 
 **A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
 LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a

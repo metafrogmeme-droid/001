@@ -113,6 +113,44 @@ _BEGINNER_PATTERNS = re.compile(
 )
 
 
+#: A SEPARATOR IS NOT A WORD BOUNDARY THE SAME WAY IN EVERY READER, and this
+#: is the narrowest of the three that disagreed. `trading_words` below is
+#: written in WORDS; the message was split on WHITESPACE; so every term a
+#: trader writes with an internal `:`, `/`, `-` or `%` arrived as ONE token
+#: the set had never heard of, and the check that decides whether a short
+#: message is small talk was not consulted at all.
+#:
+#: Driven over fourteen pairs of the SAME term spelled two ways, EIGHT
+#: answered two different ways, and the direction was arbitrary: `risk
+#: reward`, `max drawdown` and `api keys` reached the model while
+#: `risk:reward`, `max-drawdown` and `api-keys` were answered "hey!";
+#: `win rate` reached a card and `win-rate` the greeter; `my drawdown`
+#: reached the risk card and `drawdown%` the greeter.
+#:
+#: The WHOLE token is tried first and its parts after it, because the set
+#: holds entries that are themselves compounds — `p&l`, `walk-forward` —
+#: and splitting alone would LOSE them: no part of `p&l` is in the
+#: vocabulary. So this adds spellings and removes none, which is the only
+#: direction that cannot make a message that reaches a read reach the
+#: greeter instead.
+_TERM_SEPARATORS = re.compile(r"[^0-9a-z]+")
+
+
+def _vocabulary_forms(token: str) -> tuple[str, ...]:
+    """The spellings of one whitespace token that `trading_words` could hold.
+
+    The token itself, then its separator-delimited parts, lowercased because
+    the vocabulary is. Order is kept and nothing is repeated — `r:r` has one
+    distinct part, not two.
+    """
+    t = token.lower()
+    forms = [t]
+    for part in _TERM_SEPARATORS.split(t):
+        if part and part not in forms:
+            forms.append(part)
+    return tuple(forms)
+
+
 def _is_social_message(text: str) -> bool:
     """Detect greetings, thanks, farewells, and casual social chat."""
     stripped = text.strip().rstrip("!?.")
@@ -187,6 +225,21 @@ def _is_social_message(text: str) -> bool:
             # the account and its plumbing
             "orders", "order", "limit", "limits", "leverage", "margin", "stop",
             "stops", "target", "targets", "keys", "api", "connect", "venue",
+            # `sl` and `tp` are ALTERNATIVES OF THE ORDERS RULE and this gate
+            # knew neither, so "my sl tp" was greeted with a space in it and
+            # "my sl/tp" with a slash — the separator was not the whole
+            # story. Same lesson as `trigger`/`triggers` above, and neither
+            # is an English word, so neither can acquit real small talk.
+            "sl", "tp",
+            # The R-multiple, on a repo whose entire shadow book is
+            # denominated in R, has a shorthand that IS a separator — and so
+            # does the win/loss ratio. These are WHOLE-token entries, which
+            # is the form `_vocabulary_forms` tries first, because the bare
+            # letters must stay out: "r u there" is small talk and a
+            # one-letter entry would acquit it. `w/l` is the RATIO, so it
+            # goes to the model for the reason the rule below excludes a
+            # profit factor — a statistic no card prints.
+            "r:r", "r/r", "rr", "w/l",
             # the orders rule learned `triggers` when the capability card's
             # stop/take-profit half was given a vocabulary, and a term the
             # rules know and this gate does not is a trading question
@@ -216,6 +269,16 @@ def _is_social_message(text: str) -> bool:
             # ladder card nor the full sweep runs.
             "1w", "1mo", "w1", "3d", "2d", "1week", "2h", "30m", "1m", "3m",
             "h4", "m15", "m5",
+            # AND THE ONES A RULE CLAIMS NEED AN ENTRY AFTER ALL, for the
+            # COMPOUND. The reasoning just above holds for a timeframe typed
+            # ALONE — the gate consults the rules below before it decides,
+            # and the rule that claims `4h` matches the message `4h`. It does
+            # not hold for `4h/1d` or `15m/1h`, which no rule claims and
+            # which the vocabulary could not see either: both greeted.
+            # Listing them changes nothing for the bare word — the rule sweep
+            # would have answered the same — and is the only thing that reads
+            # the compound.
+            "5m", "15m", "1h", "4h", "1d",
             # the research surface: registered skills and their arguments, so
             # "walk forward test" and "optimise the params" reach a model that
             # can say what runs where, not the greeter
@@ -242,7 +305,8 @@ def _is_social_message(text: str) -> bool:
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
-        if not any(w.lower() in trading_words for w in words):
+        if not any(f in trading_words
+                   for w in words for f in _vocabulary_forms(w)):
             # Only classify as social if it doesn't contain intent keywords
             for pattern, _, _, _ in _INTENT_RULES:
                 if pattern.search(stripped):
@@ -541,6 +605,21 @@ def symbols_named(text: str) -> list[str]:
 #: Every ticker and coin name the router knows, as one alternation — the
 #: post-mortem rule's object slot and the compound close rules both read it.
 _TICKER_WORDS = "|".join(sorted(_KNOWN_SYMBOLS | set(_NAME_TO_TICKER)))
+
+#: THE QUOTE SIDE OF A PAIR. `BASE/QUOTE` is a ticker only when the QUOTE is
+#: a currency something is priced in — the bare-ticker rule below took any
+#: two English words joined by a slash, which is not a shape a ticker has
+#: and is exactly the shape ordinary shorthand does. The ORDER of these
+#: alternatives is not load-bearing and is deliberately not claimed to be:
+#: the rule anchors the end of the message, so the engine backtracks out of
+#: `usd` into `usdt` by itself. Driven both ways, `btc/usdt`, `btc/usdc` and
+#: `btc/usd` all read — so a comment saying "longest first, or `usdt` is
+#: read as `usd` with a `t` left over" would claim a check the code does not
+#: make, which is what an equivalent mutant is for.
+_QUOTE_WORDS = "|".join((
+    "fdusd", "busd", "tusd", "usdt", "usdc", "usde", "usd", "dai",
+    "btc", "eth", "bnb", "sol",
+))
 
 
 def _extract_symbol(text: str) -> Optional[str]:
@@ -1688,7 +1767,12 @@ _rule(r"^(?!.*\b(?:in general|for (?:swing|scalp|day|intraday) trading"
       r".*?(?:\bhow.?s (?:my|the) (?:pnl|p&l|portfolio|book|equity|balance|account)\b(?: (?:looking|doing|going))?"
       r"|\bam i (?:up|down|green|red|in profit|in the red)(?: today| this week| this month| rn| right now)?\b"
       r"|\bup or down today\b|\bhow.?s today(?: going| looking)?\b|\btoday.?s (?:pnl|p&l)\b"
-      r"|\bwin ?rate\b|\bhit rate\b|\bwhat percent(?:age)? of (?:my )?trades (?:win|are winners|are wins))",
+      # `win ?rate` and `hit rate` were written with a space or nothing
+      # between the two words, and a reader who writes the hyphen wrote a
+      # term neither this rule nor the social gate could see: driven,
+      # `win rate` and `winrate` reached this card and `win-rate` was
+      # answered "hey!". The separator is the term's, not the rule's.
+      r"|\bwin[ -]?rate\b|\bhit[ -]?rate\b|\bwhat percent(?:age)? of (?:my )?trades (?:win|are winners|are wins))",
       "get_portfolio", explanation="Account status question")
 _rule(r"\b(?:my|the|current|whats my|what.?s my|hows my|how.?s my|is my)\s+"
       r"(?:max(?:imum)? |current )?(?:drawdown|exposure)\b"
@@ -1758,7 +1842,19 @@ _rule(r"\b(?:vs\.?|versus)\b"
 # the SOCIAL gate: a ticker answered as small talk. Written as a ticker only
 # ($X, X/USDT, caps, or a name the router knows), so a one-word message that
 # is not a symbol is left exactly where it was.
-_rule(rf"^\s*(?:\$[A-Za-z]{{2,10}}|[A-Za-z]{{2,10}}/[A-Za-z]{{2,10}}"
+#
+# THE PAIR ALTERNATIVE DID NOT KEEP THAT PROMISE, and the sentence above is
+# where it was claimed. It was `[A-Za-z]{2,10}/[A-Za-z]{2,10}` — ANY two
+# English words joined by a slash — while `_extract_symbol` resolves the
+# slash form for `/USDT` alone. So the rule claimed the message, the
+# extractor answered nothing, and the caller dropped to 0.5 and was asked
+# **"which coin do you want me to look at?"**. Driven: `buy/sell`,
+# `risk/reward`, `win/loss`, `long/short`, `fear/greed`, `call/put` and
+# `boom/bust` each reached that question, which a reader takes as a
+# clarification rather than as the wrong door it is — the `scan the 15m`
+# lesson, arriving through a separator. A pair is a base PRICED IN
+# something, so the quote side is `_QUOTE_WORDS` and nothing else.
+_rule(rf"^\s*(?:\$[A-Za-z]{{2,10}}|[A-Za-z]{{2,10}}/(?:{_QUOTE_WORDS})"
       rf"|(?-i:[A-Z]{{2,10}})|(?:{_TICKER_WORDS}))\s*[?!.]*$",
       "analyze_asset", needs_symbol=True, explanation="A message that is a ticker")
 
@@ -1966,7 +2062,16 @@ _rule(_EDU + r"\b(open orders?|pending orders?|limit orders?|my orders?"
 # beside `profit` is the old shape — a per-WORD exclusion hand-written for one
 # phrase, where the sentence is what decides — and it stays because a profit
 # factor is a statistic no card prints, which is a different reason.
-_rule(_EDU + r"\b(portfolio|balance|equity|pnl|profit(?! factor)|loss|p&l)\b",
+#
+# AND IT WAS WRITTEN IN ONE SEPARATOR. `\b` treats `-` as a word boundary, so
+# `\bprofit\b` matches INSIDE `profit-factor` and the ` factor` the lookahead
+# spells never follows it. Driven, `profit factor` reached the model and
+# `profit-factor` reached THIS CARD at confidence 1.0 — the statistic the
+# exclusion exists to keep off it, let through by the exclusion's own
+# spelling. `p&l` grew its second spelling for the same reason: a reader who
+# writes `p/l` is asking the question this rule answers, and was greeted.
+_rule(_EDU + r"\b(portfolio|balance|equity|pnl|profit(?![-\s]factor)|loss"
+      r"|p[&/]l)\b",
       "get_portfolio", explanation="Portfolio keyword")
 
 # --- Risk ---
