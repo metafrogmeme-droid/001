@@ -8491,16 +8491,31 @@ class RuneClawEngine:
                 try:
                     hold_h = ((c.closed_at - c.opened_at).total_seconds() / 3600) if getattr(c, 'closed_at', None) and getattr(c, 'opened_at', None) else 0
                     if hold_h > 0 and c.entry_price > 0:
-                        if c.direction.value == "LONG":
-                            risk = c.entry_price - c.stop_loss
-                        else:
-                            risk = c.stop_loss - c.entry_price
-                        final_r = c.pnl / (risk * c.quantity) if risk > 0 and c.quantity > 0 else 0
+                        # `r_multiple_for` IS THE READING. This was a second
+                        # copy of the arithmetic that seam exists to replace,
+                        # carrying both halves its own docstring names. The
+                        # `else 0` recorded an unmeasurable close as a
+                        # MEASURED 0R -- a trade that ended exactly at its
+                        # risk distance is a real outcome and this was not
+                        # one. And a stop of 0.0 (an orphan close: precisely
+                        # the kind whose stop cannot be read) broke
+                        # ASYMMETRICALLY, which no reader could have guessed:
+                        # for a LONG `risk = entry - 0` is positive, so the
+                        # guard PASSED and the record got `pnl / (entry *
+                        # qty)` -- not an R at all, a different quantity in
+                        # the right units -- while for a SHORT `risk = 0 -
+                        # entry` is negative, the guard failed, and the same
+                        # missing field became 0R. One absent stop, two
+                        # different wrong answers, decided by direction.
+                        from bot.core.trade_journal import r_multiple_for
+                        final_r = r_multiple_for(
+                            float(c.entry_price), float(c.stop_loss),
+                            c.pnl, c.quantity)
                         self.hold_analytics.record(
                             strategy_type=c.strategy_type,
                             holding_hours=hold_h,
                             r_multiple=final_r,
-                            is_win=c.pnl > 0,
+                            pnl=c.pnl,
                         )
                 except Exception:
                     pass
