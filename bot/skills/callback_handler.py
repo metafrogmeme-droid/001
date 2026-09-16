@@ -36,6 +36,12 @@ from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
 from bot.core.earn_account import EarnAccount, earn_account_line
+from bot.core.position_telemetry import (
+    format_level,
+    format_rr,
+    live_rr,
+    price_on_record,
+)
 from bot.formatters.drift_offer import (
     atr_from_ohlcv,
     flatten_headline,
@@ -101,6 +107,30 @@ def safe_mode_notice() -> str:
         "flattens every account.\n\n"
         "<i>Use /risk to see what is currently blocking trades.</i>"
     )
+
+
+def _level_row(label: str, price: Optional[float],
+               dist_pct: Optional[float], tag: str) -> str:
+    """One SL / TP row on the position card, or the absence of one.
+
+    `price` has already been through `price_on_record`, so ``None`` here is a
+    level THE RECORD DOES NOT HOLD. Printing it as a price said two false
+    things at once: `SL <code>0.000000</code>` reads as a stop placed at zero,
+    and the distance beside it -- `abs(mark - 0) / mark` -- said that stop was
+    100% away, i.e. this position has the whole price to fall before it is
+    touched. On a card an operator opens because they do not know what is out
+    there, that is the most reassuring possible rendering of the least
+    protected possible position.
+
+    THE TAG GOES WITH IT. "bot-managed" is the tag for an SL the bot holds
+    locally rather than on the venue; over a level nobody recorded it claims
+    the bot is managing a stop that does not exist -- the same "bot-managed
+    beside stop none on record" shape the instrument row was cured of.
+    """
+    if price is None:
+        return f"{label} {format_level(None)}"
+    _d = f" ({dist_pct:.1f}%)" if dist_pct is not None else ""
+    return f"{label} {format_level(price)}{_d} {tag}"
 
 
 class CallbackHandler:
@@ -889,13 +919,23 @@ class CallbackHandler:
                 pnl_usd = None
                 d_emoji = "\U0001f7e2" if _dir == "LONG" else "\U0001f534"
                 pnl_emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
-                sl_dist = abs(last_px - _sl) / last_px * 100 if last_px else 0
-                tp_dist = abs(_tp - last_px) / last_px * 100 if last_px else 0
+                # THE LEVELS ARE THREE-VALUED. An adopted position is built
+                # with `stop_loss=0, take_profit=0`, so a zero here is a level
+                # the record does not hold -- and a distance measured against
+                # it said the stop was 100% away, which is a specific and
+                # wrong claim about how much room this position has.
+                _sl_px = price_on_record(_sl)
+                _tp_px = price_on_record(_tp)
+                sl_dist = (abs(last_px - _sl_px) / last_px * 100
+                           if last_px and _sl_px is not None else None)
+                tp_dist = (abs(_tp_px - last_px) / last_px * 100
+                           if last_px and _tp_px is not None else None)
 
-                # R:R from current price
-                risk_left = abs(last_px - _sl) if _sl else 0
-                reward_left = abs(_tp - last_px) if _tp else 0
-                rr_live = reward_left / risk_left if risk_left > 0 else 0
+                # R:R from current price, through the one reading. `0` was
+                # three different facts -- no stop, no target, and a mark that
+                # has reached a readable target -- and the card printed all
+                # three as the same damning verdict.
+                rr_live = live_rr(last_px, _sl, _tp)
 
                 # Leverage — prefer the stored value, else derive it from the
                 # MARGIN, else say so.
@@ -995,9 +1035,9 @@ class CallbackHandler:
                     f"{d_emoji} {_dir} | {pnl_emoji} {_pnl_str}",
                     "",
                     f"Entry <code>{_entry:,.6f}</code> / Now <code>{last_px:,.6f}</code>",
-                    f"Size <code>${sz:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {rr_live:.1f}x",
-                    f"SL <code>{_sl:,.6f}</code> ({sl_dist:.1f}%) {sl_tag}",
-                    f"TP <code>{_tp:,.6f}</code> ({tp_dist:.1f}%) {tp_tag}",
+                    f"Size <code>${sz:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {format_rr(rr_live)}",
+                    _level_row("SL", _sl_px, sl_dist, sl_tag),
+                    _level_row("TP", _tp_px, tp_dist, tp_tag),
                     f"Net PnL <code>{_net_str}</code> (fees ${total_fees + funding_paid:.2f})",
                 ]
 

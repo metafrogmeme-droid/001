@@ -92,6 +92,9 @@ except Exception:  # pragma: no cover - the card must still render
     _TREND_UNREAD = "Trend not read"
 
 
+from bot.core.position_telemetry import format_rr  # noqa: E402
+
+
 def _num(v):
     """A real number, or None. Bools and NaN are not readings."""
     if isinstance(v, bool) or not isinstance(v, (int, float)):
@@ -1116,9 +1119,12 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
     size_text = "unread" if size_usd is None else f"${size_usd:,.2f}{lev_str}"
     _cell(c1, y, "SIZE", size_text)
-    # An orphan has no thesis, so it has no reward to measure a risk against.
-    # "0.0x" is a measured claim that it cannot win.
-    rr_str = f"{rr:.1f}x" if rr else "—"
+    # THE ONE RENDERER. This carried `f"{rr:.1f}x" if rr else "\u2014"` -- and
+    # `if rr` swallowed a MEASURED zero (both legs on record, the mark has
+    # reached the target) along with the absence the dash is for. A second
+    # spelling of the same three-valued rule is a second answer about what an
+    # unreadable ratio looks like, so it asks `format_rr`.
+    rr_str = format_rr(rr, "x", 1)
     _cell(c2, y, "R:R | HOLD", f"{rr_str} | {hold_time or '—'}")
     y += CELL_H + GAP
 

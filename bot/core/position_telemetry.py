@@ -18,6 +18,105 @@ from __future__ import annotations
 
 from typing import Optional
 
+
+def price_on_record(v: object) -> Optional[float]:
+    """The price the record holds, or ``None`` when it holds none.
+
+    ``0.0`` IS NOT A PRICE. The adoption path constructs a ``LivePosition``
+    with ``stop_loss=0, take_profit=0`` and names the fields in
+    ``adoption_unread``; the restore path reads
+    ``float(item.get("stop_loss") or 0)``. So zero is the exact shape of a
+    level nobody stated, and `trade_journal.r_multiple_for` already says the
+    rule in as many words: A STOP OF ZERO IS NOT A STOP.
+
+    NaN and the infinities go the same way. Arithmetic propagates them
+    silently, so a card formats a number that means nothing while looking
+    like every other number on the row.
+    """
+    if v is None:
+        return None
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")) or f <= 0:
+        return None
+    return f
+
+
+def live_rr(mark: object, stop: object, take_profit: object) -> Optional[float]:
+    """Reward-to-risk FROM HERE, or ``None`` when a leg could not be read.
+
+    Four surfaces computed this by hand as::
+
+        risk   = abs(mark - stop) if stop else 0
+        reward = abs(tp - mark)   if tp   else 0
+        rr     = reward / risk if risk > 0 else 0
+
+    and ``0`` is not an absence. As an R:R it is a real and damning verdict —
+    no reward per unit of risk — printed for a position whose DENOMINATOR
+    nobody could read, on the card an operator opens because they do not know
+    what is out there.
+
+    THE TWO LEGS FAILED DIFFERENTLY AND RENDERED IDENTICALLY, which is why
+    neither reader could tell them apart: an absent STOP reached the card
+    through the ``else`` arm, while an absent TAKE-PROFIT reached it through a
+    real division (``0 / risk``). Both printed ``R:R 0.0x``.
+
+    ``0.0`` IS RETURNED, and only for the one case that measures it: both legs
+    on record and a mark that has REACHED the target, so there is genuinely no
+    reward left from here. That is the distinction the whole reading exists
+    for, and it is why every caller must test ``is None`` rather than
+    falsiness — ``if rr`` hides the measured zero along with the three
+    absences.
+
+    ``abs`` on both distances is deliberate and matches `r_multiple_for`: a
+    stop recorded on the wrong side of the mark is a bad record, not a
+    negative ratio to publish.
+    """
+    m = price_on_record(mark)
+    s = price_on_record(stop)
+    t = price_on_record(take_profit)
+    if m is None or s is None or t is None:
+        return None
+    risk = abs(m - s)
+    if risk <= 0:
+        # The mark is AT the stop. The ratio is undefined, not zero, and a
+        # position sitting on its stop is the last place to print a verdict
+        # the arithmetic did not produce.
+        return None
+    return abs(t - m) / risk
+
+
+def format_level(price: Optional[float], currency: str = "",
+                 places: int = 6) -> str:
+    """One stop or target, or the words that say the record holds none.
+
+    THE ABSENCE SENTENCE LIVES HERE so the cards cannot drift about what a
+    missing level is called. Three of them printed the raw field, and a
+    ``0.0`` rendered as ``$0.000000`` reads as a stop PLACED at zero -- which
+    on a long is a claim that the position tolerates a total loss, and on the
+    card an operator opens because they do not know what is out there.
+    """
+    if price is None:
+        return "<i>none on record</i>"
+    return f"<code>{currency}{price:,.{places}f}</code>"
+
+
+def format_rr(rr: Optional[float], suffix: str = "x", places: int = 1) -> str:
+    """Render one R:R, or the dash that says nobody could compute it.
+
+    The dash is the point. Two cards printed ``R:R 0.0x`` unconditionally and
+    two omitted the row, and the omission is indistinguishable from a card
+    that has no R:R row at all — so a reader learns nothing either way. A
+    visible dash beside the SL and TP rows says the ratio was attempted, and
+    those rows say which leg was missing.
+    """
+    if rr is None:
+        return "\u2014"
+    return f"{rr:.{places}f}{suffix}"
+
+
 # R-multiple of favorable profit required to ENTER each trail stage — must match
 # bot/utils/trailing.py _STAGES r_threshold values.
 _STAGE_R: tuple[float, ...] = (0.0, 1.0, 2.0, 3.0)

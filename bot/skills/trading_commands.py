@@ -49,6 +49,12 @@ from bot.core.open_orders import (
     resolve_desync_orders,
     synth_order_from_tracked,
 )
+from bot.core.position_telemetry import (
+    format_level,
+    format_rr,
+    live_rr,
+    price_on_record,
+)
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import thesis_prose
 from bot.skills.command_guard import guard
@@ -1355,11 +1361,19 @@ class TradingCommands:
                         pos.entry_price, last_price, pos.direction,
                         _margin if _margin is not None else 0.0,
                         leverage if leverage is not None else 0.0)
-                    sl_dist = abs(last_price - pos.stop_loss) / last_price * 100 if last_price else 0
-                    tp_dist = abs(pos.take_profit - last_price) / last_price * 100 if last_price else 0
-                    risk_left = abs(last_price - pos.stop_loss) if pos.stop_loss else 0
-                    reward_left = abs(pos.take_profit - last_price) if pos.take_profit else 0
-                    rr_live = reward_left / risk_left if risk_left > 0 else 0
+                    # The LEVELS are three-valued too. `orphan_position_row`
+                    # -- the sibling producer for the positions this bot did
+                    # not open -- already publishes `None` for a level the
+                    # book did not state, and this producer published the raw
+                    # `0.0` that the adoption path writes. One wire, two
+                    # answers about the same absence.
+                    _sl_px = price_on_record(pos.stop_loss)
+                    _tp_px = price_on_record(pos.take_profit)
+                    sl_dist = (abs(last_price - _sl_px) / last_price * 100
+                               if last_price and _sl_px is not None else None)
+                    tp_dist = (abs(_tp_px - last_price) / last_price * 100
+                               if last_price and _tp_px is not None else None)
+                    rr_live = live_rr(last_price, pos.stop_loss, pos.take_profit)
                     # Everything downstream of the mark is None when the mark
                     # was never read. Absent renders as "unknown"; zero renders
                     # as a claim.
@@ -1382,14 +1396,17 @@ class TradingCommands:
                         "current": None if _unread else round(last_price, 6),
                         "pnl_pct": None if _unread else _r(pnl_pct, 2),
                         "pnl_usd": None if _unread else _r(upnl_usd, 4),
-                        "sl": round(pos.stop_loss, 6),
-                        "tp": round(pos.take_profit, 6),
-                        "sl_dist_pct": None if _unread else round(sl_dist, 2),
-                        "tp_dist_pct": None if _unread else round(tp_dist, 2),
+                        "sl": None if _sl_px is None else round(_sl_px, 6),
+                        "tp": None if _tp_px is None else round(_tp_px, 6),
+                        "sl_dist_pct": None if sl_dist is None else round(sl_dist, 2),
+                        "tp_dist_pct": None if tp_dist is None else round(tp_dist, 2),
                         "size_usd": round(cost, 2),
                         "notional_usd": round(notional, 2),
                         "leverage": _r(leverage, 2),
-                        "rr_live": None if _unread else round(rr_live, 2),
+                        # Three-valued at the wire: `None` covers the
+                        # unread mark AND either leg the record does
+                        # not hold, and a measured 0.0 survives.
+                        "rr_live": None if rr_live is None else round(rr_live, 2),
                         "quantity": pos.quantity,
                         "comm_pct": CONFIG.risk.commission_pct,
                         "hold_hours": round(hold_h, 1),
@@ -1746,19 +1763,19 @@ class TradingCommands:
                     dist_pct = 0
 
                 # SL/TP distances from limit price (where it will fill)
-                if sl > 0 and limit_price > 0:
-                    sl_dist_pct = abs(limit_price - sl) / limit_price * 100
-                else:
-                    sl_dist_pct = 0
-                if tp > 0 and limit_price > 0:
-                    tp_dist_pct = abs(tp - limit_price) / limit_price * 100
-                else:
-                    tp_dist_pct = 0
+                _sl_px = price_on_record(sl)
+                _tp_px = price_on_record(tp)
+                _fill_px = price_on_record(limit_price)
+                sl_dist_pct = (abs(_fill_px - _sl_px) / _fill_px * 100
+                               if _sl_px is not None and _fill_px else None)
+                tp_dist_pct = (abs(_tp_px - _fill_px) / _fill_px * 100
+                               if _tp_px is not None and _fill_px else None)
 
-                # R:R at fill
-                risk_at_fill = abs(limit_price - sl) if sl > 0 else 0
-                reward_at_fill = abs(tp - limit_price) if tp > 0 else 0
-                rr_at_fill = reward_at_fill / risk_at_fill if risk_at_fill > 0 else 0
+                # R:R at fill, through the one reading. This card OMITTED the
+                # row when the ratio came out 0, which is three facts wearing
+                # one silence -- no stop planned, no target planned, and a
+                # limit sitting on its own target.
+                rr_at_fill = live_rr(limit_price, sl, tp)
 
                 # Fee estimate — fees are charged on notional, not margin
                 entry_notional = notional_usd if notional_usd > 0 else (limit_price * quantity if quantity else size_usd * leverage)
@@ -1801,14 +1818,17 @@ class TradingCommands:
 
                 lines.append("")
 
-                if sl > 0:
-                    lines.append(
-                        f"\U0001f6d1 <b>SL:</b> <code>${sl:,.4f}</code>  ({sl_dist_pct:.2f}% from entry) [{sl_tag}]")
-                if tp > 0:
-                    lines.append(
-                        f"\U0001f3af <b>TP:</b> <code>${tp:,.4f}</code>  ({tp_dist_pct:.2f}% from entry) [{tp_tag}]")
-                if rr_at_fill > 0:
-                    lines.append(f"\u2696\ufe0f <b>R:R at fill:</b> 1:{rr_at_fill:.1f}")
+                # NAMED, NOT OMITTED. A limit order with no stop planned is
+                # the row a reader most needs on this card, and dropping it
+                # is indistinguishable from a card that shows no stops at all.
+                _sl_dist = f"  ({sl_dist_pct:.2f}% from entry) [{sl_tag}]" if sl_dist_pct is not None else ""
+                _tp_dist = f"  ({tp_dist_pct:.2f}% from entry) [{tp_tag}]" if tp_dist_pct is not None else ""
+                lines.append(
+                    f"\U0001f6d1 <b>SL:</b> {format_level(_sl_px, '$', 4)}{_sl_dist}")
+                lines.append(
+                    f"\U0001f3af <b>TP:</b> {format_level(_tp_px, '$', 4)}{_tp_dist}")
+                lines.append(
+                    f"\u2696\ufe0f <b>R:R at fill:</b> {format_rr(rr_at_fill, '', 1)}")
 
                 lines.append("")
                 lines.append(f"\U0001f4b8 <b>Est. fees:</b> ${total_fees:.4f} (entry + exit)")

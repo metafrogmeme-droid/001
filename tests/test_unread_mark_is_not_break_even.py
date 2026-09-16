@@ -139,23 +139,115 @@ def test_the_chat_prompt_says_the_price_is_missing_rather_than_implying_zero():
 
 # ── /status: one unread mark used to fabricate six figures ───────────────────
 
+# ── /status: DRIVEN, because these two were scans and the scans were the ──
+# ── defect. Both asserted spellings -- `sl_dist_pct = None`, `_money(cost)` --
+# ── inside a ninety-line block that had no seam, and both failed on a change
+# ── that made the same figures absent for MORE reasons while the property
+# ── they guard held. `status_position_row` is that seam now; it takes the
+# ── mark, the equity and a clock, so every case below is one call.
+
+def _sp(**kw):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    d = dict(symbol="BTC/USDT", direction="LONG", entry_price=63000.0,
+             quantity=0.1, cost_usd=630.0, stop_loss=61000.0,
+             take_profit=66000.0, leverage=10.0,
+             opened_at=datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc),
+             sl_order_id="s1", tp_order_id="t1")
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+def _status_row(pos, mark, equity=10_000.0):
+    from datetime import datetime, timezone
+
+    from bot.skills.skill_registry import status_position_row
+    return "\n".join(status_position_row(
+        pos, mark, equity,
+        now=datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)))
+
+
 def test_status_omits_every_price_derived_figure_when_unpriced():
-    block = SR[SR.index("_mark = live_prices.get(pos.symbol)"):]
-    block = block[:block.index('lines.append("\\n".join(_row))')]
-    for name in ("upnl", "upnl_pct", "sl_dist_pct", "tp_dist_pct", "rr_live"):
-        assert f"{name} = None" in block or f"{name} = tp_dist_pct = rr_live = None" in block \
-            or "sl_dist_pct = tp_dist_pct = rr_live = None" in block, (
-            f"{name} is still computed from a fallback price when unpriced")
-    assert "⚪" in block, (
+    """ONE unread mark fabricated six figures here. Drive it: no mark, and no
+    figure that needs one may appear."""
+    out = _status_row(_sp(), mark=None)
+    assert "price unavailable" in out
+    assert "⚪" in out, (
         "the PnL icon must be neutral when there is no PnL — green or red both "
         "assert a direction nobody measured")
+    # Nothing computed off a mark. The entry is 63000 and a fallback would put
+    # it in the Current cell, make the SL 3.2% away and the R:R 1.5x.
+    assert "- Current: <code>—</code>" in out
+    assert "% away" not in out, "a distance needs a mark"
+    assert "Live R:R: <code>—</code>" in out
+    assert "Notional: <code>--</code>" in out, (
+        "the notional cell is the notional NOW; falling back to the entry\n"
+        "        notional puts two quantities under one label")
+    for lie in ("+0.00%", "$0.00", "0.0%", "0.00x"):
+        assert lie not in out, f"{lie} is a measurement nobody made"
 
 
 def test_status_still_reports_the_facts_that_do_not_need_a_mark():
-    """OMIT, not blank. Entry, SL, TP, size, leverage and quantity are all true
-    without a price, and dropping the whole position would be its own dishonesty
-    — the operator would not know it exists."""
-    block = SR[SR.index("_row = ["):SR.index('lines.append("\\n".join(_row))')]
-    for fact in ("pos.entry_price", "pos.stop_loss", "pos.take_profit",
-                 "pos.quantity", "_money(cost)"):
-        assert fact in block, f"{fact} needs no mark and must still be shown"
+    """OMIT, not blank. Entry, the levels, quantity and margin are all true
+    without a price, and dropping the whole position would be its own
+    dishonesty — the operator would not know it exists."""
+    out = _status_row(_sp(), mark=None)
+    assert "63,000.000000" in out, "the entry needs no mark"
+    assert "61,000.000000" in out, "the stop needs no mark"
+    assert "66,000.000000" in out, "the target needs no mark"
+    assert "0.1000" in out, "the quantity needs no mark"
+    assert "$630.00" in out, "the recorded margin needs no mark"
+    assert "BTC/USDT" in out
+
+
+def test_status_says_a_level_the_record_does_not_hold_is_not_a_price():
+    """An adopted position is built with `stop_loss=0, take_profit=0`. The card
+    printed `$0.000000`, `100.0% away` and `Live R:R 0.00x` for it — three
+    confident statements, the most reassuring available, about the least
+    protected position on the book."""
+    out = _status_row(_sp(stop_loss=0.0, take_profit=0.0,
+                          sl_order_id=None, tp_order_id=None), mark=64000.0)
+    assert "- SL: <i>none on record</i>" in out
+    assert "- TP: <i>none on record</i>" in out
+    assert "Live R:R: <code>—</code>" in out
+    # ANCHORED TO THE TWO ROWS THAT MAKE THE CLAIM. A bare `"0.000000" not in
+    # out` matches inside `$63,000.000000` on the Entry row -- this file's own
+    # "asserting a short string is ABSENT is the assertion that keeps
+    # misfiring", which it did on the first run of this very test.
+    _levels = [ln for ln in out.split("\n")
+               if ln.startswith("  - SL:") or ln.startswith("  - TP:")]
+    assert len(_levels) == 2
+    for ln in _levels:
+        assert "0.000000" not in ln, f"a level of zero is not a price: {ln}"
+        assert "% away" not in ln, f"no distance to a level nobody recorded: {ln}"
+    assert "manual" not in out, (
+        "the order-status tag claims a stop is being managed; there is none")
+
+
+def test_status_prints_a_measured_zero_r_r():
+    """The ONE case 0.00x is earned: both legs on record and a mark that has
+    reached the target. `if rr` would have hidden it with the three absences."""
+    out = _status_row(_sp(take_profit=64000.0), mark=64000.0)
+    assert "Live R:R: <code>0.00x</code>" in out
+
+
+def test_status_survives_an_equity_it_could_not_read():
+    """`Exposure: {exp_pct:.1f}%` was unconditional over a value that is None
+    whenever the equity read failed, so an unreadable equity did not print a
+    dash — it raised, and took the whole ACTIVE POSITIONS block with it."""
+    out = _status_row(_sp(), mark=64000.0, equity=None)
+    assert "Exposure: <code>—</code>" in out
+    assert "Leverage: <code>10.0x</code>" in out, "the leverage still reads"
+
+
+def test_status_does_not_publish_the_notional_under_the_name_size():
+    """`cost_usd if cost_usd > 0 else entry * quantity` is the margin OR the
+    notional, ten times larger here, chosen by the falsy check whose zero means
+    the venue never said. The Exposure beneath it was computed from the same
+    value."""
+    out = _status_row(_sp(cost_usd=0.0), mark=64000.0)
+    assert "- Margin: <code>--</code>" in out, "unrecorded margin stays unrecorded"
+    assert "Exposure: <code>—</code>" in out, (
+        "an exposure computed from the notional is ten times the truth")
+    assert "$6,300.00" not in out.split("Notional")[0], (
+        "the notional must not appear on the margin side of the row")
