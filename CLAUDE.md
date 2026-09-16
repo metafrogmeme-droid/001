@@ -208,7 +208,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 760 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 761 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -1771,6 +1771,68 @@ is ADDED beside the existing advice rather than swapped for it — no threshold
 is invented, and each remedy is named beside the size of what it addresses.
 Three outcomes, because "none gave up" is an all-clear and "nobody counted"
 is not.
+
+**AND THE LINE ABOVE IT STILL HANDED THE READER THE SUBTRACTION.** The
+phase-timeout line prints *"attempted 37 of 40"* and *"16 gave up"*,
+and a reader subtracts to 21 — the number the slice above had just proved
+wrong. The note said nothing false; it simply named ONE of four buckets and
+let arithmetic do the rest, which is `Scanned 40/115 · Errors 0` one surface
+over. Driven, `{done 37, gave_up 16, analysed 9}` and `{… analysed 21}`
+rendered IDENTICALLY, and `{done 37, gave_up 0, analysed 9}` rendered as
+**the empty string** — 28 symbols produced nothing and the line said nothing
+at all, the worst batch rendering as the quietest.
+
+**The two uncounted exits are counted at their own sites now**, so the
+taxonomy CLOSES: `analysed + gave_up + errored + cancelled == done`, driven
+through the real batch in all three shapes. `except Exception` is a venue
+error; `asyncio.CancelledError` is the PHASE cap killing the gather, and its
+handler RE-RAISES — swallowing it would tell asyncio the cancellation did not
+take, which is a hung phase rather than a cancelled one. They are kept APART
+rather than summed because their levers differ — the per-symbol cap, the
+venue, the phase cap — which is the line the scan-partial slice already draws
+between *"not reached (time budget)"* and *"errors"*: folding them reports a
+healthy exchange as errors, or sends an operator to lower a timeout that was
+never reached.
+
+**ABSENT IS NOT ZERO, PER BUCKET, and a counted zero is not a row.** A record
+from a build that did not count a bucket omits it rather than printing `0`,
+so an older record says LESS and never says something false; a bucket counted
+at zero is also omitted, because a permanent *"0 cancelled"* on every healthy
+batch is the row that trains a reader to stop reading the line. `analysed` is
+the one exception and is printed whenever it was counted: **zero analysed is
+the loudest thing this note can say.**
+
+**Ten mutations, each killed — and the eleventh was an EQUIVALENT MUTANT
+that took a drive to establish.** Swallowing the `CancelledError` instead of
+re-raising it survived, and the reason is not a coverage gap: `wait_for`
+cancels the OUTER coroutine, so `await asyncio.gather(...)` raises whatever
+the children do and the batch never reaches its post-gather recorder either
+way. Driven both ways, byte-identical. The `raise` stays — swallowing a
+cancellation tells asyncio it did not take, which is wrong by convention and
+a hung phase under any topology that cancels one child alone — but the test
+that CLAIMED to measure it was claiming a check the suite does not make, so
+it asserts what it can (the recorder never runs, the count is 2) and records
+the rest. The mutation is dropped from the round rather than counted as a
+kill, because a kill for a reason unrelated to the rule is how a round
+reports coverage it does not have.
+
+**And the rename left a dead i18n key in fourteen languages.** `val_gave_up`
+— the one-bucket sentence — had ZERO production readers the moment the note
+became a list, which is the fifth granularity in a translation table: 14
+strings nothing renders, that the next reader assumes are live and that drift
+in silence. It is deleted. The sweep that found it also found the runbook's
+`↳` example stale for the SECOND time in two slices, and one paragraph of
+this file's own new prose quoting the phrasing the same slice had just
+replaced — stale on arrival, in the commit that made it stale.
+
+> **And the language check I wrote to prove the fourteen translations
+> resolved read `i18n.STRINGS`, which does not exist** — the attribute is
+> `_STRINGS`, so the check found nothing, printed nothing, and would have
+> been read as a pass. That is the deck study's own lesson (*"a translation
+> guard that resolves through the fallback cannot see a missing
+> translation"*) one attribute over: a guard that resolves NOTHING cannot see
+> anything at all. The suite reads `_STRINGS` directly and asserts 14 of 14
+> per key.
 
 **Two of the round's findings were in the instrument, not the code.** A text
 slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
