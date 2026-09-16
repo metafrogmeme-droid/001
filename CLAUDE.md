@@ -1700,6 +1700,106 @@ turns into when the payload does not come.
 
 **Twelve mutations, each killed on the first round.** Seven on the rule and five on the executor's use of it — an undetected mode sweeping everything, hedge mode sweeping everything, the other side cancelled too, an unreadable row cancelled in hedge mode, the close side read backwards, the raw position side ignored, `holdSide` alone dropped; the loop reading the listing instead of the rule's answer, the executor always claiming one-way, the kept rows unaudited, the side computed backwards, and a cancel the venue rejected counted as cleared. The last is worth naming for what it proves about the fixture rather than the code: the count is asserted against a planted `cancel_order` that RAISES, because a stub that always succeeds cannot tell an increment above the await from one below it, and the mutation is exactly that swap.
 
+**A COUNT OF ATTEMPTS STOOD IN FOR A COUNT OF MEASUREMENTS, and the correct
+diagnosis was already written down in this repo.** On 2026-09-16 a LIVE engine
+sat halted behind the warning-rate breaker, six consecutive `TimeoutError`s,
+the analyze phase hitting its 300s cap fifteen times over, and the card said:
+
+    ↳ 37/40 signals attempted — 16 of them gave up at the per-symbol cap
+    📉 40 signals at ≥8.2s each against a 300s cap — at least 4 will not be
+       analysed. Lower TOP_MOVERS_COUNT or raise SCAN_ANALYSIS_CONCURRENCY.
+
+`_record_analyze_throughput` set `per_signal_s = elapsed / done`, and `done`
+COUNTS ATTEMPTS: the batch's `finally` increments it for a symbol that gave up
+at `analysis_timeout_sec` exactly as readily as for one that finished.
+`tests/test_status_counts_attempts_not_analyses.py` says so in its own
+docstring — *"'Analysed' was the label's claim, not the counter's. THE LABEL
+SAYS 'ATTEMPTED' NOW"* — and that fix reached the LABEL and stopped there. The
+rate one function over kept dividing by the attempt count, with `gave_up`
+sitting in the same progress dict the recorder was called from.
+
+**AND THE SECOND CALL SITE JUSTIFIED IT IN A COMMENT.** The cancelled-batch
+path read *"A cancelled batch measured a real rate for the analyses it DID
+finish"* — about `_done`, which counts attempts. The exact confusion the guard
+was written to end, restated as a reason 1,500 lines from it; a third surface,
+the `result="TIMEOUT"` audit line, said *"It had finished 37 of 40 signals"*.
+
+Driven through the real recorder and the real forecast, `fits` is
+attempts-that-fit printed as the number that will be analysed:
+**8.1s per attempt** against **14.3s per analysis** on `37 - 16`, and a
+shortfall of **19 where the card said 3**. `per_analysis_s` is the numerator
+now, and `rate_basis` says which rate was used, because an older record
+carries no counts and there is no honest way to derive them.
+
+**AND `37 - 16` IS NOT A COUNT OF ANALYSES EITHER — the first draft of this
+fix wrote the shapes table's own row into the cure for the row above it.**
+`analysed = attempts - gave_up` is `losses = len(all) - wins`: it assumes the
+taxonomy is complete, and the batch has FOUR exits where `gave_up` counts
+one. `except Exception` returns `None` without touching it, so a venue error
+is counted as a delivered analysis. And `asyncio.CancelledError` is a
+**BaseException** that neither handler catches — so when the PHASE cap
+cancels the gather, every symbol still in flight runs its `finally`,
+increments `done`, and is counted as an analysis it never delivered. That is
+the 2026-09-16 incident's exact shape: 12-way concurrency against a cap that
+fired mid-batch. Driven through the real batch method, the two cases are
+`done=4 · gave_up=0 · analysed=2` and `done=4 · gave_up=0 · analysed=0`, and
+the subtraction answers **4** for both. So the count is taken where the
+analysis completes, on the one path that can say so, and handed to the
+recorder; `done - gave_up` appears in the suite only as a pinned assertion
+naming what it gets wrong. The `finally`'s own comment enumerates "an idea,
+no idea, a failure, a timeout" — four outcomes, and the cancellation that
+makes it five is not among them.
+
+**A COUNTED ZERO IS A MEASUREMENT, and the fallback had to learn the
+difference.** `per_analysis_s` is None for two facts: nobody counted (an
+older record — still earns the attempt rate, named), and nothing completed
+(a reading). Quoting the attempt rate for the second printed *"at least 3 of
+40 will not be analysed"* directly above the clause saying all 37 analysed
+nothing — two numbers, opposite stories, and the reassuring one was the lie.
+The forecast abstains there; the counts are on the record and the
+phase-timeout line reports what the batch did. Omitting one dead source is
+the strategy for a composite view. Manufacturing a number for it is not.
+
+**THE REMEDY WAS THE WRONG NOUN, AND THE FIX ADDS RATHER THAN REPLACES.** Both
+knobs the sentence names are THROUGHPUT knobs, hard-coded into the format
+string in all fourteen locales and printed whenever `shortfall > 0` with no
+branch on `gave_up`; 43% of attempts producing nothing is a LATENCY fact.
+16 give-ups × the 90s cap at the default 12-way concurrency is **120s of a
+300s phase** spent on symbols that produce nothing, and the lever for that is
+the cap. But raising concurrency really does raise throughput, so the clause
+is ADDED beside the existing advice rather than swapped for it — no threshold
+is invented, and each remedy is named beside the size of what it addresses.
+Three outcomes, because "none gave up" is an all-clear and "nobody counted"
+is not.
+
+**Two of the round's findings were in the instrument, not the code.** A text
+slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
+(two live callers) and later duplicated `_record_analyze_throughput`; the mypy
+ratchet's `attr-defined` and `no-redef` are what said so, on a tree whose
+targeted suites were green. And `test_the_phase_cap_is_read_from_where_phase_enforces_it`
+sliced the forecast as *"everything up to the next function I named"*, so a
+helper inserted between the two fell inside and was accused of the very
+confusion the guard is about — it is an `ast.FunctionDef` lookup now. **A
+boundary that is "whatever happens to be next" is a boundary that manufactures
+accusations**, which is the `_web_aliases` lesson in a third place.
+
+> **And the wrapping width was measured on the wrong string, twice.** Ruff's
+> E501 counts DISPLAY COLUMNS — a wide CJK glyph is two — so a 119-character
+> line of Chinese measures 156, and a first draft that wrapped on character
+> count grew the ratchet by six. The draft before that measured the TEXT and
+> emitted `\uXXXX` escapes, making every chunk six times the width it aimed
+> at. Measure the artefact the gate measures.
+
+**Seventeen mutations, each killed — and the survivor was a test passing for
+the wrong reason.** Replacing the clause's attempt-count guard with
+`attempts = attempts or 0` survived, because the fixture left `partial` on:
+the floor variant of the base sentence interpolates `measured_from` itself, so
+`int(None)` raised inside the caller's own `except` and the line came back
+`""` before the clause was ever reached. The assertion passed on a code path
+that has nothing to do with the guard it names. `partial` is cleared first
+now, and the fixture asserts it reaches the clause before asserting what the
+clause does.
+
 **A FIELD NAME IS NOT A QUANTITY, and the guard that would have caught it was
 already built and already correct.** On 2026-09-15 thirteen live fills across
 ten symbols — BTC, TRUMP (x3), OP, NATGAS (x2), SUI, RAVE, ETC, DFEN, CL,

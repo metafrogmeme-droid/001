@@ -77,7 +77,14 @@ def _phase_block() -> str:
 
 def test_the_timeout_line_reports_the_share_and_the_elapsed():
     b = _phase_block()
-    assert "finished {_done} of {_of} signals" in b
+    # ATTEMPTED, not "finished". `_done` is incremented by the batch's
+    # `finally` for every exit -- an idea, no idea, a raise, a give-up at the
+    # per-symbol cap, and a cancellation when this very handler's wait_for
+    # kills the gather. "finished" was this sentence's word for years and it
+    # was the claim `test_status_counts_attempts_not_analyses` exists to
+    # refuse, printed by the one line that reports the cancelled batch.
+    assert "attempted {_done} of {_of} signals" in b
+    assert "finished {_done}" not in b
     assert "{_done / _of:.0%}" in b, "a share, not just a count"
     assert "_elapsed" in b
 

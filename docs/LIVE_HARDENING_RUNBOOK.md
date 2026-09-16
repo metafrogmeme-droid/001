@@ -479,14 +479,21 @@ at 200. Re-read this line after changing it.
 cancelled it now reports its own progress, in the log and on `/status`:
 
 ```
-Tick phase 'analyze' exceeded its 300s cap … It had finished 41 of 200
+Tick phase 'analyze' exceeded its 300s cap … It had attempted 41 of 200
 signals (21%) in 300s — 1463s needed at that rate.
 
   ↳ 41/200 signals attempted before it was cancelled — 3 of them gave up at the per-symbol cap and were not analysed
 ```
 
-That fraction is the first thing to read, because the two ends of it call for
-opposite fixes and no amount of reasoning substitutes for it:
+**Both numbers are ATTEMPTS.** The batch's `finally` counts a symbol that
+gave up at the per-symbol cap exactly as readily as one that finished, and a
+symbol still in flight when the phase cap cancelled the gather runs its
+`finally` too — `asyncio.CancelledError` is a `BaseException`, so neither
+per-symbol handler catches it. So `41 - 3` is not the number analysed, and the
+`↳` line's give-up count is the part of the gap a knob can shorten.
+
+That fraction is still the first thing to read, because the two ends of it call
+for opposite fixes and no amount of reasoning substitutes for it:
 
 | the fraction | means | fix |
 |---|---|---|
@@ -525,21 +532,34 @@ has measured a rate and the work does not fit, the degraded alert carries the
 arithmetic and names the two levers:
 
 ```
-📉 Analyze budget short: 85 signals at 4.1s each needs ~348s against a 300s
+📉 Analyze budget short: 85 signals at 4.1s each needs ~349s against a 300s
 cap — about 73 fit, 12 will not be analysed. Lower TOP_MOVERS_COUNT or raise
-SCAN_ANALYSIS_CONCURRENCY.
+SCAN_ANALYSIS_CONCURRENCY. 16 of those 85 attempts gave up at the per-symbol
+cap and analysed nothing — about 120s of the phase. Lowering
+ANALYSIS_TIMEOUT_SEC is what shortens that.
 ```
 
-Raising `SCAN_ANALYSIS_CONCURRENCY` is usually the right lever: the per-signal
-figure is effective wall-clock throughput and already carries the concurrency
-in force, so raising it divides the total directly — and it is the only one of
-the two that does not narrow what the bot looks at. Watch the per-signal number
-afterwards: if it goes UP, the new concurrency is being throttled by the venue
-and the gain is partly given back.
+**The rate is per ANALYSIS, and the clause names a third lever.** The two
+knobs in the first sentence raise THROUGHPUT; a symbol that burns the full
+`ANALYSIS_TIMEOUT_SEC` and produces nothing is a LATENCY fact, and neither of
+them touches it. The clause appears only when give-ups were counted and there
+were some: no clause means either none gave up or the measuring batch predates
+the count, and the sentence says which.
 
-The line is **omitted** when the work fits and when no batch has completed, so
-no rate has been measured. Neither is a claim that it fits — the phase-timeout
-line beside it answers that independently.
+Raising `SCAN_ANALYSIS_CONCURRENCY` is usually the right lever otherwise: the
+per-signal figure is effective wall-clock throughput and already carries the
+concurrency in force, so raising it divides the total directly — and it is the
+only one of the three that does not narrow what the bot looks at or shorten
+how long a slow symbol gets. Watch the per-signal number afterwards: if it
+goes UP, the new concurrency is being throttled by the venue and the gain is
+partly given back.
+
+The line is **omitted** when the work fits, when no batch has completed so no
+rate has been measured, and when the measuring batch analysed NOTHING — a rate
+over zero analyses is not slow, it is unmeasured, and quoting the attempt rate
+there would print "at least 3 of 40 will not be analysed" above a batch that
+analysed none of its 37. None of the three is a claim that it fits — the
+phase-timeout line beside it answers that independently.
 
 ### Were the stops actually watched? — the SL/TP monitor line
 

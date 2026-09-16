@@ -14,7 +14,7 @@ import math
 import time
 from datetime import datetime
 from bot.compat import UTC
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from pathlib import Path
 
@@ -549,6 +549,58 @@ def _journal_quantity(pos) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return q if q > 0 else None
+
+
+def _positive(v) -> Optional[float]:
+    """A positive number, or None — never 0.0 standing in for unreadable.
+
+    `float(x or 0.0)` folds "absent", "unreadable" and "genuinely zero" into
+    one value and then asks `<= 0` about it. That works here only because
+    every caller refuses on the zero, which is the argument this repo does
+    NOT accept for the shape: the next reader adds a branch where 0.0 means
+    break-even and the fold becomes a defect. Say `None` and let the caller
+    test for it.
+    """
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return f if f > 0 and f == f and f not in (float("inf"),) else None
+
+
+def give_up_cost_s(gave_up: Optional[int]) -> Optional[float]:
+    """Phase-seconds spent on symbols that produced nothing, or None.
+
+    Each give-up burns the full `analysis_timeout_sec`, and concurrency
+    decides how many burn at once — so the wall-clock cost to the phase is
+    ``gave_up * timeout / concurrency``. On the 2026-09-16 incident that is
+    16 x 90 / 12 = 120s of a 300s cap, which is the figure that makes the
+    per-symbol cap actionable where a bare count does not.
+
+    MODULE-LEVEL, not a method, and the fixture is why: the forecaster's own
+    guard builds a bare `SimpleNamespace` under the comment *"the forecaster
+    must not need a live engine"*, and hanging this off `self` would have
+    made it need one. Nothing here reads engine state — a count and two
+    config values.
+
+    None rather than 0.0 whenever an input is unread: a cost derived from a
+    guessed concurrency is exactly the fabricated operator number this module
+    refuses elsewhere.
+    """
+    try:
+        n = None if gave_up is None else int(gave_up)
+        if not n or n <= 0:
+            return None
+        # Both live on CONFIG itself, not under a section — the first draft
+        # read `CONFIG.execution.*`, which `getattr` answered 0.0 for, so the
+        # cost came back None on the one batch it exists to price. Grep the
+        # definition, not the section you remember.
+        timeout = _positive(getattr(CONFIG, "analysis_timeout_sec", None))
+        conc = _positive(getattr(CONFIG, "scan_analysis_concurrency", None))
+        if timeout is None or conc is None:
+            return None
+        return round(n * timeout / conc, 1)
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 class RuneClawEngine:
@@ -3699,11 +3751,25 @@ class RuneClawEngine:
         fabricated number on an operator surface, and the whole reason this
         exists is that guessed causes shipped two wrong fixes.
 
-        The rate is effective wall-clock throughput (done / elapsed) from the
-        previous batch, so it already carries the concurrency in force. That
-        matters: dividing per-analysis latency by hand ignores the 12-way
-        concurrency and lands ~12x off, which is how a serial-chain theory got
-        as far as it did.
+        The rate is effective wall-clock throughput from the previous batch,
+        so it already carries the concurrency in force. That matters:
+        dividing per-analysis latency by hand ignores the 12-way concurrency
+        and lands ~12x off, which is how a serial-chain theory got as far as
+        it did.
+
+        AND THE NUMERATOR IS ANALYSES, NOT ATTEMPTS. The sentence this feeds
+        says "{n} will not be ANALYSED", and a symbol that gave up at
+        `analysis_timeout_sec` was attempted and analysed nothing. Scoring the
+        attempt rate answers a question nobody asked: on 2026-09-16, 37
+        attempts and 16 give-ups in a 300s phase is 8.1s per attempt and
+        14.3s per analysis, and the card said "at least 3 will not be
+        analysed" of 40 where the honest figure was 19.
+
+        `rate_basis` says which rate was used, because an older record
+        carries no give-up count and there is no honest way to derive one.
+        `attempt` is not a failure — it is the measurement the batch left —
+        but it is a WIDER claim than the sentence makes, and the reader is
+        told rather than left to assume.
         """
         # The cap that kills the batch is the PHASE cap, not
         # analysis_timeout_sec (which bounds one analysis). Getting those two
@@ -3713,14 +3779,46 @@ class RuneClawEngine:
         tp = getattr(self, "_analyze_throughput", None)
         if cap <= 0 or of <= 0 or not isinstance(tp, dict):
             return None
-        per = float(tp.get("per_signal_s") or 0.0)
-        if per <= 0:
+        # ANALYSIS RATE FIRST, and the attempt rate only as a NAMED fallback.
+        # `per_analysis_s` is None both for an older record (no give-up count)
+        # and for a batch whose every attempt gave up — the second is a real
+        # reading of "nothing was analysed", and dividing by zero analyses
+        # would be a rate manufactured from it.
+        per = _positive(tp.get("per_analysis_s"))
+        basis = "analysis"
+        analysed, gave_up = tp.get("analysed"), tp.get("gave_up")
+        if per is None:
+            # A COUNTED ZERO IS A MEASUREMENT, AND IT IS THE LOUDEST ONE
+            # THIS INSTRUMENT CAN TAKE -- so it must not be read as the
+            # absence of one. `per_analysis_s` is None for two different
+            # facts: nobody counted (an older record), and nothing
+            # completed. Only the first is unmeasured.
+            #
+            # Falling through to the attempt rate on the second reports "at
+            # least 3 of 40 will not be analysed" from a batch that analysed
+            # NONE of its 37 -- and prints it on the same card as the clause
+            # saying so. Two numbers, opposite stories, and the wrong one is
+            # the reassuring one. There is no rate to divide by, so the
+            # forecast ABSTAINS: `analysed` and `gave_up` are on the record
+            # and the phase-timeout line beside this one reports what the
+            # batch did. Omitting one dead source is the strategy for a
+            # composite view; manufacturing a number for it is not.
+            if (isinstance(analysed, int) and not isinstance(analysed, bool)
+                    and analysed == 0):
+                return None
+            per = _positive(tp.get("per_attempt_s"))
+            basis = "attempt"
+        if per is None:
             return None
+        attempts = int(tp.get("attempts") or 0)
         needed = of * per
         fits = int(cap / per)
-        rec = {
+        rec: dict[str, Any] = {
             "of": of,
             "per_signal_s": round(per, 2),
+            # WHICH rate that is. Kept beside the figure rather than inferred
+            # from the presence of `gave_up`, so one reading decides it.
+            "rate_basis": basis,
             "needed_s": round(needed, 1),
             "cap_s": round(cap, 1),
             "fits": fits,
@@ -3728,12 +3826,24 @@ class RuneClawEngine:
             # count, because "57%" was the number that got read as progress
             # rather than as a shortfall.
             "shortfall": max(0, of - fits),
-            "measured_from": int(tp.get("done") or 0),
+            "measured_from": attempts,
             # What the measuring batch was ASKED to do. Together with
             # measured_from this says whether the rate came from a batch that
             # finished — and when it did not, every number above is a bound
             # rather than an estimate. See `partial`.
             "measured_of": int(tp.get("of") or 0),
+            # The give-up half, three-valued. `None` is an older record that
+            # never counted them, NOT a batch where none gave up — the card
+            # keeps those apart, because "none gave up" is an all-clear and
+            # "nobody counted" is not.
+            "gave_up": None if gave_up is None else int(gave_up),
+            "analysed": None if analysed is None else int(analysed),
+            # What those give-ups cost the PHASE, which is the figure that
+            # makes the per-symbol cap actionable: each burns the full cap,
+            # and concurrency is how many burn at once. None when either
+            # input is unread — a cost derived from a guessed concurrency is
+            # the fabricated number this function exists to refuse.
+            "gave_up_cost_s": give_up_cost_s(gave_up),
         }
         # A cancelled batch's rate EXCLUDES the analyses still running when the
         # cap hit, and those are by construction the slow ones. So per_signal_s
@@ -3749,11 +3859,15 @@ class RuneClawEngine:
         if rec["shortfall"] > 0:
             audit(scan_log,
                   f"Analyze budget short: {of} signals at "
-                  f"{per:.1f}s/signal needs ~{needed:.0f}s against a "
+                  f"{per:.1f}s/{basis} needs ~{needed:.0f}s against a "
                   f"{cap:.0f}s cap — about {fits} will fit and "
                   f"{rec['shortfall']} will not be analysed this tick. "
                   f"Lower TOP_MOVERS_COUNT or raise "
-                  f"SCAN_ANALYSIS_CONCURRENCY.",
+                  f"SCAN_ANALYSIS_CONCURRENCY."
+                  + (f" {rec['gave_up']} of {attempts} attempts gave up at "
+                     f"the per-symbol cap and analysed nothing — lowering "
+                     f"ANALYSIS_TIMEOUT_SEC is what shortens that."
+                     if rec["gave_up"] else ""),
                   action="analyze_capacity", result="SHORT", data=rec)
         return rec
 
@@ -3791,20 +3905,79 @@ class RuneClawEngine:
         if started > 0:
             self._last_sweep_duration_s = max(0.0, now - started)
 
-    def _record_analyze_throughput(self, done: int, of: int, elapsed: float) -> None:
+    def _record_analyze_throughput(self, done: int, of: int, elapsed: float,
+                                   gave_up: Optional[int] = None,
+                                   analysed: Optional[int] = None) -> None:
         """Remember effective throughput so the NEXT batch can forecast.
 
         Recorded from timed-out batches too: a batch that got through 90 of
         161 measured a real rate for those 90. Discarding it because the phase
         died would throw away the only measurement taken during the exact
         conditions worth forecasting.
+
+        `done` COUNTS ATTEMPTS, AND THAT IS NOT THE SAME NUMBER. The batch's
+        `finally` increments it for a symbol that gave up at
+        `analysis_timeout_sec` exactly as readily as for one that finished --
+        `tests/test_status_counts_attempts_not_analyses.py` says so in its own
+        docstring, and the fix it describes reached the LABEL on the status
+        card and stopped there. `elapsed / done` is therefore seconds per
+        ATTEMPT, and the forecast built on it says "{n} will not be ANALYSED",
+        which is a different quantity: a give-up burns the full per-symbol cap
+        and produces nothing.
+
+        Measured on the live incident of 2026-09-16 -- 37 attempted, 16 gave
+        up, phase cancelled at its 300s cap -- that is 8.1s per attempt
+        against 14.3s per analysis, and a card reading "at least 3 will not be
+        analysed" where 19 of the 40 were not.
+
+        `analysed` IS A COUNT, NOT `done - gave_up`. That subtraction is the
+        `losses = len(all) - wins` shape, and it is wrong here for two
+        reachable reasons the batch's own taxonomy does not cover: an
+        analysis that RAISES returns through `except Exception` without
+        touching `gave_up`, and `asyncio.CancelledError` is a BaseException
+        that neither handler catches, so when the PHASE cap cancels the
+        gather every in-flight symbol still runs its `finally` and still
+        increments `done`. Driven on that second shape: 6 attempts, 0
+        give-ups, 2 ideas -- and the subtraction answers 6. So the caller
+        counts analyses where they happen and hands the number in.
+
+        BOTH ARE OPTIONAL WITH NO DEFAULT THAT MEANS ZERO, and they are
+        independent. A caller that supplies neither leaves `per_analysis_s`
+        as None and the forecast says which rate it used rather than quietly
+        passing off one for the other. `analysed + gave_up` need not equal
+        `done`: the remainder is the raised-or-cancelled bucket, recorded by
+        difference for a reader rather than given a lever it does not have.
         """
         if done <= 0 or elapsed <= 0:
             return
+        # AN INTEGER COUNT OR NOTHING, for each independently. Both are ints
+        # by construction in `_analyze_progress`, so anything else here is a
+        # record from another build or a dict a later edit desynchronised --
+        # and `int()` would quietly turn 1.5 into 1 and `True` into 1, each a
+        # rate derived from something that was never a count. A value outside
+        # [0, done] is not this batch's either.
+        def _count(v: object) -> Optional[int]:
+            if (isinstance(v, int) and not isinstance(v, bool)
+                    and 0 <= v <= int(done)):
+                return int(v)
+            return None
+
+        n_analysed = _count(analysed)
+        n_gave_up = _count(gave_up)
         self._analyze_throughput = {
-            "per_signal_s": elapsed / done,
-            "done": int(done),
+            "per_attempt_s": elapsed / done,
+            "attempts": int(done),
             "of": int(of),
+            "gave_up": n_gave_up,
+            "analysed": n_analysed,
+            # None when NOTHING was analysed: a rate over zero analyses is
+            # not slow, it is unmeasured, and the forecast must not divide by
+            # it. The card says the batch analysed nothing instead. `if
+            # n_analysed` is deliberate falsiness over two cases that both
+            # mean "no rate" -- nobody counted, and nothing completed -- and
+            # the counts themselves keep those apart for every other reader.
+            "per_analysis_s": ((elapsed / n_analysed)
+                               if n_analysed else None),
         }
 
     def _stage_report(self, wall_s: float) -> str:
@@ -4139,19 +4312,27 @@ class RuneClawEngine:
                 _done, _of = int(_prog.get("done") or 0), int(_prog["of"])
                 _elapsed = time.monotonic() - float(_prog.get("started") or 0.0)
                 _rate = (_done / _elapsed) if _elapsed > 0 else 0.0
-                _detail = (f" It had finished {_done} of {_of} signals "
+                _detail = (f" It had attempted {_done} of {_of} signals "
                            f"({_done / _of:.0%}) in {_elapsed:.0f}s"
                            + (f" — {_of / _rate:.0f}s needed at that rate."
                               if _rate > 0 else "."))
                 _pdata.update(done=_done, of=_of, elapsed_s=round(_elapsed, 1),
                               needed_s=round(_of / _rate, 1) if _rate > 0 else None)
-                # A cancelled batch measured a real rate for the analyses it
-                # DID finish, under exactly the conditions worth forecasting.
-                # Discarding it would leave the next tick guessing again.
+                # A cancelled batch measured a real rate under exactly the
+                # conditions worth forecasting. Discarding it would leave the
+                # next tick guessing again.
+                #
+                # `_done` COUNTS ATTEMPTS -- this comment used to say "the
+                # analyses it DID finish", which is the confusion
+                # `test_status_counts_attempts_not_analyses` was written to
+                # end, restated as a justification 1500 lines from the guard.
+                # The give-up count travels so the recorder can separate them.
                 try:
                     _rt = getattr(self, "_record_analyze_throughput", None)
                     if _rt is not None:
-                        _rt(_done, _of, _elapsed)
+                        _rt(_done, _of, _elapsed,
+                            gave_up=_prog.get("gave_up"),
+                            analysed=_prog.get("analysed"))
                 except Exception:
                     pass
                 # A cancelled batch never reaches its own report, and it is
@@ -5455,8 +5636,21 @@ class RuneClawEngine:
         # symbols were analysed", and once symbols can rest the two diverge:
         # a rested symbol never ran at all. "skipped_resting" is counted
         # separately so no reader has to guess which question it is answering.
+        #
+        # "analysed" IS COUNTED, NEVER DERIVED. `done - gave_up` looks like
+        # the same number and is the `losses = len(all) - wins` shape from
+        # CLAUDE.md's own table: it assumes the taxonomy is complete, and it
+        # is not. `except Exception` below returns None without touching
+        # `gave_up`, and `asyncio.CancelledError` is a BaseException that
+        # neither handler catches -- so when the PHASE cap cancels the
+        # gather, every in-flight symbol runs its `finally`, increments
+        # `done`, and would be counted as an analysis it never delivered.
+        # Driven: 6 attempts, 0 give-ups, 2 ideas. That is the 2026-09-16
+        # incident's exact shape, which is why it is counted on the success
+        # path instead.
         self._analyze_progress = {
             "of": len(signals), "done": 0, "skipped_resting": 0, "gave_up": 0,
+            "analysed": 0,
             "started": time.monotonic(), "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
         # Per-symbol duration profiles: reset each batch so a resolved slow
@@ -5494,6 +5688,19 @@ class RuneClawEngine:
                         _out = await asyncio.wait_for(_coro, timeout=_cap)
                     else:
                         _out = await _coro
+                    # THE ANALYSIS RAN. Counted HERE, on the one path that
+                    # can say so, rather than subtracted from `done` in the
+                    # recorder -- an analysis that returned no idea still
+                    # answered the question and still spent the phase time,
+                    # while a cancelled or raised one did neither and is
+                    # invisible from `done - gave_up`. Guarded and epoch-
+                    # checked like every other instrument on this path.
+                    try:
+                        _p = self._analyze_progress
+                        if _p is not None and _p.get("seq") == _seq:
+                            _p["analysed"] = int(_p.get("analysed") or 0) + 1
+                    except Exception:
+                        pass
                     # A COMPLETED analysis clears the strike count. Escalation
                     # is for a symbol that keeps hanging, not for one that hung
                     # once in a bad exchange minute six hours ago — without
@@ -5647,8 +5854,14 @@ class RuneClawEngine:
             _p = self._analyze_progress or {}
             _rec_tp = getattr(self, "_record_analyze_throughput", None)
             if _rec_tp is not None and _p.get("seq") == _seq:
+                # `done` is attempts, `analysed` is how many really ran,
+                # and `gave_up` is the slice of the difference that a knob
+                # can shorten. All three, or the rate silently means the
+                # first while the card claims the second.
                 _rec_tp(int(_p.get("done") or 0), len(signals),
-                        time.monotonic() - float(_p.get("started") or 0.0))
+                        time.monotonic() - float(_p.get("started") or 0.0),
+                        gave_up=_p.get("gave_up"),
+                        analysed=_p.get("analysed"))
         except Exception:
             pass
         # Where the work went. Reported on a batch that FINISHED, so the

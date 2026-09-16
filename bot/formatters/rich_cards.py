@@ -1075,6 +1075,65 @@ def tick_error_line(rec: Optional[dict], lang: str = "en") -> str:
     return line
 
 
+def _give_up_clause(capacity: dict, lang: str = "en") -> str:
+    """What the give-ups cost, or that nobody counted them — or nothing.
+
+    THE REMEDY BESIDE THIS FIGURE NAMES TWO THROUGHPUT KNOBS, and a symbol
+    that burns the whole per-symbol cap and analyses nothing is a LATENCY
+    fact. Raising `SCAN_ANALYSIS_CONCURRENCY` runs more give-ups at once;
+    lowering `TOP_MOVERS_COUNT` leaves the same fraction giving up. Neither is
+    wrong — both really do raise throughput — but on the live incident of
+    2026-09-16 the sentence named only those two while 16 of 37 attempts were
+    burning 120s of a 300s phase for nothing, and the lever for that is the
+    cap itself. So this ADDS the missing half rather than replacing the
+    advice: no threshold is invented, and each remedy is named beside the size
+    of what it addresses.
+
+    THREE OUTCOMES, because "none gave up" is an all-clear and "nobody
+    counted" is not:
+
+    * ``gave_up`` measured and positive — the clause, with its phase cost when
+      the cap and the concurrency could both be read.
+    * ``gave_up`` measured and zero — nothing. Every attempt was an analysis,
+      the rate already means what the sentence says, and a caveat printed when
+      there is nothing to caveat is one nobody reads.
+    * ``gave_up`` absent (`rate_basis` is ``attempt``) — a build that predates
+      the count, so the rate is per ATTEMPT while the sentence claims
+      analyses. Said plainly: the figure is a floor for that reason as well.
+    """
+    try:
+        gave_up = capacity.get("gave_up")
+        if gave_up is None:
+            # Only when the forecast really fell back. A row carrying an
+            # analysis basis and no count is contradictory input, and
+            # claiming the rate counts attempts would then be the wrong
+            # caveat rather than a missing one.
+            if capacity.get("rate_basis") != "attempt":
+                return ""
+            return " " + t('fmt_analyze_budget_attempt_basis', lang)
+        n = int(gave_up)
+        if n <= 0:
+            return ""
+        cost = capacity.get("gave_up_cost_s")
+        attempts = capacity.get("measured_from")
+        if not isinstance(attempts, int) or isinstance(attempts, bool) \
+                or attempts <= 0:
+            # The clause names that count. `or 0` would print "16 of those 0
+            # attempts", and the caller's own rule for a malformed forecast is
+            # to say nothing rather than render half a sentence with a stray
+            # number in it. Same rule, same answer.
+            return ""
+        if cost is None:
+            # The count is real; the phase cost is not derivable without the
+            # cap and the concurrency. Print the half that was measured.
+            return " " + t('fmt_analyze_budget_gave_up', lang).format(
+                gave_up=n, attempts=attempts)
+        return " " + t('fmt_analyze_budget_gave_up_cost', lang).format(
+            gave_up=n, attempts=attempts, cost=float(cost))
+    except (KeyError, TypeError, ValueError):
+        return ""
+
+
 def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
     """The measured reason the analyze phase cannot finish, and the fix.
 
@@ -1109,7 +1168,7 @@ def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
         # exists to prevent, one level up: an honest number wrapped in a
         # sentence that overstates what it knows.
         if capacity.get("partial"):
-            return t('fmt_analyze_budget_short_floor', lang).format(
+            line = t('fmt_analyze_budget_short_floor', lang).format(
                 of=int(capacity["of"]),
                 per=float(capacity["per_signal_s"]),
                 cap=float(capacity["cap_s"]),
@@ -1117,14 +1176,16 @@ def analyze_budget_line(capacity: Optional[dict], lang: str = "en") -> str:
                 measured_from=int(capacity["measured_from"]),
                 measured_of=int(capacity["measured_of"]),
             )
-        return t('fmt_analyze_budget_short', lang).format(
-            of=int(capacity["of"]),
-            per=float(capacity["per_signal_s"]),
-            needed=float(capacity["needed_s"]),
-            cap=float(capacity["cap_s"]),
-            fits=int(capacity["fits"]),
-            short=int(capacity["shortfall"]),
-        )
+        else:
+            line = t('fmt_analyze_budget_short', lang).format(
+                of=int(capacity["of"]),
+                per=float(capacity["per_signal_s"]),
+                needed=float(capacity["needed_s"]),
+                cap=float(capacity["cap_s"]),
+                fits=int(capacity["fits"]),
+                short=int(capacity["shortfall"]),
+            )
+        return line + _give_up_clause(capacity, lang)
     except (KeyError, TypeError, ValueError):
         # A malformed forecast is not a measurement either. Say nothing
         # rather than render half a sentence with a stray number in it.
