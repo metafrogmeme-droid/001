@@ -156,7 +156,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1822) as a
-tighten-only veto on that user's own confirms (trading_commands.py:178); /run
+tighten-only veto on that user's own confirms (trading_commands.py:184); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -230,12 +230,12 @@ and a button leading to "not built" are both doors painted on a wall.
 arb_tracker.py:18 states it outright: "Strictly paper: nothing here places,
 sizes, or even proposes an order," and venue_router.js:3 says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
-gated decision that does not exist in this codebase." No delta-neutral pair
-construction, no per-leg margin management, no automated entry at a spread
-threshold. The verdict is the evidence layer's own answer to whether a real
-capture strategy is worth building; the proposal card that would size both
-legs (and place nothing) is the next slice, and execution a decision after
-shadow evidence.
+gated decision that does not exist in this codebase." No per-leg margin
+management and no automated entry at a spread threshold. The verdict is the
+evidence layer's own answer to whether a real capture strategy is worth
+building; the proposal card that sizes both legs and places nothing SHIPPED
+as /arbpair (described above), so what is unbuilt here is EXECUTION — a
+decision after shadow evidence, not a card.
 
 **Basis trades** — partial
 
@@ -289,7 +289,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:178).
+(/mystrategy, trading_commands.py:184).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -1576,7 +1576,8 @@ docstring says "it recommends, it never moves a cent".
 in the tree builds, signs or sends a Lido/Rocket Pool deposit, an ETH beacon
 deposit, or a Solana delegateStake — I grepped for the definitions and counted
 callers, and the only execution path named /stake or /unstake is BITGET CEX
-flexible/fixed Earn (bot/skills/yield_commands.py:199 _cmd_stake, admin-only;
+flexible/fixed Earn (bot/skills/yield_commands.py:297 _cmd_stake, @guard("stake")
+— trader and admin, acting on the CALLER's own linked account;
 money moves solely on the confirm callback at
 bot/skills/callback_handler.py:528 execute_stake/execute_unstake against
 bot/core/yield_radar.py). That is a custodial exchange savings product, not

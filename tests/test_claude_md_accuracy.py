@@ -741,3 +741,57 @@ def test_the_scan_section_names_numbers_a_drive_returns():
     words = {23: "twenty-three", 24: "twenty-four", 22: "twenty-two"}
     short = n - int(pairs[1][0])
     assert words.get(short, str(short)) in section, (short, words.get(short))
+
+
+def test_the_income_map_derivation_it_describes_is_the_real_one():
+    """"`ROLE_PERMISSIONS["admin"]` is the literal `{"*"}`".
+
+    The paragraph's whole argument for the complement is that the obvious
+    derivation answers the wildcard. If the role table ever stops being
+    shaped that way, the argument is stale and this says so.
+    """
+    from bot.utils.user_store import ROLE_PERMISSIONS
+    from tests.test_the_income_map_says_who_may_run_a_command import (
+        _admin_only_permissions,
+    )
+
+    assert ROLE_PERMISSIONS["admin"] == {"*"}, ROLE_PERMISSIONS["admin"]
+    admin_only = _admin_only_permissions()
+    assert "admin" in admin_only and "stake" not in admin_only
+    assert "stake" in ROLE_PERMISSIONS["trader"], (
+        "the doc says trader holds it; that is why /stake is not admin-only")
+
+
+def test_the_two_stale_citations_it_names_are_where_it_says():
+    """"line 199 is empty and the handler is at 297" / "six lines short".
+
+    Those two readings are the whole argument for refusing a resolvability
+    ratchet — a citation rots by pointing at the wrong line, not an impossible
+    one — so they are driven rather than remembered. Both are also the fix
+    this slice shipped, so a later edit that shifts either handler fails HERE
+    and sends the reader to re-measure the sentence rather than trust it.
+    """
+    def _lines(rel):
+        return (ROOT / rel).read_text(encoding="utf-8").split("\n")
+
+    def _defs(lines, name):
+        return [i for i, ln in enumerate(lines, 1)
+                if ln.lstrip().startswith((f"def {name}(", f"async def {name}("))]
+
+    stake = _lines("bot/skills/yield_commands.py")
+    assert len(stake) >= 199, "the stale citation stopped being in range"
+    assert not stake[198].strip(), repr(stake[198])
+    assert _defs(stake, "_cmd_stake") == [297], _defs(stake, "_cmd_stake")
+
+    trading = _lines("bot/skills/trading_commands.py")
+    assert len(trading) >= 178 and not trading[177].strip(), repr(trading[177])
+    assert _defs(trading, "_cmd_mystrategy") == [184], (
+        _defs(trading, "_cmd_mystrategy"))
+    assert trading[182].strip() == '@guard("mystrategy")', repr(trading[182])
+
+    # ...and the map cites the corrected lines, not the blank ones.
+    income = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    assert "trading_commands.py:178" not in income
+    assert income.count("trading_commands.py:184") == 2
+    assert "yield_commands.py:199" not in income
+    assert "yield_commands.py:297" in income

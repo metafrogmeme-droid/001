@@ -2037,6 +2037,64 @@ already nonsense. *Don't fix what cannot fire* — and the arithmetic is driven
 in the suite so the day either half changes, that fails rather than the card
 quietly starting to publish 0.
 
+**THE DOCUMENT A SESSION IS SCOPED FROM IS A SURFACE, and a *Gap* paragraph
+is a claim.** `docs/INCOME_MAP.md` is read FIRST to decide what to build next,
+and on 2026-09-16 it sent a reader to re-scope finished work twice in one
+paragraph: the funding-arb *Gap* opened *"No delta-neutral pair construction"*
+and ended *"the proposal card that would size both legs (and place nothing) IS
+THE NEXT SLICE"* — with the paragraph DIRECTLY ABOVE IT describing `/arbpair`
+in full shipped detail, down to the six-valued per-leg margin read. Two
+adjacent paragraphs, one capability, opposite claims. That is the `/vault`
+hint shape pointed at a DOCUMENT: there a card named a command that did
+nothing, here a gap named a capability that was already built.
+
+**And it contradicted itself about who may run one command.** It called
+`_cmd_stake` **admin-only** at `yield_commands.py:199` — the guard is
+`@guard("stake")`, trader and admin, acting on the CALLER's own linked
+account, and line 199 is BLANK — one line above `_earn_button_account`, which
+is not `/stake` either. The same document states the permission correctly —
+*"`stake`, held by trader and admin"* — a thousand lines earlier.
+`tests/test_the_income_map_says_who_may_run_a_command.py` drives the real
+decorators and the real in-body `_is_admin` calls against every admin-only
+sentence, and **the derivation is not the obvious one**:
+`ROLE_PERMISSIONS["admin"]` is the literal `{"*"}`, so *what admin holds*
+answers the wildcard and nothing else — a permission is admin-only when NO
+OTHER ROLE carries it, which is why `stake` is not (trader holds it) and
+`admin` is. The first draft hard-coded `{"admin"}` and accused
+`/calibration`, which is `@guard("admin")` and correctly documented; printing
+the real guard beside the verdict is what caught it.
+
+**THREE WIDER GUARDS WERE MEASURED, TWO REFUSED, AND THE THIRD FOUND A SECOND
+STALE CITATION.** The obvious freshness ratchet is RESOLVABILITY — does the
+file exist, is the line in range — and it reports green over this defect and
+over every other, because a citation rots by pointing at the WRONG line, not
+an impossible one. Asking instead whether the cited line is BLANK found two:
+`:199` for `_cmd_stake`, where line 199 is empty and the handler is at 297,
+and a `/mystrategy` citation six lines short of its own `@guard`, cited twice.
+It is fixed and not ratcheted, and the reason is the KEY a baseline would
+need: `path:line` pairs are invalidated by any line added ABOVE a cited line
+in any cited file, so the gate would spend most of its firings on edits with
+no relation to the document — and it still cannot see a citation that lands on
+a wrong NON-blank line, which needs a reader who knows what the citation
+MEANT. The SYMBOL check needs that reader too: the doc's grammar is PROSE
+(`arb_tracker.py:18 states it outright`), so a probe reading the token after a
+citation as a symbol accused `states`, `says`, `folds`, `applies`, `creates`
+and `selects` — four false accusations for every real citation. Generalising
+the *Gap* check needs the same guess about which noun phrase names which
+command. The refusals are recorded here so the next reader does not rebuild
+them.
+
+**And the mutation round said the guard's own subject had left the corpus.**
+With the map corrected, dropping the `_cmd_` spelling from the claim sweep
+changed no verdict — the defect was written as `_cmd_stake, admin-only` on a
+line whose only slash tokens are `bot/skills/` and `/yield_commands.py`, so
+that branch is the one that caught it, and after the fix no remaining line
+paired the spelling with the words. An equivalent mutant is the round
+reporting coverage it does not have, so the sentence AS IT WAS WRITTEN is a
+fixture now, and the fixture asserts it carries no `/stake` — the one edit
+that would let the other spelling answer and leave the branch unmeasured
+again.
+
 **Two of the round's findings were in the instrument, not the code.** A text
 slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
 (two live callers) and later duplicated `_record_analyze_throughput`; the mypy
