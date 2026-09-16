@@ -30,6 +30,19 @@
  * a second copy of a threshold is a second answer, and then the dashboard and
  * the bot disagree about what counts as evidence.
  *
+ * AND THE FIGURES ARE THE SET THE VERDICT JUDGED. Every shadow row is charged
+ * to the FIRST of its failed checks, and the risk engine fails none of them
+ * early — so `net_r` is what was BOOKED to a gate, not what that gate blocked,
+ * and loosening it places back only the trades it refused ALONE. The server
+ * computes its interval over exactly those (`sole_n` / `sole_net_r` /
+ * `sole_avg_r`), so this row prints those: a colour earned on 14 trades
+ * against a total covering 23 is the same mismatch one field over.
+ *
+ * A gate with NO sole-cause rows gets no figure at all — not `0.0R`, which is
+ * the one number a reader takes as a measured break-even. The charged total is
+ * still shown, labelled, because hiding a real measurement is its own
+ * dishonesty.
+ *
  * Below the bar the figures are still SHOWN — hiding a real measurement is its
  * own dishonesty — with no colour and a note saying the reading is not
  * established.
@@ -86,13 +99,22 @@
         ? 'not distinguishable from noise'
         : 'not established';
     }
+    var soleN = num(g.sole_n);
     return {
       label: String(g.gate == null ? '' : g.gate).slice(0, MAX_LABEL),
-      netR: num(g.net_r),
-      avgR: num(g.avg_r),
+      // The judged set. `soleN === null` is an older server that sends no
+      // such field; `0` is a server that looked and found none. Both leave
+      // the figure unprinted, and only the second can say why.
+      netR: soleN ? num(g.sole_net_r) : null,
+      avgR: soleN ? num(g.sole_avg_r) : null,
+      n: soleN,
       lowerR: num(g.lower_r),
       upperR: num(g.upper_r),
-      n: num(g.n),
+      // The charged partition, carried so the row can name it rather than
+      // print it as the gate's own.
+      chargedNetR: num(g.net_r),
+      chargedN: num(g.n),
+      soleUnread: soleN === null,
       verdict: verdict,
       tone: tone,
       established: !!tone,
@@ -100,14 +122,30 @@
     };
   }
 
+  /** The caveat under a gate's name: what the charged total holds and the
+   *  judged figure does not. Never a permanent row — a caveat that is always
+   *  there is one nobody reads. */
+  function chargedNote(c) {
+    if (c.chargedN === null || c.chargedNetR === null) return '';
+    if (c.n !== null && c.chargedN === c.n) return '';
+    return 'charged ' + String(c.chargedN) + 'tr '
+      + signed(c.chargedNetR, 1) + 'R';
+  }
+
   function rowHtml(c) {
-    var count = c.n === null ? '—' : String(c.n);
+    var count = c.n === null || c.n === 0 ? '—' : String(c.n);
     // The per-trade figure travels with the total ALWAYS. A net beside a count
     // that the reader has to divide is how +4.1R over 97 read as a finding.
     var per = c.avgR === null ? '' : ' ' + signed(c.avgR, 2) + 'R/tr';
+    var notes = [];
+    if (c.note) notes.push(c.note);
+    var charged = chargedNote(c);
+    if (charged) notes.push(charged);
     return '<div class="kv-row">'
       + '<span class="small" style="font-family:var(--font-data)">' + esc(c.label)
-      + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '')
+      + (notes.length
+          ? ' <span class="muted">· ' + esc(notes.join(' · ')) + '</span>'
+          : '')
       + '</span>'
       + '<b class="num ' + (c.tone || 'muted') + '">'
       + (c.netR === null ? '—' : signed(c.netR, 1) + 'R')

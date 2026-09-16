@@ -496,6 +496,14 @@ def costliest_gate_line(gates: Optional[dict]) -> Optional[str]:
     a 95% interval on the per-trade figure now; this reports which side of zero
     it clears, and says so plainly when it clears neither.
 
+    AND THE TOTAL IT BOUNDED WAS AN ATTRIBUTION. Every shadow row is charged
+    to the FIRST of its failed checks and `RiskEngine.evaluate` fails none of
+    them early, so a trade that tripped three gates paid all of its R to
+    whichever the engine reached first. Loosening that one places none of the
+    trades another gate refused as well — so the R this line invites the
+    operator to chase is `shadow_book.cause_state`'s SOLE subset, and the
+    charged total is named beside it rather than standing in for it.
+
     It also names the highest-net_r gate that IS established when the top of
     the sort is not: "costliest" ranks by total, but only an established gate
     is one you can act on, and the two are not always the same row.
@@ -522,10 +530,46 @@ def costliest_gate_line(gates: Optional[dict]) -> Optional[str]:
         key, g = established
         return (f"Shadow book: <code>{_clip_gate(key)}</code> is the costliest "
                 f"gate ({_gate_stat(g)}, 95% lower bound "
-                f"{g['lower_r']:+.2f}R/trade)")
-    net, n = _num(top.get("net_r")), _num(top.get("n"))
+                f"{g['lower_r']:+.2f}R/trade)."
+                f"{_unrecoverable_clause(g)}")
+    net = _num(top.get("net_r"))
     if net is None or net <= 0:
         # Nothing at the top of the sort is blocking winners at all.
+        return None
+    sole_n, sole_net = _num(top.get("sole_n")), _num(top.get("sole_net_r"))
+    # ABSENT IS NOT ZERO, and here the two have different causes and different
+    # sentences. A row with no readable `sole_n` is a bot build that predates
+    # this reading or a scan cache corrupt on that field — it does not say
+    # none were blocked alone, it says nobody counted. A row saying 0 was
+    # counted and found none. Both withhold the claim; only the second one is
+    # a measurement, and telling an operator "none" off a field nobody wrote
+    # is the shape this whole reading exists to remove.
+    if sole_n is None:
+        return (f"Shadow book: <code>{_clip_gate(top_key)}</code> tops the "
+                f"scoreboard ({_charged_stat(top)}) — <b>not established</b>: "
+                "this row records no readable count of how many of those "
+                "trades the gate blocked alone, so none of that R is shown to "
+                "be recoverable by loosening it. No gate is established as "
+                "costing edge.")
+    if sole_n <= 0:
+        # THE DAY-ONE SENTENCE, and the one production sees first. A gate
+        # every one of whose rows was co-blocked has a real charged total and
+        # nothing recoverable behind it.
+        return (f"Shadow book: <code>{_clip_gate(top_key)}</code> tops the "
+                f"scoreboard ({_charged_stat(top)}) — but <b>no trade on "
+                "record is marked as blocked by this gate alone</b>, so none "
+                "of that R is known to be recoverable by loosening it. No "
+                "gate is established as costing edge.")
+    if sole_net is None or sole_net <= 0:
+        # `is None` FIRST: `None <= 0` is a TypeError, and this comparison sits
+        # outside the try above, so it would take the whole card down rather
+        # than one line of it. That is the crash
+        # `test_an_undistinguished_verdict_with_no_interval_does_not_crash`
+        # was written for, one field over — and the first draft of this branch
+        # had it. Beyond that, a recoverable total that does not net positive
+        # is nothing to chase whatever the charged total says, and an
+        # unreadable one is no claim either; the row above this one takes the
+        # same view of `net_r`.
         return None
     lo, hi = _num(top.get("lower_r")), _num(top.get("upper_r"))
     if top.get("verdict") == "undistinguished" and lo is not None \
@@ -540,21 +584,27 @@ def costliest_gate_line(gates: Optional[dict]) -> Optional[str]:
         # would be a KeyError on the card rather than a wrong line on it.
         tail = (" — <b>not distinguishable from noise</b> (95% interval "
                 f"{lo:+.2f} to {hi:+.2f}R/trade)")
-    elif n is not None and n < MIN_GATE_TRADES:
+    elif sole_n < MIN_GATE_TRADES:
         # NO BOUND IS QUOTED HERE, deliberately. Three blocked trades that all
         # took profit at exactly +1.8R have a sample sd of 0 and therefore a
         # lower bound of +1.8R/trade — which reads as strong evidence and is an
         # artefact of the sample being degenerate. The first draft of this
         # function printed it beside the words "not distinguishable from
         # noise", which is a card contradicting itself in one sentence.
-        tail = (f" — <b>not established</b>: {top.get('n')} blocked trade(s), "
-                f"fewer than the {MIN_GATE_TRADES} needed to bound the "
-                "per-trade figure")
+        # The count is the SOLE one, because that is the sample the bound
+        # would have been computed over.
+        tail = (f" — <b>not established</b>: {int(sole_n)} trade(s) blocked by "
+                f"this gate alone, fewer than the {MIN_GATE_TRADES} needed to "
+                "bound the per-trade figure")
     else:
         tail = (" — <b>not established</b>: no interval could be computed for "
                 "the per-trade figure")
+    # ORDER: figures, then what the record does or does not establish about
+    # them, then what the charged total holds that is not theirs. A caveat
+    # wedged between a figure and its verdict reads as part of the figure.
     return (f"Shadow book: <code>{_clip_gate(top_key)}</code> has the highest "
-            f"net R ({_gate_stat(top)}){tail}. No gate is established as "
+            f"recoverable net R ({_gate_stat(top)}){tail}."
+            f"{_unrecoverable_clause(top)} No gate is established as "
             "costing edge.")
 
 
@@ -576,7 +626,14 @@ def _num(v: Any) -> Optional[float]:
 
 
 def _gate_stat(g: dict) -> str:
-    """net + sample + the per-trade figure the verdict actually turns on.
+    """net + sample + the per-trade figure THE VERDICT ACTUALLY TURNS ON.
+
+    That is the sole-cause subset — the trades the record shows this gate
+    blocked alone — because `gate_report`'s interval and verdict are computed
+    over exactly those, and a figure printed beside a verdict has to be the
+    set the verdict judged. Quoting the charged total here is the mismatch the
+    whole reading exists to remove: a colour earned on 14 trades against a
+    number covering 23.
 
     Every field is `is None`-tested rather than coerced. The first draft read
     `float(g.get('net_r') or 0)` and interpolated `{g.get('n')}` raw — so a row
@@ -585,11 +642,46 @@ def _gate_stat(g: dict) -> str:
     flagged both on the commit that introduced them, in the function written to
     stop this exact reading one level up.
     """
-    net, n, avg = g.get("net_r"), g.get("n"), g.get("avg_r")
+    net, n, avg = g.get("sole_net_r"), g.get("sole_n"), g.get("sole_avg_r")
     return ("net " + (f"{float(net):+.1f}R" if net is not None else "—")
             + " over " + (str(n) if n is not None else "?")
-            + " blocked trades · avg "
+            + " trade(s) blocked by this gate alone · avg "
             + (f"{float(avg):+.3f}R/trade" if avg is not None else "—"))
+
+
+def _charged_stat(g: dict) -> str:
+    """The CHARGED partition, named as one. Same `is None` discipline.
+
+    Kept rather than dropped: it is a real partition of the book — every
+    closed row is charged to exactly one gate, so these totals sum — and it is
+    the figure every earlier version of this card printed. It is never shown
+    without the word "charged", because on its own it reads as what the gate
+    blocked, which is the claim it cannot support.
+    """
+    net, n = g.get("net_r"), g.get("n")
+    return ("charged " + (str(n) if n is not None else "?")
+            + " trades, net "
+            + (f"{float(net):+.1f}R" if net is not None else "—"))
+
+
+def _unrecoverable_clause(g: dict) -> str:
+    """What the charged total holds that loosening this gate would not place.
+
+    Empty when the record has nothing to add — a gate whose every charged row
+    is a sole cause needs no caveat, and a permanently-printed one trains the
+    reader to stop reading it (the rule `/status`'s venue line and the scan
+    budget's "not reached" row are both written to).
+    """
+    co, unk = _num(g.get("co_n")), _num(g.get("unknown_n"))
+    parts = []
+    if co is not None and co > 0:
+        parts.append(f"{int(co)} more are charged to it but also failed "
+                     "another gate, so loosening it would not have placed "
+                     "them")
+    if unk is not None and unk > 0:
+        parts.append(f"{int(unk)} more are charged to it and the record "
+                     "cannot say what else refused them")
+    return (" " + "; ".join(parts) + ".") if parts else ""
 
 
 def _clip_gate(key: Any) -> str:
