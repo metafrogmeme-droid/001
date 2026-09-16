@@ -5650,7 +5650,7 @@ class RuneClawEngine:
         # path instead.
         self._analyze_progress = {
             "of": len(signals), "done": 0, "skipped_resting": 0, "gave_up": 0,
-            "analysed": 0,
+            "analysed": 0, "errored": 0, "cancelled": 0,
             "started": time.monotonic(), "seq": _seq}
         self._stage_totals = {k: 0.0 for k in ANALYSIS_STAGES}
         # Per-symbol duration profiles: reset each batch so a resolved slow
@@ -5813,9 +5813,39 @@ class RuneClawEngine:
                         # be the reason an analysis batch cannot finish.
                         pass
                     return None
+                except asyncio.CancelledError:
+                    # THE PHASE CAP KILLED THE GATHER WHILE THIS WAS RUNNING.
+                    # `CancelledError` is a BaseException, so the handler
+                    # below never sees it -- and the `finally` still counts
+                    # this symbol as an ATTEMPT. Left uncounted it is
+                    # invisible: on the 2026-09-16 incident it is the
+                    # dominant bucket, and its lever is the PHASE cap, not
+                    # the per-symbol one the give-up clause names.
+                    #
+                    # RE-RAISED, always. Swallowing it would tell asyncio the
+                    # cancellation did not take, which is a hung phase rather
+                    # than a cancelled one.
+                    try:
+                        _p = self._analyze_progress
+                        if _p is not None and _p.get("seq") == _seq:
+                            _p["cancelled"] = int(_p.get("cancelled") or 0) + 1
+                    except Exception:
+                        pass
+                    raise
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
                                  getattr(sig, "symbol", "?"), exc)
+                    # ATTEMPTED, PRODUCED NOTHING, AND NOT A GIVE-UP. A venue
+                    # error is its own fact with its own lever (the venue,
+                    # not a cap), and folding it into the give-up count would
+                    # send an operator to lower a timeout that was never
+                    # reached.
+                    try:
+                        _p = self._analyze_progress
+                        if _p is not None and _p.get("seq") == _seq:
+                            _p["errored"] = int(_p.get("errored") or 0) + 1
+                    except Exception:
+                        pass
                     return None
                 finally:
                     # Counts finished work of ANY outcome — an idea, no idea,

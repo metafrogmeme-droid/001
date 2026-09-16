@@ -1306,26 +1306,63 @@ def position_watch_line(watch: Optional[dict], lang: str = "en",
     return f"\u26aa {t('lbl_sltp_monitor', lang)}: {t('val_sltp_unknown', lang)}"
 
 
-def _gave_up_note(progress: Optional[dict], lang: str = "en") -> str:
-    """" -- 4 of them gave up at the per-symbol cap", or nothing.
+def _batch_outcome_note(progress: Optional[dict], lang: str = "en") -> str:
+    """" -- 9 analysed, 16 gave up at the per-symbol cap, 12 cancelled", or
+    nothing.
 
-    `done` counts ATTEMPTS: the batch's `finally` increments it for a symbol
-    that timed out as readily as for one that finished, so "85/85" on a batch
-    where four hit the 90s cap is true of attempts and false of analyses --
-    and "analysed" is what the label used to say. The label now says
-    "attempted", and this adds the give-ups when the record carries them.
-    Omitted when it does not: an older record has no `gave_up`, and absent is
-    not zero.
+    THE PHASE LINE PRINTS TWO COUNTS AND A READER SUBTRACTS. It says the
+    batch attempted 37 of 40 and that 16 gave up, and `37 - 16` is not the
+    number analysed: `analysed = attempts - gave_up` is the
+    `losses = len(all) - wins` shape, and the batch has FOUR exits where
+    `gave_up` counts one. Driven, a phase cancelled mid-flight can be
+    `attempted 6 / gave_up 0 / analysed 2`, where the subtraction answers 6
+    and the old note -- which read `gave_up` alone -- printed NOTHING AT ALL.
+    That is the worst case rendering as the quietest one.
+
+    So each bucket is named, and each is named ONLY when it was counted:
+
+    * `analysed`  -- the analysis ran (an idea or a considered no-idea).
+    * `gave_up`   -- hit `ANALYSIS_TIMEOUT_SEC`. The lever is that cap.
+    * `errored`   -- the analysis raised. The lever is the venue.
+    * `cancelled` -- still running when the PHASE cap killed the gather.
+      The lever is the phase cap, or the throughput knobs.
+
+    They are kept APART rather than summed because their levers differ, which
+    is the line the scan-partial slice already draws between "not reached
+    (time budget)" and "errors": folding them reports a healthy exchange as
+    errors, or sends an operator to lower a timeout that was never reached.
+
+    ABSENT IS NOT ZERO, per bucket. A record from a build that did not count
+    a bucket omits it rather than printing `0`, so an older record says less
+    and never says something false. A bucket counted at zero is a real
+    reading and is also omitted -- "0 cancelled" on every healthy batch is a
+    row that trains the reader to stop reading the line -- EXCEPT
+    `analysed`, which is printed whenever it was counted: zero analysed is
+    the loudest thing this note can say.
     """
     if not isinstance(progress, dict):
         return ""
-    try:
-        n = int(progress.get("gave_up") or 0)
-    except (TypeError, ValueError):
+
+    def _count(key: str) -> Optional[int]:
+        """The bucket, or None when this record did not count it."""
+        v = progress.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            return None
+        return v
+
+    parts = []
+    analysed = _count("analysed")
+    if analysed is not None:
+        parts.append(f"{analysed} {t('val_analysed', lang)}")
+    for key, word in (("gave_up", "val_gave_up_short"),
+                      ("errored", "val_errored"),
+                      ("cancelled", "val_cancelled")):
+        n = _count(key)
+        if n:
+            parts.append(f"{n} {t(word, lang)}")
+    if not parts:
         return ""
-    if n <= 0:
-        return ""
-    return f" \u2014 {n} {t('val_gave_up', lang)}"
+    return " \u2014 " + ", ".join(parts)
 
 
 def mode_badge(mode: str, lang: str = "en") -> str:
@@ -1460,7 +1497,7 @@ def render_status_card(
             + (f"\n  \u21b3 {int((phase_timeout.get('progress') or {}).get('done') or 0)}"
                f"/{int((phase_timeout['progress'])['of'])} "
                f"{t('val_signals_done', lang)}"
-               + _gave_up_note((phase_timeout or {}).get('progress'), lang)
+               + _batch_outcome_note((phase_timeout or {}).get('progress'), lang)
                if (phase_timeout.get('progress') or {}).get('of') else "")]),
         # WHAT the failing tick raised. A phase timeout is one cause of a tick
         # failure and not the only one, and the warning-rate breaker that

@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from bot.formatters.rich_cards import _gave_up_note, render_status_card
+from bot.formatters.rich_cards import _batch_outcome_note, render_status_card
 
 
 def _card(progress):
@@ -41,7 +41,11 @@ def test_the_operators_card_now_says_attempted_and_how_many_gave_up():
     line = _progress_line(_card({"of": 85, "done": 85, "gave_up": 4}))
     assert "85/85" in line
     assert "attempted" in line
-    assert re.search(r"\b4 of them gave up", line), line
+    # "4 gave up at the per-symbol cap", not "4 of them gave up": the note
+    # became a COMMA-JOINED LIST of four buckets, and "of them" does not
+    # compose in one. The claim this test was written for -- the card says
+    # how many gave up, beside a count labelled ATTEMPTED -- is unchanged.
+    assert re.search(r"\b4 gave up at the per-symbol cap", line), line
     assert "signals analysed" not in line, "the old claim must be gone from this line"
 
 
@@ -55,14 +59,17 @@ def test_an_older_record_without_the_field_claims_nothing_about_it():
     """Absent is not zero: no `gave_up` key means we do not know."""
     line = _progress_line(_card({"of": 40, "done": 20}))
     assert "gave up" not in line
-    assert _gave_up_note({"of": 40, "done": 20}) == ""
-    assert _gave_up_note(None) == ""
-    assert _gave_up_note({"gave_up": "four"}) == ""
+    assert _batch_outcome_note({"of": 40, "done": 20}) == ""
+    assert _batch_outcome_note(None) == ""
+    assert _batch_outcome_note({"gave_up": "four"}) == ""
 
 
 def test_the_note_renders_in_both_languages():
+    """The note grew from one bucket to four (see
+    `tests/test_the_batch_says_what_it_produced.py`); this file keeps the
+    give-up half, which is what it was written for."""
     for lang in ("en", "zh"):
-        note = _gave_up_note({"gave_up": 2}, lang)
+        note = _batch_outcome_note({"gave_up": 2}, lang)
         assert note and "2" in note
         assert "val_gave_up" not in note, "untranslated key leaked"
 
