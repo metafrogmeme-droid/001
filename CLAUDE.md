@@ -2891,6 +2891,63 @@ separate the two, and a rule that cannot be stated in one sentence is a rule
 nobody can check.
 (`tests/test_a_question_about_my_own_book_is_not_education.py`.)
 
+**AND THE NEIGHBOUR IT FILED WAS NINETEEN OF NINETEEN.** That slice measured
+`hey what is my balance` being GREETED and deliberately left it, because the
+fix belongs in the social gate and widening `_EDU_LEAD` to greetings would
+have hidden it. Driven properly, it was not two phrasings: **every one of
+nineteen ordinary greeting-led reads was answered "hey!"** — the balance, the
+positions, the P&L, the open orders, the net worth, the DeFi health, the
+wallet, the risk, and `hey analyze btc`, a chart request that NAMES its
+symbol. `_GREETING_PATTERNS` is `^`-anchored, so it is a LEAD and not a
+message, and the gate returned True for everything it led.
+
+That is `HALT_SOCIAL_LEAD`'s lesson, which this file states as *"a social lead
+on a whole-message action is INFORMALITY, and informality goes to the door"*.
+The fix reached the ACTION rules only — `_ANCHORED_ACTION_RULES` is consulted
+above the greeting line — and every READ rule was still behind it.
+
+**The lead is STRIPPED and the remainder is asked the same question, ONCE.**
+Recursing rather than consulting the rule table is the narrow choice on
+purpose: most of `_INTENT_RULES` is unanchored, so asking it here would let a
+rule matching INSIDE a pleasantry acquit real small talk — the shape this file
+records for the orders rule (a bare `profit` claiming "take-profit") and the
+halt rule both. What the remainder is, the message is: "hey there" leaves
+"there", "hey how are you" leaves a `_SOCIAL_CHAT` match, and "hey" alone
+leaves nothing.
+
+**One miss was not the lead's, and the round is what proved which.**
+`hey what is my risk` still reached the model after the gate was fixed,
+because `what is my risk` does too with no lead at all — `my risk level` and
+`my exposure` reach the card while bare `my risk` reached nothing. A
+`check_risk` alternation gap, in the possessive-question family the education
+slice closed, one rule short. The delicate half is the decoy: `my risk reward`
+is an R:R question this product prints no card for, so the alternative carries
+a tail lookahead rather than being bare.
+
+**Nine mutations, each killed — and three survived the first round, one of
+them redundant code of mine.** Removing `what is my risk` and `what.?s my
+risk` from the rule changed no verdict, because `\bmy risk\b` is unanchored
+and already matches inside both: three spellings where one does the work, so
+the two extra are DELETED rather than pinned. The other two were the corpus's,
+and both needed an input nothing in the table had. Keeping the punctuation
+between the lead and the ask (`lstrip(" ")` instead of the full set) survives
+every row that reaches a card, because a leading comma does not stop a rule
+matching — it dies only on `hey, how are you`, where the comma pushes the
+remainder past the three-word gate and out of small talk. And deleting the
+`_ANCHORED_ACTION_RULES` check above the greeting branch survives every
+greeting-led action, because the recursion answers those anyway; it dies only
+on `halt the bot, thanks`, which has no lead to strip and which
+`_THANKS_PATTERNS` claims unanchored — the exact defect the halt slice fixed.
+
+One neighbour is recorded rather than fixed, two steps from this subject:
+`my risk:reward` and `my r:r` are still greeted, because the short-message
+gate matches WHITESPACE-SPLIT words against `trading_words` and the single
+token `risk:reward` is not the word `risk`. A tokenization gap in the gate's
+vocabulary check, not a greeting gap and not a rule gap. The guard asserts
+what the product does TODAY and says so, so a fix trips it and the next reader
+arrives at the note rather than at a silent change.
+(`tests/test_a_greeting_lead_is_not_small_talk.py`.)
+
 **Thirty mutations, each killed — and the three that survived a round were
 the corpus's, never the code's.** Dropping the possessive-or-state qualifier from the
 bare `triggers?` alternative changed no verdict, because both education forms

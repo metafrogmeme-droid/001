@@ -126,8 +126,31 @@ def _is_social_message(text: str) -> bool:
     # first widens nothing else.
     if any(rx.search(stripped) for rx in _ANCHORED_ACTION_RULES):
         return False
-    if _GREETING_PATTERNS.search(stripped):
-        return True
+    # A GREETING LEAD IS INFORMALITY, AND WHAT FOLLOWS IT DECIDES. `_GREETING_
+    # PATTERNS` is `^`-anchored — it is a LEAD, not a message — and it
+    # returned True for everything it led. Driven, **19 of 19** ordinary
+    # greeting-led reads were answered "hey!": `hey what is my balance`,
+    # `hi what are my positions`, `yo what is my pnl`, `hey what are my open
+    # orders`, `hey what is my net worth`, `hi am i overexposed`, and
+    # `hey analyze btc` — a chart request with the symbol named.
+    #
+    # That is `HALT_SOCIAL_LEAD`'s lesson, which this file records one gate
+    # up as "a social lead on a whole-message action is INFORMALITY, and
+    # informality goes to the door". The fix reached the ACTION rules only,
+    # through `_ANCHORED_ACTION_RULES` above; every READ rule was still
+    # behind this line.
+    #
+    # The lead is STRIPPED and the remainder is asked the same question,
+    # ONCE. Recursing rather than consulting the rule table is the narrow
+    # choice on purpose: most of `_INTENT_RULES` is unanchored, so asking it
+    # here would let a rule matching INSIDE a pleasantry acquit real small
+    # talk — the shape this file records for the orders rule and the halt
+    # rule both. What the remainder is, the message is: "hey there" leaves
+    # "there", "hey how are you" leaves a `_SOCIAL_CHAT` match, and "hey"
+    # alone leaves nothing — all three stay social, and each is in the table.
+    if (m := _GREETING_PATTERNS.search(stripped)) is not None:
+        rest = stripped[m.end():].lstrip(" ,.!?-—:;")
+        return _is_social_message(rest) if rest else True
     if _THANKS_PATTERNS.search(stripped):
         return True
     if _FAREWELL_PATTERNS.search(stripped):
@@ -1948,7 +1971,20 @@ _rule(_EDU + r"\b(portfolio|balance|equity|pnl|profit(?! factor)|loss|p&l)\b",
 
 # --- Risk ---
 # RUNECLAW risk triggers
-_rule(r"\b(risk check|check (my )?risk|am i (over)?exposed)\b",
+# `my risk` is the caller's own book, and nothing claimed it. Driven,
+# `my risk level` and `my exposure` reach this card while bare `my risk` and
+# `what is my risk` reached the model — the possessive-question family the
+# education slice closed, one rule short. The tail lookahead is the whole
+# care: `my risk reward` is an R:R question this product prints no card for,
+# and a bare alternative would have taken it.
+#
+# ONE alternative, not three. The first draft spelled `what.?s my risk` and
+# `what is my risk` beside it; the mutation round removed each and nothing
+# changed, because `\bmy risk\b` is unanchored and already matches inside
+# both. An equivalent mutant is the round saying the code claims a check it
+# does not make, so the two extra spellings are gone rather than pinned.
+_rule(r"\b(risk check|check (my )?risk|am i (over)?exposed"
+      r"|my risk\b(?!\s*[/:-]?\s*(?:reward|rr|ratio)))\b",
       "check_risk", explanation="RUNECLAW risk check")
 # "risk" alone is too aggressive — require compound phrases
 _rule(r"\b(risk (status|dashboard|check|engine|report)|show risk|check (the )?exposure|drawdown (status|report)|circuit.?breaker (status)?)\b",
