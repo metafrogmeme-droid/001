@@ -183,22 +183,27 @@ def test_the_risk_alternative_takes_nothing_that_was_not_its(router, text, want)
 
 
 @pytest.mark.parametrize("text", ["my risk:reward", "my risk/reward", "my r:r"])
-def test_a_punctuated_compound_is_still_greeted(router, text):
-    """MEASURED AND FILED, not blessed — and two steps from this subject.
+def test_a_punctuated_compound_reaches_the_model(router, text):
+    """THE TRIPWIRE FIRED, AND THIS IS THE CLAIM THAT REPLACED IT.
 
-    These are GREETED today, and neither the lead nor the risk alternative
-    put them there. The short-message gate matches WHITESPACE-SPLIT words
-    against `trading_words`, so the single token `risk:reward` is not the
-    word `risk` and nothing in the set matches; `my risk reward`, three
-    words, is not social for exactly that reason. It is a tokenization gap
-    in the gate's vocabulary check, not a greeting gap and not a rule gap,
-    so it is recorded here rather than fixed inside a slice about the lead.
+    This test asserted that these three were GREETED, with the reason: the
+    short-message gate matched WHITESPACE-SPLIT words against
+    `trading_words`, so the single token `risk:reward` was not the word
+    `risk` and nothing in the set matched, while `my risk reward` — three
+    words — was not social for exactly that reason. A tokenization gap in
+    the gate's vocabulary check, recorded here rather than fixed inside a
+    slice about the greeting lead, and asserting TODAY's behaviour so that a
+    fix would trip it rather than change it in silence.
 
-    This asserts what the product does TODAY. A fix will trip it, which is
-    the point: the next reader arrives at this note rather than at a silent
-    behaviour change.
+    It tripped. The row moves to what replaced it rather than being deleted:
+    `_vocabulary_forms` reads the whole token and then its
+    separator-delimited parts, and the class this was one instance of — 18
+    punctuated trading terms greeted, 8 of 14 spellings of one term reaching
+    two different answers, 9 slash compounds asked "which coin do you want
+    me to look at?" — is measured in
+    `tests/test_one_term_two_spellings_reach_one_reading.py`.
     """
-    assert route(router, text) == "SOCIAL"
+    assert route(router, text) == "MODEL"
 
 
 # ── the action rules keep the behaviour they were given ──────────────────────
