@@ -20,6 +20,7 @@ from pathlib import Path
 
 from bot.backtest.data_loader import DataLoader
 from bot.backtest.engine import BacktestEngine
+from bot.backtest.funding import funding_figure, funding_note
 from bot.backtest.models import BacktestConfig
 from bot.utils.paths import state_path
 
@@ -65,6 +66,14 @@ def _format_result_summary(result) -> str:
     else:
         gate_rejections = "    (no risk rejections)"
 
+    # Funding: the column is three-valued and the sentence under the block
+    # only says something when it needs to. A scorecard that prints a net with
+    # no funding row reads as a complete net — see `bot/backtest/funding.py`.
+    _fstate = getattr(result, "funding_state", "unpriced")
+    _ftotal = getattr(result, "total_funding", None)
+    _fund_fig = funding_figure(_fstate, _ftotal)
+    _fund_note = funding_note(_fstate, _ftotal)
+
     return f"""
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║                    RUNECLAW BACKTEST REPORT                             ║
@@ -83,7 +92,9 @@ def _format_result_summary(result) -> str:
   Total Return:     {result.total_return_pct:>+11.2f}%
   Net PnL:          ${result.net_pnl:>12,.2f}
   Total Commission: ${result.total_commission:>12,.2f}
+  Funding:          {_fund_fig:>12}
   Total Slippage:   ${result.total_slippage:>12,.2f}
+  {_fund_note}
 
 ── TRADE STATISTICS ───────────────────────────────────────────────────────
 

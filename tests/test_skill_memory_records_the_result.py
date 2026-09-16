@@ -152,17 +152,90 @@ def test_neither_surface_still_claims_success(rel):
         f"{rel} still returns its apology without recording that the tool failed")
 
 
-@pytest.mark.parametrize("rel", ["bot/skills/telegram_handler.py",
-                                 "bot/web/user_gateway.py"])
-def test_the_failure_record_is_inside_the_except(rel):
-    """Placement, not presence. `skill_failure_memory` called anywhere in the
-    file satisfies the test above; it has to be reached when the skill raises,
-    which is a property of where it sits."""
-    from tests.source_scan import code_only
+# ── placement, DRIVEN ───────────────────────────────────────────────────────
+#
+# This was a proximity scan: take the FIRST `skill_failure_memory(` in the file
+# and require an `except` within the 600 characters before it. It had the two
+# blind spots a scan has, pointing opposite ways. It ACQUITTED every call site
+# past the first, and it acquitted on an `except` belonging to a sibling block
+# — a false acquittal, the quiet one. And it ACCUSED a branch that catches the
+# raise and folds it into a state word, which is a correct shape it cannot see
+# through; that is the accusation a checker with a blind spot manufactures.
+#
+# The property is a behaviour: when a dispatched skill RAISES, what reaches the
+# history is the failure record. Plant a raising skill and read what was
+# recorded. The drive is shorter than the scan was.
 
-    src = code_only((ROOT / rel).read_text(encoding="utf-8"))
-    i = src.index("skill_failure_memory(")
-    before = src[max(0, i - 600):i]
-    assert "except" in before, (
-        f"{rel} calls skill_failure_memory outside any except block — it would "
-        "not run on the failure it exists to record")
+
+def _failure_marker(name: str) -> str:
+    """The distinguishing half of the record, so the assertion cannot pass on
+    the tool's name alone appearing in some other sentence."""
+    return skill_failure_memory(name).split("] ", 1)[1]
+
+
+def test_a_raising_skill_is_recorded_as_a_failure_on_the_web(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from bot.web import user_gateway as ug
+    from tests.test_one_answer_shape_per_turn import _Recorder, _request, _run, _web_handler
+
+    monkeypatch.setattr(ug, "_guard_user", lambda *a, **kw: None)
+    monkeypatch.setattr(ug, "_is_admin_id", lambda h, uid: False)
+    monkeypatch.setattr(ug, "build_profile_note", lambda p: "")
+
+    class _Boom:
+        name = "get_portfolio"
+
+        async def execute(self, engine, **kw):
+            raise RuntimeError("venue down")
+
+    handler = _web_handler(_Recorder())
+    handler.registry = NS(get=lambda n: _Boom() if n == "get_portfolio" else None)
+    engine = NS(firewall_scan=lambda *a, **kw: None, _pending_ideas={})
+    resp = _run(ug._chat_turn(_request(
+        handler, {"telegram_id": "4242", "text": "show my portfolio"}, engine=engine)))
+    assert resp.status == 200
+
+    said = "\n".join(c for _uid, role, c, _m in handler.conversations.rows
+                     if role == "assistant")
+    assert _failure_marker("get_portfolio") in said, (
+        "the web recorded no failure for a skill that raised — the model is "
+        f"left with the question and no answer. recorded: {said!r}")
+    assert "] result:" not in said, (
+        "a raise was recorded as a result, which is the placeholder this file "
+        "exists to have removed")
+
+
+@pytest.fixture(name="bot")
+def _bot(tmp_path):
+    """The halt suite's handler through its own fixture FUNCTION, driven by
+    pytest. `yield from` matters: that fixture's teardown is a bare
+    `patch.stopall()` after its `yield`, so a hand-driven `gen.close()` throws
+    GeneratorExit at the yield and the teardown never runs — leaving
+    `telegram_handler.CONFIG` a MagicMock for every later test in the session.
+    The first draft did exactly that, and the only symptom was eleven errors in
+    a DIFFERENT file: a leak is invisible from any single run's verdict."""
+    from tests.test_a_halt_is_the_operators_own_sentence import bot as _halt_bot
+    yield from _halt_bot.__wrapped__(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_a_raising_skill_is_recorded_as_a_failure_on_telegram(bot):
+    from types import SimpleNamespace as NS
+    from unittest.mock import AsyncMock
+
+    from tests.test_free_text_obeys_the_role_gate import OPERATOR, _update
+
+    bot.registry = NS(get=lambda n: NS(
+        name=n, execute=AsyncMock(side_effect=RuntimeError("venue down"))))
+    recorded: list[tuple] = []
+    bot.conversations = NS(append=lambda uid, role, content, metadata=None:
+                           recorded.append((role, content)),
+                           get_recent_as_llm_messages=lambda *a, **k: [])
+    await bot._handle_message(_update(OPERATOR, "show my portfolio"), None)
+
+    said = "\n".join(c for role, c in recorded if role == "assistant")
+    assert _failure_marker("get_portfolio") in said, (
+        "Telegram recorded no failure for a skill that raised. "
+        f"recorded: {said!r}")
+    assert "] result:" not in said

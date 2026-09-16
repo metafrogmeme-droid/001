@@ -20,6 +20,17 @@ class BacktestConfig(BaseModel):
     initial_balance: float = 10_000.0
     commission_pct: float = 0.1            # 0.1% per trade (Bitget taker fee)
     slippage_pct: float = 0.05             # 0.05% simulated slippage
+    # Funding is a cost the frozen benchmarks cannot carry: `data_loader` loads
+    # OHLCV only, and a backtest symbol ("BTC/USDT") has no ccxt `:SETTLE`
+    # suffix to read perp-ness from — `csf.market_is_perp` answers False for
+    # every one of them. So both are STATED, and unstated is `unpriced` rather
+    # than a zero: a default of 0.0 here is the `funding: "0"` shape
+    # `bot/proofofpnl/csf.py` records as "an unmeasured cost rendered as a
+    # measured zero". See `bot/backtest/funding.py`.
+    #: Per-settlement funding rate as a FRACTION (0.0001 = 1bp). None = unpriced.
+    funding_rate: Optional[float] = None
+    #: Whether this market pays funding at all. None = not stated = unpriced.
+    market_is_perp: Optional[bool] = None
     max_position_pct: float = 2.0          # matches live risk config
     max_open_positions: int = 5
     # Extra minimum-confidence entry gate applied ON TOP of the analyzer's
@@ -99,7 +110,14 @@ class BacktestTrade(BaseModel):
     pnl_pct: float
     commission_usd: float
     slippage_usd: float
-    net_pnl_usd: float                     # pnl - commission (slippage is baked into entry/exit prices)
+    #: pnl - commission - funding. Slippage is baked into the entry/exit
+    #: prices; funding is subtracted only when it was priced.
+    net_pnl_usd: float
+    #: Signed as a P&L adjustment: negative paid, positive received.
+    #: None when `funding_state` is "unpriced" — never 0.0 for it.
+    funding_usd: Optional[float] = None
+    funding_state: str = "unpriced"        # unpriced/not_perp/no_settlement/charged
+    funding_settlements: Optional[int] = None
     exit_reason: str                        # "SL", "TP", "END_OF_DATA"
     confidence: float
     risk_verdict: str                       # "APPROVED" or "REJECTED"
@@ -135,6 +153,11 @@ class BacktestResult(BaseModel):
     total_pnl: float
     total_commission: float
     total_slippage: float
+    #: None when the run is "unpriced". A run mixing priced and unpriced
+    #: positions is unpriced whole: a partial sum printed as a total is
+    #: the shape CLAUDE.md tabulates.
+    total_funding: Optional[float] = None
+    funding_state: str = "unpriced"
     net_pnl: float
 
     # Trade stats

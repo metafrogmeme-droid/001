@@ -709,53 +709,16 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     if grammar is not None:
         return _propose_from_text(request.app, tg_handler, engine, tg_id,
                                   grammar, name=name)
-    # The bare-directional branch below reads the same message WITHOUT the
-    # grammar, so it needs the normalised text whether or not this was a
-    # trade line. Keeping one name for both is what broke it: the seam
-    # answers None for everything that is not the full grammar, and
-    # `re.match(pattern, None)` raises — a 500 on every ordinary chat turn.
-    bare_text = str(text or "").lower().strip()
-    if bare_text.startswith("trade "):
-        bare_text = bare_text[6:].strip()
-
-    # Bare directional ask — "long ETH" / "paper short sol" (no explicit
-    # levels). NEVER loosened into an order: it routes to analyze_asset, so
-    # the user gets the agent's actual setup (entry/SL/TP from the engine)
-    # with the one-tap "Trade this" card. SL discipline stays mandatory —
-    # only the strict "buy X <entry> sl <sl> tp <tp>" form proposes directly.
-    _bare = re.match(r"^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$",
-                     bare_text)
-    if _bare:
-        skill = tg_handler.registry.get("analyze_asset")
-        if skill:
-            _sym = _bare.group(1).upper()
-            tg_handler.conversations.append(tg_id, "user", text,
-                                            metadata={"intent": "analyze_asset",
-                                                      "surface": "web"})
-            ideas_before = set(getattr(engine, "_pending_ideas", {}) or {})
-            try:
-                result = await skill.execute(engine, user_id=tg_id, symbol=_sym)
-            except Exception:
-                # The user turn was appended three lines up, so returning here
-                # left the history with a question and no answer — the exact
-                # gap skill_memory.py's docstring names as the one most likely
-                # to be filled in with something plausible. The two siblings
-                # under `if skill:` already record this; this branch predates
-                # them and was missed.
-                tg_handler.conversations.append(
-                    tg_id, "assistant", skill_failure_memory("analyze_asset"),
-                    metadata={"skill": "analyze_asset", "surface": "web",
-                              "failed": True})
-                from bot.skills.chat_runtime import skill_failure_notice
-                return web.json_response(
-                    {"reply_html": skill_failure_notice("analyze_asset"),
-                     "intent": "analyze_asset"}, status=200)
-            resp = {"reply_html": result, "intent": "analyze_asset"}
-            setup = _setup_from_new_idea(engine, ideas_before)
-            if setup is not None:
-                resp["setup"] = setup
-            return web.json_response(resp)
-
+    # THE BARE-DIRECTIONAL BRANCH IS THE ROUTER'S NOW. It was a private
+    # regex here — `^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$`
+    # — so "long eth", "buy eth" and "short btc" got the agent's setup on the
+    # web and a tool-less chat model on Telegram, and every other phrasing of
+    # the same request ("go long eth", "market buy eth", "open a long on eth")
+    # got the model on both. It also answered with the card and NO SENTENCE:
+    # a caller who typed "buy eth" was shown a chart and never told nothing
+    # had been bought, which is the silence the routed act intents exist to
+    # end. `place_order` is that rule, `place_target` is the one reading of
+    # which asset was named, and the branch below answers both surfaces.
     # Intent routing — same threshold as Telegram (confidence >= 0.8).
     intent = tg_handler.intent_router.classify_rules(text)
     # Stance intents are Telegram-flow only (a confirm-button proposal for
@@ -788,8 +751,64 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         stake_verb,
     )
     if intent.matched and intent.confidence >= 0.8 and intent.skill in ACT_INTENTS:
-        from bot.nlp.intent_router import symbol_mentioned
+        from bot.nlp.intent_router import place_target, symbol_mentioned
         _kind = ACT_KIND[intent.skill]
+        if _kind == "place":
+            # The door needs a key — the grammar it names demands an entry, a
+            # stop and a target — so the asset's own read rides with it, the
+            # way it did under the private regex this replaces, and the
+            # "Trade this" button on that setup places nothing until tapped.
+            # The read is attempted BEFORE the notice is built, so the
+            # sentence about the card is written only when the card came.
+            # FOUR states: `read`, `denied`, `failed` and `absent`. Only a
+            # read may put the card sentence on the door; only a FAILED read
+            # is a tool failure in the model's record (a build with no
+            # analyzer registered attempted nothing); and `denied` IS THE
+            # GATE EVERY OTHER WEB ROUTE TO THIS SKILL GOES THROUGH, asked
+            # here because this branch calls the skill directly and would
+            # otherwise hand a viewer a read their role forbids. The DOOR is
+            # ungated on purpose — telling somebody how to open a trade is
+            # not the gated read — so only the card is withheld, and the
+            # refusal is `not_run_memory`: a gate saying no, which is neither
+            # a failure inviting a retry nor an absent tool.
+            _sym = place_target(intent.raw_text)
+            _setup_txt, _setup, _state = None, None, "absent"
+            _skill = tg_handler.registry.get("analyze_asset") if _sym else None
+            if _skill is not None and _web_skill_denied(
+                    tg_handler, tg_id, "analyze_asset") is not None:
+                _skill, _state = None, "denied"
+            if _skill is not None:
+                _ideas_before = set(getattr(engine, "_pending_ideas", {}) or {})
+                try:
+                    _setup_txt = await _skill.execute(engine, user_id=tg_id, symbol=_sym)
+                except Exception:
+                    _setup_txt = None
+                if _setup_txt:
+                    _state = "read"
+                    _setup = _setup_from_new_idea(engine, _ideas_before)
+                else:
+                    _setup_txt, _state = None, "failed"
+            _act = act_intent_notice(
+                "place", _sym, surface="web",
+                also_asked=bool(intent.kwargs.get("also_asked")),
+                setup_follows=_state == "read")
+            _mem = routed_answer_memory(intent.skill, _act)
+            if _setup_txt is not None:
+                _mem += "\n" + skill_result_memory("analyze_asset", _setup_txt)
+            elif _state == "failed":
+                _mem += "\n" + skill_failure_memory("analyze_asset")
+            elif _state == "denied":
+                _mem += "\n" + not_run_memory(
+                    "analyze_asset",
+                    "the caller's role does not hold the permission it needs")
+            record_routed_turn(tg_handler.conversations, tg_id, text, intent.skill,
+                               _mem, surface="web")
+            _resp = {"reply_html": _act, "intent": intent.skill}
+            if _setup_txt is not None:
+                _resp["analysis_html"] = _setup_txt
+            if _setup is not None:
+                _resp["setup"] = _setup
+            return web.json_response(_resp)
         _act = act_intent_notice(_kind,
                                  symbol_mentioned(intent.raw_text), surface="web",
                                  also_asked=bool(intent.kwargs.get("also_asked")),
