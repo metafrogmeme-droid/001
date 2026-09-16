@@ -26,11 +26,20 @@ const assert = require('node:assert');
 
 const SG = require('../public/js/shadow-gate-row.js');
 
-/** A row shaped as `gate_report()` builds one. */
+/**
+ * A row shaped as `gate_report()` builds one.
+ *
+ * Every charged trade is a SOLE cause here unless a caller overrides — that
+ * is the set the server's interval and verdict describe, and the figures this
+ * row prints. Leaving it implicit is what let the charged total stand in for
+ * the recoverable one on the live card.
+ */
 function gate(over) {
   return Object.assign({
     gate: 'MTF_ALIGNMENT', n: 97, net_r: 4.1, avg_r: 0.042,
     wins: 30, losses: 60, sum_r2: 210, lower_r: -0.2519, upper_r: 0.3365,
+    sole_n: 97, sole_net_r: 4.1, sole_avg_r: 0.042,
+    co_n: 0, co_net_r: 0, unknown_n: 0, unknown_net_r: 0,
     verdict: 'undistinguished',
   }, over || {});
 }
@@ -54,7 +63,10 @@ test('an established gate is still painted', () => {
 test('a net of exactly zero is not green', () => {
   // `net_r > 0 ? 'neg' : 'pos'` sent a measured break-even down the else
   // branch, and the panel's caption reads green as "it saved money".
-  const c = SG.classify(gate({ net_r: 0, avg_r: 0, verdict: 'undistinguished' }));
+  const c = SG.classify(gate({
+    net_r: 0, avg_r: 0, sole_net_r: 0, sole_avg_r: 0,
+    verdict: 'undistinguished',
+  }));
   assert.notStrictEqual(c.tone, 'pos');
   assert.strictEqual(c.tone, '');
   assert.strictEqual(c.netR, 0, 'a measured zero must survive as a number');

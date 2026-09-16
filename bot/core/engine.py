@@ -6258,7 +6258,7 @@ class RuneClawEngine:
                 # fail-open — /shadow now answers whether the guard eats edge.
                 try:
                     if getattr(CONFIG, "shadow_book_enabled", False):
-                        from bot.core.shadow_book import SHADOW_BOOK
+                        from bot.core.shadow_book import SCOPE_PRE_RISK, SHADOW_BOOK
                         _lq_regime = ""
                         try:
                             _lq_r = getattr(self.analyzer, "_current_regimes",
@@ -6275,10 +6275,18 @@ class RuneClawEngine:
                         # read, but the doubled string still reaches `gates`
                         # and `reason`, and a canonicaliser that silently
                         # absorbs a malformed input is how it survives.
+                        # PRE_RISK, and the word is load-bearing: this
+                        # return is ABOVE the risk-rejection branch, so the
+                        # ~23 in-engine checks have not run. The one-entry
+                        # gate list here means "nothing else had been
+                        # checked", not "nothing else would have failed" —
+                        # `shadow_book.cause_state` keeps those apart so the
+                        # scoreboard cannot claim this gate alone was what
+                        # kept the trade off the book.
                         SHADOW_BOOK.record_rejection(
                             idea, [liq_reason], liq_reason,
                             ref_price=float(getattr(signal, "price", 0) or 0),
-                            regime=_lq_regime)
+                            regime=_lq_regime, scope=SCOPE_PRE_RISK)
                 except Exception as _lq_exc:
                     system_log.debug("shadow book liquidity record skipped: %s", _lq_exc)
                 return None
@@ -6339,7 +6347,7 @@ class RuneClawEngine:
             # outcome instead of a theoretical one. Fail-open, never trades.
             try:
                 if getattr(CONFIG, "shadow_book_enabled", False):
-                    from bot.core.shadow_book import SHADOW_BOOK
+                    from bot.core.shadow_book import SCOPE_ALL_CHECKS, SHADOW_BOOK
                     _sb_regime = ""
                     try:
                         _sb_r = getattr(self.analyzer, "_current_regimes",
@@ -6347,10 +6355,14 @@ class RuneClawEngine:
                         _sb_regime = getattr(_sb_r, "value", "") or ""
                     except Exception:
                         _sb_regime = ""
+                    # ALL_CHECKS: `evaluate` fails no check early — its
+                    # verdict is `APPROVED if len(failed) == 0` — so
+                    # `checks_failed` is every gate that refused this idea,
+                    # and a one-entry list here really is a sole cause.
                     SHADOW_BOOK.record_rejection(
                         idea, risk_check.checks_failed, risk_check.reason,
                         ref_price=float(getattr(signal, "price", 0) or 0),
-                        regime=_sb_regime)
+                        regime=_sb_regime, scope=SCOPE_ALL_CHECKS)
             except Exception as _sb_exc:
                 system_log.debug("shadow book record skipped: %s", _sb_exc)
             return None

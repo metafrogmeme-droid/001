@@ -28,7 +28,11 @@ from __future__ import annotations
 
 import pytest
 
-from bot.core.shadow_book import ShadowBook, gate_category
+from bot.core.shadow_book import (
+    SCOPE_ALL_CHECKS,
+    ShadowBook,
+    gate_category,
+)
 
 # ── the canonicaliser ─────────────────────────────────────────────────────
 
@@ -65,7 +69,8 @@ def test_different_gates_do_not_collapse_into_each_other():
 def _book(tmp_path, gates):
     b = ShadowBook(state_file=str(tmp_path / "sb.json"))
     b._trades = [
-        {"status": "closed", "r": r, "gate": g, "gates": [g], "regime": "TREND"}
+        {"status": "closed", "r": r, "gate": g, "gates": [g],
+         "scope": SCOPE_ALL_CHECKS, "regime": "TREND"}
         for g, r in gates
     ]
     b._load = lambda: None      # the rows are planted, not read from disk

@@ -55,8 +55,9 @@ from bot.core.self_audit import (
     window_reading,
 )
 from bot.core.shadow_book import (
-    MIN_GATE_TRADES,
+    SCOPE_ALL_CHECKS,
     ShadowBook,
+    gate_verdict,
     mean_r_interval,
 )
 
@@ -173,20 +174,24 @@ class TestNoChangeVerdict:
 # ── 3. the gate line has a bar ────────────────────────────────────────────
 
 def _gate(n, net_r, sum_r2, **over):
-    """A gate row shaped exactly as `gate_report()` builds one."""
+    """A gate row shaped exactly as `gate_report()` builds one.
+
+    Every planted trade is a SOLE cause unless a caller overrides. That is the
+    set the interval and the verdict describe, and leaving it implicit is what
+    let the charged total stand in for the recoverable one on the live card.
+
+    The verdict comes from `gate_verdict` rather than being restated here —
+    this fixture used to carry its own copy of that branch, which agreed with
+    every row it built and would have diverged on the first edit to either.
+    """
     row = {"n": n, "net_r": net_r, "sum_r2": sum_r2,
-           "avg_r": round(net_r / n, 3), "wins": 0, "losses": 0}
-    iv = mean_r_interval(n, net_r, sum_r2)
-    row["lower_r"] = None if iv is None else iv[0]
-    row["upper_r"] = None if iv is None else iv[1]
-    if iv is None or n < MIN_GATE_TRADES:
-        row["verdict"] = None
-    elif iv[0] > 0:
-        row["verdict"] = "eating_edge"
-    elif iv[1] < 0:
-        row["verdict"] = "saving"
-    else:
-        row["verdict"] = "undistinguished"
+           "avg_r": round(net_r / n, 3), "wins": 0, "losses": 0,
+           "sole_n": n, "sole_net_r": net_r,
+           "sole_avg_r": round(net_r / n, 3),
+           "co_n": 0, "co_net_r": 0.0,
+           "unknown_n": 0, "unknown_net_r": 0.0}
+    row["lower_r"], row["upper_r"], row["verdict"] = gate_verdict(
+        n, net_r, sum_r2)
     row.update(over)
     return row
 
@@ -269,9 +274,17 @@ class TestCostliestGateLine:
         assert "costliest gate" not in line
 
     def test_a_row_with_nothing_readable_on_it_does_not_print_a_zero(self):
-        """Every figure `is None`-tested rather than coerced."""
-        line = costliest_gate_line({"X": {"net_r": 3.0, "verdict": None}})
-        assert "over ? blocked trades" in line, "an absent count printed raw"
+        """Every figure `is None`-tested rather than coerced.
+
+        The row has to carry a readable `sole_n` to reach `_gate_stat` at all
+        — without one the line stops at "no readable count", which is a
+        different sentence and tested above. Here the count is readable and
+        the two figures beside it are not.
+        """
+        line = costliest_gate_line({"X": {"n": 3, "net_r": 3.0, "sole_n": 3,
+                                          "sole_net_r": 3.0,
+                                          "verdict": None}})
+        assert "over 3 trade(s) blocked by this gate alone" in line
         assert "avg —" in line, "an absent per-trade figure printed as 0.000"
 
     def test_a_non_finite_or_junk_figure_is_treated_as_unreadable(self):
@@ -282,10 +295,17 @@ class TestCostliestGateLine:
                                               "verdict": None}})
             assert line is None, f"{junk!r} was read as a net R"
         # And on the count, where it must not clear or fail the sample floor
-        # by accident.
-        line = costliest_gate_line({"X": {"n": float("nan"), "net_r": 5.0,
+        # by accident. A NaN count is UNREADABLE, which is the same fact as an
+        # absent one and gets the same sentence — never a number measured
+        # against `MIN_GATE_TRADES`.
+        line = costliest_gate_line({"X": {"n": 40, "net_r": 5.0,
+                                          "sole_n": float("nan"),
+                                          "sole_net_r": 5.0,
                                           "avg_r": 0.1, "verdict": None}})
-        assert line is not None and "no interval could be computed" in line
+        assert line is not None
+        assert "no readable count" in line
+        assert "fewer than" not in line, (
+            "a NaN count was measured against the sample floor")
 
     def test_a_row_with_no_net_r_is_not_reported_as_blocking_winners(self):
         assert costliest_gate_line({"B": {"n": 40, "avg_r": 0.1,
@@ -312,9 +332,10 @@ class TestCostliestGateLine:
         blocked trade(s), fewer than the 10 needed` — a sample floor applied
         to a sample nobody counted."""
         line = costliest_gate_line({"X": {"net_r": 3.0, "verdict": None}})
-        assert "blocked trade(s), fewer than" not in line, (
+        assert "fewer than" not in line, (
             "an absent count was measured against the sample floor")
-        assert "no interval could be computed" in line
+        assert "no readable count" in line
+        assert "None" not in line
         assert "None" not in line
 
     def test_an_established_row_with_no_total_prints_a_dash_not_a_zero(self):
@@ -396,7 +417,12 @@ class TestGateReportCarriesTheVerdict:
         book = ShadowBook(state_file=str(tmp_path / "sb.json"))
         book._loaded = True
         book._trades = [
+            # `gates` and `scope` say the row was blocked by this gate ALONE
+            # under a full risk evaluation — the case these intervals are
+            # about. A row that does not say reads `unknown` and is scored by
+            # nothing, which is the point of the field.
             {"status": "closed", "r": r, "gate": f"{gate}: reading",
+             "gates": [f"{gate}: reading"], "scope": SCOPE_ALL_CHECKS,
              "symbol": "BTC/USDT", "regime": "TREND"}
             for gate, r in rows]
         return book

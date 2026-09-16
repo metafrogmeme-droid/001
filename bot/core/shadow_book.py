@@ -56,7 +56,7 @@ def _base(symbol: str) -> str:
     return s[:i] if i > 0 else s
 
 
-def gate_category(gate: str) -> str:
+def gate_category(gate: Optional[str]) -> str:
     """The stable bucket a gate string belongs to.
 
     A gate string carries the READING that tripped it -
@@ -86,6 +86,75 @@ def gate_category(gate: str) -> str:
     # neighbour's. Merging it would credit its R to a gate that did not earn
     # it, which is the same misattribution one level down.
     return head or "UNLABELLED"
+
+
+#: What `record_rejection` writes when its caller named no gate at all. It is
+#: a placeholder, NOT a gate, so a one-entry list holding it establishes
+#: nothing about what blocked the trade.
+UNSPECIFIED_GATE = "(unspecified)"
+
+#: The writer ran the FULL risk check set, so `gates` names every check that
+#: failed and a one-entry list is a measured SOLE cause.
+SCOPE_ALL_CHECKS = "all_checks"
+#: The writer rejected BEFORE the risk engine ran — check #17 (liquidity) in
+#: `engine.py`, which returns above the risk-rejection branch. Its one-entry
+#: list is the only check that HAD run, not the only check that would have
+#: failed, so it establishes no sole cause.
+SCOPE_PRE_RISK = "pre_risk"
+
+#: This gate was the only failed check on record — loosening it would have
+#: placed the trade.
+CAUSE_SOLE = "sole"
+#: The record names another failed check too. Loosening this gate alone would
+#: have placed NOTHING: the other one still refuses.
+CAUSE_CO_BLOCKED = "co_blocked"
+#: The record cannot say. Never folded into either of the others.
+CAUSE_UNKNOWN = "unknown"
+
+
+def cause_state(trade: dict) -> str:
+    """Whether the charged gate was the ONLY thing blocking this trade.
+
+    `RiskEngine.evaluate` has no short-circuit — its verdict is
+    ``APPROVED if len(failed) == 0``, so every failed check accumulates — and
+    `record_rejection` charges the whole outcome to ``gates[0]``, saying so in
+    its own docstring: *"the FIRST entry is the primary gate charged with the
+    outcome"*. That is a documented simplification in the WRITER, and the
+    scoreboard built on it makes an undocumented claim: the nightly card reads
+    the top of `gate_report` and prints *"X is the costliest gate (net +86.2R
+    over 73 blocked trades)"*, one line above an Apply instruction. A trade
+    that also failed CONFIDENCE is not recovered by loosening X — CONFIDENCE
+    still refuses it — so the R the card invites the operator to chase is only
+    the part of that total the gate SOLELY blocked.
+
+    The list that answers it has been on every row since `record_rejection`
+    was written and was read by nothing.
+
+    THREE VALUES, and the third is why `scope` exists. ``len(gates) > 1`` is
+    sound with no help: the record names another failed check, so this is
+    definitely co-blocked — and the ``[:5]`` truncation can only hide a
+    co-blocker, never invent one. ``len(gates) == 1`` is sound only from the
+    full risk evaluation; the liquidity call site returns BEFORE the risk
+    engine runs, so its one-entry list means *nothing else had been checked
+    yet*. A row that does not say which reads `unknown`.
+
+    SOLE ONLY WHEN THE RECORD DEFINITELY SAYS SO, because the two mistakes are
+    not the same size — `plan_cleanup` draws the same line for the same
+    reason. Reading an ambiguous row as sole over-claims recoverable R on the
+    card that asks an operator to loosen a risk gate on a live account;
+    reading a genuinely-sole row as unknown costs a missed optimisation.
+    """
+    if not isinstance(trade, dict):
+        return CAUSE_UNKNOWN
+    gates = trade.get("gates")
+    if not isinstance(gates, list) or not gates:
+        return CAUSE_UNKNOWN
+    if len(gates) > 1:
+        return CAUSE_CO_BLOCKED
+    if str(gates[0]).strip() == UNSPECIFIED_GATE:
+        return CAUSE_UNKNOWN
+    return (CAUSE_SOLE if trade.get("scope") == SCOPE_ALL_CHECKS
+            else CAUSE_UNKNOWN)
 
 
 #: Lower end of a 95% interval, the same bar `readiness.wilson_lower_bound`
@@ -140,6 +209,36 @@ def mean_r_interval(n: int, sum_r: float, sum_r2: float,
         return None
 
 
+def gate_verdict(n: int, sum_r: float,
+                 sum_r2: float) -> tuple[Optional[float], Optional[float],
+                                         Optional[str]]:
+    """``(lower, upper, verdict)`` for one sample of blocked-trade R.
+
+    The branch `gate_report` scores each gate with, written once because the
+    guards need to build a row that agrees with it and a hand-written copy in
+    a fixture agrees with every fixture and diverges on the first edit to
+    either — the second-copy shape this repo records for maps, gates and
+    thresholds throughout.
+
+    THREE VALUES FOR THE VERDICT, and `None` is not "neither": it is *no
+    interval, or too thin to trust one*, and a gate carrying it has not been
+    shown to eat edge OR to save money. `MIN_GATE_TRADES` is applied here
+    rather than by the caller for the same reason the branch is — a floor
+    remembered at each call site is a floor.
+    """
+    iv = mean_r_interval(n, sum_r, sum_r2)
+    if iv is None:
+        return None, None, None
+    lo, hi = iv
+    if n < MIN_GATE_TRADES:
+        return lo, hi, None
+    if lo > 0:
+        return lo, hi, "eating_edge"
+    if hi < 0:
+        return lo, hi, "saving"
+    return lo, hi, "undistinguished"
+
+
 class ShadowBook:
     """Persistent counterfactual ledger of gate-rejected trades."""
 
@@ -175,15 +274,22 @@ class ShadowBook:
     def record_rejection(self, idea, gates, reason: str,
                          ref_price: float = 0.0,
                          now_ts: Optional[float] = None,
-                         regime: str = "") -> Optional[dict]:
+                         regime: str = "",
+                         scope: str = "") -> Optional[dict]:
         """Enter a rejected idea into the ledger. Never raises.
 
         ``gates`` is the risk check's failed-gate list; the FIRST entry is
-        the primary gate charged with the outcome. ``regime`` tags the
-        market regime at rejection time so the scoreboard can answer
+        the primary gate charged with the outcome, and the WHOLE list decides
+        whether that charge is recoverable — see `cause_state`. ``regime``
+        tags the market regime at rejection time so the scoreboard can answer
         "does this gate earn in THIS regime?" — the raw material for
         regime-conditional gating. Degenerate ideas (missing/inverted
         levels) are skipped — nothing to simulate.
+
+        ``scope`` is the caller saying WHICH CHECK SET it ran, and it has no
+        default that means "all of them": a caller that does not say leaves
+        every row it writes unclassifiable, which is the honest answer and
+        never the flattering one.
         """
         try:
             self._load()
@@ -199,7 +305,8 @@ class ShadowBook:
                 return None
             if (not is_long) and not (tp < entry < sl):
                 return None
-            gate_list = [str(g) for g in (gates or [])][:5] or ["(unspecified)"]
+            gate_list = ([str(g) for g in (gates or [])][:5]
+                         or [UNSPECIFIED_GATE])
             now = float(now_ts if now_ts is not None else time.time())
             trade = {
                 "id": f"SB-{uuid.uuid4().hex[:8]}",
@@ -208,6 +315,7 @@ class ShadowBook:
                 "direction": direction,
                 "entry": entry, "sl": sl, "tp": tp,
                 "gate": gate_list[0], "gates": gate_list,
+                "scope": str(scope or ""),
                 "reason": str(reason or "")[:160],
                 "regime": str(regime or "").strip().upper()[:24],
                 "strategy_type": str(getattr(idea, "strategy_type", "") or ""),
@@ -318,17 +426,49 @@ class ShadowBook:
         blocked trades` — which is **+0.042R per trade**, a bar cleared by
         noise, on the scoreboard that decides which risk gate to loosen. Same
         defect `voter_weights` had ("62% of 34" is 21 of 34, a coin flip) in a
-        second module. `sum_r2` rides along so `mean_r_lower_bound` can put an
-        interval on the per-trade figure; `lower_r` is that interval's floor
-        and is ``None`` when there is no sample to compute one from.
+        second module. `sum_r2` rides along so `mean_r_interval` can put an
+        interval on the per-trade figure.
+
+        AND A TOTAL OVER AN ATTRIBUTION IS NOT A MEASUREMENT OF THE GATE.
+        Every row is charged to ``gates[0]`` and the risk engine fails no
+        check early, so a trade that tripped three gates pays all of its R to
+        whichever of them `evaluate` happens to reach first — source-line
+        order, which is no judgement about which gate mattered. Two readings
+        come off that, and only one of them can be acted on:
+
+        * ``n`` / ``net_r`` / ``avg_r`` / ``wins`` / ``losses`` are the
+          CHARGED partition. They sum across gates to the book's own total,
+          which is why they are kept, and they answer "what was booked to
+          this gate", not "what did this gate block".
+        * ``sole_n`` / ``sole_net_r`` / ``sole_avg_r`` are the subset the
+          record shows this gate blocked ALONE — the only trades loosening it
+          would have placed. ``co_n`` / ``co_net_r`` are the ones another
+          gate refused as well, and ``unknown_n`` / ``unknown_net_r`` the ones
+          the record cannot classify. The three counts partition ``n``.
+
+        THERE IS ONE VERDICT AND IT IS THE SOLE SUBSET'S, under the names
+        every reader already uses (``verdict``, ``lower_r``, ``upper_r``), so
+        the card, `/shadow` and the dashboard panel inherit the reading at the
+        boundary rather than each remembering to ask for it. A verdict is a
+        claim that invites action, and no action follows from "trades where
+        this gate happened to be evaluated first" — so the charged set gets
+        figures and no verdict, and the interval describes ``sole_*``.
+
+        The sole subset needs no re-ranking to be fair: a sole-cause row has
+        exactly one gate on it, so that gate IS the charged one. Evaluation
+        order cannot move a trade into or out of any gate's sole subset, and
+        a gate that solely blocked nothing has no recoverable R to claim.
         """
         self._load()
         out: dict[str, dict] = {}
         for tr in self._trades:
-            if tr["status"] != "closed" or tr.get("r") is None:
+            if tr.get("status") != "closed" or tr.get("r") is None:
                 continue
-            g = out.setdefault(gate_category(tr["gate"]), {
-                "n": 0, "wins": 0, "losses": 0, "net_r": 0.0, "sum_r2": 0.0})
+            g = out.setdefault(gate_category(tr.get("gate")), {
+                "n": 0, "wins": 0, "losses": 0, "net_r": 0.0, "sum_r2": 0.0,
+                "sole_n": 0, "sole_net_r": 0.0, "_sole_r2": 0.0,
+                "co_n": 0, "co_net_r": 0.0,
+                "unknown_n": 0, "unknown_net_r": 0.0})
             r = float(tr["r"])
             g["n"] += 1
             g["net_r"] = round(g["net_r"] + r, 3)
@@ -337,26 +477,42 @@ class ShadowBook:
                 g["wins"] += 1
             elif r < 0:
                 g["losses"] += 1
+            cause = cause_state(tr)
+            if cause == CAUSE_SOLE:
+                g["sole_n"] += 1
+                g["sole_net_r"] = round(g["sole_net_r"] + r, 3)
+                g["_sole_r2"] = round(g["_sole_r2"] + r * r, 6)
+            elif cause == CAUSE_CO_BLOCKED:
+                g["co_n"] += 1
+                g["co_net_r"] = round(g["co_net_r"] + r, 3)
+            else:
+                g["unknown_n"] += 1
+                g["unknown_net_r"] = round(g["unknown_net_r"] + r, 3)
         for g in out.values():
             g["avg_r"] = round(g["net_r"] / g["n"], 3) if g["n"] else 0.0
-            iv = mean_r_interval(g["n"], g["net_r"], g["sum_r2"])
-            g["lower_r"] = None if iv is None else iv[0]
-            g["upper_r"] = None if iv is None else iv[1]
+            # `None`, not 0.0, and the asymmetry with `avg_r` above is
+            # deliberate: a bucket only exists because a row landed in it, so
+            # `n` is never 0 there, while `sole_n` is 0 for every gate whose
+            # rows were all co-blocked or all unclassifiable. A mean over no
+            # samples is not a break-even.
+            g["sole_avg_r"] = (round(g["sole_net_r"] / g["sole_n"], 3)
+                               if g["sole_n"] else None)
             # The one thing a reader has to be able to check without doing the
             # arithmetic: is this gate's verdict established, or is it the top
             # of a sort? Carried on the row so the nightly card, the /shadow
             # scoreboard and the LLM's evidence blob cannot answer it
             # differently. Three values, not two — `None` is "no interval", and
             # a gate with no interval has not been shown to do either thing.
-            if iv is None or g["n"] < MIN_GATE_TRADES:
-                g["verdict"] = None
-            elif iv[0] > 0:
-                g["verdict"] = "eating_edge"
-            elif iv[1] < 0:
-                g["verdict"] = "saving"
-            else:
-                g["verdict"] = "undistinguished"
-        return dict(sorted(out.items(), key=lambda kv: kv[1]["net_r"],
+            g["lower_r"], g["upper_r"], g["verdict"] = gate_verdict(
+                g["sole_n"], g["sole_net_r"], g.pop("_sole_r2"))
+        # Ranked by the RECOVERABLE total, because "costliest" is a claim
+        # about what loosening a gate would buy back. A gate with no
+        # sole-cause rows scores 0 there and falls to its charged total, which
+        # is the order this sort has always had — so a ledger that predates
+        # the scope field degrades to the old ranking rather than to nothing.
+        return dict(sorted(out.items(),
+                           key=lambda kv: (kv[1]["sole_net_r"],
+                                           kv[1]["net_r"]),
                            reverse=True))
 
     def gate_regime_report(self) -> dict:
@@ -396,7 +552,9 @@ class ShadowBook:
             lines.append("No closed shadow trades yet — the ledger fills "
                          "as gates reject ideas.")
             return "\n".join(lines)
-        lines.append("net R > 0 = the gate is BLOCKING winners "
+        lines.append("net R > 0 = the gate is BLOCKING winners. Figures are "
+                     "the trades each gate blocked ALONE — the only ones "
+                     "loosening it would have placed "
                      "(⬜ = not distinguishable from noise):")
         by_regime = self.gate_regime_report()
         for gate, g in list(rep.items())[:12]:
@@ -407,11 +565,40 @@ class ShadowBook:
             # icon rather than borrowing either colour.
             icon = {"eating_edge": "\U0001f7e5",
                     "saving": "\U0001f7e9"}.get(g.get("verdict") or "", "⬜")
-            row = (f"{icon} <code>{gate[:32]}</code> — {g['n']}tr · "
-                   f"net {g['net_r']:+.1f}R · avg {g['avg_r']:+.2f}R")
-            if g.get("verdict") is None:
-                row += f" · <i>too few to bound (&lt;{MIN_GATE_TRADES}tr)</i>"
+            # THE FIGURES BESIDE THE ICON ARE THE SET THE ICON JUDGED. The
+            # verdict is the sole-cause subset's, and printing the CHARGED
+            # total next to it would put a colour earned on 41 trades against
+            # a number covering 73 — the mismatch this card was already once
+            # cured of one quantity over.
+            sole_n = g.get("sole_n") or 0
+            if sole_n:
+                row = (f"{icon} <code>{gate[:32]}</code> — blocked alone "
+                       f"{sole_n}tr · net {g['sole_net_r']:+.1f}R · "
+                       f"avg {g['sole_avg_r']:+.2f}R")
+                if g.get("verdict") is None:
+                    row += (f" · <i>too few to bound "
+                            f"(&lt;{MIN_GATE_TRADES}tr)</i>")
+            else:
+                # Not "0R". No trade on record was blocked by this gate
+                # alone, so there is no per-trade figure to print and no
+                # recoverable total to claim.
+                row = (f"{icon} <code>{gate[:32]}</code> — "
+                       f"<i>no trade on record was blocked by this gate "
+                       f"alone</i>")
             lines.append(row)
+            # The charged total, kept and NAMED rather than dropped: it is a
+            # real partition of the book and it is what every earlier version
+            # of this card printed. The second line appears only when it says
+            # something the first does not.
+            co_n, unk_n = g.get("co_n") or 0, g.get("unknown_n") or 0
+            if co_n or unk_n:
+                why = []
+                if co_n:
+                    why.append(f"{co_n} also failed another gate")
+                if unk_n:
+                    why.append(f"{unk_n} the record cannot classify")
+                lines.append(f"   └ charged {g['n']}tr net "
+                             f"{g['net_r']:+.1f}R — " + ", ".join(why))
             # Regime split: shown only when the gate's verdict actually
             # DIFFERS by regime — the case regime-conditional gating exists
             # for. A gate that's uniformly good/bad stays a single line.

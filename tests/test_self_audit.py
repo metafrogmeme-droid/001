@@ -284,12 +284,19 @@ def test_costly_shadow_gate_surfaces_in_report():
     carries them because this test is about the renderer. The n=8 row it used
     to carry now falls under `MIN_GATE_TRADES` — see the test below, which is
     the half that changed.
+
+    The `sole_*` figures are the ones the line quotes, because they are the
+    set the verdict was computed over — the trades this gate blocked ALONE.
+    Here every charged trade is one, so the two totals agree; the test below
+    is where they do not.
     """
     report = SelfAudit.render_report(
         {"summary": {"n": 5, "win_rate": 0.6, "net_pnl": 1.0},
          "shadow_gates": {"CORRELATION": {
              "n": 24, "net_r": 9.6, "wins": 15, "losses": 9, "avg_r": 0.4,
              "sum_r2": 12.0, "lower_r": 0.18, "upper_r": 0.62,
+             "sole_n": 24, "sole_net_r": 9.6, "sole_avg_r": 0.4,
+             "co_n": 0, "unknown_n": 0,
              "verdict": "eating_edge"}}},
         [], {}, "alts_1h")
     assert "CORRELATION" in report and "+9.6R" in report
@@ -310,6 +317,8 @@ def test_a_gate_that_only_leads_the_sort_is_not_called_the_costliest():
          "shadow_gates": {"MTF_ALIGNMENT": {
              "n": 97, "net_r": 4.1, "wins": 30, "losses": 60, "avg_r": 0.042,
              "sum_r2": 210.0, "lower_r": -0.2519, "upper_r": 0.3365,
+             "sole_n": 97, "sole_net_r": 4.1, "sole_avg_r": 0.042,
+             "co_n": 0, "unknown_n": 0,
              "verdict": "undistinguished"}}},
         [], {}, "alts_1h")
     assert "costliest gate" not in report
@@ -317,7 +326,9 @@ def test_a_gate_that_only_leads_the_sort_is_not_called_the_costliest():
     # The per-trade figure has to be ON the card: without it no reader can
     # recover the 0.042 the whole verdict turns on.
     assert "+0.042R/trade" in report
-    assert "MTF_ALIGNMENT" in report and "97 blocked trades" in report
+    assert "MTF_ALIGNMENT" in report
+    assert "97 trade(s) blocked by this gate alone" in report, (
+        "the sample has to name the set the verdict was computed over")
 
 
 def test_an_unreadable_shadow_book_is_not_a_clean_one():
