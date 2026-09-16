@@ -32,6 +32,15 @@ import time
 from typing import Any, Callable, Optional
 
 from bot.core.shadow_book import MIN_GATE_TRADES
+
+# The governor's status words, imported rather than re-spelled: a second copy
+# of a status word is a second answer about what the engine is doing, and two
+# of these decide whether this card may print a multiplier at all.
+from bot.risk.live_perf_gate import OFF as OFF_STATUS
+from bot.risk.live_perf_gate import OK as OK_STATUS
+from bot.risk.live_perf_gate import PAUSE as PAUSE_STATUS
+from bot.risk.live_perf_gate import REDUCE as REDUCE_STATUS
+from bot.risk.live_perf_gate import WARMUP as WARMUP_STATUS
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
@@ -296,6 +305,117 @@ _NO_REPLY_GIVEN: Any = object()
 #: `scored` is too thin to propose from); what it must not produce is a card
 #: reading "the evidence supports the current configuration" off four trades.
 _MIN_SCORED_FOR_A_VERDICT = 10
+
+
+#: The governor knobs this report may propose, and which branch of the
+#: governor each one is REACHED through. `LIVE_PERF_REDUCE_MULT` is the size
+#: applied in the REDUCE branch and is reached nowhere else: in PAUSE the
+#: multiplier is 0.0, in WARMUP and OFF nothing is applied, and changing it
+#: in any of those changes nothing at all. `LIVE_PERF_REDUCE_WINRATE` is the
+#: bar that decides ENTRY to that branch — and it sits in an `or net < 0`, so
+#: on a net-negative window the branch is entered whatever the bar says.
+#: Neither of those is a thing a reader can work out from the card's live
+#: window, which is a different span; both are things `governor_verdict` can
+#: simply be asked.
+_GOVERNOR_FLAGS = {
+    "LIVE_PERF_REDUCE_WINRATE": "reduce_winrate",
+    "LIVE_PERF_REDUCE_MULT": "reduce_mult",
+}
+
+
+def governor_line(gov: Optional[dict]) -> str:
+    """The card's one line about the live-performance governor.
+
+    It is on the card because the card ENDS by telling a human to apply a
+    change to this governor's knobs, and whether such a change does anything
+    is decided by the branch this line names. The state was already gathered
+    and gathered only for the model: `render_report` printed no governor line
+    at all, so the reader being instructed could not see it.
+
+    Absent is not OFF. A payload with no governor key is a build or an engine
+    that did not report one; OFF is a switch somebody set. They get different
+    sentences because they call for different actions.
+    """
+    if gov is None:
+        return ("Governor: <b>could not be read</b> — no status, multiplier "
+                "or window is shown because none was measured.")
+    status = str(gov.get("status") or "")
+    win = gov.get("window")
+    span = (f"its own window: last {int(win)} closes"
+            if isinstance(win, (int, float)) and win else
+            "its own window: not reported")
+    if status == OFF_STATUS:
+        return ("Governor: <b>OFF</b> — switched off, so nothing it scores "
+                "reaches sizing.")
+    if status == WARMUP_STATUS:
+        # `samples` absent is not a window of zero closes: the honesty gate
+        # flagged the first draft's `.get('samples', 0) or 0` here, on the one
+        # branch whose whole subject is how few closes there are.
+        n = gov.get("samples")
+        counted = (f"{int(n)} closes" if isinstance(n, (int, float))
+                   and not isinstance(n, bool) else "an unreported count")
+        return (f"Governor: <b>WARMUP</b> — {counted} in {span}; below the "
+                "sample floor it fails open and measures nothing.")
+    if status not in (OK_STATUS, REDUCE_STATUS, PAUSE_STATUS):
+        return ("Governor: <b>status not recognised</b> — treat the proposals "
+                "below as unchecked against it.")
+    mult = gov.get("multiplier")
+    wr, net = gov.get("win_rate"), gov.get("net_pnl")
+    return (f"Governor: <b>{status}</b> — size "
+            + (f"\u00d7{float(mult):.2f}" if mult is not None else "\u00d7—")
+            + f" \u00b7 {span}"
+            + (f" \u00b7 win {float(wr)*100:.0f}%" if wr is not None else "")
+            + (f" \u00b7 net ${float(net):,.2f}" if net is not None else ""))
+
+
+def proposal_binding(flag: str, value: Any,
+                     inputs: Optional[dict]) -> Optional[str]:
+    """Whether a governor knob would change anything on the LIVE window.
+
+    A MEASUREMENT, not a reading of the reasoning: `governor_verdict` is run
+    twice over the governor's own window — once as configured, once with this
+    candidate substituted — and the two multipliers are compared. That is only
+    honest while the branch has one definition, which is why it is a leaf
+    (`bot/risk/live_perf_gate.py`) both the engine and this report ask.
+
+    `None` for a flag that is not a governor knob: the question does not
+    apply, and a row that always prints something trains the reader past it.
+    The benchmark's own verdict answers a different question — whether the
+    DATASET reached the condition — and cannot stand in for this one.
+    """
+    key = _GOVERNOR_FLAGS.get(flag)
+    if key is None:
+        return None
+    if not inputs:
+        return ("\u21b3 binding not checked — the governor's own window was "
+                "not read, so whether this changes anything is unknown.")
+    try:
+        from bot.risk.live_perf_gate import governor_verdict
+        now_mult, now_status = governor_verdict(**inputs)
+        after_mult, _ = governor_verdict(**{**inputs, key: float(value)})
+    except Exception:
+        return ("\u21b3 binding not checked — the governor's window could "
+                "not be re-scored with this value.")
+    # A MULTIPLIER IS ONLY A FIGURE WHILE SOMETHING APPLIES IT, and the first
+    # draft of this very function printed "size stays x0.00" under a governor
+    # reading OFF — a number quoted where nothing uses it, and the one number
+    # a reader takes as "sizing is stopped" when OFF means the opposite. The
+    # states that apply nothing say so instead of quoting one.
+    if now_status == OFF_STATUS:
+        return ("\u21b3 <b>changes nothing</b> — the governor is switched "
+                "off, so neither the current value nor this one reaches "
+                "sizing at all.")
+    if now_status == WARMUP_STATUS:
+        return ("\u21b3 <b>changes nothing yet</b> — the governor is below "
+                "its sample floor, where it fails open and applies no "
+                "multiplier of either value.")
+    if now_mult != after_mult:
+        return (f"\u21b3 <b>binds</b> — on the governor's own window this "
+                f"moves size \u00d7{now_mult:.2f} \u2192 \u00d7{after_mult:.2f}.")
+    return (f"\u21b3 <b>changes nothing on the live window</b> — the "
+            f"governor is in {now_status} and size stays "
+            f"\u00d7{now_mult:.2f} with this applied. It may bind on a "
+            f"different window; it does not bind on this one.")
 
 
 def window_reading(summary: Optional[dict]) -> str:
@@ -647,9 +767,21 @@ class SelfAudit:
             risk = getattr(engine, "risk", None)
             if risk is not None:
                 ev["governor"] = risk.live_performance_state()
+                # The SCORING INPUTS beside the reported state: the same
+                # window and the configuration it was scored under, so a
+                # proposal touching a governor knob can be re-scored against
+                # this exact window without restating the branch. One
+                # definition (`governor_verdict`), three readers.
+                ev["governor_inputs"] = risk.live_perf_inputs()
                 ev["throttle"] = risk.equity_throttle_state()
-        except Exception:
-            pass
+        except Exception as exc:
+            # `null`, not a missing key — the rule the shadow-book block above
+            # states in as many words. A bare `pass` left an unreadable
+            # governor indistinguishable from an engine that has no risk
+            # object, and the card proposes changes to that governor's knobs.
+            logger.warning("self-audit governor unreadable: %s", exc)
+            ev["governor"] = None
+            ev["governor_inputs"] = None
         # WHETHER THE BRAIN WAS ANSWERING. The evidence recorded closes, win
         # rate, PF, net and gates, and nothing about which SYSTEM produced
         # them: a window traded entirely by the rule engine (brain degraded)
@@ -769,6 +901,16 @@ class SelfAudit:
                 lines.append(f"<i>{s.get('scored', 0)} of {s['n']} closes carry "
                              f"a recorded P&amp;L; {unpriced} do not and are "
                              f"scored neither way.</i>")
+        # THE GOVERNOR, BESIDE THE WINDOW THAT IS NOT ITS OWN. The line above
+        # is the last 40 closes; the governor scores `live_perf_window` (20 by
+        # default), so 40 closes at 22% is consistent with a most-recent-20 in
+        # PAUSE, in REDUCE or in OK. Membership, then the value, exactly as
+        # the shadow block below: an absent key is a build that reported no
+        # governor and prints nothing, `None` is a read that failed and says
+        # so. Collapsing them is what let a bare `except: pass` in the
+        # gatherer render as silence.
+        if "governor" in evidence:
+            lines.append(governor_line(evidence["governor"]))
         # `in`, then the value — with NO `or {}`. The collapse of None into {}
         # is what made an unreadable scoreboard render as a clean one, and the
         # membership test keeps that distinct from a caller who never gathered
@@ -835,10 +977,21 @@ class SelfAudit:
                 verdict = (f"{icon} measured {ret:+.2f}% "
                            f"({delta:+.2f}pp vs baseline) · "
                            f"PF {m.get('pf', '?')} · {int(m.get('trades', 0))}tr")
+            # BETWEEN THE VERDICT AND THE INSTRUCTION, because it is
+            # evidence and `Apply:` is what the reader does with it. The
+            # benchmark verdict above answers "did this DATASET reach the
+            # condition"; this answers "does it change anything on the window
+            # the engine is scoring right now", and the two are different
+            # questions with different answers. `None` for a flag that is not
+            # a governor knob — a row printed on every proposal is a row
+            # readers learn to skip.
+            bind = proposal_binding(r.get("flag", ""), r.get("value"),
+                                    evidence.get("governor_inputs"))
             lines.append(f"\n<b>{r['flag']}={r['value']}</b>\n"
                          f"  {r['rationale']}\n"
                          f"  {verdict}\n"
-                         f"  Apply: <code>{r['flag']}={r['value']}</code> "
+                         + (f"  {bind}\n" if bind else "")
+                         + f"  Apply: <code>{r['flag']}={r['value']}</code> "
                          f"(env + restart) — nothing auto-applied")
         return "\n".join(lines)
 

@@ -3051,6 +3051,92 @@ joining it, each exclusion re-spelled with its one separator, and the quote
 side widened back to any English word, narrowed past the venue's own
 currency, or grown an English one.
 
+**THE NIGHTLY AUDIT GATHERED THE ONE FACT THAT DECIDES ITS OWN PROPOSALS AND
+SHOWED IT TO NOBODY.** A live card on 2026-09-16 proposed
+`LIVE_PERF_REDUCE_WINRATE=0.55` and `LIVE_PERF_REDUCE_MULT=0.25`, each under
+`Apply: … (env + restart)`, above a headline reading
+`Live window: 40 closes · win 22% · PF 0.6 · net $-18.85`. Neither proposal
+could be evaluated from anything on the card, and the card was holding what
+would have answered it. `gather_evidence` has called
+`risk.live_performance_state()` into `ev["governor"]` since it was written and
+the module docstring advertises "governor/throttle state" as evidence —
+`render_report` printed no governor line at all. The word appeared TWICE in the
+whole file: that docstring and that gather. The status reached the MODEL and
+never the human, and the human is who the card ends by instructing.
+
+**THE WINDOW ON THE CARD IS NOT THE WINDOW THE KNOBS ACT ON.**
+`gather_evidence` reads `closed[-40:]` — a hardcoded 40 — and the governor
+scores `CONFIG.risk.live_perf_window`, 20 by default. Forty closes at 22.5% is
+consistent with a most-recent-20 in PAUSE, in REDUCE or in OK, so the branch
+could not be derived from the figures printed directly above the proposals.
+That is `drawdown_source`'s lesson — *"an operator could read ~0% from a gate
+that was refusing trades at 9%"* — one governor over, and the fix is the same
+one `summary.scored` already applies: the span travels with the figure, so
+`live_performance_state()` carries `window` and the card prints *its own
+window: last 20 closes* beside the status.
+
+**AND THE BRANCH DECIDES WHETHER A KNOB IS REACHED AT ALL.**
+`LIVE_PERF_REDUCE_MULT` is the size applied in the REDUCE branch and is reached
+nowhere else — in PAUSE the multiplier is `0.0`, in WARMUP and OFF nothing is
+applied — so in three of five states changing it changes nothing whatever.
+`LIVE_PERF_REDUCE_WINRATE` decides ENTRY to that branch and sits in an
+`or net < 0`, so on a net-negative window the branch is entered whatever the
+bar says: the card's own reasoning ("the regime is losing") is the exact
+condition under which its proposal is inert. Driven on a REDUCE window, the two
+proposals the card presented identically separate — `REDUCE_MULT` moves size
+`×0.50 → ×0.25` and `REDUCE_WINRATE` moves nothing.
+
+**The binding line is a MEASUREMENT, which is the whole reason the branch had
+to become a leaf.** `bot/risk/live_perf_gate.py` holds `governor_verdict` once;
+`live_performance_size_multiplier` applies it, `live_performance_state` reports
+it, and `proposal_binding` runs it TWICE over the governor's own window — as
+configured, then with the candidate substituted — and compares the two
+multipliers. Restating the branch inside the audit would have made the card's
+new sentence a second answer about what the engine does, which is the shape
+this file records for maps, gates and thresholds throughout. The guard proves
+the walk by PATCHING the leaf and reading the engine's own answers, because a
+byte-identical copy agrees with every fixture and diverges on the first edit to
+either.
+
+**Two states apply no multiplier, and the first draft quoted one anyway.**
+Rendering the card is what found it: under a governor reading OFF the binding
+line said *"size stays ×0.00"* — a number printed where nothing uses it, and
+`×0.00` is the single figure a reader takes as *sizing is stopped*, which is the
+opposite of what OFF means. OFF and WARMUP say they apply nothing instead. That
+is this slice's own subject reappearing inside the fix for it, in the commit
+that fixed it, and no reading of the diff would have shown it.
+
+**And the gatherer's `except Exception: pass` was the shadow book's own lesson
+one block down.** The block directly above it sets `ev["shadow_gates"] = None`
+with a comment explaining that absent rendered identically to empty; the
+governor block swallowed its exception, so an unreadable governor and an engine
+with no risk object were the same silence — on the report that proposes changes
+to that governor. `None` with a log now, and the card keeps the two apart:
+membership, then the value, so an older build prints no line and a failed read
+says *could not be read*.
+(`tests/test_the_audit_says_whether_a_knob_binds.py`.)
+
+**Twenty-six mutations, each killed — and the one that survived the first
+round was a coverage gap, which is the round doing its job.** Every governor
+fixture carried a real `samples`, so `int(n or 0)` — "0 closes" for a count
+nobody reported — changed no verdict anywhere in the suite, on the WARMUP
+branch whose entire subject is how few closes there are. Two more are worth
+naming for what they prove about the guards rather than the code: the
+multiplier property given back its own inline copy of the branch passes every
+assertion about what the governor answers and dies only on the patched-leaf
+test, which is the one thing a fixture cannot fake; and the binding line moved
+BELOW `Apply:` renders every correct word in the wrong order, so it dies on an
+index comparison rather than on any assertion about content — evidence read
+after the instruction is evidence nobody used.
+
+> **And the fixture written for that survivor failed on the WINDOW.** It
+> asserted `"0 closes" not in line` against a card reading *last 20 closes*,
+> which contains it. That is this file's own "asserting a short string is
+> ABSENT is the assertion that keeps misfiring", in the test written to close
+> a gap the mutation round had just found — and the driver's refusal to run
+> against a red baseline is what stopped it being read as a kill. The count is
+> everything before `" in "`, so the assertion is anchored there.
+
 **A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
 LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a
 card named a COMMAND that did nothing, here a card asks for a VALUE that
