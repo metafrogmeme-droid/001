@@ -1106,13 +1106,31 @@ _STRINGS: dict[str, dict[str, str]] = {
                "\u2265{per:.1f}s each against a {cap:.0f}s cap \u2014 "
                "<b>at least {short}</b> will not be analysed. The rate comes "
                "from a batch that was itself cut short ({measured_from} of "
-               "{measured_of} done), so the real shortfall is larger. Lower "
+               "{measured_of} attempted), so the real shortfall is larger. Lower "
                "TOP_MOVERS_COUNT or raise SCAN_ANALYSIS_CONCURRENCY."),
         "zh": ("\U0001f4c9 分析預算不足：<b>{of}</b> 個訊號，每個至少 {per:.1f} 秒，"
                "上限為 {cap:.0f} 秒 \u2014 <b>至少 {short}</b> 個不會被分析。"
-               "此速率來自一個同樣被中斷的批次（已完成 {measured_from}／"
+               "此速率來自一個同樣被中斷的批次（已嘗試 {measured_from}／"
                "{measured_of}），因此實際缺口更大。請調低 TOP_MOVERS_COUNT "
                "或調高 SCAN_ANALYSIS_CONCURRENCY。"),
+    },
+    "fmt_analyze_budget_gave_up_cost": {
+        "en": ("<b>{gave_up}</b> of those {attempts} attempts gave up at the per-symbol cap and analysed nothing — ab"
+            "out {cost:.0f}s of the phase. Lowering ANALYSIS_TIMEOUT_SEC is what shortens that."),
+        "zh": ("其中 <b>{gave_up}</b>／{attempts} 次嘗試在單一標的上限處放棄，未完成任何分析 — 約佔該階段 {cost:.0f} "
+            "秒。調低 ANALYSIS_TIMEOUT_SEC 才能縮短這段時間。"),
+    },
+    "fmt_analyze_budget_gave_up": {
+        "en": ("<b>{gave_up}</b> of those {attempts} attempts gave up at the per-symbol cap and analysed nothing. Low"
+            "ering ANALYSIS_TIMEOUT_SEC is what shortens that."),
+        "zh": ("其中 <b>{gave_up}</b>／{attempts} 次嘗試在單一標的上限處放棄，未完成任何分析。調低 ANALYSIS_TIMEOUT_S"
+            "EC 才能縮短這段時間。"),
+    },
+    "fmt_analyze_budget_attempt_basis": {
+        "en": ("This rate counts ATTEMPTS — the give-up count was not recorded for that batch, so a symbol that hit t"
+            "he per-symbol cap and analysed nothing is in it, and the shortfall is a floor for that reason as well."),
+        "zh": ("此速率計算的是「嘗試次數」— 該批次未記錄放棄次數，因此觸及單一標的上限、未完成分析的標的也包含在內，"
+            "缺口同樣是下限。"),
     },
     # The tick error the engine measured, for the breaker alert and /status.
     # No cause is named beyond the exception class: an alert that guesses a

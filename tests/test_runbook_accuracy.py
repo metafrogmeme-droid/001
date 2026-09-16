@@ -219,8 +219,17 @@ def test_no_secret_shaped_value_crept_in():
 def test_the_progress_line_it_documents_is_one_the_code_emits():
     from tests.source_scan import code_only
     engine = code_only(Path("bot/core/engine.py").read_text(encoding="utf-8"))
-    assert "finished {_done} of {_of} signals" in engine
+    # ATTEMPTED, not "finished". `_done` is incremented by the batch's
+    # `finally` for every exit -- an idea, no idea, a raise, a give-up at the
+    # per-symbol cap, and a cancellation when this handler's own wait_for
+    # kills the gather. The runbook quotes this line verbatim for an operator
+    # to grep the log with, so a doc saying "finished" sends them looking for
+    # a sentence the code does not emit.
+    assert "attempted {_done} of {_of} signals" in engine
+    assert "finished {_done} of {_of} signals" not in engine
     assert "needed at that rate" in engine
+    assert "It had finished" not in RUNBOOK, (
+        "the runbook quotes the audit line; it must quote the live wording")
     assert "signals attempted before it was cancelled" in RUNBOOK or \
         "val_signals_done" in Path("bot/utils/i18n.py").read_text(encoding="utf-8")
     assert "How far did the batch get" in RUNBOOK or "how far did the batch get" in RUNBOOK
@@ -293,3 +302,51 @@ class TestTheBuildSectionDescribesWhatTheCodeActuallyDoes:
         would read a clean label over an untracked stray and mistrust the
         instrument, or worse, trust it about the wrong thing."""
         assert "tracked modifications only" in RUNBOOK
+
+
+def test_the_budget_card_it_quotes_is_one_the_renderer_produces():
+    """THE RUNBOOK QUOTES A CARD, so the card is driven rather than eyeballed.
+
+    `trade_help`'s own lesson: a document that shows the reader an example is
+    claiming the example is real, and the only way to know is to produce it.
+    The first draft of this block was hand-composed and used the PARTIAL
+    variant's wording ("at least N", "≥") for a batch that finished — the
+    card prints that only when the measuring batch was itself cut short, so
+    an operator matching the doc against a real alert would have concluded
+    the two disagreed.
+    """
+    import re
+    import types
+    from unittest.mock import patch
+
+    from bot.core.engine import RuneClawEngine
+    from bot.formatters.rich_cards import analyze_budget_line
+
+    eng = types.SimpleNamespace()
+
+    class _Cfg:
+        analysis_timeout_sec = 90.0
+        scan_analysis_concurrency = 12.0
+        monitoring = types.SimpleNamespace(tick_phase_timeout_sec=300.0)
+
+    RuneClawEngine._record_analyze_throughput(
+        eng, 85, 85, 283.0, gave_up=16, analysed=69)
+    with patch("bot.core.engine.CONFIG", _Cfg):
+        rec = RuneClawEngine._forecast_analyze_capacity(eng, 85)
+    card = re.sub("<[^>]+>", "", analyze_budget_line(rec, "en"))
+
+    # The runbook wraps the card across lines inside its fence; compare the
+    # words, not the wrapping.
+    block = RUNBOOK[RUNBOOK.index("📉 Analyze budget short:"):]
+    block = block[:block.index("```")]
+    assert " ".join(block.split()) == " ".join(card.split()), (
+        "the runbook's quoted alert is not what the renderer emits:\n"
+        f"  doc:  {' '.join(block.split())}\n"
+        f"  live: {' '.join(card.split())}")
+
+    # And the prose beside it must not still promise two levers: the give-up
+    # clause names a third, and it is the only one that addresses latency.
+    assert "ANALYSIS_TIMEOUT_SEC" in RUNBOOK, (
+        "the per-symbol cap is a lever the card names and the runbook did not")
+    assert "only one of the two that does not narrow" not in RUNBOOK, (
+        "the runbook still counts two levers where the card names three")

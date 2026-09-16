@@ -55,21 +55,21 @@ class TestUnmeasuredMeansAbsent:
     def test_a_zero_rate_returns_none_not_infinity(self):
         # done=0 divided into elapsed is not a rate. Reporting it as one would
         # forecast that nothing fits, on every first tick.
-        assert _forecast(161, {"per_signal_s": 0.0, "done": 0, "of": 161}) is None
+        assert _forecast(161, {"per_attempt_s": 0.0, "attempts": 0, "of": 161}) is None
 
     def test_no_phase_cap_returns_none(self):
         assert _forecast(
-            161, {"per_signal_s": 3.3, "done": 90, "of": 161}, cap=0.0) is None
+            161, {"per_attempt_s": 3.3, "attempts": 90, "of": 161}, cap=0.0) is None
 
     def test_empty_batch_returns_none(self):
-        assert _forecast(0, {"per_signal_s": 3.3, "done": 90, "of": 161}) is None
+        assert _forecast(0, {"per_attempt_s": 3.3, "attempts": 90, "of": 161}) is None
 
 
 class TestTheLiveIncidentArithmetic:
     """The numbers that actually occurred: 90 of 161 in 300s, ~3.3s/signal."""
 
     def test_it_names_the_shortfall_the_operator_had_to_derive(self):
-        rec = _forecast(161, {"per_signal_s": 300.0 / 90.0, "done": 90, "of": 161})
+        rec = _forecast(161, {"per_attempt_s": 300.0 / 90.0, "attempts": 90, "of": 161})
         assert rec["of"] == 161
         assert rec["fits"] == 90              # cap / per_signal
         assert rec["shortfall"] == 71         # never looked at
@@ -78,18 +78,18 @@ class TestTheLiveIncidentArithmetic:
     def test_the_operators_chosen_fix_forecasts_as_fitting(self):
         # TOP_MOVERS_COUNT=70 measured ~231s of a 300s cap. A forecast that
         # still cried shortfall at the setting that FIXED it would be noise.
-        rec = _forecast(70, {"per_signal_s": 231.0 / 70.0, "done": 70, "of": 70})
+        rec = _forecast(70, {"per_attempt_s": 231.0 / 70.0, "attempts": 70, "of": 70})
         assert rec["shortfall"] == 0
 
     def test_shortfall_is_a_count_not_a_percentage(self):
         # "90 of 161 (57%)" was read as progress rather than as a shortfall.
-        rec = _forecast(161, {"per_signal_s": 3.3, "done": 90, "of": 161})
+        rec = _forecast(161, {"per_attempt_s": 3.3, "attempts": 90, "of": 161})
         assert isinstance(rec["shortfall"], int)
         assert rec["shortfall"] == rec["of"] - rec["fits"]
 
     def test_shortfall_never_goes_negative(self):
         # A batch far inside budget must report 0, not a negative surplus.
-        rec = _forecast(5, {"per_signal_s": 0.1, "done": 70, "of": 70})
+        rec = _forecast(5, {"per_attempt_s": 0.1, "attempts": 70, "of": 70})
         assert rec["shortfall"] == 0
         assert rec["fits"] >= rec["of"]
 
@@ -101,8 +101,8 @@ class TestThroughputMeasurement:
         # died would leave the next tick guessing again.
         e = _eng()
         e._record_analyze_throughput(90, 161, 300.0)
-        assert e._analyze_throughput["per_signal_s"] == 300.0 / 90.0
-        assert e._analyze_throughput["done"] == 90
+        assert e._analyze_throughput["per_attempt_s"] == 300.0 / 90.0
+        assert e._analyze_throughput["attempts"] == 90
         assert e._analyze_throughput["of"] == 161
 
     def test_zero_completed_records_nothing(self):
@@ -122,7 +122,7 @@ class TestThroughputMeasurement:
         # round of fixes.
         e = _eng()
         e._record_analyze_throughput(120, 120, 120.0)   # 12 concurrent, 12s each
-        assert e._analyze_throughput["per_signal_s"] == 1.0
+        assert e._analyze_throughput["per_attempt_s"] == 1.0
 
 
 class TestItReachesTheOperator:
@@ -130,11 +130,25 @@ class TestItReachesTheOperator:
         # analysis_timeout_sec bounds ONE analysis; the phase cap kills the
         # batch. Confusing them is what made "exceeded its 300s" read as a
         # per-symbol limit.
-        src = code_only(open("bot/core/engine.py", encoding="utf-8").read())
-        fn = src.split("def _forecast_analyze_capacity", 1)[1].split(
-            "def _record_analyze_throughput", 1)[0]
+        # SLICED BY AST, not "everything up to the next function I named".
+        # The text form ended at `def _record_analyze_throughput`, so a helper
+        # inserted between the two fell INSIDE the slice and was accused of
+        # the confusion this guard is about — `_give_up_cost_s` reads
+        # `analysis_timeout_sec` legitimately, to price what the give-ups cost
+        # the phase. A boundary that is "whatever happens to be next" is a
+        # boundary that manufactures accusations, which is the shape
+        # CLAUDE.md records about `_web_aliases` and the Decision Court guard.
+        import ast
+        tree = ast.parse(open("bot/core/engine.py", encoding="utf-8").read())
+        node = next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == "_forecast_analyze_capacity")
+        fn = code_only(ast.unparse(node))
         assert "tick_phase_timeout_sec" in fn
-        assert "analysis_timeout_sec" not in fn
+        assert "analysis_timeout_sec" not in fn, (
+            "the forecast read the PER-SYMBOL cap where the PHASE cap "
+            "decides; confusing them is what made 'exceeded its 300s' read "
+            "as a per-symbol limit")
 
     def test_health_reports_the_forecast(self):
         src = code_only(open("api_bridge.py", encoding="utf-8").read())
@@ -209,19 +223,19 @@ class TestAPartialMeasurementIsAFloorNotAnEstimate:
     """
 
     def test_a_cancelled_measurement_is_marked_partial(self):
-        rec = _forecast(40, {"per_signal_s": 8.33, "done": 36, "of": 40})
+        rec = _forecast(40, {"per_attempt_s": 8.33, "attempts": 36, "of": 40})
         assert rec["partial"] is True
         assert rec["measured_from"] == 36
         assert rec["measured_of"] == 40
 
     def test_a_completed_measurement_is_not_partial(self):
-        rec = _forecast(40, {"per_signal_s": 8.33, "done": 40, "of": 40})
+        rec = _forecast(40, {"per_attempt_s": 8.33, "attempts": 40, "of": 40})
         assert rec["partial"] is False
 
     def test_the_producer_always_emits_both_counts(self):
         """The renderer decides on these two, so they may never be absent."""
-        for tp in ({"per_signal_s": 4.0, "done": 10, "of": 10},
-                   {"per_signal_s": 4.0, "done": 3, "of": 99}):
+        for tp in ({"per_attempt_s": 4.0, "attempts": 10, "of": 10},
+                   {"per_attempt_s": 4.0, "attempts": 3, "of": 99}):
             rec = _forecast(50, tp)
             assert "measured_from" in rec and "measured_of" in rec
             assert "partial" in rec
@@ -230,7 +244,7 @@ class TestAPartialMeasurementIsAFloorNotAnEstimate:
         """Only the claim weakens. Inventing a corrected rate would be a
         fabricated number, which is the thing this instrument exists to avoid.
         """
-        tp = {"per_signal_s": 8.33, "done": 36, "of": 40}
+        tp = {"per_attempt_s": 8.33, "attempts": 36, "of": 40}
         rec = _forecast(40, tp)
         assert rec["per_signal_s"] == 8.33
         assert rec["fits"] == int(300.0 / 8.33)
@@ -253,7 +267,12 @@ class TestTheBudgetLineSaysWhichKindOfNumberItIs:
     def test_a_partial_measurement_names_what_it_was_measured_on(self):
         """Without the provenance, "at least" is an unexplained hedge."""
         out = self._line()
-        assert "36 of 40 done" in out
+        # "attempted", not "done": a symbol that gave up at the per-symbol
+        # cap was done being attempted and analysed nothing, and the status
+        # card was moved off that word by
+        # `test_status_counts_attempts_not_analyses`. This is the sibling
+        # surface quoting the same count.
+        assert "36 of 40 attempted" in out
         assert "cut short" in out
 
     def test_a_complete_measurement_keeps_the_exact_claim(self):
