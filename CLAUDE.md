@@ -1834,6 +1834,84 @@ replaced — stale on arrival, in the commit that made it stale.
 > anything at all. The suite reads `_STRINGS` directly and asserts 14 of 14
 > per key.
 
+**AND THE COROLLARY SWEEP FOUND THE SAME SUBTRACTION ON THE CARD THAT PRINTS
+THE RECORD — with the correct answer already in the tree, privately.** The
+weekly review rendered `Trades: 5 (2W / 1L)`, and two plus one is not five.
+`get_weekly_review` built its own buckets — `wins = [e for e in recent if
+e.pnl > 0]`, `losses = [... < 0]` — beside a `trades` of `len(recent)`, so
+every close the record priced at exactly `0.00` was in the total and in
+neither bucket: a MEASURED BREAK-EVEN with no word anywhere on the card. What
+a reader does with two numbers and a total is subtract, and `5 - 2 = 3` files
+those closes as defeats. The same window's rate was `len(wins) /
+len(recent)`, so the flat sat in the denominator and not the numerator — 40%
+where two of the three DECIDED closes is 67%, which is the argument this file
+already records about the live-performance governor, on a reader nobody had
+cured.
+
+**`skill_registry`'s own journal card had it right and could not share it.**
+Its loop counts three outcomes by hand, under a comment saying a flat "used
+to be filed as a LOSS, and the record line counted it in the L column". Every
+other record surface asks `win_rate.win_stats` — which returned `wins`,
+`scored` and `unscored` and NO `losses`, so five callers had to subtract, and
+BOTH available subtractions are wrong in a different direction: `total -
+wins` files every unpriced close as a defeat (the defect that module's header
+is about) and `scored - wins` files every flat one. **One of those five sits
+directly under a comment saying `len(...) - wins` "would have shown it as an
+L"** — the fix reached the unpriced row and stopped one outcome short, on the
+line below its own explanation. The seam carries four counts now and they
+CLOSE (`wins + losses + flat + unscored == total`), the five subtracting
+callers read rather than subtract, and `skill_registry`'s loop is left where
+it is — it needs a per-ROW verdict for each line's icon, which is a different
+question from how many there are — with a drive pinning that the two answers
+agree on the row they used to differ about.
+
+**The second half is the WINDOW, and one of the two branches was already
+guarded.** `/journal`'s EMPTY branch asks whether the journal's silence is a
+recording gap, because "no entries" is a claim about the JOURNAL and was
+being read as a claim about TRADING; `_journal_gap_closes` exists for that
+and returns an int. The NON-EMPTY branch makes the same kind of claim —
+`Trades: N` for a window — and asked nothing, so a partial week read as a
+whole one: a live close the venue could not price is never journaled at all
+(`_on_live_position_closed` gates the write on a P&L that is not None). Same
+command, same two stores, same seam, one branch. It is ONE-DIRECTIONAL on
+purpose — the journal is fed by paper closes too, so holding more than any
+executor recorded is normal — and an executor that could not be read produces
+NO line rather than a false all-clear, which is the OMIT strategy a composite
+card is owed.
+
+**Eighteen mutations, each killed — and the three that survived the first
+round were one corpus gap wearing three hats.** The review's rate over the
+window rather than the scored, its total collapsed to `0.0`, and a group
+dropping its unscored bucket all changed no verdict, because **no fixture
+held a journal entry whose P&L could not be read** — and every one of those
+branches is about exactly that row. It is not hypothetical: `_load` does
+`json.load` and hands `d["pnl"]` straight to the entry, and Python's `json`
+parses a bare `NaN` token by default in both directions, so `trade_pnl`
+refuses it and the row is genuinely `unscored`. The prose claimed three
+states and the corpus planted two. With the row in, all three die.
+
+**And putting that row in the corpus made the card print `$+nan` under a
+trophy.** Every comparison against NaN is False, so `max(recent, key=lambda
+e: e.pnl)` never replaces its incumbent when it meets one: WHICH row won
+`Best` was decided by list order rather than by any measurement, and with the
+unreadable row first the card named it as the week's best trade with a figure
+no reader can interpret. Same family as the scan sweep's `asyncio.wait`
+returning a SET, where iteration order decided every tie. Best and worst are
+taken over the rows that could be PRICED now, they are `None` when none
+could, and the card OMITS both lines there rather than rendering a placeholder
+— the two lines above it have already said nothing in the window could be
+priced, so a third sentence would be repetition rather than disclosure. Found
+by rendering the card and reading every line of it; no reading of the diff
+would have shown it, and the three suites the slice had been running were all
+green.
+
+> **And the driver refused an anchor that matched twice, inside my own
+> edit.** Two of the four repointed call sites got byte-identical comments
+> from me, so the mutation aimed at one of them could have edited the other —
+> the second-copy shape appearing in the instrument built to find it, for the
+> second time in this file. Anchored on each site's own `win_stats` call, all
+> four die where they are aimed.
+
 **Two of the round's findings were in the instrument, not the code.** A text
 slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
 (two live callers) and later duplicated `_record_analyze_throughput`; the mypy

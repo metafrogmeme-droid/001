@@ -111,13 +111,23 @@ def profit_factor(trades: Iterable[Any]) -> Optional[float]:
 
 
 def win_stats(trades: Iterable[Any]) -> dict:
-    """Wins, scored count, unscored count, and the rate over SCORED trades.
+    """Wins, losses, flats, scored/unscored counts, and the rate over SCORED.
 
     ``rate`` is None when nothing could be scored — not 0.0. A 0% win rate is
     a claim that everything lost; "we could not price any of these" is a
     different statement and gets a different value.
+
+    THE FOUR COUNTS CLOSE: ``wins + losses + flat + unscored == total``, and
+    that is the whole reason ``losses`` and ``flat`` are here rather than left
+    to the caller. Every caller that wanted losses had to subtract, and both
+    available subtractions are wrong in a different direction — ``total -
+    wins`` files every unpriced close as a defeat, which is the defect this
+    module's header is about, and ``scored - wins`` files every measured
+    BREAK-EVEN as one. `0.0` is falsy and `0.0` is a real, measured, flat
+    close: it is not a gain, so it is not a win, and it is not a loss either.
+    A reader handed `wins` and `total` cannot recover it, so it gets a name.
     """
-    wins = scored = unscored = 0
+    wins = losses = flat = scored = unscored = 0
     for t in trades or ():
         p = _pnl(t)
         if p is None:
@@ -126,8 +136,14 @@ def win_stats(trades: Iterable[Any]) -> dict:
         scored += 1
         if p > 0:
             wins += 1
+        elif p < 0:
+            losses += 1
+        else:
+            flat += 1
     return {
         "wins": wins,
+        "losses": losses,
+        "flat": flat,
         "scored": scored,
         "unscored": unscored,
         "total": scored + unscored,

@@ -560,7 +560,10 @@ class PortfolioCommands:
                 # L. Losses are now the scored non-wins.
                 _ws = _win_stats(live_closed)
                 wins = _ws["wins"]
-                losses = _ws["scored"] - wins
+                # Read, not subtracted. `scored - wins` files every MEASURED
+                # BREAK-EVEN as a loss -- the fix above reached the unpriced
+                # close and stopped one outcome short of the flat one.
+                losses = _ws["losses"]
                 # `else 0` printed "0%" when NOTHING was scorable. A 0% win
                 # rate is a claim that everything lost — the public daily post
                 # says so in its own comment and renders 'n/a'; this line, on
@@ -677,7 +680,10 @@ class PortfolioCommands:
                 # halves of one card cannot disagree.
                 _ws = _win_stats(history)
                 wins = _ws["wins"]
-                losses = _ws["scored"] - wins
+                # Read, not subtracted. `scored - wins` files every MEASURED
+                # BREAK-EVEN as a loss -- the fix above reached the unpriced
+                # close and stopped one outcome short of the flat one.
+                losses = _ws["losses"]
                 lines.extend([
                     "", sep, "",
                     f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L"
@@ -1199,7 +1205,9 @@ class PortfolioCommands:
             today_trades = len(closed)
             _ws = _win_stats(closed)
             wins = _ws["wins"]
-            losses = _ws["scored"] - wins
+            # Read, not subtracted: `scored - wins` counts a measured
+            # break-even as a loss.
+            losses = _ws["losses"]
             # `sum((t.pnl_usd or 0) for t in closed)` was a PARTIAL TOTAL
             # PRINTED AS WHOLE: every close the record could not price added
             # 0.00 and the result went out as the day's net. Reachable in
@@ -1257,7 +1265,9 @@ class PortfolioCommands:
             # live sites -- a grep for `pnl_usd` never reached this one.
             _ws = _win_stats(trades)
             wins = _ws["wins"]
-            losses = _ws["scored"] - wins
+            # Read, not subtracted: `scored - wins` counts a measured
+            # break-even as a loss.
+            losses = _ws["losses"]
             net_pnl = sum(t.pnl for t in trades)
             best_trade = "N/A"
             best_pnl = 0.0

@@ -121,6 +121,108 @@ def _avg_r_line(review: dict) -> str:
     return line
 
 
+def _outcome_line(review: dict) -> str:
+    """The window's closes, broken into buckets that ADD UP to the total.
+
+    It read `Trades: 5 (2W / 1L)`, and 2 + 1 is not 5. `wins` was
+    `pnl > 0` and `losses` was `pnl < 0`, so every close the record priced at
+    exactly 0.00 was in the total and in neither bucket — and the repair a
+    reader makes from two numbers and a total is `5 - 2 = 3 losses`, which
+    files those closes as defeats. A measured break-even is a real outcome
+    and it is not a loss, so it is named.
+
+    A bucket at zero is OMITTED rather than printed: a permanent `0 flat` on
+    every healthy week is the row that trains a reader to stop reading the
+    line. A review recorded before the split carries no `flat` key at all and
+    gets the bare `W / L` it always had — an older record must say LESS, never
+    something false.
+    """
+    # `wins` and `losses` are on every non-empty review this journal has ever
+    # produced, so `.get(k, 0)` would be a default nothing can reach dressed
+    # as a measurement -- and an absent count is not a count of zero. The
+    # optional keys below are read with `.get` and NO default, because those
+    # really can be missing from an older record and absence is the state.
+    n = review["trades"]
+    parts = [f"{review['wins']}W", f"{review['losses']}L"]
+    flat = review.get("flat")
+    if flat:
+        parts.append(f"{flat} flat")
+    unscored = review.get("unscored")
+    if unscored:
+        parts.append(f"{unscored} unpriced")
+    return f"<b>{n}</b> ({' / '.join(parts)})"
+
+
+def _win_rate_line(review: dict) -> str:
+    """The rate over what could be SCORED, or a statement that nothing could.
+
+    `None` is not 0%. "Every scorable close in this window lost" and "nothing
+    in this window could be priced" are different readings and a bare `0%`
+    tells them apart for nobody — the argument `win_stats` makes about its own
+    return value, arriving on the surface that prints it.
+    """
+    rate = review.get("win_rate")
+    if rate is None:
+        return "<b>—</b> <i>no close in the window could be priced</i>"
+    line = f"<b>{float(rate):.0f}%</b>"
+    scored, unscored = review.get("scored"), review.get("unscored")
+    if scored is not None and unscored:
+        line += f" <i>of the {scored} of {scored + unscored} we could price</i>"
+    return line
+
+
+def _total_pnl_line(review: dict) -> str:
+    """The realized total with its coverage, or a statement that there is none.
+
+    A sum over the rows that could be read is a real quantity; printed with no
+    coverage beside it, it is a partial total rendered as a whole. And a total
+    over zero measurements is not a measurement, which is why `pnl_stats`
+    answers None rather than `0.0` there.
+    """
+    total = review.get("total_pnl")
+    if total is None:
+        return "<b>—</b> <i>nothing in the window could be priced</i>"
+    line = f"<b>${float(total):+.2f}</b>"
+    scored, unscored = review.get("pnl_scored"), review.get("pnl_unscored")
+    if scored is not None and unscored:
+        line += f" <i>over the {scored} of {scored + unscored} we could price</i>"
+    return line
+
+
+def _window_coverage_line(executor_closes: int, journal_trades: int) -> str:
+    """Says so when the EXECUTOR recorded more closes than the journal holds.
+
+    `/journal`'s empty branch has always checked this — `_journal_gap_closes`
+    exists precisely because "the journal has no entries" is a claim about the
+    JOURNAL and was being read as a claim about TRADING. The non-empty branch
+    made the same claim, `Trades: N` over a window, and checked nothing: a
+    close the venue could not price is never journaled at all (the write is
+    gated on a P&L that is not None), so the count silently excluded it. Same
+    command, same two stores, one of the two branches guarded.
+
+    ONE-DIRECTIONAL on purpose. The journal is fed by paper closes too, so on
+    a paper deployment it legitimately holds more than any executor recorded,
+    and the reverse difference is not a gap. It says nothing unless the
+    executor recorded MORE.
+
+    Returns "" for no gap — including when the executor could not be read at
+    all, which `_journal_gap_closes` reports as 0. That is the OMIT strategy
+    on a composite card: one dead source must not blank the rest, and the
+    alternative here would be a line asserting a gap nobody measured.
+    """
+    try:
+        missing = int(executor_closes) - int(journal_trades)
+    except (TypeError, ValueError):
+        return ""
+    if missing <= 0:
+        return ""
+    return (f"\n\u26a0\ufe0f <i>{missing} more position(s) closed in this "
+            f"window than the journal holds — a recording gap, not a quiet "
+            f"stretch. Closes the venue could not price are not journaled, "
+            f"and neither are closes from while the bot was down. "
+            f"<code>/portfolio</code> reads the executor directly.</i>")
+
+
 def _journal_gap_closes(engine, *, days: int = 7) -> int:
     """Closes the EXECUTOR recorded in the window, for a journal that has none.
 
@@ -1121,14 +1223,22 @@ class EngineOpsCommands:
                     text="\u26a0\ufe0f No trades in the last 7 days.")
                 return
 
+            # The EMPTY branch above asks whether the journal's silence is a
+            # recording gap. This branch made the same kind of claim -- a
+            # count for the window -- and asked nothing, so a partial week
+            # read as a whole one. Same seam, same window.
+            _coverage = _window_coverage_line(
+                _journal_gap_closes(self.engine, days=7),
+                review.get("trades", 0))
+
             lines = [
                 "\U0001f4d3 <b>Weekly Trade Review</b>",
                 "\u2500" * 28,
                 "",
                 f"Period: {review['period']}",
-                f"Trades: <b>{review['trades']}</b> ({review['wins']}W / {review['losses']}L)",
-                f"Win Rate: <b>{review['win_rate']:.0f}%</b>",
-                f"Total PnL: <b>${review['total_pnl']:+.2f}</b>",
+                f"Trades: {_outcome_line(review)}",
+                f"Win Rate: {_win_rate_line(review)}",
+                f"Total PnL: {_total_pnl_line(review)}{_coverage}",
                 # THREE OUTCOMES. `avg_r_multiple` is None when no close in
                 # the window had a stop on record to measure R against, and
                 # the coverage rides beside it when only some did — "0.42R
@@ -1139,13 +1249,21 @@ class EngineOpsCommands:
                 f"Avg R-Multiple: {_avg_r_line(review)}",
                 f"Avg Hold: <code>{review['avg_holding_hours']:.1f}h</code>",
                 "",
-                f"\U0001f3c6 Best: {review['best_trade']['symbol']} "
-                f"${review['best_trade']['pnl']:+.2f} "
-                f"({_r_tag(review['best_trade']['r'], review['best_trade'].get('r_reason'))})",
-                f"\U0001f4a9 Worst: {review['worst_trade']['symbol']} "
-                f"${review['worst_trade']['pnl']:+.2f} "
-                f"({_r_tag(review['worst_trade']['r'], review['worst_trade'].get('r_reason'))})",
             ]
+
+            # OMITTED, not rendered with a junk figure, when nothing in the
+            # window could be priced -- the two lines above have already said
+            # so, so a third sentence here would be repetition rather than
+            # disclosure. An older review always carries both.
+            for _icon, _key in (("\U0001f3c6", "best_trade"),
+                                ("\U0001f4a9", "worst_trade")):
+                _t = review.get(_key)
+                if not isinstance(_t, dict):
+                    continue
+                lines.append(
+                    f"{_icon} {'Best' if _key == 'best_trade' else 'Worst'}: "
+                    f"{_t['symbol']} ${_t['pnl']:+.2f} "
+                    f"({_r_tag(_t.get('r'), _t.get('r_reason'))})")
 
             # Top lessons
             if review.get("top_lessons"):

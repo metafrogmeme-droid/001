@@ -695,10 +695,15 @@ def render_pnl_report(
         # Dict rows here rather than positions, same rule: a row with no
         # recorded pnl is scored neither way, and `len(...) - wins` would
         # have shown it as an L.
+        #
+        # AND THE LINE BELOW THAT COMMENT DID THE SAME THING ONE OUTCOME
+        # OVER. `scored - wins` drops the unpriced rows and then files every
+        # MEASURED BREAK-EVEN as an L, which is the shape the comment is
+        # about. `win_stats` classifies all three and the count is read.
         from bot.utils.win_rate import win_stats as _win_stats
         _ws = _win_stats(closed_trades)
         wins = _ws["wins"]
-        losses = _ws["scored"] - wins
+        losses = _ws["losses"]
         lines.append(
             f"{'Today was green.' if session_pnl > 0 else 'Today was red.' if session_pnl < 0 else 'Flat session.'} "
             f"{wins}W/{losses}L, net {_fmt_price(session_pnl)}."

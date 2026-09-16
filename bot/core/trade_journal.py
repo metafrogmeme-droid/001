@@ -22,6 +22,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 from bot.utils.paths import state_path
+from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
 
 logger = logging.getLogger(__name__)
 
@@ -328,31 +329,58 @@ class TradeJournal:
         if not recent:
             return {"period": f"Last {lookback_days} days", "trades": 0, "summary": "No trades in period"}
 
-        wins = [e for e in recent if e.pnl > 0]
-        losses = [e for e in recent if e.pnl < 0]
-        total_pnl = sum(e.pnl for e in recent)
+        # THE ONE READING every other record surface in this tree asks.
+        # This was the outlier: `wins = [e for e in recent if e.pnl > 0]` and
+        # `losses = [... < 0]` beside `len(recent)`, so the card printed
+        # `Trades: 5 (2W / 1L)` and left two rows with no word at all — a
+        # MEASURED BREAK-EVEN is neither, and the reader's repair is
+        # `5 - 2 = 3 losses`, which is the shape `win_stats`'s own header is
+        # about. It carries `losses` and `flat` now and the four counts close.
+        _ws = win_stats(recent)
+        _ps = pnl_stats(recent)
+        total_pnl = _ps["total"]
 
-        # Best and worst trades
-        best = max(recent, key=lambda e: e.pnl)
-        worst = min(recent, key=lambda e: e.pnl)
+        # Best and worst over the rows that could be PRICED. `max(recent,
+        # key=...)` over a P&L that is NaN keeps whichever it happened to
+        # meet first -- every comparison against NaN is False -- so the card
+        # printed `Best: BTC/USDT $+nan` under a trophy, and WHICH row won
+        # was decided by list order rather than by any measurement. Found by
+        # rendering the card for a window nothing could price, which is a row
+        # `_load` can produce: `json` parses a bare `NaN` token by default.
+        _scored = [e for e in recent if trade_pnl(e) is not None]
+        best = max(_scored, key=lambda e: e.pnl) if _scored else None
+        worst = min(_scored, key=lambda e: e.pnl) if _scored else None
 
-        # By regime
-        regime_stats = defaultdict(lambda: {"trades": 0, "pnl": 0, "wins": 0})
-        for e in recent:
-            r = e.regime or "unknown"
-            regime_stats[r]["trades"] += 1
-            regime_stats[r]["pnl"] += e.pnl
-            if e.pnl > 0:
-                regime_stats[r]["wins"] += 1
+        def _group(key_of) -> dict:
+            """Per-group record, classified by the SAME reader as the total.
 
-        # By strategy
-        strat_stats = defaultdict(lambda: {"trades": 0, "pnl": 0, "wins": 0})
-        for e in recent:
-            s = e.strategy_type or "unknown"
-            strat_stats[s]["trades"] += 1
-            strat_stats[s]["pnl"] += e.pnl
-            if e.pnl > 0:
-                strat_stats[s]["wins"] += 1
+            Each bucket closes the way `win_stats` does, and `pnl` is the sum
+            over the rows that could be priced with `scored` beside it — a
+            group total over a set holding an unreadable row, printed as a
+            whole, is the partial-total shape from CLAUDE.md's table.
+            """
+            out: dict = defaultdict(
+                lambda: {"trades": 0, "pnl": 0.0, "wins": 0,
+                         "losses": 0, "flat": 0, "scored": 0, "unscored": 0})
+            for e in recent:
+                g = out[key_of(e) or "unknown"]
+                g["trades"] += 1
+                p = trade_pnl(e)
+                if p is None:
+                    g["unscored"] += 1
+                    continue
+                g["scored"] += 1
+                g["pnl"] += p
+                if p > 0:
+                    g["wins"] += 1
+                elif p < 0:
+                    g["losses"] += 1
+                else:
+                    g["flat"] += 1
+            return dict(out)
+
+        regime_stats = _group(lambda e: e.regime)
+        strat_stats = _group(lambda e: e.strategy_type)
 
         # Common lessons
         all_lessons = []
@@ -375,10 +403,24 @@ class TradeJournal:
         return {
             "period": f"Last {lookback_days} days",
             "trades": len(recent),
-            "wins": len(wins),
-            "losses": len(losses),
-            "win_rate": round(len(wins) / len(recent) * 100, 1),
-            "total_pnl": round(total_pnl, 2),
+            "wins": _ws["wins"],
+            "losses": _ws["losses"],
+            # A close the record priced at exactly 0.00. It is not a win and
+            # it is not a loss, and until it had a name the card's `W / L`
+            # simply did not add up to the `Trades` above it.
+            "flat": _ws["flat"],
+            "scored": _ws["scored"],
+            "unscored": _ws["unscored"],
+            # The rate is over what could be SCORED, and it is None rather
+            # than 0.0 when nothing could be — "0% of this window won" and
+            # "nothing in this window could be priced" are different claims.
+            "win_rate": (None if _ws["rate"] is None
+                         else round(_ws["rate"] * 100, 1)),
+            # None when nothing could be priced, for the same reason: a total
+            # over zero measurements is not a measurement.
+            "total_pnl": (None if total_pnl is None else round(total_pnl, 2)),
+            "pnl_scored": _ps["scored"],
+            "pnl_unscored": _ps["unscored"],
             # None, not 0.0, when nothing in the window could be priced in R.
             # The two counts travel with it so a reader can tell "0.42R over
             # 20" from "0.42R over the 6 of 20 that had a stop on record".
@@ -386,10 +428,17 @@ class TradeJournal:
             "r_scored": _r["scored"],
             "r_unscored": _r["total"] - _r["scored"],
             "avg_holding_hours": round(avg_hold, 1),
-            "best_trade": {"symbol": best.symbol, "pnl": best.pnl, "r": best.r_multiple,
-                           "r_reason": r_unknown_reason(best)},
-            "worst_trade": {"symbol": worst.symbol, "pnl": worst.pnl, "r": worst.r_multiple,
-                            "r_reason": r_unknown_reason(worst)},
+            # None -- not a row with a junk figure -- when nothing in the
+            # window could be priced. There is no best trade among closes
+            # nobody could score.
+            "best_trade": (None if best is None else
+                           {"symbol": best.symbol, "pnl": best.pnl,
+                            "r": best.r_multiple,
+                            "r_reason": r_unknown_reason(best)}),
+            "worst_trade": (None if worst is None else
+                            {"symbol": worst.symbol, "pnl": worst.pnl,
+                             "r": worst.r_multiple,
+                             "r_reason": r_unknown_reason(worst)}),
             "by_regime": dict(regime_stats),
             "by_strategy": dict(strat_stats),
             "top_lessons": top_lessons,
