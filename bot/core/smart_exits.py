@@ -20,6 +20,13 @@ from typing import Optional
 
 import numpy as np
 from bot.utils.paths import state_path
+from bot.utils.win_rate import (
+    OUTCOME_FLAT,
+    OUTCOME_LOSS,
+    OUTCOME_UNSCORED,
+    OUTCOME_WIN,
+    outcome_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -299,14 +306,32 @@ class HoldTimeAnalytics:
     """
 
     def __init__(self) -> None:
-        # strategy_type -> list of (holding_hours, r_multiple, is_win)
-        self._records: dict[str, list[tuple[float, float, bool]]] = defaultdict(list)
+        # strategy_type -> list of (holding_hours, r_multiple|None, outcome)
+        #
+        # R IS OPTIONAL AND THE OUTCOME IS A WORD, and both used to be neither.
+        # The feed stored `(hours, float, bool)`: an R the engine could not
+        # measure arrived as a fabricated `0` -- and 0R is a REAL outcome, a
+        # trade that ended exactly at its risk distance, so an unmeasurable
+        # close was indistinguishable from a measured one. `is_win` had
+        # already collapsed win/loss/flat/unscored to two before any reader
+        # could ask. A collector cannot restore a distinction its own type
+        # threw away.
+        self._records: dict[str, list[tuple[float, Optional[float], str]]] = (
+            defaultdict(list))
         self._max_records = 500
 
     def record(self, strategy_type: str, holding_hours: float,
-               r_multiple: float, is_win: bool) -> None:
-        """Record a closed trade's hold time and outcome."""
-        self._records[strategy_type].append((holding_hours, r_multiple, is_win))
+               r_multiple: Optional[float], pnl: Optional[float]) -> None:
+        """Record a closed trade's hold time, R and outcome.
+
+        ``r_multiple`` is ``None`` when the risk it is a ratio OF could not be
+        read -- ``trade_journal.r_multiple_for`` is the one reading and answers
+        exactly that. ``pnl`` is classified HERE by ``outcome_of``, the same
+        rule ``win_stats`` counts by, rather than by a boolean the caller
+        computed and this collector then had to trust.
+        """
+        self._records[strategy_type].append(
+            (holding_hours, r_multiple, outcome_of(pnl)))
         if len(self._records[strategy_type]) > self._max_records:
             self._records[strategy_type] = self._records[strategy_type][-self._max_records:]
 
@@ -314,10 +339,10 @@ class HoldTimeAnalytics:
         """Analyze hold-time distribution for a strategy type.
 
         Returns dict with:
-        - avg_hold_win: average hold time for winners
-        - avg_hold_loss: average hold time for losers
-        - avg_r_win: average R on winners
-        - avg_r_loss: average R on losers
+        - avg_hold_win / avg_hold_loss: average hold time, always measured
+        - avg_r_win / avg_r_loss: average R over the closes that HAVE one,
+          ``None`` when none did, with ``r_scored``/``r_total`` beside them
+        - win_rate: over the SCORED closes, ``None`` when none were
         - optimal_hold_range: suggested hold time range
         - recommendation: text advice
         """
@@ -325,40 +350,63 @@ class HoldTimeAnalytics:
         if len(records) < 10:
             return None
 
-        wins = [(h, r) for h, r, w in records if w]
-        losses = [(h, r) for h, r, w in records if not w]
+        wins = [(h, r) for h, r, o in records if o == OUTCOME_WIN]
+        losses = [(h, r) for h, r, o in records if o == OUTCOME_LOSS]
+        flat = sum(1 for _, _, o in records if o == OUTCOME_FLAT)
+        unscored = sum(1 for _, _, o in records if o == OUTCOME_UNSCORED)
 
         if not wins or not losses:
             return None
 
-        avg_hold_win = sum(h for h, r in wins) / len(wins)
-        avg_hold_loss = sum(h for h, r in losses) / len(losses)
-        avg_r_win = sum(r for h, r in wins) / len(wins)
-        avg_r_loss = sum(r for h, r in losses) / len(losses)
+        # Holds are always measured -- the caller records only a positive
+        # duration -- and the Rs are not, so each mean is taken over the
+        # subset that HAS one and the coverage travels with it. That is the
+        # rule `average_r` already states for the journal's weekly card.
+        avg_hold_win = sum(h for h, _ in wins) / len(wins)
+        avg_hold_loss = sum(h for h, _ in losses) / len(losses)
+        r_win = [r for _, r in wins if r is not None]
+        r_loss = [r for _, r in losses if r is not None]
+        avg_r_win = (sum(r_win) / len(r_win)) if r_win else None
+        avg_r_loss = (sum(r_loss) / len(r_loss)) if r_loss else None
 
         # Optimal range: 80th percentile of winners
-        sorted_win_hours = sorted(h for h, r in wins)
+        sorted_win_hours = sorted(h for h, _ in wins)
         p20 = sorted_win_hours[max(0, int(len(sorted_win_hours) * 0.2))]
         p80 = sorted_win_hours[min(len(sorted_win_hours) - 1, int(len(sorted_win_hours) * 0.8))]
 
-        # Recommendation
-        rec = ""
+        # THE SIZE RULE ABSTAINS WHEN NO WIN HAD A READABLE R. The first two
+        # reason from HOLD TIMES, which were measured; the third reasons from
+        # `avg_r_win`, and firing it off a mean over nothing would be advice
+        # to widen a take-profit derived from no measurement at all.
         if avg_hold_loss > avg_hold_win * 1.5:
             rec = "Losers held too long — tighten time exits"
         elif avg_hold_win < avg_hold_loss * 0.5:
             rec = "Winners cut too early — consider wider trailing"
+        elif avg_r_win is None:
+            rec = ("Hold times look healthy; no win had a readable R, so "
+                   "nothing here says anything about win size")
         elif avg_r_win < 1.5:
             rec = "Average win is small — hold winners longer or widen TP"
         else:
             rec = "Hold-time distribution looks healthy"
 
+        scored = len(records) - unscored
         return {
             "total_trades": len(records),
-            "win_rate": round(len(wins) / len(records) * 100, 1),
+            "wins": len(wins),
+            "losses": len(losses),
+            "flat": flat,
+            "unscored": unscored,
+            # Over what could be SCORED, and None when nothing was: a 0% win
+            # rate is the claim that everything lost.
+            "win_rate": (round(len(wins) / scored * 100, 1)
+                         if scored > 0 else None),
             "avg_hold_win_hours": round(avg_hold_win, 1),
             "avg_hold_loss_hours": round(avg_hold_loss, 1),
-            "avg_r_win": round(avg_r_win, 2),
-            "avg_r_loss": round(avg_r_loss, 2),
+            "avg_r_win": None if avg_r_win is None else round(avg_r_win, 2),
+            "avg_r_loss": None if avg_r_loss is None else round(avg_r_loss, 2),
+            "r_scored": len(r_win) + len(r_loss),
+            "r_total": len(wins) + len(losses),
             "optimal_hold_range_hours": (round(p20, 1), round(p80, 1)),
             "recommendation": rec,
         }
@@ -371,11 +419,28 @@ class HoldTimeAnalytics:
             if analysis is None:
                 lines.append(f"{st.upper()}: insufficient data")
                 continue
+            # Never a formatted `None`. `win_rate` and both R means are
+            # three-valued now, and an f-string interpolates the word "None"
+            # as happily as a number -- "Win R: None" reads as a figure the
+            # renderer botched rather than as a measurement nobody could make.
+            def _num(v, suffix: str = "") -> str:
+                return "—" if v is None else f"{v}{suffix}"
+
+            tail = ""
+            if analysis["r_scored"] < analysis["r_total"]:
+                tail = (f"  (R over {analysis['r_scored']} of "
+                        f"{analysis['r_total']} decided closes)\n")
+            counts = f"{analysis['total_trades']} trades"
+            for _k, _w in (("flat", "flat"), ("unscored", "unpriced")):
+                if analysis[_k]:
+                    counts += f", {analysis[_k]} {_w}"
             lines.append(
-                f"{st.upper()} ({analysis['total_trades']} trades, {analysis['win_rate']}% WR)\n"
+                f"{st.upper()} ({counts}, {_num(analysis['win_rate'], '%')} WR)\n"
                 f"  Win hold: {analysis['avg_hold_win_hours']}h avg | "
                 f"Loss hold: {analysis['avg_hold_loss_hours']}h avg\n"
-                f"  Win R: {analysis['avg_r_win']} | Loss R: {analysis['avg_r_loss']}\n"
+                f"  Win R: {_num(analysis['avg_r_win'])} | "
+                f"Loss R: {_num(analysis['avg_r_loss'])}\n"
+                f"{tail}"
                 f"  Optimal: {analysis['optimal_hold_range_hours'][0]}-"
                 f"{analysis['optimal_hold_range_hours'][1]}h\n"
                 f"  >> {analysis['recommendation']}"

@@ -1912,6 +1912,71 @@ green.
 > second time in this file. Anchored on each site's own `win_stats` call, all
 > four die where they are aimed.
 
+**AND THE SWEEP FROM THERE FOUND A SECOND COPY OF THE R CALCULATION THE
+JOURNAL HAD ALREADY REMOVED — with the `else 0` that seam's own docstring
+names.** `engine.py`'s position-monitor close loop carried its own:
+
+    if LONG: risk = entry - stop   else: risk = stop - entry
+    final_r = pnl / (risk * qty) if risk > 0 and qty > 0 else 0
+    self.hold_analytics.record(..., r_multiple=final_r, is_win=pnl > 0)
+
+`r_multiple_for` exists to replace exactly that, and says why: *"0R is a REAL
+outcome — a trade that ended exactly at its risk distance — so an
+unmeasurable close entered the record indistinguishable from a measured
+break-even."* Written down, fixed in the journal, and left standing one
+module over.
+
+**The half the journal's version did NOT have is the asymmetry, and no
+reader could have guessed it.** With `stop_loss = 0.0` — an orphan or adopted
+close, precisely the kind whose stop cannot be read — the signed `risk`
+splits by DIRECTION: for a LONG `entry - 0` is positive, so the guard PASSES
+and the record gets `pnl / (entry * qty)`, "not an R at all, a different
+quantity in the right units"; for a SHORT `0 - entry` is negative, the guard
+fails, and the same missing field becomes 0R. One absent stop, two different
+wrong answers, decided by which way the trade was pointing.
+
+**And the collector's TYPE was the other half.** `HoldTimeAnalytics` stored
+`(hours, float, bool)`, so `is_win = pnl > 0` had collapsed
+win/loss/flat/unscored to two before any reader could ask — the shape the
+weekly review had just been cured of, one card over. A collector cannot
+restore a distinction its own type threw away. It stores
+`(hours, Optional[R], outcome-word)` now, `outcome_of` is the ONE classifier
+(`win_stats` asks it rather than restating it, proved by patching the rule
+and reading what the counter says), and the Rs are averaged over the closes
+that HAVE one with `r_scored`/`r_total` beside them.
+
+**What all that was feeding is a RECOMMENDATION.** `/holdtime` prints
+*"Average win is small — hold winners longer or widen TP"* on
+`avg_r_win < 1.5` — advice about take-profit placement, and with fabricated
+zeros in the mean it fired on books whose winners nobody could score. The two
+hold-time rules still fire (holds ARE measured); the size rule abstains and
+says so.
+
+> **And my own editing script printed success over a replace that matched
+> nothing.** It built its anchor as `old + body_rest` where `body_rest` was a
+> SUFFIX of `old` — a string that appears nowhere — and `str.replace` answers
+> the input unchanged rather than raising. There was no assertion on the
+> result, so the script printed "HoldTimeAnalytics takes an Optional R and a
+> word" over a file it had not touched, while two sibling edits (the import,
+> `summary()`) landed and left the module inconsistent. **Fourteen targeted
+> suites stayed green**, because none drove `summary()` with the ten records
+> `get_analysis` needs; rendering the card is what said so. That is this
+> file's own "a boundary that is whatever happens to be next" plus an
+> instrument reporting a result it never measured, arriving in the same
+> session as the slice about instruments. The replacement is line-ranged now
+> and asserts its own outcome before printing anything.
+
+**One sibling is recorded rather than swept.** `time_of_day.record(asset,
+hour, is_win)` two lines up takes the same boolean — and `TimeOfDayEdge`'s
+two readers (`get_best_hours`, `get_edge`) are both in
+`tests/unreachable_methods_baseline.txt`. A wrong classification in a store
+nobody reads is not a surface, and *the flag arrives with the code that reads
+it* cuts that way too: it gets fixed when it gets wired, which is what
+`market_cap` and `basis` record. `SignalTracker._pair_stats_locked` is the
+same call — it files a measured break-even as a loss (`pnl <= 0`) beside a
+`wins` on `> 0` — and its own baseline note already explains that its feed is
+dark and that wiring it "is a real piece of work, not a wiring line".
+
 **Two of the round's findings were in the instrument, not the code.** A text
 slice `s[start:end]` between two function names DELETED `_record_sweep_complete`
 (two live callers) and later duplicated `_record_analyze_throughput`; the mypy

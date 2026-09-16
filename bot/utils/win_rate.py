@@ -110,6 +110,38 @@ def profit_factor(trades: Iterable[Any]) -> Optional[float]:
     return wins / losses
 
 
+#: What one close was, as a word. Four outcomes, because there are four and
+#: a caller handed a boolean cannot recover the other two. `is_win = pnl > 0`
+#: is the shape that files a MEASURED BREAK-EVEN as a defeat, which is what
+#: `win_stats` carries `flat` for -- and a collector that stores a bool has
+#: thrown the distinction away before any reader can ask.
+OUTCOME_WIN = "win"
+OUTCOME_LOSS = "loss"
+OUTCOME_FLAT = "flat"
+OUTCOME_UNSCORED = "unscored"
+
+
+def outcome_of(pnl: Optional[float]) -> str:
+    """Classify one close's P&L. The single rule `win_stats` counts by.
+
+    ``None``, NaN and inf are ``unscored`` -- a close nobody could price is
+    not a defeat. ``0.0`` is ``flat``: falsy, and a real, measured, break-even.
+    """
+    if pnl is None:
+        return OUTCOME_UNSCORED
+    try:
+        v = float(pnl)
+    except (TypeError, ValueError):
+        return OUTCOME_UNSCORED
+    if v != v or v in (float("inf"), float("-inf")):
+        return OUTCOME_UNSCORED
+    if v > 0:
+        return OUTCOME_WIN
+    if v < 0:
+        return OUTCOME_LOSS
+    return OUTCOME_FLAT
+
+
 def win_stats(trades: Iterable[Any]) -> dict:
     """Wins, losses, flats, scored/unscored counts, and the rate over SCORED.
 
@@ -129,14 +161,17 @@ def win_stats(trades: Iterable[Any]) -> dict:
     """
     wins = losses = flat = scored = unscored = 0
     for t in trades or ():
-        p = _pnl(t)
-        if p is None:
+        # ONE rule, asked -- not restated. `outcome_of` is what a caller that
+        # holds a bare P&L (rather than a trade-shaped row) asks, and two
+        # copies of "what counts as a win" is two answers.
+        o = outcome_of(_pnl(t))
+        if o == OUTCOME_UNSCORED:
             unscored += 1
             continue
         scored += 1
-        if p > 0:
+        if o == OUTCOME_WIN:
             wins += 1
-        elif p < 0:
+        elif o == OUTCOME_LOSS:
             losses += 1
         else:
             flat += 1
