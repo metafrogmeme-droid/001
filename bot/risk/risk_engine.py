@@ -89,6 +89,7 @@ if TYPE_CHECKING:
 from dataclasses import dataclass
 
 from bot.config import CONFIG
+from bot.risk.live_perf_gate import governor_verdict
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
@@ -745,20 +746,37 @@ class RiskEngine:
         the equity-curve breaker. Fail-open on any error → 1.0.
         """
         try:
-            window = CONFIG.risk.live_perf_window
-            recent = list(self._realized_pnl_window)[-window:]
-            if len(recent) < CONFIG.risk.live_perf_min_samples:
-                return 1.0
-            wins = sum(1 for p in recent if p > 0)
-            win_rate = wins / len(recent)
-            net = sum(recent)
-            if win_rate <= CONFIG.risk.live_perf_pause_winrate and net < 0:
-                return 0.0
-            if win_rate <= CONFIG.risk.live_perf_reduce_winrate or net < 0:
-                return CONFIG.risk.live_perf_reduce_mult
-            return 1.0
+            mult, _status = governor_verdict(**self.live_perf_inputs())
+            return mult
         except Exception:
             return 1.0
+
+    def live_perf_inputs(self) -> dict:
+        """The governor's window and the configuration it is scored under.
+
+        One read, so the multiplier and the diagnostic below cannot disagree
+        about which closes they are describing — and so the nightly audit can
+        re-score the SAME window under a candidate value without restating
+        either the window or the branch.
+
+        `win_rate` and `net` are None for an empty window rather than 0.0 and
+        0.0: no closes is not a 0% win rate, and `governor_verdict` fails open
+        on either being absent.
+        """
+        window = CONFIG.risk.live_perf_window
+        recent = list(self._realized_pnl_window)[-window:]
+        n = len(recent)
+        wins = sum(1 for p in recent if p > 0)
+        return {
+            "enabled": bool(CONFIG.risk.live_performance_governor_enabled),
+            "samples": n,
+            "win_rate": (wins / n) if n else None,
+            "net": sum(recent) if n else None,
+            "min_samples": CONFIG.risk.live_perf_min_samples,
+            "pause_winrate": CONFIG.risk.live_perf_pause_winrate,
+            "reduce_winrate": CONFIG.risk.live_perf_reduce_winrate,
+            "reduce_mult": CONFIG.risk.live_perf_reduce_mult,
+        }
 
     @property
     def equity_throttle_multiplier(self) -> float:
@@ -824,31 +842,27 @@ class RiskEngine:
         Used by the admin /accounts view to surface why an account is throttled.
         """
         try:
-            enabled = bool(CONFIG.risk.live_performance_governor_enabled)
-            window = CONFIG.risk.live_perf_window
-            recent = list(self._realized_pnl_window)[-window:]
-            n = len(recent)
-            wins = sum(1 for p in recent if p > 0)
-            win_rate = (wins / n) if n else 0.0
-            net = sum(recent)
-            mult = self.live_performance_size_multiplier
-            if not enabled:
-                status = "OFF"
-            elif n < CONFIG.risk.live_perf_min_samples:
-                status = "WARMUP"
-            elif mult <= 0:
-                status = "PAUSE"
-            elif mult < 1.0:
-                status = "REDUCE"
-            else:
-                status = "OK"
+            inp = self.live_perf_inputs()
+            mult, status = governor_verdict(**inp)
+            wr, net = inp["win_rate"], inp["net"]
             return {
-                "enabled": enabled, "samples": n, "win_rate": round(win_rate, 3),
-                "net_pnl": round(net, 2), "multiplier": mult, "status": status,
+                "enabled": inp["enabled"], "samples": inp["samples"],
+                "win_rate": 0.0 if wr is None else round(wr, 3),
+                "net_pnl": 0.0 if net is None else round(net, 2),
+                "multiplier": mult, "status": status,
+                # THE WINDOW THESE FIGURES ARE OVER, travelling with them.
+                # Every other surface that prints the bot's recent record
+                # chooses its own span — the nightly audit reads the last 40
+                # closes — and a reader handed "win 22%" beside a proposal
+                # about THIS governor cannot otherwise tell that the governor
+                # scored a different set of trades. Same rule `summary.scored`
+                # states one module over: the span belongs with the figure.
+                "window": CONFIG.risk.live_perf_window,
             }
         except Exception:
             return {"enabled": False, "samples": 0, "win_rate": 0.0,
-                    "net_pnl": 0.0, "multiplier": 1.0, "status": "OFF"}
+                    "net_pnl": 0.0, "multiplier": 1.0, "status": "OFF",
+                    "window": None}
 
     @property
     def in_drawdown_recovery(self) -> bool:
