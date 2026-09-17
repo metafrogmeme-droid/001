@@ -342,13 +342,15 @@ class CallbackHandler:
                 (update.effective_user.first_name
                  if update.effective_user else ""),
                 ctx)
-            try:
-                await query.edit_message_text(
-                    access_denied_notice(_cb_id, operator_notified=_notified,
-                                         lang=self._lang(update)),
-                    parse_mode="HTML")
-            except Exception:
-                pass
+            # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+            # skips `reply_safe`, the 4000-char split, the HTML->plain
+            # fallback and the transcript capture — `_send` has all four
+            # and already takes this exact edit path.
+            await self._send(
+                update,
+                access_denied_notice(_cb_id, operator_notified=_notified,
+                                     lang=self._lang(update)),
+                edit=True)
             return
 
         data = query.data or ""
@@ -432,12 +434,11 @@ class CallbackHandler:
             tg_id = self._get_tg_id(update)
             if new_lang in SUPPORTED_LANGS:
                 set_user_lang(self.users, tg_id, new_lang)
-                try:
-                    await query.edit_message_text(
-                        t("lang_switched", new_lang),
-                        parse_mode="HTML")
-                except Exception:
-                    pass
+                # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+                # skips `reply_safe`, the 4000-char split, the HTML->plain
+                # fallback and the transcript capture — `_send` has all four
+                # and already takes this exact edit path.
+                await self._send(update, t("lang_switched", new_lang), edit=True)
             return
 
         # ── Daily Duel: a call on one of today's rounds ──
@@ -591,11 +592,11 @@ class CallbackHandler:
         if data == "open_warroom":
             rendered = wr_start()
             kb = _KB_WARROOM
-            try:
-                await query.edit_message_text(
-                    rendered["text"], parse_mode="HTML", reply_markup=kb)
-            except Exception:
-                pass
+            # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+            # skips `reply_safe`, the 4000-char split, the HTML->plain
+            # fallback and the transcript capture — `_send` has all four
+            # and already takes this exact edit path.
+            await self._send(update, rendered["text"], reply_markup=kb, edit=True)
             return
 
         if data == "latest_signal":
@@ -735,12 +736,14 @@ class CallbackHandler:
                 [InlineKeyboardButton("\U0001f525 Aggressive", callback_data="mode_aggressive"),
                  InlineKeyboardButton("\U0001f9d8 Manual", callback_data="mode_manual")],
             ])
-            try:
-                await query.edit_message_text(
-                    rendered["text"] + f"\n\n\u2705 Switched to <b>{mode.capitalize()}</b>",
-                    parse_mode="HTML", reply_markup=kb)
-            except Exception:
-                pass
+            # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+            # skips `reply_safe`, the 4000-char split, the HTML->plain
+            # fallback and the transcript capture — `_send` has all four
+            # and already takes this exact edit path.
+            await self._send(
+                update,
+                rendered["text"] + f"\n\n\u2705 Switched to <b>{mode.capitalize()}</b>",
+                reply_markup=kb, edit=True)
             audit(system_log, f"Strategy mode: {mode}", action="mode_switch", result="OK")
             # Public mind-stream: stance changes are part of the agent's
             # visible personality (mode name only, no account detail).
@@ -1475,17 +1478,13 @@ class CallbackHandler:
             self._last_pane[self._get_tg_id(update)] = pane
             body = await self._render_pane(pane, user_id=self._get_tg_id(update))
             text = body + self._footer()
-            try:
-                await query.edit_message_text(
-                    text, parse_mode="HTML", reply_markup=_KB_DASH)
-            except Exception:
-                import re
-                plain = re.sub(r"<[^>]+>", "", text)
-                try:
-                    await query.edit_message_text(
-                        plain, parse_mode=None, reply_markup=_KB_DASH)
-                except Exception:
-                    pass
+            # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+            # skips `reply_safe`, the 4000-char split, the HTML->plain
+            # fallback and the transcript capture — `_send` has all four
+            # and already takes this exact edit path. `_render_pane`
+            # dispatches SKILLS, so this is the one of the six whose
+            # text is a card the scrub was written for.
+            await self._send(update, text, reply_markup=_KB_DASH, edit=True)
             return
 
         if data.startswith("nav:"):
@@ -1499,15 +1498,13 @@ class CallbackHandler:
             self._last_pane[self._get_tg_id(update)] = pane
             body = await self._render_pane(pane, user_id=self._get_tg_id(update))
             text = body + self._footer()
-            try:
-                await query.edit_message_text(
-                    text, parse_mode="HTML", reply_markup=_KB_DASH)
-            except Exception:
-                try:
-                    await query.message.reply_text(
-                        text, parse_mode="HTML", reply_markup=_KB_DASH)
-                except Exception:
-                    pass
+            # THROUGH THE CHOKEPOINT. `query.edit_message_text` by hand
+            # skips `reply_safe`, the 4000-char split, the HTML->plain
+            # fallback and the transcript capture — `_send` has all four
+            # and already takes this exact edit path. `_render_pane`
+            # dispatches SKILLS, so this is the one of the six whose
+            # text is a card the scrub was written for.
+            await self._send(update, text, reply_markup=_KB_DASH, edit=True)
             return
 
         # ── Scan skill callbacks (scan_confirm: / scan_reject: / scan_limit:) ──

@@ -674,6 +674,24 @@ _STRINGS: dict[str, dict[str, str]] = {
                "沒有準備任何東西，也沒有下單。"),
     },
 
+    # Sent when the prompt TIMED OUT. An expired arming and one that was
+    # never sent used to be one silence: the row was deleted, nothing was
+    # said, and the caller's typed price fell through to the chat model,
+    # which holds no limit order and had not been told a price was asked
+    # for. It names the trade, because a price for a trade they can no
+    # longer see is a different fact from "I did not follow that".
+    "limit_expired": {
+        "en": (
+            "⏰ That limit-price step timed out — you had {minutes} minutes to type a price for {pair}, so I stopped"
+            " waiting and I have not read the number you just sent as one. <b>Nothing was placed and nothing was cha"
+            "nged.</b> Run the scan again and tap Limit if you still want it."
+        ),
+        "zh": (
+            "⏰ 限價步驟已逾時 — 你有 {minutes} 分鐘可以為 {pair} 輸入價格，所以我已停止等待，也沒有把你剛傳的數字當"
+            "成價格。<b>沒有下單，也沒有修改任何東西。</b>請重新掃描並點選限價。"
+        ),
+    },
+
     "limit_prompt": {
         "en": (
             "\U0001f4b0 Set limit price for {asset} {direction}\n\n"

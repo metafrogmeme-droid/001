@@ -1579,7 +1579,7 @@ callers, and the only execution path named /stake or /unstake is BITGET CEX
 flexible/fixed Earn (bot/skills/yield_commands.py:297 _cmd_stake, @guard("stake")
 — trader and admin, acting on the CALLER's own linked account;
 money moves solely on the confirm callback at
-bot/skills/callback_handler.py:528 execute_stake/execute_unstake against
+bot/skills/callback_handler.py:569 execute_stake/execute_unstake against
 bot/core/yield_radar.py). That is a custodial exchange savings product, not
 validator income. Two naming traps that must not be read as coverage: (1)
 programs/rclaw_staking is NOT validator staking — its own header calls it "a
