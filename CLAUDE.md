@@ -4056,7 +4056,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 199 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 200 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -4818,13 +4818,66 @@ it. Neither could see reachability, which is the one thing they were being
 asked about. Both are driven now — plant the state, read what the operator is
 told — and the drives are shorter than the scans were.
 
+**A THIRD ONE, on the door that opens a real position — and the ratchet
+written for exactly this could not see it.** `tests/guarded_commands_baseline.txt`
+says in its own header that "a guard that silently disappears ... is an auth
+regression nothing else notices", and its reader walked `node.decorator_list`.
+There are TWO spellings: `@guard("x")` on 96 commands, and an in-body
+`if not await self._guard(update, "x"): return` on SEVEN — `/trade`, `/agent`,
+`/arb`, `/connect`, `/disconnect`, `/exchange`, `/fundingscan`. None of the
+seven was in the baseline. COVERAGE OF A SPELLING IS NOT COVERAGE OF THE
+GUARD, which is `_SLASH_COMMAND` stopping at the underscore pointed at the
+auth surface.
+
+`/trade`'s only pin was `assert 'self._guard(update, "trade")' in src`, and
+driven, it catches exactly one of the three ways to break the gate:
+
+    guard DELETED                          -> caught (that scan, nothing else)
+    `if False and not await self._guard(`  -> 7 passed. NOT CAUGHT.
+    guard moved BELOW register_manual_idea -> 7 passed. NOT CAUGHT.
+
+The literal survives both because the assertion asks whether a STRING EXISTS,
+not whether the gate RUNS or runs FIRST — this section's own lesson, on the
+one command whose F-12 comment records what its absence cost ("letting any
+authorized user (incl. a viewer role) queue trades"; driven, `viewer` holds
+`status` and does NOT hold `trade`). The drive is both arms, because a refusal
+assertion alone passes against a `_cmd_trade` that does nothing at all. The
+scan STAYS: it is not wrong, it is narrower than the claim read off it, and
+"do not convert wholesale" applies to one's own cleanup.
+
+**The permission travels with the name now**, because a name-only baseline
+makes the weaker claim: "it has some guard" stays true when `trade` is quietly
+re-spelled `status`.
+
+**And the round found a docstring of mine claiming a bound the code does not
+make.** `_inbody_permission` said it was "bounded to THIS function's own body"
+and used `ast.walk`, which DESCENDS into a nested def — so a guard on an inner
+helper would have been recorded as the command's. That is
+`quant_skill._safe_reason` exactly, written inside the slice about assertions
+claiming more than they check; and the first fix for it skipped nested defs as
+CHILDREN while still yielding them from the body, so it descended anyway.
+Driving it, not reading it, is what said so both times.
+
+**Three of the walk's rules survived the first round because the real tree
+cannot reach them** — no command here has a computed `@guard(...)` argument, a
+gating nested def, or a `_guard` call on anything but `self`. A rule no input
+can reach is a claim that there is a check. They are driven on PLANTED trees
+now, which is what the methods ratchet's guards already do: a tree where the
+rule is the only thing in play. 13 of 13 after that.
+
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **398 of 950** reach for source text through `source_scan`, `code_only`
+Driven, **392 of 951** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 398 is a FLOOR and the honest shape is
-*about half the suite*. One stale number under two different questions, seven
+source scan that rule does not see, so 392 is a FLOOR and the honest shape is
+*about half the suite*. (It read 398 for one slice, because the first rule
+matched the token anywhere in the file's TEXT — so seven files that only NAME
+a reader in a docstring were counted as reaching for source, and the next
+slice added an eighth and moved the number. It is an AST usage test now:
+imports or calls, never a mention. "Strip comments first" is this chapter's
+own opening line, and a docstring is a string token `code_only` itself would
+not blank.) One stale number under two different questions, seven
 hundred lines apart, and the direction it was wrong in is the one that invites
 the sweep this paragraph forbids. Most of them should scan —
 `tests/test_trade_live_mode.py` says so in its own docstring: the behaviour is

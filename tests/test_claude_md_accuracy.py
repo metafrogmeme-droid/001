@@ -875,11 +875,39 @@ def _source_scanning_files() -> tuple[int, int]:
     number travels with the rule that produced it rather than alone, the same
     reason the walk above counts BOTH tokenize spellings.
     """
+    import ast as _ast
+
+    def _uses(path) -> bool:
+        """Imports or CALLS one of the three readers -- not merely names one.
+
+        The first draft matched the token anywhere in the file's text, so a
+        DOCSTRING mentioning `code_only` counted as reaching for source, and
+        the very next slice added such a file and moved the number. "Strip
+        comments first" is this chapter's own opening advice; an AST is that
+        advice done properly, since a docstring is a string token `code_only`
+        itself would not blank.
+        """
+        try:
+            tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            return False
+        for n in _ast.walk(tree):
+            if isinstance(n, _ast.ImportFrom) and "source_scan" in (n.module or ""):
+                return True
+            if isinstance(n, _ast.Import):
+                if any("source_scan" in a.name for a in n.names):
+                    return True
+            if isinstance(n, _ast.Call):
+                f = n.func
+                if isinstance(f, _ast.Name) and f.id in ("code_only", "_code_only"):
+                    return True
+                if isinstance(f, _ast.Attribute) and f.attr in (
+                        "code_only", "_code_only", "getsource"):
+                    return True
+        return False
+
     files = sorted((ROOT / "tests").rglob("test_*.py"))
-    reach = [p for p in files
-             if any(tok in p.read_text(encoding="utf-8", errors="replace")
-                    for tok in ("source_scan", "code_only", "inspect.getsource"))]
-    return len(reach), len(files)
+    return sum(1 for p in files if _uses(p)), len(files)
 
 
 def test_the_do_not_convert_wholesale_count_is_the_one_a_walk_returns():
