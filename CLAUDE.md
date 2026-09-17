@@ -4029,6 +4029,127 @@ any non-Constant `audience` as `"all"`, so an expression there records "all"
 while the runtime sends "admin" — a false acquittal inside the one test that
 owns the decision.
 
+**AN AUDIENCE IS A CLASS AND A POSITION BELONGS TO A PERSON.** That fix added
+`Alert.audience`, narrowed twelve types to `admin`, and deliberately left the
+position alerts at `"all"` as *"the position and drawdown ones a trader
+needs"* — true of the trader who HOLDS the position, and no value of an
+audience can say so. Driven with two user portfolios and three watching chats,
+every chat received every alert: a chat holding NOTHING was told
+`⚠️ STOP LOSS APPROACHING — ETH/USDT · Entry $3,000.0000 ·
+👉 /positions — review open trades` about somebody else's position, under a
+door that shows them something different, and a CRITICAL *"Place a stop on
+Bitget manually now"* about somebody else's naked LIVE account with that
+account's venue rejection text attached. `Alert` had no owner field at all.
+
+**The owner was in the loop and dropped on the next line.** Three checks walk
+per-user books — `_check_sl_tp_proximity` and `_check_time_stops` do
+`for uid in user_portfolios.all_portfolios():` and then
+`all_positions.extend(portfolio.open_positions)`, and
+`_check_unprotected_positions`, whose own docstring says it "covers every
+executor (operator + per-user)", walks `_all_live_executors()` past the
+`ex.user_id` that `account_risk_overview` already reads as the account.
+`Alert.user_id` carries it and `_recipients_for` is the one reading: a
+person-scoped alert reaches that person's chat and NOBODY else, because on
+Telegram the portfolio key and the chat id are the same identifier
+(`user_portfolios.get(tg_id)` beside `monitor.enable_chat(tg_id)`).
+
+**When the owner is not watching it goes NOWHERE, and that is the whole
+design.** Falling back to the watching chats is the leak itself, and a user
+who never ran `/watch on` — or whose book is keyed by a web id with no
+Telegram chat behind it — is exactly the case that would take the fallback. It
+is said at WARNING, because a silence that is recorded is a different thing
+from one that is not, which is the argument `_admin_recipients` already makes
+for its own.
+
+**The public feed needed the same gate, by the argument written three lines
+above it.** The admin exclusion is there because *"narrowing the Telegram
+fan-out while still publishing the title to the landing page would move the
+message to a WIDER audience than the one it was taken away from"*. A
+person-scoped title is `SL Proximity: ETH/USDT` — a symbol ONE person holds —
+so scoping the send and leaving the emit would have taken the leak from every
+watching chat and given it to every visitor, inside the fix for it.
+
+**What is deliberately NOT narrowed, and why the value must mean one thing.**
+The SHARED `engine.portfolio` book — the `else` branch of both walks — keeps
+the fan-out it has always had: it is the bot's own book, whose entries the
+product already broadcasts as `TRADE_SIGNAL`, and narrowing it would remove
+something watchers subscribe for on no measurement at all. Its owner is
+`None`, and **`None` never means "the operator"**: one value meaning both
+"nobody in particular" and "a specific person" is the `size_usd`
+two-meanings-under-one-name defect, so the operator's own book takes the
+audience that already means operator. A single-user deploy is byte-for-byte
+unchanged, driven both ways.
+
+**Two more were the operator's own money under `audience="all"`, and
+`_dispatch`'s comment had already named them.** `IDLE_CASH` prints
+`$X of free margin` off `engine._live_balance_cache` and `SLIPPAGE_HIGH`
+prints `Est. lost: $X` off `engine.slippage` under a docstring saying it
+exists so *"the operator"* can switch to limit orders — and the public-feed
+comment names *"drawdown amounts, idle-cash balances"* as exactly the detail
+that must not reach a wider audience, while guarding the landing page and not
+the fan-out one line below. `/watch` is `@guard("scan")`, so the reader was a
+viewer. The `ADMIN_ONLY` ratchet's own header says *"None of them names a
+position, a symbol or a price"*, which is true of plumbing and false of these,
+so they are a second group with their own reason rather than three names
+appended under a sentence they would falsify.
+
+> **And the first draft of the unprotected fix walked into a trap this file
+> already records.** It wrote `audience="all" if acct else "admin"` — and the
+> paragraph directly above says `_alert_audiences()` scores any non-Constant
+> `audience` as `"all"`, so the ratchet would have recorded "all" while the
+> runtime sent "admin", a false acquittal inside the one test that owns the
+> decision. Written down, from a conditional audience built and reverted for
+> it, and reintroduced anyway. The audience is a CONSTANT `"admin"` now and
+> `user_id` wins ahead of it in `_recipients_for`.
+
+**And narrowing it made a sibling guard narrower than its own claim.**
+`test_the_alerts_a_trader_acts_on_still_reach_them` listed
+`POSITION_UNPROTECTED` and asserted `audience == "all"`, under a docstring
+saying an audience gate that swallows these *"would be a worse bug than the
+leak it replaced"* — which is right, and reading the FIELD stopped answering
+it the moment `user_id` began deciding first. The claim is *whoever holds the
+position is told*, so that is driven now: a user's naked position reaches the
+user and not the admin, the operator's reaches the admin. A guard narrower
+than the claim read off it is this repository's own subject, arriving inside
+the commit that narrows the thing it guards.
+
+**Nineteen mutations, each killed — and three of the first round were the
+instrument's and the corpus's, not the code's.** The two walks are
+byte-identical in the line that carries the uid, so one anchor matched TWICE
+and the driver refused it (the second-copy shape inside the tool built to find
+it) and the other matched zero times; each is anchored on its own method now.
+The third was real: giving the SHARED book an owner in `_check_time_stops`
+changed no verdict, because the compatibility case had been driven for
+`_check_sl_tp_proximity` alone — the round reporting a coverage gap rather
+than a code one, on two walks near enough that a fix landing on one is this
+file's own *"fixing two left the third"*.
+
+**The ratchet is derived from the SOURCE a check reads, not from the five
+types I fixed.** A list of names is the `/setllm` ten-of-eleven shape, where
+the check added tomorrow is the one missing from it: any method that reads
+`user_portfolios` or `_all_live_executors` must pass `user_id=` or set
+`audience=` on every `Alert` it builds, and the rule is driven on a planted
+tree as well, because a rule no input can reach is a claim that there is a
+check.
+
+**Filed, with its measurement, and NOT done here.** The alert loop is the
+third door of `_REPLY_CAPTURE`'s own comment — *"the free-text path and the
+alert loop untouched"* — and it is still untouched: 34 distinct `alert_type`
+literals and five event hooks in `alerts_monitor.py` (`_on_trade_closed`,
+`_on_limit_filled`, `_on_exchange_sync`, `_on_positions_adopted`,
+`_on_auto_confirmed` — a trade PLACED with no tap at all) reach the user and
+leave **zero** transcript records, so "what was that alert about?" reaches a
+model with nothing. It waits behind this slice deliberately: recording a
+leaked position into the wrong user's transcript would have put the leak into
+the model's evidence too. And the obvious cure is the wrong one — the store is
+`max_messages_per_user=50` and `anomaly_scope.DEFAULT_BUDGET_PER_HOUR` is 12
+with `is_budgeted()` exempting CRITICAL on purpose, so twelve advisories an
+hour alone fill a user's whole window in about four hours and evict their own
+conversation into `pending_summary`, where the rolling note then summarises
+the bot talking to itself. An alert is a NOTIFICATION, not a conversation
+turn, and that slice is a bounded per-user ring rendered as one dated block.
+(`tests/test_an_alert_about_my_position_reaches_only_me.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -4175,7 +4296,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 201 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 202 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -4987,9 +5108,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **393 of 952** reach for source text through `source_scan`, `code_only`
+Driven, **394 of 953** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 393 is a FLOOR and the honest shape is
+source scan that rule does not see, so 394 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
