@@ -1702,12 +1702,24 @@ for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
 
 Trade co-pilot — a deterministic (no LLM, no network) second opinion on a
 manual ticket before confirm: reward:risk, stop distance, geometry, size vs
-equity, existing exposure. It advises, never blocks.
+equity, the engine's current lean and the caller's existing exposure. It
+advises, never blocks, and it SAYS WHICH of those it could look at: `verdict`
+is four-valued (`partial` is nothing flagged over a subject it could not
+check), every subject carries its own reason for going unrun, and the score
+carries the span it was taken over.
 
 *Where.* Dashboard trade ticket → POST /api/trade/copilot
 (app/routes/webtrade.js:138; dashboard.js:3101) → bot gateway /trade/copilot
 (bot/web/user_gateway.py:2109, :4549) → bot/core/trade_copilot.review +
-human_readable.
+human_readable, over ONE reading of the book the ticket executes on
+(bot/core/copilot_context.ticket_context). Browser side:
+app/public/js/copilot-review-model.js and the marked `copilotReviewHtml` block.
+
+*Gap.* ONE DOOR. The dashboard ticket is the only caller. Telegram's `/trade`
+— the entry door the act-intent notice names — renders a Confirm card that
+places the same order with no second opinion, and so does the scan card's
+Confirm button. The review is pure and its reading is a leaf, so what is
+missing is the card and the permission, not the arithmetic.
 
 **The PUBLIC Strategy-Agent marketplace**
 

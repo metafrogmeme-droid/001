@@ -4346,6 +4346,130 @@ Four more cover the mentions line - the render cap restored, the bound
 unnamed, the non-denial clause dropped, the writer spelling `10` again - and
 all four die. Twenty-four in the round.
 
+**"LOOKS DISCIPLINED, 100/100" OVER THREE CHECKS THAT NEVER RAN, on the block a
+person reads immediately before confirming a real order.** `trade_copilot` is
+the ticket's deterministic second opinion and its own header names six
+subjects: geometry, reward:risk, stop distance, size vs equity, the engine's
+current bias and the caller's existing exposure. Driven with a clean long — R:R
+3, stop 2%, margin on the ticket — and nothing else readable:
+
+    ✅ Looks disciplined (score 100/100)
+    R:R 3 · stop 2% · target 6%
+
+Three of the five subjects past geometry were silently skipped. That is
+`integrity_veto.assess({})` verbatim — *"`clear` is what a reader takes as a
+clean bill of health, and printing it over `checked == 0` is a confident
+all-clear manufactured from no data"* — and **the score made it worse rather
+than better**: it starts at 100 and only ever subtracts, so 100/100 over two
+checks and 100/100 over four were one number. `verdict` has a fourth word
+(`partial`), every subject carries `ok`/`flag`/`unchecked` with its REASON, and
+`score_basis` travels with the figure for the reason `summary.scored` does.
+A CAUTION still outranks a gap — a flag is the louder fact — and the coverage
+list prints either way, because folding them would lose the flag rather than
+the gap.
+
+**TWO OF THE SIX INPUTS WERE READ BY THE FUNCTION AND WRITTEN BY NOBODY.**
+Driven, `engine_bias` and `existing_exposure` appear nowhere in the tree
+outside `review()`'s signature and the two gateway lines that read them off the
+REQUEST BODY — and `app/routes/webtrade.js`, the only caller of that endpoint,
+posts a fixed six-key body carrying neither. That is `capability_answer`'s
+`extras` shape with the arrow reversed: a socket with no cable, on two of the
+subjects the header promises. Both branches were COVERED, by predictions that
+call `review()` with the kwargs — asserted in a place no production caller can
+reach, which is the `SKILL_TO_FEATURE` rot one module over. And a user's own
+exposure is not a fact a client gets to assert about them, so wiring the
+reading and leaving the body read would have been the same defect with the sign
+flipped.
+
+**The third input had a cable and it went to the wrong book.** The handler read
+`engine.user_portfolios.get(tg_id).snapshot().equity_usd` — the PAPER book —
+for a ticket that in live mode opens a real position, which is the `$10,000 in
+live mode` bug `resolve_display_equity` exists to have ended, arriving through
+a door nobody had pointed at it. Driven at $50 of margin: 0.5% of the paper
+baseline is a benign note, 25% of the live account is the concentration FLAG.
+Same ticket, same user, opposite advice. `copilot_context.ticket_context` is
+one reading — `CONFIG.is_live()` decides the book, and in live mode the
+executor and the balance both come out of `live_view(user_id)` for the reason
+that reading states about itself, so a margin share and a stacking note can
+never describe different accounts.
+
+**The engine's lean is its own PENDING IDEA, and the exclusion is the whole
+correctness of it.** A pending idea IS "BTC long, right now, at these levels",
+cache-only and sync, which is what lets the co-pilot keep its "no network"
+promise while finally having the input. A `source == "manual"` idea is EXCLUDED
+because `manual_trade.build_manual_idea` stamps the CALLER's own tickets:
+counting one tells somebody they are *"aligned with the engine's long bias"*
+about a ticket they registered themselves — the engine agreeing with the user
+because the user said it first. It is age-gated here rather than trusted: the
+TTL sweep runs in the tick loop, so between sweeps `_pending_ideas` can hold an
+idea older than `CONFIG.pending_idea_ttl`, and a record with no age is read as
+current.
+
+**A MEASUREMENT IS NOT A GAP, and this slice had to say so three times.** A
+READ zero equity is the loudest size finding there is — there is nothing for
+the margin to be a share of — so it FLAGS rather than filing as unchecked,
+where the word for a failed read would have hidden a real state. `flat` is a
+read empty book and gets its own note; `None` is a book nobody read. And the
+two ways a side refuses are different facts with different sentences: a row
+whose side this build cannot read is a failed read, where a book holding BOTH a
+long and a short was READ and is two sides — *"could not be read"* is false of
+the second, and the mutation round is what said so (folding them changed no
+verdict until each carried its own reason).
+
+**`{:.0f}` printed "Margin is 0% of equity" for a real 0.5% stake**, on the
+line whose job is to say how much of the account is at risk. The rule tests
+what the FORMAT prints rather than a threshold guessed beside it: `f"{0.5:.0f}"`
+is `"0"` (banker's rounding), so `share >= 0.5` still publishes `0%` on its own
+edge — which is how the first draft of the fix shipped its own subject.
+
+**And the block's badge had two branches over a vocabulary of four.** It was
+`d.verdict === 'clear' ? CLEAR : CAUTION`, so `partial` would have worn the
+word for a finding and any verdict a later bot build adds would too; both
+badges were also AMBER, because CLEAR borrowed `mode-badge--paper`, whose fill
+is `--warn` — the two states it did distinguish rendered in one colour.
+`copilot-review-model.js` answers `null` for a word it cannot place and the
+block paints an unreadable state rather than guessing. It derives no sentence
+and no figure: `score_line` and every unchecked reason arrive as TEXT from the
+producer, the rule the arb panel already states, and a payload carrying no span
+prints no score at all rather than a naked `100/100`. The renderer is a NAMED
+function with markers now rather than eight lines inside a click handler — a
+renderer reachable only through a DOM event is one no test can run, which is
+#999's card exactly.
+(`tests/test_the_copilot_says_what_it_checked.py`,
+`app/test/copilot_review_model.test.js`,
+`app/test/copilot_review_renders.test.js`.)
+
+**And one reason was serving two reads, found by re-reading the diff rather
+than by the round.** `_read_book` handed back ONE `why` and both the size row
+and the exposure row quoted it — but on the live branch the balance and the
+position listing are separate reads that fail independently, so a venue
+refusing the listing would have printed *"your live balance was not read
+recently"* under the EXPOSURE row. A wrong cause on the card is this slice's
+own subject one field over, and the fixture that finds it has to be able to
+produce that state: an executor whose balance reads and whose `open_positions`
+raises.
+
+**Forty-four mutations, each killed, and the two that survived the first round
+were one of each kind.** Dropping the early return for an unreadable side was
+an EQUIVALENT MUTANT while both refusals answered `None`: the collected
+`{None}` pops back to `None`, so the answer was identical and only the reason
+differed — which it did not, until the two sentences were separated above. That
+is the round reporting a claim the code did not make, and the fix is the code,
+not the fixture. The other was the corpus's: the gateway dropping `unread` on
+the way in survived because every handler assertion read the unchecked NAMES,
+and the whole point of that parameter is the SENTENCE — without it the card
+falls back to *"the equity for this account was not supplied"*, which tells a
+person nothing about linking an account. Both die now.
+
+**Filed, with its measurement, and NOT done here.** The co-pilot has exactly
+one door: `POST /api/trade/copilot`, from the dashboard's ticket. Telegram's
+`/trade` — the entry door the act-intent notice NAMES — renders a Confirm card
+that places the same order with no second opinion of any kind, and neither does
+the scan card's Confirm button. That is *ask which OTHER surface makes the same
+claim* pointed at a capability rather than a defect, and it is a slice of its
+own: the review is pure and its reading is already a leaf, so the work is the
+card and the permission, not the arithmetic.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -5304,7 +5428,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **395 of 954** reach for source text through `source_scan`, `code_only`
+Driven, **395 of 955** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 395 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

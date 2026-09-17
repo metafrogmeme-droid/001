@@ -539,6 +539,21 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
 .mode-badge--paper { color: #17130a; background: var(--warn); border: 1px solid var(--warn); }
 .mode-badge--live { color: #fff; background: var(--down); border: 1px solid var(--down); }
 
+/* ---- Trade co-pilot badge --------------------------------------------------
+   FOUR states, because the block used to have two: `d.verdict === 'clear' ?
+   CLEAR : CAUTION`. A review that flagged nothing but could not look at
+   everything is `partial` and wears neither colour — green would say the trade
+   was cleared and amber would say something was found, and each asserts half
+   of the state as the whole of it. Colour is a claim. */
+.cop-badge { display: inline-flex; align-items: center; font-family: var(--font-data); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: var(--radius-sm); }
+.cop-badge--clear { color: #07130c; background: var(--up); border: 1px solid var(--up); }
+.cop-badge--caution { color: #17130a; background: var(--warn); border: 1px solid var(--warn); }
+.cop-badge--partial { color: var(--text-2); background: transparent; border: 1px dashed var(--line); }
+.cop-badge--invalid { color: #fff; background: var(--down); border: 1px solid var(--down); }
+/* The coverage list: what the review could NOT look at, and why. Muted and
+   below the findings -- it is disclosure, not a finding. */
+.cop-uncheck { color: var(--text-3); }
+
 /* ---- Chat drawer ----------------------------------------------------------- */
 .chat-fab {
   position: fixed; right: var(--s4); bottom: calc(var(--tabbar-h) + var(--s4)); z-index: 90;

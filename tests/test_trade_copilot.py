@@ -3,6 +3,13 @@
 C1 geometry validation; C2 reward:risk flag; C3 stop-distance flags; C4 size vs
 equity; C5 engine-bias alignment + exposure notes; C6 determinism + advice-only
 (no side effects). Pure module.
+
+C5's two predictions are the ones worth reading twice. They pass `engine_bias`
+and `existing_exposure` straight into `review()` — and for the life of this
+file NOTHING IN THE PRODUCT EVER SUPPLIED EITHER, so both branches were proved
+in a place no production caller could reach. That is the `SKILL_TO_FEATURE`
+rot, and `tests/test_the_copilot_says_what_it_checked.py` is where the wiring
+is now driven.
 """
 from bot.core import trade_copilot as cp
 
@@ -21,7 +28,15 @@ def test_c1_wrong_side_stop_is_invalid():
 
 def test_c1_valid_long_geometry_ok():
     r = cp.review(_good_long())
-    assert r["verdict"] in ("clear", "caution")
+    # PARTIAL, not clear. A ticket with valid geometry and nothing else supplied
+    # had answered "clear" and "score 100/100" with three of the five subjects
+    # silently skipped; this assertion used to accept that. It is the
+    # measurement now: the two price-derived checks ran, the three that need a
+    # book or the engine did not, and the review says which.
+    assert r["verdict"] == "partial"
+    assert r["score_basis"] == {"applied": 2, "total": 4}
+    assert [u["name"] for u in r["unchecked"]] == [
+        "size_vs_equity", "engine_bias", "existing_exposure"]
     assert r["rr"] == 3.0                       # reward 9 / risk 3
     assert r["stop_pct"] == 3.0
 
