@@ -142,7 +142,13 @@ def _context_prompt(uid, **kw):
 
 def _handler(engine):
     ns = NS(engine=engine,
-            conversations=NS(build_context_prompt=_context_prompt),
+            # `recent_alerts` is on the real store, so a stub without it is a
+            # stub that has DRIFTED from the object it stands in for: the
+            # prompt would read "the unprompted ring could not be read" for
+            # every fixture here, which is true of the stub and false of
+            # production. An empty ring is the honest stand-in.
+            conversations=NS(build_context_prompt=_context_prompt,
+                             recent_alerts=lambda uid: []),
             _CHAT_SYSTEM_PROMPT=H._CHAT_SYSTEM_PROMPT,
             CHAT_TICKER_MAX_AGE_SEC=H.CHAT_TICKER_MAX_AGE_SEC,
             CHAT_TICKER_LEAD=H.CHAT_TICKER_LEAD, CHAT_TICKER_MAX=H.CHAT_TICKER_MAX)

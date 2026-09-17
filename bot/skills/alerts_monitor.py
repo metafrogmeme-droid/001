@@ -99,6 +99,9 @@ class AlertsMonitor:
 
         async def _bot_username(self, bot=None) -> Optional[str]: ...
 
+        def _note_unprompted(self, chat_id: str, kind: str,
+                             text: str) -> None: ...
+
         async def _fetch_chart_timeframes(self, asset: str, primary_data: dict | None) -> dict: ...
 
     async def start_monitor(self, bot) -> None:
@@ -135,6 +138,44 @@ class AlertsMonitor:
             except Exception:
                 pass
 
+        async def _notify_chats(chat_ids, kind: str, text: str, *,
+                                photo=None, reply_markup=None) -> None:
+            """Deliver one unprompted card to each chat, and record what LANDED.
+
+            ONE WALK, because the record has to ride the delivery. These
+            hooks had seven send loops between them, each with its own
+            `try`/`except pass`, and a record added to six of them is the
+            `/setllm` ten-of-eleven shape - the branch written next is the one
+            that forgets. `text` is what the reader sees: a photo's CAPTION is
+            its readable half, and the PNG is not something a transcript can
+            hold.
+
+            `chat_ids` is PASSED rather than read here, because these hooks do
+            not agree about who to notify - five take `CONFIG.telegram.chat_id`
+            and two read `ADMIN_CHAT_ID` from the environment first. That is a
+            second copy, and it is recorded rather than swept: collapsing it
+            would change who is notified on a deployment that sets the two
+            differently, which is not this slice's subject.
+            """
+            for cid in chat_ids:
+                try:
+                    if photo is not None:
+                        await bot.send_photo(
+                            chat_id=int(cid), photo=photo, caption=text,
+                            parse_mode="HTML", reply_markup=reply_markup)
+                    else:
+                        await bot.send_message(
+                            chat_id=int(cid), text=text, parse_mode="HTML",
+                            reply_markup=reply_markup)
+                except Exception as exc:
+                    system_log.debug("%s notify to %s failed: %s",
+                                     kind, cid, exc)
+                    continue
+                # AFTER the await and per RECIPIENT: the send can fail for one
+                # chat and succeed for another, and a record written above it
+                # would tell the model the bot said something nobody received.
+                self._note_unprompted(str(cid), kind, text)
+
         # Opt-in: push a setup chart (with entry/SL/TP lines) alongside each
         # proactive NEW SIGNAL alert. Renders off-thread; degrades silently.
         async def _chart_fn(chat_id: str, idea) -> None:
@@ -164,6 +205,13 @@ class AlertsMonitor:
         # telegram, so it cannot ask this itself; `_is_admin_id` stays the ONE
         # definition of admin rather than the monitor carrying a second copy.
         self.monitor.set_admin_fn(self._is_admin_id)
+
+        # The transcript door for the 34 alert types `_dispatch` delivers,
+        # injected for the reason the two above are: the monitor imports
+        # neither the conversation store nor the user store, and whether a
+        # chat may HAVE a transcript is an admission question. One recorder
+        # for both alert doors - this one and the hooks below.
+        self.monitor.set_record_fn(self._note_unprompted)
 
         # The operator's anomaly dials, same injection shape and for the same
         # reason: the monitor imports neither telegram nor the user store, so
@@ -285,11 +333,7 @@ class AlertsMonitor:
                       if restarted else
                       "\n⚠️ The task is still running but not progressing — "
                       "a hung send may be blocking it. Consider a restart."))
-            for cid in _notify_chat_ids:
-                try:
-                    await _send_fn(str(cid), msg)
-                except Exception as exc:
-                    system_log.debug("Monitor-stale notify failed: %s", exc)
+            await _notify_chats(_notify_chat_ids, "MONITOR_STALLED", msg)
 
         self.engine._monitor_stale_callback = _on_monitor_stale
 
@@ -353,16 +397,9 @@ class AlertsMonitor:
                                 [[InlineKeyboardButton(_btn["text"], url=_btn["url"])]])
                     except Exception as _sx:
                         system_log.debug("share button skipped: %s", _sx)
-                    for _cid in _notify_chat_ids:
-                        try:
-                            await bot.send_photo(
-                                chat_id=_cid,
-                                photo=close_png,
-                                caption=cap,
-                                parse_mode="HTML",
-                                reply_markup=_share_kb)
-                        except Exception:
-                            pass
+                    await _notify_chats(_notify_chat_ids, "TRADE_CLOSED", cap,
+                                        photo=close_png,
+                                        reply_markup=_share_kb)
                 else:
                     # Fallback to text — use reason-specific heading. close_data
                     # can be None here, so there's no pnl_usd to key the sign
@@ -383,13 +420,8 @@ class AlertsMonitor:
                         card = f"{emoji} <b>{heading}</b>\n\n"
                     for line in msg.strip().split("\n"):
                         card += f"{html.escape(line)}\n"
-                    for _cid in _notify_chat_ids:
-                        try:
-                            await bot.send_message(
-                                chat_id=_cid, text=card.strip(),
-                                parse_mode="HTML")
-                        except Exception:
-                            pass
+                    await _notify_chats(_notify_chat_ids, "TRADE_CLOSED",
+                                        card.strip())
             except Exception as exc:
                 system_log.debug("Close notify send failed: %s", exc)
 
@@ -426,13 +458,8 @@ class AlertsMonitor:
                 card += "\n" + "\u2500" * 28
                 card += f"\n\U0001f43e RUNECLAW | {_dt.now(_tz.utc).strftime('%H:%M')} UTC"
                 card += "\n<a href='#'>#RUNECLAW #LimitFill</a>"
-                for _cid in _notify_chat_ids:
-                    try:
-                        await bot.send_message(
-                            chat_id=_cid, text=card.strip(),
-                            parse_mode="HTML")
-                    except Exception:
-                        pass
+                await _notify_chats(_notify_chat_ids, "LIMIT_FILLED",
+                                    card.strip())
             except Exception as exc:
                 system_log.debug("Fill notify send failed: %s", exc)
 
@@ -452,13 +479,8 @@ class AlertsMonitor:
                     card += f"{html.escape(line)}\n"
                 card += ("\nThe bot found this on the exchange and is now "
                          "tracking it (SL/TP monitoring active).")
-                for _cid in _notify_chat_ids:
-                    try:
-                        await bot.send_message(
-                            chat_id=_cid, text=card.strip(),
-                            parse_mode="HTML")
-                    except Exception:
-                        pass
+                await _notify_chats(_notify_chat_ids, "EXCHANGE_SYNC",
+                                    card.strip())
             except Exception as exc:
                 system_log.debug("Sync notify send failed: %s", exc)
 
@@ -478,18 +500,12 @@ class AlertsMonitor:
                 _ex = getattr(self.engine, "live_executor", None)
                 _positions = list(getattr(_ex, "_positions", {}).values()) if _ex else []
                 lines = render_adoption_card(adopted_symbols, _positions).split("\n")
-                admin_chat_id = os.environ.get("ADMIN_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
-                if admin_chat_id:
-                    for _cid_str in admin_chat_id.split(","):
-                        _cid_str = _cid_str.strip()
-                        if _cid_str.isdigit():
-                            try:
-                                await bot.send_message(
-                                    chat_id=int(_cid_str),
-                                    text="\n".join(lines),
-                                    parse_mode="HTML")
-                            except Exception:
-                                pass
+                admin_chat_id = (os.environ.get("ADMIN_CHAT_ID")
+                                 or os.environ.get("TELEGRAM_CHAT_ID") or "")
+                await _notify_chats(
+                    [c.strip() for c in admin_chat_id.split(",")
+                     if c.strip().isdigit()],
+                    "POSITIONS_ADOPTED", "\n".join(lines))
             except Exception as exc:
                 system_log.debug("Adopt notify send failed: %s", exc)
 
@@ -526,18 +542,18 @@ class AlertsMonitor:
                     f"\U0001f43e RUNECLAW | {_dt.now(_tz.utc).strftime('%H:%M')} UTC",
                     "<i>Confidence exceeded auto-confirm threshold</i>",
                 ])
-                a_chat = os.environ.get("ADMIN_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
-                if a_chat:
-                    for _cid_str in a_chat.split(","):
-                        _cid_str = _cid_str.strip()
-                        if _cid_str.isdigit():
-                            try:
-                                await bot.send_message(
-                                    chat_id=int(_cid_str),
-                                    text="\n".join(card_lines),
-                                    parse_mode="HTML")
-                            except Exception:
-                                pass
+                a_chat = (os.environ.get("ADMIN_CHAT_ID")
+                          or os.environ.get("TELEGRAM_CHAT_ID") or "")
+                # A TRADE WAS PLACED and the model did not know. This is
+                # `_REPLY_CAPTURE`'s own subject with the user removed
+                # entirely: no command was typed and no button was tapped,
+                # so neither of the two doors that already record could see
+                # it, and "did that go through?" one turn later reached a
+                # model with the confirmation missing from its history.
+                await _notify_chats(
+                    [c.strip() for c in a_chat.split(",")
+                     if c.strip().isdigit()],
+                    "AUTO_CONFIRMED", "\n".join(card_lines))
             except Exception as exc:
                 system_log.debug("Auto-confirm notify send failed: %s", exc)
 

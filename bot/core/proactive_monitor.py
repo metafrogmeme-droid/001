@@ -132,6 +132,26 @@ class Alert:
     # constructed an Alert without thinking about it. Narrowing is the change
     # that has to be written down, per alert, on purpose.
     audience: str = "all"
+    # WHOSE MONEY THIS IS ABOUT. None = not about any one person, and then
+    # `audience` decides exactly as it always has.
+    #
+    # AN AUDIENCE IS A CLASS AND A POSITION BELONGS TO A PERSON, which is the
+    # one scope the field above cannot express. The comment on it records the
+    # report that produced it — users being told to "add or rotate an LLM API
+    # key" — and twelve types were narrowed to "admin" on the strength of it.
+    # The position alerts were correctly judged "the ones a trader needs" and
+    # left at "all": true of the trader who HOLDS the position, and there was
+    # no way to say so. Driven with two user portfolios and three watching
+    # chats, every chat received every alert — a chat holding nothing was told
+    # "STOP LOSS APPROACHING — ETH/USDT · /positions — review open trades"
+    # about somebody else's position, and a CRITICAL "place a stop on Bitget
+    # manually now" about somebody else's naked live account.
+    #
+    # `None` NEVER means "the operator". The operator's own book is an
+    # audience ("admin"), and letting one value mean both "nobody in
+    # particular" and "the operator" is the two-meanings-under-one-name defect
+    # `position_size_basis` was written to end.
+    user_id: Optional[str] = None
 
 
 # ── Alert severity icons ──────────────────────────────────────────────
@@ -416,6 +436,25 @@ class ProactiveMonitor:
         # Decides who is an admin, for audience="admin" alerts. Injected via
         # set_admin_fn() so this module keeps importing no telegram.
         self._admin_fn: Optional[Callable] = None
+        # Puts a DELIVERED alert into that chat's own transcript, so the model
+        # can be asked about it. Injected for the same reason `_admin_fn` is:
+        # this module imports neither the conversation store nor the user
+        # store, and whether a chat may HAVE a transcript is an admission
+        # question only the handler can answer. Unset, nothing is recorded,
+        # which is exactly what every build before this one did.
+        self._record_fn: Optional[Callable] = None
+
+    def set_record_fn(self, record_fn) -> None:
+        """Register a callback(chat_id, kind, text) that records one DELIVERED
+        alert in that chat's transcript.
+
+        THE ALERT LOOP IS THE DOOR THAT SPEAKS FIRST, and it was the last one
+        with no record: a slash command, a tapped button and a routed sentence
+        each answer something the user did, and here nobody did anything, so
+        there is no turn to hang the record on. "What was that about?" then
+        reached a model with nothing in its history.
+        """
+        self._record_fn = record_fn
 
     def set_chart_fn(self, chart_fn) -> None:
         """Register an async callback(chat_id, idea) that pushes a setup chart
@@ -468,11 +507,25 @@ class ProactiveMonitor:
             if not chat:
                 acks.append({"id": trip_id, "ok": False, "error": "no telegram id"})
                 continue
+            _text = alert_trip_text(row)
             try:
-                await self._dm_fn(chat, alert_trip_text(row))
+                await self._dm_fn(chat, _text)
             except Exception as exc:
                 acks.append({"id": trip_id, "ok": False, "error": type(exc).__name__})
                 continue
+            # THE THIRD UNPROMPTED SENDER, and the sweep for it is why this
+            # line is here: `_dispatch` and the event hooks were the two the
+            # slice started from, and a trip delivered here is as unprompted
+            # as either - the user armed a tripwire on the website and is
+            # being told, in this chat, that it fired. `_dm_fn` RAISES where
+            # the alert sender swallows, so reaching this line is a delivery.
+            _record = getattr(self, "_record_fn", None)
+            if _record is not None:
+                try:
+                    _record(chat, "PRICE_ALERT", _text)
+                except Exception as rexc:  # noqa: BLE001 - best-effort
+                    logger.debug("alert transcript record skipped for "
+                                 "%s: %s", chat, rexc)
             self._delivered_trip_ids.append(trip_id)
             acks.append({"id": trip_id, "ok": True})
         if acks and await asyncio.to_thread(ack_alert_trips, acks):
@@ -1010,6 +1063,13 @@ class ProactiveMonitor:
             return [Alert(
                 alert_type="IDLE_CASH",
                 severity="INFO",
+                # THE OPERATOR'S FREE MARGIN, IN DOLLARS, off
+                # `engine._live_balance_cache`. `_dispatch`'s own comment names
+                # "idle-cash balances" as the detail that must not reach a wider
+                # audience, and guards the public feed with it while the
+                # fan-out one line below sent the figure to every chat that ran
+                # `/watch on` — which is `@guard("scan")`, so a viewer.
+                audience="admin",
                 title="Idle cash could be earning",
                 body=(
                     "💤 <b>Idle cash could be earning</b>\n\n"
@@ -2332,6 +2392,15 @@ class ProactiveMonitor:
                     executors = [ex]
             now = datetime.now(UTC)
             for ex in executors:
+                # WHOSE ACCOUNT THIS EXECUTOR IS. `account_risk_overview`
+                # already reads it exactly this way and documents None as the
+                # operator. A user's naked position is theirs to be told
+                # about; the operator's is an operator fact and takes the
+                # audience that already means that — the body carries the
+                # venue's rejection of that account's order and tells the
+                # reader to go and place a stop on it by hand, which is not a
+                # thing any other watching chat can do.
+                acct = getattr(ex, "user_id", None)
                 for pos in (getattr(ex, "open_positions", []) or []):
                     if getattr(pos, "status", "") != "open":
                         continue
@@ -2361,6 +2430,22 @@ class ProactiveMonitor:
                         reason = ""
                     alerts.append(Alert(
                         alert_type="POSITION_UNPROTECTED", severity="CRITICAL",
+                        # The account, and a CONSTANT audience for when there
+                        # is none. `user_id` wins in `_recipients_for`, so a
+                        # user's naked position reaches that user and the
+                        # operator's reaches the operator.
+                        #
+                        # The audience must not be an expression. This file's
+                        # own ratchet reads it by AST and scores any
+                        # non-Constant as "all", so `"all" if acct else
+                        # "admin"` records "all" while the runtime sends
+                        # "admin" — a false acquittal inside the one test that
+                        # owns the decision. That trap is written down in
+                        # CLAUDE.md, from a conditional audience built and
+                        # reverted for it, and the first draft of this line
+                        # walked into it anyway.
+                        user_id=str(acct) if acct else None,
+                        audience="admin",
                         title=f"Unprotected: {sym}",
                         body=(
                             "\U0001f6a8 <b>POSITION UNPROTECTED — NO EXCHANGE STOP</b>\n"
@@ -2403,6 +2488,12 @@ class ProactiveMonitor:
                     continue
                 alerts.append(Alert(
                     alert_type="SLIPPAGE_HIGH", severity="WARNING",
+                    # Dollars lost on the OPERATOR's own fills — live-only,
+                    # off `engine.slippage`, and this method's own docstring
+                    # says it exists so "the operator" can switch to limit
+                    # orders, trim size or drop the symbol. None of those is a
+                    # thing another watching chat can do.
+                    audience="admin",
                     title=f"High slippage: {symbol}",
                     body=(
                         "\U0001f7e0 <b>EXECUTION SLIPPAGE ELEVATED</b>\n"
@@ -2884,7 +2975,7 @@ class ProactiveMonitor:
                     body=(
                         # The `+` is load-bearing. Without it the adjacent
                         # literals concatenate FIRST and `* 16` repeats the
-                        # header sixteen times \u2014 rendered, caught, pinned.
+                        # header sixteen times — rendered, caught, pinned.
                         "\U0001f6a8 <b>ANOMALY DETECTED</b>\n"
                         + "\u2500" * 16 + "\n"
                         f"- Type: <code>{kind}</code>\n"
@@ -3219,14 +3310,24 @@ class ProactiveMonitor:
         alerts = []
         proximity_threshold = 0.015  # 1.5%
         try:
-            # Collect positions from all user portfolios and the shared portfolio
-            all_positions = []
+            # Collect positions from all user portfolios and the shared
+            # portfolio, EACH WITH ITS OWNER. The uid was already in this loop
+            # and was dropped one line later, so every alert built below was
+            # about a named person and said so to nobody.
+            #
+            # The else branch's owner is None on purpose: that is the SHARED
+            # book, which the product broadcasts (its entries go out as
+            # TRADE_SIGNAL to every watching chat), so it keeps the fan-out it
+            # has always had and a single-user deploy is unchanged.
+            all_positions: list = []
             if self.engine.user_portfolios.all_portfolios():
                 for uid in self.engine.user_portfolios.all_portfolios():
                     portfolio = self.engine.user_portfolios.get(uid)
-                    all_positions.extend(portfolio.open_positions)
+                    all_positions.extend(
+                        (str(uid), p) for p in portfolio.open_positions)
             else:
-                all_positions.extend(self.engine.portfolio.open_positions)
+                all_positions.extend(
+                    (None, p) for p in self.engine.portfolio.open_positions)
 
             if not all_positions:
                 return alerts
@@ -3239,7 +3340,7 @@ class ProactiveMonitor:
                 ws_prices = self.engine.ws_feed.get_prices(
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
-            for pos in all_positions:
+            for owner, pos in all_positions:
                 current_price = ws_prices.get(pos.asset)
                 if not current_price or current_price <= 0:
                     continue
@@ -3253,6 +3354,7 @@ class ProactiveMonitor:
                     base = pos.asset.split('/')[0] if '/' in pos.asset else pos.asset
                     alerts.append(Alert(
                         alert_type="SL_PROXIMITY",
+                        user_id=owner,
                         severity="WARNING",
                         title=f"SL Proximity: {pos.asset}",
                         body=(
@@ -3276,6 +3378,7 @@ class ProactiveMonitor:
                     base = pos.asset.split('/')[0] if '/' in pos.asset else pos.asset
                     alerts.append(Alert(
                         alert_type="TP_PROXIMITY",
+                        user_id=owner,
                         severity="INFO",
                         title=f"TP Proximity: {pos.asset}",
                         body=(
@@ -3422,14 +3525,54 @@ class ProactiveMonitor:
 
         if not allowed:
             # NOT swallowed. An admin-only alert with no admin to send it to is
-            # a configuration fact worth logging loudly, and the alternative \u2014
-            # falling back to "everyone" \u2014 is the leak.
+            # a configuration fact worth logging loudly, and the alternative —
+            # falling back to "everyone" — is the leak.
             system_log.warning(
                 "Admin-only alert %s had no admin recipient: %d watching chat(s), "
                 "%d unreadable, %d operator chat(s) configured. Set "
                 "TELEGRAM_CHAT_ID or ADMIN_TELEGRAM_IDS, or the alert goes "
                 "nowhere.", alert.alert_type, len(watching), unknown, len(operators))
         return allowed
+
+    def _recipients_for(self, alert: Alert) -> list:
+        """Who this alert goes to \u2014 one reading, three cases.
+
+        A PERSON-SCOPED alert (``alert.user_id``) goes to that person's chat
+        and to nobody else, because the body describes their money: their
+        entry, their stop, their naked live position and the venue's rejection
+        of their order. On Telegram the portfolio key and the chat id are the
+        same identifier \u2014 ``user_portfolios.get(tg_id)`` beside
+        ``monitor.enable_chat(tg_id)`` \u2014 so the owner IS the address.
+
+        WHEN THE OWNER IS NOT WATCHING IT GOES NOWHERE. Falling back to the
+        watching chats is the leak itself, and a user who has never run
+        ``/watch on``, or whose book is keyed by a web id with no Telegram
+        chat behind it, is exactly the case that would take the fallback. It
+        is said at WARNING rather than swallowed, the way an admin-only alert
+        with no admin to send it to already is: a silence that is recorded is
+        a different thing from one that is not.
+
+        THE OPERATOR IS NOT ADDED BACK, and that is a decision rather than an
+        omission. The body instructs the account holder ("place a stop on
+        Bitget manually now") and the operator cannot act on somebody else's
+        venue account; adding them would be the same cross-user leak in a
+        narrower form, one recipient at a time. Platform-level oversight has
+        its own door in `account_risk_overview` — a deliberate read, per
+        account, rather than a push carrying one user's entry and stop.
+        """
+        if alert.user_id:
+            owner = str(alert.user_id)
+            if owner in self._enabled_chats:
+                return [owner]
+            system_log.warning(
+                "Alert %s is about user %s, who is not watching: not sent. "
+                "%d chat(s) watching. It is NOT broadcast \u2014 the body "
+                "describes that user's own position.",
+                alert.alert_type, owner, len(self._enabled_chats))
+            return []
+        if alert.audience == "admin":
+            return self._admin_recipients(alert)
+        return list(self._enabled_chats)
 
     async def _dispatch(self, alert: Alert, send_fn) -> None:
         """Send alert to its audience \u2014 every watching chat, or admins only."""
@@ -3445,17 +3588,24 @@ class ProactiveMonitor:
             if note:
                 full_msg = f"{full_msg}\n\u2139\ufe0f {note}"
 
-        # Public mind-stream: title + type only \u2014 alert BODIES can carry
+        # Public mind-stream: title + type only — alert BODIES can carry
         # operator-account detail (drawdown amounts, idle-cash balances) that
         # must not reach the public feed.
         #
         # An admin-audience alert is not emitted here AT ALL. Narrowing the
         # Telegram fan-out while still publishing the title to the landing
         # page would move the message to a WIDER audience than the one it was
-        # taken away from \u2014 "LLM brain offline" is contract-clean by the feed's
+        # taken away from — "LLM brain offline" is contract-clean by the feed's
         # own rules (no balance, no size), and it still announces to every
         # visitor that the bot is running blind.
-        if alert.audience != "admin":
+        #
+        # THE SAME ARGUMENT, WORD FOR WORD, FOR A PERSON-SCOPED ALERT, and
+        # the title is where it bites: `SL Proximity: ETH/USDT` names a symbol
+        # ONE person holds. Scoping the Telegram send to its owner and leaving
+        # this emit would take the message from every watching chat and give it
+        # to every visitor — the leak moved to a wider audience by the fix
+        # for it.
+        if alert.audience != "admin" and not alert.user_id:
             try:
                 from bot.core.agent_feed import FEED
                 _sev = {"INFO": "info", "WARNING": "warning",
@@ -3483,11 +3633,32 @@ class ProactiveMonitor:
                       action="proactive_alert",
                       data={"type": alert.alert_type, "chat_id": chat_id,
                             "severity": alert.severity})
+                # WHAT WAS SENT, not what was built, and per RECIPIENT: the
+                # send above can fail for one chat and succeed for another,
+                # and a record written before it would tell the model it said
+                # something nobody received. Inside the `try` and below the
+                # await for that reason - the same correction `_mark_sent`
+                # already carries for the channel budget. The chart is not
+                # recorded: a PNG is not something a transcript can hold, and
+                # the card's text is this message.
+                #
+                # `getattr` rather than the attribute, and not for tidiness:
+                # this block sits inside the send's own `try`, so an
+                # AttributeError here would be caught below and logged as
+                # "Failed to send alert" about a message that WAS sent. Tests
+                # build the monitor with `__new__`, a legitimate pattern in
+                # this file that several attributes already read this way.
+                _record = getattr(self, "_record_fn", None)
+                if _record is not None:
+                    try:
+                        _record(chat_id, alert.alert_type, full_msg)
+                    except Exception as rexc:  # noqa: BLE001 - best-effort
+                        logger.debug("alert transcript record skipped for "
+                                     "%s: %s", chat_id, rexc)
             except Exception as exc:
                 logger.debug("Failed to send alert to %s: %s", chat_id, exc)
 
-        recipients = (self._admin_recipients(alert) if alert.audience == "admin"
-                      else list(self._enabled_chats))
+        recipients = self._recipients_for(alert)
         await asyncio.gather(*[_send_to_chat(cid) for cid in recipients])
 
     # ── Time Stops (Rules 6/17) ──────────────────────────────────
@@ -3499,13 +3670,18 @@ class ProactiveMonitor:
             return alerts
 
         try:
-            all_positions = []
+            # Each position with its OWNER — see the same walk in
+            # `_check_sl_tp_proximity` for why the uid may not be dropped, and
+            # why the shared book's owner is None.
+            all_positions: list = []
             if self.engine.user_portfolios.all_portfolios():
                 for uid in self.engine.user_portfolios.all_portfolios():
                     portfolio = self.engine.user_portfolios.get(uid)
-                    all_positions.extend(portfolio.open_positions)
+                    all_positions.extend(
+                        (str(uid), p) for p in portfolio.open_positions)
             else:
-                all_positions.extend(self.engine.portfolio.open_positions)
+                all_positions.extend(
+                    (None, p) for p in self.engine.portfolio.open_positions)
 
             if not all_positions:
                 return alerts
@@ -3520,7 +3696,7 @@ class ProactiveMonitor:
                 ws_prices = self.engine.ws_feed.get_prices(
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
-            for pos in all_positions:
+            for owner, pos in all_positions:
                 opened_at = getattr(pos, 'opened_at', None)
                 if not opened_at:
                     continue
@@ -3555,6 +3731,7 @@ class ProactiveMonitor:
                     key = f"time_close_{pos.trade_id}"
                     alerts.append(Alert(
                         alert_type="TIME_STOP_CLOSE",
+                        user_id=owner,
                         severity="CRITICAL",
                         title=f"Time Stop: {pos.asset}",
                         body=(
@@ -3582,6 +3759,7 @@ class ProactiveMonitor:
                     remaining = close_hours - age_hours
                     alerts.append(Alert(
                         alert_type="TIME_STOP_WARN",
+                        user_id=owner,
                         severity="WARNING",
                         title=f"Time Warning: {pos.asset}",
                         body=(

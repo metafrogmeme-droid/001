@@ -136,6 +136,25 @@ ADMIN_ONLY = {
     # an all-clear with a wider audience than its warning answers a question
     # those readers were never asked (the LLM-card rule above).
     "MONITOR_CHECK_DOWN", "MONITOR_CHECK_UP",
+
+    # ── A SECOND REASON, and the sentence above is why it is written out
+    # rather than appended. These DO name a position, a symbol and a price,
+    # so the plumbing rule cannot cover them: they are admin-only because the
+    # figure is THE OPERATOR'S OWN MONEY, not because only the operator can
+    # fix the machine.
+    #
+    # `_dispatch` already knew. Its public-feed comment names "drawdown
+    # amounts, idle-cash balances" as detail that must not reach a wider
+    # audience — and guarded the landing page with it while the fan-out one
+    # line below sent the same figures to every chat that ran `/watch on`,
+    # which is `@guard("scan")`, so a viewer.
+    "IDLE_CASH",            # "$X of free margin" off _live_balance_cache
+    "SLIPPAGE_HIGH",        # "Est. lost: $X" on the operator's own fills
+    # The OPERATOR's naked live position. A per-user one is not in this set
+    # and never can be: it carries `user_id`, which `_recipients_for` answers
+    # before it ever looks at an audience. An audience is a class; that one
+    # is about a person.
+    "POSITION_UNPROTECTED",
 }
 
 
@@ -187,10 +206,37 @@ def test_the_alerts_a_trader_acts_on_still_reach_them():
     breaker, a signal — and an audience gate that swallows them would be a
     worse bug than the leak it replaced."""
     got = _alert_audiences()
-    for t in ("TRADE_SIGNAL", "POSITION_UNPROTECTED", "SL_PROXIMITY",
-              "TP_PROXIMITY", "CIRCUIT_BREAKER", "BLACK_SWAN", "STATE_CHANGE",
+    for t in ("TRADE_SIGNAL", "SL_PROXIMITY", "TP_PROXIMITY",
+              "CIRCUIT_BREAKER", "BLACK_SWAN", "STATE_CHANGE",
               "TIME_STOP_WARN", "TIME_STOP_CLOSE", "DRAWDOWN_TIER"):
         assert got.get(t) == "all", f"{t} was narrowed to admins"
+
+
+def test_the_naked_position_card_still_reaches_whoever_holds_it():
+    """POSITION_UNPROTECTED left the list above, and reading `audience` is no
+    longer the way to ask this question about it.
+
+    It is `audience="admin"` AND it carries a `user_id`, and `_recipients_for`
+    answers the person before it ever looks at the class — so a user with a
+    naked position is told, and so is the operator. The field alone says
+    "narrowed to admins", which is this file's own defect one level up:
+    A GUARD NARROWER THAN THE CLAIM READ OFF IT. The claim is *whoever holds
+    the position is told*, so that is what is driven.
+    """
+    from bot.core.proactive_monitor import Alert
+
+    # A user's naked position: the user, and nobody else — not the admin.
+    mine = Alert(alert_type="POSITION_UNPROTECTED", severity="CRITICAL",
+                 title="Unprotected: ETH/USDT", body="no venue stop",
+                 audience="admin", user_id="111")
+    m = _monitor({"111", "222"}, admin_fn=lambda c: c == "222")
+    assert _sent(m, mine) == ["111"], "the holder was not told"
+
+    # The operator's own: the admin, by the audience.
+    theirs = Alert(alert_type="POSITION_UNPROTECTED", severity="CRITICAL",
+                   title="Unprotected: ETH/USDT", body="no venue stop",
+                   audience="admin", user_id=None)
+    assert _sent(m, theirs) == ["222"], "the operator was not told"
 
 
 # ── the failure path, which is where audience gates actually break ───────

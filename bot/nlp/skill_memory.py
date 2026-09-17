@@ -61,8 +61,13 @@ _SPACES = re.compile(r"[ \t\r\f\v]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 
 
-def _plain(result: object) -> Optional[str]:
-    """A skill's output as the model will read it, or None if it said nothing.
+def plain_text(result: object) -> Optional[str]:
+    """Any text as the model will read it, or None if it said nothing.
+
+    PUBLIC because it is one reading with more than one reader: the records
+    below, and `ConversationStore.note_alert`, which remembers what the bot
+    said unprompted. A second copy of "what the model sees" would be a second
+    answer about the same bytes.
 
     Tags become a SPACE, not nothing: ``<b>LONG</b>XLM`` collapsing to
     ``LONGXLM`` invents a token the tool never emitted. Entities are unescaped
@@ -102,7 +107,7 @@ def _captured(replies: Sequence[object]) -> Optional[str]:
     two answers to it would drift the day either joins its chunks differently.
     """
     joined = "\n".join(str(r) for r in replies if r is not None) if replies else ""
-    return _plain(joined) if joined else None
+    return plain_text(joined) if joined else None
 
 
 def _nothing_captured(tag: str, did: str) -> str:
@@ -128,7 +133,7 @@ def _nothing_captured(tag: str, did: str) -> str:
 
 def skill_result_memory(skill: str, result: object) -> str:
     """The assistant turn to record after ``skill`` returned ``result``."""
-    body = _plain(result)
+    body = plain_text(result)
     if body is None:
         # NOT "executed successfully". A skill that returned nothing is a fact
         # the model can relay; a skill that "succeeded" with no content is a
@@ -159,7 +164,7 @@ def web_answer_memory(intent: str, reply: object) -> str:
     bot tool did. Same cap, same announced truncation, and the marker word
     is in the fabrication guard's vocabulary like every other record here.
     """
-    body = _plain(reply)
+    body = plain_text(reply)
     head = f"[{intent}] shown by the website (its own reading; no bot tool ran"
     if body is None:
         return (f"{head}; the reply carried no text, so nothing of it is "
@@ -212,7 +217,7 @@ def routed_answer_memory(intent: str, answer: object) -> str:
     and the history contains neither the request nor the refusal, so the model
     answers a question it has not been shown.
     """
-    body = _plain(answer)
+    body = plain_text(answer)
     if body is None:
         # A routed branch that replied with nothing is a defect in that
         # branch, and saying so is more useful to the next turn than silence.
