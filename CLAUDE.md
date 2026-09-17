@@ -4240,6 +4240,112 @@ existing assertions found it, which is a broad `must_not_say` doing its job
 rather than misfiring.
 (`tests/test_an_alert_is_in_the_transcript.py`.)
 
+**AND THE LIST LISTED EIGHT OF THIRTY AND MADE THE OTHER TWENTY-TWO
+DENIABLE.** The review of that slice drove the ring with a burst of thirty:
+eight rows rendered and the block said nothing whatever about the rest - *"a
+partial total, printed as whole"*, the shapes table's own row, on the record a
+model answers "what was that about?" from. The closing sentence made it worse
+than an omission. *"Never claim to have sent one that is not listed here"*
+reads as a LICENCE TO DENY, so "did you warn me about PENDLE?" is answered
+"no, I have not sent you anything about PENDLE" about a card this bot
+delivered an hour ago - a confident negative assembled from a bounded list, by
+the rule written to keep the model honest about that list.
+
+**No counter, deliberately, and the refusal is the interesting half.** A
+dropped-count is the obvious cure and it needs its own SPAN stated - reset on
+restart, reset on compaction - or it is a figure whose denominator nobody can
+name, which is the `summary.scored` defect one store over. The honest reading
+needs none: the list is the most recent `NOTIFICATIONS_MAX`, older ones are
+not kept, and the ring holds only what this build recorded. FULL is said only
+when the ring is full and is said as **MAY**, because full does not PROVE
+eviction - exactly `NOTIFICATIONS_MAX` delivered fills it too - and a
+permanent "older ones may have been dropped" over a two-row list is the row
+that trains a reader to stop reading the line. The bound is READ from
+`ConversationStore.NOTIFICATIONS_MAX` rather than spelled again in the
+renderer, and the deny-rule splits in two: do not INVENT one that is not
+listed, and if they name one that is not here, say you do not have it in
+front of you, never that it was not sent.
+
+**The empty and unreadable outcomes get no bound caveat at all**, which is
+the same rule pointed the other way: `note_alert` only ever appends, so an
+empty ring has lost nothing, and an unreadable one measured nothing to have
+a bound over. A caveat on either is a hedge about a list with no content to
+have lost it.
+
+**AND THE SWEEP FOR THE SAME CLAIM FOUND IT ONE BLOCK OVER, IN BOTH COPIES.**
+*Ask which OTHER surface makes the same claim* over the prompt's four other
+bounded lists: `_pending_ideas_block` already prints *"...and N more"*, and
+LIVE MARKET already tells the model that for a symbol it does not list *"you
+do NOT know the current price"* - which is this slice's own non-denial
+sentence, written years earlier, and is why the wording here matches it.
+RECENT CLOSED TRADES had neither. `live_closed[-5:]` and
+`trade_history[-5:]`, under a header naming no bound, were the model's whole
+evidence about a record of any length: asked "how did I do this month?" it
+totals five, and asked "did I trade ETH?" it answers from an absence the
+truncation manufactured. Two branches of one method, so fixing one would have
+been *"fixing two left the third"* inside a single block.
+
+**The count here is EXACT, and that is a different fact from the ring's.**
+The whole list is in hand and only the RENDERING is cut, so `total` is a real
+denominator - where the ring's dropped rows are gone and a count of them
+would be a figure whose span nobody can state. Different facts, different
+sentences. The denominator is the FILTERED list, too: the live branch drops
+never-filled orders before it slices, and counting `closed_positions` would
+report a lapsed limit order as a closed trade in the note that
+`NON_TRADE_CLOSE_REASONS` keeps out of the rows. The `5` was written twice
+and is `CHAT_RECENT_CLOSES` now.
+
+**A `shown <= 0` clause was written into that leaf and DELETED.** Both callers
+sit inside `if recent_trades:` and hand over a 1:1 row count, so no product
+input reaches it - and a line no input can reach is not a check, it is a claim
+that there is one. It was deleted rather than pinned, with the two leaf
+fixtures that existed only to exercise it.
+
+> **And the fixture that found it was a hand-written list of constants.** The
+> stub two prompt suites share copied `CHAT_TICKER_MAX` and its siblings by
+> name, so an NS without `CHAT_RECENT_CLOSES` turned the new read into an
+> `AttributeError` inside the block's own swallowing `try` and deleted the
+> whole RECENT CLOSED TRADES section in silence - on a test that had passed
+> for months. That is the warning `_pending_ideas_block` carries in this very
+> method, one constant over, and the same drift the ring's own slice had just
+> fixed by hand when `recent_alerts` went missing from that stub. It DERIVES
+> every upper-case class attribute now, so the next constant rides on without
+> anybody remembering.
+
+**AND THE THIRD BOUNDED LIST IN THE SAME PROMPT HAD TWO CAPS AND NAMED
+NEITHER.** `preferred_assets` is trimmed to the last **10** by
+`UserContext.update_from_message` and then rendered `[-5:]` by
+`build_context_prompt`, under a line headed *"Assets the user has
+mentioned"* - so a model asked "have I mentioned SOL?" answered from a list
+truncated twice, silently, and the `10` was a literal written twice in the
+writer. Driven with twelve distinct mentions: two evicted by the writer, five
+more dropped by the renderer, ten kept and five shown. The render cap is
+DELETED rather than labelled - everything kept is shown now, so there is one
+bound instead of two - and `PREFERRED_ASSETS_MAX` is the one name both sides
+read. The sentence it gained is the smallest honest one: the writer's
+evictions really are gone, so *"one they name that is not listed may still
+have been mentioned"* is all that can be said about them. Unlike the ring's
+FULL sentence it is stated whether or not the cap has bitten, because it is a
+fact about the LIST rather than a claim about this one having reached it.
+
+**Eleven mutations, each killed - and the one that survived a round was the
+driver's.** "The framing is printed UNDER the rows" LEFT the framing in the
+head and appended a second copy below, so every honest sentence was still
+there and the guards were right not to fire: a mutation that prints the truth
+twice is not evidence about a guard. Rewritten to genuinely MOVE the two
+sentences, it dies - and it bought a real gap on the way, because the first
+ordering assertion pinned the BOUNDED sentence above the rows and left the
+FULL one, the louder half, unordered. One mutation is recorded rather than
+run: measuring fullness against the RENDERED rows instead of the ring is an
+equivalent mutant, since `note_alert` refuses an empty body and no input the
+product can produce makes the two lengths differ. Nine more cover the closed
+list - each branch losing its note, a whole record told it is partial, the
+denominator counting rows rather than trades, each slice spelling the bound
+again, and the note dropping either half of its rule - and all nine die.
+Four more cover the mentions line - the render cap restored, the bound
+unnamed, the non-denial clause dropped, the writer spelling `10` again - and
+all four die. Twenty-four in the round.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

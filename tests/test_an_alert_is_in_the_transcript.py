@@ -256,7 +256,7 @@ class TestTheBlockSaysWhatItIs:
         assert "the user did not say them" in out
         assert "no chat tool produced them" in out
         assert "never restate a figure from one as the state now" in out
-        assert "never claim to have sent one that is not listed here" in out
+        assert "do not invent one that is not listed" in out
 
     def test_every_outcome_carries_the_same_heading(self):
         for rows in (None, [], [_row("an alert")]):
@@ -270,6 +270,98 @@ class TestTheBlockSaysWhatItIs:
     def test_a_ring_of_nothing_renderable_is_not_reported_as_a_failed_read(self):
         out = _unprompted_alerts_block([{"text": ""}], NOW)
         assert "none on record" in out and "could not be read" not in out
+
+
+class TestTheListNamesItsOwnBound:
+    """A LIST THAT DOES NOT NAME ITS BOUND IS A PARTIAL TOTAL PRINTED AS WHOLE.
+
+    Driven with a burst of thirty, the first draft of this block rendered
+    eight rows and said nothing whatever about the other twenty-two - the
+    shapes table's own row. Its closing rule then turned the omission into a
+    LICENCE TO DENY: "never claim to have sent one that is not listed here"
+    reads as permission to answer "did you warn me about PENDLE?" with "no, I
+    have not sent you anything about PENDLE", about a card this bot delivered
+    an hour ago. A confident negative assembled from a bounded list, which is
+    this repository's own subject arriving inside the fix for it.
+
+    No counter was added. A dropped-count would need its own SPAN stated -
+    reset on restart, reset on compaction - or it is a figure whose
+    denominator nobody can name.
+    """
+
+    def test_thirty_sent_renders_the_cap_and_the_block_says_so(self):
+        cs = _store()
+        for i in range(30):
+            cs.note_alert(ALICE, "BLACK_SWAN", f"anomaly {i}", at=NOW - 60)
+        out = _unprompted_alerts_block(cs.recent_alerts(ALICE), NOW)
+        assert out.count("\n  - [") == ConversationStore.NOTIFICATIONS_MAX
+        assert (f"the most recent {ConversationStore.NOTIFICATIONS_MAX} at "
+                "most") in out
+        assert "older ones are not kept" in out
+        assert "only what this build recorded is here" in out
+        # It is FRAMING, so it sits above the rows. A caveat printed under
+        # the list it qualifies is evidence read after the instruction.
+        assert out.index("the most recent") < out.index("\n  - [")
+
+    def test_a_full_ring_says_older_ones_MAY_have_gone(self):
+        """FULL IS NOT PROOF OF EVICTION - exactly `cap` delivered fills it
+        too - so it is said as MAY. Exactly `cap` rows is the boundary, which
+        is what a `>` in place of the `>=` would walk past."""
+        cap = ConversationStore.NOTIFICATIONS_MAX
+        out = _unprompted_alerts_block([_row(f"alert {i}") for i in range(cap)],
+                                       NOW)
+        assert f"This list is FULL ({cap} of {cap})" in out
+        assert "may already have been dropped" in out
+        # The loudest half of the framing, so it is ordered too: a caveat
+        # printed under the list it qualifies is read after the list.
+        assert out.index("This list is FULL") < out.index("\n  - [")
+
+    def test_a_short_list_makes_no_eviction_claim(self):
+        """A permanent "older ones may have been dropped" on a two-row list is
+        the row that trains a reader to stop reading the line."""
+        out = _unprompted_alerts_block([_row("one"), _row("two")], NOW)
+        assert "This list is FULL" not in out
+        assert "may already have been dropped" not in out
+        # ...and the bound is still named, because the list is still bounded.
+        assert (f"the most recent {ConversationStore.NOTIFICATIONS_MAX} at "
+                "most") in out
+
+    def test_the_bound_is_READ_from_the_store_not_spelled_again_here(
+            self, monkeypatch):
+        """A second copy of a threshold is a second answer. The renderer reads
+        `ConversationStore.NOTIFICATIONS_MAX`; move it and the sentence moves."""
+        monkeypatch.setattr(ConversationStore, "NOTIFICATIONS_MAX", 3)
+        out = _unprompted_alerts_block([_row(f"alert {i}") for i in range(3)],
+                                       NOW)
+        assert "the most recent 3 at most" in out
+        assert "This list is FULL (3 of 3)" in out
+        assert "the most recent 8 at most" not in out
+
+    def test_a_message_that_is_not_here_is_not_denied(self):
+        """The fabrication half survives; the DENIAL half is replaced. Both
+        halves are pinned, because dropping either one is a different defect."""
+        out = _unprompted_alerts_block([_row("an alert")], NOW)
+        assert "do not invent one that is not listed" in out
+        assert "say you do not have it in front of you" in out
+        assert "never that it was not sent" in out
+        assert "never claim to have sent one that is not listed here" not in out
+
+    def test_the_empty_ring_evicted_nothing_and_claims_nothing(self):
+        """An empty ring dropped nothing - `note_alert` only ever appends -
+        so a bound sentence there would be a caveat about a list that has no
+        content to have lost. Its own non-denial is what it needs, and has."""
+        out = _unprompted_alerts_block([], NOW)
+        assert "This list is FULL" not in out
+        assert "older ones are not kept" not in out
+        assert "say you have no alert to them in front of you" in out
+        assert "never that nothing has happened to their positions" in out
+
+    def test_the_unreadable_ring_makes_no_bound_claim_either(self):
+        """Nothing was read, so nothing is known about how much was kept."""
+        out = _unprompted_alerts_block(None, NOW)
+        assert "This list is FULL" not in out
+        assert "older ones are not kept" not in out
+        assert "do not know what you sent" in out.lower()
 
 
 class TestTheBlockIsInThePromptBothSurfacesBuild:

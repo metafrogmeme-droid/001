@@ -200,7 +200,14 @@ class TestRecall:
         out = store.build_context_prompt("u", now=NOW)
         assert ("Asset the user last MENTIONED: ETH/USDT (1 h ago) — a mention in their "
                 "own words, not a holding or a position") in out
-        assert "Assets the user has mentioned (mentions in their own messages, not holdings): SOL x1, ETH x2" in out
+        # The line still says what it was READ from; it now also names the one
+        # bound it has left (the render cap of 5 over the writer's 10 is gone).
+        assert "Assets the user has mentioned (mentions in their own messages, " \
+               "not holdings; only 10 most recently mentioned are kept" not in out
+        assert ("Assets the user has mentioned (mentions in their own messages, "
+                "not holdings; only the 10 most recently mentioned are kept, so "
+                "one they name that is not listed may still have been "
+                "mentioned): SOL x1, ETH x2") in out
         assert "Last discussed asset" not in out and "frequently discussed" not in out
 
     def test_an_undated_mention_says_so(self):
@@ -353,6 +360,74 @@ class TestTheNoteWriter:
         assert asyncio.run(H._summarize_if_due(_stub(store), "u")) is True
         assert store.get_context("u").summary == "The user asked for a get_portfolio reading and trades small."
         assert [c["result"] for c in calls] == ["OK"]
+
+
+# ── the mentions list names its own bound ───────────────────────────────────
+
+class TestTheMentionsListNamesItsBound:
+    """TWO CAPS, NEITHER SAID. The writer kept the last 10 distinct mentions
+    and the renderer then showed `[-5:]` of those, under a line headed
+    "Assets the user has mentioned" - so a model asked "have I mentioned SOL?"
+    answered from a list truncated twice, silently. Same shape as the
+    unprompted-alerts block and the closed-trade list, on the third bounded
+    list in the same prompt; found by the sweep those two required.
+
+    The render cap is GONE (all that is kept is shown) so there is only one
+    bound left, and the sentence names it. That is a smaller claim than a
+    count would be: the writer's evictions really are gone, so "may still
+    have been mentioned" is what can honestly be said about them.
+    """
+
+    def _mentions_line(self, store, uid="u1"):
+        for line in store.build_context_prompt(uid).splitlines():
+            if "Assets the user has mentioned" in line:
+                return line
+        return ""
+
+    def _store_with(self, n):
+        cs = ConversationStore()
+        syms = ["BTC", "ETH", "SOL", "AVAX", "LINK", "DOGE", "PEPE", "WIF",
+                "TIA", "ARB", "OP", "NEAR"][:n]
+        for sym in syms:
+            cs.append("u1", "user", f"what about {sym}/USDT")
+        return cs, syms
+
+    def test_everything_kept_is_shown_not_the_last_five_of_it(self):
+        cs, syms = self._store_with(12)
+        cap = UserContext.PREFERRED_ASSETS_MAX
+        kept = cs.get_context("u1").preferred_assets
+        assert len(kept) == cap and kept == syms[-cap:]
+        line = self._mentions_line(cs)
+        for sym in kept:
+            assert sym in line, f"{sym} kept but not rendered\n{line}"
+
+    def test_the_bound_that_is_left_is_named_and_is_not_a_denial(self):
+        line = self._mentions_line(self._store_with(12)[0])
+        assert (f"only the {UserContext.PREFERRED_ASSETS_MAX} most recently "
+                "mentioned are kept") in line
+        assert "may still have been mentioned" in line
+        # ...and the line still says what it was READ from, which is the
+        # claim it already made correctly.
+        assert "not holdings" in line
+
+    def test_the_bound_is_ONE_name_the_writer_and_the_renderer_share(
+            self, monkeypatch):
+        monkeypatch.setattr(UserContext, "PREFERRED_ASSETS_MAX", 3)
+        cs, _ = self._store_with(12)
+        assert len(cs.get_context("u1").preferred_assets) == 3
+        line = self._mentions_line(cs)
+        assert "only the 3 most recently mentioned are kept" in line
+        assert "only the 10 most recently mentioned are kept" not in line
+
+    def test_a_short_list_is_not_evicting_anything_and_still_says_the_rule(self):
+        """The bound holds whether or not it has bitten, so it is stated
+        either way - unlike the alert ring's FULL sentence, which is a claim
+        about THIS list having reached it."""
+        cs, syms = self._store_with(3)
+        line = self._mentions_line(cs)
+        for sym in syms:
+            assert sym in line
+        assert "most recently mentioned are kept" in line
 
 
 # ── the rules the model reads ───────────────────────────────────────────────
