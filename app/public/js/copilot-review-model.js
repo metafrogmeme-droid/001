@@ -60,7 +60,70 @@
     return (typeof s === 'string' && s.trim()) ? s.trim() : null;
   }
 
-  var api = { BADGES: BADGES, badge: badge, coverage: coverage, scoreLine: scoreLine };
+  /* THE ADVISORY FOOTER IS ONE SENTENCE IN TWO RUNTIMES. The bot renders the
+   * same review onto a Telegram card, and `trade_copilot.COPILOT_FOOTER` is
+   * this string byte for byte -- a guard pins the two equal, because a reader
+   * who takes a green badge for a permission has read it wrong and two
+   * surfaces wording that differently is two answers about what the badge
+   * means. */
+  var FOOTER = 'Advice only \u2014 the risk gate (and your Authority Envelope, for live) remain the authority.';
+
+  /* WHAT THE BLOCK SAYS WHEN THERE IS NO REVIEW AT ALL. `null` is the bot
+   * saying it could not produce one; a review carrying a verdict this build
+   * cannot place is the bot saying something this PAGE cannot read. Different
+   * facts, different sentences -- and neither is "nothing was found", because
+   * the Confirm button beside the block is live either way. */
+  var NO_REVIEW = 'The co-pilot did not review this ticket \u2014 nothing here has been checked.';
+  var UNREADABLE = 'The co-pilot answered with a verdict this page cannot read \u2014 nothing here has been reviewed.';
+
+  /* The block's HTML. ONE renderer: the dashboard ticket, the dashboard's
+   * confirm modal and the chat drawer's trade card all call it, because a
+   * second copy in a second bundle is a second answer about what the review
+   * says -- and two of those three had no review on them at all until the
+   * reading moved onto the proposal.
+   *
+   * `esc` is the CALLER's escaper (each bundle has its own) and is REQUIRED:
+   * a renderer that silently stops escaping publishes a producer sentence as
+   * markup, so an absent one throws rather than degrading. */
+  function render(rev, esc) {
+    if (typeof esc !== 'function') throw new Error('copilot render needs an escaper');
+    if (!rev || typeof rev !== 'object') return '<span class="muted">' + esc(NO_REVIEW) + '</span>';
+    var b = badge(rev);
+    if (!b) return '<span class="muted">' + esc(UNREADABLE) + '</span>';
+    if (b.key === 'invalid') {
+      var first = (rev.flags && rev.flags[0] && rev.flags[0].msg) || 'Invalid geometry.';
+      return '<span class="neg">\u26d4 ' + esc(first) + '</span>';
+    }
+    var out = '<span class="cop-badge ' + b.cls + '">' + esc(b.label) + '</span> ';
+    var line = scoreLine(rev);
+    if (line) out += '<b>' + esc(line) + '</b> \u00b7 ';
+    out += 'R:R ' + esc(String(rev.rr == null ? '\u2014' : rev.rr))
+        + ' \u00b7 stop ' + esc(String(rev.stop_pct == null ? '\u2014' : rev.stop_pct))
+        + '% \u00b7 target ' + esc(String(rev.target_pct == null ? '\u2014' : rev.target_pct)) + '%';
+    var i;
+    var flags = Array.isArray(rev.flags) ? rev.flags : [];
+    for (i = 0; i < flags.length; i++) {
+      if (flags[i] && typeof flags[i].msg === 'string') {
+        out += '<div class="kv-row"><span>\u26a0\ufe0f ' + esc(flags[i].msg) + '</span></div>';
+      }
+    }
+    var notes = Array.isArray(rev.notes) ? rev.notes : [];
+    for (i = 0; i < notes.length; i++) {
+      if (typeof notes[i] === 'string') {
+        out += '<div class="kv-row"><span class="muted">\u00b7 ' + esc(notes[i]) + '</span></div>';
+      }
+    }
+    var rows = coverage(rev);
+    for (i = 0; i < rows.length; i++) {
+      out += '<div class="kv-row"><span class="cop-uncheck">\u25e6 Not checked \u2014 '
+           + esc(rows[i].label) + ': ' + esc(rows[i].reason) + '</span></div>';
+    }
+    return out + '<p class="muted small" style="margin-top:var(--s1)">' + esc(FOOTER) + '</p>';
+  }
+
+  var api = { BADGES: BADGES, FOOTER: FOOTER, NO_REVIEW: NO_REVIEW,
+              UNREADABLE: UNREADABLE, badge: badge, coverage: coverage,
+              scoreLine: scoreLine, render: render };
   root.CopilotReviewModel = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof self !== 'undefined' ? self : this);

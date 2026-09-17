@@ -37,7 +37,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import cast, TYPE_CHECKING
+from typing import Optional, cast, TYPE_CHECKING
 
 from aiohttp import web
 
@@ -707,8 +707,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # (never executes).
     grammar = looks_like_manual_trade(text)
     if grammar is not None:
-        return _propose_from_text(request.app, tg_handler, engine, tg_id,
-                                  grammar, name=name)
+        return await _propose_from_text(request.app, tg_handler, engine, tg_id,
+                                        grammar, name=name)
     # THE BARE-DIRECTIONAL BRANCH IS THE ROUTER'S NOW. It was a private
     # regex here — `^(?:paper\s+)?(?:long|short|buy|sell)\s+([a-z0-9]{2,12})$`
     # — so "long eth", "buy eth" and "short btc" got the agent's setup on the
@@ -2156,10 +2156,21 @@ def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
     return mode, live_allowed, ""
 
 
-def _idea_payload(app, tg_handler, tg_id: str, idea, margin_usd) -> dict:
+def _idea_payload(app, tg_handler, tg_id: str, idea, margin_usd,
+                  copilot: Optional[dict] = None) -> dict:
     entry, sl, tp = idea.entry_price, idea.stop_loss, idea.take_profit
     mode, live_allowed, live_reason = _trade_mode(app, tg_handler, tg_id)
     return {
+        # THE SECOND OPINION RIDES ON THE PROPOSAL. It used to live behind
+        # `POST /trade/copilot`, whose only caller is the dashboard ticket's
+        # Review BUTTON -- so the review was a property of one client's preview
+        # and not of the idea, and every other door to a Confirm button (this
+        # payload's chat card, its confirm modal, and `/trade` on Telegram)
+        # offered the order with no review of any kind. `None` is a review that
+        # could not be produced, and the renderers say so: the Confirm button
+        # is live either way, so a block that simply vanished would leave the
+        # card in exactly the state the co-pilot exists to remove.
+        "copilot": copilot,
         "trade_id": idea.id,
         "symbol": idea.asset.split("/")[0],
         "direction": idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction),
@@ -2177,8 +2188,16 @@ def _idea_payload(app, tg_handler, tg_id: str, idea, margin_usd) -> dict:
     }
 
 
-def _propose_from_text(app, tg_handler, engine, tg_id: str, text: str,
-                       name: str = "", order_type: str = "limit") -> web.Response:
+async def _propose_from_text(app, tg_handler, engine, tg_id: str, text: str,
+                             name: str = "", order_type: str = "limit") -> web.Response:
+    """Register a manual idea and answer the Confirm card, WITH its review.
+
+    Async because the review reads the caller's own book. That is the whole
+    point of putting it here: this is the one place a manual idea is born on
+    the web -- the chat grammar branch, the dashboard ticket and the api
+    bridge all arrive through it -- so a door added tomorrow inherits the
+    second opinion rather than having to remember it.
+    """
     from bot.skills.manual_trade import (parse_manual_trade, build_manual_idea,
                                          register_manual_idea)
     err = _guard_user(tg_handler, tg_id, command="trade", name=name)
@@ -2202,8 +2221,13 @@ def _propose_from_text(app, tg_handler, engine, tg_id: str, text: str,
           f"entry={entry} sl={sl} tp={tp}",
           action="web_manual_trade_created", result="PENDING",
           data={"user": tg_id})
+    from bot.core.copilot_context import review_ticket
+    rev = await review_ticket(engine, tg_id, {
+        "direction": direction, "symbol": symbol,
+        "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd})
     return web.json_response(
-        {"pending_trade": _idea_payload(app, tg_handler, tg_id, idea, margin_usd)})
+        {"pending_trade": _idea_payload(app, tg_handler, tg_id, idea,
+                                        margin_usd, copilot=rev)})
 
 
 async def handle_trade_propose(request: web.Request) -> web.Response:
@@ -2243,8 +2267,8 @@ async def handle_trade_propose(request: web.Request) -> web.Response:
                 {"error": "invalid_trade", "detail": "direction must be LONG or SHORT"},
                 status=400)
         text = f"{direction} {symbol} {entry} sl {sl} tp {tp}{margin_txt}"
-    return _propose_from_text(request.app, tg_handler, engine, tg_id, text,
-                              name=name, order_type=order_type)
+    return await _propose_from_text(request.app, tg_handler, engine, tg_id, text,
+                                    name=name, order_type=order_type)
 
 
 async def handle_trade_confirm(request: web.Request) -> web.Response:
@@ -2319,11 +2343,17 @@ async def handle_trade_copilot(request: web.Request) -> web.Response:
     proposed trade BEFORE the user confirms. Read-only advice; places nothing.
 
     Body: ``{telegram_id, direction, symbol, entry, sl, tp, margin?}``. The
-    gateway enriches with ONE reading of the book this ticket executes on
-    (``copilot_context.ticket_context``): its equity, this caller's own side on
-    the symbol, and the engine's current lean — each with its own sentence when
-    it could not be read, which the review prints rather than skipping in
-    silence.
+    review is ``copilot_context.review_ticket``'s — ONE assembly over ONE
+    reading of the book this ticket executes on: its equity, this caller's own
+    side on the symbol, and the engine's current lean, each with its own
+    sentence when it could not be read, which the review prints rather than
+    skipping in silence.
+
+    This is the ticket form's Review button and nothing else. Every door that
+    actually REGISTERS a manual idea carries the same review on the proposal
+    (``_propose_from_text`` here, ``_cmd_trade`` on Telegram), because a review
+    only this endpoint's caller can ask for is a property of one CLIENT rather
+    than of the ticket.
     """
     tg_handler = request.app["tg_handler"]
     engine = request.app["engine"]
@@ -2343,36 +2373,17 @@ async def handle_trade_copilot(request: web.Request) -> web.Response:
     # mode opens a real position: the "$10,000 in live mode" bug
     # `resolve_display_equity` exists to have ended. A user's own exposure is
     # not a fact a client gets to assert about them either.
-    try:
-        from bot.core.copilot_context import ticket_context
-        ctx = await ticket_context(engine, tg_id, body.get("symbol"))
-    except Exception as exc:
-        # The review still runs: geometry, reward:risk and stop distance need
-        # nothing from the book, and it will report the other three as
-        # unchecked rather than pretending they passed.
-        system_log.debug("Trade co-pilot context unreadable: %s", exc)
-        ctx = {"book": "unreadable", "equity_usd": None, "exposure": None,
-               "engine_bias": None,
-               "unread": {k: "this account could not be read just now"
-                          for k in ("size_vs_equity", "engine_bias",
-                                    "existing_exposure")}}
-    try:
-        from bot.core.trade_copilot import review, human_readable, score_line
-        rev = review(trade, equity_usd=ctx.get("equity_usd"),
-                     engine_bias=ctx.get("engine_bias"),
-                     existing_exposure=ctx.get("exposure"),
-                     unread=ctx.get("unread"))
-        rev["book"] = ctx.get("book")
-        # The SENTENCE travels, and the browser prints it rather than deriving
-        # one from `score_basis`. That is the rule the arb panel already
-        # follows -- "a verdict derived on the panel from the total it prints
-        # would be the second reading the seam exists to replace".
-        rev["score_line"] = score_line(rev)
-        rev["human_readable"] = human_readable(rev)
-        return web.json_response(rev)
-    except Exception as exc:
-        system_log.debug("Trade co-pilot failed: %s", exc)
+    # The assembly is `copilot_context.review_ticket` -- ONE reading, shared
+    # with the two doors that actually register an idea, because a review this
+    # endpoint assembled for itself would be a property of this CLIENT rather
+    # than of the proposal.
+    from bot.core.copilot_context import review_ticket
+    rev = await review_ticket(engine, tg_id, trade)
+    if rev is None:
         return web.json_response({"error": "copilot_unavailable"}, status=500)
+    from bot.core.trade_copilot import human_readable
+    rev["human_readable"] = human_readable(rev)
+    return web.json_response(rev)
 
 
 async def handle_trade_cancel(request: web.Request) -> web.Response:

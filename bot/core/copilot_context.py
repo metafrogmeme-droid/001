@@ -255,3 +255,66 @@ async def _read_book(
         positions = None
         pos_why = "your open positions could not be read from the venue"
     return BOOK_LIVE, live_equity, positions, eq_why, pos_why
+
+
+#: What a caller is told about a subject when the READING ITSELF failed. It is
+#: one sentence for all three because at this point nothing is known about any
+#: of them — which is a different fact from ``_read_book``'s per-subject
+#: reasons, where the balance and the listing failed independently and each
+#: names its own cause.
+_CONTEXT_UNREADABLE = "this account could not be read just now"
+
+
+async def review_ticket(engine: Any, user_id: str, trade: dict) -> Optional[dict]:
+    """The ticket's second opinion, ready to render — or ``None``.
+
+    ONE assembly for every door that proposes a manual trade. It existed in
+    exactly one place — inline in the co-pilot ENDPOINT, whose only caller is
+    the dashboard ticket form's Review button — and the two doors that actually
+    REGISTER an idea, ``_cmd_trade`` on Telegram and ``_propose_from_text`` on
+    the web, asked nobody. So the review was a property of ONE CLIENT's preview
+    rather than of the proposal, and a caller reached a Confirm button with no
+    second opinion on every path but that one.
+
+    ``None`` means the review could not be produced at all, and the renderers
+    say so rather than printing nothing: the Confirm button below the block is
+    live either way, and a block that simply vanished would leave the card in
+    the state this module exists to remove.
+
+    The CONTEXT failing is not the review failing. Geometry, reward:risk and
+    stop distance need nothing from any book, so a raised reading still yields
+    a review — with the other three subjects reported unchecked, naming the
+    account rather than pretending they passed.
+    """
+    from bot.core.trade_copilot import review, score_line
+
+    try:
+        ctx = await ticket_context(engine, user_id, trade.get("symbol"))
+    except Exception as exc:
+        system_log.debug("Trade co-pilot context unreadable: %s", exc)
+        ctx = {"book": BOOK_UNREADABLE, "equity_usd": None, "exposure": None,
+               "engine_bias": None,
+               "unread": {k: _CONTEXT_UNREADABLE
+                          for k in ("size_vs_equity", "engine_bias",
+                                    "existing_exposure")}}
+    try:
+        rev = review(trade, equity_usd=ctx.get("equity_usd"),
+                     engine_bias=ctx.get("engine_bias"),
+                     existing_exposure=ctx.get("exposure"),
+                     unread=ctx.get("unread"))
+        rev["book"] = ctx.get("book")
+        # The SENTENCE travels with the figure, and every renderer prints it
+        # rather than deriving one from `score_basis` — the rule the arb panel
+        # states: a verdict derived where it is displayed is the second reading
+        # the seam exists to replace.
+        rev["score_line"] = score_line(rev)
+    except Exception as exc:
+        # THE ADVICE MUST NEVER TAKE DOWN THE ACTION. This is reached from the
+        # two doors that REGISTER a manual idea, so a raise escaping here would
+        # 500 a proposal, or crash a Telegram card, over a block that only ever
+        # advises. `None` is the honest report and both renderers print it as
+        # "could not be reviewed" — the stamping is inside this `try` for the
+        # same reason the review is.
+        system_log.debug("Trade co-pilot failed: %s", exc)
+        return None
+    return rev

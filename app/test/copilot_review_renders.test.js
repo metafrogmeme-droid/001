@@ -124,11 +124,46 @@ test('the bot sentence is escaped — a reason is text, not markup', () => {
   assert.ok(html.includes('&lt;b&gt;boom'), html);
 });
 
-test('the page without the model renders an unreadable state, never a verdict', () => {
+test('the page without the model says the PAGE could not render, never a verdict', () => {
   // `defer` ordering, a blocked script, a stale cache: the model can be absent
   // and the block must not fall through to a badge of its own.
-  const html = renderer(undefined_model())(PARTIAL);
-  assert.ok(/cannot read/.test(html), html);
+  //
+  // It is its OWN sentence. A missing script is a fact about this page; a
+  // verdict the model cannot place is a fact about what the BOT said; a null
+  // review is the bot saying it produced none. Three causes, and the one
+  // thing none of them may read as is "nothing was found" — the Confirm
+  // button beside the block is live in all three.
+  const html = renderer(null)(PARTIAL);
+  assert.ok(/could not be rendered on this page/.test(html), html);
   assert.ok(!html.includes('cop-badge'));
-  function undefined_model() { return null; }
+  assert.ok(!html.includes('R:R'));
+});
+
+test('no review at all is not "nothing was found"', () => {
+  // `pending_trade.copilot` is null when the bot could not produce a review —
+  // the reading raised, or an older build sent no field at all. Before the
+  // review rode on the proposal this state could not arise on this card,
+  // because the card carried no review in any state.
+  for (const absent of [null, undefined, 'nope', 42]) {
+    const html = renderer()(absent);
+    assert.ok(/did not review this ticket/.test(html), String(absent) + ': ' + html);
+    assert.ok(!html.includes('cop-badge'), String(absent));
+    assert.ok(!/\bscore\b/.test(html), String(absent));
+  }
+});
+
+test('the advisory footer is the one sentence the bot also prints', () => {
+  // `trade_copilot.COPILOT_FOOTER` is this string byte for byte and a Python
+  // guard pins them equal. Here: the block really carries it, escaped.
+  const html = renderer()(PARTIAL);
+  assert.ok(html.includes('remain the authority'), html);
+  assert.equal(typeof M.FOOTER, 'string');
+  assert.ok(html.includes(M.FOOTER.replace(/&/g, '&amp;')), html);
+});
+
+test('the renderer refuses to run without an escaper', () => {
+  // A renderer that silently stops escaping publishes a producer sentence as
+  // markup. There is no degraded mode: the model throws.
+  assert.throws(() => M.render(PARTIAL, null), /escaper/);
+  assert.throws(() => M.render(PARTIAL, 'not a function'), /escaper/);
 });

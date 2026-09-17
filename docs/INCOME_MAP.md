@@ -1708,18 +1708,35 @@ is four-valued (`partial` is nothing flagged over a subject it could not
 check), every subject carries its own reason for going unrun, and the score
 carries the span it was taken over.
 
-*Where.* Dashboard trade ticket → POST /api/trade/copilot
-(app/routes/webtrade.js:138; dashboard.js:3101) → bot gateway /trade/copilot
-(bot/web/user_gateway.py:2109, :4549) → bot/core/trade_copilot.review +
-human_readable, over ONE reading of the book the ticket executes on
-(bot/core/copilot_context.ticket_context). Browser side:
-app/public/js/copilot-review-model.js and the marked `copilotReviewHtml` block.
+*Where.* ONE assembly, bot/core/copilot_context.review_ticket — the reading of
+the book the ticket executes on (ticket_context), bot/core/trade_copilot.review
+over it, and the score sentence stamped once — read by every door that proposes
+a manual trade:
 
-*Gap.* ONE DOOR. The dashboard ticket is the only caller. Telegram's `/trade`
-— the entry door the act-intent notice names — renders a Confirm card that
-places the same order with no second opinion, and so does the scan card's
-Confirm button. The review is pure and its reading is a leaf, so what is
-missing is the card and the permission, not the arithmetic.
+  * Telegram `/trade` (bot/skills/trading_commands.py `_cmd_trade`), which
+    renders trade_copilot.review_card_html under the levels and above the
+    Confirm keyboard; the free-text grammar path rewrites its message to
+    `/trade …` and delegates here, so it inherits the block.
+  * The web proposal (bot/web/user_gateway.py `_propose_from_text`), reached by
+    POST /trade/propose (the dashboard ticket and the api bridge) and by the
+    chat grammar branch; the review rides out on `pending_trade.copilot`.
+  * POST /trade/copilot (handle_trade_copilot), the ticket form's Review
+    button, which adds trade_copilot.human_readable for a non-browser caller.
+
+Browser side: app/public/js/copilot-review-model.js renders the block, and the
+dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat
+drawer's trade card (chat.js appendTradeCard) each call it — one renderer,
+three surfaces, two bundles.
+
+*Gap.* The review's sentences are English on both surfaces, because they are
+the producer's: one vocabulary, in trade_copilot. `/trade`'s card around it is
+fourteen languages. Localising the review is ~25 keys × 14 plus a producer
+refactor to emit keys and params, on both surfaces; rendering localised frame
+words around English findings would be a second vocabulary for one review.
+The five ENGINE-generated `confirm:` buttons are a recorded refusal rather than
+a gap: `_engine_bias` reads the engine's own non-manual pending ideas, so an
+engine idea would match itself and be told it is "aligned with the engine's
+bias", and those levels already passed the risk gate at analysis time.
 
 **The PUBLIC Strategy-Agent marketplace**
 

@@ -193,6 +193,18 @@
     return div;
   }
 
+  // ── chat trade card ─
+  // The ticket's second opinion, from the SHARED renderer. This card had none:
+  // the co-pilot lived behind a separate endpoint whose only caller was the
+  // dashboard ticket's Review button, so a trade proposed in CHAT offered
+  // Confirm with nothing reviewed. A copy of the dashboard's block here would
+  // be a second answer about what the review says, in a second bundle.
+  function copilotBlock(rev) {
+    const CR = window.CopilotReviewModel;
+    if (!CR) return '<span class="muted">The co-pilot block could not be rendered on this page.</span>';
+    return CR.render(rev, esc);
+  }
+
   function appendTradeCard(pt) {
     const div = document.createElement('div');
     div.className = 'chat-card';
@@ -202,6 +214,7 @@
       <div class="kv-row"><span>${esc(pt.symbol)}/USDT ${esc(pt.direction)}</span><b>R:R ${fmt(pt.rr)}</b></div>
       <div class="kv-row"><span>Entry (limit)</span><b>$${fmt(pt.entry, 4)}</b></div>
       <div class="kv-row"><span>Stop · Target</span><b>$${fmt(pt.sl, 4)} · $${fmt(pt.tp, 4)}</b></div>
+      <div class="mt-2">${copilotBlock(pt.copilot)}</div>
       <div class="row mt-3">
         <button class="btn btn--primary btn--sm" style="flex:1" type="button">Confirm</button>
         <button class="btn btn--sm" style="flex:1" type="button">Cancel</button>
@@ -229,6 +242,7 @@
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
   }
+  // ── chat trade card end ─
 
   // "Trade this" — an analysis produced a concrete setup. One tap re-proposes
   // it through the SAME manual /api/trade/propose -> confirm rails (which run

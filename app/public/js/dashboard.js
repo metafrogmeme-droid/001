@@ -3583,40 +3583,6 @@
       try { $('tEntry').dispatchEvent(new Event('input', { bubbles: true })); } catch (e) { /* preview is best-effort */ }
       return price;
     }
-    // ── co-pilot review renderer ─
-    // FOUR VERDICTS, AND A WORD THIS BUILD DOES NOT KNOW IS NOT ONE OF THEM.
-    // This was inline in the button's listener as
-    // `d.verdict === 'clear' ? CLEAR : CAUTION` — two branches over what is now
-    // four, so `partial` (nothing flagged, something unchecked) would have worn
-    // the word for a finding, and any verdict a later bot build adds would too.
-    // Both badges were also amber: CLEAR borrowed `mode-badge--paper`, whose
-    // fill is `--warn`, so even the two states it did distinguish rendered in
-    // one colour. CopilotReviewModel picks the badge and answers null for a
-    // word it cannot place.
-    //
-    // It is a NAMED function rather than eight lines inside a click handler
-    // because a renderer reachable only through a DOM event is a renderer no
-    // test can run — which is #999's card exactly: present, correct-looking,
-    // and rendered zero times.
-    function copilotReviewHtml(d) {
-      const CR = window.CopilotReviewModel;
-      const badge = CR && CR.badge(d);
-      if (!badge) return '<span class="muted">The co-pilot answered with a verdict this page cannot read — nothing here has been reviewed.</span>';
-      if (badge.key === 'invalid') return `<span class="neg">⛔ ${esc((d.flags?.[0]?.msg) || 'Invalid geometry.')}</span>`;
-      const flags = (d.flags || []).map(f => `<div class="kv-row"><span>⚠️ ${esc(f.msg)}</span></div>`).join('');
-      const notes = (d.notes || []).map(n => `<div class="kv-row"><span class="muted">· ${esc(n)}</span></div>`).join('');
-      // What it could NOT look at, with the producer's own sentence for each.
-      const uncheck = CR.coverage(d).map(u => `<div class="kv-row"><span class="cop-uncheck">◦ Not checked — ${esc(u.label)}: ${esc(u.reason)}</span></div>`).join('');
-      // The score's SPAN travels with it, as the bot wrote it. Deriving one
-      // here from `score_basis` would be the second reading the seam exists to
-      // replace; a bare `score 100/100` is the defect itself, so a payload
-      // carrying no span prints no score rather than a naked number.
-      const scoreLine = CR.scoreLine(d);
-      return `<span class="cop-badge ${badge.cls}">${esc(badge.label)}</span> ${scoreLine ? `<b>${esc(scoreLine)}</b> · ` : ''}R:R ${d.rr ?? '—'} · stop ${d.stop_pct}% · target ${d.target_pct}%
-        ${flags}${notes}${uncheck}
-        <p class="muted small" style="margin-top:var(--s1)">Advice only — the risk gate (and your Authority Envelope, for live) remain the authority.</p>`;
-    }
-    // ── co-pilot review renderer end ─
     // Decision picture beside the ticket: the engine's live directional read
     // for the typed symbol, so the "why" sits next to the "buy". Read-only
     // context (same confluence/voters as the market view) — never an order
@@ -3754,6 +3720,49 @@
   }
 
   // ── Trade confirm modal (shared with chat) ─────────────────────────────
+  // ── co-pilot review renderer ─
+  // FOUR VERDICTS, AND A WORD THIS BUILD DOES NOT KNOW IS NOT ONE OF THEM.
+  // This was inline in the button's listener as
+  // `d.verdict === 'clear' ? CLEAR : CAUTION` — two branches over what is now
+  // four, so `partial` (nothing flagged, something unchecked) would have worn
+  // the word for a finding, and any verdict a later bot build adds would too.
+  // Both badges were also amber: CLEAR borrowed `mode-badge--paper`, whose
+  // fill is `--warn`, so even the two states it did distinguish rendered in
+  // one colour. CopilotReviewModel picks the badge and answers null for a
+  // word it cannot place.
+  //
+  // It is a NAMED function rather than eight lines inside a click handler
+  // because a renderer reachable only through a DOM event is a renderer no
+  // test can run — which is #999's card exactly: present, correct-looking,
+  // and rendered zero times.
+  //
+  // AND IT IS MODULE-LEVEL, not nested in `renderTrade`. The confirm MODAL
+  // calls it too, and a helper declared in one function and called from
+  // another is a ReferenceError the moment that path runs —
+  // `dashboard_helpers_are_in_scope.test.js` caught this on the full suite
+  // where the slice's own suites were green, which is the second time that
+  // guard has moved a renderer out to module scope for exactly this.
+  //
+  // THE BODY IS IN THE MODEL NOW, and this is a one-line adapter. Two more
+  // surfaces show a Confirm button for the same ticket — the confirm modal
+  // below and the chat drawer's trade card, in a DIFFERENT bundle — so a
+  // copy of these lines per surface would be a second answer about what the
+  // review says. `esc` is this bundle's; the model refuses to render
+  // without one.
+  function copilotReviewHtml(d) {
+    const CR = window.CopilotReviewModel;
+    if (!CR) return '<span class="muted">The co-pilot block could not be rendered on this page.</span>';
+    return CR.render(d, esc);
+  }
+  // ── co-pilot review renderer end ─
+
+  // ── trade confirm modal ─
+  // THE REVIEW IS BESIDE THE CONFIRM BUTTON, not only in the ticket form. The
+  // co-pilot's only door was the form's Review button, so a caller who filled
+  // the ticket and pressed Trade reached THIS modal — the last screen before a
+  // real order — with no second opinion anywhere on it. It rides on the
+  // proposal now (`pending_trade.copilot`), so this renders what the bot
+  // reviewed rather than asking again and getting a second answer.
   function openTradeModal(pt, onDone) {
     const modal = document.getElementById('tradeModal');
     const body = document.getElementById('tradeModalBody');
@@ -3770,7 +3779,8 @@
       <div class="kv-row"><span>Risk : reward</span><b>${fmt(pt.rr)}</b></div>
       <div class="kv-row"><span>Margin</span><b>${pt.margin_usd ? fmtMoney(pt.margin_usd, 0) : 'auto (risk-sized)'}</b></div>
       ${live ? '' : '<p class="muted small mt-2">Executes on your paper portfolio. The risk engine re-checks everything now.</p>'}
-      ${(!live && pt.live_reason) ? `<p class="muted small mt-2">🔓 To trade live on your own account: ${esc(pt.live_reason)}.</p>` : ''}`;
+      ${(!live && pt.live_reason) ? `<p class="muted small mt-2">🔓 To trade live on your own account: ${esc(pt.live_reason)}.</p>` : ''}
+      <div class="mt-2">${copilotReviewHtml(pt.copilot)}</div>`;
     modal.classList.remove('hidden');
     modal.hidden = false;
     const a11y = window.RC.modalA11y(modal);
@@ -3804,6 +3814,7 @@
       toast(T('dd.t_order_cancelled', 'Order cancelled — nothing was placed.'));
     };
   }
+  // ── trade confirm modal end ─
 
   /* ═══════════════ PORTFOLIO ═══════════════ */
   // Build a §4-safe "?p=" Stress Lab book from the live portfolio: each open
