@@ -2319,8 +2319,11 @@ async def handle_trade_copilot(request: web.Request) -> web.Response:
     proposed trade BEFORE the user confirms. Read-only advice; places nothing.
 
     Body: ``{telegram_id, direction, symbol, entry, sl, tp, margin?}``. The
-    gateway enriches with the caller's paper equity (for the size check); engine
-    bias / existing exposure are passed through when the client supplies them.
+    gateway enriches with ONE reading of the book this ticket executes on
+    (``copilot_context.ticket_context``): its equity, this caller's own side on
+    the symbol, and the engine's current lean — each with its own sentence when
+    it could not be read, which the review prints rather than skipping in
+    silence.
     """
     tg_handler = request.app["tg_handler"]
     engine = request.app["engine"]
@@ -2330,17 +2333,41 @@ async def handle_trade_copilot(request: web.Request) -> web.Response:
     if err is not None:
         return err
     trade = {k: body.get(k) for k in ("direction", "symbol", "entry", "sl", "tp", "margin")}
-    equity = None
+    # THE THREE INPUTS THE REVIEW CANNOT DERIVE ARE READ HERE, NOT TAKEN FROM
+    # THE CLIENT. `engine_bias` and `existing_exposure` used to be read off this
+    # request body, and driven, no caller in the tree has ever sent either --
+    # `app/routes/webtrade.js` posts a fixed six-key body and the dashboard
+    # builds the same six -- so two of the six subjects the co-pilot's own
+    # header promises never ran in production. And the equity was
+    # `user_portfolios.get(tg_id)`, the PAPER book, for a ticket that in live
+    # mode opens a real position: the "$10,000 in live mode" bug
+    # `resolve_display_equity` exists to have ended. A user's own exposure is
+    # not a fact a client gets to assert about them either.
     try:
-        snap = engine.user_portfolios.get(tg_id).snapshot()
-        equity = float(snap.equity_usd)
-    except Exception:
-        equity = None
-    bias = body.get("engine_bias") if body.get("engine_bias") in ("long", "short") else None
-    expo = body.get("existing_exposure") if body.get("existing_exposure") in ("long", "short") else None
+        from bot.core.copilot_context import ticket_context
+        ctx = await ticket_context(engine, tg_id, body.get("symbol"))
+    except Exception as exc:
+        # The review still runs: geometry, reward:risk and stop distance need
+        # nothing from the book, and it will report the other three as
+        # unchecked rather than pretending they passed.
+        system_log.debug("Trade co-pilot context unreadable: %s", exc)
+        ctx = {"book": "unreadable", "equity_usd": None, "exposure": None,
+               "engine_bias": None,
+               "unread": {k: "this account could not be read just now"
+                          for k in ("size_vs_equity", "engine_bias",
+                                    "existing_exposure")}}
     try:
-        from bot.core.trade_copilot import review, human_readable
-        rev = review(trade, equity_usd=equity, engine_bias=bias, existing_exposure=expo)
+        from bot.core.trade_copilot import review, human_readable, score_line
+        rev = review(trade, equity_usd=ctx.get("equity_usd"),
+                     engine_bias=ctx.get("engine_bias"),
+                     existing_exposure=ctx.get("exposure"),
+                     unread=ctx.get("unread"))
+        rev["book"] = ctx.get("book")
+        # The SENTENCE travels, and the browser prints it rather than deriving
+        # one from `score_basis`. That is the rule the arb panel already
+        # follows -- "a verdict derived on the panel from the total it prints
+        # would be the second reading the seam exists to replace".
+        rev["score_line"] = score_line(rev)
         rev["human_readable"] = human_readable(rev)
         return web.json_response(rev)
     except Exception as exc:

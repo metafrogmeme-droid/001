@@ -3583,6 +3583,40 @@
       try { $('tEntry').dispatchEvent(new Event('input', { bubbles: true })); } catch (e) { /* preview is best-effort */ }
       return price;
     }
+    // ── co-pilot review renderer ─
+    // FOUR VERDICTS, AND A WORD THIS BUILD DOES NOT KNOW IS NOT ONE OF THEM.
+    // This was inline in the button's listener as
+    // `d.verdict === 'clear' ? CLEAR : CAUTION` — two branches over what is now
+    // four, so `partial` (nothing flagged, something unchecked) would have worn
+    // the word for a finding, and any verdict a later bot build adds would too.
+    // Both badges were also amber: CLEAR borrowed `mode-badge--paper`, whose
+    // fill is `--warn`, so even the two states it did distinguish rendered in
+    // one colour. CopilotReviewModel picks the badge and answers null for a
+    // word it cannot place.
+    //
+    // It is a NAMED function rather than eight lines inside a click handler
+    // because a renderer reachable only through a DOM event is a renderer no
+    // test can run — which is #999's card exactly: present, correct-looking,
+    // and rendered zero times.
+    function copilotReviewHtml(d) {
+      const CR = window.CopilotReviewModel;
+      const badge = CR && CR.badge(d);
+      if (!badge) return '<span class="muted">The co-pilot answered with a verdict this page cannot read — nothing here has been reviewed.</span>';
+      if (badge.key === 'invalid') return `<span class="neg">⛔ ${esc((d.flags?.[0]?.msg) || 'Invalid geometry.')}</span>`;
+      const flags = (d.flags || []).map(f => `<div class="kv-row"><span>⚠️ ${esc(f.msg)}</span></div>`).join('');
+      const notes = (d.notes || []).map(n => `<div class="kv-row"><span class="muted">· ${esc(n)}</span></div>`).join('');
+      // What it could NOT look at, with the producer's own sentence for each.
+      const uncheck = CR.coverage(d).map(u => `<div class="kv-row"><span class="cop-uncheck">◦ Not checked — ${esc(u.label)}: ${esc(u.reason)}</span></div>`).join('');
+      // The score's SPAN travels with it, as the bot wrote it. Deriving one
+      // here from `score_basis` would be the second reading the seam exists to
+      // replace; a bare `score 100/100` is the defect itself, so a payload
+      // carrying no span prints no score rather than a naked number.
+      const scoreLine = CR.scoreLine(d);
+      return `<span class="cop-badge ${badge.cls}">${esc(badge.label)}</span> ${scoreLine ? `<b>${esc(scoreLine)}</b> · ` : ''}R:R ${d.rr ?? '—'} · stop ${d.stop_pct}% · target ${d.target_pct}%
+        ${flags}${notes}${uncheck}
+        <p class="muted small" style="margin-top:var(--s1)">Advice only — the risk gate (and your Authority Envelope, for live) remain the authority.</p>`;
+    }
+    // ── co-pilot review renderer end ─
     // Decision picture beside the ticket: the engine's live directional read
     // for the typed symbol, so the "why" sits next to the "buy". Read-only
     // context (same confluence/voters as the market view) — never an order
@@ -3655,15 +3689,7 @@
       const r = await fetchJSON('/api/trade/copilot', { method: 'POST', body, timeoutMs: 12000 }).catch(() => ({ ok: false, data: null }));
       const d = r.data;
       if (!r.ok || !d || d.error) { out.innerHTML = '<span class="muted">Co-pilot unavailable right now.</span>'; return; }
-      if (d.verdict === 'invalid') { out.innerHTML = `<span class="neg">⛔ ${esc((d.flags?.[0]?.msg) || 'Invalid geometry.')}</span>`; return; }
-      const badge = d.verdict === 'clear'
-        ? '<span class="mode-badge mode-badge--paper">CLEAR</span>'
-        : '<span class="mode-badge" style="background:var(--warn,#a86)">CAUTION</span>';
-      const flags = (d.flags || []).map(f => `<div class="kv-row"><span>⚠️ ${esc(f.msg)}</span></div>`).join('');
-      const notes = (d.notes || []).map(n => `<div class="kv-row"><span class="muted">· ${esc(n)}</span></div>`).join('');
-      out.innerHTML = `${badge} <b>score ${d.score}/100</b> · R:R ${d.rr ?? '—'} · stop ${d.stop_pct}% · target ${d.target_pct}%
-        ${flags}${notes}
-        <p class="muted small" style="margin-top:var(--s1)">Advice only — the risk gate (and your Authority Envelope, for live) remain the authority.</p>`;
+      out.innerHTML = copilotReviewHtml(d);
     });
 
     document.getElementById('ticketForm').addEventListener('submit', async (e) => {

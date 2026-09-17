@@ -51,13 +51,17 @@
     "sha": "e89e7947af99dd26",
     "v": 1
   },
+  "js/copilot-review-model.js": {
+    "sha": "cbe1aea5b4475344",
+    "v": 1
+  },
   "js/creds-gate-model.js": {
     "sha": "062325eb3c39125a",
     "v": 2
   },
   "js/dashboard.js": {
-    "sha": "4355a2a878bea1a5",
-    "v": 188
+    "sha": "ed06d7886e0be765",
+    "v": 189
   },
   "js/decision-court-model.js": {
     "sha": "ab1d7c8c9c3cd2d3",
@@ -264,8 +268,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "5408ffb606cdab71",
-    "v": 46
+    "sha": "607872da4db18313",
+    "v": 47
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
