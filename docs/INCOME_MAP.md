@@ -71,7 +71,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Leaf | Today | Doors |
 |---|---|---|
 | Spot trading | partial | `/livebalance`, `/exposure`, `/networth`, `/spot`, `/api/spot/market`, `/api/spot/basis`, `/api/meme/swap/build`, `/memeplan` |
-| Swing trading | **shipped** | `/swing`, `/fullscan`, `/mystrategy`, `/trade`, `/analyze` |
+| Swing trading | **shipped** | `/swing`, `/fullscan`, `/mystrategy`, `/trade`, `/analyze`, `/pocretest` |
 | Scalping | **shipped** | `/scalp`, `/fullscan`, `/mystrategy`, `/run`, `/trade` |
 | Perp futures | **shipped** | `/trade`, `/positions`, `/open_positions`, `/livepositions`, `/orders`, `/leverage`, `/venues`, `/liveclose`, `/api/trade/propose`, `/api/trade/confirm`, `/api/trade/cancel` |
 | Options | — | — |
@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:942, :951), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:949, :958), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:206 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -156,7 +156,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1822) as a
-tighten-only veto on that user's own confirms (trading_commands.py:376); /run
+tighten-only veto on that user's own confirms (trading_commands.py:377); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -172,7 +172,7 @@ the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:999); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1006); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
@@ -289,7 +289,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:376).
+(/mystrategy, trading_commands.py:377).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -357,7 +357,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:942, :951); the engine, live_executor
+futures-only mode' (trading_commands.py:949, :958); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1770,6 +1770,73 @@ comment says it does not alter live placement), so a live card never prices
 itself off it. The paper book (bot/risk/portfolio.py) and the backtest keep
 their own injected rate so a simulated fee matches the run being compared; the
 one-rule ratchet lists each exemption with its reason and fails on a stale one.
+
+**Why a stop could not be placed**
+
+One reading, one sentence — bot/core/sltp_reason. `venue_reason` escapes and
+truncates the recorded refusal once (three readers escaped it three ways and
+one not at all, at 120 / everything / 160 characters), `refusal_line` says it
+in words that are SOURCE-NEUTRAL, and `refusal_suffix` carries it onto a card.
+Read by: the three stop-placement abort cards in `_sl_tp_or_abort` (which named
+no cause at all), the unprotected-position escalation, /positions'
+bot-managed-stop row and the proactive monitor's CRITICAL alert. The store
+(`_note_sltp_error`) bounds itself by the same `REASON_MAX`, and both placers'
+side-sanity refusal now records the sentence it computes.
+
+*Deliberately out.* "The venue said": driven over every `_note_sltp_error`
+call site, three of the four things the store holds are the bot's own words or
+a network fault — `str(exc)` from a ccxt `create_order`, "success code but no
+order id returned" and `f"exception: {exc}"` — so a line attributing them to
+the venue is a confident wrong attribution on the card an operator reads to
+decide what to change. The three SIBLING aborts in the same method are left
+alone: they abort for fill slippage and a leverage overshoot and each already
+names its own cause.
+
+**The POC-retest swing setup, on two timeframes**
+
+The operator's rules, written down on 2026-09-17, with their own framing as the
+design constraint: *"These are sensible starting rules, not yet validated
+results. I'd test the ATR buffer, 1-5-candle retest window, and 2R filter as
+parameters rather than assuming they are optimal."* So every threshold is a
+field of `PocRetestParams` and none is a literal in a comparison anywhere in
+the module — the rule `BacktestConfig.market_is_perp` states about perp-ness.
+
+`bot/core/poc_retest` is the detector and is PURE: `swing_leg` finds the most
+recent completed 4h leg, `leg_poc` computes the Point of Control over THAT
+LEG's candles (`analyzer`'s POC is over `volume_profile_lookback`, a different
+price under the same word), and `retest_state` answers one of eight `STATES`
+rather than a score — because a sequence that has not completed is not a
+weaker version of one that has. `setup_verdict` applies the spec's two
+rejections, and the 2R floor is on the NET ratio (`net_reward_risk`), which is
+the defect every pre-placement surface here was cured of the day before.
+
+`bot/core/poc_retest_scan` is the one place that fetches, and `/pocretest SOL`
+(`@guard("analyze")`) is its only door. It places nothing and arms nothing, and
+the card says so in as many words, beside the sample it read and the operator's
+own "starting values, not validated results".
+
+*What the reading refuses to do.* A forming candle's close is not a close and
+this whole strategy is closes, so both timeframes go through
+`drop_forming_candle` — driven, not asserted: the same 1h series with its final
+bar still forming answers `no_breakout` where the settled one answers
+`awaiting_retest`. A fetch that failed, a venue that answered with nothing and a
+window too short for the leg or for ATR(14) are three facts with three
+sentences, each kept apart from every member of `STATES`, because `no_breakout`
+is a claim about price. An unreadable 4h candle is `no_poc` rather than a crash
+(`compute_volume_profile` bins with `int(...)` and `int(nan)` raises) and rather
+than a nan POC, which every comparison would answer False to — "price never
+cleared the buffer", from a level nobody measured.
+
+*Deliberately out, each with its reason.* There is no execution flag and no
+Confirm button: a flag read by nothing is the fifth granularity and a button
+behind it would lead to "not built yet", which is the `/vault` hint shape. There
+is no universe sweep yet — the door is one asset, which is what "confirm the POC
+retest" names — and no shadow record, so this claims no edge: whether the setup
+is worth taking is a question for a record with its own sample floor and
+interval, the discipline `arb_verdict` already applies. The target is the one
+thing the rules do not give and 2R needs one, so it is the LEG'S OWN EXTREME,
+stated as an assumption, refused as `no_target` when price has passed it rather
+than manufactured from a multiple.
 
 **The PUBLIC Strategy-Agent marketplace**
 

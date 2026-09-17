@@ -46,6 +46,7 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.plan_cleanup import plan_rows_to_cancel
+from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
@@ -5590,7 +5591,9 @@ class LiveExecutor:
                         return (
                             (f"🚨 <b>URGENT — {idea.asset} is LIVE with NO stop-loss</b>\n"
                              f"Automatic close also FAILED. Close this position "
-                             f"MANUALLY on the venue immediately.", None, None)
+                             f"MANUALLY on the venue immediately."
+                             f"{refusal_suffix(self._last_sltp_reason(idea.asset))}",
+                             None, None)
                         )
                     if _outcome == "kept_open":
                         audit(trade_log,
@@ -5609,12 +5612,16 @@ class LiveExecutor:
                              f"placed nothing further; close_position's own line below "
                              f"says what it kept, and "
                              f"{stop_replacement_note(idea.stop_loss, idea.take_profit, idea.direction)}. "
-                             f"Review it on the venue NOW.\n{close_msg}", None, None)
+                             f"Review it on the venue NOW."
+                             f"{refusal_suffix(self._last_sltp_reason(idea.asset))}"
+                             f"\n{close_msg}", None, None)
                         )
                     return (
                         (f"⚠️ <b>EXECUTION ABORTED — {idea.asset}</b>\n"
                         f"Position opened but the stop-loss could not be placed, "
-                        f"so it was CLOSED for safety.\n{close_msg}", None, None)
+                        f"so it was CLOSED for safety."
+                        f"{refusal_suffix(self._last_sltp_reason(idea.asset))}"
+                        f"\n{close_msg}", None, None)
                     )
         return None, sl_id, tp_id
 
@@ -6431,7 +6438,11 @@ class LiveExecutor:
         unprotected-position alert can name the venue reason. Diagnostic only —
         never gates order logic; never raises."""
         try:
-            self._last_sltp_error[normalize_symbol(symbol)] = str(reason)[:180]
+            # One limit. The store kept 180 and the three readers showed
+            # 120 / everything / 160; raising the display bound above the
+            # storage one would have silently capped it here instead.
+            self._last_sltp_error[normalize_symbol(symbol)] = \
+                str(reason)[:REASON_MAX]
         except Exception:
             pass
 
@@ -6493,6 +6504,11 @@ class LiveExecutor:
                   action="sltp_side_check", result="REJECTED", level=logging.ERROR,
                   data={"symbol": symbol, "direction": str(direction),
                         "stop_loss": stop_loss, "take_profit": take_profit})
+            # THE ONE REFUSAL WHOSE CAUSE WE WORK OUT OURSELVES was the one
+            # exit from this method that recorded nothing, so every reader of
+            # `_last_sltp_reason` -- the unprotected alert, /positions, the
+            # monitor and the three abort cards -- had nothing to show for it.
+            self._note_sltp_error(symbol, f"side-sanity: {_side_err}")
             return None, None
 
         # GETCLAW: Check and cancel existing plan orders before placing new ones.
@@ -6906,6 +6922,8 @@ class LiveExecutor:
                       action="sltp_side_check", result="REJECTED", level=logging.ERROR,
                       data={"symbol": symbol, "direction": str(direction),
                             "stop_loss": stop_loss, "take_profit": take_profit})
+                # Same exit as the v2 placer above, same silence, same fix.
+                self._note_sltp_error(symbol, f"side-sanity: {_side_err}")
                 return None, None
 
         # Strip "/USDT" from ccxt symbol format to get Bitget symbol
@@ -7995,8 +8013,12 @@ class LiveExecutor:
                                   data={"trade_id": trade_id, "symbol": pos.symbol,
                                         "stop_loss": pos.stop_loss, "price": price})
                             self._record_warning("unprotected_persist")
-                            _why = self._last_sltp_reason(pos.symbol)
-                            _why_line = f"\nVenue reason: <code>{_why}</code>" if _why else ""
+                            # Was `f"\nVenue reason: <code>{_why}</code>" if _why
+                            # else ""` -- unescaped, so a rejection carrying `<`
+                            # made Telegram refuse the whole message, and silent
+                            # when nothing was recorded.
+                            _why_line = refusal_suffix(
+                                self._last_sltp_reason(pos.symbol))
                             closed_messages.append(
                                 f"🚨 <b>UNPROTECTED POSITION — {pos.symbol} {pos.direction}</b>\n"
                                 f"No exchange stop-loss could be placed (still retrying each "

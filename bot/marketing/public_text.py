@@ -51,32 +51,93 @@ _PRICE_LABEL = re.compile(
 _EMPTY_TAG = re.compile(r"<(\w+)[^>]*>\s*</\1>")
 _EMPTY_PAREN = re.compile(r"\(\s*[|,;:/\-]*\s*\)")
 
+# THE UNIT IS A FIELD, NOT A LINE, AND THE CARDS ARE WHY.
+#
+# Every rule above is about ONE label and ONE value, and it was applied to a
+# whole LINE — while `live_executor`'s close card puts three labelled fields on
+# one of them:
+#
+#     PnL: -$0.1354 (-1.55% margin / -0.31% notional, 5x) | Fees: $0.14 | Hold: 0m
+#
+# Driven, that published as `PnL: (-1.55% …) | Fees: | Hold: 0m` — the bare
+# `Fees:` label this module's own `_strip_line` docstring calls "its own small
+# dishonesty", because the drop-the-line rule only fires when the WHOLE line
+# empties and here one field of three did.
+#
+# The other direction is worse and was silent. `_is_price_line` anchors at the
+# start, so a price label acquitted every figure after it:
+#
+#     Exit: $0.4198 | PnL: -$0.1354      ->  0 removed, published verbatim
+#
+# `scrub_money`'s own docstring says a count of zero means "the caller already
+# composed public text", so the CRITICAL log that exists to name a caller
+# composing private text does not fire either — the backstop reporting success
+# over the leak. `/broadcast` reaches it with arbitrary admin text today, and
+# this module's header promises that "a future post method that invents a new
+# money field is therefore scrubbed by default rather than leaking until
+# someone notices", which was false for any field following a price label.
+#
+# So a line is cut into the fields the cards actually compose, each field is
+# judged by ITS OWN label, and a field that loses its value loses its label
+# with it.
+_FIELD_SEP = re.compile(r"(\s*(?:\||→|->)\s*)")
+
 
 def _is_price_line(line: str) -> bool:
+    """True when this field's own label says its value is a price.
+
+    Named for the line it used to take because every caller still reads it
+    that way for a single-field line, which is most of them.
+    """
     return bool(_PRICE_LABEL.match(line))
 
 
-def _strip_line(line: str) -> Optional[str]:
-    """The line with money removed, or None when only a label is left.
+def _strip_field(field: str) -> Optional[str]:
+    """The field with money removed, or None when only a label is left.
 
     "Net PnL: <code>$412.90</code>" has nothing to say once the figure is
     gone, and posting the bare label would be its own small dishonesty — it
     announces a number the reader cannot see. "PnL: +$12.34 (+1.23%)" still
     has the percent and survives.
     """
-    line = _MONEY.sub("", line)
-    line = _EMPTY_TAG.sub("", line)
-    line = _EMPTY_PAREN.sub("", line)
+    field = _MONEY.sub("", field)
+    field = _EMPTY_TAG.sub("", field)
+    field = _EMPTY_PAREN.sub("", field)
     # `Trades: 4 |  | Risk: Healthy` — collapse the gap a removal opened.
-    line = re.sub(r"\s{2,}", " ", line)
-    line = re.sub(r"(?:\|\s*){2,}", "| ", line).rstrip()
+    field = re.sub(r"\s{2,}", " ", field).rstrip()
     # Test the VALUE side of the label, before trailing punctuation is
     # trimmed — trimming first turns "Net PnL:" into "Net PnL", which reads
     # as content and kept every emptied line.
-    tail = line.split(":", 1)[1] if ":" in line else line
+    tail = field.split(":", 1)[1] if ":" in field else field
     if not re.search(r"[0-9A-Za-z]", tail):
         return None
-    return re.sub(r"[|,;:\-]\s*$", "", line).rstrip()
+    return re.sub(r"[|,;:\-]\s*$", "", field).rstrip()
+
+
+def _strip_line(line: str) -> Optional[str]:
+    """The line with every non-price field scrubbed, or None when none survive.
+
+    A field whose own label is a price label is kept VERBATIM, which is what
+    makes `post_signal`'s `Entry:`/`Stop Loss:`/`Take Profit:` lines survive.
+    A field is delimited by the separators the cards compose with — `|` and
+    the entry-to-exit arrow — and its label is what stands before its first
+    colon; a SECOND label nested inside one field is not parsed, and no
+    producer in this tree writes one, so that bound is stated rather than
+    guessed at.
+    """
+    parts = _FIELD_SEP.split(line)
+    # `split` on a capturing group alternates value, separator, value, ...
+    fields, seps = parts[0::2], parts[1::2]
+    kept: list[str] = []
+    for i, field in enumerate(fields):
+        if _is_price_line(field) or not _MONEY.search(field):
+            kept.append((seps[i - 1] if i and kept else "") + field)
+            continue
+        cleaned = _strip_field(field)
+        if cleaned is not None:
+            kept.append((seps[i - 1] if i and kept else "") + cleaned)
+    joined = "".join(kept)
+    return joined or None
 
 
 def scrub_money(text: str) -> tuple[str, int]:
@@ -84,21 +145,19 @@ def scrub_money(text: str) -> tuple[str, int]:
 
     The count is the point of the return tuple: zero means the caller already
     composed public text, and anything else is a caller to fix, not a success.
+    It counts what was REMOVED, so a figure a price field keeps is not in it —
+    which is what lets a `post_signal` line of three prices stay a zero.
     """
     if not text:
         return text or "", 0
     removed = 0
     out: list[str] = []
     for line in text.split("\n"):
-        if _is_price_line(line):
+        if not _MONEY.search(line):
             out.append(line)
             continue
-        hits = len(_MONEY.findall(line))
-        if not hits:
-            out.append(line)
-            continue
-        removed += hits
         cleaned = _strip_line(line)
+        removed += len(_MONEY.findall(line)) - len(_MONEY.findall(cleaned or ""))
         if cleaned is not None:
             out.append(cleaned)
     return "\n".join(out), removed

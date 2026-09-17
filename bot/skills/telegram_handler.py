@@ -1235,6 +1235,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("crossasset", self._cmd_crossasset),
             ("slippage", self._cmd_slippage),
             ("sweep", self._cmd_sweep),
+            ("pocretest", self._cmd_pocretest),
             ("leaderboard", self._cmd_leaderboard),
             ("arena", self._cmd_arena),
             ("zones", self._cmd_zones),

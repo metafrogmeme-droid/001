@@ -48,6 +48,7 @@ from bot.compat import UTC
 from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
+from bot.core.sltp_reason import venue_reason
 from bot.llm import failure_cause as _fc
 from bot.formatters.rich_cards import (
     analyze_budget_line,
@@ -2422,10 +2423,13 @@ class ProactiveMonitor:
                     # different manual fix — not just "it's naked". Best-effort.
                     reason = ""
                     try:
-                        _r = ex._last_sltp_reason(sym)
+                        _r = venue_reason(ex._last_sltp_reason(sym))
                         if _r:
-                            reason = (f"- Venue rejected the stop: "
-                                      f"<code>{_html.escape(str(_r)[:160])}</code>\n")
+                            # Not "the venue rejected it": three of the four
+                            # things `_note_sltp_error` records are the bot's
+                            # own words or a network fault.
+                            reason = (f"- Stop placement was refused: "
+                                      f"<code>{_r}</code>\n")
                     except Exception:
                         reason = ""
                     alerts.append(Alert(

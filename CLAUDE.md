@@ -693,9 +693,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 104 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 105 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 95 of the 104 reach the tool-less chat model and 9
+typed as the card prints them, 96 of the 105 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -4779,6 +4779,131 @@ charged at the exit rate on either card, the fill hint reversed, the breached
 stop silenced, the ratchet narrowed to one directory or given an exemption
 with no reason, and the time stop and the entry gate back on two taker legs.
 
+**A SEQUENCE CANNOT BE READ OFF A DISTANCE, AND THE FIRST DRAFT SEARCHED
+BACKWARDS.** The POC-retest setup is four facts in order — a close decisively
+beyond the Point of Control, a return to it inside a window, a close back on
+the same side, then a break of the retest candle's extreme — and the obvious
+implementation looks for "the most recent decisive close" and works forward
+from there. Driven, that is wrong on every real setup: the RETEST candle also
+closes beyond the POC, usually by more than the buffer, so the backwards search
+claims the retest AS the breakout, finds nothing after it, and reports
+`awaiting_retest` on a sequence that completed. **The fixture written to
+produce `confirmed` produced `awaiting_retest`**, which is how it was found —
+no reading of the code would have. Forward, with one more condition the
+backwards version cannot express: a breakout is the FIRST decisive close of an
+excursion, because in a sustained move every candle closes beyond the POC and
+arming on each restarts the window every bar, so nothing can ever expire.
+`poc_magnet_signal` next door answers PROXIMITY ("price is within 2 ATR of the
+POC") and that is a different claim, which is why `retest_state` answers one of
+eight states rather than a score: a sequence that has not completed is not a
+weaker version of one that has.
+
+**AND MY OWN "FOUR ATR IMPLEMENTATIONS" WAS A BAD GREP.** The plan for this
+slice opened by extracting a Wilder ATR into a leaf, on a count I had taken
+from a name search. An AST walk found **44** ATR-named definitions across the
+tree and, decisively, `position_telemetry.atr_from_candles` already Wilder,
+already in a leaf, already bit-identical to this repo's own reference
+(`ref_atr` in `tests/test_indicator_reference_values.py`) — so the extraction would
+have been a fifth copy of a calculation that was already right. *A measurement
+you remember is not a measurement*, this file's own rule, and the correction
+changed the work from "write an ATR" to "add the READING" —
+`atr_reading` is three-valued because `0.0` is two facts (too few bars to
+smooth, and a series that genuinely did not move) and three POC-retest rules
+DIVIDE by it: a `nan` makes every comparison False, so the buffer test rejects
+while the stop-width cap PASSES and the R prints as `nan` — three rules, three
+different wrong answers, from one unreadable candle.
+
+**`atr >= 0` WAS A LINE NO INPUT CAN REACH, and deleting it is the rule.** A
+true range is a `max` over two ABSOLUTE differences, so it cannot be negative —
+driven with the lows above the highs, which is the only input that could ask.
+A branch nothing reaches is not a check, it is a claim that there is one, so
+the branch is gone and the claim is in the suite instead, where a change to the
+arithmetic fails rather than the reading quietly starting to publish one.
+
+**A FORMING CANDLE'S CLOSE IS NOT A CLOSE, and this strategy is entirely
+closes.** The last bar a venue hands back is the one still being built, so
+reading it as a close arms the sequence on a decisive close that has not
+happened and unwinds it again on the next tick. `drop_forming_candle` is the
+repo's existing reading of that and both timeframes go through it — driven, not
+asserted: the same 1h series with its final bar still forming answers
+`no_breakout` where the settled one answers `awaiting_retest`, two states from
+one series, decided entirely by the hygiene call. `/sweep` next door does not
+call it and so repaints intrabar; that is recorded rather than swept, because
+it is a different detector with its own slice.
+
+**AND THE THREE-VALUED READING RAISED.** `compute_volume_profile` bins by
+`int((typical - min) / (max - min) * bins)`, and `int(nan)` is a ValueError —
+so one unreadable 4h candle took down the whole read instead of answering
+`no_poc`. Its own `price_max <= price_min` guard cannot see a nan, for the same
+reason the defect is quiet: every comparison against nan is False. Two things
+fall out of that, and the second is the one that matters: a nan POC reaching the
+comparisons would report `no_breakout` — *price never cleared the buffer*, a
+confident negative about a level nobody measured — which is the shapes table's
+own row in a new spelling, and the `poc <= 0` half is reachable too, on a series
+that straddles zero.
+
+**TWO PARAMETER TESTS WERE POSITIONED WHERE THEY MEASURED NOTHING.** The
+operator asked for the ATR buffer, the 1-5-candle window and the 2R floor to be
+tested "as parameters rather than assuming they are optimal", so the first
+guard drove each one and asserted the answer moved. Both of the state ones
+passed the wrong way: the fixture's breakout closes 0.8 above a POC whose ATR is
+0.64, which is decisive at a 0.25x buffer AND at a 1.0x one, and its retest
+lands at +1, which is inside a window of ONE as much as of five. A fixture
+either side of a boundary measures nothing about the parameter that decides it,
+and a test that reads as though the parameter is live is worse than none. Each
+row sits AT its own boundary now, and the window gained the case that separates
+`>` from `>=`: "within 1-5 candles" admits the fifth.
+
+**THE ONE INPUT THAT SEPARATES THE NET FLOOR FROM THE GROSS ONE WAS MISSING,
+and the mutation survived a whole round.** `net_r < gross` is true whatever the
+comparison reads, and a floor of 999 refuses on either — so `costed.gross` in
+place of `costed.net` changed no verdict anywhere. Only a floor positioned
+BETWEEN the two ratios tells them apart; it is DERIVED from the two measured
+figures rather than written down, so it stays between them if the fixture's
+geometry moves. That is the 2R-after-fees defect this file records one slice
+up, and the guard for it could not see the difference.
+
+**A CLEAN IMPULSE HAS MADE A HIGH AND NO LOW, and a leg needs both.**
+`if not sh or not sl` reads as belt and braces until the fixture exists: driven,
+a 4h series that rises to one peak and falls away has exactly ONE swing high
+and ZERO swing lows, so `and` in place of `or` reaches `sl[-1]` and raises
+IndexError out of the whole read. Every other fixture in the suite has both,
+which is why that mutation survived the first round — the round reporting a
+corpus gap rather than a code one, twice in one slice.
+
+> **And a constant I wrote was read by nobody, in a module written the same
+> hour as the rule.** `MIN_LEG_HINT` existed to explain that
+> `compute_volume_profile` refuses a window under ten candles — which is true,
+> and is why the number is deliberately NOT restated in the new module — and
+> nothing ever read the string. The fifth granularity, in a file whose header
+> quotes the rule about second copies. The explanation is a comment now and the
+> card prints the leg's own candle count, which is what a reader actually needs.
+
+Three copies of one symbol-parse idiom in `scan_commands.py` are recorded rather
+than swept: `raw if "/" in raw else f"{raw}/USDT"` appears three times, two of
+them predating this slice, and the mutation driver REFUSED the bare anchor
+rather than edit another command — the rule earning its keep, and the reason
+this slice used the existing spelling instead of inventing a fourth.
+
+> **And the footnote whose whole job is to state the sample printed a count
+> nobody had.** `read_setup` always records both bar counts, and `SymbolSetup`
+> is a dataclass any caller can build, so a setup carrying a read and no counts
+> rendered *"Read off None closed 4h and None closed 1h candles"* — an absence
+> interpolated as a measurement, on the one line this slice added to prevent
+> exactly that. Found by rendering the card and reading every line of it, which
+> is how every other instance in this file was found and is not something any
+> reading of the diff would have shown.
+
+**Fifty-seven mutations across two rounds, each killed.** Six survived a first
+round and every one was the corpus or the instrument, never the code: the two
+parameter fixtures above, the net-versus-gross floor, the single-peak leg, a
+fetch failure folded into an empty list (which the candle-count shortfall then
+catches, so the answer is still `unread` and only the SENTENCE differs — "only
+0 closed 4h candles" sends an operator to look for a thin market where "could
+not be fetched" sends them to the network), and the card's unplaceable-state
+fallback, which the set-equality pin makes unreachable from any product state
+and which is driven now with a state this build does not know.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -4790,6 +4915,91 @@ Several suites pin this (`app/test/mcp_public_records.test.js`,
 Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.
+
+**THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD.** Every rule
+in `public_text` is about ONE label and ONE value — *"a $-amount survives only
+on a line whose label is a known PRICE label"* — applied to a whole LINE, while
+`live_executor`'s close card puts three labelled fields on one of them.
+Driven on the live ARBUSDT close, `PnL: -$0.1354 (…) | Fees: $0.14 | Hold: 0m`
+published as `PnL: (…) | Fees: | Hold: 0m` — the bare `Fees:` that module's own
+`_strip_field` docstring calls *"its own small dishonesty … it announces a
+number the reader cannot see"*. The rule was there; the granularity was not,
+because the drop-the-label branch fires only when the WHOLE line empties and
+here one field of three did.
+
+**The other direction is worse and was silent.** `_is_price_line` anchors at
+the start, so a price label acquitted every figure after it —
+`Exit: $0.4198 | PnL: -$0.1354` came back **0 removed**, published verbatim —
+and `scrub_money`'s own docstring says a count of zero means *"the caller
+already composed public text"*, so the CRITICAL log in `_post` that exists to
+name a caller composing private text did not fire either. **The backstop
+reporting success over the leak**, reachable today through `/broadcast`, and
+the module header's promise that *"a future post method that invents a new
+money field is therefore scrubbed by default rather than leaking until someone
+notices"* was false for any field standing after a price one. A line is cut
+into the fields the cards compose (`|` and the entry-to-exit arrow), each field
+is judged by ITS OWN label, and a field that loses its value loses its label
+with it. What it does NOT parse is stated rather than guessed at: a SECOND
+label nested inside one field, which no producer writes, so
+`Entry: $0.42 (cost $33.84)` keeps both — recorded as a driven fact rather
+than left for a future card to discover.
+
+**Three of the ten mutations survived the first round and every one was the
+corpus, not the code.** The arrow separator changed no verdict while a pipe sat
+on the same line (the pipe alone did the work), so the input that measures it
+is a non-price field following the arrow DIRECTLY. The
+`not _MONEY.search(field)` branch is invisible to any assertion about a P&L —
+its claim is that **the scrubber removes money and touches nothing else**, and
+only a field carrying a double space tells the two apart. And `joined or None`
+versus `joined` is identical on a one-line input and differs inside a card,
+where `""` leaves a blank line where a figure was.
+
+**THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE.** When
+`_place_sl_tp` comes back empty the executor flattens the position it has just
+opened and says *"Position opened but the stop-loss could not be placed, so it
+was CLOSED for safety"* — or, worse, URGENT (the flatten failed too) or KEPT
+OPEN. None of the three said WHY, although `_note_sltp_error` had recorded it
+seconds earlier and five other surfaces already read it back. That is
+`_leverage_field_phrase`'s lesson one control over: a venue refusing the
+trigger price, a reduce-only leg under the minimum size, an API key with no
+futures permission and a network blip are four different remedies, and the card
+that announces the abort gave the operator one sentence for all of them. The
+three SIBLING aborts in the same method were left alone on purpose — they abort
+for fill slippage and a leverage overshoot, and each already names its own
+cause, so the anchor is the stop-specific sentence and not the shared
+`EXECUTION ABORTED` headline. **The first draft of that guard anchored on the
+headline and accused a slippage card that was telling the truth.**
+
+**And the ONE refusal the bot works out for itself recorded nothing.** Both
+placers have exactly one early exit — the side-sanity check, which computes a
+precise sentence, audits it at ERROR, and returned `(None, None)`. So the
+refusal whose cause is known EXACTLY was the one no downstream reader could
+see at all.
+
+**The fact had three renderings, one of them unescaped, and all three named
+the wrong author.** `/positions` showed `venue said: <code>{why[:120]}</code>`,
+the unprotected card `Venue reason: <code>{why}</code>` — RAW, so a rejection
+carrying `<` makes Telegram refuse the whole message and the send chokepoint's
+fallback strips every tag — and the monitor a third wording at 160. Driven over
+every `_note_sltp_error` call site, **three of the four things the store holds
+are not the venue speaking**: `str(exc)` from a ccxt `create_order` (a
+NetworkError is nobody saying anything), `"success code but no order id
+returned"` (the bot's own reading) and `f"exception: {exc}"`. `sltp_reason`
+is the one reading — escape and truncate once, source-NEUTRAL sentence, and
+`unrecorded` gets its own words because a card that says nothing about the
+cause reads as an abort that had none. The store's own bound was 180 against
+readers showing 120 / everything / 160; it reads `REASON_MAX` now, or raising
+the display bound would have silently capped it in the store instead.
+
+**Both of that round's survivors were "a reader rebuilds its own copy", and
+forbidding the old literals could not see them.** A reader that re-spells the
+escape and the truncation in DIFFERENT words passes every assertion about the
+old ones — the byte-identical-copy problem, one rewording over. The monitor is
+PATCHED and read (plant the reading, find it in the card); `/positions` is a
+400-line async handler, so its CALL is asserted instead, and the owner is
+DERIVED from the line it renders rather than named — the first draft named
+`_cmd_livepositions` where the renderer is `_render_livepositions_cards`, and
+accused correct code for the second time in one guard.
 
 **A scrub pattern that allows a minus sign and not a plus redacts every loss
 and publishes every gain.** `app/lib/flight.js`'s `DOLLAR_TEXT` was
@@ -4925,7 +5135,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 203 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 205 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -5737,9 +5947,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **395 of 957** reach for source text through `source_scan`, `code_only`
+Driven, **397 of 961** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 395 is a FLOOR and the honest shape is
+source scan that rule does not see, so 397 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

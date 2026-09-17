@@ -477,6 +477,30 @@ class ScanCommands:
         except Exception as exc:
             await self._send_error(update, "the liquidity sweep scan", exc)
 
+    @guard("analyze")
+    async def _cmd_pocretest(self, update: Update,
+                             context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Where a symbol's POC-retest sequence has got to — /pocretest SOL.
+
+        The whole reading and the whole card are in `poc_retest_scan`, and
+        this is four lines on purpose: a card built inline in a handler is a
+        card no test can run, which is #999's own lesson and the reason every
+        sibling in this file is the shape it is.
+
+        `analyze` rather than `scan`: this is one asset read in depth, the
+        same question `/quant` asks one layer deeper.
+        """
+        args = context.args if context.args else []
+        raw = (args[0] if args else "BTC").upper()
+        symbol = raw if "/" in raw else f"{raw}/USDT"
+        try:
+            from bot.core.poc_retest_scan import read_setup, setup_card
+            exchange = await self.engine.get_exchange()
+            await self._send(update, setup_card(
+                await read_setup(exchange, symbol)))
+        except Exception as exc:
+            await self._send_error(update, "the POC-retest read", exc)
+
     @guard("scan")
     async def _cmd_zones(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show supply/demand zones for a symbol."""

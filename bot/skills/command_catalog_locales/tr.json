@@ -62,6 +62,7 @@
     "patterns": "motorun gördüğü grafik formasyonları",
     "squeeze": "volatilite sıkışması durumu",
     "sweep": "likidite süpürmesi tespiti",
+    "pocretest": "4s hacim profili POC yeniden testi — /pocretest SOL",
     "zones": "arz/talep bölgeleri",
     "momentum": "momentum taraması",
     "dip": "düşüş taraması",

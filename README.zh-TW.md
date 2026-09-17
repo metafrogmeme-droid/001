@@ -483,6 +483,7 @@ python -m bot.main --mode scan
 | `/patterns` | 引擎看到的圖表形態 |
 | `/squeeze` | 波動壓縮狀態 |
 | `/sweep` | 流動性掃蕩偵測 |
+| `/pocretest` | 4 小時成交量分布 POC 回測 — /pocretest SOL |
 | `/zones` | 供需區 |
 | `/momentum` | 動能掃描 |
 | `/dip` | 回調掃描 |

@@ -530,6 +530,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/patterns` | chart patterns the engine sees |
 | `/squeeze` | volatility squeeze status |
 | `/sweep` | liquidity sweep detection |
+| `/pocretest` | 4h volume-profile POC retest — /pocretest SOL |
 | `/zones` | supply/demand zones |
 | `/momentum` | momentum scan |
 | `/dip` | dip scan |

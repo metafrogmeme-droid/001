@@ -232,6 +232,52 @@ def atr_from_candles(highs: list, lows: list, closes: list, period: int = 14) ->
     return float(atr)
 
 
+def atr_reading(highs: list, lows: list, closes: list,
+                period: int = 14) -> Optional[float]:
+    """ATR(14) when it can be MEASURED, `None` when it cannot.
+
+    `atr_from_candles` above is the arithmetic and is bit-identical to this
+    repo's own Wilder reference (`tests/test_indicator_reference_values.ref_atr`
+    — driven, not assumed). This is the READING, and it exists because two
+    facts share its `0.0`:
+
+        too few bars to smooth over     ->  nobody measured an ATR
+        a genuinely flat series         ->  ATR really is zero
+
+    Every existing caller documents `0.0` as its own absence — the risk engine
+    falls back to a percentage stop, `atr_pct` answers None — so
+    `atr_from_candles` keeps that contract and this does not change it. A
+    consumer that DIVIDES by ATR needs the two apart, and there are three such
+    rules in the POC-retest strategy: the decisive-close buffer, the maximum
+    stop width, and the R figure. A `nan` ATR makes every one of their
+    comparisons False, so the setup is silently rejected by the buffer test
+    while the stop-width cap silently PASSES, and the R prints as `nan` —
+    three rules, three different wrong answers, from one unreadable candle.
+
+    So: `None` for a window too short to smooth, `None` for any non-finite
+    input reaching the average, and `0.0` only when a real series really did
+    not move.
+    """
+    n = len(closes)
+    if n < period + 1 or len(highs) != n or len(lows) != n:
+        return None
+    try:
+        atr = atr_from_candles(highs, lows, closes, period)
+    except (TypeError, ValueError):
+        return None
+    # `nan != nan`, and every comparison against it is False — which is the
+    # whole reason this refuses rather than handing it on.
+    if atr != atr or atr in (float("inf"), float("-inf")):
+        return None
+    # No sign guard: a true range is a `max` over two ABSOLUTE differences, so
+    # it cannot be negative — driven with the lows above the highs, which is
+    # the only input that could ask. A branch no input reaches is not a check,
+    # it is a claim that there is one, so the claim is in the suite instead
+    # (`test_the_true_range_cannot_be_negative`), where a change to the
+    # arithmetic fails rather than this quietly starting to publish one.
+    return float(atr)
+
+
 def playbook_trail_threshold(direction: str, sl_trigger: float,
                              atr_pct_frac: Optional[float]) -> Optional[float]:
     """The mark price at which the trail ratchet is DEMANDED, per the Playbook's

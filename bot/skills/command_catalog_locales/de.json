@@ -62,6 +62,7 @@
     "patterns": "Chartmuster, die die Engine sieht",
     "squeeze": "Status des Volatilitäts-Squeeze",
     "sweep": "Erkennung von Liquiditäts-Sweeps",
+    "pocretest": "POC-Retest des 4h-Volumenprofils — /pocretest SOL",
     "zones": "Angebots-/Nachfragezonen",
     "momentum": "Momentum-Scan",
     "dip": "Dip-Scan",

@@ -63,13 +63,25 @@ class TestAlerts:
     def test_non_open_status_skipped(self, live):
         assert _mon([_pos(status="pending_fill")])._check_unprotected_positions() == []
 
-    def test_alert_includes_venue_rejection_reason(self, live):
-        """The CRITICAL push alert surfaces the last venue error code so the
-        operator can tell a transient retry from a hard rejection."""
+    def test_alert_includes_the_recorded_refusal(self, live):
+        """The CRITICAL push alert surfaces the last refusal so the operator
+        can tell a transient retry from a hard rejection.
+
+        This pinned the literal "Venue rejected the stop". That is a SPELLING,
+        and the spelling was wrong: driven over every `_note_sltp_error` call
+        site, three of the four things the store holds are not the venue
+        speaking — the bot's own "success code but no order id returned", a
+        `exception: …` and a ccxt NetworkError. The sentence is
+        source-neutral now and comes from `sltp_reason.refusal_line`, so this
+        reads the seam rather than restating it: a rewording follows, a lost
+        reason fails.
+        """
+        from bot.core.sltp_reason import venue_reason
         a = _mon([_pos()], sltp_reason="40808: minimum amount precision")._check_unprotected_positions()
         assert len(a) == 1
-        assert "Venue rejected the stop" in a[0].body
-        assert "40808" in a[0].body
+        assert "refused" in a[0].body.lower(), a[0].body
+        assert venue_reason("40808: minimum amount precision") in a[0].body
+        assert "venue rejected" not in a[0].body.lower()
 
     def test_alert_escapes_reason_html(self, live):
         """A reason containing angle brackets must not break Telegram HTML."""
