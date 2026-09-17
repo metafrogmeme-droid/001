@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:942, :951), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:949, :958), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:206 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -156,7 +156,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1822) as a
-tighten-only veto on that user's own confirms (trading_commands.py:376); /run
+tighten-only veto on that user's own confirms (trading_commands.py:377); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -172,7 +172,7 @@ the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:999); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1006); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
@@ -289,7 +289,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:376).
+(/mystrategy, trading_commands.py:377).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -357,7 +357,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:942, :951); the engine, live_executor
+futures-only mode' (trading_commands.py:949, :958); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1770,6 +1770,27 @@ comment says it does not alter live placement), so a live card never prices
 itself off it. The paper book (bot/risk/portfolio.py) and the backtest keep
 their own injected rate so a simulated fee matches the run being compared; the
 one-rule ratchet lists each exemption with its reason and fails on a stale one.
+
+**Why a stop could not be placed**
+
+One reading, one sentence — bot/core/sltp_reason. `venue_reason` escapes and
+truncates the recorded refusal once (three readers escaped it three ways and
+one not at all, at 120 / everything / 160 characters), `refusal_line` says it
+in words that are SOURCE-NEUTRAL, and `refusal_suffix` carries it onto a card.
+Read by: the three stop-placement abort cards in `_sl_tp_or_abort` (which named
+no cause at all), the unprotected-position escalation, /positions'
+bot-managed-stop row and the proactive monitor's CRITICAL alert. The store
+(`_note_sltp_error`) bounds itself by the same `REASON_MAX`, and both placers'
+side-sanity refusal now records the sentence it computes.
+
+*Deliberately out.* "The venue said": driven over every `_note_sltp_error`
+call site, three of the four things the store holds are the bot's own words or
+a network fault — `str(exc)` from a ccxt `create_order`, "success code but no
+order id returned" and `f"exception: {exc}"` — so a line attributing them to
+the venue is a confident wrong attribution on the card an operator reads to
+decide what to change. The three SIBLING aborts in the same method are left
+alone: they abort for fill slippage and a leverage overshoot and each already
+names its own cause.
 
 **The PUBLIC Strategy-Agent marketplace**
 

@@ -55,6 +55,7 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.sltp_reason import venue_reason
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
@@ -905,11 +906,17 @@ class TradingCommands:
                             _why = executor._last_sltp_reason(p.symbol)
                         except Exception:
                             _why = ""
-                        if _why:
+                        # `venue_reason` escapes and truncates once. This
+                        # said "venue said", which is false of most of what
+                        # `_note_sltp_error` records -- the bot's own reading
+                        # of a venue response, and a network exception that is
+                        # nobody saying anything.
+                        _safe = venue_reason(_why)
+                        if _safe:
                             _sym_short = p.symbol.replace("/", "").replace(":USDT", "")
                             _why_lines.append(
-                                f"⚠️ {html.escape(_sym_short)} SL bot-managed — venue said: "
-                                f"<code>{html.escape(_why[:120])}</code>")
+                                f"⚠️ {html.escape(_sym_short)} SL bot-managed — "
+                                f"placement was refused: <code>{_safe}</code>")
                 _cap = f"\U0001f4c8 <b>ACTIVE POSITIONS ({len(pos_pngs)})</b>"
                 if _why_lines:
                     _cap += "\n" + "\n".join(_why_lines[:4])
