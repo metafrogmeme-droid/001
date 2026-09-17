@@ -795,3 +795,157 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
     assert income.count("trading_commands.py:184") == 2
     assert "yield_commands.py:199" not in income
     assert "yield_commands.py:297" in income
+
+
+def _source_scan_adoption() -> tuple[int, int, int]:
+    """(importers, private tokenize copies, copies whose file imports it anyway).
+
+    DERIVED, never restated — the rule this file already applies to the
+    catalogue's 91/79/12. The three counts CLAUDE.md's source-scanning section
+    quotes are read back out of the prose and compared to this walk, because a
+    number in prose is the part that rots first: the paragraph said "47 test
+    files" and named ONE remaining private copy, and on the day this was
+    written the tree held 199 and 18.
+
+    A copy is a function named like the shared one that TOKENIZES for itself.
+    An earlier draft also required that it not mention `source_scan` in its own
+    body; the mutation round showed no such function exists, so that clause was
+    a claim about a check rather than a check. BOTH spellings count: four of the
+    eighteen use the bytes-based `tokenize.tokenize` rather than
+    `tokenize.generate_tokens`, and the first draft of this walk knew only the
+    second and answered 14 — a guard one spelling short of the thing it counts,
+    which is `_SLASH_COMMAND` stopping at the underscore in a new place. Asking
+    whether the FILE mentions `source_scan` is a different wrong question and
+    answers 11: eight files import `handler_sources` from it and still carry
+    their own stripper, which is the sharpest half of the finding.
+    """
+    import ast
+
+    names = {"code_only", "_code_only", "strip_comments", "_strip_comments"}
+    importers: set[str] = set()
+    copies: list[str] = []
+    both = 0
+    for path in sorted(list((ROOT / "tests").rglob("*.py"))
+                       + list((ROOT / "scripts").rglob("*.py"))):
+        if path.name == "source_scan.py":
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:                      # pragma: no cover - parse gate covers it
+            continue
+        imports_it = any(
+            isinstance(n, ast.ImportFrom) and (n.module or "").endswith("source_scan")
+            for n in ast.walk(tree))
+        if imports_it:
+            importers.add(str(path))
+        owns = [n for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and n.name in names
+                and ("tokenize.generate_tokens" in ast.unparse(n)
+                     or "tokenize.tokenize" in ast.unparse(n))]
+        copies.extend(f"{path}:{n.lineno}" for n in owns)
+        if owns and imports_it:
+            both += 1
+    return len(importers), len(copies), both
+
+
+def test_the_source_scan_counts_it_quotes_are_the_ones_a_walk_returns():
+    """"as 199 test files already do" / "The backlog is 18" / "8 of those".
+
+    All three are read out of the prose, so a drift fails HERE rather than
+    teaching the next reader that the backlog is smaller than it is.
+    """
+    importers, copies, both = _source_scan_adoption()
+    section = DOC[DOC.index("## Writing tests that scan source"):
+                  DOC.index("Prefer exercising a property over matching text")]
+
+    assert f"as {importers} test files already do" in section, importers
+    assert f"The backlog is {copies}," in section, copies
+    assert f"{copies} files\ndefine their own" in section, copies
+    assert f"**{both} of those already have the module open**" in section, both
+
+
+def _source_scanning_files() -> tuple[int, int]:
+    """(files reaching for source text, all test files) -- the prose's own rule.
+
+    It is a FLOOR and the paragraph says so: a hand-rolled
+    `Path("bot/x.py").read_text()` is a source scan this rule cannot see. A
+    wider proxy (any `read_text` beside a production path literal) answers 470
+    on the same tree, so the two rules disagree by seventy -- which is why the
+    number travels with the rule that produced it rather than alone, the same
+    reason the walk above counts BOTH tokenize spellings.
+    """
+    files = sorted((ROOT / "tests").rglob("test_*.py"))
+    reach = [p for p in files
+             if any(tok in p.read_text(encoding="utf-8", errors="replace")
+                    for tok in ("source_scan", "code_only", "inspect.getsource"))]
+    return len(reach), len(files)
+
+
+def test_the_do_not_convert_wholesale_count_is_the_one_a_walk_returns():
+    """"47 of 532" was the SAME 47, seven hundred lines down, on another question.
+
+    The importer sentence said 47 and this one said 47, and only one of them
+    could have been measured -- which is how the first came to be wrong. Both
+    are derived now.
+    """
+    reach, total = _source_scanning_files()
+    section = DOC[DOC.index("**Do not convert wholesale"):]
+    section = section[:section.index("Rank candidates by what a wrong claim")]
+
+    assert f"**{reach} of {total}**" in section, (reach, total)
+    assert f"{reach} is a FLOOR" in section, reach
+    assert '*"47 of 532 test files' in section, (
+        "the stale figure is quoted as the thing being corrected, so a reader "
+        "who remembers it lands on the correction rather than on silence")
+
+
+def test_the_fifth_false_failure_names_its_own_referent():
+    """"The fifth one" sat two paragraphs from "five false failures"; the
+    backlog paragraphs above put forty lines and a "Four counts" between them,
+    and the nearest antecedent stopped being the right one.
+    """
+    head = DOC.index("Strip comments first.")
+    ref = DOC.index("is the argument for importing rather than copying.")
+    assert "**The fifth false failure " in DOC[head:ref + 60], (
+        "it names what it is the fifth OF")
+    assert "**The fifth one is" not in DOC, "the ambiguous spelling is gone"
+    # The referent is HAND-WRAPPED ("five false\nfailures"), so the search is
+    # whitespace-normalised: the first draft of this line looked for the
+    # unwrapped form, failed, and was one keystroke from being "fixed" by
+    # re-wrapping the prose. Check the assertion before the code.
+    flat = " ".join(DOC.split())
+    assert flat.count("five false failures") == 1, "and its referent is still there"
+
+
+def test_the_latent_hazard_it_names_is_still_the_shape_it_says():
+    """"hand-scans quote state ... and never blanks docstrings".
+
+    The paragraph declines to consolidate on the grounds that this is a hazard
+    rather than a defect. If the copy stops being narrow, the grounds change.
+    """
+    import ast
+
+    src = (ROOT / "tests" / "test_black_swan_is_reached.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_strip_comments")
+    body = ast.unparse(fn)
+    assert "tokenize" not in body, "it is the hand-written scanner the doc describes"
+    assert "'\\\"'" in body or '"\'"' in body or "in '\"" in body, "it tracks quote state"
+
+    g: dict = {}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "x", "exec"), g)
+    planted = '"""MARKER_IN_A_DOCSTRING."""\n# MARKER_IN_A_COMMENT\nx = 1\n'
+    out = g["_strip_comments"](planted)
+
+    # TWO facts, not one count. The first draft asserted `out.count(...) == 1`
+    # over one marker planted twice, and the mutation that relaxed it to `<= 1`
+    # SURVIVED: zero satisfies it too, so the assertion stopped separating a
+    # narrow copy from a wide one -- which is the whole claim. Distinct markers
+    # make each half its own observable fact, and neither direction has a
+    # comparison to loosen.
+    assert "MARKER_IN_A_COMMENT" not in out, (
+        "the comment really is stripped -- that much the copy does")
+    assert "MARKER_IN_A_DOCSTRING" in out, (
+        "and the DOCSTRING survives, which is the hazard the paragraph "
+        "declines to consolidate on")
