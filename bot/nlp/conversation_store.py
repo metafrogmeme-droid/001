@@ -153,6 +153,11 @@ class Message:
 class UserContext:
     """Accumulated context about a user from their conversations."""
     preferred_assets: list[str] = field(default_factory=list)
+    #: How many distinct mentioned assets are kept. Written as the literal 10
+    #: twice in the writer and read as a SECOND bound of 5 in the renderer -
+    #: two caps, neither named, on a line headed "Assets the user has
+    #: mentioned". The renderer shows all of these and names this one.
+    PREFERRED_ASSETS_MAX = 10
     last_discussed_asset: str = ""
     interaction_count: int = 0
     first_seen: float = 0.0
@@ -215,9 +220,9 @@ class UserContext:
             self.asset_mentions[ticker] = self.asset_mentions.get(ticker, 0) + 1
             if ticker not in self.preferred_assets:
                 self.preferred_assets.append(ticker)
-                # Keep only last 10 preferred assets
-                if len(self.preferred_assets) > 10:
-                    self.preferred_assets = self.preferred_assets[-10:]
+                if len(self.preferred_assets) > self.PREFERRED_ASSETS_MAX:
+                    self.preferred_assets = self.preferred_assets[
+                        -self.PREFERRED_ASSETS_MAX:]
 
         # Detect mood signals from message
         lower = text.lower()
@@ -590,11 +595,20 @@ class ConversationStore:
                 f"({_ago(ctx.last_discussed_at)}) — a mention in their own "
                 "words, not a holding or a position")
         if ctx.preferred_assets:
+            # ONE BOUND, NAMED. This was `[-5:]` over a list the writer had
+            # already capped at 10: two caps, neither said, on a line a model
+            # answers "have I mentioned SOL?" from - the bounded-list-printed-
+            # as-whole shape the unprompted-alerts block was cured of. The
+            # render cap is gone (all that is kept is shown) so there is only
+            # the writer's, and the sentence names it.
             assets = ", ".join(
                 f"{a} x{ctx.asset_mentions[a]}" if ctx.asset_mentions.get(a) else a
-                for a in ctx.preferred_assets[-5:])
-            parts.append("Assets the user has mentioned (mentions in their own "
-                         f"messages, not holdings): {assets}")
+                for a in ctx.preferred_assets)
+            parts.append(
+                "Assets the user has mentioned (mentions in their own "
+                f"messages, not holdings; only the {UserContext.PREFERRED_ASSETS_MAX} "
+                "most recently mentioned are kept, so one they name that is "
+                f"not listed may still have been mentioned): {assets}")
         if ctx.interaction_count > 1:
             parts.append(
                 f"This user has sent {ctx.interaction_count} messages "

@@ -487,6 +487,24 @@ def _unprompted_alerts_block(rows, now: float) -> str:
     already carry - as of THEN, not now. A stop-loss card from three hours
     ago names a price, and a model restating it as the current one is the
     fabrication this section exists to prevent.
+
+    AND THE LIST NAMES ITS OWN BOUND, because the first draft did not. Driven
+    with a burst of thirty, it rendered eight rows and said nothing whatever
+    about the other twenty-two - "a partial total, printed as whole". The
+    closing sentence then made the omission into a DENIAL: "never claim to
+    have sent one that is not listed here" reads as a licence to answer "did
+    you warn me about PENDLE?" with "no, I have not sent you anything about
+    PENDLE", about a card this bot delivered an hour ago. A confident
+    negative assembled from a bounded list, which is this file's subject
+    arriving inside the fix for it.
+
+    No counter was added, deliberately. A dropped-count would need its own
+    SPAN stated - reset on restart, reset on compaction - or it is a figure
+    whose denominator nobody can name, and the honest reading needs none: the
+    list is the most recent `NOTIFICATIONS_MAX`, older ones are not kept, and
+    the ring holds only what this build recorded. FULL is said only when the
+    ring is full and is said as MAY, because full does not prove eviction -
+    exactly `NOTIFICATIONS_MAX` delivered fills it too.
     """
     _unread = (f"\n\n{_ALERTS_HEAD}: could not be read just now. Do not say "
                "you have sent them nothing - you do not know what you sent.")
@@ -520,12 +538,59 @@ def _unprompted_alerts_block(rows, now: float) -> str:
                 "this transcript, not about their account - say you have no "
                 "alert to them in front of you, never that nothing has "
                 "happened to their positions.")
+    # THE LIST IS BOUNDED AND THE BLOCK HAS TO SAY SO. Thirty alerts through
+    # the ring render eight, and a list that does not name its own bound is
+    # "a partial total, printed as whole" - the shapes table's own row. The
+    # SPAN travels with the figure for the reason `summary.scored` does, and
+    # the bound is READ from the store rather than spelled again here,
+    # because a second copy of a threshold is a second answer.
+    cap = ConversationStore.NOTIFICATIONS_MAX
+    # FULL IS NOT PROOF OF EVICTION - exactly `cap` delivered fills it too -
+    # so it is said as MAY, and only when the ring really is full. A
+    # permanent "older ones may have been dropped" on a two-row list is the
+    # row that trains a reader to stop reading the line.
+    full = (f" This list is FULL ({len(listed)} of {cap}), so older ones may "
+            "already have been dropped from it." if len(listed) >= cap else "")
     return (f"\n\n{_ALERTS_HEAD} (alerts and notifications they did not ask "
             "for; oldest first). YOU sent these: the user did not say them "
             "and no chat tool produced them. Each is what was DELIVERED at "
             "its own time, so never restate a figure from one as the state "
-            "now - call a tool - and never claim to have sent one that is "
-            "not listed here:\n" + "\n".join(lines))
+            "now - call a tool. THIS LIST IS BOUNDED: the most recent "
+            f"{cap} at most, older ones are not kept, and only what this "
+            f"build recorded is here.{full} So do not invent one that is not "
+            "listed; and if they name a message that is not here, say you do "
+            "not have it in front of you, never that it was not sent:\n"
+            + "\n".join(lines))
+
+
+def _older_closes_note(total: int, shown: int) -> str:
+    """What a truncated closed-trade list has to say about its own bound.
+
+    A LIST THAT DOES NOT NAME ITS BOUND IS A PARTIAL TOTAL PRINTED AS WHOLE,
+    and the review of the alert ring found the same shape here. Five rows
+    under a header reading RECENT CLOSED TRADES were the model's whole
+    evidence about a record of any length: asked "how did I do this month?"
+    it totals five, and asked "did I trade ETH?" it answers from an absence
+    the truncation manufactured. `_pending_ideas_block` already prints
+    "...and N more" for the queue it cuts and the alert ring already names
+    its cap; these two were the pair that named neither.
+
+    THE COUNT IS EXACT HERE, unlike the ring's. The whole list is in hand and
+    only the RENDERING is cut, so `total` is a real denominator - where the
+    ring's dropped rows are gone and a count of them would be a figure whose
+    span nobody can state. Different facts, different sentences.
+    """
+    # `total <= shown` is the whole guard. A `shown <= 0` clause was written
+    # here first and DELETED: both callers are inside `if recent_trades:` and
+    # hand over a 1:1 row count, so no product input reaches it - and a line
+    # no input can reach is not a check, it is a claim that there is one.
+    if total <= shown:
+        return ""
+    return (f"\n  (...and {total - shown} OLDER closed trade(s) not listed: "
+            f"this is the most recent {shown} of {total}. Do not total or "
+            "count from this list, and if they name a trade that is not here, "
+            "say you do not have it in front of you - never that it did not "
+            "happen.)")
 
 
 def _live_positions_block(executor, marks: dict | None = None) -> str:
@@ -1870,6 +1935,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     #: turn into a price list.
     CHAT_TICKER_LEAD = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT")
     CHAT_TICKER_MAX = 8
+    #: How many closed trades the prompt lists. It was the literal 5, written
+    #: twice - once on the live branch and once on the paper one - which is a
+    #: second copy of a threshold, and the note below reports against it.
+    CHAT_RECENT_CLOSES = 5
 
     def _live_ticker_block(self) -> str:
         """A timestamped snapshot of live prices for the chat prompt.
@@ -2251,7 +2320,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _ntr
                 live_closed = [t for t in executor.closed_positions
                                if getattr(t, "close_reason", "") not in _ntr]
-                recent_trades_live = live_closed[-5:] if live_closed else []
+                recent_trades_live = (live_closed[-self.CHAT_RECENT_CLOSES:]
+                                      if live_closed else [])
                 if recent_trades_live:
                     # THE SAME PLACE, FOR THE SAME REASON as the open-position
                     # row: this is the model's evidence about the user's own
@@ -2263,9 +2333,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     positions_detail += (
                         "\n\nRECENT CLOSED TRADES (live):\n" +
                         "\n".join(trade_lines)
+                        + _older_closes_note(len(live_closed), len(trade_lines))
                     )
             elif not is_live:
-                recent_trades = user_portfolio.trade_history[-5:]
+                _paper_closed = user_portfolio.trade_history
+                recent_trades = _paper_closed[-self.CHAT_RECENT_CLOSES:]
                 if recent_trades:
                     # The live row's renderer, reading the paper vocabulary:
                     # the inline row printed an unrecorded exit as $0.0000
@@ -2275,6 +2347,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     positions_detail += (
                         "\n\nRECENT CLOSED TRADES (PAPER — simulated fills):\n" +
                         "\n".join(trade_lines)
+                        + _older_closes_note(len(_paper_closed), len(trade_lines))
                     )
         except Exception:
             pass

@@ -304,6 +304,30 @@ class TestThePaperPrompt:
         out = _prompt(_paper_pf(trade_history=[_paper_close(exit_price=None)]))
         _check(out, ["exit NOT ON RECORD (the close price could not be read)"], ["exit $0.0000"])
 
+    def test_twelve_paper_closes_render_five_and_the_block_says_so(self):
+        """THE PAPER BRANCH IS THE SECOND COPY, and the live one's fix has to
+        reach it or this is "fixing two left the third" inside one method.
+        `trade_history[-5:]` under a header reading RECENT CLOSED TRADES was
+        the model's whole evidence about a record of any length."""
+        out = _prompt(_paper_pf(trade_history=[_paper_close() for _ in range(12)]))
+        _check(out, ["RECENT CLOSED TRADES (PAPER — simulated fills)",
+                     "...and 7 OLDER closed trade(s) not listed",
+                     "the most recent 5 of 12",
+                     "Do not total or count from this list",
+                     "never that it did not happen"], [])
+
+    def test_a_short_paper_record_is_not_told_it_is_partial(self):
+        out = _prompt(_paper_pf(trade_history=[_paper_close(), _paper_close()]))
+        _check(out, ["RECENT CLOSED TRADES (PAPER — simulated fills)"],
+               ["OLDER closed trade(s) not listed", "the most recent 5 of"])
+
+    def test_the_paper_branch_reads_the_same_name(self, monkeypatch):
+        """One bound, both branches: it was the literal 5, written twice."""
+        monkeypatch.setattr(H, "CHAT_RECENT_CLOSES", 3)
+        out = _prompt(_paper_pf(trade_history=[_paper_close() for _ in range(12)]))
+        _check(out, ["the most recent 3 of 12", "...and 9 OLDER closed trade(s)"],
+               ["the most recent 5 of 12"])
+
     def test_engine_state_is_stated_when_it_cannot_be_read(self, monkeypatch):
         import bot.core.live_readiness as lr
 

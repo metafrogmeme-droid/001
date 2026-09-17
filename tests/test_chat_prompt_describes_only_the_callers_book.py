@@ -149,9 +149,15 @@ def _handler(engine):
             # production. An empty ring is the honest stand-in.
             conversations=NS(build_context_prompt=_context_prompt,
                              recent_alerts=lambda uid: []),
-            _CHAT_SYSTEM_PROMPT=H._CHAT_SYSTEM_PROMPT,
-            CHAT_TICKER_MAX_AGE_SEC=H.CHAT_TICKER_MAX_AGE_SEC,
-            CHAT_TICKER_LEAD=H.CHAT_TICKER_LEAD, CHAT_TICKER_MAX=H.CHAT_TICKER_MAX)
+            # DERIVED, not listed. Every upper-case class attribute the real
+            # handler defines rides onto the stub, because a hand-written list
+            # of the constants the prompt reads is a second copy of them - and
+            # it drifted: `CHAT_RECENT_CLOSES` was read through `self` inside
+            # the block's own swallowing `try`, so an NS without it deleted
+            # the whole RECENT CLOSED TRADES section in silence. That is this
+            # file's own `_pending_ideas_block` warning, one constant over.
+            # Read at CALL time, so a monkeypatched bound reaches the stub.
+            **{k: getattr(H, k) for k in vars(H) if k.isupper()})
     ns._live_ticker_block = H._live_ticker_block.__get__(ns)
     return ns
 
@@ -883,6 +889,89 @@ class TestPendingIdeas:
         # an idea with no source at all is the bot's (TradeIdea defaults to "unknown")
         _check(self._block([NS(direction=NS(value="LONG"), asset="OP/USDT", entry_price=2.0,
                                confidence=0.5)]), ["OP/USDT"], ["plus"])
+
+
+# ── the closed list names its own bound ────────────────────────────────────
+
+def _closes(n):
+    return [NS(trade_id=f"LIVE-{i}", symbol=f"S{i}/USDT:USDT", direction="LONG",
+               entry_price=1.0, close_price=1.2, pnl_usd=1.0, commission=0.0,
+               close_reason="TP", status="closed") for i in range(n)]
+
+
+class TestTheClosedListNamesItsOwnBound:
+    """A LIST THAT DOES NOT NAME ITS BOUND IS A PARTIAL TOTAL PRINTED AS WHOLE.
+
+    The alert ring's review found the same shape here: `live_closed[-5:]`
+    under a header reading RECENT CLOSED TRADES was the model's whole evidence
+    about a record of any length. Asked "how did I do this month?" it totals
+    five; asked "did I trade ETH?" it answers from an absence the truncation
+    manufactured. `_pending_ideas_block` already prints "...and N more" and
+    the LIVE MARKET block already tells the model it does not know an unlisted
+    price - these two branches named neither.
+    """
+
+    def test_twelve_closes_render_five_and_the_block_says_so(self, live):
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=_closes(12)))
+        out = live(e, "777", store_raises=True)
+        _check(out, ["RECENT CLOSED TRADES (live)",
+                     "...and 7 OLDER closed trade(s) not listed",
+                     "the most recent 5 of 12",
+                     "Do not total or count from this list",
+                     "never that it did not happen"], [])
+
+    def test_a_short_record_is_not_told_it_is_partial(self, live):
+        """A permanent caveat on a three-row list is the row that trains a
+        reader to stop reading it."""
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=_closes(3)))
+        out = live(e, "777", store_raises=True)
+        _check(out, ["RECENT CLOSED TRADES (live)"],
+               ["OLDER closed trade(s) not listed", "the most recent 5 of"])
+
+    def test_exactly_the_cap_is_the_whole_record_and_says_nothing(self, live):
+        """The boundary a `>=` in place of the `>` would walk into: five of
+        five IS the whole record, so there is nothing to caveat."""
+        n = H.CHAT_RECENT_CLOSES
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=_closes(n)))
+        out = live(e, "777", store_raises=True)
+        _check(out, ["RECENT CLOSED TRADES (live)"], ["OLDER closed trade(s) not listed"])
+
+    def test_the_cap_is_ONE_name_read_by_both_branches(self, monkeypatch, live):
+        """It was the literal 5, written twice. Move the name and both move."""
+        monkeypatch.setattr(H, "CHAT_RECENT_CLOSES", 2)
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=_closes(12)))
+        out = live(e, "777", store_raises=True)
+        _check(out, ["the most recent 2 of 12", "...and 10 OLDER closed trade(s)"],
+               ["the most recent 5 of 12"])
+
+    def test_the_note_is_framing_so_it_sits_with_its_list(self, live):
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=_closes(12)))
+        out = live(e, "777", store_raises=True)
+        assert (out.index("RECENT CLOSED TRADES (live)")
+                < out.index("...and 7 OLDER closed trade(s)"))
+
+    @pytest.mark.parametrize("total,shown", [(5, 5), (3, 5), (0, 0)])
+    def test_the_leaf_claims_nothing_where_nothing_was_cut(self, total, shown):
+        """Nothing was cut: a caveat is then a hedge about a list that has
+        lost nothing. (`shown == 0` is not among these - no caller can reach
+        it, and the clause that once handled it was deleted rather than
+        pinned.)"""
+        assert th._older_closes_note(total, shown) == ""
+
+    def test_the_count_is_of_TRADES_not_of_every_closed_row(self, live):
+        """The live branch filters never-filled orders OUT before it slices,
+        so the denominator must be the filtered list. Counting
+        `executor.closed_positions` would tell the model it has 13 closed
+        trades where 12 were trades and one was a lapsed limit order - a
+        non-fill counted as a trade, the defect `NON_TRADE_CLOSE_REASONS`
+        exists to prevent, arriving in the note rather than in the rows."""
+        rows = _closes(12) + [NS(trade_id="X", symbol="NOPE/USDT:USDT",
+                                 direction="LONG", entry_price=1.0, close_price=1.0,
+                                 pnl_usd=0.0, commission=0.0, status="closed",
+                                 close_reason="cancelled")]
+        e = _engine(per_user=True, linked={}, op_ex=_op_ex(closed_positions=rows))
+        out = live(e, "777", store_raises=True)
+        _check(out, ["the most recent 5 of 12"], ["the most recent 5 of 13", "NOPE/USDT"])
 
 
 # ── wiring: the seams are reached, and the leak line is gone ───────────────
