@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import ast
 import inspect
-from pathlib import Path
+import textwrap
 from types import SimpleNamespace
 
 import pytest
 
 from bot.skills.telegram_handler import TelegramHandler
+from tests.command_guards import _decorator_permission, _inbody_permission, baseline, command_guards
 from tests.source_scan import handler_sources
 
 
@@ -92,27 +93,133 @@ async def test_news_command_answers_with_the_digest_not_a_type_error(monkeypatch
 
 # ── the guarded set is a ratchet ─────────────────────────────────────────────
 
-BASELINE = Path(__file__).resolve().parent / "guarded_commands_baseline.txt"
+# ── the walk's own rules, on PLANTED trees ──────────────────────────────────
+# Both of these survived the first mutation round against the real tree, and
+# for the same reason: no command in this repo has a computed `@guard(...)`
+# argument or a nested def that gates. A rule the corpus cannot reach is a
+# claim that there is a check, so the rule gets a tree where it is the only
+# thing in play -- the shape this repo already uses for the methods ratchet.
 
 
-def _baseline():
-    return {ln.strip() for ln in BASELINE.read_text(encoding="utf-8").splitlines()
-            if ln.strip() and not ln.startswith("#")}
+def _fn(src: str):
+    return ast.parse(textwrap.dedent(src)).body[0]
+
+
+def test_a_guard_on_a_nested_def_is_not_the_commands_guard():
+    """The first draft claimed this bound in a docstring and did not make it.
+
+    `ast.walk` descends into a nested def, so driven, a `_cmd_demo` whose
+    inner helper gates on "admin" was recorded as gating on "admin". The
+    mutation round is what said so; a docstring claiming a check the code does
+    not make is the whole of `quant_skill._safe_reason`.
+    """
+    nested_only = _fn("""
+        async def _cmd_demo(self, update, ctx):
+            async def _inner():
+                if not await self._guard(update, "admin"):
+                    return
+            return await _inner()
+    """)
+    assert _inbody_permission(nested_only) is None
+
+    own_and_nested = _fn("""
+        async def _cmd_demo(self, update, ctx):
+            if not await self._guard(update, "trade"):
+                return
+            async def _inner():
+                if not await self._guard(update, "admin"):
+                    return
+    """)
+    assert _inbody_permission(own_and_nested) == "trade", (
+        "the command's own gate is the command's gate, and the inner one is "
+        "not a second opinion about it")
+
+
+def test_only_selfs_gate_counts_as_the_commands_gate():
+    """`other._guard(update, "admin")` is somebody else's gate, not this one.
+
+    Third of the three rules the real tree cannot reach -- no command here
+    calls `_guard` on anything but `self` -- so it is driven on a planted tree
+    for the same reason as the other two. Without the check, a command that
+    delegates to another object's gate would be recorded under THAT object's
+    permission, which is a row in the baseline that is about a different gate.
+    """
+    delegated = _fn("""
+        async def _cmd_demo(self, update, ctx):
+            if not await other._guard(update, "admin"):
+                return
+    """)
+    assert _inbody_permission(delegated) is None
+
+    mine = _fn("""
+        async def _cmd_demo(self, update, ctx):
+            if not await self._guard(update, "admin"):
+                return
+    """)
+    assert _inbody_permission(mine) == "admin", (
+        "and self's gate still reads, or the refusal above proves nothing")
+
+
+def test_a_computed_guard_argument_is_refused_rather_than_recorded():
+    """`@guard(SOME_CONST)` has no permission this walk can read.
+
+    Recording the expression's TEXT would put a string that is not a
+    permission into the baseline, where it would then be compared, printed and
+    believed. Refusing is the only honest answer, and `raise` is how the reader
+    finds out rather than the baseline quietly growing a row that means
+    nothing.
+    """
+    computed = _fn("""
+        @guard(SOME_CONST)
+        async def _cmd_demo(self, update, ctx):
+            pass
+    """)
+    with pytest.raises(AssertionError, match="computed argument"):
+        _decorator_permission(computed)
+
+    literal = _fn("""
+        @guard("trade")
+        async def _cmd_demo(self, update, ctx):
+            pass
+    """)
+    assert _decorator_permission(literal) == "trade", (
+        "and the ordinary case still reads, or the refusal above proves nothing")
 
 
 def test_no_command_has_lost_its_guard():
     """The slip this catches: a helper inserted between `@guard(...)` and the
     `def` it belonged to. The decorator lands on the helper (the test above
     catches that half) and the COMMAND is left open (this half). Tonight it
-    happened to /status on the way to fixing /news."""
-    guarded = {n for n, _p in _guarded_defs() if n.startswith("_cmd_")}
-    lost = sorted(_baseline() - guarded)
-    assert lost == [], (f"commands that lost their @guard: {lost} -- an auth regression, "
+    happened to /status on the way to fixing /news.
+
+    It reads `command_guards()` rather than `_guarded_defs()`, and that is the
+    whole of the 2026-09-17 fix: `_guarded_defs` walks `decorator_list`, so
+    the SEVEN commands that gate with an in-body `self._guard(update, "...")`
+    were acquitted by the ratchet written for exactly this -- /trade among
+    them. A reader that knows one spelling acquits the other.
+    """
+    guarded = set(command_guards())
+    lost = sorted(set(baseline()) - guarded)
+    assert lost == [], (f"commands that lost their guard: {lost} -- an auth regression, "
                         "or edit the baseline in the same commit")
 
 
 def test_a_newly_guarded_command_is_recorded():
-    guarded = {n for n, _p in _guarded_defs() if n.startswith("_cmd_")}
-    new = sorted(guarded - _baseline())
+    new = sorted(set(command_guards()) - set(baseline()))
     assert new == [], (f"newly guarded commands not in tests/guarded_commands_baseline.txt: {new} "
                        "-- record them in the same commit")
+
+
+def test_no_command_quietly_changed_which_permission_it_gates_on():
+    """A name-only baseline makes the weaker claim.
+
+    "It has some guard" stays true when `trade` is re-spelled `status`, and
+    driven, `viewer` HOLDS `status` and does not hold `trade` -- which is the
+    role `_cmd_trade`'s own F-12 comment says its guard was added to refuse.
+    So the permission is recorded beside the name and moves only on purpose.
+    """
+    now, was = command_guards(), baseline()
+    moved = sorted((c, was[c], now[c]) for c in set(now) & set(was) if was[c] != now[c])
+    assert moved == [], ("commands whose permission changed (command, recorded, now): "
+                         f"{moved} -- weakening one is an auth regression; record it "
+                         "in the same commit if it is deliberate")

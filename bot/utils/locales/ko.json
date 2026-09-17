@@ -273,5 +273,6 @@
   "venue_scan_list": "🏦 <b>스캔할 수 있는 거래소</b> — <code>/scan &lt;venue&gt;</code>는 거기서 거래하든 안 하든 거래소의 자체 시장 목록을 읽습니다:",
   "venue_scan_unreachable": "🔴 <b>{venue}이(가) 응답하지 않았습니다</b> — 아무것도 스캔되지 않았습니다. 이는 읽기 실패이지 빈 시장이 아닙니다.\n<code>{detail}</code>",
   "welcome_pending": "<b>안녕하세요 {name}님!</b>\n\n저는 RUNECLAW, 당신의 AI 트레이딩 어시스턴트입니다.\n시장을 스캔하고, 셋업을 찾고, 리스크를 대신 관리합니다.\n\n계정이 승인 대기 중입니다.\nID: <code>{tg_id}</code>\n\n관리자가 곧 설정을 완료할 것입니다.\n승인되면 평소처럼 저와 대화하세요.",
-  "welcome_ready": "{name}님, 현재 상황입니다:\n\n{status_icon} <b>{status_label}</b> | {mode}\n자산: <code>{equity}</code>\n보유 포지션: <code>{filled}</code>{pending_str}\n승률: <code>{win_rate}</code>\n등급: {tier} | 거래: {trade_mode}\n\n<b>말을 걸어 보세요:</b>\n<i>\"BTC 스캔\" - \"내 포지션 보여줘\" - \"리스크는?\"</i>\n<i>\"SOL 분석\" - \"내 PnL은?\" - \"봇 일시정지\"</i>\n\n🌐 <a href=\"{web_url}\">웹 대시보드 열기 →</a>\n\n필요한 것을 그냥 입력하세요. 명령어는 필요 없습니다.\n\n<i>{time}</i>"
+  "welcome_ready": "{name}님, 현재 상황입니다:\n\n{status_icon} <b>{status_label}</b> | {mode}\n자산: <code>{equity}</code>\n보유 포지션: <code>{filled}</code>{pending_str}\n승률: <code>{win_rate}</code>\n등급: {tier} | 거래: {trade_mode}\n\n<b>말을 걸어 보세요:</b>\n<i>\"BTC 스캔\" - \"내 포지션 보여줘\" - \"리스크는?\"</i>\n<i>\"SOL 분석\" - \"내 PnL은?\" - \"봇 일시정지\"</i>\n\n🌐 <a href=\"{web_url}\">웹 대시보드 열기 →</a>\n\n필요한 것을 그냥 입력하세요. 명령어는 필요 없습니다.\n\n<i>{time}</i>",
+  "limit_expired": "⏰ 지정가 입력 단계가 시간 초과되었습니다 — {pair} 가격을 입력할 시간이 {minutes}분이었으므로 대기를 중단했고, 방금 보내신 숫자를 가격으로 읽지 않았습니다. <b>주문은 들어가지 않았고 아무것도 변경되지 않았습니다.</b> 스캔을 다시 실행한 뒤 필요하면 지정가를 누르세요."
 }

@@ -1,101 +1,123 @@
-# Commands that carry @guard(...) today. A command may only LEAVE this list by
-# editing it in the same commit -- a guard that silently disappears (a helper
+# Every command that carries a GUARD today, and the PERMISSION it gates on.
+#
+# A command may only LEAVE this list, or CHANGE its permission, by editing the
+# file in the same commit -- a guard that silently disappears (a helper
 # inserted between the decorator and the def, as happened twice on 2026-09-03)
-# is an auth regression nothing else notices. A new guarded command is added
-# here in the same commit, same rule as known_failures.txt.
-_cmd_airdrops
-_cmd_alerts
-_cmd_analyze
-_cmd_anchor
-_cmd_approvals
-_cmd_arena
-_cmd_autoconfirm
-_cmd_backtest
-_cmd_backup
-_cmd_buy
-_cmd_calibration
-_cmd_classpf
-_cmd_compliance
-_cmd_costs
-_cmd_daily_report
-_cmd_dashboard
-_cmd_deepscan
-_cmd_defi
-_cmd_dip
-_cmd_emergency_stop
-_cmd_enforcing
-_cmd_eventrisk
-_cmd_exposure
-_cmd_forcescan
-_cmd_fullscan
-_cmd_golive
-_cmd_halt
-_cmd_health
-_cmd_holdtime
-_cmd_intraday
-_cmd_lang
-_cmd_latest_signal
-_cmd_leaderboard
-_cmd_learn
-_cmd_letter
-_cmd_leverage
-_cmd_linkwallet
-_cmd_livebalance
-_cmd_liveclose
-_cmd_livepositions
-_cmd_llmreset
-_cmd_llmstatus
-_cmd_llmtiers
-_cmd_macro
-_cmd_meme_radar
-_cmd_memeplan
-_cmd_mode
-_cmd_momentum
-_cmd_mystrategy
-_cmd_networth
-_cmd_news
-_cmd_nft
-_cmd_open_positions
-_cmd_optimize
-_cmd_orders
-_cmd_paper
-_cmd_patterns
-_cmd_pause
-_cmd_performance
-_cmd_playbook
-_cmd_portfolio
-_cmd_postmortem
-_cmd_price_alert
-_cmd_proposals
-_cmd_quant
-_cmd_rejected
-_cmd_replay
-_cmd_research
-_cmd_reset
-_cmd_resume
-_cmd_risk
-_cmd_run
-_cmd_rwa
-_cmd_scalp
-_cmd_scan
-_cmd_sell
-_cmd_settier
-_cmd_signals
-_cmd_spot
-_cmd_squeeze
-_cmd_stake
-_cmd_status
-_cmd_stockscan
-_cmd_sweep
-_cmd_swing
-_cmd_token
-_cmd_unstake
-_cmd_arbpair
-_cmd_venue_router
-_cmd_venues
-_cmd_walkforward
-_cmd_wallet
-_cmd_watch
-_cmd_whynot
-_cmd_xray
-_cmd_zones
+# is an auth regression nothing else notices, and so is `trade` quietly
+# re-spelled `status`, which `viewer` holds and `trade` does not. A newly
+# guarded command is added here in the same commit, same rule as
+# known_failures.txt.
+#
+# TWO SPELLINGS, one list. `@guard("x")` on 96 of these and an in-body
+# `if not await self._guard(update, "x"): return` on 7 (/trade, /agent, /arb,
+# /connect, /disconnect, /exchange, /fundingscan). Until 2026-09-17 this file
+# held only the 96, because its reader walked `decorator_list` -- so deleting
+# the in-body line from _cmd_trade, the door that opens a real position, was
+# invisible here. A reader that knows one spelling acquits the other.
+#
+# Derived by tests/command_guards.py::command_guards(); the 42 commands that
+# gate with an in-body `_is_admin(...)` are deliberately not here (see that
+# module's header).
+_cmd_agent status
+_cmd_airdrops airdrops
+_cmd_alerts scan
+_cmd_analyze analyze
+_cmd_anchor anchor
+_cmd_approvals token
+_cmd_arb status
+_cmd_arbpair trade
+_cmd_arena dashboard
+_cmd_autoconfirm admin
+_cmd_backtest backtest
+_cmd_backup backup
+_cmd_buy trade
+_cmd_calibration admin
+_cmd_classpf portfolio
+_cmd_compliance compliance
+_cmd_connect status
+_cmd_costs costs
+_cmd_daily_report journal
+_cmd_dashboard dashboard
+_cmd_deepscan deepscan
+_cmd_defi defi
+_cmd_dip run
+_cmd_disconnect status
+_cmd_emergency_stop halt
+_cmd_enforcing enforcing
+_cmd_eventrisk macro
+_cmd_exchange status
+_cmd_exposure exposure
+_cmd_forcescan admin
+_cmd_fullscan scan
+_cmd_fundingscan status
+_cmd_golive admin
+_cmd_halt halt
+_cmd_health status
+_cmd_holdtime journal
+_cmd_intraday scan
+_cmd_lang lang
+_cmd_latest_signal scan
+_cmd_leaderboard dashboard
+_cmd_learn learn
+_cmd_letter letter
+_cmd_leverage leverage
+_cmd_linkwallet help
+_cmd_livebalance portfolio
+_cmd_liveclose admin
+_cmd_livepositions portfolio
+_cmd_llmreset mode
+_cmd_llmstatus status
+_cmd_llmtiers status
+_cmd_macro macro
+_cmd_meme_radar meme_radar
+_cmd_memeplan memeplan
+_cmd_mode mode
+_cmd_momentum run
+_cmd_mystrategy mystrategy
+_cmd_networth networth
+_cmd_news status
+_cmd_nft nft
+_cmd_open_positions portfolio
+_cmd_optimize optimize
+_cmd_orders portfolio
+_cmd_paper portfolio
+_cmd_patterns patterns
+_cmd_pause halt
+_cmd_performance portfolio
+_cmd_playbook playbook
+_cmd_portfolio portfolio
+_cmd_postmortem portfolio
+_cmd_price_alert price_alert
+_cmd_proposals proposals
+_cmd_quant analyze
+_cmd_rejected rejected
+_cmd_replay replay
+_cmd_research research
+_cmd_reset reset
+_cmd_resume reset
+_cmd_risk risk
+_cmd_run run
+_cmd_rwa rwa
+_cmd_scalp scan
+_cmd_scan scan
+_cmd_sell trade
+_cmd_settier mode
+_cmd_signals scan
+_cmd_spot spot
+_cmd_squeeze scan
+_cmd_stake stake
+_cmd_status status
+_cmd_stockscan scan
+_cmd_sweep scan
+_cmd_swing scan
+_cmd_token token
+_cmd_trade trade
+_cmd_unstake stake
+_cmd_venue_router venue_router
+_cmd_venues trade
+_cmd_walkforward walkforward
+_cmd_wallet wallet
+_cmd_watch scan
+_cmd_whynot rejected
+_cmd_xray token
+_cmd_zones scan

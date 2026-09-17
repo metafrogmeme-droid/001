@@ -31,6 +31,9 @@ from bot.utils.paths import state_path
 from bot.utils.outbound import reply_safe
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import position_size_basis
+from bot.core.limit_input import (consume_pending, limit_expired_text,
+                                  read_pending)
+from bot.nlp.button_actions import action_label
 # The chat's runtime pieces that are not the handler — the per-user rate
 # limiter, the chain's timing constants, the thinking phrases, the two tool
 # rules, the Telegram edit-stream, the event fan-out and the `_chat_ret`
@@ -711,7 +714,8 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 from bot.core.engine import RuneClawEngine
 from bot.core.signal_tracker import SignalTracker
-from bot.nlp.skill_memory import (card_shown_memory, command_reply_memory,
+from bot.nlp.skill_memory import (button_reply_memory, button_turn_text,
+                                  card_shown_memory, command_reply_memory,
                                   command_turn_text, not_run_memory,
                                   record_routed_turn, routed_answer_memory,
                                   skill_failure_memory, skill_result_memory,
@@ -767,8 +771,10 @@ from bot.utils.win_rate import win_stats as _win_stats
 #: variable rather than an attribute on the handler because `build_app` runs
 #: every update as its own task and two commands are routinely in flight at
 #: once — a list on `self` would put one user's card into another's
-#: transcript. Outside a command the variable is None and the chokepoint
-#: appends nothing, so the free-text path, alerts and callbacks are untouched.
+#: transcript. `_remembering_button` sets one the same way around the callback
+#: dispatcher, so a tapped button's card is captured too; outside either the
+#: variable is None and the chokepoint appends nothing, which leaves the
+#: free-text path and the alert loop untouched.
 _REPLY_CAPTURE: ContextVar[Optional[list[str]]] = ContextVar(
     "runeclaw_reply_capture", default=None)
 
@@ -1135,7 +1141,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             handler = self._remembering(cmd, handler)
             app.add_handler(CommandHandler(cmd, handler))
             self._known_commands.append(cmd)
-        app.add_handler(CallbackQueryHandler(self._handle_callback))
+        # A tapped button is a turn the user can see and the model
+        # cannot — the hole the line above closes for slash commands,
+        # on the door registered directly below it.
+        app.add_handler(
+            CallbackQueryHandler(self._remembering_button(self._handle_callback)))
         # AI-5: photo messages → operator vision chat. The agent reads a pasted
         # chart / positions / PnL screenshot and describes what it sees. Admin-
         # only (it spends the operator's Claude key); non-admins get a note.
@@ -3020,11 +3030,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         context, never a dependency: nothing here raises.
         """
         try:
-            tg_id = self._get_tg_id(update)
-            user = self.users.get(tg_id)
-            if not user or not user.get("authorized", False):
-                return
-            if not self._is_allowlisted(update):
+            tg_id = self._transcript_user(update)
+            if tg_id is None:
                 return
             n_args = len(getattr(ctx, "args", None) or [])
             record_routed_turn(self.conversations, tg_id,
@@ -3032,6 +3039,80 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                surface="telegram", skill=cmd, via="command")
         except Exception:
             system_log.debug("command turn not recorded for /%s", cmd,
+                             exc_info=True)
+
+    def _transcript_user(self, update) -> Optional[str]:
+        """The caller's id when their turns may be recorded, else None.
+
+        NOT ADMITTED, NO TRANSCRIPT — `_handle_message` refuses free text from
+        a caller the bot has not admitted before touching the store, and the
+        command and button doors must do the same, because the store evicts
+        its least-recent users at 200 and strangers pressing buttons would
+        otherwise push admitted users' history out. One reading for all three
+        doors: two copies of an admission rule are two answers about whose
+        history survives.
+        """
+        tg_id = self._get_tg_id(update)
+        user = self.users.get(tg_id)
+        if not user or not user.get("authorized", False):
+            return None
+        if not self._is_allowlisted(update):
+            return None
+        return tg_id
+
+    def _remembering_button(self, handler):
+        """Wrap the callback dispatcher so a TAPPED BUTTON reaches the
+        transcript.
+
+        The same hole `_remembering` closes for slash commands, on the door
+        registered one line below it — and `_REPLY_CAPTURE`'s own comment
+        records that callbacks were left out, so this was filed rather than
+        missed. Thirty-four buttons, `confirm:` among them: the free-text
+        limit-price path records the trade it places under a comment saying
+        that turn "recorded nothing at all", and the BUTTON that places the
+        same trade recorded nothing.
+
+        ONE leaf, for the reason the command wrapper gives: `_handle_callback`
+        is a single 1,400-line dispatcher and a record per branch would be
+        thirty-four chances to forget, with the next branch as the
+        thirty-fifth.
+        """
+        @functools.wraps(handler)
+        async def _wrapped(update, ctx):
+            token = _REPLY_CAPTURE.set([])
+            action = action_label(
+                getattr(getattr(update, "callback_query", None), "data", None))
+            try:
+                await handler(update, ctx)
+            except Exception:
+                self._remember_button(update, action, skill_failure_memory(action))
+                raise
+            else:
+                self._remember_button(
+                    update, action,
+                    button_reply_memory(action, _REPLY_CAPTURE.get() or []))
+            finally:
+                _REPLY_CAPTURE.reset(token)
+        return _wrapped
+
+    def _remember_button(self, update, action: str, record: str) -> None:
+        """Write a tapped button's turn — after it ran, so a tap that admits
+        its own caller is recorded and a stranger's is not.
+
+        The user turn is what they DID and never the payload
+        (`button_turn_text` says why; `admit:<uid>` is somebody else's
+        identifier). Memory is context, never a dependency: nothing here
+        raises.
+        """
+        try:
+            tg_id = self._transcript_user(update)
+            if tg_id is None:
+                return
+            record_routed_turn(self.conversations, tg_id,
+                               button_turn_text(action), action, record,
+                               surface="telegram", skill=action, via="button")
+        except Exception:
+            system_log.debug("button turn not recorded for %s", action,
                              exc_info=True)
 
     def _remember_routed(self, tg_id: str, text: str, intent: str,
@@ -3396,14 +3477,29 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # ── Custom limit price input ──────────────────────────
         # If user is in "set limit" mode, capture the price they type
         caller_uid = str(uid)
-        if hasattr(self, '_pending_limit_input') and caller_uid in self._pending_limit_input:
-            pending_info = self._pending_limit_input[caller_uid]
-            # Expire stale limit-price requests after 5 minutes
-            if time.time() - pending_info.get("timestamp", 0) > 300:
-                del self._pending_limit_input[caller_uid]
-                pending_info = None
-        if hasattr(self, '_pending_limit_input') and caller_uid in self._pending_limit_input:
-            pending_info = self._pending_limit_input[caller_uid]
+        # AN EXPIRED PROMPT IS NOT A PROMPT THAT WAS NEVER SENT, and this read
+        # used to answer both with silence: the stale row was deleted,
+        # `pending_info` was set to None, and the caller's typed price fell
+        # through to the router — where, driven, no bare number matches any
+        # rule — and on to the chat model. So somebody who tapped Limit,
+        # stepped away for six minutes and came back to type `2.367` was
+        # answered about something else, which is this flow's own 2026-09-15
+        # incident arriving through the other door. `read_pending` is the
+        # three-valued reading and it consumes the stale row either way.
+        # The row is checked as well as the state: this is a module boundary,
+        # and a caller that indexes a leaf's Optional on the strength of the
+        # leaf's invariant crashes the whole message the day that invariant
+        # gains a case. (It also lets the analyser narrow, which the `index`
+        # ratchet noticed before a reviewer would have.)
+        _limit_state, pending_info = read_pending(self, caller_uid)
+        if _limit_state == "expired" and pending_info is not None:
+            _expired = limit_expired_text(
+                self._lang(update), pair=str(pending_info["pair"]))
+            await self._send(update, _expired)
+            self._remember_routed(tg_id, text, "limit_price_input",
+                                  routed_answer_memory("limit_price_input", _expired))
+            return
+        if _limit_state == "armed" and pending_info is not None:
             # Try to parse as a number
             try:
                 custom_price = float(text.replace("$", "").replace(",", "").strip())
@@ -3417,7 +3513,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # Update the idea's entry price
                 idea = self.engine._pending_ideas.get(trade_id)
                 if not idea:
-                    del self._pending_limit_input[caller_uid]
+                    consume_pending(self, caller_uid)
                     _gone = t('trade_expired_rescan', self._lang(update))
                     await self._send(update, _gone)
                     self._remember_routed(tg_id, text, "trade_confirm",
@@ -3430,7 +3526,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 idea.order_type = "limit"
 
                 # Clean up
-                del self._pending_limit_input[caller_uid]
+                consume_pending(self, caller_uid)
 
                 # Show confirmation and execute
                 lang = self._lang(update)
@@ -3464,7 +3560,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             except ValueError:
                 # Not a valid number — cancel the limit input mode
                 if text.lower() in ("cancel", "no", "back", "nevermind"):
-                    del self._pending_limit_input[caller_uid]
+                    consume_pending(self, caller_uid)
                     _cancelled = t("limit_input_cancelled", self._lang(update))
                     await self._send(update, _cancelled)
                     self._remember_routed(

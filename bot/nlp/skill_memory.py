@@ -94,6 +94,38 @@ def _headed(head: str, body: str) -> str:
     return f"{head}):\n{body}"
 
 
+def _captured(replies: Sequence[object]) -> Optional[str]:
+    """What the send chokepoint DELIVERED, as the model will read it, or None.
+
+    One reading for both doors that capture rather than ask — a slash command
+    and a tapped button — because "was anything delivered" is one question and
+    two answers to it would drift the day either joins its chunks differently.
+    """
+    joined = "\n".join(str(r) for r in replies if r is not None) if replies else ""
+    return _plain(joined) if joined else None
+
+
+def _nothing_captured(tag: str, did: str) -> str:
+    """The record for a door that answered and whose reply was not seen.
+
+    Shared for the reason ``_headed`` is: the first draft of the button
+    record was byte-identical to the command one, which is the second-copy
+    shape appearing inside a slice about second copies. ``did`` is what the
+    door did, because "/x ran" and "the user tapped that button" are the one
+    thing the two records do not share.
+
+    Nothing captured is NOT "it sent nothing": twenty commands reply through
+    the bot object directly, six callback branches send by their own route,
+    and a rate-limited ``/help`` returns in silence — from the chokepoint's
+    side those are one absence. The record says what it knows and claims no
+    send it did not see.
+    """
+    return (f"[{tag}] SHOWN, CONTENTS NOT RECORDED — {did} and no reply from "
+            "it was captured in this transcript: it may reply by a route this "
+            "transcript does not see, or it may have sent nothing. Nothing of "
+            "its reply can be quoted, summarised or counted from here.")
+
+
 def skill_result_memory(skill: str, result: object) -> str:
     """The assistant turn to record after ``skill`` returned ``result``."""
     body = _plain(result)
@@ -274,16 +306,60 @@ def command_reply_memory(command: str, replies: Sequence[object]) -> str:
     record says what it knows and claims no send it did not see.
     """
     cmd = str(command).strip().lstrip("/")
-    joined = "\n".join(str(r) for r in replies if r is not None) if replies else ""
-    body = _plain(joined) if joined else None
+    body = _captured(replies)
     if body is None:
-        return (f"[{cmd}] SHOWN, CONTENTS NOT RECORDED — /{cmd} ran and no reply "
-                "from it was captured in this transcript: it may reply by a "
-                "route this transcript does not see, or it may have sent "
-                "nothing. Nothing of its reply can be quoted, summarised or "
-                "counted from here.")
+        return _nothing_captured(cmd, f"/{cmd} ran")
     head = (f"[{cmd}] SHOWN by the /{cmd} command (its own reply, as the user "
             "saw it; no chat tool ran")
+    return _headed(head, body)
+
+
+def button_turn_text(action: str) -> str:
+    """The USER turn to record for a TAPPED BUTTON: what they did, not typed.
+
+    The person typed nothing at all, so a turn shaped like a message would be
+    the first false thing in the record. What they chose was a button, and
+    ``action`` is the dispatcher's own name for it — an internal identifier
+    rather than the label they read, which is why the turn says so instead of
+    quoting it as words.
+
+    The payload never appears, for the reason ``command_turn_text`` gives and
+    one it does not have: ``confirm:<trade_id>:<uid>`` is machinery, and
+    ``admit:<uid>`` is ANOTHER USER'S Telegram id. A slash argument is at
+    worst the caller's own secret; this one would be somebody else's
+    identifier, in this caller's prompt and in a file on disk.
+    """
+    act = str(action).strip() or "unnamed"
+    if act == "unnamed":
+        return ("(tapped a button — this build does not name that button, "
+                "no text typed)")
+    return f'(tapped a button — action "{act}", no text typed)'
+
+
+def button_reply_memory(action: str, replies: Sequence[object]) -> str:
+    """The assistant turn to record after a TAPPED BUTTON replied.
+
+    A SEVENTH record, and the distinction is the same one the six make: WHO
+    answered. Not ``skill_result_memory`` — both tool rules tell the model an
+    ``[x] result:`` block "was written by the runtime after a tool really
+    ran", and the Close button is no tool the model holds. Not
+    ``command_reply_memory`` either, whose every sentence says ``/x``: a
+    button is not a command, the model must never learn to offer one as if it
+    were typeable, and reusing that record would teach it exactly that. Not
+    ``card_shown_memory``, whose wording promises a send its callers watched
+    happen — from here a send is CAPTURED, and six branches reply by a route
+    the chokepoint never sees.
+
+    The marker word is ``SHOWN``, which the fabrication guard already
+    polices, so a model writing this shape is claiming a tap that never
+    happened.
+    """
+    act = str(action).strip() or "unnamed"
+    body = _captured(replies)
+    if body is None:
+        return _nothing_captured(act, "the user tapped that button")
+    head = (f"[{act}] SHOWN by a button the user tapped (its own reply, as "
+            "the user saw it; no chat tool ran")
     return _headed(head, body)
 
 

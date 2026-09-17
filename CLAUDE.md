@@ -1087,6 +1087,123 @@ on its own, and the full preflight — not the slice's suites — said so.
 
 **Twenty-seven mutations, each killed.** The driver's first run aborted on its own anchor: the truncation tail written for the new record was byte-identical to the website record's, so the anchor matched twice — the second-copy shape showing up inside the instrument built to find it, and a second copy in the product. The tail is one helper now (`_headed`), the router's and the website's records read it too, and the round was re-run against it: every mutation dies, the gate refusal that returns without sending (so the AST pin is live) and the record written before the command runs included.
 
+**AND THE DOOR REGISTERED ONE LINE BELOW IT WAS THE SAME HOLE, ON THE BUTTON
+THAT EXECUTES A TRADE.** `build_app` wraps 147 commands and then does
+`app.add_handler(CallbackQueryHandler(self._handle_callback))` with no wrapper
+at all. Driven, `bot/skills/callback_handler.py` is 1,776 lines with 34
+callback literals and **zero** records of any kind, against 68 in
+`telegram_handler.py` — and `_REPLY_CAPTURE`'s own comment said so, *"the
+free-text path, alerts and callbacks are untouched"*, so it was filed
+knowingly rather than missed. The sharpest instance is the trade: the
+free-text limit-price path records its execution under a comment reading *"A
+turn that PLACES A TRADE recorded nothing at all, so 'did that go through?'
+reached the model with the confirmation missing from its own history"*, and
+the `confirm:` BUTTON, which places the same trade, recorded nothing. Fixed
+for the typed door and left standing on the tapped one, in the same file.
+
+**A SEVENTH record, because a button is none of the six.** Not
+`skill_result_memory` — the Close button is no tool the model holds. Not
+`command_reply_memory`, whose every sentence spells `/x`: a model that learnt
+this record from that one would offer `/confirm`, which is not typeable. Not
+`card_shown_memory`, whose wording promises a send its callers watched happen,
+where here a send is CAPTURED and six branches reply by a route the chokepoint
+never sees. The not-captured sentence is one helper now
+(`_nothing_captured`), shared with the command record for the reason `_headed`
+is shared — the first draft was byte-identical to it, which is the second-copy
+shape appearing inside a slice about second copies, for the second time.
+
+**THE ACTION IS THE WHOLE RECORD AND THE PAYLOAD IS NEVER RECORDED**, and the
+argument is stronger than the slash one. `command_turn_text` withholds
+arguments because five commands take a secret as theirs; here
+`confirm:T-1758059112:4242` carries an internal trade id and `admit:<uid>`
+carries SOMEBODY ELSE'S Telegram id — a slash argument is at worst the
+caller's own secret, this one would put one user's identifier into another
+user's prompt and into a file on disk. So the payload is dropped at the
+boundary, never per branch, and a tap this build cannot name is recorded as
+UNNAMED rather than as its raw data: a table one row short costs the model
+information, and the alternative costs a user their id.
+
+**The table is DERIVED from the dispatcher, not kept beside it.** A
+hand-written map is the `/setllm` ten-of-eleven shape, where the branch added
+tomorrow is the one missing, so `BUTTON_ACTIONS` is pinned against an AST walk
+of `_handle_callback` for every literal `data` is compared against — the
+`guarded_commands_baseline` rule. The walk had to reach NESTED branches:
+`reject:` is an `elif` inside the `confirm:` block, and a top-level-only walk
+acquits it, which is the `_web_aliases` lesson again. Matching is LONGEST
+first, because `policy_cancel` is a branch of its own inside `policy_` and
+reading it as the shorter row files a CANCELLATION as a policy change.
+
+**Six branches replied by hand and skipped four things at once.** The
+access-denied notice, `lang:`, `open_warroom`, `mode_`, `pane:` and `nav:`
+each called `query.edit_message_text` directly, which is not only outside the
+capture: it is outside `reply_safe` (the secret scrub), outside the 4000-char
+split, and outside the HTML→plain fallback — **five of the six had none**, so
+a card with markup Telegram refuses simply vanished. `_send` has all four and
+already takes that exact edit path. `ctx.bot.send_message` in the `admit:`
+branch is deliberately NOT swept and the guard says why beside the exclusion:
+it messages the ADMITTED PERSON in their own chat, so routing it through
+`_send` would send it to the wrong one. The first draft of that assertion
+accused it.
+
+**AN EXPIRED PROMPT IS NOT A PROMPT THAT WAS NEVER SENT, and this is required
+by the record rather than optional.** The handler deleted a stale limit-price
+row, set `pending_info = None` and fell through — so an arming that TIMED OUT
+at 300s and one that was never made were one silence. Driven, every bare
+number (`2.367`, `$2.367`, `0.0522`, `100k`, `3`) matches NO router rule at
+any confidence, so the fall-through is the chat model every time: somebody who
+tapped Limit, stepped away for six minutes and came back to type a price was
+answered about something else, which is this flow's own 2026-09-15 incident
+arriving through the other door. It had to land in the same slice, because
+once the Limit tap's prompt is IN the transcript the model reads *"[limit]
+SHOWN: type your limit price"* followed by a bare number and will reasonably
+narrate that the price was set — *"before delivering a value that has never
+been delivered, ask what each of its possible values would MEAN at the
+destination"*, with the answer being that wiring the record makes the silence
+worse. `read_pending` is three-valued, `consume_pending` replaced three
+in-body `del`s (two readers of one dict are two answers about whether a prompt
+is live), and a row missing what the writer writes is NONE rather than
+expired: that sentence names a trade and there is none to name, and the
+capture body reads `row["trade_id"]` outside any handler catching a KeyError,
+so such a row used to crash the message.
+
+**Two of the new assertions accused correct code and one accused the
+fixture.** `ctx.bot.send_message` above; the shared-tail count, anchored on
+`CONTENTS NOT RECORDED` where `card_shown_memory` opens the same way and then
+says something different ON PURPOSE ("was sent to the user", because its
+callers watched it happen); and `_split_message`, a STATICMETHOD the fixture
+bound with `__get__`, so `host` arrived as the text and `_send` raised inside
+its own `try` — a fixture breaking the code it is driving. *When a fresh
+assertion fails, check whether the code or the assertion is wrong before
+touching the code*, a fifth time.
+
+**And three ratchets from earlier slices caught this one.** The call-site
+count moved to fifty-two, the source-scan figures to 201 and 393 of 952, and
+the seven-record pin could not see its own subject: it asserted the literal
+"Six records now" AND listed six builders by hand, so the two agreed with each
+other and with nothing else while a seventh was being added. It derives the
+count from the module now and calls each builder by its ARITY, so the eighth
+record trips it without anybody editing the test.
+(`tests/test_a_button_tap_is_in_the_transcript.py`.)
+
+**Twenty-eight mutations, each killed — and the five that survived the first round were three kinds.** One was an EQUIVALENT mutant: `button_action`'s `or not data` clause is redundant, because no row in the table is empty and so an empty string matches nothing by itself — it is deleted rather than pinned, since a line no input can reach is a claim that there is a check. Two were the driver's and the fixture's: `return "" or (f"…")` evaluates to the f-string, a no-op mutation proving nothing (the comment-appended-to-a-return shape, one spelling over), and the capture-leak test read `_REPLY_CAPTURE` OUTSIDE the coroutine — `run_until_complete` copies the context, so a `.set()` inside never reaches the caller and the assertion could not fail whatever the code did. The last two were real gaps in my own guard: the expired branch was pinned by `"limit_expired_text" in body`, which survives deleting the SEND (the sentence is still computed) and survives deleting the RETURN (the caller then falls into the capture body with a consumed row) — so the branch's SHAPE is asserted now, and the test says why it is a scan rather than a drive. A sixth redundancy was found by READING the diff rather than by the round — `read_pending`'s `isinstance(row, dict) or row is not None` cannot be false when its first half is true — and removing it meant re-running the seven `limit_input` mutations against what actually ships, which is where the twenty-seventh came from.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A PRECONDITION I HAD POINTED AT THE
+WRONG THING.** `read_pending`'s `_ROW_FIELDS` demanded every key
+`arm_limit_input` WRITES, under a comment of mine saying *"a reading whose
+precondition drifts from its writer is two answers about what an arming is"*.
+That is the wrong invariant, and two existing tests in
+`test_a_routed_answer_is_in_the_transcript.py` — one of them the turn that
+PLACES A TRADE — plant exactly the four fields the capture body reads. Both
+went red: the six-field precondition answered NONE for a usable row, so the
+caller's typed price fell through to the chat model. **The exact silence this
+slice removes, rebuilt inside the cure for it**, and no suite the slice had
+been running could see it — the twenty-eighth mutation is that precondition
+put back, and it dies on those two tests. A reading's precondition is its
+READERS' needs: `asset` and `current_entry` are written here and read by
+nobody, and a field no reader reads is not part of the contract. The guard
+asserts a SUPERSET now (the writer carries at least what the readers need)
+rather than an equality, which is what let the wrong invariant look pinned.
+
 **Nine of the website's fifteen chat intercepts had no read on Telegram, and
 one of them was a wrong card.** Six have nothing here at all — the what-if
 replay, the weekly letter, the airdrop radar, the NFT radar, the spot market,
@@ -2481,7 +2598,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Fifty-one call sites across the two entry points today, one on
+never happened. Fifty-two call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -2491,16 +2608,18 @@ fall-through, the news digest, and the five-return limit-price flow that
 CONFIRMS AND EXECUTES A TRADE. The web's news intercept was the same defect with a
 placeholder instead of silence: `"[news] radar digest"` says a digest happened
 and not one headline from it, which is `"executed successfully"` in new
-clothes, three modules from the docstring that deletes it. **Six records now,
-because six things happen and only one is a measurement** —
+clothes, three modules from the docstring that deletes it. **Seven records now,
+because seven things happen and only one is a measurement** —
 `skill_result_memory` (a tool ran), `routed_answer_memory` (the router spoke;
 "no tool ran"), `card_shown_memory` (a command's card, "CONTENTS NOT
 RECORDED", so the model's honest continuation is *I do not have that in front
 of me* rather than a reconstruction), `not_run_memory` (a gate said no,
 which is neither a failure inviting a retry nor an absent tool),
 `web_answer_memory` (the website answered from its own reading; no bot tool
-ran) and `command_reply_memory` (a slash command replied, captured where it
-was sent — its section below). The name
+ran), `command_reply_memory` (a slash command replied, captured where it
+was sent — its section below) and `button_reply_memory` (a BUTTON was tapped,
+which is none of the six: not a tool the model holds, not a command it could
+offer, and captured rather than watched). The name
 recorded is the skill that RAN — `scan_deep` dispatches `deepscan` — and
 `record_routed_turn` writes both turns from one leaf, so the transports cannot
 drift about what the model remembers.
@@ -4056,7 +4175,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 199 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 201 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -4818,13 +4937,66 @@ it. Neither could see reachability, which is the one thing they were being
 asked about. Both are driven now — plant the state, read what the operator is
 told — and the drives are shorter than the scans were.
 
+**A THIRD ONE, on the door that opens a real position — and the ratchet
+written for exactly this could not see it.** `tests/guarded_commands_baseline.txt`
+says in its own header that "a guard that silently disappears ... is an auth
+regression nothing else notices", and its reader walked `node.decorator_list`.
+There are TWO spellings: `@guard("x")` on 96 commands, and an in-body
+`if not await self._guard(update, "x"): return` on SEVEN — `/trade`, `/agent`,
+`/arb`, `/connect`, `/disconnect`, `/exchange`, `/fundingscan`. None of the
+seven was in the baseline. COVERAGE OF A SPELLING IS NOT COVERAGE OF THE
+GUARD, which is `_SLASH_COMMAND` stopping at the underscore pointed at the
+auth surface.
+
+`/trade`'s only pin was `assert 'self._guard(update, "trade")' in src`, and
+driven, it catches exactly one of the three ways to break the gate:
+
+    guard DELETED                          -> caught (that scan, nothing else)
+    `if False and not await self._guard(`  -> 7 passed. NOT CAUGHT.
+    guard moved BELOW register_manual_idea -> 7 passed. NOT CAUGHT.
+
+The literal survives both because the assertion asks whether a STRING EXISTS,
+not whether the gate RUNS or runs FIRST — this section's own lesson, on the
+one command whose F-12 comment records what its absence cost ("letting any
+authorized user (incl. a viewer role) queue trades"; driven, `viewer` holds
+`status` and does NOT hold `trade`). The drive is both arms, because a refusal
+assertion alone passes against a `_cmd_trade` that does nothing at all. The
+scan STAYS: it is not wrong, it is narrower than the claim read off it, and
+"do not convert wholesale" applies to one's own cleanup.
+
+**The permission travels with the name now**, because a name-only baseline
+makes the weaker claim: "it has some guard" stays true when `trade` is quietly
+re-spelled `status`.
+
+**And the round found a docstring of mine claiming a bound the code does not
+make.** `_inbody_permission` said it was "bounded to THIS function's own body"
+and used `ast.walk`, which DESCENDS into a nested def — so a guard on an inner
+helper would have been recorded as the command's. That is
+`quant_skill._safe_reason` exactly, written inside the slice about assertions
+claiming more than they check; and the first fix for it skipped nested defs as
+CHILDREN while still yielding them from the body, so it descended anyway.
+Driving it, not reading it, is what said so both times.
+
+**Three of the walk's rules survived the first round because the real tree
+cannot reach them** — no command here has a computed `@guard(...)` argument, a
+gating nested def, or a `_guard` call on anything but `self`. A rule no input
+can reach is a claim that there is a check. They are driven on PLANTED trees
+now, which is what the methods ratchet's guards already do: a tree where the
+rule is the only thing in play. 13 of 13 after that.
+
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **398 of 950** reach for source text through `source_scan`, `code_only`
+Driven, **393 of 952** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 398 is a FLOOR and the honest shape is
-*about half the suite*. One stale number under two different questions, seven
+source scan that rule does not see, so 393 is a FLOOR and the honest shape is
+*about half the suite*. (It read 398 for one slice, because the first rule
+matched the token anywhere in the file's TEXT — so seven files that only NAME
+a reader in a docstring were counted as reaching for source, and the next
+slice added an eighth and moved the number. It is an AST usage test now:
+imports or calls, never a mention. "Strip comments first" is this chapter's
+own opening line, and a docstring is a string token `code_only` itself would
+not blank.) One stale number under two different questions, seven
 hundred lines apart, and the direction it was wrong in is the one that invites
 the sweep this paragraph forbids. Most of them should scan —
 `tests/test_trade_live_mode.py` says so in its own docstring: the behaviour is

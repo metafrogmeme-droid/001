@@ -273,5 +273,6 @@
   "venue_scan_list": "🏦 <b>スキャンできる取引所</b> — <code>/scan &lt;venue&gt;</code> は、そこで取引しているかどうかに関係なく、取引所自身の銘柄リストを読みます:",
   "venue_scan_unreachable": "🔴 <b>{venue} が応答しませんでした</b> — 何もスキャンされていません。これは読み取りの失敗であり、空の市場ではありません。\n<code>{detail}</code>",
   "welcome_pending": "<b>こんにちは、{name}さん！</b>\n\n私はRUNECLAW、あなたのAIトレーディングアシスタントです。\n市場をスキャンし、セットアップを見つけ、リスクを管理します。\n\nあなたのアカウントは承認待ちです。\nID: <code>{tg_id}</code>\n\n管理者がまもなく設定を完了します。\n承認されたら、いつも通り話しかけてください。",
-  "welcome_ready": "{name}さん、現在の状況です：\n\n{status_icon} <b>{status_label}</b> | {mode}\n資産: <code>{equity}</code>\n保有ポジション: <code>{filled}</code>{pending_str}\n勝率: <code>{win_rate}</code>\nティア: {tier} | 取引: {trade_mode}\n\n<b>話しかけてください:</b>\n<i>「BTCをスキャン」 - 「ポジションを見せて」 - 「リスクは？」</i>\n<i>「SOLを分析」 - 「PnLはどう？」 - 「ボットを一時停止」</i>\n\n🌐 <a href=\"{web_url}\">ウェブダッシュボードを開く →</a>\n\n必要なことを入力するだけで、コマンドは不要です。\n\n<i>{time}</i>"
+  "welcome_ready": "{name}さん、現在の状況です：\n\n{status_icon} <b>{status_label}</b> | {mode}\n資産: <code>{equity}</code>\n保有ポジション: <code>{filled}</code>{pending_str}\n勝率: <code>{win_rate}</code>\nティア: {tier} | 取引: {trade_mode}\n\n<b>話しかけてください:</b>\n<i>「BTCをスキャン」 - 「ポジションを見せて」 - 「リスクは？」</i>\n<i>「SOLを分析」 - 「PnLはどう？」 - 「ボットを一時停止」</i>\n\n🌐 <a href=\"{web_url}\">ウェブダッシュボードを開く →</a>\n\n必要なことを入力するだけで、コマンドは不要です。\n\n<i>{time}</i>",
+  "limit_expired": "⏰ 指値価格の入力がタイムアウトしました — {pair} の価格を入力できる時間は {minutes} 分でしたので、待機を終了し、今送られた数字を価格としては読んでいません。<b>注文は出されておらず、何も変更されていません。</b>もう一度スキャンを実行し、必要なら「指値」をタップしてください。"
 }

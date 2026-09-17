@@ -14,6 +14,7 @@ So the checkable claims are pinned. Every command it gives runs, every file it
 points at exists, every rule it states is one the suite actually enforces.
 """
 
+import inspect
 import json
 import pathlib
 import re
@@ -206,8 +207,6 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     import inspect
     import textwrap
 
-    m = re.search(r"Fifty-one call sites across the two entry points", DOC)
-    assert m, "the claim was reworded; recount it"
     import bot.skills.telegram_handler as th
     from bot.web import user_gateway as ug
     tg = textwrap.dedent(inspect.getsource(th.TelegramHandler._handle_message))
@@ -216,7 +215,18 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
             for src in (tg, web)
             for c in ast.walk(ast.parse(src))
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute | ast.Name))
-    assert n == 51, f"CLAUDE.md says fifty-one; the two entry points have {n}"
+    # The SPELLING is hard-coded; the NUMBER is driven. The first draft
+    # hard-coded both, so the day a branch was added the failure said "the
+    # claim was reworded" about a sentence nobody had touched -- an
+    # accusation pointing at the prose when the code had moved.
+    words = {n_: w for n_, w in {
+        48: "Forty-eight", 49: "Forty-nine", 50: "Fifty", 51: "Fifty-one",
+        52: "Fifty-two", 53: "Fifty-three", 54: "Fifty-four",
+        55: "Fifty-five", 56: "Fifty-six"}.items()}
+    assert n in words, f"{n} call sites; widen the spelling map"
+    claim = f"{words[n]} call sites across the two entry points"
+    assert claim in DOC, (
+        f"CLAUDE.md does not say {claim!r}; the two entry points have {n}")
 
 
 def test_the_catalogue_numbers_are_the_numbers_a_drive_returns():
@@ -345,21 +355,34 @@ def test_the_seam_and_the_old_scrub_read_one_vocabulary_now():
     assert "1234567890:AAF" not in _safe_exc_text(RuntimeError(tok))
 
 
-def test_the_six_records_it_names_all_exist_and_differ():
+def test_the_records_it_names_all_exist_and_differ():
+    """The COUNT is derived, because the prose said "Six records now" while a
+    seventh was being added and this pin could not see it: it asserted the
+    literal AND listed six by hand, so the two agreed with each other and with
+    nothing else. The module's public record builders are the measurement."""
     from bot.nlp import skill_memory as sm
 
-    assert "Six records now" in DOC
-    heads = {sm.skill_result_memory("s", "x")[:30],
-             sm.routed_answer_memory("s", "x")[:30],
-             sm.card_shown_memory("s")[:30],
-             sm.not_run_memory("s", "x")[:30],
-             sm.web_answer_memory("s", "x")[:30],
-             sm.command_reply_memory("s", ["x"])[:30]}
-    assert len(heads) == 6, heads
-    for name in ("skill_result_memory", "routed_answer_memory",
-                 "card_shown_memory", "not_run_memory", "web_answer_memory",
-                 "command_reply_memory", "record_routed_turn"):
-        assert name in DOC and hasattr(sm, name)
+    builders = sorted(n for n in dir(sm)
+                      if n.endswith("_memory") and not n.startswith("_")
+                      and n != "skill_unavailable_memory"
+                      and n != "skill_failure_memory")
+    words = {5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine"}
+    n = len(builders)
+    assert n in words, f"{n} records; widen the spelling map"
+    assert f"{words[n]} records now" in DOC, (
+        f"CLAUDE.md does not say {words[n]} records; the module has "
+        f"{n}: {builders}")
+
+    # Called by ARITY rather than by a hand-written argument list, so a
+    # record added tomorrow is driven here without anybody editing this.
+    heads = set()
+    for name in builders:
+        fn = getattr(sm, name)
+        n_args = len(inspect.signature(fn).parameters)
+        heads.add(fn(*(["s", ["x"]][:n_args]))[:30])
+    assert len(heads) == n, f"two records open alike: {sorted(heads)}"
+    for name in builders + ["record_routed_turn"]:
+        assert name in DOC and hasattr(sm, name), name
 
 
 def test_the_two_valued_mode_shape_it_describes_is_really_gone():
@@ -875,11 +898,39 @@ def _source_scanning_files() -> tuple[int, int]:
     number travels with the rule that produced it rather than alone, the same
     reason the walk above counts BOTH tokenize spellings.
     """
+    import ast as _ast
+
+    def _uses(path) -> bool:
+        """Imports or CALLS one of the three readers -- not merely names one.
+
+        The first draft matched the token anywhere in the file's text, so a
+        DOCSTRING mentioning `code_only` counted as reaching for source, and
+        the very next slice added such a file and moved the number. "Strip
+        comments first" is this chapter's own opening advice; an AST is that
+        advice done properly, since a docstring is a string token `code_only`
+        itself would not blank.
+        """
+        try:
+            tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            return False
+        for n in _ast.walk(tree):
+            if isinstance(n, _ast.ImportFrom) and "source_scan" in (n.module or ""):
+                return True
+            if isinstance(n, _ast.Import):
+                if any("source_scan" in a.name for a in n.names):
+                    return True
+            if isinstance(n, _ast.Call):
+                f = n.func
+                if isinstance(f, _ast.Name) and f.id in ("code_only", "_code_only"):
+                    return True
+                if isinstance(f, _ast.Attribute) and f.attr in (
+                        "code_only", "_code_only", "getsource"):
+                    return True
+        return False
+
     files = sorted((ROOT / "tests").rglob("test_*.py"))
-    reach = [p for p in files
-             if any(tok in p.read_text(encoding="utf-8", errors="replace")
-                    for tok in ("source_scan", "code_only", "inspect.getsource"))]
-    return len(reach), len(files)
+    return sum(1 for p in files if _uses(p)), len(files)
 
 
 def test_the_do_not_convert_wholesale_count_is_the_one_a_walk_returns():
