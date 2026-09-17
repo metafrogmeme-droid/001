@@ -4056,14 +4056,51 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 47 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 199 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
-(`tests/test_preflight_matches_ci.py` still carries a private copy of the same
-twenty lines, which is the second-copy-is-a-second-answer shape sitting inside
-the advice against it.)
 
-**The fifth one is the argument for importing rather than copying.**
+**The backlog is 18, and this paragraph used to name one of them.** It said
+`tests/test_preflight_matches_ci.py` "still carries a private copy", which a
+reader takes as *we are down to one* and stops looking. Driven by AST, 18 files
+define their own `tokenize`-based stripper instead of importing the shared one,
+and **8 of those already have the module open** — they import `handler_sources`
+from `source_scan` in the same file. Naming one where there are eighteen is
+coverage UNDERSTATED, the inverse of the failure the rest of this document is
+about, and it is the *a number in prose is the part that rots first* shape
+either way: both counts are DERIVED by `tests/test_claude_md_accuracy.py` now
+rather than restated here.
+
+**Consolidating them is not the instruction, because today it is not a
+defect.** Both false-pass directions were measured across every copy that could
+be driven: a presence assertion satisfied by a docstring a NARROW copy kept, and
+an absence assertion satisfied by code a WIDE copy destroyed. Zero hits either
+way. What stands is a LATENT hazard worth naming — `test_black_swan_is_reached`
+hand-scans quote state (so a `#` inside a string is safe) and never blanks
+docstrings, over `bot/core/proactive_monitor.py` and `bot/core/engine.py`; none
+of its eight asserted literals sits in a docstring there today, and one added
+tomorrow acquits the guard silently. Import the shared reading in a new guard;
+rewrite an old one when you are already in the file for another reason.
+
+> **Three probes written to measure that backlog each accused correct code**,
+> which is why the numbers above are stated with the rule that produced them.
+> One resolved the stripper as `getattr(module, "code_only")` and so read past
+> a FUNCTION-LOCAL `from tests.source_scan import code_only` — it measured a
+> function the test does not call and reported it as the test's, nearly filing
+> a defect against a file that was already correct. One `exec`ed a function into
+> a bare namespace, which made a documented `except` fire and accused
+> `test_no_new_dead_public_api.py`'s never-fatal wrapper of stripping nothing.
+> One fed Python input to the JS and shell strippers and read the category
+> error as a finding. The first count was 11 because the classifier asked
+> whether the FILE mentions `source_scan` rather than what the FUNCTION does —
+> the eight above are exactly the files that difference hides. **And the fourth
+> was in the pin itself**: it counted `tokenize.generate_tokens` and answered
+> 14, because four of the eighteen spell it `tokenize.tokenize` — a guard one
+> spelling short of the thing it counts, which is `_SLASH_COMMAND` stopping at
+> the underscore in a new place. Four counts (11, 14, 18, 18) and only the last
+> two agree; the number above is the one two independent rules returned.
+
+**The fifth false failure is the argument for importing rather than copying.**
 `test_chat_runtime_split.py::test_the_runtime_is_a_leaf` asserted
 `"telegram_handler" not in src`, over raw source with the module docstring
 lopped off by `split('"""', 2)[2]` — and failed the day `chat_runtime.py` grew
@@ -4781,11 +4818,18 @@ it. Neither could see reachability, which is the one thing they were being
 asked about. Both are driven now — plant the state, read what the operator is
 told — and the drives are shorter than the scans were.
 
-**Do not convert wholesale.** 47 of 532 test files scan source and most of
-them should — `tests/test_trade_live_mode.py` says so in its own docstring:
-the behaviour is covered elsewhere and the file locks *wiring*. The narrow
-failure mode is a source scan **standing in for behaviour nothing else
-tests**.
+**Do not convert wholesale, and the number that said how few there were was
+the other half of the 47 above.** That sentence read *"47 of 532 test files
+scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
+Driven, **398 of 950** reach for source text through `source_scan`, `code_only`
+or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
+source scan that rule does not see, so 398 is a FLOOR and the honest shape is
+*about half the suite*. One stale number under two different questions, seven
+hundred lines apart, and the direction it was wrong in is the one that invites
+the sweep this paragraph forbids. Most of them should scan —
+`tests/test_trade_live_mode.py` says so in its own docstring: the behaviour is
+covered elsewhere and the file locks *wiring*. The narrow failure mode is a
+source scan **standing in for behaviour nothing else tests**.
 
 Rank candidates by what a wrong claim would cost. That list is empty now —
 `_status_lines` was the last, and it had the same shape as the other two:
