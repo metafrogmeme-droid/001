@@ -93,3 +93,29 @@ test('the model states no threshold and derives no figure of its own', () => {
   assert.ok(!/[0-9]+\s*\/\s*[0-9]+/.test(code.replace(/\/\*[\s\S]*?\*\//g, '')),
     'no ratio is computed in the model');
 });
+
+test('the levels row is read, never rebuilt', () => {
+  // `trade_copilot` stamps `levels_line`; this file used to assemble the same
+  // row out of `rr`, `stop_pct` and `target_pct`, byte for byte with the
+  // Telegram renderer -- so when the ratio learned about fees it would have
+  // had to learn in two runtimes.
+  assert.equal(M.levelsLine({ levels_line: 'R:R 1.88 after fees (3.13 on price)' }),
+    'R:R 1.88 after fees (3.13 on price)');
+  for (const bad of [{}, { levels_line: '' }, { levels_line: '  ' },
+    { levels_line: 3.13 }, null, undefined]) {
+    assert.equal(M.levelsLine(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('the model spells no part of that row itself', () => {
+  const src = require('node:fs').readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'copilot-review-model.js'), 'utf8');
+  const code = require('./helpers/code_only.js').codeOnly(src);
+  // The four raw fields the row used to be built from. Reading any of them
+  // here is this page deciding what the ratio means, which is the producer's
+  // job -- and the producer is the one that knows the fee rates.
+  for (const field of ['rev.rr', 'stop_pct', 'target_pct', 'rr_net']) {
+    assert.equal(code.includes(field), false, `the model reads ${field}`);
+  }
+  assert.equal(/R:R/.test(code), false, 'the model spells the row label');
+});

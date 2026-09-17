@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from bot.compat import UTC
+from bot.core.trade_costs import taker_legs_pct
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +42,12 @@ _RECORD_FILE = (Path(__file__).resolve().parent.parent.parent
 PAPER_NOTIONAL_USD = 1_000.0     # fixed hypothetical size per tracked pair
 DEFAULT_MIN_SPREAD_APR = 3.0     # % / yr — below this the pair is "flat"
 MAX_GAP_HOURS = 3.0              # unobserved gaps break the paper position
-ROUND_TRIP_FEE_PCT = 0.24        # 4 taker legs @ ~0.06% — the reality check
+#: The reality check: a real pair opens and closes on TWO venues, so four
+#: taker legs. It was the hand-written ``0.24`` that this comment has always
+#: explained as "4 taker legs @ ~0.06%" — a derivation stated in prose and
+#: computed by nobody, so it stopped following ``TAKER_FEE_PCT`` the moment
+#: anybody set one. Read at import, like every other figure under ``CONFIG``.
+ROUND_TRIP_FEE_PCT = taker_legs_pct(4)
 
 _HOURS_PER_YEAR = 24 * 365
 

@@ -186,7 +186,7 @@ def _wire_row(**kw):
                 pnl_pct=1.59, pnl_usd=100.0, sl=61000.0, tp=66000.0,
                 sl_dist_pct=4.69, tp_dist_pct=3.13, size_usd=630.0,
                 notional_usd=6400.0, leverage=10.0, rr_live=0.67,
-                quantity=0.1, comm_pct=0.06, hold_hours=3.0,
+                quantity=0.1, hold_hours=3.0,
                 sl_order="exchange", tp_order="exchange", trade_id="T1",
                 status="open", strategy_type="swing", price_unavailable=False)
     base.update(kw)

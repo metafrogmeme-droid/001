@@ -7,7 +7,10 @@ symbol. It returns a structured verdict + flags the UI shows right in the
 ticket.
 
 Deliberately DETERMINISTIC and pure: no LLM dependency, no network, same input →
-same review every time. It ADVISES — it never blocks or places anything (the
+same review every time. It does read ONE thing from the environment — the
+venue's fee rates, through `trade_costs` — because the reward:risk it reports
+is net of what the ticket will pay, and the alternative is a second copy of a
+rate that has had four names in this repo already. It ADVISES — it never blocks or places anything (the
 risk gate and, for live, the Authority Envelope are the authorities). An LLM
 one-liner can be layered on top by the caller, but the substance here is real
 arithmetic the user can verify.
@@ -34,6 +37,9 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any, Mapping, Optional
+
+from bot.core.position_telemetry import price_on_record
+from bot.core.trade_costs import net_reward_risk
 
 # Thresholds (percentage points / ratios). Tuned to flag, not to nag.
 _MIN_RR = 1.5
@@ -126,7 +132,19 @@ def review(trade: dict, *, equity_usd: Optional[float] = None,
     """
     direction = str(trade.get("direction") or "").upper().strip()
     is_long = direction in ("LONG", "BUY")
-    e, sl, tp = _f(trade.get("entry")), _f(trade.get("sl")), _f(trade.get("tp"))
+    # `price_on_record`, not `_f`: A LEVEL OF ZERO IS NOT A LEVEL, and the
+    # gate below used to take one. `_f(0.0)` is `0.0`, and `sl < e < tp` is
+    # perfectly true of a long with no stop, so a ticket posted to the Review
+    # button with `sl: 0` reported `R:R 0.01 · stop 100%` -- two measurements
+    # about a stop nobody stated, on the block a person reads before
+    # confirming. `parse_manual_trade` refuses a non-positive price, so the
+    # TYPED grammar never produced one; the endpoint reads entry/sl/tp
+    # straight off the request body and does not. The margin and the equity
+    # keep `_f` on purpose: a READ zero equity is a real measurement, which
+    # the size check below says in as many words.
+    e = price_on_record(trade.get("entry"))
+    sl = price_on_record(trade.get("sl"))
+    tp = price_on_record(trade.get("tp"))
     flags: list[dict] = []
     notes: list[str] = []
     checks: dict[str, str] = {}
@@ -142,7 +160,9 @@ def review(trade: dict, *, equity_usd: Optional[float] = None,
         return str(why.get(name) or _NOT_SUPPLIED[name])
 
     # Geometry must be valid before anything else means anything.
-    geom_ok = (e is not None and sl is not None and tp is not None and e > 0
+    absent = [n for n, v in (("entry", e), ("stop", sl), ("target", tp))
+              if v is None]
+    geom_ok = (e is not None and sl is not None and tp is not None
                and ((is_long and sl < e < tp) or (not is_long and tp < e < sl)))
     if not geom_ok:
         # Nothing downstream ran, and the review says so rather than reporting
@@ -154,13 +174,17 @@ def review(trade: dict, *, equity_usd: Optional[float] = None,
             checks[name] = "unchecked"
         return {"verdict": VERDICT_INVALID, "score": None,
                 "score_basis": {"applied": 0, "total": len(SCORED_CHECKS)},
-                "rr": None, "stop_pct": None, "target_pct": None,
+                "rr": None, "rr_net": None, "stop_pct": None,
+                "target_pct": None, "levels_line": None,
                 "checks": checks,
                 "unchecked": [{"name": n, "label": CHECK_LABELS[n],
                                 "reason": reason} for n in ALL_CHECKS],
-                "flags": [{"level": "block", "msg":
-                           "Stop/target are on the wrong side of entry for a "
-                           f"{'long' if is_long else 'short'}."}],
+                "flags": [{"level": "block", "msg": (
+                    "This ticket has no "
+                    + " or ".join(absent) + " on record — a level of zero is "
+                    "not a level.") if absent else (
+                    "Stop/target are on the wrong side of entry for a "
+                    f"{'long' if is_long else 'short'}.")}],
                 "notes": []}
 
     assert e is not None and sl is not None and tp is not None  # narrowed by geom_ok
@@ -179,16 +203,48 @@ def review(trade: dict, *, equity_usd: Optional[float] = None,
     target_pct = round(reward / e * 100, 2)
     score = 100
 
-    # Reward:risk.
-    if rr < _MIN_RR:
+    # REWARD:RISK, NET OF THE FEES THIS TICKET WILL PAY. `rr` is the PRICE
+    # ratio and the bar was applied to it, so this block said both of these
+    # about the live ARB/USDT ticket of 2026-09-17, four lines apart:
+    #
+    #     * Stop is only 0.18% away -- likely to be wicked out by noise.
+    #     * Strong reward:risk (3.13).
+    #
+    # -- and the first sentence is the reason the second is false. Two checks
+    # over the same two distances, neither knowing the other exists: the round
+    # trip on that ticket is 43% of the distance to the stop, so the 3.13 is
+    # 1.88 by the time the venue has been paid. `net_reward_risk` is the one
+    # reading (it takes the gross from `live_rr` rather than restating it),
+    # and it cannot answer None here -- `geom_ok` has already put all three
+    # levels on record with a strict ordering, which is what it checks.
+    costed = net_reward_risk(e, sl, tp, order_type=trade.get("order_type"))
+    assert costed is not None  # narrowed by geom_ok
+    rr_net = None if costed.net is None else round(costed.net, 2)
+    levels_line = (
+        f"R:R {'—' if rr_net is None else f'{rr_net:g}'} after fees "
+        f"({rr:g} on price) · stop {stop_pct:g}% · target {target_pct:g}%")
+
+    if costed.fee_losing:
         flags.append({"level": "warn",
-                      "msg": f"Reward:risk is {rr:g} — below {_MIN_RR:g}. The target "
-                             "doesn't pay enough for the risk."})
+                      "msg": f"The target does not clear the round trip: the move is "
+                             f"worth {target_pct:g}% and the fees cost "
+                             f"{costed.cost_pct:.2f}% of entry "
+                             f"({costed.entry_rate_pct:g}% in, {costed.exit_rate_pct:g}% "
+                             "out). Hitting the target is a loss."})
+        score -= 25
+        checks["reward_risk"] = "flag"
+    elif rr_net is not None and rr_net < _MIN_RR:
+        flags.append({"level": "warn",
+                      "msg": f"Reward:risk is {rr_net:g} after fees — below {_MIN_RR:g} "
+                             f"({rr:g} on price alone). The round trip costs "
+                             f"{costed.cost_pct:.2f}% of entry, "
+                             f"{costed.cost_over_stop:.0%} of the distance to your "
+                             "stop."})
         score -= 25
         checks["reward_risk"] = "flag"
     else:
-        if rr >= 2.5:
-            notes.append(f"Strong reward:risk ({rr:g}).")
+        if rr_net is not None and rr_net >= 2.5:
+            notes.append(f"Strong reward:risk ({rr_net:g} after fees).")
         checks["reward_risk"] = "ok"
 
     # Stop distance.
@@ -288,7 +344,8 @@ def review(trade: dict, *, equity_usd: Optional[float] = None,
         verdict = VERDICT_CLEAR
     return {"verdict": verdict, "score": score,
             "score_basis": {"applied": applied, "total": len(SCORED_CHECKS)},
-            "rr": rr, "stop_pct": stop_pct, "target_pct": target_pct,
+            "rr": rr, "rr_net": rr_net, "stop_pct": stop_pct,
+            "target_pct": target_pct, "levels_line": levels_line,
             "checks": checks, "unchecked": unchecked,
             "flags": flags, "notes": notes}
 
@@ -348,8 +405,15 @@ def _review_lines(rev: dict, *, with_levels: bool) -> list[str]:
     """
     bits = [f"{_HEADS.get(rev['verdict'], rev['verdict'])} ({score_line(rev)})"]
     if with_levels:
-        bits.append(f"R:R {rev['rr']:g} · stop {rev['stop_pct']:g}% "
-                    f"· target {rev['target_pct']:g}%")
+        # THE ROW IS THE PRODUCER'S, not this renderer's. It was assembled
+        # here from four raw fields AND, byte for byte, in
+        # `copilot-review-model.js` -- two runtimes building one sentence,
+        # twelve lines under that file's own header saying it "deliberately
+        # derives no sentence of its own". A row missing it prints nothing
+        # rather than a number whose basis this surface would have to guess.
+        _levels = rev.get("levels_line")
+        if isinstance(_levels, str) and _levels.strip():
+            bits.append(_levels.strip())
     for f in rev.get("flags", []):
         bits.append(f"• {f['msg']}")
     for n in rev.get("notes", []):

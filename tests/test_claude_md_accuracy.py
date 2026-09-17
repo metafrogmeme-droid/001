@@ -804,20 +804,67 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
     stake = _lines("bot/skills/yield_commands.py")
     assert len(stake) >= 199, "the stale citation stopped being in range"
     assert not stake[198].strip(), repr(stake[198])
-    assert _defs(stake, "_cmd_stake") == [297], _defs(stake, "_cmd_stake")
+    stake_def, = _defs(stake, "_cmd_stake")
+    assert stake[stake_def - 2].strip() == '@guard("stake")', repr(stake[stake_def - 2])
 
+    # EVERY citation into trading_commands.py is DERIVED, not restated. The
+    # stale /mystrategy line was 178 and its handler 184, and the fee slice
+    # inserted `pending_order_card` above both -- so a hard-coded
+    # 178-is-blank / handler-is-184 pin fails on any edit ABOVE the handler,
+    # which is the resolvability ratchet this section refuses in a new place
+    # (most firings on edits with no relation to the citation). What the map
+    # must do is cite the HANDLER's own `def`, the convention its `/stake`
+    # citation already sets.
+    #
+    # The four here are the four the map makes into that file, and deriving
+    # them is what found three MORE stale ones the blank-line probe cannot
+    # see, because each landed on a line that is not blank:
+    #
+    #   :744  ->  `return sent_any`, nine lines above `_cmd_buy`
+    #   :801  ->  the simulation toggle, SIX lines above `_cmd_trade` -- the
+    #             same "six lines short" shape the section records for
+    #             /mystrategy, a second instance nobody had measured
+    #   :375  ->  `@guard("mystrategy")`, one short of its own handler, which
+    #             the fee slice introduced while correcting :178
+    #
+    # That is exactly the case the section says a resolvability ratchet cannot
+    # reach and "needs a reader who knows what the citation MEANT". Deriving
+    # the handler is that reader, for the citations whose subject is a named
+    # command; it stays a reading job for the rest.
     trading = _lines("bot/skills/trading_commands.py")
-    assert len(trading) >= 178 and not trading[177].strip(), repr(trading[177])
-    assert _defs(trading, "_cmd_mystrategy") == [184], (
-        _defs(trading, "_cmd_mystrategy"))
-    assert trading[182].strip() == '@guard("mystrategy")', repr(trading[182])
+    mystrat, = _defs(trading, "_cmd_mystrategy")
+    buy, = _defs(trading, "_cmd_buy")
+    sell, = _defs(trading, "_cmd_sell")
+    trade, = _defs(trading, "_cmd_trade")
+    assert trading[mystrat - 2].strip() == '@guard("mystrategy")', repr(trading[mystrat - 2])
+    # The buy/sell citation is the pair of refusals, so the sentence names
+    # both handlers and the REFUSAL has to still be inside each of them.
+    for first, nxt in ((buy, sell), (sell, trade)):
+        body = "\n".join(trading[first - 1:nxt - 1])
+        assert "Spot trading is disabled" in body, first
 
-    # ...and the map cites the corrected lines, not the blank ones.
     income = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    assert "trading_commands.py:178" not in income
-    assert income.count("trading_commands.py:184") == 2
+    assert income.count(f"trading_commands.py:{mystrat}") == 2
+    assert income.count(f"trading_commands.py:{buy}, :{sell}") == 2
+    assert income.count(f"trading_commands.py:{trade}") == 1
+    assert f"yield_commands.py:{stake_def}" in income
     assert "yield_commands.py:199" not in income
-    assert "yield_commands.py:297" in income
+
+    # And no citation anywhere in the map lands on a blank line -- the one
+    # probe that found both of the originals.
+    for m in re.finditer(r"([\w/]+\.py):(\d+)", income):
+        rel, n = m.group(1), int(m.group(2))
+        path = ROOT / rel if (ROOT / rel).exists() else None
+        if path is None:
+            for base in ("bot/skills", "bot/core", "bot/risk", "bot/web"):
+                if (ROOT / base / rel).exists():
+                    path = ROOT / base / rel
+                    break
+        if path is None:
+            continue
+        lines = path.read_text(encoding="utf-8").split("\n")
+        if n <= len(lines):
+            assert lines[n - 1].strip(), f"{rel}:{n} is a blank line"
 
 
 def _source_scan_adoption() -> tuple[int, int, int]:

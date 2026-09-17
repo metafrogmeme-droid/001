@@ -50,7 +50,7 @@ ROW = dict(
     pair="BTCUSDT", direction="LONG", entry=50000.0, current=51000.0,
     pnl_pct=2.0, pnl_usd=20.0, sl=49000.0, tp=53000.0, sl_dist_pct=3.9,
     tp_dist_pct=3.9, size_usd=100.0, notional_usd=1000.0, leverage=10.0,
-    rr_live=1.0, quantity=0.02, comm_pct=0.06, hold_hours=5.0,
+    rr_live=1.0, quantity=0.02, hold_hours=5.0,
     sl_order="exchange", tp_order="exchange", trade_id="t1", status="open",
 )
 
@@ -201,7 +201,6 @@ class TestTheRowBuilderItself:
         kw.setdefault("mark", 51000.0)
         kw.setdefault("sl_price", 49000.0)
         kw.setdefault("tp_price", 53000.0)
-        kw.setdefault("commission_pct", 0.06)
         pos = kw.pop("pos", self.VENUE)
         return orphan_position_row(pos, **kw)
 

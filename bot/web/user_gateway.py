@@ -2224,7 +2224,8 @@ async def _propose_from_text(app, tg_handler, engine, tg_id: str, text: str,
     from bot.core.copilot_context import review_ticket
     rev = await review_ticket(engine, tg_id, {
         "direction": direction, "symbol": symbol,
-        "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd})
+        "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd,
+        "order_type": getattr(idea, "order_type", None)})
     return web.json_response(
         {"pending_trade": _idea_payload(app, tg_handler, tg_id, idea,
                                         margin_usd, copilot=rev)})
@@ -2363,6 +2364,15 @@ async def handle_trade_copilot(request: web.Request) -> web.Response:
     if err is not None:
         return err
     trade = {k: body.get(k) for k in ("direction", "symbol", "entry", "sl", "tp", "margin")}
+    # The order type is a property of the TICKET, like its entry and its
+    # stop, and it decides which side of the book the entry leg is -- so it
+    # decides the fees the review nets out. It is normalised through the same
+    # function `handle_trade_propose` uses, because the preview and the
+    # proposal answering different ratios for one ticket is two answers: an
+    # omitted field defaults to `limit` there, and a bare `body.get` here
+    # would have priced the same ticket as a taker entry.
+    from bot.skills.manual_trade import normalize_order_type
+    trade["order_type"] = normalize_order_type(body.get("order_type"))
     # THE THREE INPUTS THE REVIEW CANNOT DERIVE ARE READ HERE, NOT TAKEN FROM
     # THE CLIENT. `engine_bias` and `existing_exposure` used to be read off this
     # request body, and driven, no caller in the tree has ever sent either --

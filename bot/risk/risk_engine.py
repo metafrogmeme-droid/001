@@ -1702,9 +1702,20 @@ class RiskEngine:
                 tp_px = float(idea.take_profit)
                 if entry_px > 0 and tp_px > 0:
                     reward_pct = abs(tp_px - entry_px) / entry_px
-                    taker = CONFIG.risk.taker_fee_pct / 100.0
+                    # The FEE half through the one rule: this charged two
+                    # TAKER legs, and an idea that rests as a limit pays the
+                    # maker rate going in -- so the bar it had to clear was
+                    # 0.04 percentage points too high for every limit entry,
+                    # on a gate whose whole job is a fee comparison. The
+                    # SLIPPAGE half stays exactly as it was: slippage is a
+                    # model, `trade_costs` charges only what the venue
+                    # charges, and folding an estimate into it would publish
+                    # one with the authority of the other.
+                    from bot.core.trade_costs import round_trip_pct
+                    fees = round_trip_pct(
+                        getattr(idea, "order_type", None)) / 100.0
                     slip = CONFIG.risk.fee_aware_slippage_pct / 100.0
-                    round_trip = 2.0 * taker + 2.0 * slip
+                    round_trip = fees + 2.0 * slip
                     k = float(CONFIG.risk.fee_aware_min_multiple)
                     if reward_pct < k * round_trip:
                         failed.append(

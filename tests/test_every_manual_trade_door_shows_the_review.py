@@ -57,7 +57,13 @@ PLANTED = {
     "verdict": tcp.VERDICT_CAUTION, "score": 70,
     "score_basis": {"applied": 3, "total": 4},
     "score_line": "score 70/100 over 3 of the 4 checks",
-    "rr": 1.2, "stop_pct": 0.2, "target_pct": 0.24,
+    "rr": 1.2, "rr_net": 0.8, "stop_pct": 0.2, "target_pct": 0.24,
+    # THE LEVELS ROW IS THE PRODUCER'S. Both renderers used to assemble it out
+    # of the four raw fields above -- one in Python, one byte for byte in
+    # `copilot-review-model.js` -- so the day the ratio learned about fees it
+    # would have had to learn twice.
+    "levels_line": ("R:R 0.8 after fees (1.2 on price) "
+                    "\u00b7 stop 0.2% \u00b7 target 0.24%"),
     "book": cc.BOOK_PAPER,
     "checks": {"reward_risk": "flag", "stop_distance": "flag",
                "size_vs_equity": "ok", "engine_bias": "unchecked",
@@ -170,8 +176,14 @@ class TestTheTelegramDoorCarriesIt:
         assert len(fake.calls) == 1
         uid, trade = fake.calls[0]
         assert uid == "u1"        # the CALLER's book, not the operator's
+        # `order_type` rides with the ticket because it decides which side of
+        # the book the entry leg is, and therefore what the round trip costs:
+        # on a tight-stop ticket that is the difference between a reward:risk
+        # of 1.88 and one of 1.50. It is the IDEA's own field -- a literal
+        # here would price the card for an order this door is not placing.
         assert trade == {"direction": "LONG", "symbol": "SOL", "entry": 71.42,
-                         "sl": 70.05, "tp": 76.42, "margin": 250.0}
+                         "sl": 70.05, "tp": 76.42, "margin": 250.0,
+                         "order_type": "limit"}
 
     async def test_a_ticket_the_bot_could_not_review_says_so_on_the_card(
             self, monkeypatch):
@@ -360,6 +372,37 @@ class TestOneAssemblyEveryDoor:
         assert prop["pending_trade"]["copilot"]["score_line"] == marked["score_line"]
         assert cop["score_line"] == marked["score_line"]
 
+    async def test_every_web_door_prices_the_order_it_is_about_to_place(
+            self, secret, monkeypatch):
+        """`order_type` decides which side of the book the entry leg is, and
+        therefore what the round trip costs. Both web doors must hand the
+        assembly the TICKET's own, and they must AGREE: the ticket form's
+        Review button reads the field straight off the request body, where
+        `handle_trade_propose` normalises an omitted one to `limit`, so a bare
+        `body.get` here would price the same ticket as a taker entry and the
+        preview would answer a different ratio than the proposal.
+        """
+        fake = _answering(PLANTED)
+        monkeypatch.setattr(cc, "review_ticket", fake)
+        async with _gateway(_Engine()) as c:
+            await c.post("/trade/propose", json=_BODY, headers=HDRS)
+            await c.post("/trade/copilot", json=_BODY, headers=HDRS)
+        assert len(fake.calls) == 2
+        # Neither body carries an order type, and both doors answer `limit`.
+        assert "order_type" not in _BODY
+        assert [t["order_type"] for _uid, t in fake.calls] == ["limit", "limit"]
+
+    async def test_and_a_market_ticket_is_priced_as_one(
+            self, secret, monkeypatch):
+        fake = _answering(PLANTED)
+        monkeypatch.setattr(cc, "review_ticket", fake)
+        async with _gateway(_Engine()) as c:
+            await c.post("/trade/propose",
+                         json={**_BODY, "order_type": "market"}, headers=HDRS)
+            await c.post("/trade/copilot",
+                         json={**_BODY, "order_type": "market"}, headers=HDRS)
+        assert [t["order_type"] for _uid, t in fake.calls] == ["market", "market"]
+
     async def test_the_copilot_endpoint_reports_a_review_it_could_not_produce(
             self, secret, monkeypatch):
         monkeypatch.setattr(cc, "review_ticket", _answering(None))
@@ -427,10 +470,12 @@ class TestTheBlockIsTheProducersWords:
         # Two renderings of one ratio on a card about money is how the five
         # copies in the `R:R 0.0x` slice started.
         html = tcp.review_card_html(PLANTED)
+        assert PLANTED["levels_line"] not in html
         assert "R:R" not in html
         assert "stop 0.2%" not in html
-        # And `human_readable`, whose caller has no card, still prints them.
-        assert "R:R" in tcp.human_readable(PLANTED)
+        # And `human_readable`, whose caller has no card, still prints the
+        # row -- the producer's own, not one rebuilt here.
+        assert PLANTED["levels_line"] in tcp.human_readable(PLANTED)
 
     def test_an_invalid_ticket_names_the_geometry_and_scores_nothing(self):
         rev = tcp.review({"direction": "LONG", "symbol": "SOL",
