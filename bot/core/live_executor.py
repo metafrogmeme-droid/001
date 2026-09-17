@@ -46,6 +46,11 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.plan_cleanup import plan_rows_to_cancel
+from bot.core.trade_costs import (
+    entry_rate_pct,
+    exit_rate_pct,
+    round_trip_pct,
+)
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, first_reading,
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
@@ -8015,7 +8020,8 @@ class LiveExecutor:
                             # though it's a net loser after entry+exit taker fees
                             # (audit exits, 2026-07-21). Require the mark to clear a
                             # round-trip fee buffer before the time-stop spares it.
-                            _rt_fee = (CONFIG.risk.taker_fee_pct / 100.0) * 2.0  # in/out
+                            _rt_fee = round_trip_pct(
+                                getattr(pos, 'order_type', None)) / 100.0
                             _buf = pos.entry_price * _rt_fee
                             if pos.direction == "LONG":
                                 in_profit = price > pos.entry_price + _buf
@@ -9996,8 +10002,7 @@ class LiveExecutor:
             net_pnl: Optional[float]
             commission: Optional[float]
             if exchange_pnl is not None:
-                is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
-                entry_fee_pct = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
+                entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
                 gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
                     exchange_pnl, exchange_close_fees, _pnl_is_net,
                     entry_notional=pos.entry_price * pos.quantity,
@@ -10031,10 +10036,8 @@ class LiveExecutor:
                 # Exchange commission: entry + exit notional x fee rate
                 entry_notional = pos.entry_price * pos.quantity
                 exit_notional = fill_price * pos.quantity
-                # GETCLAW: use maker rate if limit order (POST_ONLY), taker for market
-                is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
-                entry_fee_pct = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
-                exit_fee_pct = CONFIG.risk.taker_fee_pct  # exits are usually market
+                entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
+                exit_fee_pct = exit_rate_pct()
                 _comm = (entry_notional * entry_fee_pct / 100.0) + (exit_notional * exit_fee_pct / 100.0)
                 gross_pnl, commission = _gross, _comm
                 net_pnl = _gross - _comm
@@ -10986,8 +10989,7 @@ class LiveExecutor:
             # than assuming net — a gross value (netProfit==0 fallback / fetch_my
             # _trades paths) otherwise dropped the fees and overstated realized
             # PnL. Mirrors _close_position_inner.
-            is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
-            entry_fee_pct = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
+            entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
             gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
                 exchange_reported_pnl,
                 float((close_data or {}).get("fees", 0.0) or 0.0),
@@ -10998,9 +11000,8 @@ class LiveExecutor:
         else:
             entry_notional = pos.entry_price * pos.quantity
             exit_notional = est_exit * pos.quantity
-            is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
-            entry_fee = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
-            exit_fee = CONFIG.risk.taker_fee_pct
+            entry_fee = entry_rate_pct(getattr(pos, 'order_type', None))
+            exit_fee = exit_rate_pct()
             commission = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
             net_pnl = gross_pnl - commission
 
@@ -12085,8 +12086,8 @@ class LiveExecutor:
                                 # assuming net — otherwise fees are dropped and
                                 # net PnL overstated on SL/TP-triggered closes.
                                 # Mirrors _close_position_inner.
-                                _is_limit = getattr(pos, 'order_type', '') == 'limit'
-                                _entry_fee_pct = CONFIG.risk.maker_fee_pct if _is_limit else CONFIG.risk.taker_fee_pct
+                                _entry_fee_pct = entry_rate_pct(
+                                    getattr(pos, 'order_type', None))
                                 gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
                                     exchange_reported_pnl,
                                     float((close_data or {}).get("fees", 0.0) or 0.0),
@@ -12111,10 +12112,9 @@ class LiveExecutor:
                                 # Deduct commission on reconciled close (same as manual close)
                                 entry_notional = pos.entry_price * pos.quantity
                                 exit_notional = est_exit * pos.quantity
-                                # GETCLAW: maker/taker fee split
-                                is_limit_entry = getattr(pos, 'order_type', '') == 'limit'
-                                entry_fee = CONFIG.risk.maker_fee_pct if is_limit_entry else CONFIG.risk.taker_fee_pct
-                                exit_fee = CONFIG.risk.taker_fee_pct  # SL/TP triggers = market = taker
+                                entry_fee = entry_rate_pct(
+                                    getattr(pos, 'order_type', None))
+                                exit_fee = exit_rate_pct()
                                 _comm = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
                                 gross_pnl, commission = pnl, _comm
                                 net_pnl = pnl - _comm

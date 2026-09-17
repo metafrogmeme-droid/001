@@ -27,7 +27,7 @@ VENUE_SAYS_NOTHING = {"symbol": "TRUMP/USDT", "side": "short", "contracts": 78.0
 @pytest.fixture
 def unread_row():
     return orphan_position_row(VENUE_SAYS_NOTHING, mark=None, sl_price=None,
-                               tp_price=None, commission_pct=0.06)
+                               tp_price=None)
 
 
 class TestTheProducerStillSaysNothing:
@@ -149,7 +149,7 @@ class TestTheConsumerWiring:
         """
         from bot.skills.trading_commands import position_fee_estimate
         got = position_fee_estimate(
-            {"entry": 0, "quantity": None, "hold_hours": None}, 0.06)
+            {"entry": 0, "quantity": None, "hold_hours": None})
         assert got["entry_fee"] is None
         assert got["exit_fee"] is None
         assert got["total_fees"] is None
@@ -164,6 +164,6 @@ class TestTheConsumerWiring:
         from bot.skills.trading_commands import position_fee_estimate
         row = {"entry": 0.34, "current": 0.34, "quantity": 247.0,
                "size_usd": 4.2, "notional_usd": 84.0, "hold_hours": 1.0}
-        got = position_fee_estimate(row, 0.06)
+        got = position_fee_estimate(row)
         assert got["entry_fee"] == pytest.approx(84.0 * 0.0006, rel=1e-6)
         assert got["entry_fee"] != pytest.approx(4.2 * 0.0006, rel=1e-6)

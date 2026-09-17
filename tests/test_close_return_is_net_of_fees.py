@@ -285,12 +285,16 @@ class TestTheCloseCardSizeCell:
 class TestTheFeeEstimate:
     """Two halves of one round trip, computed on bases a leverage apart."""
 
+    # No `order_type`, so BOTH legs are taker -- which is what this class's
+    # arithmetic has always assumed and is now a stated reading rather than
+    # the single rate the function used to be handed. The maker case is
+    # `tests/test_the_fee_is_one_rule_and_the_ratio_is_net_of_it.py`.
     ROW = {"entry": 0.3403, "current": 0.3403, "quantity": 247.0,
            "size_usd": 4.2, "notional_usd": 84.05, "leverage": 20,
            "hold_hours": 0.0}
 
     def test_the_entry_fee_is_taken_on_the_notional(self):
-        got = position_fee_estimate(self.ROW, TAKER)
+        got = position_fee_estimate(self.ROW)
         assert got["entry_fee"] == pytest.approx(84.05 * TAKER / 100, rel=1e-6)
 
     def test_and_that_is_twenty_times_the_margin_based_answer(self):
@@ -299,16 +303,16 @@ class TestTheFeeEstimate:
         The old line took the fraction of `size_usd` — the margin — while the
         exit leg one line below used the notional.
         """
-        got = position_fee_estimate(self.ROW, TAKER)
+        got = position_fee_estimate(self.ROW)
         margin_based = self.ROW["size_usd"] * TAKER / 100
         assert got["entry_fee"] / margin_based == pytest.approx(20, rel=0.01)
 
     def test_both_legs_are_now_on_the_same_basis(self):
-        got = position_fee_estimate(self.ROW, TAKER)
+        got = position_fee_estimate(self.ROW)
         assert got["entry_fee"] == pytest.approx(got["exit_fee"], rel=0.01)
 
     def test_funding_is_on_the_notional_too(self):
-        got = position_fee_estimate(dict(self.ROW, hold_hours=8.0), TAKER)
+        got = position_fee_estimate(dict(self.ROW, hold_hours=8.0))
         assert got["funding_paid"] == pytest.approx(84.05 * 0.0001, rel=1e-6)
 
     def test_an_unknown_age_leaves_the_fees_readable(self):
@@ -317,7 +321,7 @@ class TestTheFeeEstimate:
         The old block forced all four to None together, which is why the
         `net_pnl` guard below it only had to test one of them.
         """
-        got = position_fee_estimate(dict(self.ROW, hold_hours=None), TAKER)
+        got = position_fee_estimate(dict(self.ROW, hold_hours=None))
         assert got["entry_fee"] is not None
         assert got["funding_paid"] is None
 
@@ -328,7 +332,7 @@ class TestTheFeeEstimate:
         {"hold_hours": 1.0},
     ])
     def test_no_notional_means_no_fee_rather_than_a_free_position(self, row):
-        got = position_fee_estimate(row, TAKER)
+        got = position_fee_estimate(row)
         assert got["entry_fee"] is None
         assert got["total_fees"] is None
 
@@ -339,5 +343,5 @@ class TestTheFeeEstimate:
         prints `fees $0.00` — the free position the block exists to refuse.
         """
         assert position_fee_estimate(
-            {"entry": 0, "quantity": 247.0, "hold_hours": 1.0},
-            TAKER)["total_fees"] is None
+            {"entry": 0, "quantity": 247.0,
+             "hold_hours": 1.0})["total_fees"] is None

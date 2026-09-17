@@ -2201,6 +2201,51 @@ the *Gap* check needs the same guess about which noun phrase names which
 command. The refusals are recorded here so the next reader does not rebuild
 them.
 
+**And the blank-line probe, generalised over the WHOLE map, found four more.**
+That paragraph's guard pinned the two it was written for by their literal line
+numbers — `199` blank, `_cmd_stake` at 297; `178` blank, `_cmd_mystrategy` at
+184 — and the fee slice inserted a function ABOVE the second pair, so a
+hard-coded pin failed on an edit with no relation to the citation. That is the
+resolvability ratchet's own defect arriving in the guard that refuses it. The
+trading citation is DERIVED now (the map must cite the handler, wherever it
+is), and the probe runs over EVERY `path:line` the map makes rather than the
+two: `chat_quota.py:30` (the exempt-tiers clause, at 32),
+`alerts_monitor.py:337-338` (pointing at the monitor-stale callback, where the
+share button it describes is at 393-395), `scan_commands.py:100-106` (inside
+`_cmd_research`'s docstring, where the `fetch_research` call is 117-118) and
+`telegram_handler.py:971` (blank above `resolve_profile_note`, where
+`/stockscan` is registered at 1224). Four in one run, each pointing at code
+that has nothing to do with the sentence citing it — which is the case the
+refused ratchet cannot see and this probe can, because a blank line is the one
+wrong destination a reader can check without knowing what the citation meant.
+
+**AND THAT GUARD REFUSED THE FEE SLICE, ON A CITATION THE FEE SLICE HAD JUST
+CORRECTED.** The paragraph above says the trading citation is derived "the map
+must cite the handler, wherever it is" — and the same commit moved the map to
+`trading_commands.py:375`, which is `@guard("mystrategy")`, ONE SHORT of the
+handler at 376. The convention was already written down two citations over
+(`yield_commands.py:297 _cmd_stake` is the `def`), and the defect being fixed
+was *a citation six lines short of its own `@guard`*. Same shape, same file,
+same commit, one line instead of six; the full gate is what said so, and no
+suite the slice had been running could have.
+
+**Deriving the OTHER three citations into that file found three more, and the
+probe cannot see any of them.** The map makes four citations into
+`trading_commands.py`, the fix had derived one, and each of the remaining three
+landed on a line that is not blank: `:744` on `return sent_any`, nine lines
+above `_cmd_buy`; `:753` on the FIRST of the two spot refusals where the
+sentence names both; and `:801` on the simulation toggle, **six lines above**
+`_cmd_trade` — the section's own "six lines short" shape, a second instance
+nobody had measured, and already stale in main before the extraction shifted
+it by 192 lines. That is exactly the case the refused ratchet cannot reach and
+which "needs a reader who knows what the citation MEANT". For a citation whose
+subject is a NAMED COMMAND that reader is mechanical — the handler's own `def`
+— so all four are derived now, the pair citation additionally checks the
+refusal is still inside each handler's body, and the six mutations (each
+citation moved one line, and the refusal reworded out from under the sentence)
+each die. It stays a reading job for every citation that names no command,
+which is most of them.
+
 **And the mutation round said the guard's own subject had left the corpus.**
 With the map corrected, dropping the `_cmd_` spelling from the claim sweep
 changed no verdict — the defect was written as `_cmd_stake, admin-only` on a
@@ -4594,6 +4639,146 @@ Telegram card, over a block that only ever advises. The stamping is inside the
 `try` now and `None` is the honest report, which is the state both renderers
 already print.
 
+**A FEE RATE IS PER LEG, AND THE LEG IS MAKER OR TAKER.** That one rule had
+four names and seven spellings. `commission_pct` is every card's rate — "the
+DEFAULT rate used in risk calcs (taker)", says its own config comment —
+`taker_fee_pct` and `maker_fee_pct` are the executor's, and the LEG RULE,
+`maker_fee_pct if is_limit_entry else taker_fee_pct`, is written out **six
+times** in `live_executor.py` plus once more in prose at
+`pos.order_type = "limit"  # limit fill = maker fee rate`. No card knew the
+rule at all. On the live ARBUSDT limit order of 2026-09-17 — a LONG, $33.84 of
+margin at 5x, stop 0.1846% below entry, target 0.5785% above — the resting card
+said, four lines apart, `R:R at fill: 3.1` and `Est. fees: $0.2030 (entry +
+exit)`, and **neither number was right, in opposite directions**. The ratio had
+no fee term. The fee charged the MAKER entry at the taker rate, where the venue
+takes $0.1354 — exactly **1.5x** too much, because 0.12% is 1.5x 0.08%. Net of
+what is really charged, that 3.13 is **1.88**; net of two taker legs it is
+**1.50**. Three answers to one ratio, on two cards.
+
+**The two sentences were four lines apart on the co-pilot's block, and the
+first is the reason the second was false.** Driven on that ticket it said
+*"Stop is only 0.18% away — likely to be wicked out by noise"* and *"Strong
+reward:risk (3.13)"* — two checks over the same two distances, neither knowing
+the other exists. The round trip on that order is **43% of the distance to the
+stop**: 43% of the risk budget spent before the market moves. The bar is on the
+NET ratio now, so a ticket that clears `_MIN_RR` on price and fails it after
+fees is a flag, and the "Strong" note is gone from that card.
+
+**SLIPPAGE IS NOT IN THIS READING, and the omission is stated.** A fee is a
+rate the venue charges and the executor books; slippage is a model. Folding a
+modelled cost into a measured one publishes an estimate with the authority of a
+charge, so the fee-aware entry gate keeps its own `fee_aware_slippage_pct` term
+and `trade_costs` charges only what is charged. It leans the optimistic way,
+which is the honest half to say out loud: the real net ratio is lower than the
+printed one, never higher.
+
+**Both live exits are TAKER, and that is a reading rather than an assumption.**
+`_place_sl_tp` places the take-profit as `create_order(type="market", ...)`
+with trigger params, exactly like the stop. `maker_take_profit_enabled` is
+deliberately NOT read here — its own config comment says "this flag alone does
+NOT alter live order placement", so it is a BACKTEST model knob, and pricing a
+live card off a simulation switch would be the second-copy defect wearing a
+config flag. **An unstated order type is TAKER**: the venue's default, the one
+direction that cannot flatter a ticket, and what every existing reader already
+did.
+
+**The card was extracted because a card built inline is a card nothing can
+drive, and the drive bought two more defects on its first run.** The pending
+block sat in a 400-line async handler behind a Telegram update, so the only
+available check was a grep — and this defect is not a spelling, it is which
+quantity a figure holds. `pending_order_card` is pure now, and rendering it
+found: **✅ over a mark already through the planned stop** (the most reassuring
+glyph on the card, on an order that fills into a position stopped out on
+arrival — ✅ is a claim about the FILL and never about what the fill opens);
+and an unread mark that **RAISED**, because the row builder publishes
+`current: None` whenever the mark could not be read and the line was
+`if limit_price > 0 and current > 0`. The pending loop has no try/except, so
+that deletes the whole PENDING ORDERS section — `status_position_row`'s
+`Exposure:` was this exact shape, one card over.
+
+**And a stop of ZERO passed the co-pilot's geometry gate.** `_f(0.0)` is `0.0`
+and `sl < e < tp` is perfectly true of a long with no stop, so a ticket posted
+to the Review button with `sl: 0` reported `R:R 0.01 · stop 100%` — two
+measurements about a stop nobody stated, on the block a person reads before
+confirming. `parse_manual_trade` refuses a non-positive price, so the typed
+grammar never produced one; the endpoint reads entry/sl/tp straight off the
+request body and does not. The three LEVELS go through `price_on_record` now,
+and the invalid sentence names which is missing rather than claiming the wrong
+side. The margin and the equity keep `_f` on purpose: a READ zero equity is a
+real measurement, which the size check beside it already says.
+
+**The levels row had two producers, twelve lines under a header forbidding
+exactly that.** `copilot-review-model.js` opens by saying it "deliberately
+derives no sentence and no score of its own", and then assembled
+`R:R … · stop …% · target …%` out of four raw fields — byte for byte with
+`_review_lines` doing the same for the Telegram card. Two runtimes, one
+sentence, and the day the ratio learned about fees it would have had to learn
+twice. `levels_line` is stamped by the producer and both renderers read it;
+a review that carries none prints no row rather than a ratio whose basis the
+page would have to decide.
+
+**A field written by three producers and read by NOBODY.** Once the two fee
+sites moved onto the leg rule, `comm_pct` had zero readers — the fifth
+granularity, on the wire. It is gone from both row builders and
+`orphan_position_row` lost the parameter that fed it. The wire gained
+`order_type` instead, which the live row builder had on the `LivePosition` and
+dropped: a `pending_fill` row IS a resting limit order by construction, and it
+is READ rather than inferred from `status`.
+
+**The extraction made two dead names visible that one function scope had been
+hiding.** `entry_fee` and `exit_fee` were unpacked from `position_fee_estimate`
+in the filled-position block and used by nothing — "used" only because the
+PENDING block, in the same function, bound the same names and summed them.
+Splitting the card out is what let `F841` see them, which is a lint ratchet
+finding what a reader had walked past for months.
+
+**A source scan pinned the SPELLING and went red on the claim it was
+guarding.** `test_time_stop_profit_gate_is_fee_aware_in_source` asserted
+`"CONFIG.risk.taker_fee_pct" in src`, and the property — the in-profit gate
+clears a round-trip fee buffer — held throughout. That is the
+`test_unread_mark_is_not_break_even` shape again. It pins the CALL now, and the
+arithmetic beside it is driven through the seam for all three order types
+rather than restating `2 * taker_fee_pct`.
+
+**The time stop's buffer was half again too wide for a limit entry, and that
+is a real behaviour change.** Its own comment says "round-trip COSTS", and the
+cost depends on which side of the book the entry was: `2 × taker` is 0.12%
+where a maker entry pays 0.08%, so a limit-entry position genuinely in profit
+by a hair was time-stopped as "no profit". Same one-line call, and the buffer
+is now the position's own round trip. The fee-aware entry gate moved the same
+way, its FEE half only.
+
+**Recorded, not changed.** `bot/risk/portfolio.py` charges one rate on both
+legs — that is the PAPER book's own fee model, injected by the backtest so the
+simulated fee matches the run being compared, and rewriting it would move every
+number in the simulated record. `parity.py`'s `modeled_fee_rate` is the
+modelled rate on purpose: comparing it to the realized one is its whole
+subject. `backtest/` keeps `BacktestConfig.commission_pct` for the same reason.
+Each exemption is in the ratchet's allow-list WITH its reason, and an exemption
+that stops applying is a hard failure — the `known_failures.txt` rule, so a
+stale entry cannot hide the next copy.
+
+**Forty-one mutations, each killed — and both survivors of the first round
+were the CORPUS, not the code.** `cost_pct` charged at the TARGET's exit
+instead of the stop's changed no verdict, because on any sub-percent geometry
+the two legs' notionals differ by less than the two decimals the sentence
+prints: the fixture that tells them apart is a target far enough away that
+`200 × 0.06%` is nothing like `99 × 0.06%`. And the resting card's mark read as
+`float(current or 0) or None` answers identically for `None` AND for a real
+price — it diverges only on a NaN, an infinity or a negative, which is
+`price_on_record`'s own stated list and which no row in the table had. Both
+fixtures are in the suite now and both mutations die. The rest die where the
+drives say — the leg rule inverted or collapsed, an unknown liquidity word
+answered instead of raised, the exits made maker, the hedge's four legs fixed
+at two, the `/100` dropped, the gross recomputed here rather than read from
+`live_rr`, each of the three fee terms zeroed, a fee-losing target rendered as
+a measured `0.0`, the measured zero refused, the co-pilot's bar back on the
+gross ratio, the levels row rebuilt in the renderer, the order type dropped at
+any of the three doors or read off the body unnormalised, the entry leg
+charged at the exit rate on either card, the fill hint reversed, the breached
+stop silenced, the ratchet narrowed to one directory or given an exemption
+with no reason, and the time stop and the entry gate back on two taker legs.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -5552,7 +5737,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **395 of 956** reach for source text through `source_scan`, `code_only`
+Driven, **395 of 957** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 395 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

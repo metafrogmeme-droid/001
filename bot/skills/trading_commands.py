@@ -55,6 +55,12 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.trade_costs import (
+    entry_rate_pct,
+    exit_rate_pct,
+    fee_usd,
+    net_reward_risk,
+)
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import thesis_prose
 from bot.skills.command_guard import guard
@@ -79,8 +85,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def position_fee_estimate(pos: dict, comm_pct: float) -> dict:
+def position_fee_estimate(pos: dict) -> dict:
     """Round-trip fee and funding for one open-position row — or Nones.
+
+    THE TWO LEGS ARE NOT THE SAME RATE, and this took one. It was
+    ``position_fee_estimate(pos, comm_pct)`` where every caller passed the
+    row's ``comm_pct`` and every row writer wrote
+    ``CONFIG.risk.commission_pct`` — the TAKER rate — so a position entered by
+    a resting limit order was charged the taker rate on a maker leg and its
+    ``net_pnl`` was short by the difference on every card that prints one.
+    ``trade_costs`` is the one rule: the entry leg's rate comes from the row's
+    own ``order_type``, and an absent one is taker, which is what this
+    function already did for every row.
 
     A FEE IS A FRACTION OF A NOTIONAL. That sentence was already the comment
     over this arithmetic when it lived inline in `_cmd_open_positions`, and the
@@ -135,8 +151,8 @@ def position_fee_estimate(pos: dict, comm_pct: float) -> dict:
         return {"entry_fee": None, "exit_fee": None,
                 "total_fees": None, "funding_paid": None}
 
-    entry_fee = entry_notional * (comm_pct / 100.0)
-    exit_fee = exit_notional * (comm_pct / 100.0)
+    entry_fee = fee_usd(entry_notional, entry_rate_pct(pos.get("order_type")))
+    exit_fee = fee_usd(exit_notional, exit_rate_pct())
     # Funding is charged on the position held — notional — every 8 hours, and
     # is unknowable without an age. It is the one of the four that stays None
     # when the others are readable.
@@ -144,6 +160,182 @@ def position_fee_estimate(pos: dict, comm_pct: float) -> dict:
                     else entry_notional * (0.01 / 100.0) * (float(hold_h) / 8.0))
     return {"entry_fee": entry_fee, "exit_fee": exit_fee,
             "total_fees": entry_fee + exit_fee, "funding_paid": funding_paid}
+
+
+def pending_order_card(po: dict) -> str:
+    """One resting limit order, as the card a person reads before cancelling it.
+
+    EXTRACTED BECAUSE A CARD BUILT INLINE IS A CARD NOTHING CAN DRIVE. It sat
+    in a 400-line async handler behind a Telegram update, so the only
+    available check was a grep -- and the defect this slice is about is not a
+    spelling, it is which quantity a figure holds. Live on 2026-09-17 this
+    card said, four lines apart::
+
+        R:R at fill: 3.1
+        Est. fees: $0.2030 (entry + exit)
+
+    The ratio had no fee term, and the fee was not the fee: both legs were
+    charged ``commission_pct`` (the TAKER rate) although a resting limit
+    order is a MAKER entry by construction, so this card now says $0.1354 --
+    exactly 1.5x less, because 0.12% is 1.5x 0.08%. Net of what is really
+    charged, that 3.13 is 1.88.
+
+    Pure: every value comes off the row, and the Cancel button stays with the
+    handler that knows who may press it.
+    """
+    pair = po.get("pair", "N/A")
+    direction = po.get("direction", "LONG")
+    limit_price = po.get("entry", 0)
+    current = po.get("current", limit_price)
+    sl = po.get("sl", 0)
+    tp = po.get("tp", 0)
+    size_usd = po.get("size_usd", 0)
+    notional_usd = po.get("notional_usd", size_usd)
+    leverage = po.get("leverage", 1)
+    hold_h = po.get("hold_hours", 0)
+    quantity = po.get("quantity", 0)
+    order_type = po.get("order_type", "")
+    sl_order = po.get("sl_order", "")
+    tp_order = po.get("tp_order", "")
+
+    _sl_px = price_on_record(sl)
+    _tp_px = price_on_record(tp)
+    _fill_px = price_on_record(limit_price)
+    _now_px = price_on_record(current)
+
+    # ── WILL IT FILL, AND INTO WHAT ──
+    # Two facts on one line, and it carried neither. It was
+    #
+    #     if limit_price > 0 and current > 0: dist_pct = ...
+    #     fill_hint = "⬇️" if current > limit_price else "✅"
+    #
+    # over a `current` the row builder publishes as **None** whenever the mark
+    # could not be read -- so `None > 0` RAISED, and the pending loop has no
+    # try/except, which deletes the whole PENDING ORDERS listing on the
+    # command an operator runs because they do not know what is out there.
+    # (`status_position_row`'s `Exposure:` was this exact shape.) Had it not
+    # raised, a `0` mark took the else arm and printed ✅ READY beside
+    # `+0.00% to fill` for a price nobody read.
+    #
+    # And ✅ is a claim about the FILL, never about what the fill opens. With
+    # the mark already at or through the planned STOP, this order fills into a
+    # position that is stopped out on arrival -- which on the live ARBUSDT
+    # order of 2026-09-17 is the thing the reader most needed and the most
+    # reassuring glyph on the card said nothing about.
+    _breached = False
+    if _now_px is None or _fill_px is None:
+        fill_line = "<i>current price unread</i>"
+    else:
+        _ready = _now_px <= _fill_px if direction == "LONG" else _now_px >= _fill_px
+        if _sl_px is not None:
+            _breached = (_now_px <= _sl_px if direction == "LONG"
+                         else _now_px >= _sl_px)
+        _glyph = ("\u26a0\ufe0f" if _breached else "\u2705" if _ready
+                  else "\u2b07\ufe0f" if direction == "LONG" else "\u2b06\ufe0f")
+        _dist = (_now_px - _fill_px) / _now_px * 100
+        fill_line = (f"<code>${_now_px:,.4f}</code>  {_glyph} "
+                     f"{_dist:+.2f}% to fill")
+    sl_dist_pct = (abs(_fill_px - _sl_px) / _fill_px * 100
+                   if _sl_px is not None and _fill_px else None)
+    tp_dist_pct = (abs(_tp_px - _fill_px) / _fill_px * 100
+                   if _tp_px is not None and _fill_px else None)
+
+    # R:R at fill, through the one reading. This card OMITTED the
+    # row when the ratio came out 0, which is three facts wearing
+    # one silence -- no stop planned, no target planned, and a
+    # limit sitting on its own target.
+    rr_at_fill = live_rr(limit_price, sl, tp)
+    # AND THE RATIO THE READER ACTS ON IS THE ONE NET OF FEES.
+    # This card printed `R:R at fill: 3.1` and, two lines under
+    # it, `Est. fees $0.2030` -- and the second number was not in
+    # the first. On the live ARB/USDT order of 2026-09-17 (a LONG
+    # limit, stop 0.18% below, target 0.58% above) the round trip
+    # is 43% of the distance to the stop, so the 3.13 is 1.88 once
+    # the venue has been paid.
+    costed = net_reward_risk(limit_price, sl, tp,
+                             order_type=order_type)
+
+    # Fee estimate — fees are charged on notional, not margin, and
+    # THE TWO LEGS ARE NOT THE SAME RATE. Both took
+    # `commission_pct` (the taker rate) although a resting limit
+    # order is a MAKER entry by construction: $0.2030 printed
+    # where the venue charges $0.1354 -- 1.5x, on the one figure
+    # this card exists to quote.
+    entry_notional = notional_usd if notional_usd > 0 else (limit_price * quantity if quantity else size_usd * leverage)
+    entry_fee = fee_usd(entry_notional, entry_rate_pct(order_type))
+    exit_notional = entry_notional  # assume same notional on exit
+    exit_fee = fee_usd(exit_notional, exit_rate_pct())
+    total_fees = entry_fee + exit_fee
+
+    d_icon = "\U0001f7e2" if direction == "LONG" else "\U0001f534"
+    dir_label = "LONG" if direction == "LONG" else "SHORT"
+
+    # Age display
+    if hold_h < 1:
+        age_str = f"{hold_h * 60:.0f}m"
+    elif hold_h < 24:
+        age_str = f"{hold_h:.1f}h"
+    else:
+        age_str = f"{hold_h / 24:.1f}d"
+
+    sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
+    tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
+    strategy_type = po.get("strategy_type", "swing").upper()
+
+    lines = [
+        f"{d_icon} <b>{html.escape(pair)} {dir_label}</b> \u2014 Limit Order \u2022 {strategy_type}",
+        "",
+        f"\U0001f4cd <b>Limit Price:</b> <code>${limit_price:,.4f}</code>",
+        f"\U0001f4b2 <b>Current:</b>    {fill_line}",
+        "",
+        f"\U0001f4b0 <b>Size:</b> <code>${size_usd:,.2f}</code> margin | <b>{leverage:.0f}x</b> leverage",
+    ]
+    if quantity > 0:
+        lines.append(f"   Qty: <code>{quantity:.4f}</code> contracts")
+
+    lines.append("")
+
+    # NAMED, NOT OMITTED. A limit order with no stop planned is
+    # the row a reader most needs on this card, and dropping it
+    # is indistinguishable from a card that shows no stops at all.
+    _sl_dist = f"  ({sl_dist_pct:.2f}% from entry) [{sl_tag}]" if sl_dist_pct is not None else ""
+    _tp_dist = f"  ({tp_dist_pct:.2f}% from entry) [{tp_tag}]" if tp_dist_pct is not None else ""
+    lines.append(
+        f"\U0001f6d1 <b>SL:</b> {format_level(_sl_px, '$', 4)}{_sl_dist}")
+    lines.append(
+        f"\U0001f3af <b>TP:</b> {format_level(_tp_px, '$', 4)}{_tp_dist}")
+    # BOTH RATIOS, ALWAYS, so the gap between them needs no
+    # threshold to be visible and no second sentence to explain
+    # it. `format_rr`'s dash is the honest answer for a leg that
+    # could not be read AND for a target that does not clear the
+    # round trip -- so when the net one is a dash the fee line
+    # below says which, rather than this row guessing.
+    _rr_net = None if costed is None or costed.net is None else costed.net
+    lines.append(
+        f"\u2696\ufe0f <b>R:R at fill:</b> {format_rr(_rr_net, '', 2)}"
+        f" after fees  ({format_rr(rr_at_fill, '', 2)} on price)")
+    if _breached:
+        lines.append(
+            "   \u26a0\ufe0f The mark is already past the planned stop \u2014 "
+            "this order would fill into a position that is stopped out on "
+            "arrival.")
+
+    lines.append("")
+    lines.append(
+        f"\U0001f4b8 <b>Est. fees:</b> ${total_fees:.4f} "
+        f"({entry_rate_pct(order_type):g}% in + "
+        f"{exit_rate_pct():g}% out)")
+    if costed is not None and costed.fee_losing:
+        lines.append(
+            "   \u26a0\ufe0f The target does not clear that round "
+            "trip: filling this order and hitting the target is a "
+            "loss.")
+    elif costed is not None:
+        lines.append(
+            f"   Fees are {costed.cost_over_stop:.0%} of the "
+            "distance to the stop.")
+    lines.append(f"\u23f3 <b>Waiting:</b> {age_str}")
+    return "\n".join(lines)
 
 
 class TradingCommands:
@@ -862,9 +1054,16 @@ class TradingCommands:
         # all, and `review_card_html` says so rather than printing nothing.
         from bot.core.copilot_context import review_ticket
         from bot.core.trade_copilot import review_card_html
+        # `order_type` rides along because it decides which side of the book
+        # the ENTRY leg is, and therefore what the round trip costs: a resting
+        # limit entry is maker, a market entry is taker, and on a tight-stop
+        # ticket that is the difference between a reward:risk of 1.88 and one
+        # of 1.50. It is the idea's OWN field rather than a literal, so the
+        # review prices the order this card is about to place.
         _review = await review_ticket(self.engine, tg_id, {
             "direction": direction, "symbol": symbol,
-            "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd})
+            "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd,
+            "order_type": getattr(idea, "order_type", None)})
 
         # Calculate R:R
         rr = idea.risk_reward_ratio
@@ -1431,7 +1630,14 @@ class TradingCommands:
                         # not hold, and a measured 0.0 survives.
                         "rr_live": None if rr_live is None else round(rr_live, 2),
                         "quantity": pos.quantity,
-                        "comm_pct": CONFIG.risk.commission_pct,
+                        # WHICH SIDE OF THE BOOK THE ENTRY WAS. The row was
+                        # built from a `LivePosition` that carries it and
+                        # dropped it, so every card downstream priced a
+                        # resting limit entry at the taker rate — and a
+                        # `pending_fill` row IS a resting limit order by
+                        # construction, which is the card this matters most
+                        # on. Read, never inferred from `status`.
+                        "order_type": getattr(pos, "order_type", ""),
                         "hold_hours": round(hold_h, 1),
                         "sl_order": "exchange" if pos.sl_order_id else "manual",
                         "tp_order": "exchange" if pos.tp_order_id else "manual",
@@ -1510,7 +1716,6 @@ class TradingCommands:
                                 mark=prices.get(sym),
                                 sl_price=(sym_orders.get("sl", 0) if _orders_read else None),
                                 tp_price=(sym_orders.get("tp", 0) if _orders_read else None),
-                                commission_pct=CONFIG.risk.commission_pct,
                             ))
                 except Exception as exc:
                     logger.warning("Exchange position fallback failed: %s", exc)
@@ -1581,7 +1786,6 @@ class TradingCommands:
                             pos.quantity * pos.entry_price / pos_lev, 2),
                         "notional_usd": round(pos.quantity * pos.entry_price, 2),
                         "leverage": pos_lev,
-                        "comm_pct": CONFIG.risk.commission_pct,
                         "hold_hours": round(hold_h, 1),
                     })
 
@@ -1662,7 +1866,6 @@ class TradingCommands:
             hold_h = pos.get("hold_hours")
             sl_order = pos.get("sl_order", "")
             tp_order = pos.get("tp_order", "")
-            comm_pct = pos.get("comm_pct", CONFIG.risk.commission_pct)
 
             # Hold time display. An age of "0m" reads as JUST OPENED, which is
             # a specific and wrong claim about a position of unknown age.
@@ -1678,9 +1881,7 @@ class TradingCommands:
             # Fees, on the notional both legs are actually charged against —
             # see `position_fee_estimate` for what this used to take the
             # fraction of and what that cost at 20x.
-            _fees = position_fee_estimate(pos, comm_pct)
-            entry_fee = _fees["entry_fee"]
-            exit_fee = _fees["exit_fee"]
+            _fees = position_fee_estimate(pos)
             total_fees = _fees["total_fees"]
             funding_paid = _fees["funding_paid"]
             # Net is only knowable if gross is. Subtracting fees from an
@@ -1763,105 +1964,13 @@ class TradingCommands:
             await self._send(update, pend_header)
 
             for po in pending_orders:
-                pair = po.get("pair", "N/A")
-                direction = po.get("direction", "LONG")
-                limit_price = po.get("entry", 0)
-                current = po.get("current", limit_price)
-                sl = po.get("sl", 0)
-                tp = po.get("tp", 0)
-                size_usd = po.get("size_usd", 0)
-                notional_usd = po.get("notional_usd", size_usd)
-                leverage = po.get("leverage", 1)
-                tid = po.get("trade_id", pair)
-                hold_h = po.get("hold_hours", 0)
-                quantity = po.get("quantity", 0)
-                comm_pct = po.get("comm_pct", CONFIG.risk.commission_pct)
-                sl_order = po.get("sl_order", "")
-                tp_order = po.get("tp_order", "")
-
-                # Distance from current price to limit
-                if limit_price > 0 and current > 0:
-                    dist_pct = ((current - limit_price) / current) * 100
-                else:
-                    dist_pct = 0
-
-                # SL/TP distances from limit price (where it will fill)
-                _sl_px = price_on_record(sl)
-                _tp_px = price_on_record(tp)
-                _fill_px = price_on_record(limit_price)
-                sl_dist_pct = (abs(_fill_px - _sl_px) / _fill_px * 100
-                               if _sl_px is not None and _fill_px else None)
-                tp_dist_pct = (abs(_tp_px - _fill_px) / _fill_px * 100
-                               if _tp_px is not None and _fill_px else None)
-
-                # R:R at fill, through the one reading. This card OMITTED the
-                # row when the ratio came out 0, which is three facts wearing
-                # one silence -- no stop planned, no target planned, and a
-                # limit sitting on its own target.
-                rr_at_fill = live_rr(limit_price, sl, tp)
-
-                # Fee estimate — fees are charged on notional, not margin
-                entry_notional = notional_usd if notional_usd > 0 else (limit_price * quantity if quantity else size_usd * leverage)
-                entry_fee = entry_notional * (comm_pct / 100.0)
-                exit_notional = entry_notional  # assume same notional on exit
-                exit_fee = exit_notional * (comm_pct / 100.0)
-                total_fees = entry_fee + exit_fee
-
-                d_icon = "\U0001f7e2" if direction == "LONG" else "\U0001f534"
-                dir_label = "LONG" if direction == "LONG" else "SHORT"
-
-                # Age display
-                if hold_h < 1:
-                    age_str = f"{hold_h * 60:.0f}m"
-                elif hold_h < 24:
-                    age_str = f"{hold_h:.1f}h"
-                else:
-                    age_str = f"{hold_h / 24:.1f}d"
-
-                # Fill direction hint
-                if direction == "LONG":
-                    fill_hint = "\u2b07\ufe0f" if current > limit_price else "\u2705"
-                else:
-                    fill_hint = "\u2b06\ufe0f" if current < limit_price else "\u2705"
-
-                sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
-                tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
-                strategy_type = po.get("strategy_type", "swing").upper()
-
-                lines = [
-                    f"{d_icon} <b>{html.escape(pair)} {dir_label}</b> \u2014 Limit Order \u2022 {strategy_type}",
-                    "",
-                    f"\U0001f4cd <b>Limit Price:</b> <code>${limit_price:,.4f}</code>",
-                    f"\U0001f4b2 <b>Current:</b>    <code>${current:,.4f}</code>  {fill_hint} {dist_pct:+.2f}% to fill",
-                    "",
-                    f"\U0001f4b0 <b>Size:</b> <code>${size_usd:,.2f}</code> margin | <b>{leverage:.0f}x</b> leverage",
-                ]
-                if quantity > 0:
-                    lines.append(f"   Qty: <code>{quantity:.4f}</code> contracts")
-
-                lines.append("")
-
-                # NAMED, NOT OMITTED. A limit order with no stop planned is
-                # the row a reader most needs on this card, and dropping it
-                # is indistinguishable from a card that shows no stops at all.
-                _sl_dist = f"  ({sl_dist_pct:.2f}% from entry) [{sl_tag}]" if sl_dist_pct is not None else ""
-                _tp_dist = f"  ({tp_dist_pct:.2f}% from entry) [{tp_tag}]" if tp_dist_pct is not None else ""
-                lines.append(
-                    f"\U0001f6d1 <b>SL:</b> {format_level(_sl_px, '$', 4)}{_sl_dist}")
-                lines.append(
-                    f"\U0001f3af <b>TP:</b> {format_level(_tp_px, '$', 4)}{_tp_dist}")
-                lines.append(
-                    f"\u2696\ufe0f <b>R:R at fill:</b> {format_rr(rr_at_fill, '', 1)}")
-
-                lines.append("")
-                lines.append(f"\U0001f4b8 <b>Est. fees:</b> ${total_fees:.4f} (entry + exit)")
-                lines.append(f"\u23f3 <b>Waiting:</b> {age_str}")
+                tid = po.get("trade_id") or po.get("pair", "N/A")
 
                 kb = InlineKeyboardMarkup([[
                     InlineKeyboardButton("Cancel", callback_data=f"pos_close_{tid}:{user_id}"),
                 ]])
 
-                await self._send(update, "\n".join(lines), reply_markup=kb)
+                await self._send(update, pending_order_card(po), reply_markup=kb)
 
         elif not filled_positions:
             await self._send(update, "No pending orders.")

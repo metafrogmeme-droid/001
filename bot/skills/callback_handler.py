@@ -42,6 +42,7 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.trade_costs import entry_rate_pct, exit_rate_pct, fee_usd
 from bot.formatters.drift_offer import (
     atr_from_ohlcv,
     flatten_headline,
@@ -992,10 +993,13 @@ class CallbackHandler:
                             else "return unknown — no margin on record for this "
                                  "position")
 
-                # Fee calculations
-                comm_pct = CONFIG.risk.commission_pct
-                entry_fee = sz * (comm_pct / 100.0)
-                exit_fee_est = exit_notional * (comm_pct / 100.0)
+                # Fee calculations. THE TWO LEGS ARE NOT THE SAME RATE:
+                # `commission_pct` is the taker one and a position entered by
+                # a resting limit order paid the maker one going in, so every
+                # figure below overstated the entry leg threefold.
+                _entry_rate = entry_rate_pct(getattr(pos_match, 'order_type', None))
+                entry_fee = fee_usd(sz, _entry_rate)
+                exit_fee_est = fee_usd(exit_notional, exit_rate_pct())
                 total_fees = entry_fee + exit_fee_est
 
                 # Funding rate estimate
@@ -1150,9 +1154,10 @@ class CallbackHandler:
 
                 d_emoji = "\U0001f7e2" if _dir == "LONG" else "\U0001f534"
                 sz = _cost
-                comm_pct = CONFIG.risk.commission_pct
-                entry_fee = sz * (comm_pct / 100.0)
-                exit_fee_est = sz * (comm_pct / 100.0)
+                _entry_rate = entry_rate_pct(getattr(pos_match, 'order_type', None))
+                _exit_rate = exit_rate_pct()
+                entry_fee = fee_usd(sz, _entry_rate)
+                exit_fee_est = fee_usd(sz, _exit_rate)
                 from datetime import datetime, timezone
                 hold_hours = (datetime.now(timezone.utc) - _opened).total_seconds() / 3600
                 funding_sessions = hold_hours / 8.0
@@ -1170,8 +1175,8 @@ class CallbackHandler:
                     f"- Hold: <code>{hold_hours:.1f}h</code>",
                     "",
                     "<b>Fees & Costs:</b>",
-                    f"- Entry fee ({comm_pct}%): <code>${entry_fee:.4f}</code>",
-                    f"- Exit fee ({comm_pct}%, est): <code>${exit_fee_est:.4f}</code>",
+                    f"- Entry fee ({_entry_rate:g}%): <code>${entry_fee:.4f}</code>",
+                    f"- Exit fee ({_exit_rate:g}%, est): <code>${exit_fee_est:.4f}</code>",
                     f"- Funding ({hold_hours:.1f}h hold): <code>${funding_paid:.4f}</code>",
                     f"- Total costs: <code>${entry_fee + exit_fee_est + funding_paid:.4f}</code>",
                     "",
@@ -1318,9 +1323,15 @@ class CallbackHandler:
                                         gross_pnl = (fill_price - entry_price) * contracts
                                     else:
                                         gross_pnl = (entry_price - fill_price) * contracts
-                                    comm_pct = CONFIG.risk.commission_pct
-                                    commission = ((entry_price * contracts + fill_price * contracts)
-                                                  * (comm_pct / 100.0))
+                                    # A venue position row carries no order
+                                    # type, so the entry leg is priced TAKER
+                                    # -- the venue's default and the one
+                                    # direction that cannot flatter a close.
+                                    commission = (
+                                        fee_usd(entry_price * contracts,
+                                                entry_rate_pct(None))
+                                        + fee_usd(fill_price * contracts,
+                                                  exit_rate_pct()))
                                     net_pnl = gross_pnl - commission
 
                                 # Record trade in closed_trades.json via executor

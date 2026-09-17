@@ -1,9 +1,9 @@
 {
   "_comment": "Per-rule ruff counts under the config declared in pyproject.toml. A RATCHET: a rule may only go DOWN. Regenerate with scripts/ruff_gate.py --update, and only alongside the commit that actually lowered it.",
-  "total": 1199,
+  "total": 1198,
   "counts": {
     "E402": 87,
-    "E501": 220,
+    "E501": 219,
     "E701": 40,
     "E702": 71,
     "E712": 8,

@@ -43,8 +43,13 @@ function renderer(model) {
 }
 
 const PARTIAL = {
-  verdict: 'partial', score: 100, rr: 3, stop_pct: 2, target_pct: 6,
+  verdict: 'partial', score: 100, rr: 3, rr_net: 2.4, stop_pct: 2, target_pct: 6,
   score_line: 'score 100/100 over 2 of the 4 checks',
+  // THE LEVELS ROW IS THE PRODUCER'S. This block used to assemble it here out
+  // of the four raw fields above, and `trade_copilot._review_lines` assembled
+  // the same row for the Telegram card -- so the day the ratio learned about
+  // fees it would have had to learn twice.
+  levels_line: 'R:R 2.4 after fees (3 on price) \u00b7 stop 2% \u00b7 target 6%',
   checks: { reward_risk: 'ok', stop_distance: 'ok', size_vs_equity: 'unchecked',
     engine_bias: 'unchecked', existing_exposure: 'unchecked' },
   unchecked: [
@@ -56,8 +61,9 @@ const PARTIAL = {
 };
 
 const CLEAR = {
-  verdict: 'clear', score: 100, rr: 3, stop_pct: 2, target_pct: 6,
+  verdict: 'clear', score: 100, rr: 3, rr_net: 2.4, stop_pct: 2, target_pct: 6,
   score_line: 'score 100/100 over all 4 checks',
+  levels_line: 'R:R 2.4 after fees (3 on price) \u00b7 stop 2% \u00b7 target 6%',
   checks: {}, unchecked: [], flags: [], notes: ['Margin is 5% of equity.'],
 };
 
@@ -93,7 +99,26 @@ test('the score never appears without its span', () => {
   // An older bot build sends no span. A bare "score 100/100" is the defect.
   const noSpan = renderer()({ ...PARTIAL, score_line: undefined });
   assert.ok(!/score\s*\d/.test(noSpan), noSpan);
-  assert.ok(noSpan.includes('R:R 3'), 'the rest of the card still renders');
+  assert.ok(noSpan.includes(PARTIAL.levels_line),
+    'the rest of the card still renders');
+});
+
+test('the levels row is the producer\'s, not this page\'s', () => {
+  // Mutate the stamped row and the block prints the mutation: it READS the
+  // sentence rather than rebuilding it from `rr` / `stop_pct` / `target_pct`,
+  // which is what it used to do -- twelve lines under the model's own header
+  // saying it derives no sentence of its own.
+  const html = renderer()({ ...PARTIAL, levels_line: 'PLANTED ROW' });
+  assert.ok(html.includes('PLANTED ROW'), html);
+  assert.ok(!html.includes('after fees'), html);
+  assert.ok(!/stop\s*2%/.test(html), html);
+});
+
+test('an older bot that sends no row prints none rather than guessing', () => {
+  const { levels_line, ...noRow } = PARTIAL;
+  const html = renderer()(noRow);
+  assert.ok(!html.includes('R:R'), html);
+  assert.ok(html.includes('over 2 of the 4 checks'), 'the card still renders');
 });
 
 test('a verdict this build cannot place paints no badge', () => {

@@ -96,23 +96,39 @@ def test_partial_tp_rebuild_from_ratcheted_stop_is_the_bug_we_avoid():
 # ── 3. Fee-aware time-stop ───────────────────────────────────────────────────
 
 def test_time_stop_profit_gate_is_fee_aware_in_source():
-    # The in-profit gate must clear a round-trip fee buffer, not bare entry.
+    """The in-profit gate clears a round-trip fee buffer, not bare entry.
+
+    THE LITERAL MOVED AND THE PROPERTY DID NOT. This asserted
+    ``"CONFIG.risk.taker_fee_pct" in src`` and went red the day the buffer
+    started reading `trade_costs.round_trip_pct` -- a scan measuring the
+    SPELLING rather than the claim, which is the shape CLAUDE.md records for
+    `test_unread_mark_is_not_break_even`. What matters is that the buffer is
+    the POSITION's own round trip (the rate depends on which side of the book
+    its entry was, and charging a maker limit entry at the taker rate made the
+    buffer half again too wide), so the call is what is pinned.
+    """
     import inspect
     from bot.core import live_executor
     src = inspect.getsource(live_executor)
-    assert "CONFIG.risk.taker_fee_pct" in src
+    assert "_rt_fee = round_trip_pct(" in src
     assert "price > pos.entry_price + _buf" in src
     assert "price < pos.entry_price - _buf" in src
 
 
 def test_round_trip_fee_buffer_math():
-    # A LONG up only 0.05% is BELOW the ~0.12% round-trip taker cost → not a
-    # real winner, so the time-stop should NOT spare it.
-    from bot.config import CONFIG
+    """A LONG up less than its own round trip is not a real winner.
+
+    Driven through the seam rather than through a restated
+    ``2 * taker_fee_pct``: the buffer is 0.12% for a market entry and 0.08%
+    for a resting limit one, and the old arithmetic here charged every
+    position the market rate.
+    """
+    from bot.core.trade_costs import round_trip_pct
     entry = 100.0
-    rt_fee = (CONFIG.risk.taker_fee_pct / 100.0) * 2.0
-    buf = entry * rt_fee
-    price_up_sub_fee = entry * 1.0005          # +0.05%
-    assert not (price_up_sub_fee > entry + buf)
-    price_up_over_fee = entry * 1.005          # +0.5% clears costs
-    assert price_up_over_fee > entry + buf
+    for order_type in (None, "market", "limit"):
+        buf = entry * round_trip_pct(order_type) / 100.0
+        assert not (entry * 1.0005 > entry + buf)   # +0.05%: under every rate
+        assert entry * 1.005 > entry + buf          # +0.5%: clears every rate
+    # And the two rates are genuinely different, or the loop above proves
+    # nothing about the leg rule it exists to exercise.
+    assert round_trip_pct("limit") < round_trip_pct("market")

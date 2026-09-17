@@ -100,7 +100,6 @@ def orphan_position_row(
     mark: Optional[float],
     sl_price: Optional[float],
     tp_price: Optional[float],
-    commission_pct: float,
     now: Optional[datetime] = None,
 ) -> dict:
     """Build one `/open_positions` row from a raw exchange position.
@@ -173,7 +172,6 @@ def orphan_position_row(
         # against. 0 is a ratio; this is the absence of one.
         "rr_live": None,
         "quantity": contracts,
-        "comm_pct": commission_pct,
         "hold_hours": round(hold_h, 1) if hold_h is not None else None,
         "sl_order": _order_state(sl_price),
         "tp_order": _order_state(tp_price),

@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:744, :753), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:942, :951), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:206 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -156,7 +156,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1822) as a
-tighten-only veto on that user's own confirms (trading_commands.py:184); /run
+tighten-only veto on that user's own confirms (trading_commands.py:376); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -172,7 +172,7 @@ the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:801); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:999); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
@@ -289,7 +289,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:184).
+(/mystrategy, trading_commands.py:376).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -357,7 +357,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:744, :753); the engine, live_executor
+futures-only mode' (trading_commands.py:942, :951); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1120,7 +1120,7 @@ captain — the 'Connector' tier at app/auth.js:437 is the one tier marked
 state:'live'). Copy-follow, the strategy marketplace, the Arena, the public
 leaderboard and the operator's Telegram broadcast channel all exist. An
 ACCESS-TIER mechanism also exists: basic/pro/elite plans, a 5-question/day
-free chat quota with pro/elite/admin exempt (bot/web/chat_quota.py:30), and a
+free chat quota with pro/elite/admin exempt (bot/web/chat_quota.py:32), and a
 per-feature tier map in bot/token/tier_gate.py.
 
 *Gap.* There is no payment rail anywhere in the tree — no Stripe, no checkout, no
@@ -1166,7 +1166,7 @@ attribution of revenue (there is no revenue), and no third-party affiliate
 integration: app/lib/venue_links.js:17 builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:337-338 passes only
+button is constructed with no ref_code (alerts_monitor.py:393-395 passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
@@ -1209,7 +1209,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:100-106), the contract-
+web_data_pull.fetch_research — scan_commands.py:117-118), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → bot/core/token_research.py:74), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -1670,7 +1670,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1119, registered telegram_handler.py:971) and
+bot/skills/scan_commands.py:1136, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7059
 (get_market_session) and scan_commands.py:301.
@@ -1728,6 +1728,17 @@ dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat
 drawer's trade card (chat.js appendTradeCard) each call it — one renderer,
 three surfaces, two bundles.
 
+The reward:risk it checks is NET OF THE FEES THE TICKET WILL PAY, through
+bot/core/trade_costs — one rule for the whole product: a rate is per LEG, a
+resting limit entry is MAKER, every live exit is TAKER (the stop and the
+take-profit are both placed as trigger market orders), and an unstated order
+type is taker. So `order_type` rides with the ticket from all three doors, and
+a ticket that clears the bar on price and fails it after fees is a flag rather
+than a note reading "Strong reward:risk". The levels row (`levels_line`) is
+stamped by the producer and printed by both renderers, because it used to be
+assembled twice — once in Python for the Telegram card and byte for byte in
+copilot-review-model.js.
+
 *Gap.* The review's sentences are English on both surfaces, because they are
 the producer's: one vocabulary, in trade_copilot. `/trade`'s card around it is
 fourteen languages. Localising the review is ~25 keys × 14 plus a producer
@@ -1737,6 +1748,28 @@ The five ENGINE-generated `confirm:` buttons are a recorded refusal rather than
 a gap: `_engine_bias` reads the engine's own non-manual pending ideas, so an
 engine idea would match itself and be told it is "aligned with the engine's
 bias", and those levels already passed the risk gate at analysis time.
+
+**Trade costs**
+
+What one round trip costs, and the reward:risk that survives it —
+bot/core/trade_costs. `entry_rate_pct` / `exit_rate_pct` / `round_trip_pct` /
+`taker_legs_pct` / `fee_usd` / `net_reward_risk`, with the leg rule stated
+once. Read by: the executor's seven fee sites (six copies of
+`maker_fee_pct if is_limit_entry else taker_fee_pct` plus the time stop's
+round-trip buffer), the co-pilot's reward:risk check, the resting limit-order
+card and `position_fee_estimate` on /positions, three fee blocks in the
+callback handler, the fee-aware entry gate's FEE half, and the funding-arb
+reality check (four taker legs, derived rather than the hand-written 0.24 its
+own comment always explained).
+
+*Deliberately out.* Slippage: a fee is a rate the venue charges and the
+executor books, a slippage estimate is a model, and folding one into the other
+publishes an estimate with the authority of a charge — the entry gate keeps its
+own slippage term. `maker_take_profit_enabled` is a BACKTEST knob (its config
+comment says it does not alter live placement), so a live card never prices
+itself off it. The paper book (bot/risk/portfolio.py) and the backtest keep
+their own injected rate so a simulated fee matches the run being compared; the
+one-rule ratchet lists each exemption with its reason and fails on a stale one.
 
 **The PUBLIC Strategy-Agent marketplace**
 

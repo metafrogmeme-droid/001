@@ -60,6 +60,19 @@
     return (typeof s === 'string' && s.trim()) ? s.trim() : null;
   }
 
+  /* The R:R / stop / target row, as the bot wrote it. This block used to
+   * assemble it here out of four raw fields -- twelve lines under the header
+   * above saying it derives no sentence of its own -- and `trade_copilot`
+   * assembled the same row, byte for byte, for the Telegram card. Two
+   * runtimes, one sentence, and the day the ratio learned about fees it would
+   * have had to learn twice. Null when the bot sent none, and the renderer
+   * then prints no row at all rather than a ratio this page would have to
+   * decide the basis of. */
+  function levelsLine(rev) {
+    var s = rev && rev.levels_line;
+    return (typeof s === 'string' && s.trim()) ? s.trim() : null;
+  }
+
   /* THE ADVISORY FOOTER IS ONE SENTENCE IN TWO RUNTIMES. The bot renders the
    * same review onto a Telegram card, and `trade_copilot.COPILOT_FOOTER` is
    * this string byte for byte -- a guard pins the two equal, because a reader
@@ -96,10 +109,9 @@
     }
     var out = '<span class="cop-badge ' + b.cls + '">' + esc(b.label) + '</span> ';
     var line = scoreLine(rev);
-    if (line) out += '<b>' + esc(line) + '</b> \u00b7 ';
-    out += 'R:R ' + esc(String(rev.rr == null ? '\u2014' : rev.rr))
-        + ' \u00b7 stop ' + esc(String(rev.stop_pct == null ? '\u2014' : rev.stop_pct))
-        + '% \u00b7 target ' + esc(String(rev.target_pct == null ? '\u2014' : rev.target_pct)) + '%';
+    var levels = levelsLine(rev);
+    if (line) out += '<b>' + esc(line) + '</b>' + (levels ? ' \u00b7 ' : '');
+    if (levels) out += esc(levels);
     var i;
     var flags = Array.isArray(rev.flags) ? rev.flags : [];
     for (i = 0; i < flags.length; i++) {
@@ -123,7 +135,7 @@
 
   var api = { BADGES: BADGES, FOOTER: FOOTER, NO_REVIEW: NO_REVIEW,
               UNREADABLE: UNREADABLE, badge: badge, coverage: coverage,
-              scoreLine: scoreLine, render: render };
+              scoreLine: scoreLine, levelsLine: levelsLine, render: render };
   root.CopilotReviewModel = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof self !== 'undefined' ? self : this);
