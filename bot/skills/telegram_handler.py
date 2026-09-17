@@ -457,6 +457,77 @@ def _closed_trade_line(t) -> str:
     return f"  - {direction or '?'} {symbol}: " + ", ".join(parts)
 
 
+#: How the unprompted block opens, on all three of its outcomes. One
+#: constant because a caller that greps for the section is grepping for a
+#: heading, and three spellings of it would be three sections.
+_ALERTS_HEAD = "UNPROMPTED MESSAGES YOU SENT THIS USER"
+
+
+def _unprompted_alerts_block(rows, now: float) -> str:
+    """What the bot told this user WITHOUT being asked, dated, oldest first.
+
+    THE ALERT LOOP IS THE DOOR THAT SPEAKS FIRST, and that is why it was the
+    last one with no record. Every other door answers something: a slash
+    command, a tapped button, a routed sentence, a chat tool. Here nobody
+    typed anything, so there is no user turn to hang a record on and no tool
+    result to file it under - and `skill_memory.py`'s own subject is a turn
+    the user can SEE that the model cannot. Asked "what was that about?" or
+    "should I close it?", the model had nothing in its history and the only
+    guard downstream refuses a fabricated `[skill] result:` block, which a
+    narrated alert is not.
+
+    Three outcomes, because an unreadable ring and an empty one are different
+    facts and neither of them is "nothing happened". `rows` is None for a
+    read that FAILED. Empty is a claim about the RECORD and is worded as one:
+    the ring holds only what this build delivered, bounded by
+    `ConversationStore.NOTIFICATIONS_MAX`, so "none on record" can never mean
+    "nothing has happened to your positions".
+
+    Each row carries its own age AND the marker the stored tool results
+    already carry - as of THEN, not now. A stop-loss card from three hours
+    ago names a price, and a model restating it as the current one is the
+    fabrication this section exists to prevent.
+    """
+    _unread = (f"\n\n{_ALERTS_HEAD}: could not be read just now. Do not say "
+               "you have sent them nothing - you do not know what you sent.")
+    if rows is None:
+        return _unread
+    try:
+        listed = list(rows)
+    except TypeError:
+        return _unread
+
+    lines = []
+    for r in listed:
+        if not isinstance(r, dict):
+            continue
+        text = str(r.get("text") or "").strip()
+        if not text:
+            continue
+        kind = str(r.get("kind") or "alert").strip() or "alert"
+        at = turn_time(r.get("at"))
+        when = f"{age_words(max(0.0, now - at))} ago" if at is not None \
+            else "time not on record"
+        # The body is a CARD and keeps its lines (`plain_text` is written to
+        # keep them, so one row per symbol stays one row per symbol). Indented
+        # under its own head, because a multi-line body flush against the next
+        # bullet reads as part of it.
+        body = "\n".join("    " + ln for ln in text.splitlines())
+        lines.append(f"  - [{when} - {kind}]\n{body}")
+
+    if not lines:
+        return (f"\n\n{_ALERTS_HEAD}: none on record. That is a fact about "
+                "this transcript, not about their account - say you have no "
+                "alert to them in front of you, never that nothing has "
+                "happened to their positions.")
+    return (f"\n\n{_ALERTS_HEAD} (alerts and notifications they did not ask "
+            "for; oldest first). YOU sent these: the user did not say them "
+            "and no chat tool produced them. Each is what was DELIVERED at "
+            "its own time, so never restate a figure from one as the state "
+            "now - call a tool - and never claim to have sent one that is "
+            "not listed here:\n" + "\n".join(lines))
+
+
 def _live_positions_block(executor, marks: dict | None = None) -> str:
     """The ACTIVE POSITIONS section of the chat prompt, from live state.
 
@@ -733,7 +804,7 @@ from bot.utils.user_store import (SELF_ADMISSION_BY,
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
                             chat_language_name, ui_lang, SUPPORTED_LANGS, DEFAULT_LANG)
 from bot.nlp.intent_router import IntentRouter
-from bot.nlp.conversation_store import ConversationStore
+from bot.nlp.conversation_store import ConversationStore, age_words, turn_time
 from bot.core.proactive_monitor import ProactiveMonitor
 from bot.marketing.channel_forwarder import ChannelForwarder
 from bot.formatters.rich_cards import (
@@ -2261,8 +2332,23 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # takes the WHOLE prompt with it.
         _ideas_fn = getattr(self, "_pending_ideas_block", None)
         _ideas_block = _ideas_fn() if callable(_ideas_fn) else ""
+
+        # THREE-VALUED AT THE BOUNDARY, for the reason the renderer's own
+        # docstring gives: a fault here hands it None, which says the ring
+        # could not be read. Falling back to `[]` would print "none on
+        # record" - a confident negative about what this bot sent, assembled
+        # from a read that never happened.
+        try:
+            _alert_rows = self.conversations.recent_alerts(user_id)
+        except Exception:
+            _alert_rows = None
+        # Beside ACTIVE POSITIONS, because that is what these are usually
+        # about; both surfaces get it, since the web chat builds its prompt
+        # through this same method.
+        _alerts_block = _unprompted_alerts_block(_alert_rows, time.time())
+
         return (base + f"\n{time_note}" + self._live_ticker_block()
-                + positions_detail + _ideas_block
+                + positions_detail + _alerts_block + _ideas_block
                 + context_block + ingest_block)
 
     def _chat_marks(self) -> dict:
@@ -3051,6 +3137,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         otherwise push admitted users' history out. One reading for all three
         doors: two copies of an admission rule are two answers about whose
         history survives.
+
+        `_transcript_id` is the same rule for a caller who typed NOTHING -
+        the alert loop, which has no `Update` to ask about.
         """
         tg_id = self._get_tg_id(update)
         user = self.users.get(tg_id)
@@ -3059,6 +3148,56 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         if not self._is_allowlisted(update):
             return None
         return tg_id
+
+    def _transcript_id(self, tg_id: str) -> Optional[str]:
+        """The same rule as `_transcript_user`, for a caller who TYPED
+        NOTHING, else None.
+
+        The alert loop has no `Update` to ask about - nobody sent a message,
+        which is the whole reason that door had no record - so the two
+        questions are spelled against the id instead. `authorized` is the
+        same read; `_is_allowlisted(update)` is `_access_state(tg_id) !=
+        "needs_approval"` by construction, and that equivalence is DRIVEN in
+        this slice's guard rather than asserted here, because two spellings
+        of an admission rule that nothing compares are two answers about
+        whose history survives.
+
+        Both halves are needed and neither implies the other: `register()`
+        marks a stranger `authorized` (the F-2 hole `_is_allowlisted` exists
+        to close), and a chat id on the operator's config or on the `/watch`
+        list is not a chat USER at all - recording for one would evict real
+        users from a 200-user LRU to hold notifications nobody can ask about.
+        """
+        tg_id = str(tg_id or "")
+        if not tg_id:
+            return None
+        user = self.users.get(tg_id)
+        if not user or not user.get("authorized", False):
+            return None
+        if self._access_state(tg_id) == "needs_approval":
+            return None
+        return tg_id
+
+    def _note_unprompted(self, chat_id: str, kind: str, text: str) -> None:
+        """Record one DELIVERED unprompted message in that chat's transcript.
+
+        THE ONE RECORDER for both alert doors - the proactive monitor's
+        `_dispatch` (34 alert types) and the five event hooks in
+        `alerts_monitor` (a trade CLOSED, a limit FILLED, positions ADOPTED,
+        and an auto-confirmed trade that was PLACED). A second copy would be
+        a second answer about who may have a transcript.
+
+        Best-effort by design: this is bookkeeping ABOUT a message that has
+        already been delivered, so a fault here must never propagate into the
+        send path and turn a recorded alert into an unsent one.
+        """
+        try:
+            if self._transcript_id(chat_id) is None:
+                return
+            self.conversations.note_alert(str(chat_id), kind, text)
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            system_log.debug("unprompted record skipped for %s: %s",
+                             chat_id, exc)
 
     def _remembering_button(self, handler):
         """Wrap the callback dispatcher so a TAPPED BUTTON reaches the

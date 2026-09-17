@@ -436,6 +436,25 @@ class ProactiveMonitor:
         # Decides who is an admin, for audience="admin" alerts. Injected via
         # set_admin_fn() so this module keeps importing no telegram.
         self._admin_fn: Optional[Callable] = None
+        # Puts a DELIVERED alert into that chat's own transcript, so the model
+        # can be asked about it. Injected for the same reason `_admin_fn` is:
+        # this module imports neither the conversation store nor the user
+        # store, and whether a chat may HAVE a transcript is an admission
+        # question only the handler can answer. Unset, nothing is recorded,
+        # which is exactly what every build before this one did.
+        self._record_fn: Optional[Callable] = None
+
+    def set_record_fn(self, record_fn) -> None:
+        """Register a callback(chat_id, kind, text) that records one DELIVERED
+        alert in that chat's transcript.
+
+        THE ALERT LOOP IS THE DOOR THAT SPEAKS FIRST, and it was the last one
+        with no record: a slash command, a tapped button and a routed sentence
+        each answer something the user did, and here nobody did anything, so
+        there is no turn to hang the record on. "What was that about?" then
+        reached a model with nothing in its history.
+        """
+        self._record_fn = record_fn
 
     def set_chart_fn(self, chart_fn) -> None:
         """Register an async callback(chat_id, idea) that pushes a setup chart
@@ -488,11 +507,25 @@ class ProactiveMonitor:
             if not chat:
                 acks.append({"id": trip_id, "ok": False, "error": "no telegram id"})
                 continue
+            _text = alert_trip_text(row)
             try:
-                await self._dm_fn(chat, alert_trip_text(row))
+                await self._dm_fn(chat, _text)
             except Exception as exc:
                 acks.append({"id": trip_id, "ok": False, "error": type(exc).__name__})
                 continue
+            # THE THIRD UNPROMPTED SENDER, and the sweep for it is why this
+            # line is here: `_dispatch` and the event hooks were the two the
+            # slice started from, and a trip delivered here is as unprompted
+            # as either - the user armed a tripwire on the website and is
+            # being told, in this chat, that it fired. `_dm_fn` RAISES where
+            # the alert sender swallows, so reaching this line is a delivery.
+            _record = getattr(self, "_record_fn", None)
+            if _record is not None:
+                try:
+                    _record(chat, "PRICE_ALERT", _text)
+                except Exception as rexc:  # noqa: BLE001 - best-effort
+                    logger.debug("alert transcript record skipped for "
+                                 "%s: %s", chat, rexc)
             self._delivered_trip_ids.append(trip_id)
             acks.append({"id": trip_id, "ok": True})
         if acks and await asyncio.to_thread(ack_alert_trips, acks):
@@ -3600,6 +3633,28 @@ class ProactiveMonitor:
                       action="proactive_alert",
                       data={"type": alert.alert_type, "chat_id": chat_id,
                             "severity": alert.severity})
+                # WHAT WAS SENT, not what was built, and per RECIPIENT: the
+                # send above can fail for one chat and succeed for another,
+                # and a record written before it would tell the model it said
+                # something nobody received. Inside the `try` and below the
+                # await for that reason - the same correction `_mark_sent`
+                # already carries for the channel budget. The chart is not
+                # recorded: a PNG is not something a transcript can hold, and
+                # the card's text is this message.
+                #
+                # `getattr` rather than the attribute, and not for tidiness:
+                # this block sits inside the send's own `try`, so an
+                # AttributeError here would be caught below and logged as
+                # "Failed to send alert" about a message that WAS sent. Tests
+                # build the monitor with `__new__`, a legitimate pattern in
+                # this file that several attributes already read this way.
+                _record = getattr(self, "_record_fn", None)
+                if _record is not None:
+                    try:
+                        _record(chat_id, alert.alert_type, full_msg)
+                    except Exception as rexc:  # noqa: BLE001 - best-effort
+                        logger.debug("alert transcript record skipped for "
+                                     "%s: %s", chat_id, rexc)
             except Exception as exc:
                 logger.debug("Failed to send alert to %s: %s", chat_id, exc)
 

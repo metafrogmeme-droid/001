@@ -32,8 +32,13 @@ from bot.utils.atomic_write import atomic_write_text
 FRESH_SECONDS = 60.0
 
 
-def _turn_time(ts) -> Optional[float]:
+def turn_time(ts) -> Optional[float]:
     """``ts`` as a unix time, or None when the record has none.
+
+    PUBLIC because it is one reading with more than one module reading it:
+    everything dated in this file, and the chat prompt's unprompted-alerts
+    block, which asks the same question about the same rows. A second copy
+    of "is this a time the record holds" would be a second answer.
 
     The loader defaults a row with no timestamp to 0, and 0 is not the epoch,
     it is an absence — rendered as an age it reads "56 y ago", which is a
@@ -43,6 +48,18 @@ def _turn_time(ts) -> Optional[float]:
     if not math.isfinite(ts) or ts <= 0:
         return None
     return float(ts)
+
+
+def _announced_cut(body: str, cap: int) -> str:
+    """``body`` bounded to ``cap``, with the truncation SAID rather than done
+    quietly. One reading, two callers - `note_alert` writes the row and
+    `_load` reads one back - because a second copy would be a second answer
+    about how much of an alert is on record. The marker goes on the END, so a
+    silent cap anywhere downstream would remove the only thing announcing it.
+    """
+    if len(body) <= cap:
+        return body
+    return body[:cap] + f"\n[… {len(body) - cap} more characters not recorded]"
 
 
 def age_words(seconds: float) -> str:
@@ -64,7 +81,7 @@ def when_words(ts) -> str:
     """An absolute date for the note-writer ('2026-09-10 14:02 UTC') —
     relative ages rot inside a note that is read weeks later — or 'time not
     on record'."""
-    t = _turn_time(ts)
+    t = turn_time(ts)
     if t is None:
         return "time not on record"
     return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t))
@@ -75,12 +92,12 @@ class Message:
     """A single conversation message."""
     role: str           # "user" or "assistant"
     content: str        # Message text
-    timestamp: float    # Unix timestamp; 0 means NOT ON RECORD (see _turn_time)
+    timestamp: float    # Unix timestamp; 0 means NOT ON RECORD (see turn_time)
     metadata: dict = field(default_factory=dict)  # Optional: intent, symbol, etc.
 
     def age_seconds(self, now: Optional[float] = None) -> Optional[float]:
         """Seconds since this turn, or None when its time is not on record."""
-        t = _turn_time(self.timestamp)
+        t = turn_time(self.timestamp)
         if t is None:
             return None
         return max(0.0, (time.time() if now is None else now) - t)
@@ -158,6 +175,20 @@ class UserContext:
     pending_summary: list[dict] = field(default_factory=list)
     mood_hints: list[str] = field(default_factory=list)  # Recent mood signals
     user_name: str = ""  # Display name
+    #: What the bot told this user UNPROMPTED, newest last — `{at, kind, text}`
+    #: per row, bounded by `ConversationStore.NOTIFICATIONS_MAX`.
+    #:
+    #: A RING RATHER THAN MESSAGES, and the arithmetic is the reason. An alert
+    #: is a NOTIFICATION, not a conversation turn, and appending one to
+    #: `_conversations` would put it under `max_messages_per_user` (50) with
+    #: everything the user actually said. `anomaly_scope` budgets ADVISORY
+    #: alerts at twelve an hour and exempts CRITICAL on purpose, so a watching
+    #: user's own conversation would be evicted inside about four hours — and
+    #: not merely dropped: `append` pushes what it prunes into
+    #: `pending_summary`, so the rolling note would then summarise the bot
+    #: talking to itself. Kept apart, the two cannot crowd each other however
+    #: loud the channel gets.
+    notifications: list[dict] = field(default_factory=list)
 
     def update_from_message(self, text: str, now: Optional[float] = None) -> None:
         """Extract context signals from a user message.
@@ -389,6 +420,55 @@ class ConversationStore:
             ctx.pending_summary = (list(turns) + ctx.pending_summary)[
                 -self.PENDING_SUMMARY_MAX:]
 
+    #: How many unprompted messages are remembered per user. A burst is
+    #: twelve an hour by `anomaly_scope`'s budget, and somebody asking "what
+    #: was that?" means the last one or two; eight covers a burst without
+    #: crowding out the blocks beside it in the prompt.
+    NOTIFICATIONS_MAX = 8
+    #: Bound on ONE remembered alert. Truncation is announced by the shared
+    #: marker every other record uses, never silent.
+    NOTIFICATION_MAX_CHARS = 400
+
+    def note_alert(self, user_id: str, kind: str, text: str, *,
+                   at: Optional[float] = None) -> None:
+        """Remember that the bot told `user_id` something they did not ask for.
+
+        Called at the DELIVERY site, once per recipient, after the send
+        succeeded — what was SENT, not what was built, which is the correction
+        `_mark_sent` already records for the channel budget.
+
+        It creates a `UserContext` where there is none, which `_user_contexts`
+        has never evicted (`append`'s LRU bounds `_conversations` alone). That
+        is bounded on the caller's side rather than here: the only writer is
+        `_note_unprompted`, which refuses a chat the bot has not ADMITTED, so
+        the set is the admitted users and each of them holds at most
+        `NOTIFICATIONS_MAX` rows of `NOTIFICATION_MAX_CHARS`.
+        """
+        from bot.nlp.skill_memory import plain_text
+        body = plain_text(text)
+        if not body:
+            return
+        body = _announced_cut(body, self.NOTIFICATION_MAX_CHARS)
+        # `turn_time` rather than a bare float(): an `at` that is not a
+        # usable time records 0.0, which is this file's word for NOT ON
+        # RECORD, and the renderer says so. Manufacturing `now` for a moment
+        # the caller could not name would be the `fmtAgo(0)` shape.
+        row = {"at": time.time() if at is None else (turn_time(at) or 0.0),
+               "kind": str(kind or "alert"), "text": body}
+        with self._lock:
+            ctx = self._user_contexts.setdefault(user_id, UserContext())
+            ctx.notifications = (ctx.notifications + [row])[
+                -self.NOTIFICATIONS_MAX:]
+        if self._persist_path:
+            self._persist_alert(user_id, row)
+
+    def recent_alerts(self, user_id: str) -> list[dict]:
+        """What this user was told unprompted, oldest first. A COPY, because
+        the caller renders it and must not be able to edit the store."""
+        with self._lock:
+            ctx = self._user_contexts.get(user_id)
+            return [dict(r) for r in ctx.notifications] if ctx else []
+
     def set_summary(self, user_id: str, text: str, *,
                     at: Optional[float] = None) -> None:
         """Write the rolling note for `user_id`, dated, and persist it.
@@ -492,7 +572,7 @@ class ConversationStore:
         now_t = time.time() if now is None else now
 
         def _ago(ts: float, absent: str = "time not on record") -> str:
-            t = _turn_time(ts)
+            t = turn_time(ts)
             return f"{age_words(now_t - t)} ago" if t is not None else absent
 
         # Store user name if provided
@@ -587,6 +667,36 @@ class ConversationStore:
         except OSError:
             pass
 
+    def _persist_alert(self, user_id: str, row: dict) -> None:
+        """Append one remembered alert as an `alert` row.
+
+        The row shape is the file's - `user_id`, `role`, `content`,
+        `timestamp`, `metadata` - so `_forget_on_disk` drops a purged
+        account's alerts by the same reading that drops their turns, rather
+        than needing to learn a second shape. The KIND rides in `metadata`
+        for the same reason: a new top-level key would be invisible to every
+        row reader already here.
+
+        The body is NOT capped again. `note_alert` bounded it with the
+        truncation announced at the end, and a second cut here would remove
+        the marker and turn an announced truncation into a silent one.
+        """
+        if not self._persist_path:
+            return
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "user_id": user_id,
+                "role": "alert",
+                "content": row["text"],
+                "timestamp": row["at"],
+                "metadata": {"kind": row["kind"]},
+            }
+            with open(self._persist_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+
     def _load(self) -> None:
         """Load conversation history from JSONL file."""
         if not self._persist_path or not self._persist_path.exists():
@@ -607,8 +717,39 @@ class ConversationStore:
                                 uid, UserContext())
                             ctx.summary = str(entry.get("content") or "")[
                                 :self.SUMMARY_MAX_CHARS]
-                            ctx.summary_at = (_turn_time(entry.get("timestamp"))
+                            ctx.summary_at = (turn_time(entry.get("timestamp"))
                                               or 0.0) if ctx.summary else 0.0
+                            continue
+                        if entry["role"] == "alert":
+                            # An unprompted NOTIFICATION, and neither of the
+                            # two things this loop otherwise builds. Not a
+                            # turn - `get_recent` must never hand it back as
+                            # something somebody said - and not a MENTION
+                            # either: the bot naming ETH/USDT in a stop-loss
+                            # card is the BOT discussing it, so it must not
+                            # reach `update_from_message` and become "the
+                            # asset the user last mentioned".
+                            text = _announced_cut(
+                                str(entry.get("content") or ""),
+                                self.NOTIFICATION_MAX_CHARS)
+                            if not text.strip():
+                                # An alert with no body is not an alert, and
+                                # the ring is BOUNDED: keeping one would
+                                # evict a real notification to hold a row
+                                # nothing can render. `note_alert` refuses
+                                # the same row on the way in.
+                                continue
+                            ctx = self._user_contexts.setdefault(
+                                uid, UserContext())
+                            ctx.notifications = (ctx.notifications + [{
+                                # 0.0 is an ABSENCE here, as everywhere else
+                                # in this file; the renderer says so rather
+                                # than ageing it.
+                                "at": turn_time(entry.get("timestamp")) or 0.0,
+                                "kind": str((entry.get("metadata") or {}).get(
+                                    "kind") or "alert"),
+                                "text": text,
+                            }])[-self.NOTIFICATIONS_MAX:]
                             continue
                         msg = Message(
                             role=entry["role"],
@@ -627,7 +768,7 @@ class ConversationStore:
                             # re-date every mention to boot time; a row
                             # with no time leaves the mention undated.
                             self._user_contexts[uid].update_from_message(
-                                msg.content, now=_turn_time(msg.timestamp) or 0.0)
+                                msg.content, now=turn_time(msg.timestamp) or 0.0)
                     except (KeyError, json.JSONDecodeError):
                         continue
 
@@ -677,6 +818,23 @@ class ConversationStore:
                 }) + "\n"
                 for uid, ctx in self._user_contexts.items()
                 if ctx.summary)
+            # THE RING SURVIVES COMPACTION, and it only does because it is
+            # written out here. This rewrite is from IN-MEMORY state, so a row
+            # type the loops above do not re-emit is not pruned, it is
+            # DESTROYED - the shape `secrets_vault._load_vault` is on record
+            # for, where the reader dropped what it could not open and the
+            # writer then saved the map wholesale. The turns and the note are
+            # re-emitted above for exactly this reason.
+            rows.extend(
+                json.dumps({
+                    "user_id": uid,
+                    "role": "alert",
+                    "content": row["text"],
+                    "timestamp": row["at"],
+                    "metadata": {"kind": row["kind"]},
+                }) + "\n"
+                for uid, ctx in self._user_contexts.items()
+                for row in ctx.notifications)
             atomic_write_text(self._persist_path, "".join(rows))
         except OSError:
             pass  # compaction is an optimization, never a requirement

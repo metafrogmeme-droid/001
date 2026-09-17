@@ -4150,6 +4150,96 @@ the bot talking to itself. An alert is a NOTIFICATION, not a conversation
 turn, and that slice is a bounded per-user ring rendered as one dated block.
 (`tests/test_an_alert_about_my_position_reaches_only_me.py`.)
 
+**THE DOOR THAT SPEAKS FIRST WAS THE LAST ONE WITH NO RECORD.** That is the
+paragraph above, done. Every other door answers something the user did - a
+slash command, a tapped button, a routed sentence, a chat tool - and here
+nobody typed anything, so there is no user turn to hang a record on and no
+tool result to file it under. "What was that about?" reached a model with
+nothing in its history, and the only guard downstream refuses a fabricated
+`[skill] result:` block, which a narrated alert is not.
+
+**A RING, NOT MESSAGES, and the arithmetic is the design rather than a
+detail.** `UserContext.notifications` is eight rows per user, apart from the
+conversation: appending an alert as a MESSAGE puts it under
+`max_messages_per_user` with everything the user said, and `append` pushes
+what it prunes into `pending_summary`, so a flood would evict the user's own
+conversation AND leave the rolling note summarising the bot talking to
+itself. Kept apart, neither can crowd the other however loud the channel
+gets. It is also NOT a mention: the bot naming ETH/USDT in a stop-loss card
+is the BOT discussing it, and `last_discussed_asset` is a claim about the
+USER, so the loader's `alert` branch never reaches `update_from_message`.
+
+**And the compaction trap was real.** `_maybe_compact` rewrites the JSONL
+from IN-MEMORY state and re-emits `summary` rows explicitly, so a row type
+the rewrite does not know is not pruned, it is DESTROYED - the
+`secrets_vault._load_vault` shape, where the reader dropped what it could not
+open and both write paths then saved the map wholesale. The ring is written
+out there, and the guard outgrows `COMPACT_THRESHOLD_LINES` so the rewrite
+really runs rather than being asserted about.
+
+**ONE RECORDER, TWO DOORS, and the admission rule had to grow a second
+shape.** `_note_unprompted` is asked by the monitor's `_dispatch` (34 alert
+types, through an injected `set_record_fn`, for the reason `set_admin_fn`
+already gives: the monitor imports neither the conversation store nor the
+user store) and by the five event hooks. NOT ADMITTED, NO TRANSCRIPT is the
+rule the command and button doors follow, and it does a second job here:
+`_enabled_chats` is a WATCH LIST and the operator chat ids are a config
+value, so neither is a measurement of who this bot admitted - recording for
+one would evict real users from a 200-user LRU to hold notifications nobody
+can ask about. `_transcript_user` needs an `Update` and nobody typed one, so
+`_transcript_id` asks the same two questions against the id
+(`_is_allowlisted(update)` is `_access_state(tg_id) != "needs_approval"` by
+construction). Nothing compared those two spellings before; the guard drives
+both over every combination of allowlist, admission and `authorized`, because
+two spellings of an admission rule that nothing compares are two answers
+about whose history survives.
+
+**WHAT WAS SENT, not what was built, and per RECIPIENT.** The record sits
+below the await inside the send's own `try`: a send can fail for one chat and
+succeed for another, and a record written above it tells the model the bot
+said something nobody received. It reads `getattr(self, "_record_fn", None)`
+rather than the attribute, and not for tidiness - an AttributeError there
+would be caught by the send's `except` and logged as *"Failed to send alert"*
+about a message that WAS sent.
+
+**Seven send loops, each with its own `try`/`except pass`, and a record added
+to six of them is the `/setllm` ten-of-eleven shape.** `_notify_chats` is the
+one walk the hooks share, so the record rides the delivery rather than being
+remembered at six call sites; a guard walks `start_monitor` by AST and fails
+on any `bot.send_*` outside it or the three senders that are blessed with
+their reasons (the monitor's own sender, already recorded by `_dispatch`; the
+price-alert DM, which must RAISE; the signal-card PNG). Each hook is DRIVEN
+through the real `start_monitor` - a scan of those bodies cannot see whether
+the record is reached, which is the one thing being asked - and the sharpest
+of them is `_on_auto_confirmed`: a TRADE WAS PLACED with no command typed and
+no button tapped, so neither door that already records could see it.
+
+**AND THE SWEEP FOUND A THIRD UNPROMPTED SENDER.** *Ask which OTHER surface
+makes the same claim* applied to this slice's own subject: `_dispatch` and the
+event hooks were the two it started from, and `_deliver_web_alert_trips` is a
+third - the caller armed a tripwire on the website and is told HERE, in this
+chat, that it fired. As unprompted as either, recorded by nothing, and leaving
+it would have been *"fixing two left the third"* inside the fix for it. The
+same recorder, after the same delivery: `_dm_fn` RAISES where the alert sender
+swallows, so reaching that line IS a delivery.
+
+**The prompt block has three outcomes and the empty one is a claim about the
+RECORD.** `None` is a read that failed and says so; `[]` says *none on
+record ... not about their account*, because the ring holds only what this
+build delivered; and a row carries its own age plus the marker the stored
+tool results already carry - a stop-loss card from three hours ago names a
+price, and a model restating it as the current one is the fabrication the
+block exists to prevent. `0.0` is an absence, never an age, for the reason
+`turn_time` gives (which is public now: one reading, two modules).
+
+**And a fixture had drifted from the object it stands in for.** The prompt
+suites' stub store carried `build_context_prompt` and nothing else, so the
+block read "could not be read" for every fixture - true of the stub and false
+of production. The stub answers an empty ring now. Two of that suite's
+existing assertions found it, which is a broad `must_not_say` doing its job
+rather than misfiring.
+(`tests/test_an_alert_is_in_the_transcript.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -4296,7 +4386,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 202 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 203 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -5108,9 +5198,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **394 of 953** reach for source text through `source_scan`, `code_only`
+Driven, **395 of 954** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 394 is a FLOOR and the honest shape is
+source scan that rule does not see, so 395 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
