@@ -62,6 +62,7 @@
     "patterns": "grafiekpatronen die de engine ziet",
     "squeeze": "status van de volatiliteitssqueeze",
     "sweep": "detectie van liquidity sweeps",
+    "pocretest": "POC-hertest van het 4u-volumeprofiel — /pocretest SOL",
     "zones": "vraag-/aanbodzones",
     "momentum": "momentumscan",
     "dip": "dipscan",

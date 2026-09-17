@@ -44,7 +44,7 @@ class SweepSignal:
     bars_ago: int = 0        # closed bars since the sweep candle (age decay)
 
 
-def _find_swing_lows(lows: np.ndarray, order: int = 5) -> list[tuple[int, float]]:
+def find_swing_lows(lows: np.ndarray, order: int = 5) -> list[tuple[int, float]]:
     """Find swing low points (index, price)."""
     swings = []
     for i in range(order, len(lows) - order):
@@ -54,7 +54,7 @@ def _find_swing_lows(lows: np.ndarray, order: int = 5) -> list[tuple[int, float]
     return swings
 
 
-def _find_swing_highs(highs: np.ndarray, order: int = 5) -> list[tuple[int, float]]:
+def find_swing_highs(highs: np.ndarray, order: int = 5) -> list[tuple[int, float]]:
     """Find swing high points (index, price)."""
     swings = []
     for i in range(order, len(highs) - order):
@@ -111,8 +111,8 @@ def detect_sweeps(
     avg_range = float(np.mean(h - l)) if len(h) > 0 else 1.0
 
     # Find key levels (swing lows and highs)
-    swing_lows = _find_swing_lows(l, order=3)
-    swing_highs = _find_swing_highs(h, order=3)
+    swing_lows = find_swing_lows(l, order=3)
+    swing_highs = find_swing_highs(h, order=3)
 
     # Check recent candles (last 5) for sweeps of established levels
     check_range = min(5, len(c) - 1)

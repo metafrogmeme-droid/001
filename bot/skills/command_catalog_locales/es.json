@@ -62,6 +62,7 @@
     "patterns": "patrones gráficos que ve el motor",
     "squeeze": "estado de compresión de volatilidad",
     "sweep": "detección de barridos de liquidez",
+    "pocretest": "retest del POC del perfil de volumen 4h — /pocretest SOL",
     "zones": "zonas de oferta/demanda",
     "momentum": "escaneo de momentum",
     "dip": "escaneo de caídas",

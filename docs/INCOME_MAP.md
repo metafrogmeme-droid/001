@@ -71,7 +71,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Leaf | Today | Doors |
 |---|---|---|
 | Spot trading | partial | `/livebalance`, `/exposure`, `/networth`, `/spot`, `/api/spot/market`, `/api/spot/basis`, `/api/meme/swap/build`, `/memeplan` |
-| Swing trading | **shipped** | `/swing`, `/fullscan`, `/mystrategy`, `/trade`, `/analyze` |
+| Swing trading | **shipped** | `/swing`, `/fullscan`, `/mystrategy`, `/trade`, `/analyze`, `/pocretest` |
 | Scalping | **shipped** | `/scalp`, `/fullscan`, `/mystrategy`, `/run`, `/trade` |
 | Perp futures | **shipped** | `/trade`, `/positions`, `/open_positions`, `/livepositions`, `/orders`, `/leverage`, `/venues`, `/liveclose`, `/api/trade/propose`, `/api/trade/confirm`, `/api/trade/cancel` |
 | Options | — | — |
@@ -1791,6 +1791,52 @@ the venue is a confident wrong attribution on the card an operator reads to
 decide what to change. The three SIBLING aborts in the same method are left
 alone: they abort for fill slippage and a leverage overshoot and each already
 names its own cause.
+
+**The POC-retest swing setup, on two timeframes**
+
+The operator's rules, written down on 2026-09-17, with their own framing as the
+design constraint: *"These are sensible starting rules, not yet validated
+results. I'd test the ATR buffer, 1-5-candle retest window, and 2R filter as
+parameters rather than assuming they are optimal."* So every threshold is a
+field of `PocRetestParams` and none is a literal in a comparison anywhere in
+the module — the rule `BacktestConfig.market_is_perp` states about perp-ness.
+
+`bot/core/poc_retest` is the detector and is PURE: `swing_leg` finds the most
+recent completed 4h leg, `leg_poc` computes the Point of Control over THAT
+LEG's candles (`analyzer`'s POC is over `volume_profile_lookback`, a different
+price under the same word), and `retest_state` answers one of eight `STATES`
+rather than a score — because a sequence that has not completed is not a
+weaker version of one that has. `setup_verdict` applies the spec's two
+rejections, and the 2R floor is on the NET ratio (`net_reward_risk`), which is
+the defect every pre-placement surface here was cured of the day before.
+
+`bot/core/poc_retest_scan` is the one place that fetches, and `/pocretest SOL`
+(`@guard("analyze")`) is its only door. It places nothing and arms nothing, and
+the card says so in as many words, beside the sample it read and the operator's
+own "starting values, not validated results".
+
+*What the reading refuses to do.* A forming candle's close is not a close and
+this whole strategy is closes, so both timeframes go through
+`drop_forming_candle` — driven, not asserted: the same 1h series with its final
+bar still forming answers `no_breakout` where the settled one answers
+`awaiting_retest`. A fetch that failed, a venue that answered with nothing and a
+window too short for the leg or for ATR(14) are three facts with three
+sentences, each kept apart from every member of `STATES`, because `no_breakout`
+is a claim about price. An unreadable 4h candle is `no_poc` rather than a crash
+(`compute_volume_profile` bins with `int(...)` and `int(nan)` raises) and rather
+than a nan POC, which every comparison would answer False to — "price never
+cleared the buffer", from a level nobody measured.
+
+*Deliberately out, each with its reason.* There is no execution flag and no
+Confirm button: a flag read by nothing is the fifth granularity and a button
+behind it would lead to "not built yet", which is the `/vault` hint shape. There
+is no universe sweep yet — the door is one asset, which is what "confirm the POC
+retest" names — and no shadow record, so this claims no edge: whether the setup
+is worth taking is a question for a record with its own sample floor and
+interval, the discipline `arb_verdict` already applies. The target is the one
+thing the rules do not give and 2R needs one, so it is the LEG'S OWN EXTREME,
+stated as an assumption, refused as `no_target` when price has passed it rather
+than manufactured from a multiple.
 
 **The PUBLIC Strategy-Agent marketplace**
 
