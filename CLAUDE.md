@@ -4461,14 +4461,138 @@ and the whole point of that parameter is the SENTENCE — without it the card
 falls back to *"the equity for this account was not supplied"*, which tells a
 person nothing about linking an account. Both die now.
 
-**Filed, with its measurement, and NOT done here.** The co-pilot has exactly
-one door: `POST /api/trade/copilot`, from the dashboard's ticket. Telegram's
-`/trade` — the entry door the act-intent notice NAMES — renders a Confirm card
-that places the same order with no second opinion of any kind, and neither does
-the scan card's Confirm button. That is *ask which OTHER surface makes the same
-claim* pointed at a capability rather than a defect, and it is a slice of its
-own: the review is pure and its reading is already a leaf, so the work is the
-card and the permission, not the arithmetic.
+**THE SECOND OPINION WAS A PROPERTY OF ONE CLIENT'S PREVIEW.** That is the
+follow-up the paragraph above filed, re-driven before it was scoped — and the
+filed note had the shape right and the SIZE wrong. The co-pilot's only door was
+`POST /gateway/trade/copilot`, whose only caller is the dashboard ticket form's
+Review BUTTON. Driven, THREE places build a manual `TradeIdea` and every one of
+them renders a Confirm button: `/trade` on Telegram (the door the act-intent
+notice NAMES, and the door the free-text grammar path rewrites its message to),
+`_propose_from_text` on the web (the chat grammar branch, the dashboard ticket
+and the api bridge, all through one function), and the dashboard's own confirm
+MODAL — the last screen before a real order. None of them asked. The note said
+*"the work is the card and the permission, not the arithmetic"*; the work was
+the BOUNDARY.
+
+**The reading rides on the PROPOSAL**, which is the `_fmt_price(None)` rule one
+noun over: guard at the boundary and new callers inherit the honest behaviour.
+`copilot_context.review_ticket` is the one assembly — the co-pilot endpoint had
+it inline and the two doors that actually REGISTER an idea had nothing — and it
+is stamped onto `pending_trade.copilot`, so a door added tomorrow carries the
+second opinion instead of having to remember it. The guard PATCHES that
+assembly and reads what each of the three doors says, because a byte-identical
+copy per door agrees with every fixture and diverges on the first edit to
+either.
+
+**`trade_reduced_checks` WAS TRUE, so the review is an ADDITION.** Driven,
+`_confirm_trade_inner`'s `is_manual` branch really does skip the price-drift
+check and the stale-R:R check, which is exactly what *"Reduced risk checks for
+manual orders"* names. What was missing was any statement of what WAS checked —
+a claim about checking with nothing behind it, on the card whose next tap
+places a real order — so the block sits above that line rather than replacing
+it. Removing a true sentence to make room for a new one is not a fix.
+
+**ONE SENTENCE, DECIDED ONCE, AND THE TELEGRAM CARD WAS REBUILDING IT.**
+`review_ticket` stamps `score_line` so every renderer prints the assembly's
+own — the rule the arb panel states, *"a verdict derived where it is displayed
+is the second reading the seam exists to replace"*. `_review_lines` called
+`score_line(rev)`, which recomputes it from `score_basis`: the two agree on
+every fixture, which is what a second copy looks like from outside, and the
+guard found it only because it planted a MARKED review and read both doors
+rather than asserting the sentence it expected. `score_line` prefers a sentence
+already on the review now.
+
+**A helper declared in one function and called from another is a
+ReferenceError the moment that path runs.** `copilotReviewHtml` was nested in
+`renderTrade`, and the confirm modal calls it — so the modal would have thrown
+on every ticket. `dashboard_helpers_are_in_scope.test.js` said so on the FULL
+suite while the slice's own four suites were green, which is this file's
+opening lesson arriving in the dev loop again, and it is the SECOND time that
+guard has moved a renderer out to module scope for exactly this (`dlSay` was
+the first).
+
+**THREE CAUSES, THREE SENTENCES, and none of them is "nothing was found".** A
+null review is the bot saying it could not produce one; a verdict the browser
+cannot place is the bot saying something this PAGE cannot read; an absent model
+is a script that did not load. The Confirm button below the block is live in
+all three, so a block that simply vanished would leave the card in exactly the
+state the co-pilot exists to remove — an order one tap away with nothing said
+about what reviewed it. The adapter had only the middle sentence, because
+`CR && CR.badge(d)` collapsed the first two into it.
+
+**ONE RENDERER, THREE SURFACES, TWO BUNDLES.**
+`CopilotReviewModel.render(rev, esc)` is the block, and the ticket, the confirm
+modal and the chat drawer's trade card all call it; the guard fails on any of
+them spelling a `cop-badge--` class, the coverage row or the footer, because a
+copy in a second bundle is a second answer about what the review says. The
+escaper is the CALLER's (each bundle has its own) and is REQUIRED: a renderer
+that silently stops escaping publishes a producer sentence as markup, so an
+absent one throws rather than degrading. The advisory footer is one sentence in
+two runtimes — `trade_copilot.COPILOT_FOOTER` and the model's `FOOTER`, byte
+for byte, pinned equal — because two surfaces wording the same caveat
+differently is two answers about what a green badge means.
+
+**ENGLISH UNDER A FOURTEEN-LANGUAGE CARD, filed with its number.** `/trade` is
+one of the better-localised cards in the product (13 `t()` calls against one
+English literal, where `_cmd_latest_signal` has 3 against 13) and the review's
+sentences are English on BOTH surfaces, because they are the PRODUCER's — one
+vocabulary, in `trade_copilot`. Localising it is ~25 keys × 14 languages plus a
+producer refactor to emit keys and params, on both surfaces: `i18n` holds 276
+keys and every one carries all fourteen, so an English-only key would be the
+first, and `translate` falls back to `en` in silence, which is the trap the deck
+study records. Rendering localised FRAME words around the producer's English
+findings was refused rather than shipped — that is a second vocabulary for one
+review, decided in two places.
+
+**Recorded, not fixed.** `TradeIdea.risk_reward_ratio`'s `else 0.0` cannot fire
+through this door: `build_manual_idea` refuses `sl == entry` and `tp == entry`,
+which is the `scan_skill` case, and the arithmetic is driven in the suite so the
+day either half changes, that fails rather than the card quietly starting to
+publish a ratio of zero. `/buy` and `/sell` are disabled (futures-only) and
+build no idea at all. And the five ENGINE-generated `confirm:` buttons are a
+REFUSAL with its argument: `_engine_bias` reads the engine's own non-manual
+pending ideas, so reviewing an engine idea would match the idea ITSELF and
+answer *"Aligned with the engine's long bias"* — the manual-idea exclusion in
+reverse, the engine agreeing with itself — and those levels came from the
+analyzer, which already ran the risk gate at analysis time, where a MANUAL
+ticket's review is the only review it gets.
+(`tests/test_every_manual_trade_door_shows_the_review.py`,
+`app/test/copilot_review_reaches_every_confirm.test.js`.)
+
+**Thirty-two mutations, each killed, and the one the driver REFUSED is the
+rule earning its keep.** The anchor for "the chat page stops loading the model"
+carried `?v=1`, which the same slice's cache-buster bump had moved to `?v=2`, so
+it matched zero times — and a driver that took that for a kill would have
+reported coverage of the one page whose script tag this slice added. It is
+re-anchored and it dies. Two more are worth naming for what they prove about
+the guards rather than the code: the browser footer reworded dies on the PYTHON
+pin, which is the direction a JS suite cannot see; and the Telegram card
+recomputing the score sentence changes no rendered byte on any honest fixture,
+so it dies only on a review whose stamped sentence was deliberately made to
+differ from what `score_basis` would rebuild — the fixture asymmetry that is the
+only way to tell one reading from two.
+
+**A FOURTH SURFACE GOT IT WITHOUT A LINE OF ITS OWN, which is the boundary
+argument doing its work.** The chat drawer's *"Trade this"* button on an
+analysis setup re-proposes through the same `/api/trade/propose` rails and
+renders `appendTradeCard` — so it carries the review because the PROPOSAL does,
+and nothing in that path was edited. A fix per surface would have left it out
+and nothing would have said so.
+
+**AND `/trade` HAD ALREADY READ THE CALLER'S ID AND THROWN IT AWAY.** The
+whole-tree ruff ratchet is what said so: `F841` fell by one, and the entry it
+lost was `tg_id` in `_cmd_trade` — assigned at the top of the method and used by
+nothing until the review was the first line to ask whose book this ticket runs
+on. The fifth granularity in miniature (a value computed on every call and read
+by nobody), on the method that opens a real position, found by a lint ratchet
+rather than by anybody reading it.
+
+**And the advice must never take down the action.** `review_ticket` stamps
+`book` and `score_line` onto the review, and the first draft did that OUTSIDE
+its own `except` — so a raise there would have 500'd a proposal, or crashed a
+Telegram card, over a block that only ever advises. The stamping is inside the
+`try` now and `None` is the honest report, which is the state both renderers
+already print.
 
 ## Public-surface rules
 
@@ -5428,7 +5552,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **395 of 955** reach for source text through `source_scan`, `code_only`
+Driven, **395 of 956** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 395 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

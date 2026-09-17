@@ -32,6 +32,7 @@ flagged, and not everything could be looked at.
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Mapping, Optional
 
 # Thresholds (percentage points / ratios). Tuned to flag, not to nag.
@@ -77,6 +78,17 @@ _NOT_SUPPLIED = {
     "engine_bias": "the engine's current lean was not supplied",
     "existing_exposure": "your existing position on this symbol was not supplied",
 }
+
+
+def _esc(text: str) -> str:
+    """Escape a producer sentence for a Telegram HTML card.
+
+    ``quote=False`` on purpose: these strings are element TEXT, never an
+    attribute value, and the default turns every apostrophe in
+    "the engine's bias" into a numeric character reference the card would have
+    to rely on Telegram decoding.
+    """
+    return escape(text, quote=False)
 
 
 def _f(v: Any) -> Optional[float]:
@@ -297,7 +309,18 @@ def score_line(rev: dict) -> str:
     The span is on the figure rather than in a footnote because the whole
     defect was a reader taking 100/100 as a verdict about the trade when it was
     a verdict about however many checks happened to run.
+
+    A SENTENCE ALREADY ON THE REVIEW WINS. ``copilot_context.review_ticket``
+    stamps this once, at the assembly, and it is what the browser prints; a
+    renderer that recomputed its own would be the second reading the seam
+    exists to replace — the rule the arb panel states — and the two would
+    agree on every fixture right up to the first edit to either. Driven, that
+    is exactly what the Telegram card did until its guard planted a marked
+    review and read both doors.
     """
+    stamped = rev.get("score_line")
+    if isinstance(stamped, str) and stamped.strip():
+        return stamped.strip()
     basis = rev.get("score_basis") or {}
     applied = basis.get("applied")
     total = basis.get("total")
@@ -309,14 +332,24 @@ def score_line(rev: dict) -> str:
     return f"{head} over {applied} of the {total} checks"
 
 
-def human_readable(rev: dict) -> str:
-    """Plain-text render of a review (no markup)."""
-    if not rev or rev.get("verdict") == VERDICT_INVALID:
-        msg = (rev.get("flags") or [{}])[0].get("msg", "Invalid trade geometry.")
-        return f"⛔ {msg}"
-    head = _HEADS.get(rev["verdict"], rev["verdict"])
-    bits = [f"{head} ({score_line(rev)})",
-            f"R:R {rev['rr']:g} · stop {rev['stop_pct']:g}% · target {rev['target_pct']:g}%"]
+def _review_lines(rev: dict, *, with_levels: bool) -> list[str]:
+    """The review as plain lines, in the order every surface prints them.
+
+    ONE producer for both renderers below. The web block reads the fields and
+    builds its own markup; these two build text, and a second list of sentences
+    written beside this one would be a second answer about what the co-pilot
+    found — the shape this repository refuses for maps, gates and thresholds.
+
+    ``with_levels`` drops the R:R / stop / target row for a caller whose own
+    card already carries those three figures directly above the block. Printing
+    them twice is not a disagreement (same inputs, same arithmetic) but it is
+    two renderings of one ratio on a card about money, which is how the five
+    copies in the ``R:R 0.0x`` slice started.
+    """
+    bits = [f"{_HEADS.get(rev['verdict'], rev['verdict'])} ({score_line(rev)})"]
+    if with_levels:
+        bits.append(f"R:R {rev['rr']:g} · stop {rev['stop_pct']:g}% "
+                    f"· target {rev['target_pct']:g}%")
     for f in rev.get("flags", []):
         bits.append(f"• {f['msg']}")
     for n in rev.get("notes", []):
@@ -324,4 +357,67 @@ def human_readable(rev: dict) -> str:
     for u in rev.get("unchecked", []):
         label = u.get("label") or CHECK_LABELS.get(u.get("name"), u.get("name"))
         bits.append(f"◦ Not checked — {label}: {u['reason']}")
-    return "\n".join(bits)
+    return bits
+
+
+def human_readable(rev: dict) -> str:
+    """Plain-text render of a review (no markup)."""
+    if not rev or rev.get("verdict") == VERDICT_INVALID:
+        msg = (rev.get("flags") or [{}])[0].get("msg", "Invalid trade geometry.")
+        return f"⛔ {msg}"
+    return "\n".join(_review_lines(rev, with_levels=True))
+
+
+#: The feature's name on a card. It is not translated, for the reason every
+#: other card header in this product is not (``RUNECLAW INTRADAY SCAN``,
+#: ``PRO SCAN``): it names a thing rather than saying something.
+COPILOT_TITLE = "CO-PILOT"
+
+#: What the block says when the review could not be produced AT ALL — the
+#: reading raised, or the caller has no review to show. It is not "nothing was
+#: found": nothing was LOOKED AT, and the Confirm button below it is live
+#: either way, so a block that simply disappeared would leave the card in the
+#: state this whole module exists to remove — an order one tap away with no
+#: statement about what reviewed it.
+COPILOT_UNREADABLE = (
+    f"\U0001f9ed <b>{COPILOT_TITLE}</b> — this ticket could not be reviewed. "
+    "Nothing has been checked."
+)
+
+#: Printed under every readable block. The co-pilot ADVISES; the risk gate and,
+#: in live mode, the Authority Envelope are what actually refuse an order, and
+#: a reader who takes a green badge for a permission has read it wrong.
+#:
+#: ONE SENTENCE, TWO RUNTIMES. ``app/public/js/copilot-review-model.js``'s
+#: ``FOOTER`` is this string byte for byte and a guard pins them equal — two
+#: surfaces wording the same caveat differently is two answers about what the
+#: badge means, which is the shape ``secret_shapes`` and
+#: ``honesty_vocabulary.json`` both exist to refuse at larger scale.
+COPILOT_FOOTER = ("Advice only — the risk gate (and your Authority Envelope, "
+                  "for live) remain the authority.")
+
+
+def review_card_html(rev: Optional[dict]) -> str:
+    """The review as a Telegram card block: HTML, every producer sentence escaped.
+
+    The words are ``_review_lines``' — this renderer chooses markup and nothing
+    else. Levels are dropped because a confirm card carries its own.
+
+    There is deliberately NO branch for a verdict this module cannot place.
+    ``review`` is its only producer and both run in THIS process — the dict
+    reaches here from ``copilot_context.review_ticket``, never off a wire — so
+    such a word is not an input this code can receive, and a line no input can
+    reach is a claim that there is a check. The BROWSER's renderer does carry
+    that branch, and needs to: its payload crosses a process and a version
+    boundary.
+    """
+    if not rev:
+        return COPILOT_UNREADABLE
+    head = f"\U0001f9ed <b>{COPILOT_TITLE}</b>"
+    if rev.get("verdict") == VERDICT_INVALID:
+        msg = (rev.get("flags") or [{}])[0].get("msg", "Invalid trade geometry.")
+        return f"{head}\n\u26d4 {_esc(str(msg))}"
+    lines = [head]
+    lines += [_esc(b) for b in _review_lines(rev, with_levels=False)]
+    lines.append(f"<i>{_esc(COPILOT_FOOTER)}</i>")
+    return "\n".join(lines)

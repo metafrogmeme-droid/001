@@ -44,24 +44,24 @@
     "v": 1
   },
   "js/chat.js": {
-    "sha": "5322acffb4caf8b7",
-    "v": 33
+    "sha": "c559311512468d4c",
+    "v": 34
   },
   "js/context-chips-model.js": {
     "sha": "e89e7947af99dd26",
     "v": 1
   },
   "js/copilot-review-model.js": {
-    "sha": "cbe1aea5b4475344",
-    "v": 1
+    "sha": "548e42e6f32f59ac",
+    "v": 2
   },
   "js/creds-gate-model.js": {
     "sha": "062325eb3c39125a",
     "v": 2
   },
   "js/dashboard.js": {
-    "sha": "ed06d7886e0be765",
-    "v": 189
+    "sha": "b59fb68e5acaa6a8",
+    "v": 190
   },
   "js/decision-court-model.js": {
     "sha": "ab1d7c8c9c3cd2d3",

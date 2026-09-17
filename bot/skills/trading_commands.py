@@ -845,6 +845,27 @@ class TradingCommands:
 
         register_manual_idea(self.engine, idea, margin_usd)
 
+        # THE SECOND OPINION, ON THE CARD THAT PLACES THE ORDER. `/trade` --
+        # the door the act-intent notice NAMES, and the door the free-text
+        # grammar path delegates to -- rendered a Confirm button under
+        # `trade_reduced_checks` ("Reduced risk checks for manual orders"), a
+        # claim ABOUT checking with no statement of what was checked, while the
+        # product's own deterministic reviewer was never asked. The review is
+        # an ADDITION beside that line rather than a replacement for it: the
+        # line is TRUE -- `_confirm_trade_inner`'s `is_manual` branch really
+        # does skip the price-drift and stale-R:R checks -- and the block below
+        # is what fills the silence it leaves.
+        #
+        # `review_ticket` is the ONE assembly the web's propose path and the
+        # co-pilot endpoint also use, so the two surfaces cannot disagree about
+        # one ticket. It answers None when the review could not be produced at
+        # all, and `review_card_html` says so rather than printing nothing.
+        from bot.core.copilot_context import review_ticket
+        from bot.core.trade_copilot import review_card_html
+        _review = await review_ticket(self.engine, tg_id, {
+            "direction": direction, "symbol": symbol,
+            "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd})
+
         # Calculate R:R
         rr = idea.risk_reward_ratio
         sl_dist = abs(entry - sl) / entry * 100
@@ -861,6 +882,8 @@ class TradingCommands:
             f"{t('lbl_rr', lang)}:    <code>{rr:.2f}</code>\n"
             f"{t('lbl_margin', lang)}: <code>{margin_text}</code>\n"
             f"{t('lbl_type', lang)}:   LIMIT\n"
+            f"{'━' * 30}\n"
+            f"{review_card_html(_review)}\n"
             f"{'━' * 30}\n"
             f"<i>{t('trade_reduced_checks', lang)}</i>"
         )
