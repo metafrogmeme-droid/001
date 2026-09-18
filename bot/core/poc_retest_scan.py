@@ -38,6 +38,8 @@ import html
 import inspect
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from bot.core.poc_retest import PocRetestParams, RetestRead, SetupVerdict, retest_state, setup_verdict
@@ -85,6 +87,11 @@ class SymbolSetup:
     entry_bars: Optional[int] = None
 
 
+def _utc_stamp() -> str:
+    """When this row was written, in UTC. The record's own clock, not a bar's."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 async def _maybe_await(value: Any) -> Any:
     """Await a value only if it is awaitable.
 
@@ -127,22 +134,34 @@ def _cols(ohlcv: list) -> tuple[list, list, list, list]:
 
 async def read_setup(exchange: Any, symbol: str, *,
                      params: Optional[PocRetestParams] = None,
-                     order_type: object = None) -> SymbolSetup:
-    """Where this symbol's POC-retest sequence has got to, on two timeframes.
+                     order_type: object = None
+                     ) -> tuple[SymbolSetup, Optional[list]]:
+    """The read, and the entry-TF rows it was read off.
 
-    Reads nothing about an account and places nothing. `order_type` is the
-    entry leg's liquidity for the R figure and defaults to taker, because this
-    strategy enters on a BREAK of a candle extreme — a stop order.
+    Reads nothing about an account, places nothing and WRITES nothing --
+    `observe_setup` is the one that records, and it is built on this rather
+    than beside it: two fetches of one series are two answers, and the second
+    costs a rate-limit slot for nothing.
+
+    `order_type` is the entry leg's liquidity for the R figure and defaults to
+    taker, because this strategy enters on a BREAK of a candle extreme — a
+    stop order.
+
+    The rows travel back because the shadow scorer needs the bars AFTER the
+    retest candle, and they are the bars this call already has. A thin
+    `-> SymbolSetup` wrapper over this was deleted: once `/pocretest` moved to
+    the observer it had no production caller at all, which is the fifth
+    granularity in the module that had just been written to record things.
     """
     p = params or PocRetestParams()
 
     htf, why = await _ohlcv(exchange, symbol, STRUCTURE_TF, STRUCTURE_BARS)
     if htf is None:
-        return SymbolSetup(symbol, unread=why)
+        return SymbolSetup(symbol, unread=why), None
     ltf, why = await _ohlcv(exchange, symbol, ENTRY_TF, ENTRY_BARS)
     if ltf is None:
         return SymbolSetup(symbol, unread=why,
-                           structure_bars=len(htf))
+                           structure_bars=len(htf)), None
 
     # A WINDOW TOO SHORT IS AN UNREAD, NOT A VERDICT. `swing_leg` answers
     # `no_leg` for a short series and `atr_reading` answers `atr_unread`, and
@@ -153,20 +172,128 @@ async def read_setup(exchange: Any, symbol: str, *,
         return SymbolSetup(
             symbol, unread=(f"only {len(htf)} closed {STRUCTURE_TF} candles — "
                             f"the leg needs {need_htf}"),
-            structure_bars=len(htf), entry_bars=len(ltf))
+            structure_bars=len(htf), entry_bars=len(ltf)), ltf
     need_ltf = p.atr_period + 1
     if len(ltf) < need_ltf:
         return SymbolSetup(
             symbol, unread=(f"only {len(ltf)} closed {ENTRY_TF} candles — "
                             f"ATR({p.atr_period}) needs {need_ltf}"),
-            structure_bars=len(htf), entry_bars=len(ltf))
+            structure_bars=len(htf), entry_bars=len(ltf)), ltf
 
     h4, l4, c4, v4 = _cols(htf)
     h1, l1, c1, _ = _cols(ltf)
     read = retest_state(h4, l4, c4, v4, h1, l1, c1, params=p)
     verdict = setup_verdict(read, order_type=order_type, params=p)
     return SymbolSetup(symbol, read=read, verdict=verdict,
-                       structure_bars=len(htf), entry_bars=len(ltf))
+                       structure_bars=len(htf), entry_bars=len(ltf)), ltf
+
+
+#: Outcomes that will not change however many more bars arrive. Everything
+#: else -- ``open``, ``not_triggered``, ``unscored`` -- is re-scored whenever
+#: the symbol is read again and the retest candle is still inside the fetched
+#: window, because an open setup resolving later is a better reading of the
+#: same setup rather than a second one.
+_TERMINAL = ("target", "stop", "ambiguous")
+
+
+@dataclass(frozen=True)
+class ObservedSetup:
+    """A read, plus what it did to the shadow record."""
+
+    setup: SymbolSetup
+    #: ``True`` armed, ``False`` already on record, ``None`` nothing to arm.
+    armed: Optional[bool] = None
+    scored: int = 0
+    #: The record could not be written or read. The READ still stands -- a
+    #: shadow record that cannot be written must not take the card down with
+    #: it, which is why this is a field and not a raise.
+    record_error: Optional[str] = None
+
+
+async def observe_setup(exchange: Any, symbol: str, *,
+                        params: Optional[PocRetestParams] = None,
+                        order_type: object = None,
+                        path: Optional[Path] = None) -> ObservedSetup:
+    """Read the symbol, arm a qualifying setup, and score what is pending.
+
+    ONLY A SETUP THE STRATEGY WOULD TAKE IS ARMED: ``confirmed`` and a verdict
+    of ``ok``. Recording one rejected for a too-wide stop or a sub-2R target
+    would measure a strategy nobody proposed, and the verdict read off it
+    would be about that other strategy.
+
+    Scoring rides the bars this call already fetched, so the window is the
+    entry-TF fetch (``ENTRY_BARS``) and a retest that has slid out of it can
+    no longer be scored from here. That row stays ``unscored`` and the reading
+    says so, rather than being dropped -- a denominator that quietly excludes
+    the rows nobody could reach is a partial total printed as whole.
+    """
+    setup, ltf = await read_setup(exchange, symbol, params=params,
+                                  order_type=order_type)
+    if ltf is None:
+        return ObservedSetup(setup)
+
+    from bot.core.poc_retest_record import (
+        RecordedSetup,
+        load_outcomes,
+        load_setups,
+        record_confirmed,
+        record_setup_outcome,
+        score_setup,
+        setup_key,
+    )
+    try:
+        ts = [int(r[0]) for r in ltf]
+        highs = [float(r[2]) for r in ltf]
+        lows = [float(r[3]) for r in ltf]
+
+        armed: Optional[bool] = None
+        read, verdict = setup.read, setup.verdict
+        if (read is not None and read.state == "confirmed"
+                and verdict is not None and verdict.verdict == "ok"
+                and read.retest_index is not None
+                and 0 <= read.retest_index < len(ts)
+                and read.side and read.entry is not None
+                and read.stop is not None and read.target is not None
+                and verdict.net_r is not None):
+            armed = record_confirmed(RecordedSetup(
+                symbol=symbol, side=read.side, entry=float(read.entry),
+                stop=float(read.stop), target=float(read.target),
+                target_r=float(verdict.net_r),
+                retest_ms=ts[read.retest_index], entry_tf=ENTRY_TF,
+                recorded_at=_utc_stamp()), path)
+
+        at = {t: i for i, t in enumerate(ts)}
+        done = load_outcomes(path)
+        scored = 0
+        for row in load_setups(path):
+            if row.get("symbol") != symbol:
+                continue
+            key = setup_key(row.get("symbol"), row.get("side"),
+                            row.get("retest_ms"))
+            prev = done.get(key)
+            if prev is not None and prev.get("outcome") in _TERMINAL:
+                continue
+            # NOT `int(... or 0)`: that was the first fix for a mypy
+            # arg-type error and the honesty gate caught it in the same
+            # commit. A row whose retest candle cannot be read is not a row
+            # stamped at epoch zero -- it is a row that cannot be matched to
+            # a bar, which is a different fact and is skipped as one.
+            raw_ms = row.get("retest_ms")
+            if not isinstance(raw_ms, (int, float)) or isinstance(raw_ms, bool):
+                continue
+            i = at.get(int(raw_ms))
+            if i is None:
+                continue
+            record_setup_outcome(key, score_setup(
+                row.get("side"), row.get("entry"), row.get("stop"),
+                row.get("target"), row.get("target_r"),
+                highs[i + 1:], lows[i + 1:]), path)
+            scored += 1
+    except OSError as exc:
+        return ObservedSetup(setup,
+                             record_error=f"the shadow record could not be "
+                                          f"updated ({type(exc).__name__})")
+    return ObservedSetup(setup, armed=armed, scored=scored)
 
 
 #: What the card says a state MEANS, in the operator's terms rather than the

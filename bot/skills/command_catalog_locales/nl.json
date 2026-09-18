@@ -63,6 +63,7 @@
     "squeeze": "status van de volatiliteitssqueeze",
     "sweep": "detectie van liquidity sweeps",
     "pocretest": "POC-hertest van het 4u-volumeprofiel — /pocretest SOL",
+    "pocshadow": "wat de vastgelegde POC-retest setups opleverden",
     "zones": "vraag-/aanbodzones",
     "momentum": "momentumscan",
     "dip": "dipscan",

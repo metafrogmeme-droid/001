@@ -57,6 +57,40 @@ if TYPE_CHECKING:
 _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
 
 
+def _shadow_note(seen: object) -> str:
+    """One line about what the read did to the shadow record, or nothing.
+
+    Module level because a renderer reachable only through a guarded async
+    handler is one no test can run -- #999's lesson, which is why the card
+    itself is a leaf too.
+
+    Printed only when something happened. "Already on record" is said because
+    a caller who runs `/pocretest` twice must not read the second silence as a
+    failure to record, and a record that could not be WRITTEN says so rather
+    than letting the card imply an arming it never made.
+    """
+    err = getattr(seen, "record_error", None)
+    if err:
+        return f"\n\n<i>\u26a0\ufe0f {html.escape(str(err))}</i>"
+    bits = []
+    armed = getattr(seen, "armed", None)
+    if armed is True:
+        bits.append("added to the shadow record")
+    elif armed is False:
+        bits.append("already on the shadow record")
+    # NOT `or 0`: a count that is not a number is a programming error, not a
+    # value to coerce to zero, and the or-zero shape here would read as "0
+    # re-scored" for a producer that answered nothing at all. The honesty
+    # ratchet caught this line in the commit that added it.
+    scored = getattr(seen, "scored", 0)
+    if scored:
+        bits.append(f"{scored} recorded setup(s) re-scored")
+    if not bits:
+        return ""
+    joined = " \u00b7 ".join(bits)
+    return f"\n\n<i>{joined} \u2014 /pocshadow for the record.</i>"
+
+
 class ScanCommands:
     """Market scans, single-symbol analysis and token research. Host contract below; methods after."""
 
@@ -494,12 +528,28 @@ class ScanCommands:
         raw = (args[0] if args else "BTC").upper()
         symbol = raw if "/" in raw else f"{raw}/USDT"
         try:
-            from bot.core.poc_retest_scan import read_setup, setup_card
+            from bot.core.poc_retest_scan import observe_setup, setup_card
             exchange = await self.engine.get_exchange()
-            await self._send(update, setup_card(
-                await read_setup(exchange, symbol)))
+            seen = await observe_setup(exchange, symbol)
+            await self._send(update, setup_card(seen.setup) + _shadow_note(seen))
         except Exception as exc:
             await self._send_error(update, "the POC-retest read", exc)
+
+    @guard("analyze")
+    async def _cmd_pocshadow(self, update: Update,
+                             context: ContextTypes.DEFAULT_TYPE) -> None:
+        """What the recorded POC-retest setups actually paid — /pocshadow.
+
+        The record's own verdict on the record's own evidence. It places
+        nothing, arms nothing and proposes nothing: `/pocretest` is what adds
+        to the record, by reading a symbol.
+        """
+        try:
+            from bot.core.poc_retest_record import shadow_card, shadow_reading
+            _rows, verdict = await asyncio.to_thread(shadow_reading)
+            await self._send(update, shadow_card(verdict))
+        except Exception as exc:
+            await self._send_error(update, "the POC-retest shadow record", exc)
 
     @guard("scan")
     async def _cmd_zones(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

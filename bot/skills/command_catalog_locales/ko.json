@@ -63,6 +63,7 @@
     "squeeze": "변동성 스퀴즈 상태",
     "sweep": "유동성 스윕 감지",
     "pocretest": "4시간 볼륨 프로파일 POC 리테스트 — /pocretest SOL",
+    "pocshadow": "기록된 POC 리테스트 셋업의 실제 성과",
     "zones": "수급 구간",
     "momentum": "모멘텀 스캔",
     "dip": "눌림목 스캔",
