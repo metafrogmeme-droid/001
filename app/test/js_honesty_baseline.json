@@ -6,7 +6,7 @@
     "lib",
     "routes"
   ],
-  "total": 156,
+  "total": 152,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
@@ -14,7 +14,6 @@
       "lib/airdrops.js": 1,
       "lib/daily_rune.js": 1,
       "lib/holdings.js": 2,
-      "lib/meme.js": 4,
       "lib/solana.js": 3,
       "lib/wallet.js": 5,
       "routes/signals.js": 2,

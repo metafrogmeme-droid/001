@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Vincula una cartera y el rendimiento ocioso mostrará qué está parado, con la mejor tasa por activo. Solo lectura: RUNECLAW nunca mueve tus fondos."],
   ["dd.e_cross_nowallet", "Vincula una cartera y el planificador calculará si mover capital ocioso a una mejor tasa compensa el gas y el puente. Solo estimaciones: nada se mueve."],
   ["dd.e_dex", "Ahora mismo no hay pares cotizados en ambos mercados: la comparación necesita un símbolo listado en cada lado."],
-  ["dd.e_meme", "Ahora mismo ningún par supera el mínimo de liquidez y antigüedad del radar."],
+  ["dd.e_meme", "El feed de DEXScreener respondió y ahora mismo no trae ningún par on-chain en tendencia."],
   ["dd.e_flow", "Ahora mismo ninguna base tiene suficiente liquidez emparejada para leer el flujo."],
   ["dd.t_authority_revoked", "Autoridad revocada."],
   ["dd.t_clear_failed", "No se pudo borrar."],

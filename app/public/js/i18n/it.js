@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Collega un wallet e il rendimento inattivo mostra cosa resta fermo, con il miglior tasso per ciascun asset. Sola lettura — RUNECLAW non muove mai i tuoi fondi."],
   ["dd.e_cross_nowallet", "Collega un wallet e il pianificatore calcola se spostare capitale fermo verso un tasso migliore batte i costi di gas e bridge. Solo stime — nulla si muove."],
   ["dd.e_dex", "Al momento nessuna coppia è quotata su entrambe le sedi: il confronto richiede uno strumento listato su ciascun lato."],
-  ["dd.e_meme", "Al momento nessuna coppia supera le soglie di liquidità e anzianità del radar."],
+  ["dd.e_meme", "Il feed DEXScreener ha risposto e al momento non riporta coppie on-chain di tendenza."],
   ["dd.e_flow", "Al momento nessuna base ha liquidità appaiata sufficiente per una lettura del flusso."],
   ["dd.t_authority_revoked", "Autorità revocata."],
   ["dd.t_clear_failed", "Cancellazione non riuscita."],

@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Bir cüzdan bağla; atıl getiri neyin boşta durduğunu ve her varlık için en iyi oranı gösterir. Salt okunur — RUNECLAW paranı asla taşımaz."],
   ["dd.e_cross_nowallet", "Bir cüzdan bağla; planlayıcı atıl sermayeyi daha iyi bir orana taşımanın gas ve köprü maliyetini aşıp aşmadığını hesaplar. Yalnızca tahmin — hiçbir şey taşınmaz."],
   ["dd.e_dex", "Şu anda her iki mekânda da kote edilen parite yok — karşılaştırma iki tarafta da listelenmiş bir sembol ister."],
-  ["dd.e_meme", "Şu anda hiçbir parite radarın likidite ve yaş alt sınırını geçmiyor."],
+  ["dd.e_meme", "DEXScreener akışı yanıt verdi ve şu anda öne çıkan hiçbir zincir üstü parite taşımıyor."],
   ["dd.e_flow", "Şu anda hiçbir baz varlık, akış okuması için yeterli eşleşmiş likiditeye sahip değil."],
   ["dd.t_authority_revoked", "Yetki iptal edildi."],
   ["dd.t_clear_failed", "Temizlenemedi."],

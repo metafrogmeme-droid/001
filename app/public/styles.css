@@ -444,9 +444,35 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
   .tbl--collapse thead { display: none; }
   .tbl--collapse, .tbl--collapse tbody, .tbl--collapse tr, .tbl--collapse td { display: block; width: 100%; }
   .tbl--collapse tr { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: var(--s2); background: var(--surface-2); padding: var(--s2) 0; }
-  .tbl--collapse td { display: flex; justify-content: space-between; gap: var(--s3); border: none; padding: 4px var(--s3); text-align: right; }
-  .tbl--collapse td::before { content: attr(data-label); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); text-align: left; }
+  /* `align-items: center` is load-bearing. The default `stretch` sizes every
+     flex item to the row's height, so a `.chip` — `border-radius: 999px` —
+     rendered as a capsule the full height of the tallest cell in the row. On
+     the Signals card that was a LONG pill roughly 390px tall beside a
+     seven-line pattern name. */
+  .tbl--collapse td { display: flex; justify-content: flex-end; align-items: center; gap: var(--s2); border: none; padding: 4px var(--s3); text-align: right; }
+  /* `margin-right: auto` on the LABEL rather than `space-between` on the row.
+     A value written as more than one inline element — `<b>SOL</b> 📈`, a chip
+     beside a symbol — is several flex items, and `space-between` spread each
+     of them across the row instead of keeping the value together. The auto
+     margin puts the label at the left and packs everything else at the right,
+     which is the label|value layout this collapse was always drawing. */
+  .tbl--collapse td::before { content: attr(data-label); margin-right: auto; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); text-align: left; }
   .tbl--collapse td:empty { display: none; }
+  /* An action cell carries no label. Hiding its empty `::before` used to matter
+     under `space-between`, which put one button hard left and the other hard
+     right; with the auto margin above, an empty box absorbs the free space and
+     the controls pack right by themselves, so the rule was deleted rather than
+     kept as a claim no input can reach. */
+
+  /* A cell whose value is a BLOCK — a chart, a wrapped description, a row of
+     controls — is not a label|value pair, and laying it out as a flex ROW made
+     each of its children a narrow column: the chip above, the pattern name
+     wrapping one word per line, and the signal sparkline (`width: 100%`)
+     squeezed to a ~60px sliver of its 260px viewBox. Those cells stack — the
+     label on its own line, then the value across the row's full width. */
+  .tbl--collapse td.td--stack { display: block; text-align: left; }
+  .tbl--collapse td.td--stack::before { display: block; margin-bottom: 4px; }
+
 }
 
 /* ---- Panel states: skeleton -> data | empty | error --------------------- */
@@ -458,6 +484,34 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
 .state-block .icon { width: 26px; height: 26px; color: var(--text-3); }
 .state-block p { color: var(--text-3); font-size: var(--fs-sm); max-width: 42ch; }
 .state-block .btn { margin-top: var(--s1); }
+
+/* A LEADING PANEL'S EMPTY STATE IS A LINE, NOT A HERO.
+   `.state-block` is a centred column with `--s6` padding — right for a panel
+   in the middle of a view, wrong for the FIRST one. The Trade view now leads
+   with Open positions (live money before the ticket that opens more), and a
+   trader holding nothing would have met a ~300px empty box above the order
+   ticket: a reorder meant to raise the priority item would have pushed the
+   primary ACTION further down than it was before. Same block, same words,
+   one row. It wraps, because a phone cannot fit icon + sentence + CTA. */
+.panel--lead .state-block {
+  flex-direction: row; flex-wrap: wrap; align-items: center;
+  text-align: left; gap: var(--s2); padding: var(--s3) 0 0;
+}
+.panel--lead .state-block .icon { width: 18px; height: 18px; flex: none; }
+.panel--lead .state-block p {
+  /* A ZERO BASIS, and `flex: 1 1 auto` is the version that does not work.
+     `flex-wrap` breaks lines using each item's flex-BASIS, before any shrink
+     is applied — so a basis of `auto` (the sentence's max-content width, far
+     wider than what is left beside an 18px icon) wraps the whole paragraph
+     onto its own line and it then takes the full row: the column this rule
+     exists to remove, rebuilt by the wrap beside it. `min-width: 0` does not
+     save it, because the item never gets onto the first line to be shrunk.
+     Basis 0 always fits, then grows into what is left. Measured, not
+     reasoned: the first draft here was `1 1 auto` and the drive returned the
+     icon at y=205 with the sentence at y=231, on its own 346px line. */
+  max-width: none; flex: 1 1 0; min-width: 0;
+}
+.panel--lead .state-block .btn { margin-top: 0; margin-left: auto; }
 
 .section-note {
   display: flex; align-items: center; gap: var(--s2);
@@ -1880,6 +1934,27 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
    display:none, which a reader cannot tell from a chart nobody offered. */
 .sc-slot { margin-top: var(--s2); min-height: 72px; }
 .sc-slot[aria-busy="true"] .skel--sc { height: 72px; margin: 0; }
+/* On a phone the signal chart gets the row's full width (see the collapse
+   block above), and the height goes with it: the SVG is `width="100%"
+   height="72" preserveAspectRatio="none"`, so this scales the same candles
+   into a chart worth reading rather than a strip. It must sit AFTER the base
+   rule — the first draft put it inside the collapse media query 1400 lines
+   above, where the base `min-height: 72px` has equal specificity and wins.
+   A media query raises nothing; only order decided it, and the rules were
+   silently dead. */
+@media (max-width: 639px) {
+  /* Three rules, one number: what the row reserves while the chart is loading,
+     what it reserves when the candle read FAILED (the chart never mounts and
+     `aria-busy` is cleared, so only the slot's own min-height is left), and
+     what the chart occupies once it draws. A mismatch between any two of them
+     is a jump on the surface this whole repair is about.
+     The min-height was deleted once as an equivalent mutant — on the evidence
+     of a mutation that could not reach it, because the skeleton rule covers
+     the loading state and only a FAILED read exposes this one. */
+  .sc-slot { min-height: 96px; }
+  .sc-slot .sc { height: 96px; }
+  .sc-slot[aria-busy="true"] .skel--sc { height: 96px; }
+}
 .sc { overflow: visible; }
 /* Colour is a claim, so it is spent only on things that were measured: the
    bar direction (a fact about two closes) and the two levels whose meaning is

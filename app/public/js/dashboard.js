@@ -120,6 +120,25 @@
     return v >= 0 ? 'up' : 'down';
   }
 
+  // The meme radar's per-row risk detail. "no extra flags" is a MEASUREMENT
+  // and must not be said over a signal the feed did not report: the row's
+  // `unread` list names those. Module scope, not nested in the loader, so the
+  // helper-scope guard can resolve it and a test can run it.
+  //
+  // The load-bearing caveat is NOT here — a title attribute does not render on
+  // touch — it is the visible count in the panel head. This is the detail
+  // behind it.
+  function riskTitle(risk) {
+    const flags = (risk && risk.flags) || [];
+    const unread = (risk && risk.unread) || [];
+    const parts = [];
+    if (flags.length) parts.push(flags.join(', '));
+    else if (!unread.length) parts.push('no extra flags \u2014 memecoins are high-risk by default');
+    else parts.push('nothing flagged among the signals that were reported');
+    if (unread.length) parts.push('the feed did not report: ' + unread.join(', '));
+    return parts.join(' \u00b7 ');
+  }
+
   // A segmented composition bar: turns a set of {label, value, cls} parts into a
   // single stacked bar (widths ∝ value) plus a labelled legend. Used for the
   // net-worth split. Returns '' when there's nothing positive to show.
@@ -1960,29 +1979,44 @@
       const r = await fetchJSON('/api/market/meme', { auth: false, timeoutMs: 15000 });
       const d = r.data;
       mustRead(r);
+      // `feed_read: false` is the DEXScreener fetch having FAILED, which the
+      // radar used to hand over as an empty pair list — so this panel's empty
+      // state described a quiet market over a read that never happened. The
+      // empty state is reachable only from a read that succeeded; a failed one
+      // paints the error state, which is the guard strategy for a
+      // single-source panel.
+      if (d && d.feed_read === false) throw new Error('meme feed unread');
       if (!d || !(d.tokens || []).length) return null;
       const TIER = {
         extreme: '<span class="badge" style="color:var(--down)">extreme</span>',
         high: '<span class="badge" style="color:var(--text-2)">high</span>',
       };
       const s = d.summary;
-      const head = `<p class="muted small">${s.tokens} trending on-chain tokens · $${fmtK(s.volume_24h_usd)} 24h volume
-          · <b class="${s.extreme_risk ? 'down' : ''}">${s.extreme_risk} at extreme risk</b>.
+      // The volume total is over the rows that REPORTED one. `$--` with no
+      // sample beside it would read as a whole-universe figure.
+      const volSample = (s.volume_24h_usd != null && s.volume_scored > 0
+        && s.volume_total != null && s.volume_scored < s.volume_total)
+        ? ` <span class="muted">(${s.volume_scored} of ${s.volume_total} reported one)</span>` : '';
+      // `0 at extreme risk` reads as three signals checked on every row.
+      const riskSample = s.risk_unread
+        ? ` <span class="muted">(${s.risk_unread} of ${s.tokens} missing a safety signal)</span>` : '';
+      const head = `<p class="muted small">${s.tokens} trending on-chain tokens · $${fmtK(s.volume_24h_usd)} 24h volume${volSample}
+          · <b class="${s.extreme_risk ? 'down' : ''}">${s.extreme_risk} at extreme risk</b>${riskSample}.
           Ranked by real volume, never by pump %.</p>`;
       const rows = d.tokens.slice(0, 12).map(t => `<tr>
           <td><b>${esc(t.symbol)}</b> <span class="muted small">${esc(t.chain_label)}</span></td>
           <td class="num r">$${fmtPrice(t.price_usd)}</td>
           <td class="num r ${moveClass(t.change_24h_pct)}">${t.change_24h_pct != null ? (t.change_24h_pct >= 0 ? '+' : '') + fmt(t.change_24h_pct, 1) + '%' : '—'}${sparkBar(t.change_24h_pct)}</td>
-          <td class="num r">$${fmtK(t.volume_24h_usd)}</td>
+          <td class="num r">${t.volume_24h_usd != null ? '$' + fmtK(t.volume_24h_usd) : '—'}</td>
           <td class="num r">${t.liquidity_usd != null ? '$' + fmtK(t.liquidity_usd) : '—'}</td>
-          <td class="r" title="${esc((t.risk.flags || []).join(', ') || 'no extra flags — memecoins are high-risk by default')}">${TIER[t.risk.tier] || `<span class="badge muted">${esc(t.risk.tier)}</span>`}</td>
+          <td class="r" title="${esc(riskTitle(t.risk))}">${TIER[t.risk.tier] || `<span class="badge muted">${esc(t.risk.tier)}</span>`}</td>
         </tr>`).join('');
       return head
         + `<div class="tbl-wrap"><table class="tbl">
             <thead><tr><th>Token</th><th class="r">Price</th><th class="r">24h</th><th class="r">Volume</th><th class="r">Liquidity</th><th class="r">Risk</th></tr></thead>
             <tbody>${rows}</tbody></table></div>`
         + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.disclaimer)}</p>`;
-    }, { timeoutMs: 17000, empty: { icon: 'icon-radar', text: T('dd.e_meme', 'No pairs clear the radar\u2019s liquidity and age floor right now.') } });
+    }, { timeoutMs: 17000, empty: { icon: 'icon-radar', text: T('dd.e_meme', 'The DEXScreener feed answered and is carrying no trending on-chain pairs right now.') } });
 
     // On-chain flow — 24h DEX taker balance for the majors. The same payload
     // the engine's gated on-chain voter consumes; honestly labeled.
@@ -2683,7 +2717,7 @@
               ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
             return `<tr>
-              <td data-label="Signal" data-sym="${esc(dsBase(s.symbol))}"
+              <td data-label="Signal" class="td--stack" data-sym="${esc(dsBase(s.symbol))}"
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
                   role="button" tabindex="0" title="Chart with this signal's levels"
                   style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
@@ -3386,20 +3420,7 @@
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
         <div id="tradeModeNote"></div>
-        <section class="panel" id="p-authority">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.authority">Your trading authority</span>
-            <span class="badge" style="margin-left:auto" title="A revocable, tighten-only Authority Envelope you set in plain words. Enforce mode is required before any live trade on your own keys.">custody</span></h2>
-          <p style="color:var(--text-2);margin-bottom:var(--s2)">Say what your agent may do — <i>"only majors, max $500 a trade, $2,000 a day, only on bitget"</i>. It compiles to a revocable envelope that <b>caps and authorizes</b> every live order. Nothing is enforced until you switch it on.</p>
-          <form class="stack" id="authForm">
-            <textarea class="input" id="authText" rows="2" maxlength="600" placeholder="only majors, max $500 per trade, $2000 a day, only on bitget"></textarea>
-            <div class="row" style="gap:var(--s2);flex-wrap:wrap">
-              <button class="btn btn--sm" type="submit">Preview</button>
-              <button class="btn btn--sm btn--primary" type="button" id="authApply">Save (shadow)</button>
-              <span id="authMsg" class="small muted" aria-live="polite"></span>
-            </div>
-          </form>
-          <div id="c-authority" style="margin-top:var(--s2)"><div class="skel"></div></div>
-        </section>
+        <section class="panel panel--lead" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-tpos"><div class="skel"></div></div></section>
         <div class="grid grid-main">
           <section class="panel panel--primary" id="p-ticket">
             <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ticket">Order ticket</span></h2>
@@ -3449,7 +3470,20 @@
             <span class="badge" style="margin-left:auto" title="The engine's live directional read for this symbol — the same confluence and voters behind the market view. Read-only context, not an instruction.">the why</span></h2>
           <div id="c-tinsight"><p class="muted small">Enter a symbol to see its live decision picture.</p></div>
         </section>
-        <section class="panel" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-tpos"><div class="skel"></div></div></section>
+        <section class="panel" id="p-authority">
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.authority">Your trading authority</span>
+            <span class="badge" style="margin-left:auto" title="A revocable, tighten-only Authority Envelope you set in plain words. Enforce mode is required before any live trade on your own keys.">custody</span></h2>
+          <p style="color:var(--text-2);margin-bottom:var(--s2)">Say what your agent may do — <i>"only majors, max $500 a trade, $2,000 a day, only on bitget"</i>. It compiles to a revocable envelope that <b>caps and authorizes</b> every live order. Nothing is enforced until you switch it on.</p>
+          <form class="stack" id="authForm">
+            <textarea class="input" id="authText" rows="2" maxlength="600" placeholder="only majors, max $500 per trade, $2000 a day, only on bitget"></textarea>
+            <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+              <button class="btn btn--sm" type="submit">Preview</button>
+              <button class="btn btn--sm btn--primary" type="button" id="authApply">Save (shadow)</button>
+              <span id="authMsg" class="small muted" aria-live="polite"></span>
+            </div>
+          </form>
+          <div id="c-authority" style="margin-top:var(--s2)"><div class="skel"></div></div>
+        </section>
       </div>`);
 
     // Mode note: quiet chip, not a blocker.
@@ -4776,7 +4810,7 @@
             <td data-label="Entry → Exit" class="r num muted">${fmtPrice(t.entry_price)} → ${fmtPrice(t.exit_price)}</td>
             <td data-label="PnL" class="r num ${pnlClass(t.pnl)}">${signed(parseFloat(t.pnl))}</td>
             <td data-label="Closed" class="r muted small">${fmtAgo(t.closed_at)}</td>
-            <td data-label="Note"><div class="row" style="gap:6px;align-items:center">
+            <td data-label="Note" class="td--stack"><div class="row" style="gap:6px;align-items:center">
               <input class="input" style="padding:4px 8px;font-size:var(--fs-xs);min-width:110px" placeholder="Add note…" value="${esc(t.notes || '')}" data-trade-id="${t.id}" aria-label="${esc(TF('aria.journal_for', 'Journal note for {sym}', { sym: t.symbol }))}">
               <button class="btn btn--sm share-trade" type="button" title="Share this trade" aria-label="${esc(TF('aria.share_trade_x', 'Share {sym} trade', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}">Share</button>
               <button class="btn btn--sm ask-ai" type="button" title="Ask the AI analyst to post-mortem this trade" aria-label="${esc(TF('aria.postmortem_x', 'Post-mortem {sym} trade with the AI analyst', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-pnl="${esc(String(t.pnl))}">Ask AI</button>

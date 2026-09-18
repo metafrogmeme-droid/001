@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Associez un portefeuille et le rendement dormant montre ce qui stagne, avec le meilleur taux par actif. Lecture seule — RUNECLAW ne déplace jamais vos fonds."],
   ["dd.e_cross_nowallet", "Associez un portefeuille et le planificateur calcule si déplacer du capital dormant vers un meilleur taux couvre le gas et le pont. Estimations seulement — rien ne bouge."],
   ["dd.e_dex", "Aucune paire cotée sur les deux places pour l’instant — la comparaison exige un symbole listé de chaque côté."],
-  ["dd.e_meme", "Aucune paire ne franchit le seuil de liquidité et d’ancienneté du radar pour l’instant."],
+  ["dd.e_meme", "Le flux DEXScreener a répondu et ne contient aucune paire on-chain tendance pour l’instant."],
   ["dd.e_flow", "Aucune base n’a assez de liquidité appariée pour une lecture de flux pour l’instant."],
   ["dd.t_authority_revoked", "Autorisation révoquée."],
   ["dd.t_clear_failed", "Échec de l’effacement."],

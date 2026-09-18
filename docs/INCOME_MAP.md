@@ -2108,7 +2108,21 @@ half of the measurement that says where the measurement stops.
   right (`flowRow` answers null and `buildFlowRadar` names the bases in
   `unavailable`); strengthmap.js was cured earlier and its header records the
   same defect. meme.js's or-zero is at the NORMALIZER rather than the
-  aggregate and its buys/sells feed a SAFETY read, so it is its own slice.
+  aggregate and its buys/sells feed a SAFETY read, so it was its own slice.
+  DRIVEN since, and it was worse than that note: an unreported sells count was
+  byte-identical to a measured zero, so `no-sells-yet` ("can't exit?") and
+  `buys-only-skew` both fired and the risk tier was escalated to extreme, from
+  a field nobody read, on the read that module's header calls the one a future
+  agent-buy will gate on. The same coercion decided the ranking the header
+  claims is "by real volume", the payload cap, the sector and per-chain totals
+  and `top_by_volume`; `fmtVol` then printed `$0 liq` for a liquidity the
+  normalizer had honestly kept null, while `riskRead` three lines away guarded
+  it correctly. And `fetchTrendingPairs` answered `[]` for four different
+  facts, so a failed read reached the card as "may be refreshing" and the
+  dashboard panel as "no pairs clear the radar's liquidity and age floor" — two
+  filters this radar does not have, in fourteen languages. All three signals
+  and the volume are three-valued now, with their samples; `card_nums.js` is
+  one volume rendering for the three cards that print one.
 
 - The $RCLAW staking row is the one I would most expect a reader to over-read.
   The Anchor program says UNAUDITED / DO NOT DEPLOY in its own README,
