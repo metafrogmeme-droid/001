@@ -450,7 +450,41 @@ def window_reading(summary: Optional[dict]) -> str:
     return "sound"
 
 
-def no_change_verdict(summary: Optional[dict], parsed: Any) -> str:
+#: Distinct from `None`. `None` is a shadow scoreboard that could not be READ;
+#: this is a caller that never gathered one (an older build, or a render that
+#: does not carry the evidence). Collapsing them would make an unreadable
+#: scoreboard endorse the configuration, which is the defect one field over.
+_GATES_NOT_GATHERED = object()
+
+
+def established_gate(gates: Optional[dict]) -> Optional[tuple]:
+    """The gate the shadow book has ESTABLISHED as eating edge, or ``None``.
+
+    ONE READING, TWO READERS. `costliest_gate_line` computes it to decide what
+    to print; `no_change_verdict` needs the same fact to decide whether "the
+    evidence supports the current configuration" is a sentence it may say at
+    all. A second copy of that judgement is a second answer about whether a
+    gate is established — byte-identical on every fixture, and divergent on
+    the first edit to either — which is the shape this module already records
+    for maps, gates and thresholds.
+
+    BOTH CONDITIONS, never the verdict alone: a row asserting `eating_edge`
+    with no bound behind it is contradictory input, and every caller quotes
+    the bound. `gate_report` never emits that pair; a stale cache or a
+    hand-written row can.
+    """
+    if not gates:
+        return None
+    try:
+        return next(((k, g) for k, g in gates.items()
+                     if g.get("verdict") == "eating_edge"
+                     and g.get("lower_r") is not None), None)
+    except Exception:       # noqa: BLE001 - a junk cache is not a finding
+        return None
+
+
+def no_change_verdict(summary: Optional[dict], parsed: Any,
+                      gates: Any = _GATES_NOT_GATHERED) -> str:
     """The sentence for a run that produced nothing to apply.
 
     FOUR OUTCOMES WHERE THERE WAS ONE, because "I proposed nothing", "I could
@@ -482,6 +516,43 @@ def no_change_verdict(summary: Optional[dict], parsed: Any) -> str:
                 "live window above is net-negative, and the audit reaches only "
                 f"{len(ALLOWED_FLAGS)} allowlisted flags: finding nothing to "
                 "turn among them rules out no cause outside them.")
+    # THE ENDORSEMENT IS THE ONE SENTENCE HERE THAT THE LINE ABOVE IT CAN
+    # FALSIFY. `costliest_gate_line` may have just named a gate whose whole
+    # 95% per-trade interval clears zero — the shadow book's strongest
+    # statement that a risk gate is costing money — and this sentence said the
+    # evidence supports the configuration directly beneath it, because it
+    # consulted `window_reading` and nothing else. Two claims, one card,
+    # opposite directions, and the reassuring one had read less.
+    #
+    # It is reachable in the ORDINARY case rather than a corner: `RiskEngine`
+    # can charge a refusal to 32 gate names and `ALLOWED_FLAGS` holds 12
+    # knobs, so for most gates the model has nothing it is permitted to
+    # propose. "Proposed nothing" is then a fact about the allow-list, not
+    # about the gate.
+    #
+    # NO KNOB-BY-KNOB CLAIM. There is no gate -> flag map in this module and
+    # inventing one would be the ten-of-eleven shape. What is true and
+    # sufficient is the argument the `losing` branch above already makes: the
+    # audit reaches only the allowlisted flags, so finding nothing to turn
+    # among them rules out no cause outside them.
+    est = established_gate(gates) if gates is not _GATES_NOT_GATHERED else None
+    if est is not None:
+        key, row = est
+        lo = _num(row.get("lower_r"))
+        # The bound is quoted only when it reads as a number. A row that
+        # cleared `established_gate` carries a non-None `lower_r`, and a
+        # non-None value is still not necessarily a float.
+        bound = f" ({lo:+.2f}R/trade at the 95% lower bound)" if lo is not None else ""
+        return ("No changes proposed — <b>this is not an endorsement</b>. The "
+                f"shadow book has established <code>{key}</code> as eating "
+                f"edge{bound}, and the audit reaches only {len(ALLOWED_FLAGS)} "
+                "allowlisted flags: finding nothing to turn among them is not "
+                "a finding about that gate.")
+    if gates is None:
+        # A read that failed, kept apart from a caller that gathered nothing.
+        return ("No changes proposed — but the shadow scoreboard could not be "
+                "read, so whether any risk gate is costing edge went "
+                "unchecked. That half of the evidence is missing, not clean.")
     return ("No changes proposed — the evidence supports the current "
             "configuration. (An empty audit is a pass, not a failure.)")
 
@@ -517,13 +588,9 @@ def costliest_gate_line(gates: Optional[dict]) -> Optional[str]:
         return None            # a genuinely empty ledger has nothing to say
     try:
         top_key, top = next(iter(gates.items()))
-        # Both conditions, not just the verdict: a row asserting `eating_edge`
-        # with no bound behind it is contradictory input, and the line quotes
-        # the bound. `gate_report` never emits that pair; a stale cache or a
-        # hand-written row can.
-        established = next(((k, g) for k, g in gates.items()
-                            if g.get("verdict") == "eating_edge"
-                            and g.get("lower_r") is not None), None)
+        # `established_gate` is the one reading; see its docstring for why
+        # both conditions are required and why it is not computed here twice.
+        established = established_gate(gates)
     except Exception:
         return None
     if established is not None:
@@ -1013,8 +1080,16 @@ class SelfAudit:
                 lines.append(gate_line)
         if not results:
             lines.append("")
+            # THE GATES TRAVEL: the verdict below may not endorse a
+            # configuration the line above has just accused. The membership
+            # test is repeated rather than hoisted into one local, because a
+            # local holding `dict | None | <sentinel>` is what the narrower
+            # `costliest_gate_line(Optional[dict])` cannot be handed — the
+            # union reaches only `no_change_verdict`, whose parameter takes it.
             lines.append(no_change_verdict(
-                s, [] if parsed is _NO_REPLY_GIVEN else parsed))
+                s, [] if parsed is _NO_REPLY_GIVEN else parsed,
+                evidence["shadow_gates"] if "shadow_gates" in evidence
+                else _GATES_NOT_GATHERED))
             return "\n".join(lines)
         base_ret = baseline.get("return_pct")
         # Trade count included: without it a reader cannot see that a
