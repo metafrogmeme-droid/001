@@ -124,6 +124,34 @@ would be pointless to reinstall. `scripts/toolchain.py` is the one reading;
 `ruff_gate` and `mypy_gate` had byte-identical copies of it and `preflight`
 needed a third.
 
+**AND THE READING NAMES THE REMEDY AND NOBODY RAN IT.** *"Put the pinned one's
+directory first"* is the last sentence of that message, and it is one PATH
+prefix:
+
+```bash
+PATH=/usr/local/bin:$PATH python3 scripts/preflight.py   # 21 gates, not 19 + 2
+```
+
+Both pinned builds live in `/usr/local/bin` on this box, so that single
+prefix turns both CANNOT CHECK gates into gates that run — and the summary
+stops carrying two states a reader has to remember are not passes. The
+chapter above records the 2026-09-11 incident where a summary reading
+*"3 gate(s) failed"* was **"read past twice before anybody looked at the
+per-gate list"**, and on 2026-09-18 it happened again to the person who had
+just read this paragraph: a slice shipped with a clean local summary of
+*19 passed, 0 failed, 2 CANNOT CHECK*, and CI — which runs the pinned
+versions — failed it on a real regression the local ruff never measured.
+
+**What it caught was one character.** `F541: 0 -> 1` — an f-string with no
+placeholder, a stray `f` copied from the line above it, in the very test
+that pins this file's numbers. Harmless as code and a genuine ratchet
+growth, which is the point: the gate does not get to be skipped because the
+finding is small, and *a gate that COULD NOT CHECK is not a gate that
+passed* is a sentence about the reader, not about the tool. Reproduce a CI
+lint failure the way CI sees it (`PATH=/usr/local/bin:$PATH python3
+scripts/ruff_gate.py`) before fixing it, or the fix is aimed at a different
+tool's opinion.
+
 **Do not** substitute a bare `pytest`. The suite runs through
 `scripts/ci_test_gate.py`, which enforces `tests/known_failures.txt` — a
 baseline entry that starts *passing* is a hard failure, so stale entries
