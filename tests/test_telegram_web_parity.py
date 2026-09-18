@@ -2,7 +2,10 @@
 
 One brain, one implementation: exposure/research/rwa are Node-side libs the
 web panels already use; the Telegram commands fetch the SAME payloads over the
-shared-secret sync channel (bot/utils/web_data_pull.py) and only FORMAT them.
+shared-secret sync channel (bot/utils/web_data_pull.py). /networth, /exposure
+and /research format the payload here; /rwa fetches the card RENDERED, because
+a second Python formatter of it raised on the honest `None` the radar
+publishes for an unreadable 24h change.
 Net worth reuses the gateway's own read-only primitives. Commands degrade to a
 "link the web app" hint when the channel is unconfigured — never a crash.
 """
@@ -10,7 +13,7 @@ import inspect
 
 import bot.utils.web_data_pull as wdp
 from bot.skills.telegram_handler import TelegramHandler
-
+from tests.source_scan import code_only
 
 # ── Pull module (mirror the leaderboard_pull tri-state idiom) ────────────────
 
@@ -19,7 +22,10 @@ class TestWebDataPull:
         monkeypatch.setattr(wdp, "SYNC_SECRET", "")
         assert wdp.fetch_exposure("111") is None
         assert wdp.fetch_research("BTC") is None
-        assert wdp.fetch_rwa() is None
+        # `fetch_rwa` is gone: the RWA card is fetched RENDERED over the card
+        # route, because a second Python formatter of it raised on the honest
+        # `None` the radar publishes for an unreadable 24h change.
+        assert wdp.fetch_web_card("rwa") is None
 
     def test_paths_and_sanitization(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
@@ -28,10 +34,10 @@ class TestWebDataPull:
                             lambda path, body=None: calls.append(path) or {"ok": 1})
         wdp.fetch_exposure("111")
         wdp.fetch_research("pendle/usdt")           # junk stripped, USDT dropped
-        wdp.fetch_rwa()
+        wdp.fetch_web_card("rwa")
         assert calls == ["/api/bot/sync/exposure?telegram_id=111",
                          "/api/bot/sync/research/PENDLE",
-                         "/api/bot/sync/rwa"]
+                         "/api/bot/sync/card/rwa"]
 
     def test_bad_symbol_never_reaches_the_wire(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
@@ -77,18 +83,26 @@ class TestFormatters:
         assert "<span" not in msg and "<br" not in msg
         assert "Not financial advice." in msg
 
-    def test_rwa_mirrors_the_web_radar(self):
-        msg = TelegramHandler._format_rwa({
-            "sector": {"listed": 5, "change_24h_pct": 1.2, "vs_btc_pct": -0.4,
-                       "volume_24h_usd": 2_400_000_000},
-            "categories": [{"title": "Treasuries", "listed": 2,
-                            "change_24h_pct": 0.8,
-                            "tokens": [{"base": "ONDO", "change_24h_pct": 2.1}]}],
-        })
-        assert "+1.2%" in msg and "-0.4% vs BTC" in msg and "$2.4B" in msg
-        assert "Treasuries" in msg and "ONDO +2.1%" in msg
-        empty = TelegramHandler._format_rwa({"sector": {"listed": 0}})
-        assert "None of the tracked tokens" in empty
+    def test_the_rwa_card_has_no_second_python_formatter(self):
+        """There is ONE renderer, and it is `app/lib/rwa.js`'s.
+
+        `_format_rwa` mirrored that card by hand and this test asserted the
+        mirror held. It did not, where it cost most: its `_pct` did
+        ``float(v)`` and ``.get(k, 0)`` does not fire for a key PRESENT with
+        ``None``, which is exactly what the radar publishes for a 24h change
+        the venue did not report — so the whole card raised `TypeError` on
+        the ordinary case. A mirror that must be kept in step by hand is the
+        second-answer shape; the card is fetched rendered now, so the claim
+        worth pinning is that no Python copy came back.
+        """
+        assert not hasattr(TelegramHandler, "_format_rwa")
+        # `code_only` first: the docstring below NAMES `_format_rwa` to explain
+        # the deletion, so a raw scan for that string matches the prose that
+        # records the fix. CLAUDE.md's own "strip comments first", in the test
+        # written for the deletion.
+        src = code_only(inspect.getsource(TelegramHandler.rwa_card_text))
+        assert "fetch_web_card" in src and '"rwa"' in src
+        assert "_format" not in src, "the card must not be re-formatted here"
 
 
 # ── Wiring pins ──────────────────────────────────────────────────────────────

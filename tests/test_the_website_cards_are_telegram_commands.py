@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import pathlib
+import re
 import textwrap
 from types import MethodType
 from types import SimpleNamespace as NS
@@ -85,9 +87,40 @@ class TestThePull:
     def test_a_name_outside_the_tuple_never_reaches_the_wire(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         monkeypatch.setattr(wdp, "_request", lambda *a, **k: pytest.fail("must not be called"))
-        for bad in ("rwa", "nope", "../exposure", "", "__proto__", "price_alert", "idleyield"):
+        # "rwa" left this list: it is the tenth card on the route now, because
+        # the Python formatter of it was a second copy that raised on the
+        # honest `None` the radar publishes. "idleyield" stays — that read is
+        # the caller's wallet on the web and the OPERATOR's account here, a
+        # recorded difference rather than a card.
+        for bad in ("nope", "../exposure", "", "__proto__", "price_alert", "idleyield"):
             assert fetch_web_card(bad) is None, bad
         assert WEB_CARDS[:3] == CARDS and set(CARDS) <= set(WEB_CARDS)
+
+    def test_the_two_runtimes_hold_THE_SAME_card_names(self):
+        """Python's `WEB_CARDS` is node's `CHAT_CARDS`, key for key.
+
+        Two hand-written tables and nothing compared them. A name in the
+        Python tuple and not the route is a Telegram command that fetches a
+        404; a name on the route and not the tuple is a card `fetch_web_card`
+        refuses before the wire, so no command can ever reach it. Either way
+        the surface reads correct in its own file — the `/setllm`
+        ten-of-eleven shape, where the row added tomorrow is the one missing
+        from the other side. It was eleven of eleven when this was written
+        and the eleventh (`rwa`) was added to both by hand, which is exactly
+        the edit that needs a checker rather than a memory.
+        """
+        src = (pathlib.Path(__file__).resolve().parents[1]
+               / "app" / "routes" / "sync.js").read_text(encoding="utf-8")
+        start = src.index("const CHAT_CARDS = {")
+        body = src[start:src.index("\n};", start)]
+        # keys are `name:` at the head of a line inside the literal; a nested
+        # object's keys are indented deeper, so anchor on the two-space indent
+        # the table itself uses.
+        names = re.findall(r"^  ([a-z_][a-z0-9_]*):", body, re.MULTILINE)
+        assert len(names) == len(set(names)), f"duplicate route card: {names}"
+        assert set(names) == set(WEB_CARDS), (
+            f"only on the route: {sorted(set(names) - set(WEB_CARDS))}; "
+            f"only in WEB_CARDS: {sorted(set(WEB_CARDS) - set(names))}")
 
     def test_the_telegram_id_is_quoted_and_bounded(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)

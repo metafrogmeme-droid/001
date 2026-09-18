@@ -89,7 +89,10 @@ test('every card needs the bot secret, and an unknown name is a 404 never a look
     assert.equal((await req(p)).status, 403, p);
     assert.equal((await req(p, { botSecret: 'wrong' })).status, 403, p);
   }
-  for (const name of ['rwa', 'nope', '__proto__', 'constructor', 'hasOwnProperty', 'toString']) {
+  // 'rwa' left this list: it is a card on the route now, because the Python
+  // formatter of it was a second copy that raised on the honest `null` the
+  // radar publishes for an unreadable 24h change.
+  for (const name of ['idleyield', 'nope', '__proto__', 'constructor', 'hasOwnProperty', 'toString']) {
     const r = await req(`/api/bot/sync/card/${name}`, { botSecret: SECRET });
     assert.equal(r.status, 404, name);
     assert.equal(r.data.error, 'Unknown card');

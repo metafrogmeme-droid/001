@@ -392,18 +392,38 @@ class TestTheReading:
 
 class TestTheOtherSeams:
     def test_the_rwa_seam_reads_off_the_loop_and_says_which_channel_did_not_answer(self, monkeypatch):
+        """The seam fetches the card RENDERED and formats nothing.
+
+        It used to pull the payload and hand it to `_format_rwa`, a second
+        Python copy of the website's card. The claims are otherwise the same:
+        off the event loop, and the channel-down sentence keyed by surface.
+        """
         import bot.utils.web_data_pull as wdp
-        monkeypatch.setattr(wdp, "fetch_rwa", lambda: None)
-        h = NS(_link_hint=TelegramHandler._link_hint, _format_rwa=TelegramHandler._format_rwa)
+        monkeypatch.setattr(wdp, "fetch_web_card", lambda name, *a, **k: None)
+        h = NS(_link_hint=TelegramHandler._link_hint)
         tg = asyncio.run(TelegramHandler.rwa_card_text(h))
         web = asyncio.run(TelegramHandler.rwa_card_text(h, surface="web"))
         assert tg == TelegramHandler._WEB_LINK_HINT and "/link" in tg
         assert "/link" not in web and "Nothing was read" in web
-        monkeypatch.setattr(wdp, "fetch_rwa", lambda: {"sector": {"listed": 0}})
-        assert "None of the tracked tokens" in asyncio.run(TelegramHandler.rwa_card_text(h))
-        monkeypatch.setattr(wdp, "fetch_rwa", lambda: {"nonsense": 1})
-        assert asyncio.run(TelegramHandler.rwa_card_text(h, surface="web")) == web, \
-            "a payload with no sector is an unanswered channel"
+        # The card arrives rendered: its <br> become newlines and a tag
+        # Telegram does not render is dropped with its text kept.
+        monkeypatch.setattr(wdp, "fetch_web_card", lambda name, *a, **k: {
+            "reply_html": "\U0001f3e6 <b>RWA radar</b><br>Sector: <span>—</span>",
+            "intent": "rwa"})
+        card = asyncio.run(TelegramHandler.rwa_card_text(h))
+        assert "<b>RWA radar</b>" in card and "\n" in card
+        assert "<span" not in card and "Sector: —" in card
+        # A payload with no card string is an unanswered channel, never an
+        # empty card — the rule `web_card_text` states.
+        for junk in ({"nonsense": 1}, {"reply_html": None}, {"reply_html": "  "}):
+            monkeypatch.setattr(wdp, "fetch_web_card", lambda name, *a, _j=junk, **k: _j)
+            assert asyncio.run(TelegramHandler.rwa_card_text(h, surface="web")) == web, junk
+        # The name the seam asks for is the card's own.
+        asked = []
+        monkeypatch.setattr(wdp, "fetch_web_card",
+                            lambda name, *a, **k: asked.append(name) or None)
+        asyncio.run(TelegramHandler.rwa_card_text(h))
+        assert asked == ["rwa"]
 
     def test_the_research_seam_reads_off_the_loop_and_names_no_command(self, monkeypatch):
         import bot.utils.web_data_pull as wdp

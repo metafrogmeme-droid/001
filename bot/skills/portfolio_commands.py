@@ -16,11 +16,12 @@ that #1020 added so a corrected win rate cannot read as covering the whole
 total beside it.
 
 A mixin, not a leaf: every method reads `self.engine` and answers through
-`self._send`, `self._send_photo` or `self._send_error`. The four web-parity
-formatters (`_format_networth`, `_format_exposure`, `_format_research`,
-`_format_rwa`) stay on the handler beside each other — the market group
-reads one of them too — and the two this group calls are declared below as
-host staticmethods.
+`self._send`, `self._send_photo` or `self._send_error`. The three web-parity
+formatters (`_format_networth`, `_format_exposure`, `_format_research`)
+stay on the handler beside each other, and the two this group calls are
+declared below as host staticmethods. There were four: `_format_rwa` is
+gone, because the card `app/lib/rwa.js` renders is fetched rendered rather
+than formatted twice.
 """
 from __future__ import annotations
 

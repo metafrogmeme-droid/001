@@ -1386,6 +1386,7 @@ const CHAT_CARDS = {
   letter: () => require('../lib/letter').letterChatCard(),
   venue_router: (tg, q) => require('../lib/venue_router').venueRouterChatCard(cardBase(q)),
   meme_radar: () => require('../lib/meme').memeChatCard(),
+  rwa: () => require('../lib/rwa').rwaChatCard(),
   wallet: async (tg, q) => {
     const userId = await webUserFor(tg);
     return userId == null ? UNLINKED : require('../lib/wallet').walletChatCard(userId, cardChain(q));

@@ -103,12 +103,15 @@ class TestTheArgumentReaders:
         assert wallet_chain(text) == chain
 
 
-# ── 2. the pull: nine names, three arguments, one unlinked answer ──────────
+# ── 2. the pull: eleven names, three arguments, one unlinked answer ────────
 
 class TestThePull:
-    def test_the_nine_names_and_the_three_arguments(self):
+    def test_the_names_and_the_three_arguments(self):
+        # "rwa" is the eleventh: the Python formatter of that card was a second
+        # copy and it raised on the honest `None` the radar publishes for an
+        # unreadable 24h change, so the card is fetched rendered like these.
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
-                             "meme_radar", "wallet", "defi", "alerts")
+                             "meme_radar", "wallet", "defi", "alerts", "rwa")
         assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
                                    "alerts": ("text",)}
 
