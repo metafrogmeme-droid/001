@@ -1843,12 +1843,23 @@
         const pts = [];
         let maxVol = 1;
         cats.forEach((c) => (c.tokens || []).forEach((t) => { maxVol = Math.max(maxVol, Number(t.volume_24h_usd) || 0); }));
+        // A token whose 24h change the venue did not report is OMITTED, not
+        // plotted at zero. THREE of this plot's four channels encode that
+        // change — colour (`up`), height (`elev`) and brightness
+        // (`intensity`) — and `Number(null) || 0` made all three read as a
+        // calm, flat, green token: `0 >= 0` is true, so the legend's own
+        // "green = up" said an unreadable row was up. Omitting one dead row
+        // from a composite is the strategy CLAUDE.md sanctions; the caption
+        // says how many, because a plot that silently drops rows is a
+        // partial set presented as the universe.
+        let unread = 0;
         cats.forEach((c, ci) => {
           const base = cats.length ? ci / cats.length : 0;
           (c.tokens || []).slice(0, 10).forEach((t, ti, arr) => {
             const jitter = arr.length > 1 ? (ti / arr.length) * (1 / Math.max(1, cats.length)) : 0;
             const vol = Number(t.volume_24h_usd) || 0;
-            const chg = Number(t.change_24h_pct) || 0;
+            const chg = t.change_24h_pct == null ? null : Number(t.change_24h_pct);
+            if (chg == null || !isFinite(chg)) { unread += 1; return; }
             pts.push({
               label: t.base,
               angle: (base + jitter) % 1,
@@ -1863,7 +1874,9 @@
         if (_radar3d) _radar3d.update(pts);
         const legend = document.getElementById('radar3dLegend');
         if (legend && pts.length) {
-          legend.textContent = `${pts.length} live tokens across ${cats.length} sectors · green = up, red = down over 24h · distance = volume · height = momentum · hover to name. Visualization only — it never trades.`;
+          legend.textContent = `${pts.length} live tokens across ${cats.length} sectors`
+            + (unread ? ` (${unread} more had no readable 24h change and are not plotted)` : '')
+            + ' · green = up, red = down over 24h · distance = volume · height = momentum · hover to name. Visualization only — it never trades.';
         }
       } catch (_) { /* radar is decorative — never block the view */ }
     })();

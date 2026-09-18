@@ -208,7 +208,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 761 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 757 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -5133,6 +5133,149 @@ looks like, and both are driven from that side now. The two refusals were
 stale anchors in my own driver — one on an em dash a heredoc had rewritten,
 one on a line the same slice had moved.
 
+**THE CURE UPSTREAM WAS WHAT CRASHED THE READER DOWNSTREAM.** The map's own
+completeness critic filed this as a doubt it could not answer — *"app/lib/rwa.js's
+header claims an unlisted symbol is omitted rather than invented, which is the
+'omit' strategy CLAUDE.md sanctions, but I read the claim, not the code path."*
+Driven, the claim holds per-token and per-CATEGORY and fails above them.
+
+`buildRadar` computed each aggregate TWICE: cured inside the category loop,
+with three paragraphs of comment about why, and left as the uncured original in
+the sector rollup forty lines below. `null * volume` is 0 in JS, so an
+unreadable row added nothing to the numerator while its volume stayed in the
+denominator — every such row DILUTED the headline toward zero, and always
+flatteringly. **One card printed both, three lines apart:**
+
+    Sector: -5.94% (24h, volume-weighted) · 3 tokens · $77.0M volume
+    Top: RSR +null% · Laggard: ONDO -8%
+
+    • RWA platforms & issuers (3 listed, -7.04% wtd): OM -5.5% · ONDO -8% · RSR —
+
+Same three tokens, two answers, the honest row directly under the diluted one —
+and `RSR —` beside `Top: RSR +null%`, the token nobody could read named the
+sector's best with a `+` sign in a market where everything fell, because `null`
+coerces to 0 in a raw subtraction. `meme.js` filters before sorting: the cure,
+one file over. `round2(null)` is `Math.round(null * 100) / 100` — **0** — so
+BTC's unread change published as a flat BTC, while `vs_btc_pct` one line above
+guarded `btc.change != null` correctly; the inconsistency was visible in place,
+the `tickers.js` guarded-`price`-beside-unguarded-`change` shape again. With no
+readable change anywhere the headline was a MEASURED FLAT SECTOR where the
+category said `—`.
+
+**And the honest `null` that module publishes is exactly what crashed the
+Telegram card.** `_format_rwa` was a second Python copy of the same card, which
+this file already recorded as *"kept in step by hand, which is the shape this
+file records for maps and gates"* — and it had diverged where it costs most:
+its `_pct` did `float(v)`, and **`.get(k, 0)` does not fire for a key PRESENT
+with `None`**, which is what the radar publishes for a change the venue did not
+report. Driven, `TypeError`, the whole `/rwa` card gone, on the ordinary case —
+`tickers.js` writes `change: null` deliberately, with its own long comment about
+why. So the reader is DELETED rather than repaired: `rwa` is the eleventh
+renderer on `GET /api/bot/sync/card/<name>`, the mechanism nine other website
+cards already use, and fixing the card now fixes both surfaces at once.
+
+**The honesty ratchet had been counting this defect the whole time.** Deleting
+that formatter moved the baseline 761 → 757, and all four hits were inside it:
+three `get-default-zero` (the `.get(k, 0)` that raised) and one
+`or-zero-coerce`. *A hit is a place to LOOK* — and nobody looked at these three,
+which is the cost of a backlog nobody sweeps. The ruff baseline fell 1198 → 1197
+in the same commit.
+
+**The sibling radars are the argument for where the rule belongs.**
+`onchain_flow.js` got it right: `flowRow` answers `null` for a base it could not
+read, `buildFlowRadar` collects those into `unavailable`, and `sample: 'thin'`
+marks a damped bias — omit, with the omission NAMED. `strengthmap.js` was cured
+earlier and its header records the identical defect (*"dir 0 · long_score 50.0 ·
+funding 0 · every factor 0 … rendered green, labelled ▲ Long, with a &dir=LONG
+link into a trade ticket"*). Three surfaces right, one wrong, and the wrong one
+was the HEADLINE.
+
+**`meme.js` was reverted rather than half-fixed, and the reason is the rule.**
+Its `summary.volume_24h_usd` and per-chain totals carry `|| 0`, so the same
+shape — but `normalizePair` already coerces at the NORMALIZER
+(`num(p.volume?.h24) || 0`), so `volume_24h_usd` is never null and a filter in
+the aggregate is **a line no input can reach, which is a claim that there is a
+check**. The real fix is the normalizer, and `buys`/`sells` there feed
+`riskRead`, a SAFETY read whose flags are meant to gate a future agent buy —
+one field of four in a safety reader is the *fixing two left the third* shape.
+Filed with its measurement (`meme.js:47/50/51`), not shipped.
+
+**A 200 THAT CARRIED NO ROWS WAS PUBLISHED AS A DELISTING.** `getTickers`
+THROWS on a non-ok HTTP — a guard — but `doFetch` answers `{}` for a 200 whose
+payload holds no rows, which is a successful read of nothing. `sector.listed`
+is then 0 and both readers said *"None of the tracked tokens are listed on the
+venue right now"*: a claim about the venue's LISTINGS assembled from a read that
+returned nothing, which is this file's opening example (*a 503 shown as "No
+venues found"*) one surface over. No threshold is invented — `markets_read`
+states the SAMPLE, the discipline the scan partial and the POC-retest footnote
+already use, so `listed: 0` over 26 tracked reads as a delisting when the venue
+answered with its hundreds of perps and as a failed read when it answered with
+none.
+
+**Three of my own fixes reintroduced their own subject, and the CARD is what
+said so.** `sumVolume`'s first draft returned `usd: 0` for nothing read — the
+defect one level up, rebuilt inside the seam written to remove it — and printed
+`$0 volume (0 of 2 reported one)`. `cover` then put a sample caveat beside an em
+dash, a hedge about a figure that is not there, which is the prompt's bounded-list
+rule (*the empty and unreadable outcomes get no bound caveat at all*) in a new
+place. Neither was visible from the diff; rendering the card and reading every
+line of it is what found both.
+
+**The existing suite passed throughout, and the reason is the fixture.**
+`rwa.test.js` has a test named *"volume-weighted category and sector change"* —
+and its fixture gives every token a readable change, so **a fixture where every
+row is readable cannot tell a filtered aggregate from an unfiltered one**. Same
+for its `top_gainer`/`top_loser` assertions. Every table in the new suite has at
+least one unreadable row.
+
+**A pin that patches an EXPORT proves nothing about a module-local call.** The
+first draft of "both levels read the same aggregate" patched
+`rwa.weightedChange` and passed — trivially, because `buildRadar` calls the
+local binding and both levels went on calling the real one. A kill for a reason
+unrelated to the rule is how a guard reports coverage it does not have, so the
+claim is the structural one it can check: one definition, and the rollup carries
+no arithmetic of its own. That assertion then failed on a `reduce` over the
+UNIVERSE SIZE — a constant, not a measurement — so the constant was hoisted
+rather than the assertion widened.
+
+**Nothing compared the two runtimes' card tables.** Python's `WEB_CARDS` and
+node's `CHAT_CARDS` are two hand-written lists, and this slice added the
+eleventh row to both BY HAND — the `/setllm` ten-of-eleven shape, where the row
+added tomorrow is the one missing from the other side. A name in the tuple and
+not the route is a command that fetches a 404; a name on the route and not the
+tuple is a card `fetch_web_card` refuses before the wire, so no command can ever
+reach it. Either way each file reads correct alone. The key sets are pinned
+equal now.
+
+**THREE of the star map's four channels encode the 24h change.** The dashboard's
+3D radar did `const chg = Number(t.change_24h_pct) || 0` and then `up: chg >= 0`
+— the shapes table's *unreadable **won*** — so colour, height and brightness all
+read an unreadable row as calm, flat and GREEN, under a caption whose own words
+are "green = up". It is OMITTED now, and the caption says how many, because a
+plot that silently drops rows is a partial set presented as the universe.
+
+> **Two of this slice's own assertions matched my own prose.** `"_format" not in
+> src` matched the docstring that NAMES `_format_rwa` to explain the deletion —
+> *asserting a short string is ABSENT is the assertion that keeps misfiring*,
+> committed ten minutes after reading the rule, and fixed by importing the
+> shared `code_only` rather than writing a third stripper. And the star map's
+> end anchor (`indexOf('radar3dLegend')`) matched the CONTAINER reference eight
+> thousand characters EARLIER, so the slice was empty and the guard failed on
+> its own boundary rather than on anything it guards — *a boundary that is
+> whatever happens to be next*, in the direction where it runs backwards. It
+> searches forward from the start anchor now.
+
+**Twenty-six mutations, each killed on the first round, none refused.** Worth
+naming: the rollup given its own inline reduce back dies on the equality between
+the two levels rather than on any assertion about a number; the star map's
+omission removed dies on a scan, and its CAPTION clause removed dies separately,
+because a plot that drops rows silently and one that says so are different
+claims; and the Telegram seam asking for the WRONG card name passes every
+assertion about rendering and dies only on the recorded call.
+(`app/test/rwa_sector_reads_only_what_reported.test.js`,
+`tests/test_telegram_web_parity.py`,
+`tests/test_the_website_cards_are_telegram_commands.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -5364,7 +5507,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 206 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 207 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 

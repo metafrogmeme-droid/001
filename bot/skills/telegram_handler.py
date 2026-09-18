@@ -5167,33 +5167,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             out.append(f"<i>{data['disclaimer']}</i>")
         return "\n".join(out)
 
-    @staticmethod
-    def _format_rwa(data: dict) -> str:
-        s = data.get("sector") or {}
-        if not s.get("listed"):
-            return ("🏦 <b>RWA radar</b>\n\nNone of the tracked tokens are "
-                    "listed on the venue right now.")
-        def _pct(v):
-            return f"{'+' if float(v) >= 0 else ''}{v}%"
-        vol = float(s.get("volume_24h_usd") or 0)
-        vol_s = (f"${vol / 1e9:.1f}B" if vol >= 1e9
-                 else f"${vol / 1e6:.1f}M" if vol >= 1e6
-                 else f"${vol:,.0f}")
-        lines = ["🏦 <b>RWA radar</b> — live venue tickers, read-only\n",
-                 f"Sector: <b>{_pct(s.get('change_24h_pct', 0))}</b> (24h, "
-                 f"volume-weighted)"
-                 + (f" — {_pct(s['vs_btc_pct'])} vs BTC"
-                    if s.get("vs_btc_pct") is not None else "")
-                 + f" · {s.get('listed')} tokens · {vol_s} volume"]
-        for c in (data.get("categories") or []):
-            if not c.get("listed"):
-                continue
-            top = " · ".join(f"{t.get('base')} {_pct(t.get('change_24h_pct', 0))}"
-                             for t in (c.get("tokens") or [])[:3])
-            lines.append(f"• <b>{c.get('title')}</b> ({c.get('listed')} listed, "
-                         f"{_pct(c.get('change_24h_pct', 0))} wtd): {top}")
-        return "\n".join(lines)
-
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "
                       "set it up and /link your account, then try again.")

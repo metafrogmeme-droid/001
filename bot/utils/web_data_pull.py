@@ -31,7 +31,8 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: wallet, so the route reads `telegram_id` for them and answers `unlinked`
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
-                              "venue_router", "meme_radar", "wallet", "defi", "alerts")
+                              "venue_router", "meme_radar", "wallet", "defi", "alerts",
+                              "rwa")
 
 #: The one argument each of three cards takes — the intercept's own capture
 #: group, as a query parameter (`bot/nlp/web_card_args.py` reads it from the
@@ -77,13 +78,6 @@ def fetch_research(symbol: str) -> dict | None:
     if not _SYMBOL_RE.match(base):
         return None
     return _request(f"/api/bot/sync/research/{base}")
-
-
-def fetch_rwa() -> dict | None:
-    """The tokenized-RWA sector radar (live venue tickers, read-only)."""
-    if not SYNC_SECRET:
-        return None
-    return _request("/api/bot/sync/rwa")
 
 
 def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict | None:

@@ -12,9 +12,11 @@ behaviour is covered where it always was (`test_news_radar`,
 `tests/test_handler_mixins.py` holds this class to the split's rules.
 
 A mixin, not a leaf: every method dispatches through `self.registry` or
-reads `self.engine`, and answers through `self._send`. `_format_rwa` stays
-on the handler beside its three sibling formatters (the portfolio group
-reads them); it is declared below as a host staticmethod.
+reads `self.engine`, and answers through `self._send`. There is no RWA
+formatter here any more: `_format_rwa` was a second copy of the card
+`app/lib/rwa.js` renders, and it RAISED on the honest `None` that module
+publishes for an unreadable 24h change — so the card is fetched RENDERED
+over `/api/bot/sync/card/rwa`, like the nine other website cards.
 """
 from __future__ import annotations
 
@@ -63,9 +65,6 @@ class MarketCommands:
 
         def _get_tg_id(self, update: Update) -> str: ...
 
-        @staticmethod
-        def _format_rwa(data: dict) -> str: ...
-
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/rwa — the tokenized-RWA sector radar (live venue tickers). The
@@ -76,16 +75,24 @@ class MarketCommands:
     async def rwa_card_text(self, *, surface: str = "telegram") -> str:
         """The RWA radar as text — the reading BOTH surfaces render.
 
+        Fetched RENDERED, never re-formatted here. `_format_rwa` was a second
+        copy of `app/lib/rwa.js`'s card kept in step by hand, and it had
+        diverged where it costs most: its `_pct` did ``float(v)`` and
+        ``.get(k, 0)`` does not fire for a key PRESENT with ``None``, which is
+        exactly what the radar publishes for a 24h change the venue did not
+        report. Driven, the whole card raised `TypeError` — so the honest
+        `null` upstream was what crashed the reader downstream. One renderer
+        now, over the card route nine other website cards already use.
+
         The fetch runs off the event loop (blocking urllib). ``surface`` keys
         only the sentence for a channel that did not answer: the Telegram one
         names `/link`, which a web caller cannot run.
         """
         import asyncio as _aio
-        from bot.utils.web_data_pull import fetch_rwa
-        data = await _aio.to_thread(fetch_rwa)
-        if not data or "sector" not in data:
-            return self._link_hint(surface)
-        return self._format_rwa(data)
+        from bot.utils.web_data_pull import fetch_web_card, web_card_text
+        payload = await _aio.to_thread(fetch_web_card, "rwa")
+        text = web_card_text(payload)
+        return text if text else self._link_hint(surface)
 
     # ── The website chat's own cards, as commands ─────────────────────────
     # /nft, /spot and /airdrops render the SAME card the website's chat
