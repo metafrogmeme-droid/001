@@ -1,6 +1,7 @@
 """Pytest fixtures for RUNECLAW test suite."""
 import glob
 import os
+import pathlib
 import shutil
 
 import pytest
@@ -388,6 +389,113 @@ _LOOPBACK_NAMES = frozenset({
     "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
 })
 
+#: THE PROXY IS THE NETWORK, AND `local` WAS A MEASUREMENT OF THE ADDRESS.
+#:
+#: This containment shipped reading `127.0.0.1` as loopback and allowing it,
+#: which is right for a test's own bound socket and WRONG for a box whose
+#: `HTTPS_PROXY` is `http://127.0.0.1:33283` — every venue read there connects
+#: to loopback, is allowed, and leaves the machine through the proxy. So the
+#: measurement that scoped the slice which introduced this file was taken
+#: through a hole in it: driven here it found twelve tests and eighty-five
+#: connects (the ones that go by raw IP, bypassing the proxy), and the same
+#: commit in CI — no proxy, direct connects — found SEVENTY-FOUR tests.
+#:
+#: A gate whose coverage depends on the host's proxy configuration is a gate
+#: whose coverage is overstated, which is the failure this repo spends its
+#: guard tests preventing. The proxy endpoint is read ONCE, from the
+#: environment, and a connect to it is `proxy` — refused, with a word of its
+#: own, because "you reached the network through 127.0.0.1" and "you talked to
+#: your own test server" are different facts and only one of them is allowed.
+_PROXY_ENV = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+              "ALL_PROXY", "all_proxy")
+
+
+def _proxy_endpoints() -> frozenset:
+    """Every (host, port) this box's proxy variables name. Read once.
+
+    Malformed values are SKIPPED rather than raising: a proxy variable nobody
+    can parse is not a reason to refuse the whole suite, and the connect it
+    would have covered is still judged by the address rules below.
+    """
+    import os
+    import urllib.parse
+
+    out = set()
+    for name in _PROXY_ENV:
+        raw = (os.environ.get(name) or "").strip()
+        if not raw:
+            continue
+        if "://" not in raw:
+            raw = "http://" + raw
+        try:
+            u = urllib.parse.urlparse(raw)
+            host, port = u.hostname, u.port
+        except ValueError:
+            continue
+        if not host:
+            continue
+        out.add((host.lower(), port if port else (443 if u.scheme == "https" else 80)))
+    return frozenset(out)
+
+
+_PROXIES = _proxy_endpoints()
+
+#: Test FILES that reach the network today. A RATCHET, not a permission slip:
+#: a file NOT listed here that makes an outbound connect is a hard failure.
+#:
+#: WHY A BACKLOG AND NOT A SWEEP. This containment shipped enforcing hard on a
+#: measurement of twelve tests, taken on a box whose `HTTPS_PROXY` is loopback
+#: — so it had been reading every proxied venue read as "your own test server"
+#: and allowing it. With the proxy read correctly, the true number is what CI
+#: had been saying all along, and stubbing that many seams across that many
+#: files in one commit is the wholesale conversion CLAUDE.md refuses.
+#:
+#: WHY BY FILE AND NOT BY NODEID, and this is a stated limit rather than a
+#: convenience: driven in CI, 60 of the 74 tests that reached the network
+#: PASSED when re-run alone. The set is order-dependent, so a nodeid baseline
+#: would churn run to run and its stale half would be a flake generator. A
+#: file is the stable unit.
+#:
+#: WHAT IS ENFORCED, AND WHAT IS NOT. GROWTH is enforced and is the direction
+#: that matters: a new file reaching a venue fails, loudly, by name. The STALE
+#: direction — a listed file that no longer reaches anything — is NOT enforced
+#: here, for the order-dependence above, and `scripts/network_reach_gate.py`
+#: is where a human re-measures it deliberately. A gate whose coverage is
+#: overstated is the failure this repo is organised around, so the limit is
+#: written down rather than left to be discovered.
+_REACH_BASELINE_FILE = pathlib.Path(__file__).with_name(
+    "network_reach_baseline.txt")
+
+
+def _reach_baseline() -> frozenset:
+    """The baselined files, or an EMPTY set the caller is told about.
+
+    An unreadable baseline is not an empty one: the caller below treats the
+    empty set as "everything is new", which fails closed and loudly rather
+    than acquitting the whole suite from a file nobody could read.
+    """
+    try:
+        text = _REACH_BASELINE_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    return frozenset(
+        line.strip() for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#"))
+
+
+_REACH_BASELINED = _reach_baseline()
+
+
+def _reach_file(nodeid) -> str:
+    """The file half of a nodeid, which is what the baseline is keyed on."""
+    return (nodeid or "").split("::", 1)[0]
+
+#: The three words that mean "this connect leaves the machine". `local` and
+#: `not-ip` are allowed; `unreadable` is refused because reading an address
+#: nobody could place as loopback is the failed-read-as-allowed shape on the
+#: one gate whose whole job is to refuse.
+_REFUSED_WORDS = frozenset({"remote", "unreadable", "proxy"})
+
 _NO_VENUE_SHAPE_HINT = (
     "tests/conftest.py refuses every non-loopback connect the suite makes (see "
     "the comment above _refuse_outbound_connections), and the install DRIVES "
@@ -435,6 +543,12 @@ def _outbound_verdict(family, address):
     # and the property is driven in the guard instead — so the day that
     # changes, a test fails rather than this quietly starting to refuse `::1`
     # on a machine that spells its loopback with an interface.
+    # THE PROXY IS ASKED BEFORE LOOPBACK IS, because on this box the proxy IS
+    # loopback and the loopback answer would win. A connect to the endpoint
+    # `HTTPS_PROXY` names leaves the machine by construction, whatever its
+    # address looks like.
+    if (host.lower(), port) in _PROXIES:
+        return "proxy", host, port
     if host.lower() in _LOOPBACK_NAMES:
         return "local", host, port
     try:
@@ -459,6 +573,7 @@ class _OutboundLedger:
     def __init__(self):
         self.rows = []
         self.nodeid = None
+        self.baselined = {}
 
     def note(self, word, host, port, call):
         self.rows.append((self.nodeid, word, host, port, call))
@@ -472,6 +587,17 @@ class _OutboundLedger:
     def drain_all(self):
         rows, self.rows = self.rows, []
         return rows
+
+    def note_baselined(self, nodeid, n):
+        """Count a refused connect from a file the baseline already holds."""
+        self.baselined[nodeid] = self.baselined.get(nodeid, 0) + n
+
+    def baselined_summary(self):
+        """(tests, connects, files), or None when the backlog was untouched."""
+        if not self.baselined:
+            return None
+        return (len(self.baselined), sum(self.baselined.values()),
+                len({_reach_file(n) for n in self.baselined}))
 
 
 _OUTBOUND = _OutboundLedger()
@@ -526,7 +652,7 @@ def _refuse_outbound_connections() -> None:
     def _refused(sock, address, call):
         """The errno to answer with, or None to call through."""
         word, host, port = _outbound_verdict(sock.family, address)
-        if word not in ("remote", "unreadable"):
+        if word not in _REFUSED_WORDS:
             return None, host, port
         _OUTBOUND.note(word, host, port, call)
         return errno.ECONNREFUSED, host, port
@@ -617,13 +743,25 @@ def pytest_sessionfinish(session, exitstatus):
     refused either way, and the stamp still says which test was running.
     """
     rows = _OUTBOUND.drain_all()
-    if not rows:
-        return
-    for nodeid in sorted({r[0] for r in rows}, key=lambda n: (n is None, n)):
-        mine = [r for r in rows if r[0] == nodeid]
+    fresh = [r for r in rows if _reach_file(r[0]) not in _REACH_BASELINED]
+    for nodeid in sorted({r[0] for r in fresh}, key=lambda n: (n is None, n)):
+        mine = [r for r in fresh if r[0] == nodeid]
         print("\n" + _reached_the_network_text(
             nodeid or "<outside any test>", mine))
-    session.exitstatus = 1
+    if fresh:
+        session.exitstatus = 1
+
+    # THE BACKLOG IS PRINTED EVERY RUN, because a backlog nobody sees is a
+    # backlog nobody clears. Counted, never named one by one: the list is in
+    # the baseline file and repeating it here would train the reader to skip
+    # the line.
+    seen = _OUTBOUND.baselined_summary()
+    if seen:
+        tests, connects, files = seen
+        print(f"\n[no-venue] {tests} baselined test(s) in {files} file(s) made "
+              f"{connects} refused connect(s) — see "
+              f"tests/network_reach_baseline.txt. Each is a stub that was "
+              f"never made; none of them reached a venue.")
 
 
 def pytest_configure(config):
@@ -676,9 +814,16 @@ def _no_test_reaches_a_venue(request):
     """
     yield
     rows = _OUTBOUND.drain(request.node.nodeid)
-    if rows:
-        pytest.fail(_reached_the_network_text(request.node.nodeid, rows),
-                    pytrace=False)
+    if not rows:
+        return
+    if _reach_file(request.node.nodeid) in _REACH_BASELINED:
+        # Recorded, counted at session end, and NOT failed: a baselined file is
+        # a backlog entry, not a pass. The connect was still refused, so the
+        # test drove its own path against ECONNREFUSED rather than a venue.
+        _OUTBOUND.note_baselined(request.node.nodeid, len(rows))
+        return
+    pytest.fail(_reached_the_network_text(request.node.nodeid, rows),
+                pytrace=False)
 
 
 @pytest.fixture(autouse=True)
