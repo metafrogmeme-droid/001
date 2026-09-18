@@ -298,14 +298,22 @@ test('an unread volume is excluded from weighting, not weighted at zero', () => 
     `a token with no readable volume moved the weighted average to ${c.change_24h_pct}`);
 });
 
-test('the research card does not print $0 for a volume it never read', () => {
-  const src = codeOnly(
-    fs.readFileSync(path.join(__dirname, '..', 'lib', 'research.js'), 'utf8'));
-  const i = src.indexOf('function fmtVol');
-  assert.ok(i >= 0, 'fmtVol moved');
-  const body = src.slice(i, i + 400);
-  assert.ok(!/Number\(v\)\s*\|\|\s*0/.test(body), 'fmtVol still floors to zero');
-  assert.match(body, /v == null/);
+test('the research card does not print $0 for a volume it never read', async () => {
+  // This was a SCAN for `function fmtVol` in research.js, and it failed the
+  // day that renderer moved into `card_nums.js` — while the property it
+  // guards held throughout. A scan measures the spelling; drive the card.
+  const research = require('../lib/research');
+  research.setTickerFetcher(async () => ({
+    PENDLEUSDT: { price: 3.2, change: 4.1, volume: null },   // volume unread
+    LINKUSDT: { price: 14, change: 1.2, volume: 4.2e6 },     // volume read
+  }));
+  const unread = await research.buildDossier('PENDLE');
+  const read = await research.buildDossier('LINK');
+  const html = (d) => d.sections.map((s) => s.html).join(' ');
+  assert.ok(!/\$0\b/.test(html(unread)),
+    `an unread volume printed as a measured figure: ${html(unread)}`);
+  assert.match(html(unread), /\u2014 volume/);
+  assert.match(html(read), /\$4\.2M volume/);               // the read one still prints
 });
 
 test('a duel ranks an unknown volume below every known one', () => {

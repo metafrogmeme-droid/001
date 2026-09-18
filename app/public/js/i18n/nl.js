@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Koppel een wallet en het inactieve rendement toont wat stilstaat, met de beste rente per activum. Alleen-lezen — RUNECLAW verplaatst je geld nooit."],
   ["dd.e_cross_nowallet", "Koppel een wallet en de planner berekent of het verplaatsen van stilstaand kapitaal naar een betere rente opweegt tegen gas- en bridgekosten. Alleen schattingen — er beweegt niets."],
   ["dd.e_dex", "Momenteel geen paren die op beide platforms genoteerd zijn — de vergelijking heeft aan beide kanten een symbool nodig."],
-  ["dd.e_meme", "Momenteel haalt geen enkel paar de liquiditeits- en leeftijdsdrempel van de radar."],
+  ["dd.e_meme", "De DEXScreener-feed heeft geantwoord en bevat op dit moment geen trending on-chain paren."],
   ["dd.e_flow", "Momenteel heeft geen enkele basis genoeg gepaarde liquiditeit voor een flow-meting."],
   ["dd.t_authority_revoked", "Machtiging ingetrokken."],
   ["dd.t_clear_failed", "Wissen mislukt."],

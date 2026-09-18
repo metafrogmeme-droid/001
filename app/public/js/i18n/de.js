@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Verknüpfe ein Wallet, und der Leerlauf-Ertrag zeigt, was brachliegt — mit dem besten Satz je Wert. Nur lesend: RUNECLAW bewegt deine Mittel nie."],
   ["dd.e_cross_nowallet", "Verknüpfe ein Wallet, und der Planer rechnet aus, ob sich das Verschieben brachliegenden Kapitals zu einem besseren Satz gegen Gas- und Bridge-Kosten lohnt. Nur Schätzungen — nichts wird bewegt."],
   ["dd.e_dex", "Derzeit keine Paare, die an beiden Handelsplätzen notiert sind — der Vergleich braucht ein Symbol auf jeder Seite."],
-  ["dd.e_meme", "Derzeit übersteigt kein Paar die Liquiditäts- und Alters-Untergrenze des Radars."],
+  ["dd.e_meme", "Der DEXScreener-Feed hat geantwortet und führt derzeit keine angesagten On-Chain-Paare."],
   ["dd.e_flow", "Derzeit hat keine Basis genug gepaarte Liquidität für eine Flow-Auswertung."],
   ["dd.t_authority_revoked", "Vollmacht widerrufen."],
   ["dd.t_clear_failed", "Löschen fehlgeschlagen."],

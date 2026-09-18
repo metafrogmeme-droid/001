@@ -255,37 +255,9 @@ async function getRadar() {
 
 const CHAT_RE = /\b(rwa|real[- ]world assets?|tokeni[sz]ed (assets?|treasuries))\b/i;
 
-/** A signed percent, or an em dash. NEVER `+null%`, never a manufactured 0. */
-function pct(v) {
-  return v == null ? '—' : `${v >= 0 ? '+' : ''}${v}%`;
-}
-
-/**
- * A volume, or an em dash.
- *
- * `const n = Number(v) || 0` printed `$0` for a total nobody could read —
- * or-zero on a figure a reader takes as "this sector traded nothing".
- */
-function fmtVol(v) {
-  const n = (v == null || !isFinite(Number(v))) ? null : Number(v);
-  if (n == null) return '—';
-  if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
-  return '$' + Math.round(n).toLocaleString('en-US');
-}
-
-/**
- * `(2 of 3 reported one)` when the figure is PARTIAL — never over an absence.
- *
- * `scored === 0` means the figure itself is an em dash, and a sample caveat
- * beside a dash is a hedge about a number that is not there: the rule the
- * prompt's bounded lists already state, where the empty and unreadable
- * outcomes get no bound caveat at all.
- */
-function cover(value, scored, total) {
-  return (value != null && scored > 0 && total != null && scored < total)
-    ? ` <i>(${scored} of ${total} reported one)</i>` : '';
-}
+// `pct`, `fmtVol` and `cover` were written here and copied into `meme.js`
+// and `research.js`. One reading now: `card_nums.js` carries why.
+const { pct, fmtVol, cover } = require('./card_nums');
 
 /**
  * The RWA radar card — the reading BOTH surfaces render.

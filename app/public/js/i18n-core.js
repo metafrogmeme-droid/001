@@ -526,7 +526,7 @@
     "dd.e_idle_nowallet": { en: "Link a wallet and idle-yield shows what is sitting still, with the best rate for each asset. Read-only — RUNECLAW never moves your funds." },
     "dd.e_cross_nowallet": { en: "Link a wallet and the planner works out whether moving idle capital to a better rate beats the gas and bridge cost. Estimates only — nothing moves." },
     "dd.e_dex": { en: "No pairs quoted on both venues right now — the comparison needs a symbol listed on each side." },
-    "dd.e_meme": { en: "No pairs clear the radar’s liquidity and age floor right now." },
+    "dd.e_meme": { en: "The DEXScreener feed answered and is carrying no trending on-chain pairs right now." },
     "dd.e_flow": { en: "No base has enough paired liquidity for a flow read right now." },
     "dd.t_authority_revoked": { en: "Authority revoked." },
     "dd.t_clear_failed": { en: "Clear failed." },

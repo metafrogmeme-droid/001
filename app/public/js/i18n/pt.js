@@ -484,7 +484,7 @@
   ["dd.e_idle_nowallet", "Ligue uma carteira e o rendimento ocioso mostra o que está parado, com a melhor taxa por ativo. Só leitura — a RUNECLAW nunca move os seus fundos."],
   ["dd.e_cross_nowallet", "Ligue uma carteira e o planeador calcula se mover capital parado para uma taxa melhor compensa o gás e a ponte. Apenas estimativas — nada se move."],
   ["dd.e_dex", "Neste momento não há pares cotados em ambas as praças — a comparação precisa de um símbolo listado dos dois lados."],
-  ["dd.e_meme", "Neste momento nenhum par ultrapassa o mínimo de liquidez e idade do radar."],
+  ["dd.e_meme", "O feed do DEXScreener respondeu e neste momento não traz nenhum par on-chain em tendência."],
   ["dd.e_flow", "Neste momento nenhuma base tem liquidez emparelhada suficiente para uma leitura de fluxo."],
   ["dd.t_authority_revoked", "Autoridade revogada."],
   ["dd.t_clear_failed", "Falha ao limpar."],

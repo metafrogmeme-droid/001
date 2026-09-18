@@ -28,21 +28,13 @@ function setTickerFetcher(fn) { fetchTickers = fn || getTickers; }
 
 function round2(v) { return Math.round(v * 100) / 100; }
 const { esc } = require('./esc');
+// One volume rendering for the three cards that print one; see card_nums.js.
+const { fmtVol } = require('./card_nums');
 function fmtUsd(v) {
   const n = Number(v);
   if (!isFinite(n)) return '—';
   const dp = n >= 1000 ? 0 : n >= 1 ? 3 : 6;
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: dp });
-}
-function fmtVol(v) {
-  // `Number(v) || 0` printed "$0" for a volume the venue never reported —
-  // the smallest number on the card, presented as a measurement.
-  if (v == null) return '\u2014';
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '\u2014';
-  if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
-  return '$' + Math.round(n).toLocaleString('en-US');
 }
 
 const NAME_MAP = {

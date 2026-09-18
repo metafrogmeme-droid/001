@@ -255,7 +255,7 @@ grown classes and not one was a code change.
 gate's own coverage section says the JS half of every shape above is not
 checked, and PR #314's third surface was `dashboard.js` — found by a human
 deciding to sweep, which is the practice `honesty_gate.py` exists because it
-does not scale. `app/test/js_honesty_ratchet.test.js` is the other half (161
+does not scale. `app/test/js_honesty_ratchet.test.js` is the other half (152
 hits, four shapes, same two-way rule), and it rides `npm test`, so it reached
 CI and preflight with no new job and no change to the gate count.
 
@@ -5275,6 +5275,138 @@ assertion about rendering and dies only on the recorded call.
 (`app/test/rwa_sector_reads_only_what_reported.test.js`,
 `tests/test_telegram_web_parity.py`,
 `tests/test_the_website_cards_are_telegram_commands.py`.)
+
+**A COUNT NOBODY READ FIRED THE FLAG THAT SAYS YOU CANNOT GET OUT.** The RWA
+slice above fixed its own radar and filed the sibling; driven, `meme.js` was
+worse than the note said, because its coercion is at the NORMALIZER — the
+earliest place the distinction can be lost, and the one that decides every
+reader downstream at once. `num(p.txns.h24.sells) || 0` made a pair whose sells
+count DEXScreener did not report byte-identical to one measured at zero:
+
+    sells UNREAD:          {tier: extreme, flags: [no-sells-yet, buys-only-skew]}
+    sells a MEASURED zero: {tier: extreme, flags: [no-sells-yet, buys-only-skew]}
+
+`no-sells-yet`'s own comment is *"can't exit?"* — the most alarming claim the
+card can make — and the module's header says these are *"the SAME
+liquidity/age/flow read a future agent-buy will gate on"*. `totalTx >= 20` was
+met by the readable side alone, so the threshold was a PARTIAL TOTAL and
+`sells === 0` was then read as a measurement. Both flags fired and the tier was
+escalated, from one field nobody read. The flow flags need BOTH counts now, and
+`unread` names the subjects that were not reported — `tier` is a FLOOR
+("memecoins are high-risk by default", true without reading anything), so an
+unread signal can neither raise it nor lower it, and `high` over one measured
+signal and `high` over three are different facts the caller can now tell apart.
+
+**The same `|| 0` decided the RANKING, the payload CAP and three totals.** The
+header says *"Rank by 24h volume (real activity), not price change (pumps)"*,
+and an unreported volume was stamped `0` and ranked on it — then cut from
+`tokens.slice(0, 40)` by a rank it never earned, summed into
+`summary.volume_24h_usd` and each `chains[].volume_24h_usd` as a partial total
+printed as whole, and eligible for `top_by_volume`, which with nothing readable
+is input order named as the top. `volumeTotal` carries its sample and answers
+`null` for nothing read; `byVolumeDesc` never ranks an unread row. **The
+mutation that separates the two is a MEASURED zero**, because `null || 0` also
+sorts last while every real volume is positive — every other fixture in the
+round agreed with the coercion, which is the "a fixture where every row is
+readable cannot tell a filtered aggregate from an unfiltered one" lesson
+arriving through the sort.
+
+**And the CARD destroyed the honest null the normalizer had preserved.**
+`liquidity_usd` was already three-valued and `fmtVol`'s `Number(v) || 0`
+printed `$0 liq` for it — while `riskRead`, three lines away, guarded
+`liqUsd != null` correctly and declined to flag that row. Two answers about one
+unread field in a single row, and the reassuring one (`high`, not `extreme`)
+was the one telling the truth. The DASHBOARD panel reading the same payload
+guards both nulls correctly, so the CARD — which is `/meme_radar` on Telegram
+and the web chat intercept — was the uncured copy: #179's shape exactly, one
+radar over.
+
+**THREE CARDS RENDER ONE QUANTITY, AND THE COPY THAT ROTTED WAS THE ONE WHOSE
+COMMENT WAS MISSING.** `rwa.js` and `research.js` each carried a note recording
+that `Number(v) || 0` had printed `$0` for a volume nobody reported; `meme.js`
+still did it. `app/lib/card_nums.js` is the one reading (`pct`, `fmtVol`,
+`cover`) and all three ask it — the `esc.js` precedent, and the reason the
+sweep was worth doing rather than fixing the third copy in place. Eleven
+private money formatters remain in `lib/`, and they are NOT swept: `fmtUsd`,
+`money` and `moneyCell` render different quantities for different cards, so
+they are per-card renderings rather than copies of one answer.
+
+**A FAILED READ REACHED EVERY READER AS AN EMPTY UNIVERSE.**
+`fetchTrendingPairs` answered `[]` for four different facts — the boost
+endpoint refusing, the boost list genuinely being empty, the pairs endpoint
+refusing, and any throw — so the card said *"found nothing live right now — the
+DEXScreener feed may be refreshing"* (a guessed cause over a read that never
+happened) and the dashboard panel said, in fourteen languages, that *"No pairs
+clear the radar's liquidity and age floor right now"* — naming two filters this
+radar does not have. Nothing in `meme.js` filters on liquidity or age;
+`riskRead` only FLAGS. `feed_read` is the difference now, the panel THROWS on a
+failed read so its empty state is reachable only from a read that succeeded,
+and the sentence was replaced in all fourteen. **That function is the one the
+tests never drove** — every fixture injects a fetcher through
+`setPairFetcher` — so the four-way distinction was decided by code under no
+test at all, which the round said by changing one `null` to `[]` with no
+verdict moving.
+
+**And three of the guards for it were mine, not the code's.** A source scan
+pinning `function fmtVol` in `research.js` failed the day that renderer moved
+into the shared module, while the property it guards held throughout — the
+`test_unread_mark_is_not_break_even` shape again, and it is a DRIVE of the card
+now. The first per-row marker read `safety 2/3`, which on a risk badge reads as
+*two checks PASSED* rather than *two were read* — the opposite claim, fixed to
+count what is unread. And `sumVolume`'s sibling here reported `$0` for nothing
+read in its own first draft, found by rendering the card and reading every
+line of it rather than by reading the diff.
+(`app/test/meme_safety_read_is_only_what_reported.test.js`.)
+
+**Thirteen mutations, each killed — and three survived a round, none of them
+the code's.** The ranking's coercion agreed with every fixture until one held a
+MEASURED zero; `fetchTrendingPairs` was reachable by no test until `global.fetch`
+was driven directly; and `cover`'s absent-figure guard needed a fixture where
+the figure itself is a dash.
+
+**A CHIP IS A BADGE AND `align-items: stretch` MADE IT A CAPSULE THE HEIGHT OF
+THE CARD.** Reported from the live site with a screenshot: the Signals card on
+a phone rendered `▲ LONG` as a ~390px pill, the pattern name wrapped one or two
+words per line down seven lines, and the signal sparkline — `width="100%"` over
+a 260-unit viewBox — was a ~60px sliver at the right edge. One declaration
+explains all three. `.tbl--collapse td { display: flex }` makes every child of
+a cell a flex ITEM, so a cell whose value is a BLOCK became a row of narrow
+columns, and the default `align-items: stretch` sized each of them to the
+tallest thing in the row. Nothing in the markup was wrong: the cell was being
+laid out as a label|value pair when its value is a block.
+
+Three rules, and each is the smallest statement of its claim. `align-items:
+center`, because a badge is not a column — it changes two boxes on the page and
+the round proves which. A cell carrying block content stacks (`td--stack`), so
+the chart gets the row's width, which is most of the repair: 60px to 362px of
+its 260-unit viewBox. And `margin-right: auto` on the LABEL rather than
+`justify-content: space-between` on the row, because a value written as more
+than one inline element — `<b>SOL</b> 📈`, a chip beside a symbol — is several
+flex items, and `space-between` spread each of them across the row instead of
+keeping the value together.
+
+**Two of my own rules were dead and the round is what said so.** The mobile
+`.sc-slot` sizing was written INSIDE the collapse media query, 1400 lines above
+the base `.sc-slot { min-height: 72px }` — same specificity, later wins, so a
+media query raised nothing and only order decided it. And `[data-label=""]
+::before { display: none }` was needed under `space-between` and is an
+equivalent mutant under the auto margin, so it is deleted rather than kept as a
+claim no input can reach. The reverse also happened: `min-height` was deleted
+ONCE as an equivalent mutant, on the evidence of a mutation that could not
+reach it — the skeleton rule covers the loading state and only a FAILED candle
+read exposes the slot's own floor. It is back, with the state that reaches it
+named beside it.
+
+**The guard is a DRIVE because the claim is rendered geometry**, which no
+source scan can see, and each assertion is stated against the cell rather than
+against a pixel count somebody has to maintain: a chip does not FILL its cell,
+the chart is given the row's width, the description reads as a paragraph, the
+label sits left of the value. Nine of ten mutations die. The tenth is recorded
+rather than asserted: the shimmer's own height rule governs only the first few
+frames, because the chart code empties the slot before it awaits the fetch, so
+by any moment a test can reach `aria-busy` is still true and the skeleton
+element is already gone.
+(`app/test/collapsed_row_is_a_label_and_a_value.smoke.test.js`.)
 
 ## Public-surface rules
 
