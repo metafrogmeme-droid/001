@@ -66,6 +66,7 @@ from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import thesis_prose
 from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
+from bot.utils.candles import drop_forming_candle
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.leveraged_return import (
@@ -589,8 +590,8 @@ class TradingCommands:
                     if _p.symbol in rolling_atr:
                         continue
                     try:
-                        _ohlcv = await exchange.fetch_ohlcv(
-                            _p.symbol, timeframe="1h", limit=_ATR_LIMIT)
+                        _ohlcv = drop_forming_candle(await exchange.fetch_ohlcv(
+                            _p.symbol, timeframe="1h", limit=_ATR_LIMIT), "1h")
                         if _ohlcv and len(_ohlcv) > 2:
                             _h = [float(c[2]) for c in _ohlcv]
                             _lo = [float(c[3]) for c in _ohlcv]

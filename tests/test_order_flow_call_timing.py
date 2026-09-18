@@ -76,8 +76,12 @@ class TestTheEngineRecordsThem:
     def test_it_reads_them_after_the_signal_exists(self):
         # of_signal is bound from the gather result; recording before that
         # point would read an unbound name.
+        #
+        # Anchored on the ASSIGNMENT rather than on `results[1]`: this read the
+        # right-hand side and went red when the gather's exception vocabulary
+        # was corrected, on an ordering that had not changed.
         src = code_only(open("bot/core/engine.py", encoding="utf-8").read())
-        i = src.index("of_signal = results[1]")
+        i = src.index("of_signal = ")
         j = src.index('f"fetch:{_cn}"')
         assert j > i, "timings read before of_signal is assigned"
 

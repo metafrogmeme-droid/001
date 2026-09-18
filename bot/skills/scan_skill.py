@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
+from bot.utils.candles import drop_forming_candle
 from bot.formatters.rich_cards import (
     fetch_analysis_data,
     render_analysis_card,
@@ -1111,6 +1112,15 @@ async def _scan_symbol(exchange, symbol: str, analyzer=None) -> Optional[dict]:
         ohlcv = await exchange.fetch_ohlcv(symbol, "4h", limit=100)
     except Exception:
         return None
+    # The MARK is read BEFORE the drop and the window AFTER it, because they
+    # want different bars. A forming candle's close IS the current price, so
+    # dropping it from `price` would answer with a close up to four hours old;
+    # keeping it in the window made every measurement below repaint, and
+    # `vol_ratio` worst of all — `v[-1]` is a part-period's volume charged
+    # against a 20-bar mean of whole ones, so a fresh 4h bar read ~0.25x on the
+    # one figure that is supposed to detect a volume SPIKE.
+    mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+    ohlcv = drop_forming_candle(ohlcv, "4h")
     if not ohlcv or len(ohlcv) < 30:
         return None
     o = np.array([c[1] for c in ohlcv], dtype=float)
@@ -1118,7 +1128,8 @@ async def _scan_symbol(exchange, symbol: str, analyzer=None) -> Optional[dict]:
     l = np.array([c[3] for c in ohlcv], dtype=float)
     c = np.array([c[4] for c in ohlcv], dtype=float)
     v = np.array([c[5] for c in ohlcv], dtype=float)
-    price, rsi, atr = float(c[-1]), _compute_rsi(c), _compute_atr(h, l, c)
+    price = mark if mark > 0 else float(c[-1])
+    rsi, atr = _compute_rsi(c), _compute_atr(h, l, c)
     vm = float(np.mean(v[-20:])) if len(v) >= 20 else float(np.mean(v))
     vol_ratio = float(v[-1] / vm) if vm > 0 else 1.0
     sma20 = float(np.mean(c[-20:])) if len(c) >= 20 else price
@@ -1614,6 +1625,10 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
         try:
             exchange = await engine.scanner._get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
+            # CLOSED bars only: this ATR is the risk gate's denominator, and a
+            # forming 4h bar truncates the newest true range, so the gate sizes
+            # against an understated volatility.
+            ohlcv = drop_forming_candle(ohlcv, "4h")
             h = np.array([c[2] for c in ohlcv], dtype=float)
             l_arr = np.array([c[3] for c in ohlcv], dtype=float)
             c_arr = np.array([c[4] for c in ohlcv], dtype=float)
@@ -1696,6 +1711,7 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
                          source="scan_skill")
         exchange = await engine.scanner._get_exchange()
         ohlcv = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
+        ohlcv = drop_forming_candle(ohlcv, "4h")   # the gate's denominator
         h = np.array([c[2] for c in ohlcv], dtype=float)
         l = np.array([c[3] for c in ohlcv], dtype=float)
         c = np.array([c[4] for c in ohlcv], dtype=float)
@@ -1769,6 +1785,7 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
                         source="scan_skill_retry")
                     # Re-fetch ATR with fresh data
                     ohlcv2 = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
+                    ohlcv2 = drop_forming_candle(ohlcv2, "4h")
                     h2 = np.array([c2[2] for c2 in ohlcv2], dtype=float)
                     l2 = np.array([c2[3] for c2 in ohlcv2], dtype=float)
                     c2 = np.array([c2[4] for c2 in ohlcv2], dtype=float)

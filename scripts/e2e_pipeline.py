@@ -22,6 +22,7 @@ from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.skills.skill_registry import build_default_registry
 from bot.utils.models import MarketSignal
+from bot.utils.candles import drop_forming_candle
 import ccxt.async_support as ccxt
 
 
@@ -100,9 +101,12 @@ async def main():
         # 2a. OHLCV
         candles_1h, candles_4h, candles_1d = [], None, None
         try:
-            candles_1h = await exchange.fetch_ohlcv(sig.symbol, "1h", limit=100)
-            candles_4h = await exchange.fetch_ohlcv(sig.symbol, "4h", limit=50)
-            candles_1d = await exchange.fetch_ohlcv(sig.symbol, "1d", limit=30)
+            candles_1h = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "1h", limit=100), "1h")
+            candles_4h = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "4h", limit=50), "4h")
+            candles_1d = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "1d", limit=30), "1d")
             print(f"  OHLCV: 1h={len(candles_1h)} 4h={len(candles_4h)} 1d={len(candles_1d)} bars")
         except Exception as e:
             print(f"  OHLCV fetch error: {e}")

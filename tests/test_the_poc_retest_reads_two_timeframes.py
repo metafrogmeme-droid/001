@@ -97,8 +97,12 @@ def _exchange(**tf_override):
 
 
 def _read(ex, symbol="ARB/USDT", **kw):
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-        read_setup(ex, symbol, **kw))
+    """The SETUP. `read_setup` answers `(setup, entry_rows)` -- the rows are
+    what lets `observe_setup` score against the bars this call already
+    fetched, and every assertion in this file is about the setup."""
+    setup, _rows = asyncio.get_event_loop_policy().new_event_loop(
+    ).run_until_complete(read_setup(ex, symbol, **kw))
+    return setup
 
 
 # ── the two timeframes ────────────────────────────────────────────────────
@@ -388,7 +392,19 @@ class TestTheDoor:
         #999's own lesson, and the reason this handler is four lines."""
         from bot.skills.scan_commands import ScanCommands
         body = code_only(inspect.getsource(ScanCommands._cmd_pocretest))
-        assert "setup_card" in body and "read_setup" in body
+        # Three delegates, no assembly: the read+record seam, the card, and
+        # the one-line record note -- which is module level for exactly this
+        # reason, so the handler stays something a test can read.
+        # THE CALL, not the name: `"observe_setup" in body` is satisfied by
+        # the import line, so the handler could stop calling it and this pin
+        # would stay green. The mutation round found that false acquittal.
+        import ast
+        import textwrap
+        awaited = {ast.unparse(n.value.func)
+                   for n in ast.walk(ast.parse(textwrap.dedent(body)))
+                   if isinstance(n, ast.Await) and isinstance(n.value, ast.Call)}
+        assert "observe_setup" in awaited, sorted(awaited)
+        assert "setup_card" in body and "_shadow_note" in body
         # No card assembly here: no state vocabulary, no level formatting.
         for own in ("POC:", "Entry (", "🟢", "Nothing was placed"):
             assert own not in body, own

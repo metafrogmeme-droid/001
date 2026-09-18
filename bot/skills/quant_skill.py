@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
+from bot.utils.candles import drop_forming_candle
 from bot.utils.exc_text import _safe_exc_text
 
 # ── Compatibility shim: use pydantic if available, else plain dataclass ──────
@@ -705,7 +706,8 @@ async def analyze_live(symbol: str, exchange=None) -> dict:
 
     if exchange is not None:
         try:
-            raw = await exchange.fetch_ohlcv(symbol, '1h', limit=500)
+            raw = drop_forming_candle(
+                await exchange.fetch_ohlcv(symbol, '1h', limit=500), '1h')
             ohlcv = [[float(c) for c in bar] for bar in raw]
         except Exception:
             ohlcv = []
@@ -821,7 +823,11 @@ async def read_ohlcv(engine: Any, symbol: str, timeframe: str,
             exchange = getattr(engine, "exchange", None)
         if exchange is None:
             return [], "no exchange is configured"
-        raw = await exchange.fetch_ohlcv(symbol, timeframe, limit=bars)
+        # CLOSED bars only, and `bars_analyzed` therefore reports one fewer
+        # than requested — which is the honest count, and this seam exists
+        # because a count of bars nobody fetched was the defect above.
+        raw = drop_forming_candle(
+            await exchange.fetch_ohlcv(symbol, timeframe, limit=bars), timeframe)
     except Exception as exc:
         return [], _safe_reason(exc)
     try:

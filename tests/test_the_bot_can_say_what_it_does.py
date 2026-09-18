@@ -556,7 +556,7 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # the POC-retest read is a command a caller types and not a phrasing the
     # router claims -- which is the honest destination for it today, because
     # "retest" alone is a word about price action rather than a request.
-    assert (named, nothing, len(hits)) == (105, 96, 9), (named, nothing, hits)
+    assert (named, nothing, len(hits)) == (106, 97, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

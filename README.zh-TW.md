@@ -484,6 +484,7 @@ python -m bot.main --mode scan
 | `/squeeze` | 波動壓縮狀態 |
 | `/sweep` | 流動性掃蕩偵測 |
 | `/pocretest` | 4 小時成交量分布 POC 回測 — /pocretest SOL |
+| `/pocshadow` | 已記錄的 POC 回測設定實際賺賠 |
 | `/zones` | 供需區 |
 | `/momentum` | 動能掃描 |
 | `/dip` | 回調掃描 |

@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:949, :958), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:950, :959), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:206 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -124,7 +124,7 @@ ATR / TP 3.5 ATR (config.py:2117-2118), trailing ENABLED at 1.5 ATR
 (:2119-2120), a 48h time-close with a 12h warn (:2121-2122), min confidence
 0.50 (:2136), max risk 2% (:2142) — every one distinct from the scalp row
 above it. skill_registry.py:1858 reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (scan_commands.py:878) dispatches pro_scan
+SL/TP ladder. Doors: /swing (scan_commands.py:962) dispatches pro_scan
 mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2373) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
@@ -152,11 +152,11 @@ time-close with a 1h warn (:2105-2106), min confidence 0.65 (:2134), max risk
 1% (:2140); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1572 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
-(scan_commands.py:844) dispatches pro_scan mode=scalp — 5m candles, top-3 by
+(scan_commands.py:928) dispatches pro_scan mode=scalp — 5m candles, top-3 by
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1822) as a
-tighten-only veto on that user's own confirms (trading_commands.py:377); /run
+tighten-only veto on that user's own confirms (trading_commands.py:378); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -172,7 +172,7 @@ the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1006); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1007); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
@@ -289,7 +289,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:377).
+(/mystrategy, trading_commands.py:378).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -357,7 +357,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:949, :958); the engine, live_executor
+futures-only mode' (trading_commands.py:950, :959); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1209,7 +1209,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:117-118), the contract-
+web_data_pull.fetch_research — scan_commands.py:151-152), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → bot/core/token_research.py:74), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -1286,7 +1286,7 @@ way to be paid for that work.
 **Audits/security** — partial
 
 Genuinely wired, human-reachable security-REVIEW tooling, on three surfaces.
-Telegram: /token (scan_commands.py:116, @guard('token') — trader/paper/viewer)
+Telegram: /token (scan_commands.py:161, @guard('token') — trader/paper/viewer)
 runs token_research.investigate() and composes token_safety (what the contract
 can do to holders) with deployer_history/taint/fates into one dossier that
 leads with what it could NOT read; /xray (guardian_commands.py:430) decodes
@@ -1670,10 +1670,10 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1136, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1210, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7059
-(get_market_session) and scan_commands.py:301.
+(get_market_session) and scan_commands.py:345.
 
 **Price alerts and anomaly-alert scoping**
 
@@ -1831,12 +1831,33 @@ cleared the buffer", from a level nobody measured.
 Confirm button: a flag read by nothing is the fifth granularity and a button
 behind it would lead to "not built yet", which is the `/vault` hint shape. There
 is no universe sweep yet — the door is one asset, which is what "confirm the POC
-retest" names — and no shadow record, so this claims no edge: whether the setup
-is worth taking is a question for a record with its own sample floor and
-interval, the discipline `arb_verdict` already applies. The target is the one
+retest" names. The target is the one
 thing the rules do not give and 2R needs one, so it is the LEG'S OWN EXTREME,
 stated as an assumption, refused as `no_target` when price has passed it rather
 than manufactured from a multiple.
+
+*The shadow record, and what it can and cannot say.* `/pocretest SOL` ARMS a
+setup the strategy would take (`confirmed` AND a verdict of `ok` — recording a
+rejected one would measure a strategy nobody proposed) and scores what is
+pending from the bars it already fetched; `/pocshadow` prints the verdict.
+bot/core/poc_retest_record.py:130 `score_setup` walks the bars after the retest
+and answers one of six outcomes. R is `net_reward_risk`'s unit, whose
+denominator is the fee-inclusive stopped-out loss, so a stop is exactly -1.0R
+and the target pays the arm-time net R. The verdict is `mean_r_interval` with
+the whole 95% interval clear of zero and `shadow_book.MIN_GATE_TRADES` as the
+floor, both READ rather than restated.
+
+Three things it deliberately does NOT claim. A bar that spans the stop and the
+target is `ambiguous` — OHLC cannot order two touches inside one bar — so it
+carries no R, is not in the mean, and is named in the sentence beside it,
+because those bars are the volatile ones and dropping them silently reports the
+calm half as the whole. A fill is modelled AT the entry price, so a bar that
+opens beyond it fills worse and the recorded R is the OPTIMISTIC bound, which
+is stated rather than modelled (pricing the gap needs the bar's open and a
+per-row re-run of the fee model — a different quantity and its own slice). And
+the scoring window is the entry-TF fetch, so a retest that has slid out of it
+stays `unscored` rather than being dropped: a denominator that quietly excludes
+the rows nobody could reach is a partial total printed as whole.
 
 **The PUBLIC Strategy-Agent marketplace**
 

@@ -86,6 +86,7 @@ _cmd_pause halt
 _cmd_performance portfolio
 _cmd_playbook playbook
 _cmd_pocretest analyze
+_cmd_pocshadow analyze
 _cmd_portfolio portfolio
 _cmd_postmortem portfolio
 _cmd_price_alert price_alert

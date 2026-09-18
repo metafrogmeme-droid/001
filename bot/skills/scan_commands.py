@@ -43,6 +43,7 @@ from bot.skills.command_guard import guard
 from bot.skills.scan_coverage import coverage_note
 from bot.skills.scan_hints import _scan_timeout_hint
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler
+from bot.utils.candles import drop_forming_candle
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import system_log
@@ -55,6 +56,40 @@ if TYPE_CHECKING:
 #: A bare symbol argument: `BTC`, `BTCUSDT`, `BTC/USDT`. Anything else is
 #: refused before it reaches an exchange call.
 _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
+
+
+def _shadow_note(seen: object) -> str:
+    """One line about what the read did to the shadow record, or nothing.
+
+    Module level because a renderer reachable only through a guarded async
+    handler is one no test can run -- #999's lesson, which is why the card
+    itself is a leaf too.
+
+    Printed only when something happened. "Already on record" is said because
+    a caller who runs `/pocretest` twice must not read the second silence as a
+    failure to record, and a record that could not be WRITTEN says so rather
+    than letting the card imply an arming it never made.
+    """
+    err = getattr(seen, "record_error", None)
+    if err:
+        return f"\n\n<i>\u26a0\ufe0f {html.escape(str(err))}</i>"
+    bits = []
+    armed = getattr(seen, "armed", None)
+    if armed is True:
+        bits.append("added to the shadow record")
+    elif armed is False:
+        bits.append("already on the shadow record")
+    # NOT `or 0`: a count that is not a number is a programming error, not a
+    # value to coerce to zero, and the or-zero shape here would read as "0
+    # re-scored" for a producer that answered nothing at all. The honesty
+    # ratchet caught this line in the commit that added it.
+    scored = getattr(seen, "scored", 0)
+    if scored:
+        bits.append(f"{scored} recorded setup(s) re-scored")
+    if not bits:
+        return ""
+    joined = " \u00b7 ".join(bits)
+    return f"\n\n<i>{joined} \u2014 /pocshadow for the record.</i>"
 
 
 class ScanCommands:
@@ -451,6 +486,12 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
+            # The MARK first, then CLOSED bars only. A forming candle's close
+            # IS the current price, so the card's price reads it; the sweep
+            # detector must not, or a level "swept" intrabar vanishes at the
+            # bar close it was reported on.
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 20:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -473,7 +514,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_sweeps
             await self._send(update, render_sweeps(
-                symbol, float(closes[-1]), signals))
+                symbol, mark if mark > 0 else float(closes[-1]), signals))
         except Exception as exc:
             await self._send_error(update, "the liquidity sweep scan", exc)
 
@@ -494,12 +535,28 @@ class ScanCommands:
         raw = (args[0] if args else "BTC").upper()
         symbol = raw if "/" in raw else f"{raw}/USDT"
         try:
-            from bot.core.poc_retest_scan import read_setup, setup_card
+            from bot.core.poc_retest_scan import observe_setup, setup_card
             exchange = await self.engine.get_exchange()
-            await self._send(update, setup_card(
-                await read_setup(exchange, symbol)))
+            seen = await observe_setup(exchange, symbol)
+            await self._send(update, setup_card(seen.setup) + _shadow_note(seen))
         except Exception as exc:
             await self._send_error(update, "the POC-retest read", exc)
+
+    @guard("analyze")
+    async def _cmd_pocshadow(self, update: Update,
+                             context: ContextTypes.DEFAULT_TYPE) -> None:
+        """What the recorded POC-retest setups actually paid — /pocshadow.
+
+        The record's own verdict on the record's own evidence. It places
+        nothing, arms nothing and proposes nothing: `/pocretest` is what adds
+        to the record, by reading a symbol.
+        """
+        try:
+            from bot.core.poc_retest_record import shadow_card, shadow_reading
+            _rows, verdict = await asyncio.to_thread(shadow_reading)
+            await self._send(update, shadow_card(verdict))
+        except Exception as exc:
+            await self._send_error(update, "the POC-retest shadow record", exc)
 
     @guard("scan")
     async def _cmd_zones(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -510,6 +567,8 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 20:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -537,7 +596,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_zones
             await self._send(update, render_zones(
-                symbol, float(closes[-1]), zones))
+                symbol, mark if mark > 0 else float(closes[-1]), zones))
         except Exception as exc:
             await self._send_error(update, "the supply/demand zone scan", exc)
 
@@ -550,6 +609,8 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 30:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -570,7 +631,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_squeeze
             await self._send(update, render_squeeze(
-                symbol, float(closes[-1]), sig))
+                symbol, mark if mark > 0 else float(closes[-1]), sig))
         except Exception as exc:
             await self._send_error(update, "the squeeze scan", exc)
 
@@ -683,6 +744,10 @@ class ScanCommands:
                     return None, None
                 try:
                     ohlcv = await exchange.fetch_ohlcv(sym, "1h", limit=30)
+                    # RSI is the load-bearing figure here (it colours the chip)
+                    # and the sparkline is a picture of CLOSED bars, so both
+                    # take the hygiened series.
+                    ohlcv = drop_forming_candle(ohlcv, "1h")
                     closes = [float(c[4]) for c in (ohlcv or []) if c and len(c) > 4]
                     if len(closes) < 5:
                         return None, None
@@ -1297,6 +1362,7 @@ class ScanCommands:
             async def _spark_rsi(sym: str):
                 try:
                     ohlcv = await exchange.fetch_ohlcv(sym, "1h", limit=30)
+                    ohlcv = drop_forming_candle(ohlcv, "1h")
                     closes = [float(c[4]) for c in (ohlcv or []) if c and len(c) > 4]
                     if len(closes) < 5:
                         return None, None

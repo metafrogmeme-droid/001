@@ -144,8 +144,13 @@ class Klines:
         sym = self._perp(symbol)
         if sym not in self.cache:
             try:
-                self.cache[sym] = self.ex.fetch_ohlcv(
-                    sym, "1h", limit=1000) or []
+                from bot.utils.candles import drop_forming_candle
+                # A forward return measured TO a bar that has not closed is
+                # not a measured forward return. Dropped once, at the fetch:
+                # these rows are cached for the whole run, and the helper
+                # answers from the wall clock, so asking later would invert.
+                self.cache[sym] = drop_forming_candle(
+                    self.ex.fetch_ohlcv(sym, "1h", limit=1000) or [], "1h")
             except Exception:
                 self.cache[sym] = []
         candles = self.cache[sym]

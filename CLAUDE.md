@@ -693,9 +693,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 105 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 106 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 96 of the 105 reach the tool-less chat model and 9
+typed as the card prints them, 97 of the 106 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -4904,6 +4904,235 @@ not be fetched" sends them to the network), and the card's unplaceable-state
 fallback, which the set-equality pin makes unreachable from any product state
 and which is driven now with a state this build does not know.
 
+**A DETECTOR NOBODY SCORES IS TELEMETRY WITH A GOOD REPUTATION.** The slice
+above shipped a strategy that answers eight states and a verdict, and driven,
+`poc_retest` had exactly ONE reader outside its own module and tests: the
+`/pocretest` card. Nothing recorded a confirmed setup and nothing scored one,
+so the strategy could not be evaluated and execution could not be gated on
+evidence — which is this file's own phrase about `defang_if_flagged`, one
+subject over.
+
+**THE ORDER OF TWO TOUCHES INSIDE ONE BAR IS NOT KNOWABLE FROM OHLC, and that
+is the classic backtest lie.** A bar whose range spans the stop AND the target
+says both were reached and says nothing about which came first. Assuming
+stop-first is conservative and false; assuming target-first is flattering and
+false; folding either into a win or a loss puts a number nobody measured into
+the mean the verdict is read off. `ambiguous` is its own outcome, carries no R
+in either direction, and is COUNTED in the sentence the verdict prints —
+because a bar wide enough to span both levels is a VOLATILE bar, so dropping
+those silently reports the mean over the calm half of the record as the mean
+over all of it. No threshold is invented for "too many of them": a share that
+changed a verdict would be a number nobody measured, so the count is printed
+and the reader can see it. It is kept apart from `errors` for the reason the
+scan partial keeps "not reached" apart from them.
+
+**THE R UNIT WAS ALREADY FEE-AWARE, AND THAT DECIDES THE LOSS.**
+`net_reward_risk` builds its denominator as `risk_px + entry_fee + stop_fee` —
+the whole cost of being stopped out, fees inside it — so a stop-out is
+**exactly -1.0R by construction** and the next reader's instinct, to subtract
+fees from the loss as well, charges them twice. The target pays the ARM-TIME
+`net_r` and nothing is recomputed at scoring time: re-running the fee model
+later answers a different question (today's rates against yesterday's ticket),
+which is the second-copy shape this repo keeps finding in maps and gates.
+
+**`not_triggered` IS NOT A LOSS.** Entry is a BREAK of the retest candle's
+extreme, and price that never broke it never asked the trade to be taken —
+filing it as a loss is the shapes table's `losses = len(all) - wins`. The stop
+and the target are consulted only from the TRIGGER bar onward, so a bar that
+reaches the stop while the entry is still untouched is not a loss either:
+nothing was in the market to lose.
+
+**AND `triggered` HAD TO BE THREE-VALUED, which only a DRIVE said.** The first
+draft was a bare `self.outcome in TRIGGERED`, which answers **False** for an
+`unscored` row — and a read that failed at bar 7 may have triggered at bar 3.
+A confident negative about a read that never finished, inside the module
+written to keep those apart. `unscored` cuts ACROSS `triggered` rather than
+being its complement, so the closure is on the OUTCOMES (six, mutually
+exclusive, exhaustive) and `triggered` answers `None` where it cannot be said.
+Driving the six outcomes is what found it; reading the walk did not.
+
+**A WRITE PATH AND A READ PATH THAT DISAGREE ABOUT THE FORMAT ARE INVISIBLE
+FROM EITHER.** `record_confirmed` wrote a bare `asdict(setup)` and
+`load_setups` filtered on `kind == "setup"`, so every setup landed on disk and
+none was ever read back: the record accepted writes and reported an empty
+history forever. Both halves read correct alone. The ROUND TRIP is what said
+so, in ten seconds, and no reading of the diff would have.
+
+**Thirty-two mutations, each killed — and the six that survived the first
+round were three kinds.** Three were corpus gaps: the entry and the stop
+compare with `>=` and `<=` (a stop order fills when the market trades AT the
+level, which is `setup_verdict`'s own reading of the entry as "a BREAK of a
+candle extreme, a stop/market order"), and no fixture put a bar exactly ON a
+level — a fixture positioned either side of a boundary measures nothing about
+the comparison that decides it. The third was the arb verdict's own lesson
+arriving again: the `does_not` fixture had a mean AND an upper bound below
+zero, so the point-estimate mutant changed no verdict, and the input that
+separates them is a LOSING mean whose interval still reaches above zero.
+Two more were branches nothing drove at all — the observer's arming rule
+(only `confirmed` AND `ok`, because recording a rejected setup measures a
+strategy nobody proposed) and its record-fault branch (a shadow record that
+cannot be written must not cost the caller the read they asked for).
+
+**And the sixth was a FALSE ACQUITTAL in my own pin.** The handler guard
+asserted `"observe_setup" in body` — satisfied by the IMPORT line, so the
+handler could stop calling it and the pin stayed green. It walks the AST for
+an awaited CALL now, in both suites. That is the `_cmd_trade` lesson one
+door over: an assertion that a STRING EXISTS is not an assertion that the
+code RUNS.
+
+**THE DOOR MOVING LEFT ITS OWN SEAM UNREACHABLE.** Once `/pocretest` called
+`observe_setup`, `read_setup` had no production caller at all — the fifth
+granularity inside the module that had just been written to record things,
+caught by `test_no_new_unreachable_functions`. It is not baselined: baselining
+a seam is recording ceremony as a deliberate unbuilt feature, which is the
+`scan_timeframes` ruling one slice up. `read_setup` IS the one public read now
+and answers `(setup, entry_rows)`, so the observer is built ON it rather than
+beside it — two fetches of one series are two answers.
+
+**AND A NAME I CHOSE WOULD HAVE ACQUITTED A DARK METHOD.** The methods ratchet
+counts IDENTIFIERS and "cannot tell whose method a name means", which this
+file records. A module-level `record_outcome` made `SignalTracker.record_outcome`
+— genuinely dark, and baselined as such — read as alive, which the stale-entry
+half of that guard caught. Renaming mine to `record_setup_outcome` is the fix:
+weakening the guard to accommodate a name I picked would have been the quiet
+direction.
+
+**The honesty gate caught my own mypy fix, in the commit that made it.** A
+mypy `arg-type` error on `int(row.get("retest_ms"))` was first answered with
+`int(... or 0)` — the or-zero shape, added to satisfy the type checker. The
+two gates disagreed and the honesty one was right: a row whose retest candle
+cannot be read is not a row stamped at epoch zero, it is a row that cannot be
+matched to a bar, and it is skipped as one.
+
+**And this slice shifted SIX `INCOME_MAP` citations by inserting thirty lines
+above them.** The blank-line probe caught ONE. The other five landed on
+non-blank lines, which is exactly the case that paragraph says the probe
+cannot see — and TWO of them were already wrong before the edit: `:116` cited
+`/token`'s guard and pointed at `import asyncio as _aio`, `:1136` cited
+`/stockscan` and pointed at a comment, and `:878`/`:844` had `/swing` and
+`/scalp` pointing at each other's neighbourhoods. All six are derived from
+what their sentences NAME now — the handler's own `def` — which is the
+convention already set for `trading_commands.py`, applied to the file this
+slice happened to grow.
+
+
+**A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
+engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
+is documented as "the engine's single shared exchange read"; it stored the
+venue's rows RAW and each of its three consumers called
+`_drop_forming_candle` on the result. That is the one place the call cannot
+work. `drop_forming_candle` asks "has this bar's period elapsed?" and "yes"
+means KEEP, so a bar that was still FORMING when it was fetched and has since
+closed was kept — the partial values captured at fetch time, presented as the
+newest CLOSED bar, its close the price at fetch time and its volume a
+part-period's read as a whole bar's. Driven, the same three rows five minutes
+apart across the bar boundary answer 2 rows and then 3: one row set, two
+verdicts, decided by a clock the rows know nothing about.
+
+**Reachable on every leg, and `_mtf_ttl`'s own docstring asserted the property
+that was false.** The TTL is `period // 4` floored at 180s, so a fetch in the
+last quarter of a bar can be served after that bar closed and still be inside
+the window; the floor makes 5m *worse* than a quarter — 180s against a 300s
+bar. And the derivation that produces 15m→225s, 1h→900s, 4h→3600s,
+1d→21600s reasons FROM "`_drop_forming_candle` removes the still-forming bar,
+so the set this caches contains CLOSED bars only", which was true of no set
+anybody stored. A third copy of the premise sat in the primary leg's own
+comment. The drop is the cache's now, before it stores, and the three consumer
+calls are DELETED rather than kept: after the fix a second application cannot
+change the answer, so it would be a line no input can reach, which is a claim
+that there is a check.
+
+**The SIBLING twelve lines up already decides from the data, and cannot be
+copied.** `resample_ohlcv` derives its own boundary as `candles[-1][0] +
+src_ms`, so its answer is the same however old the rows are. That is not
+available here — a forming bar's row is byte-identical to a closed one's,
+which is why this reading needs a clock at all — so the precondition is
+STATED on the helper instead, naming the caller that had to learn it.
+
+**A BLANKET SWEEP WOULD HAVE BEEN WRONG, and that is why the breadth needed
+reading rather than a script.** Driven by AST over the whole tree, 36
+functions fetch OHLCV and 25 applied no hygiene — RSI, ATR, squeezes, sweeps,
+volume ratios, MTF structure and the risk gate's own denominator computed on a
+bar that had not closed, and published. But **a forming candle's close IS the
+current price**, so dropping it from a MARK read answers with a close up to
+one whole timeframe old. Six sites wanted both, and they read the mark BEFORE
+the drop and the window after it: `rich_cards.fetch_analysis_data`,
+`chart_renderer` (exempt — a chart DRAWS the forming bar), the `/sweep`,
+`/zones` and `/squeeze` cards, and `scan_skill._scan_symbol`, which is the
+sharpest. Its `vol_ratio = v[-1] / mean(v[-20:])` charged a part-period bar's
+volume against a 20-bar mean of whole ones, so a fresh 4h bar read about
+**0.25x** on the one figure whose whole job is to detect a volume SPIKE.
+Two of `scan_skill`'s three confirm paths hand their ATR straight to
+`engine.risk.evaluate(idea, atr=...)`, where a truncated true range sizes a
+real position against an understated volatility.
+
+**The "for free" half is a ratchet, and it is the reason this does not need
+doing again.** A list of the sites I fixed would be the `/setllm`
+ten-of-eleven shape — the twenty-sixth, added tomorrow, is the one missing
+from the list. `tests/test_every_candle_read_is_hygiened.py` is structural:
+every venue `<x>.fetch_ohlcv(...)` must have hygiene in its enclosing scope
+chain or be named in `tests/candle_hygiene_baseline.txt` WITH its reason,
+two-way as `known_failures.txt` is, so an exemption that stops applying is a
+hard failure. It rides the existing test gate — no new CI step, no change to
+`preflight.py`.
+
+**Its four blind spots are worth more than the rule.** Three were found by
+driving the probe and each manufactured exactly the accusation it exists to
+prevent: a local WRAPPER that applies hygiene (`api_bridge._fetch_ohlcv`, whose
+four callers were all accused — answered by keying on the VENUE read, so a
+caller of a local wrapper is not a site); a NESTED def whose caller hygienes
+the result (`skill_registry._fetch_one`, dropped at the gather — hence the
+enclosing CHAIN); and a name defined many times in one file (the mark probe
+resolved `skill_registry.execute` to the wrong class, the methods ratchet's own
+ambiguity — hence a dotted path plus an occurrence index). **The fourth was
+found by the mutation round and not by reading**: "hygiene somewhere in the
+chain" cannot see ONE OF N, and `callback_confirm_reject` holds three separate
+4h reads, so removing the drop from any one of them left the other two to
+acquit it — three mutations survived a green suite. The rule COUNTS now, and a
+shortfall marks the LAST bare sites in line order so the row to explain is a
+specific read. It objected to two two-branch reads on its first run and was
+right about both: the movers fetch chose its venue in two branches behind one
+drop (consolidated — a branch added later would have inherited nothing), and
+the backtest loader's paging read genuinely assembles ONE series from two
+branches, which is a baselined row with that reason.
+
+**And removing the consumer-side drop surfaced fifteen narrowing complaints
+that an untyped return had been laundering through `Any` — where mypy was
+RIGHT.** `gather(return_exceptions=True)` hands back a BaseException and the
+check was `isinstance(..., Exception)`, which does not cover one: a leg
+cancelled on its own answers `asyncio.CancelledError`, so it was ASSIGNED to
+`ohlcv` and carried into the analysis as an exception OBJECT rather than
+reported as a failed fetch. `_ctx`, three lines below, already read
+`BaseException`; the two that decide the analysis did not — the same
+vocabulary gap the analyze batch records about its own `finally`. `ohlcv` is
+bound BELOW the guard now, where the fetch is known good, rather than above it
+with `None` for a failure the branch has already returned on. The mypy
+baseline fell 577 → 573.
+
+**Three existing guards went red on the tests' own instruments, not on
+anything they guard.** Two ordered against `of_signal = results[1]` — the
+right-hand SIDE — and the ordering they check had not changed; they index the
+ASSIGNMENT now, which is what they were really ordering against, the
+`_web_aliases` lesson in a third place. The third was a stand-in `self` whose
+own docstring promises it carries "the REAL functions under test... taken off
+the class", and which had to be told about a fourth one: a hand-written
+stand-in that must remember each attribute is one that will forget the next,
+which is the same drift the prompt suites' stub store had.
+
+**Thirty-four mutations, each killed. Six survived a round and two were
+refused, and not one of the eight was the code's.** Three survivors were the
+one-of-N gap above. One was an EQUIVALENT MUTANT: a SECOND `ohlcv = _r_ohlcv`
+added above the guard changes no behaviour, because the lower assignment still
+wins — so the assertion counts the bindings now and requires exactly one,
+since two leave a reader two answers about where the value comes from and one
+of them is the shape being removed. Two were gate-side weakenings of the
+baseline rules, UNREACHABLE while the baseline is honest (no row is
+reasonless, none is stale, so the assertion never fires either way); their
+reachable form is a BASELINE edit, which is also what the regression actually
+looks like, and both are driven from that side now. The two refusals were
+stale anchors in my own driver — one on an em dash a heredoc had rewritten,
+one on a line the same slice had moved.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -5135,7 +5364,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 205 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 206 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -5947,9 +6176,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **397 of 961** reach for source text through `source_scan`, `code_only`
+Driven, **398 of 965** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 397 is a FLOOR and the honest shape is
+source scan that rule does not see, so 398 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

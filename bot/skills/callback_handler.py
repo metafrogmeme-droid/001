@@ -54,6 +54,7 @@ from bot.formatters.drift_offer import (
 from bot.formatters.rich_cards import display_symbol, fetch_analysis_data, market_context_line, rsi_label
 from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM
 from bot.skills.scan_skill import callback_confirm_reject as _scan_callback
+from bot.utils.candles import drop_forming_candle
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import SUPPORTED_LANGS, get_user_lang, set_user_lang, t
 from bot.utils.leveraged_return import (
@@ -1655,7 +1656,9 @@ class CallbackHandler:
                         new_price = float(ticker.get("last", 0))
                         new_idea = reanalyzed_idea(original_idea, new_price)
                         if new_idea is not None:
-                            ohlcv = await exchange.fetch_ohlcv(original_idea.asset, "4h", limit=30)
+                            ohlcv = drop_forming_candle(
+                                await exchange.fetch_ohlcv(original_idea.asset, "4h", limit=30),
+                                "4h")
                             self.engine._pending_ideas[new_idea.id] = new_idea
                             self.engine._pending_atr[new_idea.id] = atr_from_ohlcv(ohlcv)
                             # OFFERED, not executed. The rebuilt idea has a

@@ -63,6 +63,7 @@
     "squeeze": "état de la compression de volatilité",
     "sweep": "détection des balayages de liquidité",
     "pocretest": "retest du POC du profil de volume 4h — /pocretest SOL",
+    "pocshadow": "ce qu'ont rapporté les setups POC-retest enregistrés",
     "zones": "zones d'offre/demande",
     "momentum": "scan de momentum",
     "dip": "scan de replis",

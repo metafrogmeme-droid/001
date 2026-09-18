@@ -63,6 +63,7 @@
     "squeeze": "ボラティリティスクイーズの状態",
     "sweep": "流動性スイープの検出",
     "pocretest": "4時間足ボリュームプロファイルのPOCリテスト — /pocretest SOL",
+    "pocshadow": "記録された POC リテストの成績",
     "zones": "需給ゾーン",
     "momentum": "モメンタムスキャン",
     "dip": "押し目スキャン",

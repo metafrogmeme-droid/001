@@ -1,0 +1,30 @@
+# Venue candle reads that deliberately do NOT drop the still-forming bar.
+#
+# Read by tests/test_every_candle_read_is_hygiened.py, two ways: a bare read
+# not listed here is a hard failure, AND a listed read that has since grown
+# hygiene is a hard failure too. That is the known_failures.txt rule -- an
+# exemption kept past its reason is a hole with a good reputation, and a stale
+# row must not be allowed to sit in front of the next real one.
+#
+# Format:  <path>::<dotted.function>#<occurrence>  <reason>
+# (two spaces separate the key from the reason; a row with no reason fails)
+#
+# The key carries no LINE NUMBER on purpose: a path:line pair is invalidated
+# by any insertion above it, so the gate would spend most of its firings on
+# edits with no relation to the read -- which is what this repo already
+# records about docs/INCOME_MAP.md's citations.
+#
+# WHY THERE ARE EXEMPTIONS AT ALL: a forming candle's CLOSE is the current
+# price. Dropping it from a mark read answers with a close up to one whole
+# timeframe old, so a blanket sweep would have made these two surfaces stale
+# rather than honest. Where a site needs both, the fix is to read the mark
+# BEFORE the drop and the window after it -- six sites do exactly that and are
+# therefore NOT in this file.
+
+bot/backtest/data_loader.py::DataLoader.from_bitget#1  TWO BRANCHES, ONE SERIES. The single-call branch and the paging loop are two reads of the same window, and the paging one accumulates into `seen` rather than being the series -- `raw` is rebuilt from it and the one drop sits on that, at the return, so both branches are covered by it. The count rule cannot see that and is right to say so: it objected to the sibling shape in skill_registry's movers fetch too, where a branch added later really would have inherited nothing, and that one was consolidated to a single read.
+
+bot/skills/chart_renderer.py::build_position_chart#0  A CHART is a picture of the market including now, and the forming bar is what every trading chart draws. Its only read of the last bar is `last_close` as the MARK for the playbook trail-threshold ratio (atr / last_close), where the forming close is the correct price; no indicator is computed over the window here -- the ATR arrives as a parameter.
+
+live_test.py::test_ohlcv_fetch#0  A manual venue smoke script. Its whole job is to report the venue's raw answer ("did Bitget serve candles, and how many"), so hiding the newest bar would hide the thing it is checking.
+live_test.py::test_full_analysis#0  Same script, same reason: it prints what the venue served so an operator can see the feed is alive.
+live_test.py::test_multi_asset_scan#0  Same script, same reason.
