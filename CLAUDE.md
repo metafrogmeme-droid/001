@@ -5733,6 +5733,73 @@ I swept the consumers only. `grep -rln <key> tests/` is the other half of that
 sweep, it costs seconds, and it would have named this file before the commit
 rather than twenty-three minutes after it.
 
+**A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG.**
+`computesOnInput: true` on an MCP tool answers "does this evaluate what the
+CALLER sends, rather than serving what the public site publishes?", and
+`tool8257.js` derives the ERC-8257 manifest's `toolFamilies` from it under a
+comment reading *"Derived from the registry, never hand-maintained: an agent
+can tell which tools answer from published data and which evaluate what IT
+sends, WITHOUT PARSING THE PROSE ABOVE. This is what stops the manifest from
+silently over-claiming again the next time a tool family is added."* A tool was
+then added — `xray_transaction`, the calldata decoder — and every piece of prose
+went stale exactly as that comment anticipated, while its own reassurance reads
+as though the prose is covered. It covers the machine-readable half.
+
+Five hand-written copies said four: the manifest's own `description`, the
+developers page's `dv.guardian_p` in all fourteen languages, the block comment
+above `TOOLS`, `docs/INCOME_MAP.md` (four names and four citations, each
+correct, one short), and — sharpest — `mcp_guardian_tools.test.js`'s own
+`GUARDIAN` list, so every safety property THAT file checks (registered,
+documented, declares its input, states its limit) had never once been checked
+on the family's newest member. **A guard whose subject list is hand-written is
+the `/setllm` ten-of-eleven shape inside the instrument.**
+
+**THE NAMES ARE LANGUAGE-INVARIANT AND THE COUNT IS NOT, which is the whole
+design.** A numeral across fourteen languages is fourteen numeral WORDS, so
+guarding it needs a fourteen-row numeral table — itself the second copy the
+slice exists to remove. The tool identifiers are CODE and survive translation
+verbatim, so the prose names the family, states no size, and ONE rule drives all
+fourteen. It also checks the stronger claim: a count can be right while the list
+is wrong, and naming every member and no non-member cannot be.
+
+**And the lede above it carried the over-claim the manifest was cured of.**
+`tool8257_families.test.js` exists because the manifest said *"Every tool serves
+data the public site already publishes"* after the Guardian tools shipped. Fixed
+in `buildManifest`, guarded there, and left standing in `dv.lede` — on the page
+that describes that manifest, contradicted by its own next panel. *Ask which
+OTHER surface makes the same claim*, applied to a fix's own page. The repair is
+checkable in fourteen languages for the same reason the names are: `Guardian` is
+a product name and is never translated.
+
+> **And my own comment quoted the string my own guard forbids.** Narrating the
+> history as *this comment read "these four"* trips the check against a prose
+> tally, in the file the check reads — the "a comment that quotes the string it
+> forbids is indistinguishable from the code doing it" trap, arriving from the
+> author's side rather than the scanner's. The comment tells the same history
+> without the token.
+
+**Thirteen mutations, each killed — and the three that survived a round were
+one equivalent mutant and two unreachable-on-a-healthy-tree.** Giving
+`toolFamilies` its own second walk of the same marker SURVIVED everything,
+because two walks of one predicate over one argument agree on every input: no
+drive can tell them apart, so the test named *"one walk, not two"* was claiming
+a check it could not make. The claim is about code SHAPE, so shape is what is
+asserted now — the narrow case where a source read is the honest instrument
+rather than a substitute for behaviour — and the mutation is re-aimed at it.
+
+**The other two were the guard's own coverage, and extracting a function is
+what made one driveable.** Narrowing the per-language sweep to English, then
+dropping its language floor, then dropping its untranslated check — each
+changed no verdict, because nothing the round can do to a healthy tree makes a
+translation absent. The floor was DELETED (a second copy of the threshold
+`i18n.test.js` owns), the sweep derives its languages from `i18n.LANGS` rather
+than from the entry's own keys — so a MISSING translation fails here instead of
+simply not being visited — and the walk became a function that a PLANTED
+dictionary can drive. That last move is the difference between a branch nobody
+can reach and a kill: the round could not produce an untranslated language, and
+a two-row fixture can.
+
+
 Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.

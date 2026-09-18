@@ -1409,11 +1409,15 @@ no fee, revenue share or payout for a published strategy or a followed agent.
 
 A builder of an AI agent can use RUNECLAW today with no operator involvement.
 Point any MCP client at POST /mcp (mounted app/server.js:415, unauthenticated,
-per-IP limited) and get 31 read tools; four of them run over input the caller
-supplies rather than over RUNECLAW's data — scan_transaction (prompt-
-injection/drain/approval/address-poisoning flags), compile_intent,
-stress_portfolio, plan_escape (app/routes/mcp.js:108, :217, :244, :295) — the
-'safety checks for YOUR agent' developers.html:52 advertises. Mint an rcarena_
+per-IP limited) and get 31 read tools. The ones carrying `computesOnInput` run
+over input the caller supplies rather than over RUNECLAW's data —
+scan_transaction (prompt-injection/drain/approval/address-poisoning flags),
+xray_transaction (calldata decoded to the known selector set, UNKNOWN outside
+it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:115,
+:166, :224, :251, :302) — the 'safety checks for YOUR agent'
+developers.html:55 advertises. The MARKER is the list, here as everywhere: this
+paragraph named four of the five and cited four of the five lines, because
+xray_transaction joined the family and no prose moved. Mint an rcarena_
 key yourself from the Arena page's Agent keys panel (arena.html:366 →
 app/routes/arena.js:1232, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
@@ -2237,13 +2241,14 @@ half of the measurement that says where the measurement stops.
   canonical tag once named a 404 for exactly this reason. The capability
   exists; the address in that row does not.
 
-- I could not determine whether the MCP tools I name (get_rwa_radar,
-  get_meme_radar, get_dex_compare, get_gas, get_agent_feed, get_alpha_intel,
-  get_showcase_trade, run_what_if, get_flight_record, verify_call,
-  get_seal_roots, get_track_record, get_signals) are inside the '31 read
-  tools' the other agents counted generically under Building. I read the TOOLS
-  keys in app/routes/mcp.js; I did not count them, so I may be double-
-  reporting what that generic row already covers.
+- ANSWERED, and the answer was yes. Driven (`Object.keys(TOOLS)` is 31), all
+  thirteen MCP tools I name — get_rwa_radar, get_meme_radar, get_dex_compare,
+  get_gas, get_agent_feed, get_alpha_intel, get_showcase_trade, run_what_if,
+  get_flight_record, verify_call, get_seal_roots, get_track_record,
+  get_signals — are inside the '31 read tools' the Building row counts
+  generically, so those rows ARE double-reporting it. Driving the count is
+  also what found the defect one paragraph up: `computesOnInput` answers five
+  and every piece of prose describing the family said four.
 
 - which_leaf is a guess wherever I wrote it. I was given only the non-'none'
   rows of a 90-leaf map, not the leaf list, so 'no leaf fits' may be wrong

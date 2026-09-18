@@ -138,6 +138,12 @@ function registrationCheck(currentHash) {
 function buildManifest({ tools }) {
   const base = baseUrl() || 'https://runeclaw.example';
   const creator = creatorAddress() || ZERO_ADDRESS;
+  // ONE reading of the split, used by the prose AND by `toolFamilies`
+  // below: two walks of the same marker are two answers about which
+  // tools evaluate what the caller sends.
+  const names = Object.keys(tools);
+  const callerInput = names.filter((n) => tools[n].computesOnInput).sort();
+  const publishedData = names.filter((n) => !tools[n].computesOnInput).sort();
   return {
     type: MANIFEST_TYPE,
     name: TOOL_SLUG,
@@ -147,10 +153,13 @@ function buildManifest({ tools }) {
       + '(Proof-of-PnL with re-derivable hashes), ERC-8004 agent identity '
       + 'cards, engine signals, tamper-evident flight records, token research '
       + 'and sector radars (RWA, meme, airdrops). SAFETY tools instead '
-      + 'evaluate input the caller supplies — a pre-signature scan for '
-      + 'prompt-injection and drain patterns, a plain-language mandate '
-      + 'compiled into typed revocable rules, a hypothetical book run through '
-      + 'stress scenarios, and a dependency-aware exit plan — storing nothing '
+      // NAMED FROM THE REGISTRY, because the prose went stale the moment a
+      // tool joined the family: this sentence enumerated four while the
+      // marker answered five, and `xray_transaction` was advertised nowhere.
+      // Each tool's own description says what it reads and what it refuses,
+      // so naming them is all the prose owes.
+      + 'evaluate input the caller supplies (' + callerInput.join(', ') + ') '
+      + '— storing nothing '
       + 'that is sent and reading no account. Which tool is in which family is '
       + 'machine-readable under `toolFamilies`. No tool sees an account, '
       + 'places an order or moves funds, and every safety answer is a '
@@ -166,10 +175,7 @@ function buildManifest({ tools }) {
     // tools answer from published data and which evaluate what IT sends,
     // without parsing the prose above. This is what stops the manifest from
     // silently over-claiming again the next time a tool family is added.
-    toolFamilies: {
-      publishedData: Object.keys(tools).filter((n) => !tools[n].computesOnInput).sort(),
-      callerInput: Object.keys(tools).filter((n) => tools[n].computesOnInput).sort(),
-    },
+    toolFamilies: { publishedData, callerInput },
     inputs: {
       type: 'object',
       properties: {

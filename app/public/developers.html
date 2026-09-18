@@ -49,18 +49,15 @@
   </nav>
 
   <div class="dv-hero"><h1 data-i18n-html="dv.h1">Developers &amp; Agents</h1></div>
-  <p class="lede" data-i18n-html="dv.lede">Connect your AI agent to RUNECLAW's intelligence. Everything here is
-  <b>read-only by design</b> and serves the same data the public site already publishes —
-  sealed track-record statements your agent can <b>re-verify by hash</b> instead of trusting,
-  live radars with explicit safety reads, and the flight-recorder ledger behind every decision.
-  No tool can see an account. No tool can trade.</p>
+  <p class="lede" data-i18n-html="dv.lede">Connect your AI agent to RUNECLAW's intelligence. Everything here is <b>read-only by design</b>, in two families: most tools serve the same data the public site already publishes — sealed track-record statements your agent can <b>re-verify by hash</b> instead of trusting, live radars with explicit safety reads, and the flight-recorder ledger behind every decision — while the Guardian tools below instead evaluate input you send, storing none of it. No tool can see an account. No tool can trade.</p>
 
   <div class="panel reveal-on-scroll">
     <h2 data-i18n="dv.guardian_h">Guardian — safety checks for YOUR agent</h2>
-    <p style="color:var(--text-2);line-height:1.7;max-width:76ch" data-i18n-html="dv.guardian_p">Every tool below answers <i>“what has RUNECLAW done?”</i>. Four of them answer
+    <p style="color:var(--text-2);line-height:1.7;max-width:76ch" data-i18n-html="dv.guardian_p">Every tool below answers <i>“what has RUNECLAW done?”</i>. The ones named here answer
       <i>“is what your agent is about to do safe?”</i> — the same models the Guardian pages run, on input
       you supply. <b>scan_transaction</b> flags prompt-injection, seed-phrase lures, drain and
       unlimited-approval language, phishing URLs and address poisoning before anything is signed.
+      <b>xray_transaction</b> decodes what calldata actually does — approve and its unlimited line, permit, setApprovalForAll, transfers, and multicall batches unwrapped call by call — and answers UNKNOWN outside the known selector set, because unknown is not safe.
       <b>compile_intent</b> turns a plain-language mandate into typed, revocable rules that name who
       enforces each one. <b>stress_portfolio</b> runs a hypothetical book through a −30% drop, an alt
       crash, a depeg, a cascade and a black swan. <b>plan_escape</b> sequences a dependency-aware unwind.
@@ -163,7 +160,7 @@
   });
 })();
 </script>
-<script src="/js/i18n-core.js?v=154"></script>
+<script src="/js/i18n-core.js?v=155"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

@@ -2,10 +2,17 @@
 // Guardian, callable by anyone's agent.
 //
 // The other MCP tools answer "what has RUNECLAW done?" — they are a data
-// source, and a data source is copyable. These four answer "is what YOUR
-// agent is about to do safe?", which is the thing nobody else ships. They run
-// the SAME models as the Guardian pages, so a tool answer and the website can
-// never disagree.
+// source, and a data source is copyable. These answer "is what YOUR agent is
+// about to do safe?", which is the thing nobody else ships. They run the SAME
+// models as the Guardian pages, so a tool answer and the website can never
+// disagree.
+//
+// THE LIST IS DERIVED, because the hand-written one was a copy and it rotted.
+// `GUARDIAN` was four names typed out here, so when `xray_transaction` joined
+// the family every safety property below — registered, documented, declares
+// its input, states its limit — went unchecked on it, in the file whose whole
+// subject is that those properties hold. A test's own subject list is the
+// /setllm ten-of-eleven shape: the row added tomorrow is the one missing.
 //
 // The safety property that makes exposing them acceptable: each is a pure
 // function of caller-supplied input. No account is read, no funds move, no
@@ -19,9 +26,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { TOOLS } = require('../routes/mcp');
 
-const GUARDIAN = ['scan_transaction', 'compile_intent', 'stress_portfolio', 'plan_escape'];
+const GUARDIAN = Object.keys(TOOLS).filter((n) => TOOLS[n].computesOnInput);
 
-test('all four Guardian tools are registered and documented', () => {
+test('every Guardian tool is registered and documented', () => {
   for (const n of GUARDIAN) {
     const t = TOOLS[n];
     assert.ok(t, `${n} is registered`);
@@ -38,10 +45,17 @@ test('every Guardian description states its limit, not just its power', () => {
   // authoritative would be used as one.
   const limits = {
     scan_transaction: /not a guarantee|not a verdict/i,
+    xray_transaction: /never verdicts|unknown is not the same as safe/i,
     compile_intent: /binds nothing|preview/i,
     stress_portfolio: /not a prediction|hypothetical/i,
     plan_escape: /never executes|planning only/i,
   };
+  // A ROW PER FAMILY MEMBER, or the sweep silently stops covering one. Each
+  // limit is worded differently because each tool's is a different claim, so
+  // the map cannot be derived — but which tools NEED a row can be, and a new
+  // one fails here until somebody writes what its limit says.
+  assert.deepEqual(Object.keys(limits).sort(), [...GUARDIAN].sort(),
+    'every caller-input tool needs a limit rule, and only those do');
   for (const [n, re] of Object.entries(limits)) {
     assert.match(TOOLS[n].description, re, `${n} states its limit in the description`);
   }
@@ -117,12 +131,21 @@ test('the Guardian tools touch no account and move nothing', () => {
   // pure safety read and this exposure has to be reconsidered.
   const src = require('node:fs').readFileSync(
     require('node:path').join(__dirname, '..', 'routes', 'mcp.js'), 'utf8');
-  const start = src.indexOf('scan_transaction:');
-  const end = src.indexOf('get_track_record:');
-  assert.ok(start > 0 && end > start, 'the Guardian block precedes the data tools');
-  const block = src.slice(start, end);
-  for (const forbidden of ['pool.execute', 'req.user', 'getGateway', 'authMiddleware']) {
-    assert.ok(!block.includes(forbidden),
-      `the Guardian tools must not use ${forbidden} — they are pure functions of caller input`);
+  // BOUNDED PER TOOL, not by the next name that happens to follow. This read
+  // `scan_transaction:` .. `get_track_record:`, which is file ORDER: it swept
+  // four published-data tools in (harmless, it can only over-accuse) and
+  // would silently cover NOTHING for a family member registered below that
+  // line. A boundary that is whatever happens to be next is no boundary.
+  for (const n of GUARDIAN) {
+    const start = src.indexOf(`  ${n}: {`);
+    assert.ok(start > 0, `${n} is defined in mcp.js`);
+    const after = src.slice(start);
+    const end = after.indexOf('\n  },\n');
+    assert.ok(end > 0, `${n}'s definition ends`);
+    const block = after.slice(0, end);
+    for (const forbidden of ['pool.execute', 'req.user', 'getGateway', 'authMiddleware']) {
+      assert.ok(!block.includes(forbidden),
+        `${n} must not use ${forbidden} — it is a pure function of caller input`);
+    }
   }
 });
