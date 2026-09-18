@@ -274,11 +274,89 @@ DEFAULT_TIER = "basic"
 # switch, which is the wrong place for that load to sit.
 DEFAULT_AUTO_ROLE = SELF_ADMISSION_ROLE
 
-# F-14: a SENSITIVE command (trade/halt/reset/mode/golive/approve/revoke) is
-# refused after this much inactivity, so a hijacked-but-idle chat cannot move
-# money. Named because it was an unexplained 86400 inside has_permission and
-# the message it produced named neither the rule nor the remedy.
+# F-14: a SENSITIVE permission is refused after this much inactivity, so a
+# hijacked-but-idle chat cannot move money or arm live trading. Named because it
+# was an unexplained 86400 inside has_permission and the message it produced
+# named neither the rule nor the remedy.
+#
+# WHICH permissions is `is_sensitive_permission` below, and this comment used to
+# answer it too -- it named "trade/halt/reset/mode/golive/approve/revoke", the
+# same seven a function-local set inside `permission_denial` named. Two copies
+# of one answer, and driven against the real gate table both were wrong in both
+# directions at once. The reading is one function now and this comment points at
+# it rather than restating it.
 SESSION_MAX_AGE_SECONDS = 86400
+
+
+#: The one sensitive permission neither derivation below reaches, declared with
+#: its reason rather than left to a list. `trade` opens a position: `paper`
+#: holds it, so the operator-control derivation (`trader - paper`) does not name
+#: it, and it is not admin-only either. A row belongs here only when it is
+#: consequential AND no derivation reaches it -- a SECOND row would be a sign
+#: that the derivations are the thing to fix, which is why the guard counts.
+DECLARED_SENSITIVE_PERMISSIONS = frozenset({"trade"})
+
+
+def is_admin_only_permission(permission: str) -> bool:
+    """True when no role holding a specific permission list carries ``permission``.
+
+    The derivation `tests/test_the_income_map_says_who_may_run_a_command.py`
+    already makes, moved to where the gate can read it: `ROLE_PERMISSIONS`
+    gives admin the literal `{"*"}`, so "what admin holds" answers the wildcard
+    and nothing else -- a permission is admin-only when NO OTHER ROLE carries
+    it. The WILDCARD is read rather than the role NAME, and the difference is
+    narrower than it first looks: a second `*` role reads identically either
+    way, because `permission in {"*"}` is False for every real permission. What
+    it buys is a role NAMED "admin" that carries a SPECIFIC list -- an ordinary
+    role, which a name check would skip and this reads. The mutation round is
+    what established that; the first draft of the claim named the case that is
+    not a difference.
+
+    A name no role carries at all -- a typo, or a permission invented at a
+    @guard decorator and never added to the table, which has happened here four
+    times -- answers True. That is fail-CLOSED and is the only honest direction:
+    for every non-admin the role check in `permission_denial` has already
+    refused it, and for an admin (who holds `*`) treating an unrecognised
+    authority as sensitive costs one /start.
+    """
+    return not any(permission in perms
+                   for perms in ROLE_PERMISSIONS.values() if "*" not in perms)
+
+
+def is_sensitive_permission(permission: str) -> bool:
+    """Does this permission's consequence justify re-asserting presence?
+
+    THREE SOURCES AND ONE DECLARED ROW rather than a hand-written set, because
+    the set this replaces was a function-local literal with one reader, and
+    driven against the real gate table it was wrong in both directions:
+
+    `golive`, `approve` and `revoke` named NO COMMAND. /golive -- arm live
+    trading -- had been re-gated onto the `admin` permission and `admin` was
+    never added, so /golive, /liveclose, /autoconfirm, /forcescan and
+    /calibration silently stopped expiring. The stale word was the TOMBSTONE,
+    not merely dead: a reader asking "is arming live trading session-protected?"
+    found `golive` in the set and stopped. /approve and /revoke are gated by an
+    in-body `_is_admin` that never reaches this function at all, so those two
+    could not have done anything in either direction.
+
+    `stake` was MISSING. /stake and /unstake move real funds on the caller's own
+    linked venue account, and `VOUCHED_ONLY_PERMISSIONS` sits 1,000 lines up in
+    this file naming exactly that as its reason -- while `trade`, which opens a
+    real position on the same account behind the same confirm card, was
+    expired. Same account, same money, opposite treatment.
+
+    WHAT THIS CANNOT EXPRESS is stated rather than hidden: the unit is the
+    PERMISSION and some permissions are coarser than the question. `status`
+    gates /connect, /disconnect and /exchange -- which write and erase exchange
+    API credentials -- beside nine read cards, so expiring it would expire "is
+    the bot running" and not expiring it leaves credential writes unexpired.
+    Splitting that permission is its own slice; this function cannot do it, and
+    saying so is the difference between a limit and a hole nobody named.
+    """
+    return (permission in OPERATOR_CONTROL_PERMISSIONS
+            or permission in VOUCHED_ONLY_PERMISSIONS
+            or permission in DECLARED_SENSITIVE_PERMISSIONS
+            or is_admin_only_permission(permission))
 
 # `touch()` writes to disk at most this often. Every guarded command records
 # activity; without a floor that is a users.json rewrite per message.
@@ -1086,7 +1164,11 @@ class UserStore:
 
         ``"role"``           the caller's role does not carry this command
         ``"stale_session"``  the role DOES carry it, but F-14 expires sensitive
-                             commands after 24h of inactivity
+                             PERMISSIONS after 24h of inactivity, and which
+                             ones is `is_sensitive_permission` -- never a list
+                             restated here, which is what this docstring and
+                             the `SESSION_MAX_AGE_SECONDS` comment both used to
+                             do while the set itself was a third copy
 
         Split out of has_permission because every caller printed the role reason
         for both causes. A trader idle for a day was told "your role (trader)
@@ -1101,9 +1183,12 @@ class UserStore:
         perms = ROLE_PERMISSIONS.get(role, set())
         if "*" not in perms and command not in perms:
             return "role"
-        # F-14: session timeout for sensitive commands
-        _SENSITIVE_CMDS = {"trade", "halt", "reset", "mode", "golive", "approve", "revoke"}
-        if command in _SENSITIVE_CMDS:
+        # F-14: session timeout for sensitive permissions. The reading is
+        # `is_sensitive_permission`, module-level, so a guard can drive it and
+        # a second reader cannot answer differently -- this was a set literal
+        # scoped to this function body, which is why nothing could see that
+        # three of its seven names gated no command and `stake` was absent.
+        if is_sensitive_permission(command):
             last_seen = user.get("last_seen", "")
             if last_seen:
                 try:
@@ -1118,9 +1203,16 @@ class UserStore:
     def has_permission(self, telegram_id: int | str, command: str) -> bool:
         """Check if user has permission for a specific command.
 
-        F-14 FIX: Sensitive commands (trade, halt, reset, mode, golive)
-        require the user to have been active within the last 24 hours.
-        If the session is stale, only read-only commands are permitted.
+        F-14: a sensitive PERMISSION requires the user to have been active
+        within the last 24 hours; if the session is stale only reads are
+        permitted. `is_sensitive_permission` decides which -- this docstring
+        named "(trade, halt, reset, mode, golive)" and was the FOURTH copy of
+        a list that was wrong in both directions, `golive` included.
+
+        THE REASON IS DISCARDED HERE, deliberately: this answers a boolean and
+        `permission_denial` answers which of the two causes, because printing
+        the role wording for a stale session told idle traders their role was
+        insufficient for a command their role holds.
         """
         return self.permission_denial(telegram_id, command) is None
 

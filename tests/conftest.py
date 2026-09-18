@@ -131,7 +131,7 @@ def _live_store_reasons() -> list:
     return reasons
 
 
-def pytest_configure(config):
+def _refuse_a_live_store() -> None:
     """Abort the whole run before a single test can delete anything.
 
     Checked once at configure time, not per-test: by the time an autouse
@@ -153,6 +153,184 @@ def pytest_configure(config):
         + "\n\nRun the suite from a clean checkout instead. If you are certain "
           f"this data/ is disposable, set {_OVERRIDE_ENV}=1."
     )
+
+
+# ── An undo that hands back a different object ────────────────────────────
+#
+# `monkeypatch.setattr(obj, "m", stub)` records the old value as
+# `getattr(obj, name, notset)` — which, for a plain instance, SUCCEEDS through
+# the class and hands back a bound method. `undo()` then does
+# `setattr(obj, name, that_bound_method)`, so the object it gives back is not
+# the object it was given: `m` now sits in the INSTANCE's `__dict__` and
+# shadows the class from there on, permanently, for the rest of the session.
+#
+# PYTEST ASKS EXACTLY THE RIGHT QUESTION ONE LINE ABOVE, FOR CLASSES:
+#
+#     # avoid class descriptors like staticmethod/classmethod
+#     if inspect.isclass(target):
+#         oldval = target.__dict__.get(name, notset)
+#
+# `__dict__.get` rather than `getattr`, because "the type provides it" is not
+# "the target had it". An instance needs the same reading for the inheritance
+# reason rather than the descriptor one, and never got it.
+#
+# WHAT IT COST, DRIVEN. `tests/test_cross_venue_funding.py::
+# test_funding_command_renders_all_venues` patches `cross_venue.CROSS_VENUE`
+# — the module singleton — on `states_for`. Correct code; its undo left a
+# bound method in `CROSS_VENUE.__dict__`. From then on every CLASS-level plant
+# of that name was silently ignored FOR THE SINGLETON, and
+# `test_the_funding_card_says_which_venues_it_read.py::TestTheHandlerIsWired`
+# plants exactly that way while `_cmd_funding` reads `CROSS_VENUE` — so the
+# plant never ran, the real reader fetched, and two tests spent the rest of
+# their life asserting against whatever bybit and hyperliquid answered over
+# the network. `ci_test_gate`'s flake filter re-ran each one alone, watched it
+# pass, and filed it "passes alone (flaky/order-dependent)" on every run.
+#
+# Containment in the harness rather than a rule each test remembers — the
+# reason the three fixtures below give, and the reason this one is DERIVED
+# rather than a list of singletons to scrub after each test. A list is what
+# `_STATE_GLOBS` above calls "the failure mode of an allowlist", and the
+# singleton somebody patches tomorrow is always the one missing from it.
+#
+# The correction is narrow on purpose: it fires only when the patch CREATED an
+# entry that was not in the target's own `__dict__` before, so a real instance
+# attribute is still restored to its old value and a property (whose setter
+# writes no instance attribute) is left alone. It carries no `isclass` or
+# `ismodule` branch, and the mutation round is why: a class's `__dict__` is a
+# mappingproxy, so the reading already declines it; and for a module the
+# correction is a no-op — a name absent from `vars(mod)` is absent from
+# `getattr` too, so pytest already recorded `notset` — except on a PEP-562
+# `__getattr__` module, where deleting is the correct restore and re-setting
+# would materialise a lazy attribute for good. Both branches survived every
+# mutation, which is the round saying they claimed checks they did not make.
+_MONKEYPATCH_SHAPE_HINT = (
+    "tests/conftest.py corrects pytest's monkeypatch undo so it cannot leave a "
+    "shadowing instance attribute behind (see the comment above "
+    "_install_an_honest_monkeypatch_undo). That correction reads _pytest."
+    "monkeypatch internals — MonkeyPatch.setattr, MonkeyPatch._setattr, "
+    "notset, derive_importpath — and this pytest does not have the shape it "
+    "expects.\n\nThis is NOT a pass: without it, a test that patches a module "
+    "singleton silently shadows the class for the rest of the session, and the "
+    "gate's flake filter files the result as order-dependent and ignores it. "
+    "Re-read the correction against this pytest before running the suite."
+)
+
+
+def _own_dict_has(obj, attr):
+    """True / False / None. `None` is 'this object has no instance __dict__ to
+    read' — `__slots__`, a C type, and (the case that matters here) a CLASS,
+    whose `__dict__` is a mappingproxy rather than a dict. Nothing measured,
+    so nothing corrected: that is why the correction below carries no
+    `inspect.isclass` branch. Driven both ways in the guard, because a branch
+    no input can reach is a claim that there is a check."""
+    d = getattr(obj, "__dict__", None)
+    if not isinstance(d, dict):
+        return None
+    return attr in d
+
+
+def _install_an_honest_monkeypatch_undo() -> None:
+    import functools
+
+    from _pytest.monkeypatch import MonkeyPatch, derive_importpath, notset
+
+    if getattr(MonkeyPatch.setattr, "_runeclaw_honest_undo", False):
+        return                                  # already installed this session
+
+    real_setattr = MonkeyPatch.setattr
+
+    def _target_of(target, name, value, raising):
+        """(object, attr) this patch will write to, or (None, None) — which
+        covers every argument shape pytest is about to reject itself."""
+        try:
+            if value is notset:
+                if not isinstance(target, str):
+                    return None, None           # pytest raises; not ours to pre-empt
+                attr, obj = derive_importpath(target, raising)
+            else:
+                obj, attr = target, name
+            return (obj, attr) if isinstance(attr, str) else (None, None)
+        except Exception:
+            return None, None
+
+    @functools.wraps(real_setattr)
+    def setattr_(self, target, name, value=notset, raising=True):
+        obj, attr = _target_of(target, name, value, raising)
+        had = _own_dict_has(obj, attr) if obj is not None else None
+        real_setattr(self, target, name, value, raising)
+        # `real_setattr` either raised (we are not here) or appended exactly
+        # one entry, for this target — so `[-1]` is ours. The SELF-TEST below
+        # proves that against the installed pytest rather than asserting it.
+        if had is False and _own_dict_has(obj, attr) is True:
+            # It was not on the instance and it is now: this patch created the
+            # shadow, so undo must DELETE it rather than write the class's
+            # value onto the instance.
+            recorded_obj, recorded_attr, _old = self._setattr[-1]
+            self._setattr[-1] = (recorded_obj, recorded_attr, notset)
+
+    setattr_._runeclaw_honest_undo = True
+    MonkeyPatch.setattr = setattr_
+    _prove_the_undo_is_honest(MonkeyPatch)
+
+
+class _Inherits:
+    """A throwaway with its only method on the class — the shape the defect
+    needs, and the shape of every module-level singleton in this tree."""
+
+    def m(self):
+        return "class"
+
+
+def _prove_the_undo_is_honest(MonkeyPatch) -> None:
+    """DRIVE the correction once, at configure time, against the pytest that
+    is actually installed — in BOTH directions.
+
+    The wrapper reads `MonkeyPatch._setattr` and rewrites its last entry, and
+    nothing else in this file checks that pytest still keeps its undo stack
+    that way. A version that did not would leave the wrapper installed and
+    correcting nothing — a containment reporting success over the leak it
+    exists to prevent, which is the shape `ruff_gate.check_version` separates
+    CANNOT CHECK from PASSED for. So it is measured, not assumed.
+
+    BOTH directions, because one is not a measurement of the other and the
+    second is the more expensive to get wrong. An undo that DELETED
+    unconditionally would pass the shadow check and quietly destroy every
+    real instance attribute a test patches, suite-wide.
+    """
+    # 1. A name that lives on the CLASS must not be left on the instance.
+    probe = _Inherits()
+    mp = MonkeyPatch()
+    mp.setattr(probe, "m", lambda: "stub")
+    if probe.m() != "stub":
+        raise RuntimeError("monkeypatch.setattr did not take on a plain object")
+    mp.undo()
+    if "m" in vars(probe):
+        raise RuntimeError(
+            "undo left a shadowing instance attribute behind: the correction "
+            "is installed and did nothing")
+    if probe.m() != "class":
+        raise RuntimeError("undo did not restore the class's own attribute")
+
+    # 2. A name that really WAS on the instance must be handed back, not
+    #    deleted. The correction is narrow or it is a second defect.
+    own = _Inherits()
+    own.m = lambda: "the instance's own"
+    mp = MonkeyPatch()
+    mp.setattr(own, "m", lambda: "stub")
+    mp.undo()
+    if "m" not in vars(own) or own.m() != "the instance's own":
+        raise RuntimeError(
+            "undo deleted an instance attribute that was there before it: the "
+            "correction is wider than the shadow it exists to remove")
+
+
+def pytest_configure(config):
+    _refuse_a_live_store()
+    try:
+        _install_an_honest_monkeypatch_undo()
+    except Exception as exc:
+        raise pytest.UsageError(
+            f"{_MONKEYPATCH_SHAPE_HINT}\n\n  {type(exc).__name__}: {exc}") from exc
 
 
 def _clean_runtime_state() -> None:

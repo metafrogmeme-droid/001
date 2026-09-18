@@ -186,6 +186,115 @@ that renames an `autouse` fixture is a no-op**: autouse binds on the decorator,
 not the name, so the first attempt to prove the guard worked passed against a
 fixture that was still running. `autouse=False` is the mutation that bites.
 
+**AND IT HAPPENED AGAIN, TWO TESTS AT A TIME, FOR AS LONG AS THAT FILE HAS
+EXISTED — and this time the writer was `monkeypatch.undo()` itself.** Every
+preflight run printed `~ passes alone (flaky/order-dependent)` for
+`test_the_funding_card_says_which_venues_it_read.py::TestTheHandlerIsWired`,
+twice, and the gate named them every time. Neither is time-sensitive nor
+network-bound by design, so by elimination it was a state leak — and the leak
+had no author.
+
+`MonkeyPatch.setattr` records the old value as `getattr(target, name,
+notset)`, which for a plain INSTANCE succeeds **through the class**. `undo()`
+then takes its `value is not notset` branch and does `setattr(obj, name,
+<bound method>)` — so the object it hands back is not the object it was given:
+the name now sits in the instance's own `__dict__` and shadows its type from
+there on, for the rest of the session.
+
+**PYTEST ASKS EXACTLY THE RIGHT QUESTION ONE LINE ABOVE, FOR CLASSES:**
+
+```python
+# avoid class descriptors like staticmethod/classmethod
+if inspect.isclass(target):
+    oldval = target.__dict__.get(name, notset)
+```
+
+`__dict__.get` rather than `getattr`, because *the type provides it* is not
+*the target had it*. An instance needs the same reading for the INHERITANCE
+reason rather than the descriptor one, and never got it.
+
+**The chain is three correct files.** `test_cross_venue_funding.py::
+test_funding_command_renders_all_venues` patches the module singleton
+`cross_venue.CROSS_VENUE` on `states_for` — precise, correct, undone. Its undo
+left a bound method in `CROSS_VENUE.__dict__`. `TestTheHandlerIsWired` then
+plants on `CrossVenueFunding.states_for` — the CLASS — while `_cmd_funding`
+reads the singleton, so the plant never ran and **the real reader went to the
+live venues**: two tests in CI asserting against whatever bybit and
+hyperliquid answered, with the card reading `2 of 3 venues` and a genuine
+hyperliquid rate on it. Each file is right on its own; the leak is only
+visible from a run that holds both, which is the property the flake filter
+re-runs each test alone to establish.
+
+**The probe named the writer in minutes, and its first two drafts named the
+wrong things.** A detector over every module-level singleton for *an instance
+`__dict__` entry that shadows its type* reported dataclass fields and typing
+aliases by the dozen — the precise signature is narrower: **a bound method
+whose `__self__` is the object holding it**, which production code does not
+write and this undo always does. And keyed on `pytest_runtest_teardown` it
+named a pure renderer test that touches nothing, because that hook runs
+ALONGSIDE the one that invokes the fixture finalizers — the snapshot is taken
+BEFORE `monkeypatch.undo()`, so every artefact is attributed to the NEXT test.
+`pytest_runtest_logfinish` is the hook that runs after the whole protocol.
+
+**AND IT WAS NEVER ONE SINGLETON.** Run over the whole suite, the detector
+found **114 shadowed module bindings** left by **eight** tests, collapsing to
+eight distinct `<object>.<attribute>` pairs. Five are LOGGER methods — one
+`system_log` re-exported across 45 modules, which is why the binding count is
+so much larger than the object count — and nobody patches a logging method on
+a class, so those are inert. The other three are live singletons with real
+methods on them: `cross_venue.CROSS_VENUE.states_for`, which is the one that
+bit; `analyzer.BYOK.set_provider`; and `agent_feed.FEED.emit`. Each of the
+last two is the same trap armed and not yet sprung — the next class-level
+plant of those names is silently ignored for the singleton every reader
+actually uses. A fourth fixture naming `CROSS_VENUE` would have left both
+standing, which is the allowlist argument with a number on it.
+
+**The containment is DERIVED, and that is the whole difference from the three
+fixtures above it.** Each of those restores a hand-written list — state files,
+lookahead flags, vault-managed env keys — and `_STATE_GLOBS`'s own comment
+calls that "the failure mode of an allowlist, not an oversight by anyone in
+particular". A fourth list naming `CROSS_VENUE` would be exactly that, and the
+singleton somebody patches tomorrow is always the one missing from it. So the
+correction is on the MECHANISM: when a patch creates an instance attribute
+that was not in that instance's own `__dict__` before, the recorded old value
+becomes `notset` and undo DELETES instead of writing the class's value onto
+the instance.
+
+**The mutation round deleted three lines of mine, all of them claims that
+there was a check.** An `inspect.isclass` exclusion — a class's `vars()` is a
+**mappingproxy**, not a dict, so the reading already answers "nothing
+measured" and the correction cannot fire. An `inspect.ismodule` exclusion — a
+no-op for an ordinary module, and actively WRONG for a PEP-562 `__getattr__`
+module, where deleting is the correct restore and re-setting materialises a
+lazy attribute for good. And a check that the entry being rewritten is the one
+this call appended — unreachable, because `real_setattr` either raises (the
+code below never runs) or appends exactly one entry for this target. All three
+survived the round, which is the round saying the code claims checks it does
+not make.
+
+**What replaced them is measured rather than asserted, and it drives BOTH
+directions.** The install runs the correction once against the pytest that is
+actually there: patch a class-provided name, undo, and read the object back.
+A containment that is present and correcting nothing is a containment
+reporting success over the leak it exists to prevent — `ruff_gate.check_version`'s
+CANNOT-CHECK distinction, one framework over. The second direction is the
+expensive one: an undo that DELETED unconditionally passes the shadow check
+and would quietly destroy every real instance attribute the suite patches, so
+the self-test plants one and requires it back.
+
+> **And the guard I wrote for the third failure branch reached the second
+> one.** A stub whose `undo` does nothing leaves the patch in place, so it
+> trips the SHADOW check and never the "did not restore" one; the assertion
+> named a branch its fixture could not reach. *When a fresh assertion fails,
+> check whether the code or the assertion is wrong before touching the code* —
+> and here the answer was neither: the fixture was wrong, and re-aiming it is
+> what found that the self-test needed a second direction at all.
+
+**Two full-suite runs at once are not two measurements.** `_clean_runtime_state`
+deletes `data/` before and after every test, so a second concurrent run is
+deleting the first one's state ~6000 times. Both were killed and one clean run
+was taken instead; a background suite is a lock on `data/`, not a spare core.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
@@ -5754,6 +5863,76 @@ some time, and the map had citation checks and nothing that read its counts.
 `tests/test_the_bot_can_say_what_it_does.py`,
 `tests/test_the_income_map_counts_its_own_list.py`.)
 
+**A STALE ENTRY IS NOT MERELY DEAD — IT IS A TOMBSTONE, and this one stood over
+the command that ARMS LIVE TRADING.** F-14 refuses a sensitive permission after
+24h of inactivity so a hijacked-but-idle chat cannot move money, and which
+permissions was `_SENSITIVE_CMDS = {"trade", "halt", "reset", "mode", "golive",
+"approve", "revoke"}` — a set literal scoped to the body of
+`UserStore.permission_denial`, one reader, no test, invisible to both auth
+ratchets. Driven against the real gate table, **three of the seven named no
+command at all**. `/golive` had been re-gated onto the `admin` permission and
+`admin` was never added, so `/golive`, `/liveclose` (closes a live position),
+`/autoconfirm`, `/forcescan` and `/calibration` silently stopped expiring — and
+the stale word is why nobody noticed: a reader asking *is arming live trading
+session-protected?* finds `golive` in the set and stops. That is
+`guarded_commands_baseline.txt`'s own header sentence — *"a guard that silently
+disappears is an auth regression nothing else notices"* — happening in the one
+place that baseline cannot see. `/approve` and `/revoke` are gated by an in-body
+`_is_admin` that never reaches `permission_denial` at all, so those two could not
+have done anything in either direction.
+
+**And the row it was missing is the one the file itself singles out as real
+money.** `/stake` and `/unstake` move funds on the caller's own linked venue
+account; `VOUCHED_ONLY_PERMISSIONS = frozenset({"stake"})` sits a thousand lines
+up in the SAME FILE recording exactly that as its reason — while `trade`, which
+opens a real position on the same account behind the same confirm card, WAS
+expired. Same account, same money, opposite treatment, from one list nobody had
+read. The blast radius is not Telegram: `permission_denial` has ten non-test
+callers, including the web gateway twice, the callback handler through
+`has_permission`, the chat-tool catalogue (which tools the model may call),
+`/stake`'s own in-body check and the earn button's owner check.
+
+**THE CURE IS A DERIVATION AND ONE DECLARED ROW, because a longer hand-written
+list is the same defect with more entries.** `is_sensitive_permission` reads
+three sources: `is_admin_only_permission` (no role carrying a specific list
+holds it — the derivation `test_the_income_map_says_who_may_run_a_command`
+already makes, moved to where the gate can read it), `OPERATOR_CONTROL_PERMISSIONS`
+(derived `trader - paper`) and `VOUCHED_ONLY_PERMISSIONS`. `DECLARED_SENSITIVE_PERMISSIONS`
+holds `trade` alone and says why: `paper` holds it, so neither derivation reaches
+it. Driven, ten permissions expire where seven names were written — gaining
+`admin` (5 commands), `stake` (2), `leverage`, `backup`, `anchor` and
+`compliance`, and dropping the three tombstones. An unrecognised name reads
+sensitive, which is fail-CLOSED and stated: every non-admin has already been
+refused by the role check, and for an admin it costs one `/start`.
+
+**The tombstone rule is the guard's own, and the DECLARED set is capped at
+two.** A name in any written-down set that gates no command fails — which is
+exactly what `golive` was — and a declared row a derivation already reaches
+fails too, because that is a second answer and the derivation is the thing to
+fix. Every claim is driven: the permission each command carries is read from
+the live AST walk rather than written down, so a re-gate MOVES the assertion
+instead of going stale the way `golive` did.
+
+**What the permission unit cannot express is recorded rather than hidden.**
+`status` gates `/connect`, `/disconnect` and `/exchange` — which write and erase
+exchange API credentials — beside nine read cards, so expiring it would expire
+*"is the bot running"* and not expiring it leaves credential writes unexpired.
+Splitting that permission is its own slice; the guard asserts the state as it
+stands, so a future split trips it and the next reader arrives at the note
+rather than at a silent change.
+
+**Ten mutations, each killed — and the survivor was my own docstring claiming a
+check the code does not distinctively make.** It said the WILDCARD is read
+rather than the role name *"so a second `*` role added tomorrow cannot make
+every permission read as admin-only"*, and driven, a second wildcard role reads
+identically either way: `permission in {"*"}` is False for every real
+permission, so the fixture built on that claim could not separate the two
+readings. The input that does is a role NAMED "admin" carrying a SPECIFIC list
+— an ordinary role, which a name check skips and the wildcard reading reads.
+The claim is corrected to what the code really buys, the non-difference is kept
+as a test that says it is one, and the mutation dies.
+(`tests/test_the_session_timeout_covers_what_it_claims.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -6170,7 +6349,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 208 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 209 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -6982,9 +7161,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **400 of 971** reach for source text through `source_scan`, `code_only`
+Driven, **402 of 973** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 400 is a FLOOR and the honest shape is
+source scan that rule does not see, so 402 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
