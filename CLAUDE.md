@@ -3724,6 +3724,58 @@ after the instruction is evidence nobody used.
 > against a red baseline is what stopped it being read as a kill. The count is
 > everything before `" in "`, so the assertion is anchored there.
 
+**THE CARD ENDORSED A CONFIGURATION ITS OWN LINE ABOVE HAD JUST ACCUSED.**
+`costliest_gate_line` reports a gate the shadow book has ESTABLISHED as eating
+edge — one whose whole 95% per-trade interval clears zero, the strongest
+statement that record can make — and `no_change_verdict` then printed *"No
+changes proposed — the evidence supports the current configuration"* directly
+beneath it, because it consulted `window_reading` (the live P&L window) and
+nothing else. Two claims, one card, opposite directions, and the reassuring
+one had read less.
+
+**IT IS THE ORDINARY CASE, NOT A CORNER, AND THE ARITHMETIC SAYS WHY.**
+Driven, `RiskEngine` can charge a refusal to **32** distinct gate names and
+`ALLOWED_FLAGS` holds **12** knobs, so for 27 of them the model has nothing it
+is permitted to propose. "Proposed nothing" is then a fact about the
+ALLOW-LIST, not about the gate — which is exactly the argument the `losing`
+branch of that same function already makes for its own case, one line up. The
+healthy branch, which prints most often, made the opposite claim with the same
+blind spot.
+
+**NO KNOB-BY-KNOB CLAIM, deliberately.** There is no gate → flag map in the
+module and inventing one to say "no knob reaches this gate" would be the
+`/setllm` ten-of-eleven shape — the row added tomorrow is the one missing from
+it. The sentence says only what is true and sufficient: the audit reaches N
+allowlisted flags, so finding nothing to turn among them is not a finding
+about that gate. The count is `len(ALLOWED_FLAGS)`, not a written 12.
+
+**ONE READING, TWO READERS.** `established_gate` is the seam: the line reads it
+to decide what to print, the verdict reads it to decide whether the
+endorsement is a sentence it may say at all. A second copy of that judgement
+is a second answer about whether a gate is established.
+
+**And the guard for that could not see it.** The mutation that gave
+`costliest_gate_line` its own inline copy back **survived the first round**,
+because the assertion only checked that the line NAMES the gate — and with the
+patch reaching just the verdict, the planted row falls through to the
+`undistinguished` branch, which names it too. An assertion satisfied for a
+reason unrelated to the rule. It requires the ESTABLISHED branch's own
+sentence now. A second assertion had the same defect: `len(ALLOWED_FLAGS)` is
+12 today, so `"12 allowlisted flags"` matched a hard-coded 12 exactly as well
+as a derived one — the table is patched so the count has to move. **Two of the
+seven mutations were only killable after fixing my own guard.**
+
+**AND THE FIGURE THE FOLLOW-UP CARRIED DID NOT REPRODUCE.** The note filed for
+this slice quoted *"TAKER_3BAR: 48 trades blocked by it alone, mean +1.315R,
+95% lower bound +0.71R/trade"*, carried forward through a check-in prompt.
+Re-driven against `data/shadow_book.json`, the live record holds ONE gate —
+`CONFIDENCE`, n=120, `net_r` **−2.193** (it SAVED money), verdict `None` — and
+no `TAKER_3BAR` row at all, so `costliest_gate_line` prints nothing today. The
+defect is structural and reachable the moment a gate establishes; the example
+was not a measurement of this box. *A measurement you remember is not a
+measurement*, for the third time in this file, and the guard plants the state
+rather than claiming the record holds it.
+
 **A PROMPT THAT ASKS A QUESTION MUST NOT BE SENT UNLESS SOMETHING IS
 LISTENING**, and that is the `/vault` hint shape pointed at an INPUT: there a
 card named a COMMAND that did nothing, here a card asks for a VALUE that
@@ -6451,9 +6503,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **398 of 965** reach for source text through `source_scan`, `code_only`
+Driven, **399 of 966** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 398 is a FLOOR and the honest shape is
+source scan that rule does not see, so 399 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
