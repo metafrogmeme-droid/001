@@ -2071,6 +2071,26 @@ half of the measurement that says where the measurement stops.
   shared token, which tools may answer at all — and none is a wiring line, so
   they are written on the page and in the module rather than answered here.
 
+  **AND THE CONTAINMENT THAT SHIPPED BESIDE IT MEASURED THIS BOX'S PROXY.** CI
+  named 74 tests reaching the network where the local run reported twelve. The
+  cause was one variable: `HTTPS_PROXY` here is loopback, so every proxied
+  venue read connected to 127.0.0.1 and `_outbound_verdict` read that as
+  `local` and allowed it — `local` is a measurement of the ADDRESS, not of
+  whether the connect leaves the box. Proxy endpoints are read once from the
+  environment and refused as `proxy` before the loopback check; enforcement is
+  a two-way ratchet over `tests/network_reach_baseline.txt` (42 files), keyed
+  by FILE because 60 of the 74 pass when re-run alone and a nodeid baseline
+  would churn.
+
+  GROWTH is enforced every run; STALE is a deliberate re-measure, and the
+  baseline's comment named `scripts/network_reach_gate.py` as where it happens
+  **one commit before that script existed** — the `/vault` hint shape pointed
+  at a code comment. It is built: a report path that changes no verdict
+  (`RUNECLAW_REACH_REPORT`), three outcomes including CANNOT CHECK, and a
+  `--write` that refuses a partial run rather than deleting forty rows on no
+  evidence. Filed and NOT done here: stubbing the 42 files' venue seams, of
+  which the 14 that still fail when re-run alone are the loudest.
+
   Fixed in the adapter itself, because a module nobody reaches becomes
   defective in exactly the ways `market_cap`, `basis` and `quant_analyze` did:
   the caller's error copy was a bare f-string of the exception with

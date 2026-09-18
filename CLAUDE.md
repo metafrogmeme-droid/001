@@ -301,7 +301,10 @@ test and indistinguishable, from the gate's side, from a test whose stub went
 missing and whose venue answered the second time. Driven — every non-loopback
 connect refused and recorded, over the whole suite — **twelve tests in four
 files made 85 outbound connects to sixteen addresses**: api.bitget.com,
-api.bybit.com and the three news feeds `_refresh_news_radar` pulls.
+api.bybit.com and the three news feeds `_refresh_news_radar` pulls. (That
+count is SUPERSEDED and kept because the correction below is about how it came
+to be wrong: driven in CI it is 74 tests across 42 files, and twelve was what
+this box could see past its own proxy.)
 
 **NOT ONE OF THE TWELVE ASSERTS AGAINST A VENUE, which is the quiet half.** A
 test that asserts against a live venue goes red the first time the venue
@@ -338,6 +341,80 @@ The door is a whole-run decision (`RUNECLAW_ALLOW_TEST_NETWORK=1`, the shape
 `_OVERRIDE_ENV` one containment up already takes) and it SAYS SO at configure;
 there is deliberately no per-test marker, because no test in this tree needs
 the network and a marker nothing uses is a door painted on a wall.
+
+**AND THE TWELVE WAS A MEASUREMENT OF THIS BOX'S PROXY, NOT OF THE SUITE.** CI
+failed the slice that shipped that containment, naming **74** tests where this
+box had reported twelve — and the first hypothesis, that DNS fails on a runner
+so those tests never reach the connect, was DISPROVED by driving
+`socket.getaddrinfo`: all three venue names resolve here. The cause is one
+environment variable. `HTTPS_PROXY` on this box is `http://127.0.0.1:<port>`,
+so every proxied venue read connects to LOOPBACK — and `_outbound_verdict` read
+that as `local` and ALLOWED it. **`local` is a measurement of the ADDRESS, not
+of whether the connect leaves the box**, which is the same distinction the
+paragraph above draws for `not-ip` and got right there and wrong one branch
+over. The twelve were the raw-IP subset that bypasses the proxy; the proxy
+endpoints are read ONCE from the environment now and refused as `proxy`, a word
+of its own, BEFORE the loopback check — because "you reached a venue through
+127.0.0.1" and "you talked to your own test server" are different facts and
+only one of them is allowed.
+
+**STUBBING 42 FILES IN ONE COMMIT IS THE WHOLESALE CONVERSION THIS FILE
+REFUSES**, so enforcement became a two-way ratchet over
+`tests/network_reach_baseline.txt`, keyed by FILE. That key is a stated limit
+rather than a convenience: driven in CI, **60 of the 74 passed when re-run
+alone**, so the set is order-dependent and a nodeid baseline would churn run to
+run with its stale half acting as a flake generator.
+
+**GROWTH IS ENFORCED AND STALE IS NOT, and a ratchet with no way DOWN is a
+permanent list.** A new file reaching a venue fails, loudly, by name, on every
+run. A listed file that stopped reaching anything cannot be checked per-run for
+the order-dependence above — so the remedy is a deliberate re-measure, and the
+baseline's comment named `scripts/network_reach_gate.py` as where it happens.
+**For one commit that script did not exist.** That is the `/vault` hint shape
+pointed at a CODE COMMENT — there a card named a command that did nothing, here
+a comment names a remedy nobody built, which the next reader trusts precisely
+because the comment is right about everything else, and `manual_trade.py`'s
+three comments naming a `place_order` rule nobody had written are the same
+shape at three files' scale. It is built, and
+`tests/test_the_reach_baseline_can_be_re_measured.py` pins it BOTH ways: the
+comment names the script, the script is there, and it RUNS — a file that exists
+and raises on import is the same defect one layer down.
+
+**A REPORT PATH IS NOT A BYPASS, and that is the whole reason it is safe.**
+`RUNECLAW_REACH_REPORT` makes the session write the files that reached; it
+refuses nothing extra and allows nothing extra, so unlike a disable switch it
+cannot weaken the containment however it is set. Three things travel with the
+list because the STALE direction DELETES rows and a partial run's silence is
+not evidence: the collected count, pytest's exit status (0 and 1 are "ran
+through" — 1 is EXPECTED, since a file reaching the network fails its own
+test), and whether the WHOLE tests tree was asked for, judged in the conftest
+where the rootdir is known rather than left for the reader to re-derive. The
+gate has the three outcomes this repo keeps arriving at — matched, moved, and
+**could not check** — and `--write` refuses on the third rather than deleting
+forty rows on no evidence.
+
+**THE REPORT'S FIRST RUN RECORDED A FILE THAT DOES NOT EXIST.**
+`test_no_test_reaches_a_venue.py` drives the containment with SYNTHETIC nodeids
+(`tests/planted.py::test_planted`) — the right way to measure a rule the real
+tree cannot reach, and from the ledger's side indistinguishable from a real
+file. A list of the synthetic names would be the ten-of-eleven shape; whether
+the path IS a file is a measurement, so that is the reading, and the dropped
+rows are NAMED in the report rather than discarded quietly.
+
+> **And the mutation driver was killed with SIGTERM and left its mutation in
+> the tree.** The default handler terminates the process without running the
+> `finally` that restores the file, so `except Exception: return False` stayed
+> `return True` in `tests/conftest.py` — and `git status` showed only `M
+> tests/conftest.py`, which was true of my own edits anyway. It was caught
+> solely because the mutated function had a guard; the quiet direction is a
+> mutation stranded in code nothing drives, after which every green run means
+> nothing. The driver restores on SIGTERM/SIGINT/SIGHUP and at exit now. Two
+> more of this file's own rules were broken getting there: a mutation round was
+> started while a full suite was running (*"two full-suite runs at once are not
+> two measurements"* — `_clean_runtime_state` deletes `data/` ~6000 times per
+> run), and the waiter polled `pgrep -f "…mutate.py"`, whose own command line
+> contains that string, so it matched itself and would never have exited —
+> `verify_bot_alive.sh`'s recorded trap, in the dev loop.
 
 **IT FOUND A TEST PASSING FOR A REASON UNRELATED TO THE RULE IT NAMES.**
 `test_networth_gateway.py`'s credential double took `fields=None` and folded it
@@ -7360,7 +7437,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **404 of 975** reach for source text through `source_scan`, `code_only`
+Driven, **404 of 976** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 404 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

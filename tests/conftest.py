@@ -460,9 +460,18 @@ _PROXIES = _proxy_endpoints()
 #: that matters: a new file reaching a venue fails, loudly, by name. The STALE
 #: direction — a listed file that no longer reaches anything — is NOT enforced
 #: here, for the order-dependence above, and `scripts/network_reach_gate.py`
-#: is where a human re-measures it deliberately. A gate whose coverage is
-#: overstated is the failure this repo is organised around, so the limit is
-#: written down rather than left to be discovered.
+#: is where a human re-measures it deliberately -- one full run with
+#: RUNECLAW_REACH_REPORT set, then `--write` to re-record. A gate whose
+#: coverage is overstated is the failure this repo is organised around, so the
+#: limit is written down rather than left to be discovered.
+#:
+#: FOR ONE COMMIT THAT SENTENCE NAMED A SCRIPT THAT DID NOT EXIST, which is
+#: the `/vault` hint shape pointed at a code comment: a claim about a remedy
+#: nobody built, which the next reader trusts because the comment is right
+#: about everything else. `tests/test_the_reach_baseline_can_be_re_measured.py`
+#: pins it both ways -- the comment names the script, the script is there, and
+#: it RUNS, because a file that exists and raises on import is the same thing
+#: one layer down.
 _REACH_BASELINE_FILE = pathlib.Path(__file__).with_name(
     "network_reach_baseline.txt")
 
@@ -574,6 +583,11 @@ class _OutboundLedger:
         self.rows = []
         self.nodeid = None
         self.baselined = {}
+        #: Every test FILE that made a refused connect this run, baselined or
+        #: not. The verdicts above do not read it -- it exists so a deliberate
+        #: re-measure can see the STALE half of the baseline, which the
+        #: per-run summary refuses to name on purpose.
+        self.reached = set()
 
     def note(self, word, host, port, call):
         self.rows.append((self.nodeid, word, host, port, call))
@@ -591,6 +605,10 @@ class _OutboundLedger:
     def note_baselined(self, nodeid, n):
         """Count a refused connect from a file the baseline already holds."""
         self.baselined[nodeid] = self.baselined.get(nodeid, 0) + n
+
+    def note_reached(self, nodeid):
+        """Record the FILE, for the re-measure report and nothing else."""
+        self.reached.add(_reach_file(nodeid))
 
     def baselined_summary(self):
         """(tests, connects, files), or None when the backlog was untouched."""
@@ -743,6 +761,9 @@ def pytest_sessionfinish(session, exitstatus):
     refused either way, and the stamp still says which test was running.
     """
     rows = _OUTBOUND.drain_all()
+    for r in rows:
+        if r[0]:
+            _OUTBOUND.note_reached(r[0])
     fresh = [r for r in rows if _reach_file(r[0]) not in _REACH_BASELINED]
     for nodeid in sorted({r[0] for r in fresh}, key=lambda n: (n is None, n)):
         mine = [r for r in fresh if r[0] == nodeid]
@@ -762,6 +783,104 @@ def pytest_sessionfinish(session, exitstatus):
               f"{connects} refused connect(s) — see "
               f"tests/network_reach_baseline.txt. Each is a stub that was "
               f"never made; none of them reached a venue.")
+
+    _write_reach_report(session)
+
+
+#: Where a deliberate re-measure asks for the file list. A REPORT path, never a
+#: bypass: setting it changes no verdict, refuses nothing extra and allows
+#: nothing extra, so it cannot weaken the containment the way a disable switch
+#: could. `scripts/network_reach_gate.py` is what sets it.
+_REACH_REPORT_ENV = "RUNECLAW_REACH_REPORT"
+
+
+def _whole_suite_asked_for(session, root) -> bool:
+    """Whether pytest was told to collect the whole tests tree.
+
+    `config.args` is what the invocation asked for -- `['tests']` for a bare
+    `pytest` (the ini's testpaths), `['tests/']` for the explicit form, and a
+    file or a nodeid for anything narrower. A nodeid needs no splitting on
+    `::`: it resolves to something that is not the tests directory whether the
+    `::test_x` half is trimmed or not, and a split written for it would be a
+    line no input can reach. A `-k`/`-m` selection is NOT visible here and
+    deliberately so: it narrows what RUNS, not what was asked for, and the
+    collected count beside this line is what shows it.
+    """
+    try:
+        args = list(getattr(session.config, "args", []) or [])
+    except Exception:  # noqa: BLE001 -- an unreadable config is not "whole"
+        return False
+    if not args:
+        return False
+    tests_dir = (root / "tests").resolve()
+    for a in args:
+        raw = str(a)
+        try:
+            resolved = pathlib.Path(raw)
+            if not resolved.is_absolute():
+                resolved = (root / raw)
+            resolved = resolved.resolve()
+        except OSError:
+            return False
+        if resolved not in (tests_dir, root.resolve()):
+            return False
+    return True
+
+
+def _write_reach_report(session):
+    """Write the files that reached, and how much of the suite was measured.
+
+    The count travels WITH the list because a partial run measures less than
+    the whole suite, so every unreached baseline row would read as stale --
+    and stale is the direction that deletes real rows. The reader refuses to
+    call anything stale without it.
+
+    A report that cannot be written is said and never raised: this runs at the
+    very end of a session whose verdicts are already decided, and taking the
+    suite down over a file nobody can open would turn a measurement into a
+    failure.
+    """
+    path = (os.environ.get(_REACH_REPORT_ENV) or "").strip()
+    if not path:
+        return
+    collected = getattr(session, "testscollected", None)
+
+    # ONLY FILES THAT EXIST, and the reading is the filesystem rather than a
+    # name list. `test_no_test_reaches_a_venue.py` drives the containment
+    # directly with SYNTHETIC nodeids (`tests/planted.py::test_planted`) --
+    # which is the right way to measure a rule the real tree cannot reach --
+    # and from the ledger's side those are indistinguishable from a real
+    # file. Writing one into the baseline would record a file that does not
+    # exist as reaching a venue. A list of the synthetic names would be the
+    # ten-of-eleven shape; whether the path is a file is a measurement.
+    root = pathlib.Path(__file__).resolve().parent.parent
+    real = sorted(f for f in _OUTBOUND.reached if f and (root / f).is_file())
+    dropped = sorted(f for f in _OUTBOUND.reached if f and f not in set(real))
+
+    lines = [
+        "# Written by tests/conftest.py. One test FILE per line: every file "
+        "that made",
+        "# a refused outbound connect this run, baselined or not. Read by "
+        "scripts/network_reach_gate.py.",
+        f"# collected={collected if collected is not None else 'unknown'}",
+        f"# exitstatus={session.exitstatus}",
+        # WAS THE WHOLE SUITE ASKED FOR? A run over one file measures one
+        # file, so every other baselined file would read as stale -- and
+        # stale is the direction that DELETES rows. The judgement is made
+        # HERE, where the rootdir and the tests directory are known, rather
+        # than leaving the reader to re-derive path semantics.
+        f"# whole={'true' if _whole_suite_asked_for(session, root) else 'false'}",
+    ]
+    # NAMED, never silently dropped: a report that quietly discarded rows
+    # would be a partial measurement printed as a whole one.
+    for f in dropped:
+        lines.append(f"# not-a-file (synthetic nodeid, not recorded): {f}")
+    lines += real
+    try:
+        pathlib.Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"\n[no-venue] could not write {_REACH_REPORT_ENV}={path}: "
+              f"{type(exc).__name__}: {exc}")
 
 
 def pytest_configure(config):
@@ -816,6 +935,10 @@ def _no_test_reaches_a_venue(request):
     rows = _OUTBOUND.drain(request.node.nodeid)
     if not rows:
         return
+    # Recorded BEFORE the verdict, and in both branches: a report that only
+    # saw the failing half would report every baselined file as stale, which
+    # is the direction that DELETES real rows.
+    _OUTBOUND.note_reached(request.node.nodeid)
     if _reach_file(request.node.nodeid) in _REACH_BASELINED:
         # Recorded, counted at session end, and NOT failed: a baselined file is
         # a backlog entry, not a pass. The connect was still refused, so the
