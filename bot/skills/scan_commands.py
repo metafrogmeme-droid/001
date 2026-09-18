@@ -788,7 +788,7 @@ class ScanCommands:
 
     @guard("analyze")
     async def _cmd_analyze(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._token_gate_blocks(update, "analysis", "analyze_asset"):
+        if await self._token_gate_blocks(update, "asset analysis", "analyze_asset"):
             return
         args = ctx.args
         if args:
@@ -953,7 +953,7 @@ class ScanCommands:
     @guard("scan")
     async def _cmd_scalp(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Scalp scan: 5m candles, tight SL, top-3 by volume."""
-        if await self._token_gate_blocks(update, "scalp"):
+        if await self._token_gate_blocks(update, "scalp scan"):
             return
         await self._send(update, "\u26a1 <i>Scalp scan — 5M candles, tight zones...</i>")
         try:
@@ -970,7 +970,7 @@ class ScanCommands:
     @guard("scan")
     async def _cmd_intraday(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Intraday scan: 15m candles, top-5 movers."""
-        if await self._token_gate_blocks(update, "intraday"):
+        if await self._token_gate_blocks(update, "intraday scan"):
             return
         await self._send(update, "\U0001f4ca <i>Intraday scan — 15M structure...</i>")
         try:
@@ -987,7 +987,7 @@ class ScanCommands:
     @guard("scan")
     async def _cmd_swing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Swing scan: 4h candles, wide SL/TP, trend-based."""
-        if await self._token_gate_blocks(update, "swing"):
+        if await self._token_gate_blocks(update, "swing scan"):
             return
         await self._send(update, "<i>Checking the 4H chart...</i>")
         try:
@@ -1024,7 +1024,7 @@ class ScanCommands:
         symbol must never be handed generated candles — that was the defect
         this command's skill was fixed for.
         """
-        if await self._token_gate_blocks(update, "analysis", "quant_analyze"):
+        if await self._token_gate_blocks(update, "quant analysis", "quant_analyze"):
             return
         args = ctx.args or []
         raw = (args[0].upper().strip().replace(":USDT", "") if args else "BTC")
@@ -1069,7 +1069,7 @@ class ScanCommands:
     @guard("deepscan")
     async def _cmd_deepscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Deep scan the universe with chart + candle patterns."""
-        if await self._token_gate_blocks(update, "deep", "deepscan"):
+        if await self._token_gate_blocks(update, "deep scan", "deepscan"):
             return
         # Parse optional timeframe from args: /deepscan 1h  (or /deepscan all
         # to sweep every supported timeframe in one pass).
@@ -1421,7 +1421,7 @@ class ScanCommands:
     @guard("patterns")
     async def _cmd_patterns(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/patterns — chart-pattern sweep across the scan universe."""
-        if await self._token_gate_blocks(update, "patterns", "patterns"):
+        if await self._token_gate_blocks(update, "pattern detection", "patterns"):
             return
         # This awaited the dispatch with NO deadline: a stalled fetch left the
         # operator staring at a command that never answered and never failed.

@@ -1047,3 +1047,66 @@ def test_the_latent_hazard_it_names_is_still_the_shape_it_says():
     assert "MARKER_IN_A_DOCSTRING" in out, (
         "and the DOCSTRING survives, which is the hazard the paragraph "
         "declines to consolidate on")
+
+
+def test_the_gate_noun_section_names_numbers_a_drive_returns():
+    """"THE GATE IS ASKED ABOUT A FEATURE" restates two measurements this file
+    already derives elsewhere, and a second copy of a measurement is a second
+    answer — so it is pinned to the same drive rather than left as prose.
+
+    The numerals are WORDS in the paragraph and integers from the drive, so
+    the comparison goes through one small table rather than through a regex
+    that would have to know English.
+    """
+    import ast
+
+    from bot.skills.skill_permissions import SKILL_PERMISSION
+    from bot.token import tier_gate as tg
+
+    flat = re.sub(r"\s+", " ", DOC)
+    words = {2: "two", 3: "three", 5: "five", 8: "eight", 9: "nine",
+             11: "eleven", 12: "twelve", 13: "thirteen"}
+
+    # "`FEATURE_MIN_TIER` has nine keys and eight of them are also the name of
+    # the skill that runs them" — the same derivation the scan section makes,
+    # over the SKILLS rather than the features.
+    sold = set(tg.FEATURE_MIN_TIER)
+    paid = {sk for sk in SKILL_PERMISSION if tg.feature_for(sk) in sold}
+    same = {sk for sk in paid if tg.feature_for(sk) == sk}
+    assert f"`FEATURE_MIN_TIER` has {words[len(sold)]} keys" in flat, len(sold)
+    assert f"{words[len(same)]} of them are also the name" in flat, len(same)
+    assert sorted(paid - same) == ["pro_scan"], sorted(paid - same)
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+
+    def _production_trees():
+        for f in sorted(root.rglob("*.py")):
+            rel = f.relative_to(root).as_posix()
+            if rel.startswith(("tests/", ".git/", "node_modules/")):
+                continue
+            try:
+                yield ast.parse(f.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+    trees = list(_production_trees())
+
+    # "all twelve of its callers" — every production call to the hop whose
+    # Protocol stubs made the probe refuse. Derived: the day a thirteenth is
+    # written, the sentence moves with it.
+    calls = sum(1 for t in trees for node in ast.walk(t)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "_token_gate_blocks")
+    assert f"all {words[calls]} of its callers" in flat, calls
+
+    # "declare `_token_gate_blocks` twice more that way" — the stubs
+    # themselves, asserted to BE stubs rather than merely to exist.
+    stubs = sum(1 for t in trees for node in ast.walk(t)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "_token_gate_blocks"
+                and len(node.body) == 1
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and node.body[0].value.value is Ellipsis)
+    assert stubs == 2 and f"twice more that way" in flat, stubs

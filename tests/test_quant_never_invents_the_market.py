@@ -368,11 +368,32 @@ class TestItIsReachableAndPriced:
         assert order.index(T["quant_analyze"]) >= order.index(T["deepscan"])
 
     def test_the_command_checks_the_tier_gate(self):
+        """The FEATURE, which is what `check_user` is keyed by.
+
+        This asserted the whole call including its DISPLAY word ("analysis"),
+        so it failed the day that word became "quant analysis" — while the
+        property it guards, that `/quant` checks the gate for
+        `quant_analyze`, held throughout. That is the
+        `test_unread_mark_is_not_break_even` shape: a scan measuring the
+        spelling rather than the claim. `mode` is only ever shown to the
+        user; the feature is the part this test is about.
+        """
+        import ast
         import inspect
+        import textwrap
 
         from bot.skills.scan_commands import ScanCommands
-        src = inspect.getsource(ScanCommands._cmd_quant)
-        assert '_token_gate_blocks(update, "analysis", "quant_analyze")' in src
+        src = textwrap.dedent(inspect.getsource(ScanCommands._cmd_quant))
+        gated = [
+            node.args[2].value
+            for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_token_gate_blocks"
+            and len(node.args) > 2
+            and isinstance(node.args[2], ast.Constant)
+        ]
+        assert gated == ["quant_analyze"], gated
 
     def test_a_timeout_is_not_a_report(self):
         """The modelling did not finish. That is not a zero and not a verdict.

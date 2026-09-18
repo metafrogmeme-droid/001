@@ -919,11 +919,22 @@ def unavailable_message() -> str:
     )
 
 
-def upgrade_message(mode: str = "premium") -> str:
-    """User-facing prompt shown when the gate blocks a premium scan."""
+def upgrade_message(mode: str = "premium scan") -> str:
+    """User-facing prompt shown when the gate blocks a paid capability.
+
+    `mode` IS THE WHOLE NOUN PHRASE. It used to be a bare word with " scan"
+    appended here, which is the THREE NOUNS defect half-fixed: `display` was
+    separated from `feature` so the refusal could show a word the CALLER
+    chooses, and the sentence went on appending a category the caller cannot
+    choose. Driven over the eleven display words in the tree, six of them read
+    false — "Backtest scan", "Walk-forward scan", "Learning scan", "Optimize
+    scan", "Analysis scan", "Patterns scan" — on the sentence asking somebody
+    to go and buy something. The capability this refuses is the caller's to
+    name, and it is the only party that knows.
+    """
     pro_min = int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0))
     return (
-        f"\U0001f512 <b>{mode.capitalize()} scan is a staked-tier feature.</b>\n"
+        f"\U0001f512 <b>{mode.capitalize()} is a staked-tier feature.</b>\n"
         f"Stake at least <b>{pro_min:,} $RCLAW</b>, then link and verify your wallet:\n"
         f"<code>/linkwallet &lt;address&gt;</code> → sign the message → "
         f"<code>/linkwallet verify &lt;signature&gt;</code>\n"

@@ -171,7 +171,7 @@ class ResearchCommands:
 
     @guard("backtest")
     async def _cmd_backtest(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._token_gate_blocks(update, "backtest", "run_backtest"):
+        if await self._token_gate_blocks(update, "the backtest", "run_backtest"):
             return
         args = ctx.args or []
         bars = args[0] if args else "720"
@@ -184,7 +184,7 @@ class ResearchCommands:
 
     @guard("walkforward")
     async def _cmd_walkforward(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._token_gate_blocks(update, "walk-forward", "walk_forward"):
+        if await self._token_gate_blocks(update, "walk-forward validation", "walk_forward"):
             return
         args = ctx.args or []
         bars = args[0] if args else "1440"
@@ -217,7 +217,7 @@ class ResearchCommands:
 
     @guard("learn")
     async def _cmd_learn(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._token_gate_blocks(update, "learning", "learning"):
+        if await self._token_gate_blocks(update, "the learning report", "learning"):
             return
         result = await self.registry.dispatch("learning", self.engine)
         await self._send(update, result)
@@ -229,7 +229,7 @@ class ResearchCommands:
 
     @guard("optimize")
     async def _cmd_optimize(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._token_gate_blocks(update, "optimize", "optimize"):
+        if await self._token_gate_blocks(update, "parameter optimisation", "optimize"):
             return
         result = await self.registry.dispatch("optimize", self.engine)
         await self._send(update, result)

@@ -5607,6 +5607,125 @@ reader would plausibly make: the `except` branch sending the driver text to the
 caller as its own message. It dies on the send count and on the planted
 `SECRETVALUE`.
 
+**THE GATE IS ASKED ABOUT A FEATURE AND WHAT A CALLER HOLDS IS A SKILL — and
+`check_user` answers `(True, "ok")` for a name it does not hold.** Its own
+docstring calls that "ungated feature", so the wrong noun is not an error, it
+is a SILENT PASS. `FEATURE_MIN_TIER` has nine keys and eight of them are also
+the name of the skill that runs them; the ninth is not, because `premium_scan`
+is run by the skill `pro_scan`. That is the whole difference, and
+`tier_gate.feature_for` is the one reading of it — added when the web was
+found passing the SKILL, under a comment ending *"and so does anything else
+that gates by what it is about to DISPATCH."* `chat_tools._tier_verdict` gates
+by exactly that and passed the skill straight down.
+
+Driven with the gate on and no wallet linked, the eight siblings answered
+`no_wallet` and `pro_scan` answered `ok`, so `skill_reach` — **the ONE walk
+`tools_for` and `capability_answer` both take**, on both surfaces — rendered:
+
+    • a scan tuned to one timeframe — scalp, intraday or swing
+    • 8 more need a linked, verified wallet.
+
+Nine paid skills, eight withheld, the ninth OFFERED, and the count under it the
+eight: a bounded list undercounting by exactly the row it had just offered. It
+is **not an execution bypass** — the dispatch DOES read `feature_for` — so the
+caller is invited and then refused at the door, which is THE CARD PROMISED A
+DOOR AND NOTHING CHECKED THERE WAS ONE with the sign flipped once more, and the
+check sitting one function away. And it reached every unqualified caller rather
+than only the unlinked one: `required is None` returns before wallet,
+verification, stake and RPC are consulted, so all five refusal reasons met the
+same offer.
+
+**The one-line cure is the `/setllm` ten-of-eleven shape if it is all**, so the
+rule is structural: a `check_user` call's feature argument must be a literal
+that is a `FEATURE_MIN_TIER` key, an expression through `feature_for`, a local
+bound from one, or a PARAMETER — which makes its function a GATE HOP whose own
+callers are checked the same way — or a `tests/tier_gate_noun_baseline.txt` row
+WITH its reason, two-way as `known_failures.txt` is.
+
+**ONE HOP IS NOT ENOUGH, and the defect proves it.** `_tier_verdict` forwards
+its own PARAMETER, so the gate call reads clean and the site is a hop; the noun
+is chosen one frame further out, in `skill_reach`, where `name` is a loop
+variable over SKILL names. A walk that stops at the first hop acquits the very
+site it was written for, so hops are followed to a FIXED POINT — and that is
+driven on a planted tree carrying both frames, because the real tree no longer
+has the shape.
+
+**And the probe reproduced `command_gates.py`'s typing-stub blind spot
+verbatim.** A Protocol body of `...` is a TYPE, not a definition; the mixins
+declare `_token_gate_blocks` twice more that way, so `_hop_def` found three,
+refused to guess, and reported **all twelve of its callers as unresolved** —
+correct code, accused, by the instrument written to prevent exactly that. It is
+recorded in this file one guard over and it happened again anyway. Two more
+were mine: the `self` offset is a property of the CALL (`obj.m(x)`) and not of
+the definition, so subtracting it whenever a def began with `self` read a plain
+`f(self, x)` call one argument to the left; and two of the rule's own
+assertions were VACUOUS against an empty baseline, where a mutation of either
+changes no verdict — they are driven on planted rows now, the argument
+`candle_hygiene_baseline` already makes for its own two-way rule.
+
+> **And the fixture's anchor matched twice, inside the fixture written to find
+> that shape.** `"user_id, skill_name)"` is also the tail of the `def` line one
+> row up, so the cure it was meant to apply produced a syntax error instead.
+> Anchor on the CALL.
+
+**AND THE COROLLARY SWEEP FOUND THE THIRD NOUN, HALF-BUILT.** `display` was
+separated from `feature` because a paywalled caller read **"Pro_scan scan is a
+staked-tier feature"** — an internal identifier, capitalised, in the sentence
+asking them to buy something. `upgrade_message` then appended `" scan"` to
+whatever word it was handed, so the CALLER chose a word and the SENTENCE chose
+the noun. Driven over the eleven display words in the tree, six read false:
+**"Backtest scan", "Walk-forward scan", "Learning scan", "Optimize scan",
+"Analysis scan", "Patterns scan"** — a backtest is not a scan. And
+`_pane_gate_blocks` still had two names for three things, handing its FEATURE
+straight to `upgrade_message`, which is the cured defect one method over. The
+phrase is the caller's now, because the caller is the only party that knows
+what it is refusing.
+
+**Four blind spots in that guard, and three were the ones this file keeps
+recording.** A call-site scan cannot see what a BODY does with the argument,
+so the pane ignoring its `display` survived until the sentence itself was
+driven through a stand-in `self`. A COMPUTED phrase was skipped under a
+comment of mine promising "the f-string case below", which did not exist — a
+comment claiming a check the code does not make, in the guard about claims.
+Then an expression the walk could not classify at all was skipped rather than
+reported, so swapping the f-string for a bare `str(...)` deleted the noun in
+silence: **unreadable is not a pass**, in a guard whose whole subject is that
+rule. And the fix for that over-accused three FORWARDING sites — the three
+functions that end in `upgrade_message(<their own parameter>)` — which is the
+accusation a walk with no hop notion manufactures, the same blind spot one
+noun over.
+
+One mutation is recorded rather than counted: dropping "validation" from
+`walk-forward validation` leaves *"Walk-forward is a staked-tier feature"*,
+which is barer and not false, so it is an EQUIVALENT MUTANT against the rule's
+actual claim — that the sentence names no capability the caller did not
+choose. An omitted display is left alone for the same reason: falling back to
+the skill name is a decision this file already records, not an oversight.
+
+**AND THE NORTH STAR'S OWN COUNT HAD ROTTED UNDER ITS OWN LIST.** The doubt
+that started this slice — *"whether a paper-tier or signed-out caller reaches
+any of the … rows above is unmeasured, and this repo's own history says skill
+name and feature name are not the same noun"* — sits in a section of
+`docs/INCOME_MAP.md` whose count was written THREE times, and the list grew
+under it: four capabilities shipped since (the trade co-pilot, trade costs,
+why a stop could not be placed, the POC-retest setup) were each appended to a
+list whose number did not move, so a document read FIRST to decide what to
+build was off by four. `tests/test_the_income_map_counts_its_own_list.py`
+derives it now; `test_claude_md_accuracy.py` has done this for CLAUDE.md for
+some time, and the map had citation checks and nothing that read its counts.
+
+> **Both drafts of that rule accused the live count.** `"twenty" in
+> "twenty-two"` is True, and so is `re.search(r"\btwenty\b", "TWENTY-TWO")` —
+> a HYPHEN is a word boundary, so anchoring did not help. The live numeral is
+> removed before the stale search now. And the prose narrating the history
+> tripped the rule by spelling the old number, which is the "a comment that
+> quotes the string it forbids" trap from the author's side, for the second
+> slice running.
+
+(`tests/test_the_tier_gate_is_asked_about_a_feature.py`,
+`tests/test_the_bot_can_say_what_it_does.py`,
+`tests/test_the_income_map_counts_its_own_list.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -6835,7 +6954,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **400 of 969** reach for source text through `source_scan`, `code_only`
+Driven, **400 of 971** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 400 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
