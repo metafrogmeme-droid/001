@@ -92,7 +92,15 @@ except Exception:  # pragma: no cover - the card must still render
     _TREND_UNREAD = "Trend not read"
 
 
-from bot.core.position_telemetry import format_rr  # noqa: E402
+from bot.core.position_telemetry import (  # noqa: E402
+    format_rr,
+    pct_on_record,
+)
+
+#: What a card says where a percent nobody read would otherwise print
+#: as a measured flat. Shared by the alpha, scan-grid and patterns
+#: cards so three renderers cannot word one absence three ways.
+CHANGE_UNREAD = "24h unread"
 
 
 def _num(v):
@@ -240,9 +248,17 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     rr = data.get("rr", 0)
     pattern = data.get("pattern", "")
     rsi = data.get("rsi", 0)
-    confidence = data.get("confidence", 0)
-    if confidence <= 1:
+    # `.get("confidence", 0)` is the shapes table's "absent field is zero",
+    # and as a CONFIDENCE zero is a verdict -- the engine has none in this
+    # setup -- drawn in the accent colour every measured figure on this card
+    # wears, while every PRICE beside it abstains through `_fmt`, whose own
+    # comment states the rule ten lines above. `confidence <= 1` also raised
+    # on a `None`, so an explicit unread key took the card down.
+    confidence = pct_on_record(data.get("confidence"))
+    if confidence is not None and confidence <= 1:
         confidence = confidence * 100
+    conf_text = "—" if confidence is None else f"{confidence:.0f}%"
+    conf_color = _GRAY if confidence is None else _CYAN
     vol_x = data.get("volume_x", 0)
     summary = data.get("summary", "")
     strategy_type = data.get("strategy_type", "").upper()
@@ -347,25 +363,33 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     y += CELL_H + CELL_GAP
 
     # Row 3: Margin | R:R (or Margin | Confidence)
+    conf_drawn = False
     if margin and margin > 0:
         margin_text = f"${margin:,.1f}" if margin >= 1 else f"${margin:.2f}"
         _draw_cell(col1_x, y, "MARGIN", margin_text, _WHITE)
     else:
-        conf_text = f"{confidence:.0f}%"
-        _draw_cell(col1_x, y, "CONFIDENCE", conf_text, _CYAN)
+        _draw_cell(col1_x, y, "CONFIDENCE", conf_text, conf_color)
+        conf_drawn = True
 
     if tp2 and tp2 > 0:
         rr_text = f"1:{rr:.1f}" if rr else "—"
         _draw_cell(col2_x, y, "R:R", rr_text, _CYAN)
     else:
         if margin and margin > 0:
-            conf_text = f"{confidence:.0f}%"
-            _draw_cell(col2_x, y, "CONFIDENCE", conf_text, _CYAN)
+            _draw_cell(col2_x, y, "CONFIDENCE", conf_text, conf_color)
         else:
             if rsi:
                 _draw_cell(col2_x, y, "RSI", f"{rsi:.1f}", _YELLOW if rsi > 70 or rsi < 30 else _WHITE)
-            else:
-                _draw_cell(col2_x, y, "SCORE", f"{confidence:.0f}%", _CYAN)
+            elif not conf_drawn:
+                # "SCORE" is a second LABEL for `confidence`, not a second
+                # field: this renderer reads no `score` key and its docstring
+                # lists only `confidence`. With no margin, no TP2 and no RSI
+                # both cells were reached, so one reading was drawn twice
+                # under two names -- which tells a reader they are two
+                # readings that agree. `conf_drawn` is what the comment here
+                # used to CLAIM and the code did not check; driving the card
+                # is what said so.
+                _draw_cell(col2_x, y, "SCORE", conf_text, conf_color)
     y += CELL_H + CELL_GAP + 4
 
     # ── Pattern badge ──
@@ -387,7 +411,13 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     elif rsi:
         bias = "LONG bias" if is_long else "SHORT bias"
         vol_part = f" | Vol {vol_x:.1f}x avg" if vol_x else ""
-        auto_summary = f"{bias} | RSI {rsi:.1f} | Score {confidence:.0f}%{vol_part}"
+        # The FOURTH site of the same figure, and the one a scan for the three
+        # cells would miss -- driving the card is what found it, by raising
+        # on `None.__format__`. The score is OMITTED rather than printed as a
+        # zero: the bias and the RSI beside it are real readings and must not
+        # be lost with it, which is the `omit` strategy for a composite line.
+        score_part = "" if confidence is None else f" | Score {confidence:.0f}%"
+        auto_summary = f"{bias} | RSI {rsi:.1f}{score_part}{vol_part}"
         draw.text((PAD, y + 2), auto_summary, fill=_GRAY, font=font_summary)
         y += 22
 
@@ -801,11 +831,16 @@ def render_patterns_card(
 
         sym = str(h.get("symbol", "?")).replace("/USDT", "").replace(":USDT", "")
         price = float(h.get("price", 0) or 0)
-        chg = float(h.get("chg", 0) or 0)
+        chg = pct_on_record(h.get("chg"))
         rsi = float(h.get("rsi", 0) or 0)
 
-        # Direction arrow from change.
-        if chg > 0:
+        # Direction arrow from change. A MEASURED flat keeps the neutral dot
+        # -- it is a reading -- and an UNREAD one gets the question mark,
+        # because "flat" and "nobody looked" are different facts and the dot
+        # said both.
+        if chg is None:
+            arrow, arrow_c = "?", _GRAY
+        elif chg > 0:
             arrow, arrow_c = "▲", _GREEN     # ▲
         elif chg < 0:
             arrow, arrow_c = "▼", _RED       # ▼
@@ -820,8 +855,9 @@ def render_patterns_card(
         hx += draw.textlength(sym, font=f_sym) + 12
         draw.text((hx, hy + 1), _fmt(price), fill=_CYAN, font=f_price)
         hx += draw.textlength(_fmt(price), font=f_price) + 12
-        chg_c = _GREEN if chg > 0 else _RED if chg < 0 else _GRAY
-        chg_txt = f"{chg:+.1f}%"
+        chg_c = _GRAY if chg is None else (
+            _GREEN if chg > 0 else _RED if chg < 0 else _GRAY)
+        chg_txt = CHANGE_UNREAD if chg is None else f"{chg:+.1f}%"
         draw.text((hx, hy + 1), chg_txt, fill=chg_c, font=f_price)
 
         # RSI badge, right aligned.
@@ -1327,7 +1363,12 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     _cell(c1, y, "MARGIN",
           f"unread{lev_str}" if size_usd is None
           else f"${size_usd:,.2f}{lev_str}")
-    _cell(c2, y, f"{direction} | HOLD", hold_time)
+    # Every other cell in this block is three-valued -- EXIT, MARGIN and
+    # NET PnL each say "unread" -- and this one printed `hold_time` raw, so
+    # an absent hold drew a LABEL over an empty string: a section announcing
+    # itself and then saying nothing, which is `_status_lines`' recorded
+    # defect in an image.
+    _cell(c2, y, f"{direction} | HOLD", hold_time or "unread")
     y += CELL_H + GAP
 
     net_text = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
@@ -1548,6 +1589,38 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
 # SCAN GRID CARD — breadth grid (all symbols + sparklines) + top setups
 # ═══════════════════════════════════════════════════════════════════
 
+def breadth_counts(changes) -> dict:
+    """up / down / unread over a list of raw 24h changes.
+
+    A SEAM because the alternative is arithmetic buried in a 400-line async
+    handler, which is where `up = sum(1 for s in signals if (getattr(...) or
+    0) > 0)` lived: two buckets over a set holding rows nobody read, so
+    `up + down` was a partial total printed as the whole scan, and no test
+    could reach it to say so. `skill_registry`'s TEXT scan card has counted
+    the third bucket since it was written -- this is that reading, where the
+    PNG's producer can ask it rather than keep its own.
+
+    THE THREE DO NOT SUM TO THE INPUT, and that is deliberate: a MEASURED
+    flat is a real reading in neither direction and is not unread either. It
+    gets no row rather than a fourth, because a permanent `0 flat` on every
+    card is what trains a reader to stop reading the line -- and the footer
+    prints no denominator beside these, so nothing there invites the
+    subtraction that would make the gap a false third number.
+    """
+    # `is not None and c > 0` rather than `(c or 0) > 0`: the two are
+    # EQUIVALENT here, because `read` holds only `None` or a float -- a
+    # mutation round proved it by surviving. The terse form is the shapes
+    # table's own row and would read to the next reader as the defect, so the
+    # explicit one stays and the property that makes them equivalent is
+    # driven in the guard rather than the spelling being pinned.
+    read = [pct_on_record(c) for c in (changes or [])]
+    return {
+        "up": sum(1 for c in read if c is not None and c > 0),
+        "down": sum(1 for c in read if c is not None and c < 0),
+        "unread": sum(1 for c in read if c is None),
+    }
+
+
 def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
     """Render a market scan as a PNG card: a compact breadth GRID (every scanned
     symbol with a price sparkline) followed by an optional detailed SETUPS section.
@@ -1688,15 +1761,22 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
             draw.rectangle([PAD, ry, W - PAD, ry + GRID_ROW_H], fill=_CARD_BG)
         sym = str(g.get("sym", "?")).replace("/USDT", "").replace(":USDT", "")
         price = float(g.get("price", 0) or 0)
-        chg = float(g.get("change_pct", 0) or 0)
-        up = chg >= 0
-        col = _GREEN if up else _RED
+        # `chg = float(... or 0)` with `up = chg >= 0` is the shapes table's
+        # "unreadable WON" verbatim, and `col` paints the DIRECTION DOT as
+        # well as the figure -- so a change nobody read drew a green dot, a
+        # green sparkline and a measured `+0.0%`. `scan_skill.py` writes
+        # `change_pct_24h=None` outright, and `skill_registry`'s TEXT scan
+        # card has counted `unread` as its own bucket since it was written.
+        chg = pct_on_record(g.get("change_pct"))
+        col = _GRAY if chg is None else (_GREEN if chg >= 0 else _RED)
         mid = ry + GRID_ROW_H // 2
 
         draw.ellipse([c_dot, mid - 4, c_dot + 8, mid + 4], fill=col)
         draw.text((c_sym, mid - 7), sym[:7], fill=_WHITE, font=f_sym)
         draw.text((c_price, mid - 6), _fmt(price), fill=_WHITE, font=f_value)
-        draw.text((c_chg, mid - 6), f"{chg:+.1f}%", fill=col, font=f_value)
+        draw.text((c_chg, mid - 6),
+                  CHANGE_UNREAD if chg is None else f"{chg:+.1f}%",
+                  fill=col, font=f_value)
 
         _spark(g.get("spark"), c_spark, mid - 8, spark_w, 16, col)
 
@@ -1761,10 +1841,20 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
     if summary:
         up_n = int(summary.get("up", 0) or 0)
         dn_n = int(summary.get("down", 0) or 0)
+        # A row whose change nobody read is in NEITHER bucket, so `up + down`
+        # is a partial total printed as the whole scan. It is said only when
+        # it bites -- a permanent "0 unread" on every healthy card is the row
+        # that trains a reader to stop reading the line.
+        un_n = int(summary.get("unread", 0) or 0)
         vol = float(summary.get("vol_usd", 0) or 0)
         draw.text((PAD, fy), f"▲ {up_n} up", fill=_GREEN, font=f_small)
         ux = PAD + draw.textlength(f"▲ {up_n} up", font=f_small) + 12
         draw.text((ux, fy), f"▼ {dn_n} down", fill=_RED, font=f_small)
+        if un_n > 0:
+            dtxt = f"▼ {dn_n} down"
+            nx = ux + draw.textlength(dtxt, font=f_small) + 12
+            draw.text((nx, fy), f"● {un_n} unread", fill=_GRAY,
+                      font=f_small)
         if vol > 0:
             vtxt = f"Vol ${vol / 1e6:.1f}M"
             vw = draw.textlength(vtxt, font=f_small)
@@ -1966,8 +2056,13 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
 
     symbol = str(data.get("symbol", "???")).replace("/USDT", "").replace(":USDT", "")
     price = float(data.get("price") or 0)
-    chg = float(data.get("change_24h_pct") or 0)
-    chg_color = _GREEN if chg >= 0 else _RED
+    # A 24h change nobody read is not a flat day, and `_GREEN if chg >= 0`
+    # painted it the colour of a rise -- the shapes table's "unreadable WON",
+    # three lines under a `$—` that abstains correctly. ccxt's `percentage` is
+    # legitimately None for a market the venue reports no change for.
+    chg = pct_on_record(data.get("change_24h_pct"))
+    chg_color = _GRAY if chg is None else (_GREEN if chg >= 0 else _RED)
+    chg_text = CHANGE_UNREAD if chg is None else f"{chg:+.2f}% 24h"
 
     # ── Top stripe (gold = insight, not P&L) ──
     draw.rectangle([0, 0, W, 4], fill=_ACCENT_GOLD)
@@ -1995,7 +2090,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     # ── Price hero ──
     draw.text((PAD, y), f"${_fmt(price)}", fill=_WHITE, font=f_hero)
     p_w = draw.textlength(f"${_fmt(price)}", font=f_hero)
-    draw.text((PAD + p_w + 10, y + 10), f"{chg:+.2f}% 24h", fill=chg_color, font=f_value)
+    draw.text((PAD + p_w + 10, y + 10), chg_text, fill=chg_color, font=f_value)
     y += 40
     draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
     y += 12
@@ -2213,14 +2308,17 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
 
     symbol = str(data.get("symbol", "???")).replace(":USDT", "").replace("/USDT", "")
     direction = str(data.get("direction", "LONG")).upper()
-    try:
-        pnl_pct = float(data.get("pnl_pct", 0) or 0)
-    except (TypeError, ValueError):
-        pnl_pct = 0.0
+    # `float(... or 0)` with `_GREEN if pnl_pct >= 0` would publish an
+    # unreadable return as a 96px break-even in the winning colour, on the
+    # one card that LEAVES the product. The `/share-card` route validates and
+    # 400s a missing or non-finite figure, so nothing reaches this today --
+    # which is why it is guarded at the BOUNDARY rather than left to the
+    # route to keep remembering, the `_fmt_price(None)` rule.
+    pnl_pct = pct_on_record(data.get("pnl_pct"))
 
     is_long = direction == "LONG"
     dir_color = _GREEN if is_long else _RED
-    pnl_color = _GREEN if pnl_pct >= 0 else _RED
+    pnl_color = _GRAY if pnl_pct is None else (_GREEN if pnl_pct >= 0 else _RED)
 
     # ── Gold stripes top + bottom ──
     draw.rectangle([0, 0, W, 4], fill=_ACCENT_GOLD)
@@ -2242,7 +2340,7 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     draw.text((W - PAD - sym_w, y + 44), symbol, fill=_WHITE, font=f_symbol)
 
     # ── Hero PnL percent, centered ──
-    hero = f"{pnl_pct:+.2f}%"
+    hero = "return unread" if pnl_pct is None else f"{pnl_pct:+.2f}%"
     hero_w = draw.textlength(hero, font=f_hero)
     draw.text(((W - hero_w) / 2, 168), hero, fill=pnl_color, font=f_hero)
 

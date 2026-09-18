@@ -2103,6 +2103,33 @@ half of the measurement that says where the measurement stops.
   (`tests/test_the_mcp_adapter_says_what_it_does.py`,
   `app/test/the_published_mcp_tools_are_tools_the_route_answers.test.js`.)
 
+  **PARTLY ANSWERED for bot/formatters/, and the instrument was the finding.**
+  24 files and 8,073 lines of renderers were driven rather than read: every
+  single-dict formatter called with nothing readable, and the card read back.
+  The TEXT cards were honest — earlier slices had cured them — and the PNG
+  cards were not, because nothing in this tree could read a PNG as text. The
+  only instrument that existed counts PIXELS, which answers a COLOUR claim
+  and not *what did it say*, and its fixture carries a readable change, so it
+  could not have told a coerced figure from an honest one.
+
+  Five cards printed a measured zero from a bare `{}`: `CONFIDENCE 0%` and
+  `SCORE 0%` in the accent colour, `+0.00% 24h` in green three lines under a
+  `$—` that abstains, `+0.0%` beside a green direction dot, and a
+  `LONG | HOLD` label over an empty string. The coercion was at the PRODUCER
+  as well — `float(tk.get("percentage") or 0)`, where ccxt reports `None` for
+  a market with no published change and `app/lib/tickers.js` already writes
+  `change: null` for the same fact — and `skill_registry`'s text scan card had
+  been counting `unread` as its own bucket the whole time, so the PNG's
+  producer was the uncured copy of an aggregate its sibling had already
+  fixed. `tests/png_text.py` is the seam that makes every PNG renderer
+  driveable; `pct_on_record` is the reading, and a MEASURED zero still prints
+  in green on every one of those cards. Recorded in CLAUDE.md under "A PNG IS
+  A SURFACE NO GUARD HERE COULD READ AS TEXT".
+
+  The other seven packages (`bot/guardian/`, `bot/compliance/`,
+  `bot/proofofpnl/`, `bot/risk/`, `bot/llm/`, `bot/db/`, `bot/api/`) are still
+  unread — about 18,000 lines.
+
 - README.md and README.zh-TW.md — the task named the README command table
   explicitly and I did not open it. I used bot/skills/command_catalog.py
   instead, on the strength of its own claim that a test asserts catalogue and

@@ -621,7 +621,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 757 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 744 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -2566,6 +2566,92 @@ the else arm needs `price == 0`, at which point every figure on the card is
 already nonsense. *Don't fix what cannot fire* — and the arithmetic is driven
 in the suite so the day either half changes, that fails rather than the card
 quietly starting to publish 0.
+
+**A PNG IS A SURFACE NO GUARD HERE COULD READ AS TEXT, AND FIVE CARDS PRINTED
+A MEASURED ZERO ON IT.** The one instrument that existed for a rendered card
+counts PIXELS (`test_the_trend_headline_says_when_it_read_nothing`) — the
+right tool for a COLOUR claim and unable to answer *what did it say* — and
+its own fixture carries `change_24h_pct: 1.2`, a readable value, so **a
+fixture where every field is readable cannot tell a coerced figure from an
+honest one**: the RWA aggregate's recorded lesson, arriving inside the test
+written for this very card. A source scan could not answer it either, because
+the defect is not a spelling but which quantity a figure holds — the
+`size_usd` distinction. `tests/png_text.py` is the seam (*when there is no
+seam, make one*): every `ImageDraw.text` call a card makes, with its fill.
+Driven from a bare `{}`, it read back `CONFIDENCE 0%` and `SCORE 0%` in the
+ACCENT colour, `+0.00% 24h` in GREEN three lines under a `$—` that abstains
+correctly, `+0.0%` beside a GREEN DIRECTION DOT, and `LONG | HOLD` over an
+empty string. Each is a row of the shapes table: `up = chg >= 0` is
+*unreadable WON* verbatim, `.get("confidence", 0)` is *absent field is zero*,
+the grid footer's `up + down` over a set holding unread rows is *a partial
+total printed as whole*, and the HOLD cell is `_status_lines`' defect in an
+image.
+
+**THE COERCION WAS AT THE PRODUCER TOO, which is where a renderer-only fix
+leaves the card with nothing to read.** `alpha_card.py` wrote
+`float(tk.get("percentage") or 0)`, and ccxt reports `percentage: None` for a
+market whose venue publishes no 24h change — `app/lib/tickers.js` writes
+`change: null` for the identical fact one runtime over and says so in its own
+comment. `scan_skill.py` already sets `change_pct_24h=None` outright, and
+`skill_registry`'s TEXT scan card has counted `bullish`/`bearish`/**`unread`**
+with `is not None` guards since it was written: the PNG's producer was the
+uncured copy of an aggregate its sibling had already fixed, which is the RWA
+sector rollup one runtime over. `pct_on_record` is the reading, deliberately
+NOT `price_on_record` — that one refuses `<= 0` because a price of zero is a
+level nobody stated, and for a percent `0.0` is a measured flat day and
+`-5.2` a measured fall, so refusing either replaces a reading with an
+absence. A READ zero still prints, in green, on every one of these cards.
+
+**TWO OF THE FIVE WERE FOUND BY THE DRIVE AND BY NOTHING ELSE.** `SCORE` is a
+second LABEL for `confidence`, not a second field — the renderer reads no
+`score` key and its docstring lists only `confidence` — and with no margin,
+no TP2 and no RSI **both cells are reached**, so one reading was drawn twice
+side by side under two names, which tells a reader they are two readings that
+agree. The comment I wrote there first claimed the branch was unreachable
+once the confidence cell had been drawn; rendering the card said otherwise,
+which is *a comment claiming a check the code does not make*, from the
+author's side. And the confidence has a FOURTH site — the auto-summary's
+`Score {confidence:.0f}%` — which a scan for the three CELL sites misses
+entirely; it was found by the card RAISING on `None.__format__`.
+
+**Thirty-five mutations, thirty-two killed, one equivalent, two refused —
+and not one of the three was the code's.** The two refusals were the
+driver's: its anchors spelled `\u25bc` and `\u2014` where the file holds the
+real `▼` and `—`, so both matched zero times, and a driver that took that
+for a kill would have reported coverage of two branches it never touched.
+The survivor was a coverage gap that needed a SEAM rather than a fixture:
+the grid producer's bucket arithmetic lived inside a 400-line async handler,
+so `up + down` could be restored and nothing could reach it to object.
+`breadth_counts` is that seam, and `producer: keeps its own count` dies on it
+now. The remaining survivor is a genuine EQUIVALENT MUTANT — `(c or 0) > 0`
+against `c is not None and c > 0`, identical for every value `pct_on_record`
+can hand back — and the explicit form STAYS rather than being collapsed,
+because the terse one is literally a row of the shapes table and the next
+reader would read it as the defect; what is driven instead is the property
+that makes them equivalent, so the day that return type changes, a test
+fails rather than the count quietly starting to differ.
+
+**THE THREE BUCKETS DO NOT SUM, and that is stated rather than papered
+over.** A MEASURED flat is a real reading in neither direction and is not
+unread either. It gets no fourth row, because a permanent `0 flat` on every
+card is what trains a reader to stop reading the line — and the footer prints
+no denominator beside the three, so nothing there invites the subtraction
+that would make the gap a false third number. The unread row itself prints
+ONLY when it bites, the same rule.
+
+> **And three of this slice's own fixtures were wrong before the code was.**
+> An empty `grid` returns `b""` before the footer is ever reached, so the two
+> footer tests drew zero strings and measured nothing; the `CHANGE_UNREAD`
+> count is 4 (one definition, three renderers) where I asserted five; and I
+> expected `up: 2` from `[1.2, -3.0, None, 0.0]` in the same commit as writing
+> the docstring that says a measured flat is in neither bucket. *When a fresh
+> assertion fails, check whether the code or the assertion is wrong before
+> touching the code* — three times in one slice, and a fourth in the guard:
+> `fill_of`'s only decoy was a string that appears nowhere, which a SUBSTRING
+> match refuses just as readily, so the assertion named a comparison it could
+> not measure. `"CONF"` inside `"CONFIDENCE"` is the input that tells them
+> apart.
+> (`tests/test_a_png_card_says_when_it_read_nothing.py`, `tests/png_text.py`.)
 
 **THE DOCUMENT A SESSION IS SCOPED FROM IS A SURFACE, and a *Gap* paragraph
 is a claim.** `docs/INCOME_MAP.md` is read FIRST to decide what to build next,
@@ -7437,7 +7523,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **404 of 976** reach for source text through `source_scan`, `code_only`
+Driven, **404 of 977** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 404 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

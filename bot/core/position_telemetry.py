@@ -44,6 +44,43 @@ def price_on_record(v: object) -> Optional[float]:
     return f
 
 
+def pct_on_record(v: object) -> Optional[float]:
+    """The PERCENT the record holds, or ``None`` when it holds none.
+
+    Deliberately NOT ``price_on_record``: that one refuses ``<= 0`` because a
+    price of zero is the shape of a level nobody stated. A percent is the
+    opposite — ``0.0`` is a real, measured flat day and ``-5.2`` is a real,
+    measured fall, so refusing either would replace a reading with an
+    absence. What a percent cannot be is ABSENT and still a number, which is
+    what the three producers were writing:
+
+        alpha_card.py:168   float(tk.get("percentage") or 0)
+        scan_commands.py    getattr(s, "change_pct_24h", 0) or 0
+        signal_card.py      float(h.get("chg", 0) or 0)
+
+    ccxt's ``percentage`` is legitimately ``None`` for a market whose venue
+    does not report a 24h change — ``app/lib/tickers.js`` writes
+    ``change: null`` for exactly that and says so in its own comment — and
+    ``scan_skill.py:1526`` sets ``change_pct_24h=None`` outright. So the
+    absent case is ordinary, not a corner.
+
+    NaN and the infinities go the way they go in ``price_on_record``:
+    arithmetic propagates them silently, so a card formats a number that
+    means nothing while looking like every other number on the row.
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):  # True is not 1%.
+        return None
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return f
+
+
 def live_rr(mark: object, stop: object, take_profit: object) -> Optional[float]:
     """Reward-to-risk FROM HERE, or ``None`` when a leg could not be read.
 
