@@ -3420,20 +3420,7 @@
     container.insertAdjacentHTML('beforeend', `
       <div class="stack">
         <div id="tradeModeNote"></div>
-        <section class="panel" id="p-authority">
-          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.authority">Your trading authority</span>
-            <span class="badge" style="margin-left:auto" title="A revocable, tighten-only Authority Envelope you set in plain words. Enforce mode is required before any live trade on your own keys.">custody</span></h2>
-          <p style="color:var(--text-2);margin-bottom:var(--s2)">Say what your agent may do — <i>"only majors, max $500 a trade, $2,000 a day, only on bitget"</i>. It compiles to a revocable envelope that <b>caps and authorizes</b> every live order. Nothing is enforced until you switch it on.</p>
-          <form class="stack" id="authForm">
-            <textarea class="input" id="authText" rows="2" maxlength="600" placeholder="only majors, max $500 per trade, $2000 a day, only on bitget"></textarea>
-            <div class="row" style="gap:var(--s2);flex-wrap:wrap">
-              <button class="btn btn--sm" type="submit">Preview</button>
-              <button class="btn btn--sm btn--primary" type="button" id="authApply">Save (shadow)</button>
-              <span id="authMsg" class="small muted" aria-live="polite"></span>
-            </div>
-          </form>
-          <div id="c-authority" style="margin-top:var(--s2)"><div class="skel"></div></div>
-        </section>
+        <section class="panel panel--lead" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-tpos"><div class="skel"></div></div></section>
         <div class="grid grid-main">
           <section class="panel panel--primary" id="p-ticket">
             <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-target"></use></svg><span data-i18n="dp.ticket">Order ticket</span></h2>
@@ -3483,7 +3470,20 @@
             <span class="badge" style="margin-left:auto" title="The engine's live directional read for this symbol — the same confluence and voters behind the market view. Read-only context, not an instruction.">the why</span></h2>
           <div id="c-tinsight"><p class="muted small">Enter a symbol to see its live decision picture.</p></div>
         </section>
-        <section class="panel" id="p-tpos"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.hpos">Open positions</span></h2><div id="c-tpos"><div class="skel"></div></div></section>
+        <section class="panel" id="p-authority">
+          <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span data-i18n="dp.authority">Your trading authority</span>
+            <span class="badge" style="margin-left:auto" title="A revocable, tighten-only Authority Envelope you set in plain words. Enforce mode is required before any live trade on your own keys.">custody</span></h2>
+          <p style="color:var(--text-2);margin-bottom:var(--s2)">Say what your agent may do — <i>"only majors, max $500 a trade, $2,000 a day, only on bitget"</i>. It compiles to a revocable envelope that <b>caps and authorizes</b> every live order. Nothing is enforced until you switch it on.</p>
+          <form class="stack" id="authForm">
+            <textarea class="input" id="authText" rows="2" maxlength="600" placeholder="only majors, max $500 per trade, $2000 a day, only on bitget"></textarea>
+            <div class="row" style="gap:var(--s2);flex-wrap:wrap">
+              <button class="btn btn--sm" type="submit">Preview</button>
+              <button class="btn btn--sm btn--primary" type="button" id="authApply">Save (shadow)</button>
+              <span id="authMsg" class="small muted" aria-live="polite"></span>
+            </div>
+          </form>
+          <div id="c-authority" style="margin-top:var(--s2)"><div class="skel"></div></div>
+        </section>
       </div>`);
 
     // Mode note: quiet chip, not a blocker.

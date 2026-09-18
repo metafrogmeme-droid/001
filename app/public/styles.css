@@ -485,6 +485,34 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
 .state-block p { color: var(--text-3); font-size: var(--fs-sm); max-width: 42ch; }
 .state-block .btn { margin-top: var(--s1); }
 
+/* A LEADING PANEL'S EMPTY STATE IS A LINE, NOT A HERO.
+   `.state-block` is a centred column with `--s6` padding — right for a panel
+   in the middle of a view, wrong for the FIRST one. The Trade view now leads
+   with Open positions (live money before the ticket that opens more), and a
+   trader holding nothing would have met a ~300px empty box above the order
+   ticket: a reorder meant to raise the priority item would have pushed the
+   primary ACTION further down than it was before. Same block, same words,
+   one row. It wraps, because a phone cannot fit icon + sentence + CTA. */
+.panel--lead .state-block {
+  flex-direction: row; flex-wrap: wrap; align-items: center;
+  text-align: left; gap: var(--s2); padding: var(--s3) 0 0;
+}
+.panel--lead .state-block .icon { width: 18px; height: 18px; flex: none; }
+.panel--lead .state-block p {
+  /* A ZERO BASIS, and `flex: 1 1 auto` is the version that does not work.
+     `flex-wrap` breaks lines using each item's flex-BASIS, before any shrink
+     is applied — so a basis of `auto` (the sentence's max-content width, far
+     wider than what is left beside an 18px icon) wraps the whole paragraph
+     onto its own line and it then takes the full row: the column this rule
+     exists to remove, rebuilt by the wrap beside it. `min-width: 0` does not
+     save it, because the item never gets onto the first line to be shrunk.
+     Basis 0 always fits, then grows into what is left. Measured, not
+     reasoned: the first draft here was `1 1 auto` and the drive returned the
+     icon at y=205 with the sentence at y=231, on its own 346px line. */
+  max-width: none; flex: 1 1 0; min-width: 0;
+}
+.panel--lead .state-block .btn { margin-top: 0; margin-left: auto; }
+
 .section-note {
   display: flex; align-items: center; gap: var(--s2);
   border: 1px dashed var(--line-2); border-radius: var(--radius);
