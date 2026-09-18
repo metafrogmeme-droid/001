@@ -324,6 +324,308 @@ def _prove_the_undo_is_honest(MonkeyPatch) -> None:
             "correction is wider than the shadow it exists to remove")
 
 
+# ── NO TEST REACHES A VENUE ──────────────────────────────────────────
+#
+# A TEST THAT LOSES ITS STUB BECOMES A VENUE READ, AND THE GATE IS BUILT TO
+# FORGIVE THAT EXACT SIGNATURE. `tests/test_scan_reads_the_executors_record.py`
+# stubs `ss._closed_trades_file` and asserts about the closed-trade record;
+# further into the same `_fetch_live_exchange_data` a real
+# `ccxt_sync.bitget({...})` is built and `fetch_balance` is called against
+# api.bitget.com, three times with its retries. All eight of that file's tests
+# passed, because the one field that read feeds — `equity` — is asserted by
+# none of them and the read sits inside a broad `except`. Driven over the whole
+# suite, twelve tests in four files reached six hosts: api.bitget.com,
+# api.bybit.com and the three news feeds `_refresh_news_radar` pulls.
+#
+# NOT ONE OF THE TWELVE ASSERTS AGAINST A VENUE — every one is a stub that was
+# never made, which is the quiet half. A test that asserts against a live venue
+# goes red the first time the venue disagrees; a test that merely reaches one is
+# slow, nondeterministic and GREEN. And when it does go red, `ci_test_gate`'s
+# flake filter re-runs it alone, the venue answers that time, and the result is
+# filed `~ passes alone (flaky/order-dependent)` — the same forgiveness that hid
+# the monkeypatch leak above, arriving through the network instead of through
+# module state.
+#
+# SO THE CONNECT IS REFUSED AND THE REFUSAL IS ORDINARY. The code under test
+# sees ECONNREFUSED, which is the state every venue reader here is written to
+# handle, so the test goes on exercising the path it meant to — deterministically
+# and in microseconds rather than a network round trip. The harness records the
+# attempt and the TEARDOWN is where it is said, because the broad `except` in
+# the code under test would otherwise swallow the only evidence there is. A
+# `BaseException` would escape those handlers, and it would also change the
+# control flow of the code being tested, which is a different test.
+#
+# THE READING IS FOUR WORDS AND `not-ip` IS A MEASUREMENT, NOT A PASS. A socket
+# whose family is neither AF_INET nor AF_INET6 is not an IP connect at all —
+# AF_UNIX, AF_NETLINK — so nothing about a venue can be claimed of it and
+# nothing is refused. `unreadable` is an IP connect whose address this reading
+# cannot place, and it is REFUSED with a sentence of its own: reading it as
+# loopback would be the failed-read-as-allowed shape, on the one gate whose
+# whole job is to refuse.
+#
+# WHAT IT DOES NOT COVER, stated because a gate whose coverage is overstated is
+# the failure this repo spends most of its guard tests preventing. DNS is
+# untouched — `getaddrinfo` crosses no socket, so a name still resolves and only
+# the connect is refused, which is the right chokepoint because a resolution
+# that never connects reads nothing. A SUBPROCESS has its own interpreter and
+# its own unpatched `socket.socket`, so a test that shells out reaches whatever
+# it likes. Connectionless UDP (`sendto` with no connect) is not covered either;
+# the tree has no `SOCK_DGRAM` at all today, driven rather than assumed.
+#
+# THE DOOR IS A WHOLE-RUN DECISION, the shape `_OVERRIDE_ENV` above already
+# takes: `RUNECLAW_ALLOW_TEST_NETWORK=1` runs the suite against the network on
+# purpose. It SAYS SO at configure, because a containment that is present and
+# refusing nothing is a containment reporting success over the leak it exists to
+# prevent. There is deliberately no per-test marker: no test in this tree needs
+# the network, and a marker nothing uses is a door painted on a wall.
+_NETWORK_OVERRIDE_ENV = "RUNECLAW_ALLOW_TEST_NETWORK"
+
+#: Names that mean loopback without a resolver. Resolving inside the guard
+#: would be the network read the guard exists to refuse, so the vocabulary is
+#: closed and an unknown NAME is refused — which is the loud direction: a false
+#: accusation names the host it refused, where a false allow is a venue read.
+_LOOPBACK_NAMES = frozenset({
+    "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
+})
+
+_NO_VENUE_SHAPE_HINT = (
+    "tests/conftest.py refuses every non-loopback connect the suite makes (see "
+    "the comment above _refuse_outbound_connections), and the install DRIVES "
+    "that refusal in both directions before the first test runs. One of those "
+    "two drives did not answer what it must.\n\n"
+    "This is NOT a pass: without the refusal, a test that loses a stub reaches "
+    "a live venue, asserts against whatever it answered, and the gate's flake "
+    "filter files the result as order-dependent."
+)
+
+
+def _outbound_verdict(family, address):
+    """One connect, in one of four words, plus what to print.
+
+    ``("not-ip"|"local", host, port)`` is allowed; ``("remote"|"unreadable",
+    …)`` is refused. ``port`` is ``-1`` where no port could be read — an
+    absence, printed as an absence, never as port zero.
+    """
+    import ipaddress
+    import socket as _socket
+
+    if family not in (_socket.AF_INET, _socket.AF_INET6):
+        return "not-ip", "", -1
+
+    seq = address if isinstance(address, (tuple, list)) else ()
+    host = seq[0] if len(seq) > 0 else None
+    port = -1
+    if len(seq) > 1:
+        try:
+            port = int(seq[1])
+        except (TypeError, ValueError):
+            port = -1
+    if isinstance(host, (bytes, bytearray)):
+        try:
+            host = bytes(host).decode("ascii")
+        except UnicodeDecodeError:
+            host = None
+    if not isinstance(host, str) or not host:
+        return "unreadable", f"<{type(address).__name__}>", port
+
+    # A SCOPE ID IS READ BY `ipaddress` ITSELF, and the line that used to strip
+    # it here was a claim that there is a check: driven, `ip_address("::1%lo")`
+    # parses and answers `is_loopback` True, so a mutation that removed the
+    # strip changed no verdict on any input a socket can produce. It is gone,
+    # and the property is driven in the guard instead — so the day that
+    # changes, a test fails rather than this quietly starting to refuse `::1`
+    # on a machine that spells its loopback with an interface.
+    if host.lower() in _LOOPBACK_NAMES:
+        return "local", host, port
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return "local", host, port
+    except ValueError:
+        pass
+    return "remote", host, port
+
+
+class _OutboundLedger:
+    """Every refused connect, stamped with the test that was running.
+
+    The stamp is taken at CONNECT time from `pytest_runtest_logstart` /
+    `logfinish`, never at report time. `pytest_runtest_teardown` runs ALONGSIDE
+    the hook that invokes the fixture finalizers, so a snapshot taken there is
+    taken before them and attributes every artefact to the NEXT test — the
+    mis-attribution the monkeypatch probe above hit, and the reason this does
+    not ask "what is running now?" when it comes to report.
+    """
+
+    def __init__(self):
+        self.rows = []
+        self.nodeid = None
+
+    def note(self, word, host, port, call):
+        self.rows.append((self.nodeid, word, host, port, call))
+
+    def drain(self, nodeid):
+        mine = [r for r in self.rows if r[0] == nodeid]
+        if mine:
+            self.rows = [r for r in self.rows if r[0] != nodeid]
+        return mine
+
+    def drain_all(self):
+        rows, self.rows = self.rows, []
+        return rows
+
+
+_OUTBOUND = _OutboundLedger()
+
+
+class _RefusedOutbound(ConnectionRefusedError):
+    """What the code under test sees.
+
+    An ORDINARY refused connection, deliberately: every venue reader in this
+    tree already handles one, so the test keeps exercising its own path and the
+    harness — not the exception — is what reports the reach.
+    """
+
+
+def _outbound_row_line(word, host, port, call):
+    where = f"{host}:{port}" if port >= 0 else host
+    if call != "connect":
+        where = f"{where}  ({call})"
+    if word == "unreadable":
+        return (f"    {where}  — an address this reading could not place, so it "
+                f"was refused rather than read as loopback")
+    return f"    {where}"
+
+
+def _reached_the_network_text(nodeid, rows):
+    """The whole sentence, pure, so it can be driven without a suite."""
+    where = "\n".join(_outbound_row_line(w, h, p, c) for _n, w, h, p, c in rows)
+    plural = "" if len(rows) == 1 else "s"
+    return (
+        f"{nodeid} reached the network.\n\n"
+        f"  {len(rows)} refused connect{plural}:\n{where}\n\n"
+        "A test that reaches a venue is a test asserting against whatever that\n"
+        "venue answered — and when its stub is the thing that went missing, the\n"
+        "assertion still passes, so this line is the only evidence there is. The\n"
+        "connect was refused: the code under test saw an ordinary ECONNREFUSED,\n"
+        "which is the state it is written to handle.\n\n"
+        "Stub the seam the test reaches through. To run the suite against the\n"
+        f"real network on purpose, set {_NETWORK_OVERRIDE_ENV}=1."
+    )
+
+
+def _refuse_outbound_connections() -> None:
+    import errno
+    import socket as _socket
+
+    if getattr(_socket.socket.connect, "_runeclaw_no_venue", False):
+        return                                  # already installed this session
+
+    real_connect = _socket.socket.connect
+    real_connect_ex = _socket.socket.connect_ex
+
+    def _refused(sock, address, call):
+        """The errno to answer with, or None to call through."""
+        word, host, port = _outbound_verdict(sock.family, address)
+        if word not in ("remote", "unreadable"):
+            return None, host, port
+        _OUTBOUND.note(word, host, port, call)
+        return errno.ECONNREFUSED, host, port
+
+    def connect(self, address):
+        rc, host, port = _refused(self, address, "connect")
+        if rc is not None:
+            raise _RefusedOutbound(
+                rc, f"refused by tests/conftest.py: no test may reach "
+                    f"{host}:{port}")
+        return real_connect(self, address)
+
+    def connect_ex(self, address):
+        # `connect_ex` ANSWERS an errno where `connect` raises one, and the
+        # emulation has to match or a caller that reads the return value gets a
+        # traceback from a call that documents itself as never raising.
+        rc, _host, _port = _refused(self, address, "connect_ex")
+        if rc is not None:
+            return rc
+        return real_connect_ex(self, address)
+
+    connect._runeclaw_no_venue = True
+    connect_ex._runeclaw_no_venue = True
+    _socket.socket.connect = connect
+    _socket.socket.connect_ex = connect_ex
+    _prove_the_refusal_is_honest(_socket)
+
+
+def _prove_the_refusal_is_honest(_socket) -> None:
+    """DRIVE the refusal once, against the socket module that is really there.
+
+    BOTH DIRECTIONS, and the second is the expensive one. A rule that refused
+    everything passes the first check and takes down every test that runs a
+    local server — including the aiohttp test server `test_networth_gateway`
+    stands up — so the loopback connect is made for real and required to land.
+    """
+    probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    try:
+        # RFC 5737 documentation space. It is never reached: the refusal
+        # answers before the real connect is called.
+        probe.connect(("198.51.100.1", 9))
+    except _RefusedOutbound:
+        pass
+    except Exception as exc:                      # noqa: BLE001 - reported below
+        raise RuntimeError(
+            f"a non-loopback connect raised {type(exc).__name__} rather than "
+            f"the refusal: {exc}") from exc
+    else:
+        raise RuntimeError(
+            "the refusal is installed and let a non-loopback connect through")
+    finally:
+        probe.close()
+    if not _OUTBOUND.drain_all():
+        raise RuntimeError("the refusal raised and recorded nothing")
+
+    server = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    client = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    try:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        client.settimeout(5)
+        client.connect(server.getsockname())
+    except _RefusedOutbound as exc:
+        raise RuntimeError(f"the refusal refused loopback: {exc}") from exc
+    finally:
+        client.close()
+        server.close()
+    if _OUTBOUND.drain_all():
+        raise RuntimeError("a loopback connect was recorded as reaching a venue")
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _OUTBOUND.nodeid = nodeid
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    _OUTBOUND.nodeid = None
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """The backstop, and it names the test the way the fixture does.
+
+    Two kinds of row reach here rather than a teardown: one recorded outside any
+    test (collection, a session fixture) whose stamp is None, and one recorded
+    after `_no_test_reaches_a_venue` has already drained — which happens only if
+    a later autouse fixture is declared ABOVE it, since finalizers run in
+    reverse declaration order. Neither is a false acquittal: the connect was
+    refused either way, and the stamp still says which test was running.
+    """
+    rows = _OUTBOUND.drain_all()
+    if not rows:
+        return
+    for nodeid in sorted({r[0] for r in rows}, key=lambda n: (n is None, n)):
+        mine = [r for r in rows if r[0] == nodeid]
+        print("\n" + _reached_the_network_text(
+            nodeid or "<outside any test>", mine))
+    session.exitstatus = 1
+
+
 def pytest_configure(config):
     _refuse_a_live_store()
     try:
@@ -331,6 +633,18 @@ def pytest_configure(config):
     except Exception as exc:
         raise pytest.UsageError(
             f"{_MONKEYPATCH_SHAPE_HINT}\n\n  {type(exc).__name__}: {exc}") from exc
+    if os.environ.get(_NETWORK_OVERRIDE_ENV):
+        # SAID, not assumed. A containment switched off in silence is a
+        # containment reporting success over the leak it exists to prevent.
+        print(f"\n[conftest] {_NETWORK_OVERRIDE_ENV} is set: outbound connects "
+              f"are NOT refused, and a test that reaches a venue will not be "
+              f"reported.")
+        return
+    try:
+        _refuse_outbound_connections()
+    except Exception as exc:
+        raise pytest.UsageError(
+            f"{_NO_VENUE_SHAPE_HINT}\n\n  {type(exc).__name__}: {exc}") from exc
 
 
 def _clean_runtime_state() -> None:
@@ -347,6 +661,24 @@ def _clean_runtime_state() -> None:
                 pass
     for d in _STATE_DIRS:
         shutil.rmtree(d, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _no_test_reaches_a_venue(request):
+    """Say, at teardown, that this test reached the network.
+
+    DECLARED FIRST AMONG THE AUTOUSE FIXTURES ON PURPOSE. Same-scope autouse
+    fixtures set up in declaration order and finalize in reverse, so this one
+    tears down LAST and sees a connect made in any other fixture's teardown.
+    The teardown is also where the report has to be: the venue readers in this
+    tree catch broadly, so by the time the test body's assertions run the
+    exception is gone and the ledger is the only witness left.
+    """
+    yield
+    rows = _OUTBOUND.drain(request.node.nodeid)
+    if rows:
+        pytest.fail(_reached_the_network_text(request.node.nodeid, rows),
+                    pytrace=False)
 
 
 @pytest.fixture(autouse=True)

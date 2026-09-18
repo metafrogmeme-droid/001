@@ -106,13 +106,23 @@ class FakeEngine:
         self.user_portfolios = SimpleNamespace(get=lambda uid: FakePortfolio())
 
 
+#: `fields=None` MEANT "use the default credentials", so the double could not
+#: express the one state the test below names — a record the master key will
+#: not open, which `ExchangeCredentialStore.get()` reports as None. It handed
+#: back real-looking keys instead, `networth_reading` built a bybit client, and
+#: the `ok: False` the test asserts came from the LIVE VENUE rejecting them
+#: rather than from the branch under test. An assertion satisfied for a reason
+#: unrelated to the rule it names.
+_NOT_GIVEN = object()
+
+
 class FakeStore:
     """Credential store double: one user connected to bybit."""
 
-    def __init__(self, connected=True, fields=None):
+    def __init__(self, connected=True, fields=_NOT_GIVEN):
         self._connected = connected
-        self._fields = fields if fields is not None else {
-            "api_key": "k" * 16, "api_secret": "s" * 16}
+        self._fields = ({"api_key": "k" * 16, "api_secret": "s" * 16}
+                        if fields is _NOT_GIVEN else fields)
 
     def has(self, tg):
         return self._connected
@@ -212,6 +222,10 @@ async def test_networth_not_connected_and_unreadable(monkeypatch):
         assert data["cex"]["connected"] is True
         assert data["cex"]["ok"] is False
         assert data["cex"]["equity_usd"] is None
+        # The BRANCH, not just the outcome: a venue that answered badly gives
+        # the same three fields, which is how this test passed for years while
+        # reaching api.bybit.com.
+        assert data["cex"]["detail"] == "credentials unreadable"
 
 
 async def test_networth_guards_unauthorized_callers(monkeypatch):

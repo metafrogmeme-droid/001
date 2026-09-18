@@ -295,6 +295,95 @@ deletes `data/` before and after every test, so a second concurrent run is
 deleting the first one's state ~6000 times. Both were killed and one clean run
 was taken instead; a background suite is a lock on `data/`, not a spare core.
 
+**AND THE SAME FORGIVENESS WAS COVERING TWELVE TESTS THAT READ THE LIVE
+VENUES.** The flake filter's re-run-alone rule is right for a time-sensitive
+test and indistinguishable, from the gate's side, from a test whose stub went
+missing and whose venue answered the second time. Driven — every non-loopback
+connect refused and recorded, over the whole suite — **twelve tests in four
+files made 85 outbound connects to sixteen addresses**: api.bitget.com,
+api.bybit.com and the three news feeds `_refresh_news_radar` pulls.
+
+**NOT ONE OF THE TWELVE ASSERTS AGAINST A VENUE, which is the quiet half.** A
+test that asserts against a live venue goes red the first time the venue
+disagrees; a test that merely REACHES one is slow, nondeterministic and GREEN.
+`test_scan_reads_the_executors_record.py` stubs the closed-trade file and
+asserts about the record it holds, and further into that same
+`_fetch_live_exchange_data` a real `ccxt.bitget` is built and `fetch_balance`
+called three times with its retries — `equity` is the only field that leg feeds
+and no test in the file reads it. Eight tests, passing either way, for as long
+as the file has existed.
+
+**THE CONTAINMENT IS IN THE HARNESS AND THE REFUSAL IS ORDINARY.**
+`tests/conftest.py` patches `socket.socket.connect`/`connect_ex`, which is the
+one chokepoint every higher-level client crosses — requests, aiohttp, ccxt sync
+and async alike — and answers ECONNREFUSED, because that is the state every
+venue reader here is written to handle: the test goes on exercising its own
+path, deterministically and in microseconds. A `BaseException` would escape
+those handlers and change the control flow of the code being driven, which is a
+different test. The harness records the attempt and the TEARDOWN is where it is
+said, since the broad `except` in the code under test swallows the only other
+evidence. The reading is four words and `not-ip` is a MEASUREMENT — AF_UNIX
+carries a path, so nothing about a venue can be claimed of it — while
+`unreadable` is refused with a sentence of its own, because reading an address
+nobody could place as loopback is the failed-read-as-allowed shape on the one
+gate whose whole job is to refuse.
+
+**Stated rather than implied, because a gate whose coverage is overstated is
+the failure this file exists to prevent.** DNS is untouched: `getaddrinfo`
+crosses no socket, so a name still resolves and only the connect is refused —
+the right chokepoint, since a resolution that never connects reads nothing. A
+SUBPROCESS has its own unpatched `socket`. Connectionless UDP is not covered
+either, and the tree has no `SOCK_DGRAM` at all, driven rather than assumed.
+The door is a whole-run decision (`RUNECLAW_ALLOW_TEST_NETWORK=1`, the shape
+`_OVERRIDE_ENV` one containment up already takes) and it SAYS SO at configure;
+there is deliberately no per-test marker, because no test in this tree needs
+the network and a marker nothing uses is a door painted on a wall.
+
+**IT FOUND A TEST PASSING FOR A REASON UNRELATED TO THE RULE IT NAMES.**
+`test_networth_gateway.py`'s credential double took `fields=None` and folded it
+into the DEFAULT keys, so `FakeStore(connected=True, fields=None)` — written
+under a comment reading *"Connected but the record can't decrypt"* — handed
+back real-looking credentials, `networth_reading` built a bybit client, and the
+`ok: False` the test asserts came from the LIVE VENUE rejecting them rather
+than from the branch under test. A sentinel default is the fix, and the
+assertion names the branch (`detail == "credentials unreadable"`) rather than
+three fields a bad venue answer produces identically.
+
+**ONE FILE, TWO MODULE OBJECTS — and the import system makes the copy.**
+`tests/` has no `__init__.py`, so pytest imports the conftest as the TOP-LEVEL
+module `conftest` while `import tests.conftest` resolves through the namespace
+package and imports it AGAIN. Both sit in `sys.modules`: two ledgers, two
+readings, for one containment. The guard's first draft imported the one nothing
+had installed — it drained an empty ledger, reported the spy unasked, and left
+the real rows for the containment to report against the guard that drives it.
+The module is taken from `socket.socket.connect.__globals__` now, which is the
+installed patch saying which copy it reads, and cannot name the wrong one
+however many copies exist. That is the second-copy shape arriving inside the
+instrument for the third time in this file, and the first time the copy had no
+author.
+
+**Thirty-two mutations, each killed — and the two that survived the first round
+were one of each kind.** A `%`-scope strip in the reading was an EQUIVALENT
+MUTANT: driven, `ipaddress.ip_address("::1%lo")` parses and answers
+`is_loopback` True by itself, so removing the strip changed no verdict on any
+input a socket can produce. The line is deleted and the property is driven in
+the guard instead, so the day that changes a test fails rather than the
+containment quietly refusing `::1` on a machine that spells its loopback with
+an interface. The other was a real gap in the guard: deleting the install's
+call to its own self-test left every other check green — the wiring claim was
+unasserted, and it is an AST CALL walk now, the shape the monkeypatch
+containment's twin already uses. Four of the thirty-two put each of the four
+stubs back, and each dies on the containment reporting the test by name, which
+is the end-to-end claim.
+
+**The four stubs are per-file and that is the right division.** A monitor test
+quiets the outbound stages by PREFIX rather than by a list of four names — a
+list is the shape where the fifth stage added tomorrow is the one missing from
+it — and a stage with a prefix none of them cover is caught by the refusal,
+loudly and by name. The containment is the backstop that makes a narrow stub
+safe; without it, each stub would have to be future-proof, and none of them can
+be.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
@@ -6349,7 +6438,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 209 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 210 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -7161,9 +7250,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **402 of 973** reach for source text through `source_scan`, `code_only`
+Driven, **403 of 974** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 402 is a FLOOR and the honest shape is
+source scan that rule does not see, so 403 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
