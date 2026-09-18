@@ -2037,6 +2037,52 @@ half of the measurement that says where the measurement stops.
   names and saw an explicit allow-list I did not enumerate, so the Python MCP
   surface is unmeasured.
 
+  **ANSWERED for bot/mcp/, and the doubt was pointed at the wrong risk.** The
+  allow-list is nine tools and it is not what an agent reaches: driven,
+  `POST /mcp` answers thirty-four tools from `app/routes/mcp.js`'s own registry
+  and every one of the nine answers `{"code":-32602,"message":"Unknown tool:
+  runeclaw_scan"}`. `app/routes/mcp.js` references neither `bot/mcp/server.py`
+  nor any `runeclaw_*` name; nothing outside the tests constructs
+  `RuneClawMCPServer`, and the one production import of the file reads
+  `_MCP_AUTH_TOKEN` to assert the constructor refuses to start without it —
+  a check about a constant, not a caller.
+
+  What WAS measurable is that two published surfaces sent an agent developer
+  at it. `docs/gitbook/mcp-integration.md` — the GitBook page `agent_card.json`
+  names as the documentation — carried the status row *"Implemented --
+  `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp`"* and the sentence
+  *"`app/routes/mcp.js` mounts it"*; the card's own `mcp_tools` listed the same
+  nine and its `interfaces_note` named both files as the MCP interface. The
+  guard standing over the page proved its table and `TOOL_CATALOGUE` agree
+  exactly — they do, about a catalogue nothing can reach — and its CONTROL
+  asserted the module exists, builds a catalogue, and that `app.use('/mcp'` is
+  in `server.js`: three true things whose conjunction is false, because both
+  ends existing is not a connection between them.
+
+  **The surface is safe because the document is wrong about it**, which is what
+  settled the wiring question with evidence rather than taste. `POST /mcp` is
+  mounted with no auth (`app/server.js:415`; `routes/mcp.js` says so in its own
+  comments), and driven, `runeclaw_portfolio` renders six dollar figures and
+  `runeclaw_risk` two — the OPERATOR's book, because `call_tool` takes one
+  shared bearer token and passes no caller identity to any skill. Mounting the
+  catalogue there as the doc claimed would put account dollars on an anonymous
+  route against §4 and hand every caller the operator's book. Three questions
+  precede any door — who the caller is, what a per-caller read means with one
+  shared token, which tools may answer at all — and none is a wiring line, so
+  they are written on the page and in the module rather than answered here.
+
+  Fixed in the adapter itself, because a module nobody reaches becomes
+  defective in exactly the ways `market_cap`, `basis` and `quant_analyze` did:
+  the caller's error copy was a bare f-string of the exception with
+  `_redact_string` applied to the traceback three lines above it, so a venue
+  URL's query token reached whoever called the tool; and `_fullscan` advertised
+  four modes over two behaviours, echoing `"mode": "scalp"` back over the
+  identical whole-universe sweep. `MCP_ALLOW_EXECUTE`, named as the re-enable
+  switch by the module comment and the published page, has no reader in either
+  runtime — the `/vault` hint shape pointed at an environment variable.
+  (`tests/test_the_mcp_adapter_says_what_it_does.py`,
+  `app/test/the_published_mcp_tools_are_tools_the_route_answers.test.js`.)
+
 - README.md and README.zh-TW.md — the task named the README command table
   explicitly and I did not open it. I used bot/skills/command_catalog.py
   instead, on the strength of its own claim that a test asserts catalogue and

@@ -28,15 +28,40 @@
     "multi_agent_swarm"
   ],
   "mcp_tools": [
-    "runeclaw_scan",
-    "runeclaw_analyze",
-    "runeclaw_risk",
-    "runeclaw_portfolio",
-    "runeclaw_explain",
-    "runeclaw_macro",
-    "runeclaw_shield",
-    "runeclaw_fullscan",
-    "runeclaw_backtest"
+    "arena_close",
+    "arena_my_positions",
+    "arena_open",
+    "ask_runeclaw",
+    "compile_intent",
+    "get_agent_card",
+    "get_agent_feed",
+    "get_airdrop_radar",
+    "get_alpha_intel",
+    "get_arena_trader",
+    "get_dex_compare",
+    "get_flight_record",
+    "get_gas",
+    "get_leaderboard",
+    "get_meme_radar",
+    "get_paper_leaderboard",
+    "get_proof_of_pnl",
+    "get_public_letter",
+    "get_rune_stats",
+    "get_rwa_radar",
+    "get_seal_roots",
+    "get_showcase_trade",
+    "get_signals",
+    "get_systemic_risk",
+    "get_track_record",
+    "get_weekly_letter",
+    "plan_escape",
+    "research_token",
+    "run_what_if",
+    "scan_token_safety",
+    "scan_transaction",
+    "stress_portfolio",
+    "verify_call",
+    "xray_transaction"
   ],
   "exchange": "bitget",
   "default_mode": "paper_trading",
@@ -84,10 +109,11 @@
     "paradex"
   ],
   "exchanges_note": "Adapters, not equals: native stop orders and the withdrawal-scope probe exist for Bitget only (bot/core/venues.py).",
-  "interfaces_note": "web: the app/ platform (dashboard, chat, Arena, Guardian) at the site origin; rest: api_bridge.py; mcp: bot/mcp/server.py and app/routes/mcp.js.",
+  "interfaces_note": "web: the app/ platform (dashboard, chat, Arena, Guardian) at the site origin; rest: api_bridge.py; mcp: app/routes/mcp.js, MCP Streamable HTTP at POST /mcp — ask it tools/list. This used to name bot/mcp/server.py here too; that is an in-process adapter over the bot skill registry with no HTTP door, so naming it as an interface pointed an agent at nine tool names POST /mcp answers Unknown tool for.",
   "languages": {
     "interface": 14,
     "chat": 34,
     "note": "Interface languages from app/public/js/i18n.js; chat languages from bot/utils/i18n.py."
-  }
+  },
+  "mcp_tools_note": "Rendered from app/routes/mcp.js by app/scripts/render_agent_card_tools.js — the tools POST /mcp answers. Ask the server `tools/list` for the descriptions and input schemas; this list is the build it was rendered from. bot/mcp/server.py is an in-process adapter over the bot skill registry with no HTTP door, so its runeclaw_* names are not callable here."
 }

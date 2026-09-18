@@ -384,6 +384,116 @@ loudly and by name. The containment is the backstop that makes a narrow stub
 safe; without it, each stub would have to be future-proof, and none of them can
 be.
 
+**A PUBLISHED PAGE TOLD AN AGENT DEVELOPER NINE TOOL NAMES AND AN ENDPOINT, AND
+THE ENDPOINT ANSWERS `Unknown tool` FOR ALL NINE.** That is the `/vault` hint
+shape at its largest scale so far — there a card named a COMMAND that did
+nothing; here `docs/gitbook/mcp-integration.md`, the GitBook page
+`agent_card.json` names as the documentation, carried the status row
+*"Implemented -- `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp`"* and,
+under it, *"`app/routes/mcp.js` mounts it"*. Driven, `app/routes/mcp.js`
+references neither that module nor any `runeclaw_*` name and serves its own
+registry of thirty-four tools built on the public site's libraries; each of the
+nine comes back `{"code":-32602,"message":"Unknown tool: runeclaw_scan"}`. The
+card's `mcp_tools` listed the same nine and its `interfaces_note` named both
+files as the MCP interface, so every surface the product publishes for machine
+discovery pointed at the half with no door.
+
+**THE GUARD STANDING OVER IT CALLED ITSELF THE CONTROL AND CHECKED A DIFFERENT
+CLAIM.** `test_the_adapter_really_is_there_before_the_doc_claims_it` asserts
+three things and each is TRUE: the module exists, it builds a catalogue, and
+`app.use('/mcp'` is in `app/server.js`. **The conjunction is false** — existence
+of both ends is not a connection between them, which is `words_reach`'s "A DOOR
+EXISTING IS NOT THE DOOR LEADING WHERE THE ROW SAYS" one PROCESS boundary over,
+and `test_the_tool_map_is_the_catalogue_row_for_row` proved the doc's table and
+`TOOL_CATALOGUE` agree exactly — they do, about a catalogue nothing can reach.
+The missing assertion cannot be made from Python: it needs the route asked. It
+is the `web_reads.json` rule with a process boundary instead of a regex — *the
+sentence a surface tells a caller to use is a claim about ANOTHER surface, so
+the other surface checks it* — and it drives `tools/list` against every name
+either publishing surface carries.
+
+**THE SURFACE IS SAFE BECAUSE THE DOCUMENT IS WRONG ABOUT IT, and that settled
+the wiring question with evidence rather than taste.** `POST /mcp` is mounted
+with no auth — `routes/mcp.js` says so in its own comments — and driven,
+`runeclaw_portfolio` renders six dollar figures and `runeclaw_risk` two, the
+OPERATOR's book, because `call_tool` takes one shared bearer token and passes no
+caller identity to any skill. Mounting the catalogue there as the doc claimed
+would publish account dollars on an anonymous route against the percent-ratio-
+count rule and hand every caller the operator's book — the leak
+`viewer_executor` and `live_view(user_id)` closed on six surfaces, arriving
+through a door nobody had pointed at. Three questions precede any door (who the
+caller is, what a per-caller read means with one shared token, which tools may
+answer at all) and none is a wiring line, so they are STATED — on the page, in
+the module docstring — rather than answered by a slice that was scoped as a
+documentation fix.
+
+**Fixed in the adapter anyway, because fix before you wire and the fixing is
+most of the work.** A module nobody reaches becomes defective exactly the way
+`market_cap`, `basis`, `seasonality` and `quant_analyze` each did, and this one
+had two. `_redact_string` scrubbed the traceback for the audit log and the
+CALLER's copy three lines below was a bare f-string of the exception, so a ccxt
+error's `?apiKey=` reached whoever called the tool — `quant_skill._safe_reason`
+one module over, with the redaction present and pointed at the other string.
+And `_fullscan` advertised four modes over two behaviours: it branches on
+`mode == "quick"` and nothing else, so `swing` and `scalp` ran the identical
+whole-universe sweep with the reply echoing `"mode": "scalp"` back over it —
+`ProScanSkill`'s `MODE_CFG.get(mode, MODE_CFG["intraday"])` defect, one adapter
+over. **An acceptance is a claim**, so the validator reads the vocabulary
+`_fullscan` branches on rather than a set literal of its own.
+
+**`MCP_ALLOW_EXECUTE` is the hint shape pointed at an ENVIRONMENT VARIABLE.**
+The catalogue comment told the next developer to re-enable execution "behind
+`MCP_ALLOW_EXECUTE=true`" and the published page repeated it to an operator as
+the gate to set. Driven, it has no reader in either runtime: setting it does
+nothing at all. *The flag arrives with the code that reads it*, and the guard is
+two-way — the day something reads it, the test fails and the wording becomes
+true rather than being kept false by a guard.
+
+**The count in the description was correct and is derived anyway, and the guard
+written for it found the same shape one digit over.** `_fullscan` really does
+sweep 67 symbols — `scan_skill.UNIVERSE` and `deepscan_universe_size()`'s
+`DEEPSCAN_UNIVERSE + TRADFI_PERPETUALS` (115) are two lists and the two counts
+differ legitimately, so reading the second as a correction to the first would
+have replaced a true number with a wrong one. But a number a list decides is the
+part that rots first, so it is counted; and the assertion that it is DERIVED
+rather than typed fired on `"'quick' (top 10 symbols, top 10 signals)"` sitting
+beside `UNIVERSE[:10]` — a second copy of a bound at one digit's scale, in a
+sentence I had just written. *When a fresh assertion fails, check whether the
+code or the assertion is wrong before touching the code*: the assertion was
+right both times.
+
+**The card's list is RENDERED, and the renderer refuses an empty one.** A
+hand-written list of the route's thirty-four tools is the `/setllm`
+ten-of-eleven shape, so `app/scripts/render_agent_card_tools.js` writes it and
+a test re-renders and compares — `scripts/render_secret_shapes.py`'s rule with
+the runtimes the other way round, committed rather than generated at boot for
+the reason that precedent gives. A registry it cannot read RAISES rather than
+writing `mcp_tools: []`, because an empty list on that field publishes *this
+agent exposes no MCP tools* from a read that failed.
+
+**Twenty-three mutations, each killed — and the one that survived the first
+round was a coverage gap, which is the round doing its job.** `_scan_universe`
+imports `scan_skill` inside the function because that module pulls the engine
+in, and its `except` is what keeps this file importable by the one production
+import there is; with `scan_skill` importable in every fixture, swapping the
+`return ()` for a bare `raise` changed no verdict anywhere. Planted (`sys.modules`
+entry of `None`), it dies. Two more are worth naming for what they prove about
+the guards rather than the code: the status row restored to its false form dies
+on the JS side only, which is the direction a Python suite cannot see; and the
+card's list going one name stale dies on the re-render comparison rather than on
+any assertion about a name, because a list that is merely SHORT advertises
+nothing false and only the render can say it drifted.
+
+> **And two of the new assertions matched my own retraction.** The correction
+> has to name what it corrected — the page says the row *used to read* the false
+> sentence — so a bare scan for that sentence matches the fix and reports it as
+> the defect. `_unquoted` exists in the sibling guard for exactly this and it
+> happened here anyway, twice: once in the JS pin (re-bounded to the status
+> TABLE, where the claim actually lived) and once in the Python one, which
+> passed only by accident of line wrapping until it was made to read the source's
+> own voice. *A comment that quotes the string it forbids*, from the author's
+> side, for the second slice running.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
@@ -6438,7 +6548,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 210 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 211 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -7250,9 +7360,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **403 of 974** reach for source text through `source_scan`, `code_only`
+Driven, **404 of 975** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 403 is a FLOOR and the honest shape is
+source scan that rule does not see, so 404 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
