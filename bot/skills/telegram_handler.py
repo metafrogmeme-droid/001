@@ -1705,7 +1705,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
 
     # ── Pane renderers ────────────────────────────────────────
 
-    def _pane_gate_blocks(self, feature: str, user_id) -> Optional[str]:
+    def _pane_gate_blocks(self, feature: str, user_id,
+                          display: str = "") -> Optional[str]:
         """Upgrade/unavailable text if the tier gate blocks `feature`, else None.
 
         The dashboard equivalent of `_token_gate_blocks`. Same decision, same
@@ -1713,6 +1714,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         pane shows the message in place instead of sending one. Fail-open on any
         internal error, exactly as the Telegram path does — a bug in the gate
         must never take the dashboard down.
+
+        `display` is the THIRD noun, and this method had two names for three
+        things: it handed the FEATURE to `upgrade_message`, which is what its
+        sibling `_token_gate_blocks` was cured of when a paywalled caller read
+        "Pro_scan scan is a staked-tier feature" — an internal identifier in
+        the sentence asking them to buy something. Empty falls back to the
+        feature, which is what every caller without one has always had.
         """
         try:
             from bot.token import tier_gate
@@ -1720,7 +1728,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if allowed:
                 return None
             return (tier_gate.unavailable_message() if reason == "unavailable"
-                    else tier_gate.upgrade_message(feature))
+                    else tier_gate.upgrade_message(display or feature))
         except Exception as exc:
             system_log.debug("pane token gate check skipped: %s", exc)
             return None
@@ -1741,7 +1749,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # question of which client you happen to open, so the check runs
             # here too — returning the upgrade text rather than sending it,
             # because this path renders a string and has no chat to reply to.
-            blocked = self._pane_gate_blocks("learning", user_id)
+            blocked = self._pane_gate_blocks("learning", user_id,
+                                              "the learning report")
             if blocked:
                 return blocked
             return await self.registry.dispatch("learning", self.engine, **kw)
@@ -3893,7 +3902,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # name (absent from FEATURE_MIN_TIER) and charged nobody.
                 from bot.token.tier_gate import feature_for as _feature_for
                 if await self._token_gate_blocks(
-                    update, str(_kw.get("mode") or "deep"), _feature_for(_ran)
+                    update, f'{_kw.get("mode") or "deep"} scan', _feature_for(_ran)
                 ):
                     # A paywall is not a failure and not an absence: the scan
                     # exists and a gate said no. Recorded as its own outcome,

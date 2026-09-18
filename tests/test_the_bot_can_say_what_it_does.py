@@ -1198,3 +1198,96 @@ from tests.test_free_text_obeys_the_role_gate import OPERATOR, _update  # noqa: 
 @pytest.fixture(name="bot")
 def _bot(tmp_path):
     yield from _halt_bot.__wrapped__(tmp_path)
+
+
+# ── The card offered the one paid skill whose two names differ ────────────
+
+
+def _no_wallet_users():
+    """A caller whose ROLE holds everything and who has linked no wallet.
+
+    Asymmetric on purpose: with the role gate open, the ONLY thing that can
+    withhold a paid skill is the tier gate, so a card that still offers one is
+    reading the gate wrong rather than getting lucky on a role.
+    """
+    return NS(permission_denial=lambda u, p: None,
+              get_tier=lambda u: "basic",
+              get=lambda u: {"role": "trader"},
+              get_user=lambda u: {"role": "trader"})
+
+
+@pytest.fixture()
+def _gate_on(monkeypatch):
+    """The $RCLAW gate, enabled, with nothing linked."""
+    monkeypatch.setenv("TOKEN_TIER_GATE_ENABLED", "true")
+    monkeypatch.setenv("RCLAW_MINT", "So11111111111111111111111111111111111111112")
+    from bot.token import tier_gate
+    monkeypatch.setattr(tier_gate, "_resolve_wallet", lambda users, uid: None)
+    return tier_gate
+
+
+@pytest.mark.parametrize("surface", ["telegram", "web"])
+def test_no_paid_skill_is_reachable_without_the_stake(_gate_on, surface):
+    """NINE paid skills, and the card offered the ninth.
+
+    `check_user` takes a FEATURE and answers `(True, "ok")` for a name it does
+    not hold. `skill_reach` held a SKILL. Eight of the nine paid skills are
+    gated by COINCIDENCE — their two names match — and `pro_scan` is sold as
+    `premium_scan`, so it was the one paid skill with no gate on this walk:
+    driven, its eight siblings answered `no_wallet` and it answered `ok`.
+
+    The role gate is open in this fixture, so anything still reachable here is
+    reachable because of the tier gate's answer and nothing else.
+    """
+    users = _no_wallet_users()
+    paid = {s for s in SKILL_PERMISSION
+            if _gate_on.feature_for(s) in _gate_on.FEATURE_MIN_TIER}
+    assert len(paid) == 9 and "pro_scan" in paid, sorted(paid)
+
+    reach, withheld = skill_reach(users, "u", surface, list(SKILL_PERMISSION))
+
+    offered = sorted(paid & set(reach))
+    assert offered == [], (
+        f"{surface}: the card offers paid skills to a caller with no wallet: "
+        f"{offered}. `check_user` answers ok for a name it does not hold, so "
+        "the walk must ask it about the FEATURE (`tier_gate.feature_for`).")
+    assert withheld.get("wallet") == len(paid), (
+        f"{surface}: the remedy count is {withheld.get('wallet')} where nine "
+        "paid skills were withheld — a bounded list printed as whole, "
+        "undercounting by exactly the row it had just offered.")
+
+
+def test_the_card_does_not_invite_an_ask_the_dispatch_refuses(_gate_on):
+    """The rendered sentence, because the count alone is not what a person reads.
+
+    This is the `/vault` hint shape with the sign flipped: there a card named a
+    COMMAND that did nothing, here it named a CAPABILITY and claimed asking for
+    it does something. The dispatch DOES read `feature_for`
+    (`user_gateway`, `telegram_handler`), so the caller was invited and then
+    refused at the door.
+    """
+    users = _no_wallet_users()
+    reach, withheld = skill_reach(users, "u", "telegram", list(SKILL_PERMISSION))
+    card = capability_answer(reach, surface="telegram", role="trader",
+                             withheld=withheld, tools=set())
+    scan_row = SKILL_SAYS["pro_scan"]
+    assert scan_row not in card, (
+        "the card offers the paid timeframe scan to a caller the dispatch "
+        f"will refuse: {scan_row!r}")
+    assert "9 more need a linked, verified wallet" in card, card
+
+
+def test_the_gate_is_asked_the_feature_rather_than_told_the_skill(_gate_on, monkeypatch):
+    """DRIVEN, not scanned: the noun that reaches `check_user`.
+
+    Asserting the card's counts proves the two AGREE today. It cannot prove
+    which noun crossed the boundary — and the fix is exactly one noun, so a
+    later reader who "simplifies" `feature_for` away passes every count
+    assertion above. Record what the gate was asked.
+    """
+    asked: list[str] = []
+    real = _gate_on.check_user
+    monkeypatch.setattr(_gate_on, "check_user",
+                        lambda u, i, f: (asked.append(f), real(u, i, f))[1])
+    skill_reach(_no_wallet_users(), "u", "telegram", ["pro_scan", "deepscan"])
+    assert asked == ["premium_scan", "deepscan"], asked

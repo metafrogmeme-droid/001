@@ -1610,7 +1610,16 @@ unl…
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
-nineteen capabilities none of them had named. Several are not under-served
+capabilities none of them had named. The list is TWENTY-TWO now, and it was
+written down as a smaller number in three places while growing under them —
+slices kept shipping capabilities the map still has no leaf for (the trade
+co-pilot, trade costs, why a stop could not be placed, the POC-retest setup)
+and each was appended under a count that did not move. It is derived by
+`tests/test_the_income_map_counts_its_own_list.py` now rather than restated a
+fourth time: a count in prose is the part that rots first, and this one rotted
+in the document a session is scoped from. The earlier figure is not quoted
+here, because that guard forbids a stale numeral in this section and prose
+narrating one is indistinguishable from the count itself. Several are not under-served
 leaves — they are whole surfaces the map does not ask about, which is a fact
 about the map rather than about the product. They are listed as the critic
 wrote them, with its own `which_leaf` guess omitted where it said the guess
@@ -2072,9 +2081,22 @@ half of the measurement that says where the measurement stops.
 - Permission and tier gating for nearly every door I report. I verified
   REGISTRATION and WIRING, not who may run what. The only guards I actually
   read are @guard("rwa") on /rwa and @guard("scan") on /stockscan. Whether a
-  paper-tier or signed-out caller reaches any of the nineteen rows above is
+  paper-tier or signed-out caller reaches any of the rows above is
   unmeasured — and this repo's own history (the pro_scan/premium_scan
   mismatch) says skill name and feature name are not the same noun.
+
+  PARTLY ANSWERED, and the hazard it names was real. The $RCLAW tier gate was
+  driven with the gate enabled and no wallet linked: `check_user` is keyed by
+  FEATURE and answers `(True, "ok")` for a name it does not hold, and
+  `chat_tools._tier_verdict` passed it the SKILL — so eight of the nine paid
+  skills were withheld and `pro_scan`, sold as `premium_scan`, was OFFERED.
+  The capability card read "a scan tuned to one timeframe" above "8 more need
+  a linked, verified wallet", undercounting by the row it had just offered.
+  Not an execution bypass: the dispatch does read `feature_for`, so the caller
+  was invited and then refused. Fixed, with a structural ratchet over every
+  `check_user` call site and a mutation round; CLAUDE.md records it under "THE
+  GATE IS ASKED ABOUT A FEATURE". The rest of the doubt stands — this measured
+  ONE gate family, and the ROLE gate across these rows is still unread.
 
 
 ### Doubts the sweep held about its own answers
@@ -2308,6 +2330,6 @@ full ninety:
   market-making leaf, so a CEX/DEX maker strategy would also land nowhere.
 
 That is a finding about the map rather than about the product, and it is the
-reason this document lists the nineteen unmapped capabilities above instead of
+reason this document lists the unmapped capabilities above instead of
 forcing each into the nearest leaf. Forcing them would have made the coverage
 look better and told you less.

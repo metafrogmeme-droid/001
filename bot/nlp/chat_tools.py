@@ -303,7 +303,7 @@ _TIER_BUCKET: dict[str, str] = {
 
 
 def _tier_verdict(users, user_id: str, skill_name: str) -> tuple[bool, str]:
-    """``(allowed, bucket)`` from the $RCLAW tier gate.
+    """``(allowed, bucket)`` from the $RCLAW tier gate, asked about a SKILL.
 
     Mirrored from the two dispatch sites: both let a gate BUG through rather
     than take the transport down, and so does this. A gate VERDICT is honoured
@@ -313,10 +313,25 @@ def _tier_verdict(users, user_id: str, skill_name: str) -> tuple[bool, str]:
     would rather say it could not check than name a remedy it cannot justify,
     and a reason added to the gate tomorrow lands in the honest bucket by
     default instead of the flattering one.
+
+    THE NOUN IS THE WHOLE THING. `check_user` takes a FEATURE and answers
+    `(True, "ok")` for any name it does not hold; what this walk holds is a
+    SKILL. Eight of the nine paid skills are gated by COINCIDENCE — their two
+    names happen to match — and the ninth is `pro_scan`, sold as
+    `premium_scan`. Handing the skill straight over made it the one paid skill
+    with no gate: driven with the gate on and no wallet linked, its eight
+    siblings answered `no_wallet` and it answered `ok`, so the card OFFERED
+    "a scan tuned to one timeframe" and then said "8 more need a linked,
+    verified wallet" — undercounting the remedy by exactly the row it had
+    just offered, and inviting an ask the dispatch (which does read
+    `feature_for`) refuses. `tier_gate`'s own comment names this site without
+    knowing it: "anything else that gates by what it is about to DISPATCH".
     """
     try:
         from bot.token import tier_gate
-        allowed, reason = tier_gate.check_user(users, user_id, skill_name)
+        allowed, reason = tier_gate.check_user(
+            users, user_id, tier_gate.feature_for(skill_name)
+        )
         if allowed:
             return True, ""
         return False, _TIER_BUCKET.get(str(reason), "unreadable")

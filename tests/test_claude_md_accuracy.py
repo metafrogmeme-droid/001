@@ -114,6 +114,39 @@ def test_the_jobs_it_says_are_uncovered_really_are():
         assert word in uncovered, f"CLAUDE.md claims {word} is uncovered; it is not"
 
 
+def test_the_shadowed_toolchain_remedy_it_quotes_is_the_one_the_tool_prints():
+    """CLAUDE.md quotes the remedy sentence `scripts/toolchain.py` prints.
+
+    A DOCUMENT THAT QUOTES A TOOL'S OWN MESSAGE is claiming that message is
+    what an operator will see, which is the `/vault` hint rule pointed at
+    prose: there a card named a command and nothing checked the command did
+    anything; here the file names the sentence that tells you how to unshadow
+    a pinned tool, and nothing checked the tool still says it. The quote is
+    load-bearing -- it is the whole reason the PATH prefix beside it is the
+    right prefix rather than a guess about this box.
+
+    Deliberately NOT pinned: that `/usr/local/bin` is where the pinned builds
+    live. That is a fact about one machine, not about this repository, and a
+    test asserting it would fail on CI and on every other checkout -- which is
+    the failing direction that teaches people to delete the test rather than
+    read it.
+    """
+    quoted = "Put the pinned one's directory first"
+    # Both sides are WRAPPED text -- CLAUDE.md is hard-wrapped prose and the
+    # source sentence is split across f-string continuation lines -- so any
+    # multi-word quote straddles a line break on one side or the other. The
+    # first draft compared raw and failed on the doc, which is the assertion
+    # being wrong rather than the claim: flatten, as every other reader of
+    # this file already does.
+    flat_doc = re.sub(r"\s+", " ", DOC)
+    assert quoted in flat_doc, "CLAUDE.md no longer quotes the unshadow remedy"
+    src = re.sub(r"\s+", " ", (ROOT / "scripts" / "toolchain.py")
+                 .read_text(encoding="utf-8"))
+    assert quoted in src, (
+        f"CLAUDE.md quotes {quoted!r} as the sentence scripts/toolchain.py "
+        "prints for a shadowed pinned tool, and that file no longer says it")
+
+
 # ── every rule it states is one the suite enforces ────────────────────────
 
 def test_the_honesty_rule_has_a_guard_behind_it():
@@ -1047,3 +1080,85 @@ def test_the_latent_hazard_it_names_is_still_the_shape_it_says():
     assert "MARKER_IN_A_DOCSTRING" in out, (
         "and the DOCSTRING survives, which is the hazard the paragraph "
         "declines to consolidate on")
+
+
+def test_the_gate_noun_section_names_numbers_a_drive_returns():
+    """"THE GATE IS ASKED ABOUT A FEATURE" restates two measurements this file
+    already derives elsewhere, and a second copy of a measurement is a second
+    answer — so it is pinned to the same drive rather than left as prose.
+
+    The numerals are WORDS in the paragraph and integers from the drive, so
+    the comparison goes through one small table rather than through a regex
+    that would have to know English.
+    """
+    import ast
+
+    from bot.skills.skill_permissions import SKILL_PERMISSION
+    from bot.token import tier_gate as tg
+
+    flat = re.sub(r"\s+", " ", DOC)
+    # 4 is here for no sentence that exists today: the stub count below is
+    # derived, so a THIRD stub written tomorrow asks for words[4], and a
+    # KeyError would fail naming the lookup table rather than the claim.
+    #
+    # WHAT THE DOC CORPUS CANNOT MEASURE, stated rather than counted as a
+    # kill. Rewording the paragraph's numeral fails this test whether the
+    # numeral here is DERIVED or hard-coded, so that mutation says nothing
+    # about the derivation -- it is an equivalent mutant against every input
+    # the real tree can produce. The one mutation that separates them is a
+    # THIRD `_token_gate_blocks` stub, which is a production edit rather than
+    # a fixture, so it is not run: the derivation is an argument about what
+    # happens NEXT, and the `4` above is the whole preparation for it.
+    words = {2: "two", 3: "three", 4: "four", 5: "five", 8: "eight",
+             9: "nine", 11: "eleven", 12: "twelve", 13: "thirteen"}
+
+    # "`FEATURE_MIN_TIER` has nine keys and eight of them are also the name of
+    # the skill that runs them" — the same derivation the scan section makes,
+    # over the SKILLS rather than the features.
+    sold = set(tg.FEATURE_MIN_TIER)
+    paid = {sk for sk in SKILL_PERMISSION if tg.feature_for(sk) in sold}
+    same = {sk for sk in paid if tg.feature_for(sk) == sk}
+    assert f"`FEATURE_MIN_TIER` has {words[len(sold)]} keys" in flat, len(sold)
+    assert f"{words[len(same)]} of them are also the name" in flat, len(same)
+    assert sorted(paid - same) == ["pro_scan"], sorted(paid - same)
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+
+    def _production_trees():
+        for f in sorted(root.rglob("*.py")):
+            rel = f.relative_to(root).as_posix()
+            if rel.startswith(("tests/", ".git/", "node_modules/")):
+                continue
+            try:
+                yield ast.parse(f.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+    trees = list(_production_trees())
+
+    # "all twelve of its callers" — every production call to the hop whose
+    # Protocol stubs made the probe refuse. Derived: the day a thirteenth is
+    # written, the sentence moves with it.
+    calls = sum(1 for t in trees for node in ast.walk(t)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "_token_gate_blocks")
+    assert f"all {words[calls]} of its callers" in flat, calls
+
+    # "declare `_token_gate_blocks` twice more that way, so `_hop_def` found
+    # three" — the stubs themselves, asserted to BE stubs rather than merely to
+    # exist. The numeral a reader ACTS on is the one in "found three", and it
+    # is the stub count plus the single real definition, so it is DERIVED: a
+    # third stub written tomorrow moves the sentence rather than leaving it
+    # stale beside a count that still passes. ("twice" is an adverb rather
+    # than a numeral and would need a second word table for one value, so it
+    # stays a literal — it is tied to the same fact the derived numeral is.)
+    stubs = sum(1 for t in trees for node in ast.walk(t)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "_token_gate_blocks"
+                and len(node.body) == 1
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and node.body[0].value.value is Ellipsis)
+    assert stubs == 2 and "twice more that way" in flat, stubs
+    assert f"`_hop_def` found {words[stubs + 1]}" in flat, stubs

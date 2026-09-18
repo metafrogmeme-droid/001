@@ -1,0 +1,21 @@
+# Tier-gate call sites whose FEATURE argument this walk cannot resolve to a
+# feature — each with the reason it is safe anyway.
+#
+# Read by tests/test_the_tier_gate_is_asked_about_a_feature.py, two ways: an
+# unresolved site not listed here is a hard failure, AND a listed site that
+# has since become resolvable is a hard failure too. That is the
+# known_failures.txt rule — an exemption kept past its reason is a hole with a
+# good reputation, and a stale row must not be allowed to sit in front of the
+# next real one.
+#
+# Format:  <path>::<dotted.function>#<occurrence>  <reason>
+# (two spaces separate the key from the reason; a row with no reason fails)
+#
+# The key carries no LINE NUMBER on purpose, for the reason
+# candle_hygiene_baseline.txt gives: a path:line pair is invalidated by any
+# edit above it, so the gate would spend most of its firings on churn.
+#
+# EMPTY TODAY, and that is the measurement rather than an aspiration: all five
+# production sites resolve. Three pass the feature straight down as a
+# parameter and their own callers resolve; one reads `feature_for` inline; one
+# reads a local bound from it.
