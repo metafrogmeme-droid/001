@@ -21,6 +21,7 @@ from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.models import MarketSignal
+from bot.utils.candles import drop_forming_candle
 
 import ccxt.async_support as ccxt
 
@@ -125,7 +126,8 @@ async def main():
 
         # 4a. Fetch OHLCV candles (1h, 100 bars)
         try:
-            candles_1h = await exchange.fetch_ohlcv(sig.symbol, "1h", limit=100)
+            candles_1h = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "1h", limit=100), "1h")
             print(f"  Candles (1h) : {len(candles_1h)} bars loaded")
         except Exception as e:
             print(f"  Candles (1h) : FAILED — {e}")
@@ -133,7 +135,8 @@ async def main():
 
         # 4b. Fetch 4h candles for MTF
         try:
-            candles_4h = await exchange.fetch_ohlcv(sig.symbol, "4h", limit=50)
+            candles_4h = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "4h", limit=50), "4h")
             print(f"  Candles (4h) : {len(candles_4h)} bars loaded")
         except Exception as e:
             print(f"  Candles (4h) : FAILED — {e}")
@@ -141,7 +144,8 @@ async def main():
 
         # 4c. Fetch 1d candles for MTF
         try:
-            candles_1d = await exchange.fetch_ohlcv(sig.symbol, "1d", limit=30)
+            candles_1d = drop_forming_candle(
+                await exchange.fetch_ohlcv(sig.symbol, "1d", limit=30), "1d")
             print(f"  Candles (1d) : {len(candles_1d)} bars loaded")
         except Exception as e:
             print(f"  Candles (1d) : FAILED — {e}")

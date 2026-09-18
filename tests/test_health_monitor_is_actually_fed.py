@@ -43,6 +43,13 @@ class _Stub:
     _record_exchange_read = RuneClawEngine._record_exchange_read
     _cached_ohlcv = RuneClawEngine._cached_ohlcv
     _record_sweep_complete = RuneClawEngine._record_sweep_complete
+    # `_cached_ohlcv` grew this when candle hygiene moved to the boundary: the
+    # cache drops the still-forming bar BEFORE it stores, because
+    # `drop_forming_candle` answers from the wall clock and a stored row
+    # carries no age. A hand-written stand-in that must remember each
+    # attribute is one that will forget the next, so it is borrowed off the
+    # class like its three siblings above.
+    _drop_forming_candle = RuneClawEngine._drop_forming_candle
 
     def __init__(self):
         self._ohlcv_cache = {}

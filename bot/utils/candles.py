@@ -84,6 +84,22 @@ def drop_forming_candle(ohlcv, timeframe: str):
     candle is dropped only when its period has not yet elapsed (its open time
     + timeframe is still in the future), so a feed that already excludes the
     forming bar is left intact. Fail-open: any error returns ohlcv as-is.
+
+    CALL IT AT THE FETCH, because it answers about the moment it is CALLED.
+    The rows carry no age and the decision is a wall-clock comparison, so on
+    rows that have been stored the verdict inverts: a bar that was forming when
+    it was read and whose period has since elapsed is KEPT — the partial values
+    captured at read time, presented as the newest closed bar, its close being
+    the price at read time and its volume a part-period's. The same rows five
+    minutes apart across the bar boundary answer differently. `engine.py`'s
+    shared `_cached_ohlcv` applies this before it stores for exactly that
+    reason, and `_mtf_ttl`'s whole derivation reasons from the result.
+
+    `resample_ohlcv` above needs no such warning and the difference is worth
+    knowing: it derives its own boundary from the DATA (`candles[-1][0] +
+    src_ms`), so its answer is the same however old the rows are. That is not
+    available here — a forming bar's row is byte-identical to a closed one's,
+    which is why this reading needs a clock at all.
     """
     from bot.config import CONFIG
     if not getattr(CONFIG.analyzer, "drop_unclosed_candle_enabled", False):

@@ -5016,6 +5016,123 @@ convention already set for `trading_commands.py`, applied to the file this
 slice happened to grow.
 
 
+**A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
+engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
+is documented as "the engine's single shared exchange read"; it stored the
+venue's rows RAW and each of its three consumers called
+`_drop_forming_candle` on the result. That is the one place the call cannot
+work. `drop_forming_candle` asks "has this bar's period elapsed?" and "yes"
+means KEEP, so a bar that was still FORMING when it was fetched and has since
+closed was kept — the partial values captured at fetch time, presented as the
+newest CLOSED bar, its close the price at fetch time and its volume a
+part-period's read as a whole bar's. Driven, the same three rows five minutes
+apart across the bar boundary answer 2 rows and then 3: one row set, two
+verdicts, decided by a clock the rows know nothing about.
+
+**Reachable on every leg, and `_mtf_ttl`'s own docstring asserted the property
+that was false.** The TTL is `period // 4` floored at 180s, so a fetch in the
+last quarter of a bar can be served after that bar closed and still be inside
+the window; the floor makes 5m *worse* than a quarter — 180s against a 300s
+bar. And the derivation that produces 15m→225s, 1h→900s, 4h→3600s,
+1d→21600s reasons FROM "`_drop_forming_candle` removes the still-forming bar,
+so the set this caches contains CLOSED bars only", which was true of no set
+anybody stored. A third copy of the premise sat in the primary leg's own
+comment. The drop is the cache's now, before it stores, and the three consumer
+calls are DELETED rather than kept: after the fix a second application cannot
+change the answer, so it would be a line no input can reach, which is a claim
+that there is a check.
+
+**The SIBLING twelve lines up already decides from the data, and cannot be
+copied.** `resample_ohlcv` derives its own boundary as `candles[-1][0] +
+src_ms`, so its answer is the same however old the rows are. That is not
+available here — a forming bar's row is byte-identical to a closed one's,
+which is why this reading needs a clock at all — so the precondition is
+STATED on the helper instead, naming the caller that had to learn it.
+
+**A BLANKET SWEEP WOULD HAVE BEEN WRONG, and that is why the breadth needed
+reading rather than a script.** Driven by AST over the whole tree, 36
+functions fetch OHLCV and 25 applied no hygiene — RSI, ATR, squeezes, sweeps,
+volume ratios, MTF structure and the risk gate's own denominator computed on a
+bar that had not closed, and published. But **a forming candle's close IS the
+current price**, so dropping it from a MARK read answers with a close up to
+one whole timeframe old. Six sites wanted both, and they read the mark BEFORE
+the drop and the window after it: `rich_cards.fetch_analysis_data`,
+`chart_renderer` (exempt — a chart DRAWS the forming bar), the `/sweep`,
+`/zones` and `/squeeze` cards, and `scan_skill._scan_symbol`, which is the
+sharpest. Its `vol_ratio = v[-1] / mean(v[-20:])` charged a part-period bar's
+volume against a 20-bar mean of whole ones, so a fresh 4h bar read about
+**0.25x** on the one figure whose whole job is to detect a volume SPIKE.
+Two of `scan_skill`'s three confirm paths hand their ATR straight to
+`engine.risk.evaluate(idea, atr=...)`, where a truncated true range sizes a
+real position against an understated volatility.
+
+**The "for free" half is a ratchet, and it is the reason this does not need
+doing again.** A list of the sites I fixed would be the `/setllm`
+ten-of-eleven shape — the twenty-sixth, added tomorrow, is the one missing
+from the list. `tests/test_every_candle_read_is_hygiened.py` is structural:
+every venue `<x>.fetch_ohlcv(...)` must have hygiene in its enclosing scope
+chain or be named in `tests/candle_hygiene_baseline.txt` WITH its reason,
+two-way as `known_failures.txt` is, so an exemption that stops applying is a
+hard failure. It rides the existing test gate — no new CI step, no change to
+`preflight.py`.
+
+**Its four blind spots are worth more than the rule.** Three were found by
+driving the probe and each manufactured exactly the accusation it exists to
+prevent: a local WRAPPER that applies hygiene (`api_bridge._fetch_ohlcv`, whose
+four callers were all accused — answered by keying on the VENUE read, so a
+caller of a local wrapper is not a site); a NESTED def whose caller hygienes
+the result (`skill_registry._fetch_one`, dropped at the gather — hence the
+enclosing CHAIN); and a name defined many times in one file (the mark probe
+resolved `skill_registry.execute` to the wrong class, the methods ratchet's own
+ambiguity — hence a dotted path plus an occurrence index). **The fourth was
+found by the mutation round and not by reading**: "hygiene somewhere in the
+chain" cannot see ONE OF N, and `callback_confirm_reject` holds three separate
+4h reads, so removing the drop from any one of them left the other two to
+acquit it — three mutations survived a green suite. The rule COUNTS now, and a
+shortfall marks the LAST bare sites in line order so the row to explain is a
+specific read. It objected to two two-branch reads on its first run and was
+right about both: the movers fetch chose its venue in two branches behind one
+drop (consolidated — a branch added later would have inherited nothing), and
+the backtest loader's paging read genuinely assembles ONE series from two
+branches, which is a baselined row with that reason.
+
+**And removing the consumer-side drop surfaced fifteen narrowing complaints
+that an untyped return had been laundering through `Any` — where mypy was
+RIGHT.** `gather(return_exceptions=True)` hands back a BaseException and the
+check was `isinstance(..., Exception)`, which does not cover one: a leg
+cancelled on its own answers `asyncio.CancelledError`, so it was ASSIGNED to
+`ohlcv` and carried into the analysis as an exception OBJECT rather than
+reported as a failed fetch. `_ctx`, three lines below, already read
+`BaseException`; the two that decide the analysis did not — the same
+vocabulary gap the analyze batch records about its own `finally`. `ohlcv` is
+bound BELOW the guard now, where the fetch is known good, rather than above it
+with `None` for a failure the branch has already returned on. The mypy
+baseline fell 577 → 573.
+
+**Three existing guards went red on the tests' own instruments, not on
+anything they guard.** Two ordered against `of_signal = results[1]` — the
+right-hand SIDE — and the ordering they check had not changed; they index the
+ASSIGNMENT now, which is what they were really ordering against, the
+`_web_aliases` lesson in a third place. The third was a stand-in `self` whose
+own docstring promises it carries "the REAL functions under test... taken off
+the class", and which had to be told about a fourth one: a hand-written
+stand-in that must remember each attribute is one that will forget the next,
+which is the same drift the prompt suites' stub store had.
+
+**Thirty-four mutations, each killed. Six survived a round and two were
+refused, and not one of the eight was the code's.** Three survivors were the
+one-of-N gap above. One was an EQUIVALENT MUTANT: a SECOND `ohlcv = _r_ohlcv`
+added above the guard changes no behaviour, because the lower assignment still
+wins — so the assertion counts the bindings now and requires exactly one,
+since two leave a reader two answers about where the value comes from and one
+of them is the shape being removed. Two were gate-side weakenings of the
+baseline rules, UNREACHABLE while the baseline is honest (no row is
+reasonless, none is stale, so the assertion never fires either way); their
+reachable form is a BASELINE edit, which is also what the regression actually
+looks like, and both are driven from that side now. The two refusals were
+stale anchors in my own driver — one on an em dash a heredoc had rewritten,
+one on a line the same slice had moved.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -6059,7 +6176,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **398 of 962** reach for source text through `source_scan`, `code_only`
+Driven, **398 of 965** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 398 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

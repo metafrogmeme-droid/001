@@ -2741,13 +2741,21 @@ class ProScanSkill(BaseSkill):
                 pass
 
         async def _fetch_ohlcv(sym, category):
+            # Hygiene at the WRAPPER rather than in each branch: both venues
+            # answer the same question and the structure lines below are all
+            # measurement, so one drop covers whichever branch ran.
+            from bot.utils.candles import drop_forming_candle
             try:
-                if category != "Crypto" and futures_exchange:
-                    return sym, await futures_exchange.fetch_ohlcv(
-                        sym, cfg["timeframe"], limit=100)
-                else:
-                    return sym, await spot_exchange.fetch_ohlcv(
-                        sym, cfg["timeframe"], limit=100)
+                # ONE read and ONE drop. The venue choice was two branches each
+                # with its own fetch, which is two candle-read sites in one
+                # body -- and the hygiene ratchet counts per scope, so two
+                # reads behind one drop reads as one of them unhygiened. It is
+                # right to object: a branch added later would inherit nothing.
+                _ex = (futures_exchange
+                       if (category != "Crypto" and futures_exchange)
+                       else spot_exchange)
+                rows = await _ex.fetch_ohlcv(sym, cfg["timeframe"], limit=100)
+                return sym, drop_forming_candle(rows, cfg["timeframe"])
             except Exception:
                 return sym, None
 

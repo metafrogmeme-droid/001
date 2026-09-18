@@ -321,10 +321,14 @@ def _mtf_ttl(timeframe: str) -> int:
     slowly, and most of them were asking again for a candle that had not
     moved.
 
-    `_drop_forming_candle` removes the still-forming bar, so the set this
-    caches contains CLOSED bars only. A closed 4h bar cannot change until the
-    next one closes, four hours later. A quarter of the period is therefore
-    conservative by a wide margin:
+    `_cached_ohlcv` removes the still-forming bar BEFORE IT STORES, so the
+    set this caches contains CLOSED bars only. That is a precondition of the
+    arithmetic below rather than a detail: the three consumers used to apply
+    the drop after the cache read, and `drop_forming_candle` answers from the
+    wall clock, so a bar fetched while forming and served after it closed was
+    kept as the newest closed bar with its partial values. A closed 4h bar
+    cannot change until the next one closes, four hours later. A quarter of the
+    period is therefore conservative by a wide margin:
 
         15m -> 225s      1h -> 900s      4h -> 3600s      1d -> 21600s
 
@@ -5397,6 +5401,27 @@ class RuneClawEngine:
             self._record_exchange_read(_t0, exc, symbol, timeframe)
             raise
         self._record_exchange_read(_t0, None, symbol, timeframe)
+        # HYGIENE AT THE BOUNDARY, because `drop_forming_candle` answers from
+        # the WALL CLOCK and a stored row carries no age. It asks "has this
+        # bar's period elapsed?" and "yes" means KEEP — so a bar that was still
+        # FORMING when it was fetched and has since closed was kept, with the
+        # partial values captured at fetch time, as the newest CLOSED bar. Its
+        # close is the price at fetch time and its volume is a part-period's,
+        # read as a whole bar's. Driven: the same three rows, read five minutes
+        # apart across the bar boundary, answer 2 rows and then 3.
+        #
+        # Reachable on every leg, and the window is a quarter of the period:
+        # `_mtf_ttl` is period // 4, so a fetch in the last quarter of a bar
+        # can be served after that bar closed and still be inside the TTL. The
+        # 180s floor makes 5m worse than a quarter — 180s against a 300s bar.
+        #
+        # The three consumers each applied it AFTER the cache read, which is
+        # the one place it cannot work. Dropping HERE is what `_mtf_ttl`'s
+        # docstring has always claimed ("the set this caches contains CLOSED
+        # bars only") and what its whole derivation reasons from; and it is the
+        # boundary rule, because three callers remembering is three chances to
+        # forget and the fourth added tomorrow is the one that forgets.
+        data = self._drop_forming_candle(data, timeframe)
         # The entry carries ITS OWN ttl. Eviction below used to read `ttl` —
         # the parameter of whichever call happened to trip the cap — so a
         # primary 1h/100 fetch (ttl=120) computed a 240s cutoff and deleted
@@ -5454,10 +5479,12 @@ class RuneClawEngine:
             symbol = idea.asset
 
             # Fetch 15m candles for the last ~12 hours (48 candles).
-            # Audit fix #23: drop the still-forming 15m bar like every other
-            # analysis path — refinement previously read the in-progress close.
+            # Audit fix #23: refinement previously read the in-progress close.
+            # The drop is `_cached_ohlcv`'s now and not repeated here — a
+            # second application cannot change the answer (the cached set's
+            # last bar closed before it was stored) so it would be a line no
+            # input can reach, which is a claim that there is a check.
             candles_15m = await self._cached_ohlcv(exchange, symbol, "15m", limit=48, ttl=60)
-            candles_15m = self._drop_forming_candle(candles_15m, "15m")
             if not candles_15m or len(candles_15m) < 20:
                 return idea
 
@@ -6059,8 +6086,8 @@ class RuneClawEngine:
             # sweep re-reaches a symbol roughly every 280s, so 120s missed
             # EVERY pass on the highest-volume key in the cache: 200 fetches a
             # sweep that the cache was sized to hold and never got to serve.
-            # The closed-bar argument is identical — this series is passed
-            # through `_drop_forming_candle` below, exactly like the MTF legs.
+            # The closed-bar argument is identical — `_cached_ohlcv` drops
+            # the forming bar before it stores, exactly like the MTF legs.
             ohlcv_task = self._cached_ohlcv(exchange, signal.symbol, timeframe,
                                             limit=100, ttl=_mtf_ttl(timeframe))
             if lightweight:
@@ -6093,8 +6120,22 @@ class RuneClawEngine:
                 _fetch_dt = time.monotonic() - _t0
                 self._stage_add("fetch", _fetch_dt)
                 _stage_profile_record(self, "fetch", signal.symbol, _fetch_dt)
-            ohlcv = results[0] if not isinstance(results[0], Exception) else None
-            of_signal = results[1] if not isinstance(results[1], Exception) else None
+            # `gather(return_exceptions=True)` hands back a BaseException, and
+            # `isinstance(..., Exception)` does not cover one — a leg cancelled
+            # on its own answers `asyncio.CancelledError`, which is a
+            # BaseException, so it was ASSIGNED to `ohlcv` and carried into the
+            # analysis as an exception OBJECT rather than reported as a failed
+            # fetch. `_ctx` three lines down already reads `BaseException`;
+            # these two decide the analysis and did not. That is the same
+            # vocabulary gap the analyze batch records about its own `finally`.
+            #
+            # Bound to NAMES rather than re-indexed, so the narrowing the check
+            # performs is available below. Nothing complained before because
+            # the `_drop_forming_candle` reassignment that used to sit under
+            # this block laundered the type through an untyped return; removing
+            # it (hygiene moved into `_cached_ohlcv`) is what surfaced this.
+            _r_ohlcv, _r_of = results[0], results[1]
+            of_signal = None if isinstance(_r_of, BaseException) else _r_of
             # Context is best-effort by construction: an exception here is left
             # as None and the analyzer omits the block. It decides nothing, so
             # failing it open costs an observation and never a trade.
@@ -6149,16 +6190,22 @@ class RuneClawEngine:
                     )
                 except Exception:
                     pass
-            if isinstance(results[0], Exception):
+            if isinstance(_r_ohlcv, BaseException):
                 audit(
                     system_log,
-                    f"OHLCV fetch failed: {results[0]}",
+                    f"OHLCV fetch failed: {type(_r_ohlcv).__name__}: {_r_ohlcv}",
                     action="fetch_candles",
                     result="ERROR",
                 )
                 return None
-            if isinstance(results[1], Exception):
-                audit(system_log, f"Order flow analysis failed: {results[1]}",
+            # BOUND WHERE IT IS KNOWN GOOD. It used to be assigned above with
+            # `None` for the failure case and then read forty lines further
+            # down, so every reader carried an absence this branch has already
+            # returned on. Nothing between the gather and here reads it.
+            ohlcv = _r_ohlcv
+            if isinstance(_r_of, BaseException):
+                audit(system_log,
+                      f"Order flow analysis failed: {type(_r_of).__name__}: {_r_of}",
                       action="order_flow", result="ERROR")
         except Exception as exc:
             audit(
@@ -6169,10 +6216,10 @@ class RuneClawEngine:
             )
             return None
 
-        # Repaint fix (gated): drop the still-forming last candle so all TA uses
-        # CLOSED bars only. Entry pricing is unaffected — the analyzer prices off
-        # the live ticker (signal.price), not the last candle. No-op when off.
-        ohlcv = self._drop_forming_candle(ohlcv, timeframe)
+        # Repaint fix (gated): all TA here uses CLOSED bars only, because
+        # `_cached_ohlcv` dropped the still-forming last candle before storing.
+        # Entry pricing is unaffected — the analyzer prices off the live ticker
+        # (signal.price), not the last candle.
 
         # Timeframe-matched Elliott (gated, default ON): fetch the extra
         # timeframes whose wave degree the analyzer may need for scalp/swing/etc,
@@ -6220,7 +6267,7 @@ class RuneClawEngine:
                     _mtf_note(self, signal.symbol, _tf, ok=False)
                     continue
                 if _c:
-                    mtf_candles[_tf] = self._drop_forming_candle(_c, _tf)
+                    mtf_candles[_tf] = _c
                     _mtf_note(self, signal.symbol, _tf, ok=True)
                 else:
                     # An EMPTY result is not an exception, but it is also not

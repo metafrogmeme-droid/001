@@ -43,6 +43,7 @@ from bot.skills.command_guard import guard
 from bot.skills.scan_coverage import coverage_note
 from bot.skills.scan_hints import _scan_timeout_hint
 from bot.skills.scan_skill import cmd_scan as _scan_skill_handler
+from bot.utils.candles import drop_forming_candle
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import system_log
@@ -485,6 +486,12 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
+            # The MARK first, then CLOSED bars only. A forming candle's close
+            # IS the current price, so the card's price reads it; the sweep
+            # detector must not, or a level "swept" intrabar vanishes at the
+            # bar close it was reported on.
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 20:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -507,7 +514,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_sweeps
             await self._send(update, render_sweeps(
-                symbol, float(closes[-1]), signals))
+                symbol, mark if mark > 0 else float(closes[-1]), signals))
         except Exception as exc:
             await self._send_error(update, "the liquidity sweep scan", exc)
 
@@ -560,6 +567,8 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 20:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -587,7 +596,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_zones
             await self._send(update, render_zones(
-                symbol, float(closes[-1]), zones))
+                symbol, mark if mark > 0 else float(closes[-1]), zones))
         except Exception as exc:
             await self._send_error(update, "the supply/demand zone scan", exc)
 
@@ -600,6 +609,8 @@ class ScanCommands:
         try:
             exchange = await self.engine.get_exchange()
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=200)
+            mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+            ohlcv = drop_forming_candle(ohlcv, "1h")
             if not ohlcv or len(ohlcv) < 30:
                 await self._send(update,
                     f"\u26a0\ufe0f Not enough candles for <b>{html.escape(symbol)}</b> to compute this yet.")
@@ -620,7 +631,7 @@ class ScanCommands:
 
             from bot.formatters.market_cards import render_squeeze
             await self._send(update, render_squeeze(
-                symbol, float(closes[-1]), sig))
+                symbol, mark if mark > 0 else float(closes[-1]), sig))
         except Exception as exc:
             await self._send_error(update, "the squeeze scan", exc)
 
@@ -733,6 +744,10 @@ class ScanCommands:
                     return None, None
                 try:
                     ohlcv = await exchange.fetch_ohlcv(sym, "1h", limit=30)
+                    # RSI is the load-bearing figure here (it colours the chip)
+                    # and the sparkline is a picture of CLOSED bars, so both
+                    # take the hygiened series.
+                    ohlcv = drop_forming_candle(ohlcv, "1h")
                     closes = [float(c[4]) for c in (ohlcv or []) if c and len(c) > 4]
                     if len(closes) < 5:
                         return None, None
@@ -1347,6 +1362,7 @@ class ScanCommands:
             async def _spark_rsi(sym: str):
                 try:
                     ohlcv = await exchange.fetch_ohlcv(sym, "1h", limit=30)
+                    ohlcv = drop_forming_candle(ohlcv, "1h")
                     closes = [float(c[4]) for c in (ohlcv or []) if c and len(c) > 4]
                     if len(closes) < 5:
                         return None, None

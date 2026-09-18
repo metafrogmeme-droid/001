@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from bot.compat import UTC
+from bot.utils.candles import drop_forming_candle
 from datetime import datetime
 
 logger = logging.getLogger("runeclaw.alpha")
@@ -173,7 +174,12 @@ async def build_alpha_insight(engine: Any, symbol: str) -> dict:
     candles: dict[str, list] = {}
     for tf in ("1h", "4h", "1d"):
         try:
-            candles[tf] = await exchange.fetch_ohlcv(symbol, tf, limit=200)
+            # CLOSED bars only: these three legs are the MTFConfluence input,
+            # and htf_trend / bos_dir / choch_dir are published on the alpha
+            # card and drawn on its PNG. A structure break read off a forming
+            # bar is the repaint this helper exists for.
+            candles[tf] = drop_forming_candle(
+                await exchange.fetch_ohlcv(symbol, tf, limit=200), tf)
         except Exception:
             candles[tf] = []
 

@@ -47,8 +47,13 @@ def test_seeded_rate_reaches_the_macro_liquidation_check():
 
 def test_engine_seeds_after_the_order_flow_pass():
     src = Path("bot/core/engine.py").read_text(encoding="utf-8")
+    # Anchored on the ASSIGNMENT, not on its right-hand side. This read
+    # `of_signal = results[1]` and went red the day the gather's exception
+    # vocabulary was corrected -- on an ordering that had not changed. A scan
+    # bounded by an expression is bounded by whatever that expression happens
+    # to be this week; what it is really ordering against is the binding.
     m = re.search(
-        r"of_signal = results\[1\][^\n]*\n(.*?)seed_funding_rate\(signal\.symbol, of_signal\.funding_rate\)",
+        r"of_signal = [^\n]*\n(.*?)seed_funding_rate\(signal\.symbol, of_signal\.funding_rate\)",
         src, re.S)
     assert m, "engine must seed the exchange-flow cache right after order-flow analyze"
     assert 'getattr(of_signal, "funding_rate", None) is not None' in src

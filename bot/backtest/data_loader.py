@@ -125,6 +125,8 @@ class DataLoader:
         """
         import ccxt.async_support as ccxt
 
+        from bot.utils.candles import drop_forming_candle
+
         # Historical OHLCV is PUBLIC data from the venue the live bot trades
         # on. Never inherit CONFIG.exchange.sandbox here: Bitget's demo
         # environment is a separate matching engine whose candles differ on
@@ -168,7 +170,13 @@ class DataLoader:
                     if len(batch) < per_call and since >= exchange.milliseconds():
                         break
                 raw = [seen[k] for k in sorted(seen)][-limit:]
-            return DataLoader.from_ohlcv_list(raw, symbol)
+            # The newest bar of a window that ends NOW is still forming, so
+            # every backtest's last decision and its final mark-to-market were
+            # taken on a part-period bar. Both branches land here, and a window
+            # that ends in the past is left intact (the helper drops only a bar
+            # whose period has not elapsed).
+            return DataLoader.from_ohlcv_list(
+                drop_forming_candle(raw, timeframe), symbol)
         finally:
             await exchange.close()
 

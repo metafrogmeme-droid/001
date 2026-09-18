@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from bot.formatters.drawdown_card import drawdown_source_note
+from bot.utils.candles import drop_forming_candle
 from bot.utils.i18n import t
 
 log = logging.getLogger("runeclaw.formatters")
@@ -280,13 +281,26 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         if not ohlcv:
             return None
 
+        # The MARK before the drop, the window after it. A forming candle's
+        # close IS the current price, so `price` below reads it; every
+        # measurement in this function (VWAP, RSI, ATR, the 24-bar high/low,
+        # the volume profile) would otherwise repaint at each bar close.
+        # No second emptiness check: the guard above has already returned on
+        # an empty answer and `drop_forming_candle` cannot empty a non-empty
+        # one (it returns the rows unchanged below three of them, and `[:-1]`
+        # of three or more leaves two). A line no input can reach is not a
+        # check, it is a claim that there is one -- which is this slice's own
+        # subject, and the first draft of this fix wrote one.
+        mark = float(ohlcv[-1][4]) if len(ohlcv[-1]) > 4 else 0.0
+        ohlcv = drop_forming_candle(ohlcv, timeframe)
+
         o = np.array([c[1] for c in ohlcv], dtype=float)
         h = np.array([c[2] for c in ohlcv], dtype=float)
         l = np.array([c[3] for c in ohlcv], dtype=float)
         c = np.array([c[4] for c in ohlcv], dtype=float)
         v = np.array([c[5] for c in ohlcv], dtype=float)
 
-        price = float(c[-1])
+        price = mark if mark > 0 else float(c[-1])
         high_24h = float(np.max(h[-24:])) if len(h) >= 24 else float(np.max(h))
         low_24h = float(np.min(l[-24:])) if len(l) >= 24 else float(np.min(l))
         vwap = compute_vwap(h, l, c, v)
