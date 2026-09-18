@@ -186,6 +186,115 @@ that renames an `autouse` fixture is a no-op**: autouse binds on the decorator,
 not the name, so the first attempt to prove the guard worked passed against a
 fixture that was still running. `autouse=False` is the mutation that bites.
 
+**AND IT HAPPENED AGAIN, TWO TESTS AT A TIME, FOR AS LONG AS THAT FILE HAS
+EXISTED — and this time the writer was `monkeypatch.undo()` itself.** Every
+preflight run printed `~ passes alone (flaky/order-dependent)` for
+`test_the_funding_card_says_which_venues_it_read.py::TestTheHandlerIsWired`,
+twice, and the gate named them every time. Neither is time-sensitive nor
+network-bound by design, so by elimination it was a state leak — and the leak
+had no author.
+
+`MonkeyPatch.setattr` records the old value as `getattr(target, name,
+notset)`, which for a plain INSTANCE succeeds **through the class**. `undo()`
+then takes its `value is not notset` branch and does `setattr(obj, name,
+<bound method>)` — so the object it hands back is not the object it was given:
+the name now sits in the instance's own `__dict__` and shadows its type from
+there on, for the rest of the session.
+
+**PYTEST ASKS EXACTLY THE RIGHT QUESTION ONE LINE ABOVE, FOR CLASSES:**
+
+```python
+# avoid class descriptors like staticmethod/classmethod
+if inspect.isclass(target):
+    oldval = target.__dict__.get(name, notset)
+```
+
+`__dict__.get` rather than `getattr`, because *the type provides it* is not
+*the target had it*. An instance needs the same reading for the INHERITANCE
+reason rather than the descriptor one, and never got it.
+
+**The chain is three correct files.** `test_cross_venue_funding.py::
+test_funding_command_renders_all_venues` patches the module singleton
+`cross_venue.CROSS_VENUE` on `states_for` — precise, correct, undone. Its undo
+left a bound method in `CROSS_VENUE.__dict__`. `TestTheHandlerIsWired` then
+plants on `CrossVenueFunding.states_for` — the CLASS — while `_cmd_funding`
+reads the singleton, so the plant never ran and **the real reader went to the
+live venues**: two tests in CI asserting against whatever bybit and
+hyperliquid answered, with the card reading `2 of 3 venues` and a genuine
+hyperliquid rate on it. Each file is right on its own; the leak is only
+visible from a run that holds both, which is the property the flake filter
+re-runs each test alone to establish.
+
+**The probe named the writer in minutes, and its first two drafts named the
+wrong things.** A detector over every module-level singleton for *an instance
+`__dict__` entry that shadows its type* reported dataclass fields and typing
+aliases by the dozen — the precise signature is narrower: **a bound method
+whose `__self__` is the object holding it**, which production code does not
+write and this undo always does. And keyed on `pytest_runtest_teardown` it
+named a pure renderer test that touches nothing, because that hook runs
+ALONGSIDE the one that invokes the fixture finalizers — the snapshot is taken
+BEFORE `monkeypatch.undo()`, so every artefact is attributed to the NEXT test.
+`pytest_runtest_logfinish` is the hook that runs after the whole protocol.
+
+**AND IT WAS NEVER ONE SINGLETON.** Run over the whole suite, the detector
+found **114 shadowed module bindings** left by **eight** tests, collapsing to
+eight distinct `<object>.<attribute>` pairs. Five are LOGGER methods — one
+`system_log` re-exported across 45 modules, which is why the binding count is
+so much larger than the object count — and nobody patches a logging method on
+a class, so those are inert. The other three are live singletons with real
+methods on them: `cross_venue.CROSS_VENUE.states_for`, which is the one that
+bit; `analyzer.BYOK.set_provider`; and `agent_feed.FEED.emit`. Each of the
+last two is the same trap armed and not yet sprung — the next class-level
+plant of those names is silently ignored for the singleton every reader
+actually uses. A fourth fixture naming `CROSS_VENUE` would have left both
+standing, which is the allowlist argument with a number on it.
+
+**The containment is DERIVED, and that is the whole difference from the three
+fixtures above it.** Each of those restores a hand-written list — state files,
+lookahead flags, vault-managed env keys — and `_STATE_GLOBS`'s own comment
+calls that "the failure mode of an allowlist, not an oversight by anyone in
+particular". A fourth list naming `CROSS_VENUE` would be exactly that, and the
+singleton somebody patches tomorrow is always the one missing from it. So the
+correction is on the MECHANISM: when a patch creates an instance attribute
+that was not in that instance's own `__dict__` before, the recorded old value
+becomes `notset` and undo DELETES instead of writing the class's value onto
+the instance.
+
+**The mutation round deleted three lines of mine, all of them claims that
+there was a check.** An `inspect.isclass` exclusion — a class's `vars()` is a
+**mappingproxy**, not a dict, so the reading already answers "nothing
+measured" and the correction cannot fire. An `inspect.ismodule` exclusion — a
+no-op for an ordinary module, and actively WRONG for a PEP-562 `__getattr__`
+module, where deleting is the correct restore and re-setting materialises a
+lazy attribute for good. And a check that the entry being rewritten is the one
+this call appended — unreachable, because `real_setattr` either raises (the
+code below never runs) or appends exactly one entry for this target. All three
+survived the round, which is the round saying the code claims checks it does
+not make.
+
+**What replaced them is measured rather than asserted, and it drives BOTH
+directions.** The install runs the correction once against the pytest that is
+actually there: patch a class-provided name, undo, and read the object back.
+A containment that is present and correcting nothing is a containment
+reporting success over the leak it exists to prevent — `ruff_gate.check_version`'s
+CANNOT-CHECK distinction, one framework over. The second direction is the
+expensive one: an undo that DELETED unconditionally passes the shadow check
+and would quietly destroy every real instance attribute the suite patches, so
+the self-test plants one and requires it back.
+
+> **And the guard I wrote for the third failure branch reached the second
+> one.** A stub whose `undo` does nothing leaves the patch in place, so it
+> trips the SHADOW check and never the "did not restore" one; the assertion
+> named a branch its fixture could not reach. *When a fresh assertion fails,
+> check whether the code or the assertion is wrong before touching the code* —
+> and here the answer was neither: the fixture was wrong, and re-aiming it is
+> what found that the self-test needed a second direction at all.
+
+**Two full-suite runs at once are not two measurements.** `_clean_runtime_state`
+deletes `data/` before and after every test, so a second concurrent run is
+deleting the first one's state ~6000 times. Both were killed and one clean run
+was taken instead; a background suite is a lock on `data/`, not a spare core.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
@@ -7052,9 +7161,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **401 of 972** reach for source text through `source_scan`, `code_only`
+Driven, **402 of 973** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 401 is a FLOOR and the honest shape is
+source scan that rule does not see, so 402 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
