@@ -2078,6 +2078,29 @@ half of the measurement that says where the measurement stops.
   trace to a caller: /account/purge, /guardian/review*, /policy/*, /profile,
   /share-card, /user/strategy, /chat/history.
 
+  ANSWERED, in the negative, which is the useful direction here: every one of
+  the seven has a caller and eleven of the twelve handlers behind them reach an
+  authorisation decision. `/account/purge` is `app/auth.js`'s delete path,
+  `/chat/history` hydrates the chat drawer through `app/routes/chat.js`,
+  `/user/strategy` is `app/routes/botstrategy.js`, `/share-card` is
+  `app/routes/share.js`, `/guardian/review*` is `app/routes/guardian_review.js`
+  and the four `/policy/*` are `app/routes/controls.js`. Driven for the gate
+  rather than grepped: five carry `_guard_user` (and through it
+  `permission_denial`, so F-14 staleness applies), two carry `_is_admin_id`,
+  and the four policy handlers carry `_is_admin_id` through
+  `_policy_op_guard`. The twelfth, `handle_share_card`, reaches no
+  authorisation decision and is named in `scripts/guard_lint.py`'s
+  `web-route-auth` rule as one of eight public-by-design exemptions, each with
+  its own reason — "PNG from three clamped query params" — so the absence is a
+  recorded decision rather than a gap.
+
+  **And the first probe written for this reproduced the blind spot this repo
+  had already recorded.** Reading each handler's OWN body for a gate call said
+  the four `/policy/*` handlers had none, because the gate is one frame out in
+  `_policy_op_guard` — the same one-hop gap the `check_user` ratchet documents,
+  manufacturing exactly the accusation it exists to make. Following local
+  helper hops to a fixed point is what answered it.
+
 - Permission and tier gating for nearly every door I report. I verified
   REGISTRATION and WIRING, not who may run what. The only guards I actually
   read are @guard("rwa") on /rwa and @guard("scan") on /stockscan. Whether a
