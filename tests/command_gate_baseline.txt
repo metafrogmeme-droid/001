@@ -1,0 +1,177 @@
+# Every REGISTERED Telegram command and the GATE SPELLINGS it carries.
+#
+# The companion to `guarded_commands_baseline.txt`, which records what IS
+# guarded and is therefore silent about a command that carries NO gate. Both
+# ratchets then acquit it by omission, inside the pair whose own header says
+# "a guard that silently disappears is an auth regression nothing else
+# notices". Driven on 2026-09-18, four commands were in exactly that state.
+#
+# TWO-WAY, the `known_failures.txt` rule: a row that changes must be re-recorded
+# in the same commit, a command that leaves must be deleted here, and a command
+# that arrives must be added. A `none` row REQUIRES a reason after the `#`, and
+# `unresolved` is never acceptable — it means this walk could not find the
+# handler, which is a gate nobody measured rather than a gate that is absent.
+#
+# The vocabulary is hand-written and `tests/command_gates.py` says why that is
+# safe: a spelling it does not know reads as `none`, which demands a reason, so
+# an unrecognised gate is LOUD rather than an acquittal.
+accounts is_admin
+agent guard
+airdrops guard
+alerts guard
+alpha guard
+analyze guard+is_admin
+anchor guard+is_admin
+approvals guard
+approve is_admin
+arb guard
+arbpair guard
+arena guard
+attribution is_admin
+audit is_admin
+autoconfirm guard
+backtest guard
+backup guard+is_admin
+broadcast is_admin
+buy guard
+calibration guard
+channel is_admin
+classpf guard
+closeall is_admin
+compliance guard
+connect guard
+costs guard
+crossasset is_admin
+daily_report guard
+dashboard guard
+deepscan guard
+defi guard
+dip guard
+disconnect guard
+drawdownlimit is_admin
+duel guard
+emergency_stop guard
+enforcing guard
+equitycurve is_admin
+escape is_admin
+eventrisk guard
+exchange guard
+exposure guard
+flags is_admin
+forcescan guard
+fullscan guard
+funding guard
+fundingscan guard
+gates is_admin
+golive guard
+grant_live is_admin
+guardian is_admin
+halt guard
+health guard
+help access_state+is_admin+is_authorized+rate_limit
+holdtime guard
+idleyield is_admin
+intraday guard
+journal is_admin
+lang guard
+latest_signal guard
+leaderboard guard
+learn guard
+letter guard
+leverage guard+is_admin
+link none  # /link <token> IS the linking door. It refuses an already-linked chat, then validates the token against the website API (RC-2026-001) before binding anything — the TOKEN is the credential, so a permission gate here would be circular: nobody can be registered before they link.
+linkwallet guard
+livebalance guard
+liveclose guard
+livepositions guard
+llmab is_admin
+llmreset guard+is_admin
+llmstatus guard+is_admin
+llmtiers guard+is_admin
+macro guard
+me require_registered
+meme_radar guard
+memeplan guard
+mode guard
+momentum guard
+montecarlo is_admin
+mynotes is_authorized
+mystrategy guard
+networth guard
+news guard
+nft guard
+open_positions guard
+optimize guard
+orders guard
+paper guard
+parity is_admin
+patterns guard
+pause guard
+performance guard
+playbook guard
+pocretest guard
+pocshadow guard
+policy is_admin
+portfolio guard
+positions guard
+postmortem guard
+price_alert guard
+proposals guard
+quant guard
+readiness is_admin
+rejected guard
+replay guard
+research guard
+reset guard
+resume guard
+revoke is_admin
+revoke_live is_admin
+risk guard
+run guard
+rwa guard
+scalp guard
+scan guard
+sell guard
+sentinel is_admin
+session guard
+set_tier is_admin
+setcap is_admin
+setexchange is_admin
+setgateway is_admin
+setllm is_admin
+setsigner is_admin
+settier guard+is_admin
+shadow is_admin
+share is_authorized
+signals guard
+slippage is_admin
+spot guard
+squeeze guard
+stake guard
+start access_state+rate_limit
+status guard
+stockscan guard
+strategy is_admin
+sweep guard
+swing guard
+sync require_registered
+token guard
+trade guard
+twin is_admin
+ultra is_admin
+unlink none  # Self-scoped by construction: `get_user_by_chat_id(chat_id)` and an early return when this chat is not linked, so it can only ever unlink the caller's own link.
+unstake guard
+users is_admin
+vault is_admin
+venue is_admin
+venue_router guard
+venues guard
+version rate_limit
+walkforward guard
+wallet guard
+watch guard
+weblive is_admin
+whynot guard
+xray guard
+yield is_admin
+zones guard

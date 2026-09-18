@@ -198,10 +198,24 @@ async def test_funding_command_renders_all_venues(monkeypatch):
     async def _get_fut():
         return fut_ex
 
+    # ADMIT THE CALLER. `/funding` carried no gate of any kind until
+    # 2026-09-18 — it was the lone ungated row of the twelve in "Market
+    # context", and it spends a live venue fetch per invocation — so this
+    # test used to reach the card with a caller the bot had never admitted.
+    # It now meets `@guard("status")` and is greeted instead, which is the
+    # guard doing its job; the subject here is the CARD, and whether the gate
+    # is present is `tests/command_gate_baseline.txt`'s question.
+    monkeypatch.setattr(handler, "_guard", AsyncMock(return_value=True))
+
     monkeypatch.setattr(engine.scanner, "_get_futures_exchange", _get_fut)
-    monkeypatch.setattr(cvmod.CROSS_VENUE, "rates_for",
-                        AsyncMock(return_value={"bybit": 0.0006,
-                                                "hyperliquid": -0.0002}))
+    # `states_for`, not `rates_for`: the handler asks for the per-venue STATE
+    # now, because a dict of the venues that answered cannot say why one is
+    # missing — and the card's old sentence for that was "check the symbol".
+    monkeypatch.setattr(cvmod.CROSS_VENUE, "states_for",
+                        AsyncMock(return_value=[
+                            cvmod.VenueFunding("bybit", 0.0006, "read"),
+                            cvmod.VenueFunding("hyperliquid", -0.0002, "read"),
+                        ]))
 
     update = MagicMock()
     update.effective_user = MagicMock()
@@ -218,6 +232,13 @@ async def test_funding_command_renders_all_venues(monkeypatch):
     texts = [c[0][0] if c[0] else c.kwargs.get("text", "")
              for c in update.message.reply_text.call_args_list]
     text = "\n".join(texts)
-    assert "BTC funding across venues" in text
+    # The claim this test has always made — every venue is named and the
+    # spread is stated — holds, and both sentences say MORE than they did.
+    # "BTC funding across venues" was the header over whichever venues had
+    # answered, and "Spread across 3 venues" a count with no denominator; a
+    # partial read rendered identically to a complete one in both. The old
+    # wording was the defect, so the assertions move with it rather than the
+    # card moving back.
+    assert "BTC funding — 3 of 3 venues" in text
     assert "bitget" in text and "bybit" in text and "hyperliquid" in text
-    assert "Spread across 3 venues" in text
+    assert "Spread across 3 of 3 venues" in text

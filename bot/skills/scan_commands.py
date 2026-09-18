@@ -438,6 +438,12 @@ class ScanCommands:
                 "<code>/mode solana</code> for Solana."
             ))
 
+    # Its 25 group siblings in "Scan & analyse" all carry a guard; this was
+    # the one that did not, so the engine's own size and stop-width
+    # multipliers answered a caller the bot had never admitted. `scan` is the
+    # group's permission, held by trader, paper and viewer and not by
+    # `pending` — which is exactly the audience the catalogue documents.
+    @guard("scan")
     async def _cmd_session(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/session — show current trading session and its risk adjustments."""
         try:
@@ -869,6 +875,11 @@ class ScanCommands:
             self.engine, symbol=symbol)
         await self._send(update, result)
 
+    # `analyze`, matching /quant — the other per-symbol analysis card in
+    # this group. Both spend a multi-fetch analysis per invocation, and this
+    # one was ungated, so a stranger could drive them on any symbol the
+    # format check accepts, with no rate limit either.
+    @guard("analyze")
     async def _cmd_alpha(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/alpha <symbol> — Daily Alpha insight card (exchange-style panel
         built entirely from the bot's own analysis + Bitget public data:

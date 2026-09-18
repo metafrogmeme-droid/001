@@ -587,6 +587,11 @@ class StartCommands:
             ])
         return InlineKeyboardMarkup(rows) if rows else None
 
+    # `start`, which `pending` HOLDS — so the free on-ramp the catalogue
+    # advertises ("free, no stake") stays reachable by a newcomer, while the
+    # allowlist gate, the rate limit and the auto-registration every sibling
+    # gets are no longer skipped.
+    @guard("start")
     async def _cmd_duel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/duel — today's Daily Duel card: call LONG, SHORT or PASS before the
         agent's own call is shown, and the market settles it 24h later.

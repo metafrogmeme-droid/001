@@ -799,8 +799,10 @@ with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
 agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
 24h horizon measured from their own call, beating the agent scoring double
 (app/lib/duel.js:5-8, :40-43). Doors, opened and read: Telegram /duel at
-bot/skills/start_commands.py:590 (I checked the lines above the def — there is
-NO @guard and no inline gate, so any Telegram user reaches it), registered at
+bot/skills/start_commands.py:595 (@guard("start"), which `pending` holds, so
+the free on-ramp stays reachable by a newcomer while the allowlist gate and the
+rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
+registered at
 telegram_handler.py:1004, with LONG/SHORT/PASS inline buttons whose taps land
 in _handle_duel_callback at start_commands.py:613; the web page at
 app/server.js:477 driving the four authed routes at
@@ -1031,7 +1033,7 @@ anonymous ranked leaderboard showing handle, return %, trade count and win
 rate and never a dollar (leaderboard.js:1-10), the Daily Duel with a 90-day
 record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
 Command Deck's streaks/weekly quests/achievement glyphs. Telegram doors: /duel
-(start_commands.py:590, ungated), /leaderboard (:635) and /arena (:662).
+(start_commands.py:595, @guard("start")), /leaderboard (:640) and /arena (:667).
 
 *Gap.* No prize, purse, payout, entry fee, wager or token/NFT award exists in any of
 it — grep for prize/reward/payout across arena.js, arena_seasons.js,
@@ -1620,7 +1622,7 @@ in the map.
 *Where.* Dashboard Markets view panel #p-rwa/#c-rwa
 (app/public/js/dashboard.js:1290 jump-nav, :1349 panel, :1439 fetch) → GET
 /api/market/rwa (app/routes/market.js:169, auth:false, public); Telegram /rwa
-(@guard("rwa"), bot/skills/market_commands.py:60, registered
+(@guard("rwa"), bot/skills/market_commands.py:69, registered
 bot/skills/telegram_handler.py:1008, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
@@ -1671,7 +1673,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1210, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7059
 (get_market_session) and scan_commands.py:345.
@@ -2124,25 +2126,88 @@ half of the measurement that says where the measurement stops.
   and the volume are three-valued now, with their samples; `card_nums.js` is
   one volume rendering for the three cards that print one.
 
-- The $RCLAW staking row is the one I would most expect a reader to over-read.
-  The Anchor program says UNAUDITED / DO NOT DEPLOY in its own README,
-  CLAUDE.md says the $RCLAW gate is OFF by default, and I did NOT open
-  bot/token/tier_gate.py to confirm the default or to confirm the memcmp
-  offsets still match the account layout. Treat it as 'built and read by a
-  gate', never as 'staking yield a user earns today'.
+- ANSWERED. The $RCLAW staking row is still the one I would most expect a
+  reader to over-read — the Anchor program says UNAUDITED / DO NOT DEPLOY in
+  its own README, and it should be read as 'built and read by a gate', never
+  as 'staking yield a user earns today'. But the two things I had not opened
+  `bot/token/tier_gate.py` to confirm are both confirmed, and neither rests on
+  a comment.
 
-- Similarly for the web3 sign / cross-plan rows: ADMIN-ONLY and TESTNET-ONLY
-  come from the route files' own header comments
-  (app/routes/web3_execute.js:52, :89, :121). I did not verify the gateway-
-  side re-check those comments promise. A comment that misdescribes which half
-  of a gate is off is a failure mode this repo has recorded before.
+  The default is OFF, and **doubly** so: `gate_enabled()` is
+  `_env_bool("TOKEN_TIER_GATE_ENABLED") and bool(mint_address())`
+  (`tier_gate.py:365`), so an unset flag and an unconfigured mint each keep it
+  inert on their own.
 
-- The meme rows must not be read as the bot trading memecoins.
-  tests/unreachable_baseline.txt states meme_executor's `would_execute` is a
-  hardcoded False and signing is a slice that does not exist;
-  /api/meme/swap/build returns an UNSIGNED transaction the user signs. I did
-  not re-verify the hardcoded False myself — I am relying on the baseline
-  file's prose.
+  The memcmp offsets are machine-checked from BOTH sides, which is more than
+  the doubt asked for. `programs/rclaw_staking/src/lib.rs` holds `pub mod
+  layout` and `layout_tests::borsh_offsets_match_the_python_gate` asserts every
+  constant against the **Borsh** encoding rather than the in-memory struct —
+  its own comment says why, since the compiler may reorder fields and
+  `offset_of!` would prove nothing about what a client reads off the chain —
+  and that test runs in the `Staking program (cargo)` CI job. The Python
+  mirror is not trusted to match by prose either:
+  `tests/test_token_tier_gate.py:711` parses `pub const NAME: usize = N;`
+  straight out of `lib.rs` and compares each one, under a comment recording
+  that the README used to claim the offsets were 'machine-checked on both'
+  when only one side was — *"This is the missing half."* Derived by hand
+  against the struct as a third reading, the two agree: discriminator 8,
+  version 8, owner 9, mint 41, amount 73, staked_at 81, unlock_at 89, bump 97,
+  `SPACE` 90, `RESERVED` 64, total 162.
+
+- ANSWERED, and the chain was driven rather than read. The web3 sign /
+  cross-plan / deploy rows said ADMIN-ONLY off the route files' own header
+  comments (`app/routes/web3_execute.js:52, :89, :121`), and a comment that
+  misdescribes which half of a gate is off is a failure mode this repo has
+  recorded before. All three re-checks exist and refuse:
+  `handle_web3_sign` (`bot/core/user_gateway.py:4510`), `handle_cross_plan`
+  (`:1721`) and `handle_contract_deploy` (`:1606`) each `403` a non-admin —
+  and the last of those is why the check had to be driven rather than
+  grepped, because a search for `handle_web3_deploy`, the name the route
+  suggests, matches nothing.
+
+  **The comments holding moved the question to the LINK they depend on**, and
+  that is where the answer is worth keeping: the gateway re-checks admin
+  against a `telegram_id` **read out of the request body**, which the web
+  layer supplies. Read end to end, nothing on that path is caller-chosen:
+  `authMiddleware` (`app/auth.js:212`) sets `req.user` only from a
+  `jwt.verify`'d token that also passes a revocation check, and
+  `resolveBotIdentity` (`app/lib/identity.js:18`) then reads the telegram id
+  out of the DB row keyed on `req.user.user_id` — never off the body, the
+  query or a header — so the id the gateway admin-checks is the one the
+  database holds for the JWT's own subject. `_is_admin_id`
+  (`bot/skills/telegram_handler.py:4846`) is server-side too: the user store's
+  role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
+  written onto your own row, which is the invariant
+  `identity.foreignIdentityBlock` already documents and asserts.
+
+  One residual, stated because it is the half this repository cannot check:
+  that invariant's storage-layer leg — *"`idx_users_telegram_id` makes the
+  collision impossible"* — is a claim about a MySQL schema **this repo does
+  not contain** (there is no `.sql` file in the tree). It is not load-bearing
+  for the web3 routes, which have no second subject to disagree with, and
+  `foreignIdentityBlock` was written to assert rather than trust it. It is
+  recorded so the next reader does not take the index for something a test
+  here proves.
+
+- ANSWERED, and the boundary is stronger than the prose I was relying on. The
+  meme rows must not be read as the bot trading memecoins, and
+  `tests/unreachable_baseline.txt` stated `would_execute` is a hardcoded False
+  with signing a slice that does not exist. Driven rather than taken from that
+  file: `would_execute` is **not a function** — a search for
+  `def would_execute` matches nothing, which is this repo's own 'grep the
+  definition, not the name you remember' arriving from the other direction,
+  since it was the baseline that named a dict KEY as though it were a method.
+  It is a literal at its single construction site
+  (`bot/core/meme_executor.py:131`, `"would_execute": False,  # planner only —
+  never signs here`), and nothing anywhere computes it.
+
+  What the baseline does not say is that there is a **fail-closed consumer**:
+  `meme_swap.build_swap` refuses outright on `plan.get("would_execute") is not
+  False` (`bot/core/meme_swap.py:178`), driven by
+  `tests/test_meme_swap.py:132`. So the claim is not merely 'the planner never
+  sets it' — a plan that DID claim it would execute is refused by the builder
+  one layer down. `bot/web/user_gateway.py:1839` forwards the planner's own
+  value to the web and manufactures nothing.
 
 - /miniapp/arena 'can act' comes from the router's own header and from the
   fact that it loads embed-arena-view.js plus miniapp-arena.js. I did not open
@@ -2169,12 +2234,38 @@ half of the measurement that says where the measurement stops.
   options leaf that simply returned none and were therefore invisible to me.
   RWA in particular I would expect to have its own leaf.
 
-- The scan-family row (/intraday, /patterns, /squeeze, /sweep, /zones,
-  /session, /mode, /quant) is the weakest of the nineteen. I confirmed each is
-  registered in telegram_handler.py by grep, and read the handler body for
-  none of them except the /rwa and /stockscan pair. Registration is not
-  behaviour: this repo's own macro_skills case was five registered skills
-  whose every attribute probe named a field that did not exist.
+- ANSWERED, and the fear it named was the wrong one — which is why driving it
+  was worth more than the doubt. The scan-family row (/intraday, /patterns,
+  /squeeze, /sweep, /zones, /session, /mode, /quant) was "the weakest of the
+  nineteen": registered by grep, handler bodies read for none, and the
+  macro_skills precedent of five registered skills whose every attribute probe
+  named a field that did not exist.
+
+  **The macro_skills shape does not apply.** Walked by AST, the eight handlers
+  make exactly THREE attribute probes between them, and all three name real
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:857`),
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2565`, and three sibling call
+  sites read it with no `getattr` at all) and `engine.analyzer`
+  (`bot/core/engine.py:621`). Every handler guards its own read and has an
+  honest empty state; `/sweep` and its neighbours already carry the
+  forming-candle hygiene the shared cache slice added.
+
+  **What the drive found instead was an AUTH hole and an honesty defect**, and
+  both are fixed rather than filed. `/session` and `/funding` carried no gate
+  of any kind — `/session` the lone ungated row of the 26 in "Scan & analyse",
+  `/funding` the lone one of the 12 in "Market context" — joining `/alpha` and
+  `/duel`, so a caller the bot had never admitted reached them with no
+  allowlist gate, no rate limit and no registration, and two of the four spend
+  a live venue fetch per invocation. And `/funding`'s card answered *"No
+  funding data found ... check the symbol"* out of two swallowed venue reads,
+  which is CLAUDE.md's own opening example with a remedy attached. The gates,
+  the card, a ratchet over every registered command's gate (`none` rows
+  carrying a reason) and the six gate spellings that measuring this turned up
+  are all recorded in CLAUDE.md under "A COMMAND WITH NO GATE IS ABSENT FROM A
+  BASELINE OF WHAT IS GATED".
+
+  Registration is still not behaviour, and the remaining six handlers were read
+  rather than grepped for this answer.
 
 ### One of those doubts can be answered from here
 
