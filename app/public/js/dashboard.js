@@ -2084,15 +2084,21 @@
       const rep = await reportsP;
       const arb = rep?.arb;
       if (!arb || !(arb.carries || []).length) return null;
-      const total = arb.carries.reduce((a, c) => a + (Number(c.earned_usd) || 0), 0);
-      return `<p class="muted small">What $${Number(arb.notional_usd || 1000).toLocaleString()} would have earned holding each spread — an evidence tracker; nothing is traded. ${esc(reportAge(rep))}</p>
+      // §4: percent of a stated stake, never a dollar. ArbCarryModel owns
+      // the unread/flat distinction and the total's own sample — an absent
+      // model is a script that did not load, and a table of bare numbers
+      // here would claim a reading nothing performed.
+      const ArbCarry = self.ArbCarryModel;
+      if (!ArbCarry) throw new Error('arb-carry-model.js did not load');
+      const carried = ArbCarry.total(arb.carries);
+      return `<p class="muted small">${esc(ArbCarry.basis(arb.notional_usd))} — an evidence tracker; nothing is traded. ${esc(reportAge(rep))}</p>
         <div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>Coin</th><th class="r">Paper carry</th><th class="r">Held / seen</th><th class="r">Last spread</th></tr></thead>
         <tbody>${arb.carries.slice(0, 8).map(c => `<tr><td><b>${esc(c.base)}</b></td>
-          <td class="num r ${pnlClass(c.earned_usd)}">$${Number(c.earned_usd || 0).toFixed(2)}</td>
-          <td class="num r">${Number(c.held_hours || 0).toFixed(0)}h / ${Number(c.observed_hours || 0).toFixed(0)}h</td>
-          <td class="num r">${Number(c.last_spread_apr || 0).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div>
-        <p class="small muted mt-2">Total paper carry <b class="num ${pnlClass(total)}">$${total.toFixed(2)}</b> over ${arb.snapshots || 0} snapshots. A real 2-venue round trip costs ~0.24% of notional in fees.</p>
+          <td class="num r ${ArbCarry.cls(c.earned_pct)}">${esc(ArbCarry.pct(c.earned_pct))}</td>
+          <td class="num r">${esc(ArbCarry.hours(c.held_hours))} / ${esc(ArbCarry.hours(c.observed_hours))}</td>
+          <td class="num r">${c.last_spread_apr == null ? '—' : Number(c.last_spread_apr).toFixed(1) + '%'}</td></tr>`).join('')}</tbody></table></div>
+        <p class="small muted mt-2">Total paper carry <b class="num ${ArbCarry.cls(carried.pct)}">${esc(ArbCarry.pct(carried.pct))}</b> ${esc(ArbCarry.sample(carried))} over ${arb.snapshots || 0} snapshots. A real 2-venue round trip costs ~0.24% of notional in fees.</p>
         ${arbVerdictLine(arb)}`;
     }, { empty: { icon: 'icon-coin', text: 'The paper arb tracker fills in as the bot records hourly funding snapshots.' } });
 
@@ -4965,11 +4971,20 @@
       const p = rep?.parity;
       if (!p || !p.trades) return null;
       const feeX = p.fee_vs_model != null ? Number(p.fee_vs_model) : null;
+      // §4: this payload comes off /api/reports, which is served to anyone.
+      // The Net PnL tile was the OPERATOR's realized dollars on the live
+      // book, justified in reports.js's header as "already public on /track"
+      // — and /track indexes its equity curve to 100 precisely so no account
+      // size escapes. `pf` is that net as a ratio, and fee drag is what the
+      // dollar `total_fees` beside it was there to say: it is already null
+      // when the fee record covers only some closes, so a partial record
+      // cannot read as a measured drag.
+      const drag = p.fee_drag_of_gross != null ? Number(p.fee_drag_of_gross) : null;
       const tiles = [
         ['Filled trades', String(p.trades), ''],
         ['Win rate', p.win_rate != null ? (p.win_rate * 100).toFixed(0) + '%' : '—', ''],
-        ['Net PnL', p.net_pnl != null ? signed(p.net_pnl) : '—', pnlClass(p.net_pnl)],
         ['Profit factor', p.pf != null ? Number(p.pf).toFixed(2) : '—', ''],
+        ['Fee drag', drag != null ? (drag * 100).toFixed(1) + '%' : '—', drag != null && drag > 0.3 ? 'neg' : ''],
         ['Fees vs model', feeX != null ? feeX.toFixed(2) + '×' : '—', feeX != null && feeX > 1.5 ? 'neg' : ''],
       ];
       const notes = [];

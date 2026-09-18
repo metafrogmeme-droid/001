@@ -291,7 +291,13 @@ class TestThePublicWire:
                                        "fee_pct", "mean_net_pct", "interval_pct"}
         assert sec["verdict"]["scored"] == 12 and sec["verdict"]["fee_pct"] == 0.24
         assert all("entry_carry_usd" not in row for row in sec["carries"])
-        assert sec["carries"][0]["base"] == "BTC" and "earned_usd" in sec["carries"][0]
+        # The row's own carry is the OPERATOR'S DOLLARS on an anonymous
+        # route, so it travels as a percent of the tracked notional -- the
+        # denominator `mean_net_pct` above already uses. This assertion used
+        # to pin `earned_usd` as present: the sample list was popped and the
+        # total those samples sum to was left beside it.
+        assert all("earned_usd" not in row for row in sec["carries"])
+        assert sec["carries"][0]["base"] == "BTC" and "earned_pct" in sec["carries"][0]
 
     def test_the_readers_share_one_seam(self):
         from tests.source_scan import code_only

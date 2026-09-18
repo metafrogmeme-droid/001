@@ -2209,10 +2209,27 @@ half of the measurement that says where the measurement stops.
   one layer down. `bot/web/user_gateway.py:1839` forwards the planner's own
   value to the web and manufactures nothing.
 
-- /miniapp/arena 'can act' comes from the router's own header and from the
-  fact that it loads embed-arena-view.js plus miniapp-arena.js. I did not open
-  miniapp-arena.js, so whether it really opens Arena positions (versus
-  rendering a board with a sign-in) is unconfirmed.
+- ANSWERED, and what driving it found was one route over. /miniapp/arena
+  'can act' is TRUE: `miniapp-arena.js` POSTs `/api/arena/open` and
+  `/api/arena/close`, both `authMiddleware` + `tradeLimit`, on the caller's
+  own VIRTUAL account (§4: "virtual funds only — nothing here can move real
+  money"). The three season-administration routes carry an in-body
+  `adminOnly(req, res)` that a middleware-chain read cannot see, which is the
+  same blind spot `tests/command_gates.py` documents for the bot.
+
+  **What the check for that found is in `GET /api/reports`.** Asking the
+  question properly meant driving every express router's dispatch chain IN
+  ORDER rather than grepping, and that walk says 93 of 276 routes carry no
+  auth-family middleware — 17 of them invisible to `public_no_dollars.test.js`,
+  whose public set was `!src.includes('authMiddleware')` at FILE level. One
+  was `/api/reports`, which has no auth AND no limiter and was publishing
+  `arb.carries[].earned_usd` per coin plus `parity.net_pnl` and
+  `parity.total_fees` — the operator's realized net and fees on the LIVE book,
+  justified in that route's header as "already public on /track" when /track
+  indexes its equity curve to 100 precisely so no account size escapes. Fixed
+  at the PRODUCER (`bot/core/web_reports.py`), because the route forwards the
+  bot's sections wholesale and no key under `app/routes/` spells either name.
+  Recorded in CLAUDE.md under the public-surface rules.
 
 - A correction rather than a doubt: the earlier agents' 'Active Trading / Spot
   trading: /swap page'. There is no /swap route — app/public/swap.html is

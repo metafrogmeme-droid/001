@@ -5615,6 +5615,124 @@ Market prices, volume, OI and gas are public market facts and are fine.
 Several suites pin this (`app/test/mcp_public_records.test.js`,
 `app/test/dashboard_social.test.js`, and others).
 
+**THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE.**
+`public_no_dollars.test.js` picked its public set with
+`!src.includes('authMiddleware')` — so a file gating ONE route left the set
+entirely, and every unauthenticated route in it went too. Driven position-aware
+over the express dispatch chain, **17 unauthenticated routes were invisible**
+for that reason, across seven files. That is `tests/command_gates.py`'s lesson
+one runtime over: COVERAGE OF A SPELLING IS NOT COVERAGE OF THE GUARD, where
+there a baseline of what IS gated was silent about a command carrying NO gate.
+
+One of the seventeen was `GET /api/reports`, which has no auth AND no limiter
+and was publishing **three** operator dollar figures: `arb.carries[].earned_usd`
+per coin, and `parity.net_pnl` and `parity.total_fees` — the operator's realized
+net and fees paid on the LIVE book.
+
+**THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT.** `_arb_section`
+strips the dollar out of `verdict` under a comment reading *"no dollar figure,
+because /api/reports is served to anyone"* — three lines above `carries`, which
+carried one per coin, and whose `_carry_row` popped the per-entry sample list
+and left the total those samples sum to. *Ask which OTHER field on the same
+payload makes the same claim.*
+
+**AND THE PARITY JUSTIFICATION IS THE ONE THAT GUARD'S OWN HEADER RECORDS AS
+FALSE.** `reports.js` called the parity headline *"already public on /track"*.
+Driven, /track publishes `equity_curve_idx` — INDEXED TO 100 precisely so no
+account size escapes — plus `win_rate_pct` and `profit_factor`, and no dollar at
+all. That is the `get_track_record` defect the header describes (*"its own
+`source` string claimed 'same data as the public /track page' … so the tool was
+strictly more revealing than the page it said it mirrored"*), one route over,
+with the same justifying sentence.
+
+**THE SCAN COULD NOT SEE IT EVEN INSIDE THE PUBLIC SET, and that is the third
+blind spot.** The route emits `arb: r.arb || null` — a whole sub-object
+forwarded from the bot. No key under `app/routes/` spells `earned_usd` or
+`net_pnl`, so a key-scan of the route file sees nothing; the guard's own stated
+scope limit (*"a dollar field returned from a LIB and spread into a response is
+invisible to it"*) is the same hole one PROCESS boundary further out. The
+producer is Python and the publisher is Node, and nothing checked what crossed.
+`tests/test_the_public_report_carries_no_dollar.py` is that check, made where
+the keys exist.
+
+**A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE.** The drive holds
+each handler function, so its source can be read exactly — and arena's
+`/leaderboard` handler is 232 characters that call `computeLeaderboard()`.
+Bounding there ACQUITS by omission, the quiet direction. The file-level key scan
+stays, because it can only over-accuse; the two files that mix public and
+authenticated routes carry an entry naming their public routes as the drive
+reports them, so a public route added to one goes stale and fails rather than
+inheriting the permission.
+
+**AND THE VOCABULARY'S UNKNOWN CASE WAS SILENT WHERE `command_gates.py`'s IS
+LOUD.** `FORBIDDEN` is hand-written, and a money field it did not name was
+simply unchecked — the surface read clean because nobody had thought of the
+word, which is exactly how `earned_usd` survived. The gate vocabulary one
+runtime over is safe for the opposite reason: a spelling it does not know reads
+as `none`, **which demands a reason**. Both guards require that now — a key
+matching `_usd`/`_usdt` is forbidden, or declared safe with why (a market fact,
+a published constant, the caller's own input).
+
+**`notional_usd` STAYS, and stating why is the point.** It is
+`PAPER_NOTIONAL_USD`, a published CONSTANT the tracker is denominated in — the
+same split the MCP `run_what_if` tool draws for a caller's own `stake_usd` — so
+it discloses nothing about RUNECLAW's capital, and it is the basis that makes
+every percent beside it readable. §4 is about account money, not about every
+number with a currency in its name.
+
+**Two defects in the fix, both found by driving rather than reading.**
+`isinstance(float("nan"), float)` is True, so the first draft put a NaN on the
+wire — and `json.dumps` writes it as a bare `NaN`, which is not valid JSON, so
+one unreadable coin would have failed the whole public read at a strict parser.
+And the panel's own `(c.held_hours || 0).toFixed(0)` printed **`0h`** for a hold
+time that did not arrive: the panel reads a WIRE payload forwarded verbatim from
+a DB row, so it cannot lean on the producer's invariants, and fixing the carry
+cell while leaving the hours cell is *"fixing two left the third"* on one row.
+
+The panel's three shapes were the tabulated ones: `Number(c.earned_usd) || 0`
+(unread as a measured `$0.00`), `pnlClass(c.earned_usd)` (**colour is a claim** —
+an absent carry painted green), and a `reduce` summing `|| 0` across every row
+and printing the result as the whole table. `ArbCarryModel` owns all three, the
+total carries `scored`/`n`, and its sample sentence prints **only when it
+bites** — a permanent caveat under a healthy table is the row that trains a
+reader to stop reading the line. The JS honesty ratchet counted the repair as an
+improvement (152 → 149) and required it re-recorded in the same commit.
+
+> **And the existing `EXEMPT` table listed `track.js` TWICE.** A JS object
+> literal takes the last key, so one entry was live and the other was a reason
+> above a dead line. Both reasons were true; they are one entry now, and `no
+> file is exempted twice` reads the SOURCE rather than the parsed object,
+> because the parsed object cannot see it. The stale-exemption rule then fired
+> on `sync.js` — public only to the file-level detector, since it spells
+> `botAuth` rather than `authMiddleware` — which is the new drive agreeing with
+> that exemption's own comment and retiring it.
+
+**AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT.** The full gate refused
+this slice on `test_the_arb_record_gets_a_verdict.py`, whose own name is
+`test_the_web_section_carries_the_verdict_in_percent_and_no_sample_list` and
+whose last line asserted `"earned_usd" in sec["carries"][0]`. That is the
+arb-verdict slice's own stopping point written down as a REQUIREMENT: it
+stripped the dollar out of the VERDICT, popped the per-entry sample list out of
+the ROW, and then pinned the total those samples sum to as a key that must be
+present. The next reader inherits not a stale assertion but an argument — the
+row's dollar figure is deliberate, a test says so — which is the `/vault` hint
+shape pointed at a guard.
+
+**Two tests, one payload, opposite claims, and each passes alone.** The new
+guard asserts the money keys are ABSENT from the public report; this one
+asserted one of them PRESENT. A contradiction between two files is invisible
+from either, which is the fifth time this document records the FULL gate
+refusing a slice on a test none of the slice's own suites ran.
+
+**The search that was missing has a name, and its four recorded instances all
+point the wrong way.** *Write the assertion, then re-run the search* is here
+four times over, and every one of them re-searched the PRODUCTION tree for
+sites the first grep could not reach. A key removed from a payload has two
+kinds of reader — the code that CONSUMES it and the test that PINS it — and
+I swept the consumers only. `grep -rln <key> tests/` is the other half of that
+sweep, it costs seconds, and it would have named this file before the commit
+rather than twenty-three minutes after it.
+
 Never put secrets, API keys, private keys or internal config into user-facing
 text, logs, or the repo. `/readyz` returns a coarse reason code from a fixed
 vocabulary for exactly this reason — driver messages never reach it.
@@ -6650,9 +6768,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **399 of 968** reach for source text through `source_scan`, `code_only`
+Driven, **400 of 969** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 399 is a FLOOR and the honest shape is
+source scan that rule does not see, so 400 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
