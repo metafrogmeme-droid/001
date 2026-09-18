@@ -100,11 +100,18 @@ function htmlToText(html) {
 
 const TOOLS = {
   // ── Guardian: the safety layer, callable by ANY agent ──────────────────
-  // Every tool below this block answers "what has RUNECLAW done?". These four
-  // answer "is what YOUR agent is about to do safe?" — the same models the
-  // Guardian pages run, on input the caller supplies. They still act on
-  // nothing: no account is read, no funds move, no signature is produced.
-  // Every result is a heuristic read with reasons, never a verdict.
+  // Every tool below this block answers "what has RUNECLAW done?". The ones
+  // carrying `computesOnInput` answer "is what YOUR agent is about to do
+  // safe?" — the same models the Guardian pages run, on input the caller
+  // supplies. They still act on nothing: no account is read, no funds move,
+  // no signature is produced. Every result is a heuristic read with reasons,
+  // never a verdict.
+  //
+  // THE MARKER IS THE DEFINITION, and no prose here restates the count. This
+  // comment used to tally the family by hand and was one short of it, because
+  // `xray_transaction` joined and nothing made the sentence move. The tally is
+  // not restated even to narrate that, since a comment quoting the shape a
+  // guard forbids is indistinguishable from the code doing it.
   scan_transaction: {
     // Evaluates caller-supplied input rather than serving data the public
     // site publishes. The ERC-8257 manifest derives its tool-family split

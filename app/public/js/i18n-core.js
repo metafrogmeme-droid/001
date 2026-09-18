@@ -1207,7 +1207,7 @@
     "gd.c7_go": { en: "See what can spend your tokens →" },
     "gd.disc": { en: "Guardian surfaces read public market data and your own recorded activity. They warn, explain, simulate and prove — they never move funds on their own, and nothing here is investment advice. Funds move only inside a revocable authority envelope you set and can switch off at any time." },
     "dv.h1": { en: "Developers &amp; Agents" },
-    "dv.lede": { en: "Connect your AI agent to RUNECLAW’s intelligence. Everything here is <b>read-only by design</b> and serves the same data the public site already publishes — sealed track-record statements your agent can <b>re-verify by hash</b> instead of trusting, live radars with explicit safety reads, and the flight-recorder ledger behind every decision. No tool can see an account. No tool can trade." },
+    "dv.lede": { en: "Connect your AI agent to RUNECLAW’s intelligence. Everything here is <b>read-only by design</b>, in two families: most tools serve the same data the public site already publishes — sealed track-record statements your agent can <b>re-verify by hash</b> instead of trusting, live radars with explicit safety reads, and the flight-recorder ledger behind every decision — while the Guardian tools below instead evaluate input you send, storing none of it. No tool can see an account. No tool can trade." },
     "dd.w_install_x": { en: "Install {wallet}" },
     "dd.w_step_approve": { en: "Approve the connection in {wallet}…" },
     "dd.w_step_nonce": { en: "Preparing the login message…" },
@@ -1596,7 +1596,7 @@
     "aria.public_page_for": { en: "Public page for {name}" },
     "aria.replay_of": { en: "Replay of a recorded {dir} {sym} trade" },
     "dv.guardian_h": { en: "Guardian — safety checks for YOUR agent" },
-    "dv.guardian_p": { en: "Every tool below answers <i>“what has RUNECLAW done?”</i>. Four of them answer <i>“is what your agent is about to do safe?”</i> — the same models the Guardian pages run, on input you supply. <b>scan_transaction</b> flags prompt-injection, seed-phrase lures, drain and unlimited-approval language, phishing URLs and address poisoning before anything is signed. <b>compile_intent</b> turns a plain-language mandate into typed, revocable rules that name who enforces each one. <b>stress_portfolio</b> runs a hypothetical book through a −30% drop, an alt crash, a depeg, a cascade and a black swan. <b>plan_escape</b> sequences a dependency-aware unwind. They read no account, store nothing you send, and every answer is a heuristic with reasons — never a verdict, and never a signature." },
+    "dv.guardian_p": { en: "Every tool below answers <i>“what has RUNECLAW done?”</i>. The ones named here answer <i>“is what your agent is about to do safe?”</i> — the same models the Guardian pages run, on input you supply. <b>scan_transaction</b> flags prompt-injection, seed-phrase lures, drain and unlimited-approval language, phishing URLs and address poisoning before anything is signed. <b>xray_transaction</b> decodes what calldata actually does — approve and its unlimited line, permit, setApprovalForAll, transfers, and multicall batches unwrapped call by call — and answers UNKNOWN outside the known selector set, because unknown is not safe. <b>compile_intent</b> turns a plain-language mandate into typed, revocable rules that name who enforces each one. <b>stress_portfolio</b> runs a hypothetical book through a −30% drop, an alt crash, a depeg, a cascade and a black swan. <b>plan_escape</b> sequences a dependency-aware unwind. They read no account, store nothing you send, and every answer is a heuristic with reasons — never a verdict, and never a signature." },
     "dv.mcp_h": { en: "MCP server" },
     "dv.mcp_p": { en: "A Model Context Protocol server (Streamable HTTP, stateless JSON) lives at <code>POST /mcp</code>. Point any MCP-capable client — Claude, agent frameworks, other bots — at this origin and the tools below appear automatically." },
     "dv.mcp_note": { en: "JSON-RPC 2.0 · protocol 2025-03-26 · no auth, per-IP rate-limited · every tool annotated <code>readOnlyHint</code>." },
@@ -2136,7 +2136,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"e69d5dc5","zh":"20608f9d","pt":"5c1774da","fr":"1f9b93b6","de":"4cf8018f","nl":"851ba6fa","ja":"6f5b8f69","ko":"e88237c2","ru":"5d1c3146","tr":"ae4036f4","it":"5131012f","hi":"6425654a","ar":"e7a59485"};
+  var CHUNKS = {"es":"fddfd9c2","zh":"8df16c34","pt":"6526fb97","fr":"233d36d2","de":"cceb9b98","nl":"e0dc6968","ja":"2bebf0e3","ko":"50a544b4","ru":"1f14387e","tr":"5238dd29","it":"795d6ed0","hi":"07d06671","ar":"3f8e7ce6"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

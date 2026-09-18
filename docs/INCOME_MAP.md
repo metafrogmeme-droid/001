@@ -1409,11 +1409,15 @@ no fee, revenue share or payout for a published strategy or a followed agent.
 
 A builder of an AI agent can use RUNECLAW today with no operator involvement.
 Point any MCP client at POST /mcp (mounted app/server.js:415, unauthenticated,
-per-IP limited) and get 31 read tools; four of them run over input the caller
-supplies rather than over RUNECLAW's data — scan_transaction (prompt-
-injection/drain/approval/address-poisoning flags), compile_intent,
-stress_portfolio, plan_escape (app/routes/mcp.js:108, :217, :244, :295) — the
-'safety checks for YOUR agent' developers.html:52 advertises. Mint an rcarena_
+per-IP limited) and get 31 read tools. The ones carrying `computesOnInput` run
+over input the caller supplies rather than over RUNECLAW's data —
+scan_transaction (prompt-injection/drain/approval/address-poisoning flags),
+xray_transaction (calldata decoded to the known selector set, UNKNOWN outside
+it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:115,
+:166, :224, :251, :302) — the 'safety checks for YOUR agent'
+developers.html:55 advertises. The MARKER is the list, here as everywhere: this
+paragraph named four of the five and cited four of the five lines, because
+xray_transaction joined the family and no prose moved. Mint an rcarena_
 key yourself from the Arena page's Agent keys panel (arena.html:366 →
 app/routes/arena.js:1232, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
@@ -2209,10 +2213,27 @@ half of the measurement that says where the measurement stops.
   one layer down. `bot/web/user_gateway.py:1839` forwards the planner's own
   value to the web and manufactures nothing.
 
-- /miniapp/arena 'can act' comes from the router's own header and from the
-  fact that it loads embed-arena-view.js plus miniapp-arena.js. I did not open
-  miniapp-arena.js, so whether it really opens Arena positions (versus
-  rendering a board with a sign-in) is unconfirmed.
+- ANSWERED, and what driving it found was one route over. /miniapp/arena
+  'can act' is TRUE: `miniapp-arena.js` POSTs `/api/arena/open` and
+  `/api/arena/close`, both `authMiddleware` + `tradeLimit`, on the caller's
+  own VIRTUAL account (§4: "virtual funds only — nothing here can move real
+  money"). The three season-administration routes carry an in-body
+  `adminOnly(req, res)` that a middleware-chain read cannot see, which is the
+  same blind spot `tests/command_gates.py` documents for the bot.
+
+  **What the check for that found is in `GET /api/reports`.** Asking the
+  question properly meant driving every express router's dispatch chain IN
+  ORDER rather than grepping, and that walk says 93 of 276 routes carry no
+  auth-family middleware — 17 of them invisible to `public_no_dollars.test.js`,
+  whose public set was `!src.includes('authMiddleware')` at FILE level. One
+  was `/api/reports`, which has no auth AND no limiter and was publishing
+  `arb.carries[].earned_usd` per coin plus `parity.net_pnl` and
+  `parity.total_fees` — the operator's realized net and fees on the LIVE book,
+  justified in that route's header as "already public on /track" when /track
+  indexes its equity curve to 100 precisely so no account size escapes. Fixed
+  at the PRODUCER (`bot/core/web_reports.py`), because the route forwards the
+  bot's sections wholesale and no key under `app/routes/` spells either name.
+  Recorded in CLAUDE.md under the public-surface rules.
 
 - A correction rather than a doubt: the earlier agents' 'Active Trading / Spot
   trading: /swap page'. There is no /swap route — app/public/swap.html is
@@ -2220,13 +2241,14 @@ half of the measurement that says where the measurement stops.
   canonical tag once named a 404 for exactly this reason. The capability
   exists; the address in that row does not.
 
-- I could not determine whether the MCP tools I name (get_rwa_radar,
-  get_meme_radar, get_dex_compare, get_gas, get_agent_feed, get_alpha_intel,
-  get_showcase_trade, run_what_if, get_flight_record, verify_call,
-  get_seal_roots, get_track_record, get_signals) are inside the '31 read
-  tools' the other agents counted generically under Building. I read the TOOLS
-  keys in app/routes/mcp.js; I did not count them, so I may be double-
-  reporting what that generic row already covers.
+- ANSWERED, and the answer was yes. Driven (`Object.keys(TOOLS)` is 31), all
+  thirteen MCP tools I name — get_rwa_radar, get_meme_radar, get_dex_compare,
+  get_gas, get_agent_feed, get_alpha_intel, get_showcase_trade, run_what_if,
+  get_flight_record, verify_call, get_seal_roots, get_track_record,
+  get_signals — are inside the '31 read tools' the Building row counts
+  generically, so those rows ARE double-reporting it. Driving the count is
+  also what found the defect one paragraph up: `computesOnInput` answers five
+  and every piece of prose describing the family said four.
 
 - which_leaf is a guess wherever I wrote it. I was given only the non-'none'
   rows of a 90-leaf map, not the leaf list, so 'no leaf fits' may be wrong

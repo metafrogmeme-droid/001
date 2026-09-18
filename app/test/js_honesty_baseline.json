@@ -6,11 +6,11 @@
     "lib",
     "routes"
   ],
-  "total": 152,
+  "total": 149,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
-      "public/js/dashboard.js": 23,
+      "public/js/dashboard.js": 21,
       "lib/airdrops.js": 1,
       "lib/daily_rune.js": 1,
       "lib/holdings.js": 2,
@@ -27,7 +27,7 @@
     "coerce-or-zero": {
       "public/js/arena_engine.js": 3,
       "public/js/chartread.js": 2,
-      "public/js/dashboard.js": 8,
+      "public/js/dashboard.js": 7,
       "public/js/theater.js": 1,
       "lib/arena_badges.js": 1,
       "lib/arena_follow.js": 1,

@@ -3,12 +3,31 @@
  *
  * GET /api/reports        — public sections: cross-venue funding scan, the
  *                           funding-arb PAPER tracker, and the live↔backtest
- *                           parity headline (already public on /track).
+ *                           parity headline. NO AUTH AND NO LIMITER: driven
+ *                           position-aware over the express dispatch chain,
+ *                           this route carries neither, so §4 applies in full
+ *                           — percent, ratio and count, never an account
+ *                           dollar. The sections are forwarded WHOLESALE from
+ *                           the bot's payload, so the producer is where that
+ *                           rule has to hold (bot/core/web_reports.py) and
+ *                           `tests/test_the_public_report_carries_no_dollar.py`
+ *                           is what checks it: no key under app/routes/ spells
+ *                           `earned_usd` or `net_pnl`, so a key-scan of THIS
+ *                           file cannot see either one.
  * GET /api/reports/yield  — the yield radar. OPERATOR-SENSITIVE (contains
  *                           real account idle balances), so it requires a
  *                           logged-in user whose plan is 'admin' — and plan
  *                           is re-read fresh from the DB, not trusted from
  *                           the JWT (tiers can change after token issue).
+ *
+ * The parity headline used to be described here as "already public on
+ * /track", and that sentence justified shipping `net_pnl` and `total_fees`
+ * to anonymous callers. Driven, /track publishes `equity_curve_idx` (INDEXED
+ * TO 100 precisely so no account size escapes), `win_rate_pct` and
+ * `profit_factor`, and no dollar at all — so this route was strictly more
+ * revealing than the page it named as its precedent. That is the
+ * get_track_record defect `app/test/public_no_dollars.test.js` records in
+ * its own header, one route over, with the same justifying sentence.
  *
  * Data is pushed hourly by the bot (POST /api/bot/sync/reports); this router
  * never invents numbers — a missing payload/section renders as empty state.
