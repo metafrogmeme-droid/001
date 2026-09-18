@@ -21,6 +21,7 @@
 _cmd_agent status
 _cmd_airdrops airdrops
 _cmd_alerts scan
+_cmd_alpha analyze
 _cmd_analyze analyze
 _cmd_anchor anchor
 _cmd_approvals token
@@ -42,6 +43,7 @@ _cmd_deepscan deepscan
 _cmd_defi defi
 _cmd_dip run
 _cmd_disconnect status
+_cmd_duel start
 _cmd_emergency_stop halt
 _cmd_enforcing enforcing
 _cmd_eventrisk macro
@@ -49,6 +51,7 @@ _cmd_exchange status
 _cmd_exposure exposure
 _cmd_forcescan admin
 _cmd_fullscan scan
+_cmd_funding status
 _cmd_fundingscan status
 _cmd_golive admin
 _cmd_halt halt
@@ -103,6 +106,7 @@ _cmd_rwa rwa
 _cmd_scalp scan
 _cmd_scan scan
 _cmd_sell trade
+_cmd_session scan
 _cmd_settier mode
 _cmd_signals scan
 _cmd_spot spot

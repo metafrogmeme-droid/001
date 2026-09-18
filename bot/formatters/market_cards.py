@@ -307,3 +307,110 @@ def render_squeeze_unavailable(symbol: str) -> str:
     return ("🎯 <b>VOLATILITY SQUEEZE</b> — <b>" + html.escape(symbol) + "</b>\n\n"
             "<i>Not computable — the bands could not be derived from this "
             "history. Not the same as 'no squeeze'.</i>")
+
+
+# ── /funding ────────────────────────────────────────────────────────────────
+# The same defect as the four above, one command over. `/funding` swallowed
+# both of its venue reads (`except Exception: pass`, twice) and then rendered
+#
+#     "No funding data found for BTC on any connected venue — check the symbol."
+#
+# for three different facts: a venue that timed out, a venue that errored, and
+# a base that genuinely has no perp. It NAMES A CAUSE, and the cause it names
+# is the one thing that may be perfectly correct. That is this repository's
+# opening example — "a 503 shown as 'No venues found'" — with a remedy
+# attached.
+#
+# Beneath it the card said "funding across venues" over whichever venues had
+# answered, and printed a divergence over the same partial set. A
+# venue-concentration warning computed from venues nobody read is the scan
+# sweep's `Scanned 40/115 · Errors 0`, one card over.
+
+_CROWD_BAND = 0.0005          # |8h rate| above which the book reads as crowded
+_WIDE_SPREAD = 0.0005         # spread above which venues are concentrated
+
+_STATE_WORDS = {
+    "stale": "last known, not refreshed",
+    "not_listed": "no perp listed here",
+    "unread": "could not be read",
+}
+
+
+def _crowd(rate: float) -> str:
+    if rate >= _CROWD_BAND:
+        return "🔴 longs crowded"
+    if rate <= -_CROWD_BAND:
+        return "🟢 shorts crowded"
+    return "⚪ balanced"
+
+
+def render_funding(base: str, reading: Any) -> str:
+    """The cross-venue funding card, saying which venues it read.
+
+    `reading` is a `cross_venue.FundingReading`. Taken as a parameter rather
+    than built here: the home venue arrives through the engine's own scanner
+    and the keyless ones through the shared cache, so a renderer that fetched
+    would be a second answer about which venues were asked.
+    """
+    sym = html.escape(base)
+    rows = list(getattr(reading, "rows", ()) or ())
+    asked = len(rows)
+    verdict = getattr(reading, "verdict", "no_venues")
+
+    if verdict == "no_venues":
+        return (f"📡 <b>{sym} funding</b>\n\n"
+                "<i>No venue was asked. Nothing was measured.</i>")
+
+    if verdict == "nothing_read":
+        # NEVER "check the symbol" here: not one venue answered, so the card
+        # has no evidence whatever about whether this base has a perp.
+        names = ", ".join(html.escape(r.venue) for r in rows)
+        every = ("Neither venue" if asked == 2 else
+                 "The venue" if asked == 1 else f"None of the {asked} venues")
+        return (f"📡 <b>{sym} funding</b>\n\n"
+                f"<i>{every} could be read ({names}). "
+                "This says nothing about whether "
+                f"{sym} has a perp — nothing was measured.</i>")
+
+    if verdict == "not_listed":
+        # Every venue ANSWERED and none of them lists this base. Here, and
+        # only here, the symbol really is the thing to check.
+        every = ("Both venues" if asked == 2 else
+                 "The venue" if asked == 1 else f"All {asked} venues")
+        return (f"📡 <b>{sym} funding</b>\n\n"
+                f"<i>{every} answered and none of them lists a "
+                f"{sym} perp — check the symbol.</i>")
+
+    priced = list(reading.priced)
+    lines = [f"📡 <b>{sym} funding — {len(priced)} of {asked} venues</b>",
+             "(8h rate · annualized · positive = longs pay)"]
+    for r, rate in sorted(priced, key=lambda pair: pair[1], reverse=True):
+        ann = rate * 3 * 365 * 100          # 8h rate -> annualized %
+        tag = "  <i>(last known)</i>" if r.state == "stale" else ""
+        lines.append(f"• <b>{html.escape(r.venue)}</b>: {rate * 100:+.4f}% "
+                     f"(≈{ann:+.1f}%/yr) {_crowd(rate)}{tag}")
+
+    # The venues that gave no number are NAMED rather than omitted: a card
+    # headed "2 of 3" that does not say which one is missing leaves the reader
+    # to guess whether the venue is down or the coin is not listed there, and
+    # those are different facts with different remedies.
+    for r in rows:
+        if r.priced:
+            continue
+        why = _STATE_WORDS.get(r.state, "state not recognised")
+        lines.append(f"• <b>{html.escape(r.venue)}</b>: — <i>{why}</i>")
+
+    div = reading.spread
+    if div is not None:
+        lines.append("")
+        lines.append(f"Spread across {div['venues']} of {asked} venues: "
+                     f"<b>{div['spread'] * 100:.4f}%</b>")
+        if div["spread"] >= _WIDE_SPREAD:
+            lines.append("⚠️ Wide divergence — positioning is venue-"
+                         "concentrated; expect funding-driven flows.")
+    elif len(priced) == 1 and asked > 1:
+        # One rate is not a spread, and saying nothing here would let the
+        # absent row read as "the venues agree".
+        lines.append("")
+        lines.append("<i>One venue priced — no spread to compare.</i>")
+    return "\n".join(lines)

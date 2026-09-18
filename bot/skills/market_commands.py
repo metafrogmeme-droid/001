@@ -193,57 +193,49 @@ class MarketCommands:
         """The meme radar card — the website's own rendering, both surfaces."""
         return await self._web_card_text("meme_radar", surface=surface)
 
+    # `status`, matching /fundingscan and /arb — its own subject siblings,
+    # which gate with the in-body spelling on the same permission. It was the
+    # one ungated command in "Market context", and it spends a live venue
+    # fetch per invocation.
+    @guard("status")
     async def _cmd_funding(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/funding [SYMBOL] — live funding rates for a perp across every
         connected venue (Bitget home rate + Bybit + Hyperliquid), with the
         cross-venue spread. Positive funding = longs pay shorts = crowded
         longs. Default symbol: BTC."""
-        from bot.core.cross_venue import CROSS_VENUE, base_of
+        from bot.core.cross_venue import CROSS_VENUE, VenueFunding, base_of, funding_reading
+        from bot.formatters.market_cards import render_funding
 
         args = ctx.args or []
         raw = (args[0].strip().upper() if args else "BTC")
         base = base_of(raw)
         deriv = f"{base}/USDT:USDT"
 
-        rates: dict[str, float] = {}
-        # Home venue (Bitget market data) — per-symbol fetch, best-effort.
+        # The HOME venue read, carrying its OWN outcome. It used to be an
+        # `except Exception: pass` into a dict, and a dict cannot say whether
+        # Bitget was down or simply does not list this base — so the card
+        # below answered "check the symbol" for both.
+        home: VenueFunding
         try:
             fut_ex = await self.engine.scanner._get_futures_exchange()
             fr = await fut_ex.fetch_funding_rate(deriv)
-            home = fr.get("fundingRate") if isinstance(fr, dict) else None
-            if home is not None:
-                rates["bitget"] = float(home)
-        except Exception:
-            pass
-        # Cross-venue map (bulk-cached, keyless).
-        try:
-            rates.update(await CROSS_VENUE.rates_for(base))
-        except Exception:
-            pass
+            rate = fr.get("fundingRate") if isinstance(fr, dict) else None
+            home = (VenueFunding("bitget", float(rate), "read")
+                    if rate is not None
+                    else VenueFunding("bitget", None, "not_listed"))
+        except Exception as exc:
+            # The venue's own rejection text is logged and never printed: a
+            # rejection can echo request params back into a chat bubble.
+            system_log.debug("/funding home venue read failed for %s: %s",
+                             deriv, type(exc).__name__)
+            home = VenueFunding("bitget", None, "unread")
 
-        if not rates:
-            await self._send(update,
-                             f"📡 No funding data found for <b>{base}</b> on "
-                             "any connected venue — check the symbol.")
-            return
-
-        lines = [f"📡 <b>{base} funding across venues</b>",
-                 "(8h rate · annualized · positive = longs pay)"]
-        for venue, r in sorted(rates.items(), key=lambda kv: kv[1], reverse=True):
-            ann = r * 3 * 365 * 100  # 8h rate -> annualized %
-            crowd = "🔴 longs crowded" if r >= 0.0005 else \
-                    "🟢 shorts crowded" if r <= -0.0005 else "⚪ balanced"
-            lines.append(f"• <b>{venue}</b>: {r * 100:+.4f}% "
-                         f"(≈{ann:+.1f}%/yr) {crowd}")
-        div = CROSS_VENUE.divergence(rates)
-        if div is not None:
-            lines.append("")
-            lines.append(f"Spread across {div['venues']} venues: "
-                         f"<b>{div['spread'] * 100:.4f}%</b>")
-            if div["spread"] >= 0.0005:
-                lines.append("⚠️ Wide divergence — positioning is venue-"
-                             "concentrated; expect funding-driven flows.")
-        await self._send(update, "\n".join(lines))
+        # Cross-venue map (bulk-cached, keyless). `states_for` never raises and
+        # answers one row per polled venue whatever happens, so an `except`
+        # around it would be a branch no input can reach.
+        cross = await CROSS_VENUE.states_for(base)
+        await self._send(update,
+                         render_funding(base, funding_reading([home, *cross])))
 
     async def _cmd_arb(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/arb — the funding-arb paper tracker: what a fixed $1k delta-

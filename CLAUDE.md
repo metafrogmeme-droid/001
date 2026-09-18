@@ -5460,6 +5460,153 @@ by any moment a test can reach `aria-busy` is still true and the skeleton
 element is already gone.
 (`app/test/collapsed_row_is_a_label_and_a_value.smoke.test.js`.)
 
+**A COMMAND WITH NO GATE IS ABSENT FROM A BASELINE OF WHAT IS GATED, and the
+file that had already written this down fixed four and walked past four.**
+`tests/guarded_commands_baseline.txt` records the commands that carry a
+permission gate and `test_the_income_map_says_who_may_run_a_command.py`
+derives the `_is_admin` ones; a command with NEITHER appears in neither, so
+the pair of ratchets whose own header says *"a guard that silently disappears
+is an auth regression nothing else notices"* acquits, by omission, the case
+where there was never a guard to disappear. A false accusation is loud; this
+one just sat there. Driven, four registered commands carried no gate of any
+kind — `/duel`, `/alpha`, `/session`, `/funding` — each the lone ungated row
+in its own catalogue group ("Scan & analyse" 25 of 26 guarded, "Market
+context" 11 of 12), all documented `audience='user'` while `pending` holds
+only `{start, help, lang}`. So a caller the bot had never admitted reached
+them with no allowlist gate, no rate limit and no registration, and `/alpha`
+and `/funding` each spend a LIVE VENUE FETCH per invocation on a
+caller-supplied symbol. `bot/formatters/market_cards.py` opens by recording
+this exact finding for a different batch — *"the only market commands with no
+`@guard` at all, so they bypassed the F-2 allowlist entirely while three of
+them spend an exchange call per invocation"* — fixed those four, and nobody
+asked which other commands had the property. *Ask which OTHER surface makes
+the same claim*, applied to a fix's own street.
+
+**SIX SPELLINGS, and I found them by re-running the search three times.**
+`command_guards.py` says "TWO SPELLINGS, one list" and its lesson is COVERAGE
+OF A SPELLING IS NOT COVERAGE OF THE GUARD. Driven there are six: the
+decorator and the in-body `self._guard` (both baselined), the in-body
+`_is_admin` (its own test), `self.users.is_authorized` (`/share`,
+`/mynotes`), `self._limiter.allow` (`/version`, whose docstring states the
+liveness-check reason, so it is RECORDED rather than changed) and
+`@require_registered` (`/me`, `/sync`). Each of the last three was found by
+writing the assertion and running the search again, which is this file's own
+advice arriving a fourth time. `tests/command_gates.py` keeps a hand-written
+vocabulary ON PURPOSE, and the direction it fails in is why that is safe: a
+SEVENTH spelling reads as `none`, and a `none` row must carry a reason or the
+gate fails. An unrecognised gate is loud rather than an acquittal.
+
+**THREE BLIND SPOTS IN MY OWN PROBE, each manufacturing exactly the
+accusation it existed to make.** A `...` TYPING STUB is not a definition:
+`callback_handler.py` declares six `_cmd_*` Protocol stubs, so keying on the
+method name reported `/positions`, `/orders`, `/performance`, `/risk`,
+`/strategy` and `/latest_signal` as ungated while their real definitions carry
+`@guard`. A NEW SPELLING reads as no gate, above. And NOT-FOUND RENDERED AS
+NO-GATE: `/link`, `/unlink`, `/me` and `/sync` are module-level functions in
+`user_middleware.py`, which `handler_sources()` cannot reach because it walks
+the handler's MRO — and a probe that printed the same thing for *absent* and
+for *found, gateless* accused four commands it had never read. That is this
+document's opening rule, inside the instrument built to find it, for the
+second time. `unresolved` is its own outcome now and it is not a pass; the
+distinction is driven on a PLANTED tree, because no command in the real one
+is unresolvable and a rule no input can reach is a claim that there is a
+check. Two rows are `none` WITH their reasons: `/link <token>` is the linking
+door and the token IS the credential, so a permission gate there would be
+circular, and `/unlink` is self-scoped by `get_user_by_chat_id(chat_id)`.
+
+**`/funding` WAS THIS FILE'S OPENING EXAMPLE, WITH A REMEDY ATTACHED.** Both
+venue reads were `except Exception: pass`, and then `if not rates:` rendered
+*"No funding data found for BTC on any connected venue — check the symbol."*
+A venue that timed out, a venue that errored and a base with genuinely no perp
+were one sentence, and the sentence NAMES A CAUSE — pointing the reader at the
+one thing that may be perfectly correct. Beneath it the card headed itself
+*"funding across venues"* over whichever venues had answered, and
+`divergence()` computed a spread over that same partial set and printed
+*"Spread across N venues"*: a venue-CONCENTRATION warning derived from venues
+nobody read, which is `Scanned 40/115 · Errors 0` one card over. The aggregator
+admitted the gap in its own docstring — *"missing venues simply absent"* —
+because `_venue_map` returned one dict for a fetch that failed, a fetch that
+answered nothing, and a map kept from an earlier fetch. `states_for` is the
+reading (four states: `read`, `stale`, `not_listed`, `unread`), the card names
+every venue that gave no number and says which of the two reasons applies, the
+spread states its own denominator, and "check the symbol" survives in the ONE
+branch where it is honest: every venue answered and none lists this base.
+
+**A STALE MAP IS NOT A FRESH ONE, and `_is_fresh` cannot tell you.** A failed
+fetch backs the timestamp off by only three quarters of the TTL —
+deliberately, so a down venue is not hammered — so for the next quarter-TTL
+`_is_fresh` is True over a map nobody could refresh. Reading freshness as
+success there publishes a memory as a measurement, which is the distinction
+the whole slice exists to keep. `_outcomes` answers "did it work" where
+`_fetched_at` answers "when", and the two disagree by design. A stale map that
+LACKS the base is `unread` rather than `not_listed`, because what we hold is a
+memory of an earlier listing and a coin listed since would be missing from it
+for a reason that is not the venue's answer today.
+
+**`_venue_map` WAS DELETED RATHER THAN WRAPPED.** Once `rates_for` went
+through `states_for`, the map-only reader had no caller left, and a one-line
+wrapper over the new walk would have been a function nobody needs — which
+`test_no_new_unreachable_functions` reports next run, and which is a claim
+that somebody needs it. `rates_for` stays as `states_for` with the reasons
+dropped, one walk, for the two callers that only want numbers.
+
+> **And two fresh assertions were wrong before the code was.** One asserted
+> the per-ROW phrasing `"could not be read"` against a branch whose sentence
+> is *"None of the 3 venues could be read"* — the negation moves the words,
+> and asserting a short string is the assertion that keeps misfiring. The
+> other planted an empty cache to mean "never fetched", which leaves
+> `_is_fresh` False so the test reached ccxt for real and asserted against
+> whatever the network did; it drives the real failure path now. *When a fresh
+> assertion fails, check whether the code or the assertion is wrong before
+> touching the code*, a sixth time.
+
+> **And the FULL gate refused the slice on a test none of its suites ran** —
+> `test_funding_command_renders_all_venues`, which has guarded this card since
+> the cross-venue provider was written. Its failure was evidence twice over.
+> It patched `CROSS_VENUE.rates_for`, which the handler no longer calls, so
+> the real `states_for` answered `unread` for both keyless venues and the card
+> correctly said "1 of 3". And then, with that fixed, it STILL failed — on the
+> welcome message, because its mock caller has never been admitted and
+> `/funding` now has a gate. The test reaching the card at all, for years, is
+> the measurement that the command was ungated. Two of its three assertions
+> guarded wording this slice deliberately replaced ("funding across venues"
+> over whichever venues answered, "Spread across 3 venues" with no
+> denominator), so they move with the card rather than the card moving back;
+> the third — every venue is named — held throughout.
+
+**Thirty-one mutations, each killed — and the four that survived a round were
+three kinds, none of them the code.** The sharpest was my own assertion:
+`"2 of 3 venues" in out` for the card's HEADER is satisfied by the SPREAD row,
+which says the same words, so the mutation that makes the header read
+`{asked} of {asked}` survived a green suite. An assertion that passes for a
+reason unrelated to the rule it names is how a round reports coverage it does
+not have, and anchoring it to the header LINE is the whole fix. Two more were
+corpus gaps the prose had described and no fixture planted: a home venue whose
+exception is the ONLY unread reason (with a second unread row in the table the
+verdict is `nothing_read` either way, so the fixture could not tell), and a
+venue whose map is FRESH and EMPTY.
+
+**One survivor was a guard trusting the parser it was testing**, and fixing it
+created the fifth granularity: `reason = "x"` inside `baseline()` defeated an
+assertion made through `baseline()`, so the check reads the FILE now — at
+which point the reason field that function returned had no reader at all, and
+it is gone. The rule is `reasonless_rows`, driven on PLANTED lines, because the
+real baseline has no reasonless row and a mutation of the rule changes no
+verdict against the file alone. Two more rules are planted for the same reason:
+the `...`-stub refusal (every stub sits in a file the MRO reaches after the
+real definition, so deleting the rule changes nothing in this tree) and the
+unresolved-is-not-ungated distinction (no command in the tree is unresolvable).
+A rule the real inputs cannot reach is measured where it is the only thing in
+play, or it is not measured.
+
+**And one mutation was refused rather than re-aimed.** "The venue's rejection
+text is printed" first edited the LOG call, which no card reads — an equivalent
+mutant. Making it real meant adding a variable to the product for the
+instrument to use, which is backwards, so the mutation became the edit a future
+reader would plausibly make: the `except` branch sending the driver text to the
+caller as its own message. It dies on the send count and on the planted
+`SECRETVALUE`.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -5691,7 +5838,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 207 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 208 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -6503,7 +6650,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **399 of 966** reach for source text through `source_scan`, `code_only`
+Driven, **399 of 968** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 399 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
