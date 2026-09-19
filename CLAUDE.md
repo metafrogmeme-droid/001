@@ -6719,23 +6719,52 @@ it would have marked every row of an older payload partial.
 
 **AND THE SWEEP FROM THERE FOUND A HARD CAP PASSING ON MARGIN NOBODY READ.**
 *Ask which OTHER surface makes the same claim*, applied to this fix's own
-quantity: committed margin is summed in FOUR places.
-`LiveExecutor.total_exposure_usd` sums `p.cost_usd` over `open_positions` and
-is read by `/livebalance`'s card and the registry's; the MICRO_MAX_TOTAL_EXPOSURE
-gate sums it again INLINE over `status == "open"` alone and refuses the next
-order on the result. Two differences fall out and only one is cosmetic. The
-property counts a resting limit order as committed and the CAP does not, so the
-same noun answers twice and the looser answer is the gate. And `cost_usd` is
-`0.0` for a position whose margin the venue never stated — the orphan case
-`position_size_basis` is written for, which `live_executor` itself builds on both
-adoption paths and names in `adoption_unread` — so an adopted position
-contributes nothing to the total and the cap lets the next order through as
-though that capital were free. A card printing a low number and a hard limit
-failing OPEN are different sizes of claim. It is FILED with its measurement
-rather than swept in here, because the cap's answer to an unread margin is a
-decision that needs driving rather than a preference: refusing is fail-closed
-and defensible on `_fail_closed_restore`'s own argument, and counting it at the
-per-trade cap is a bound rather than a measurement.
+quantity: committed margin is summed in five places, and the count is DRIVEN by
+an AST walk rather than remembered, because the note filed for it said four and
+an AST walk said five — *a measurement you remember is not a measurement*,
+inside the paragraph recording that rule. `LiveExecutor.total_exposure_usd`
+sums `p.cost_usd` over `open_positions`; the MICRO_MAX_TOTAL_EXPOSURE gate sums
+it again INLINE over `status == "open"` alone and refuses the next order on the
+result; and three cards (`portfolio_commands`, `skill_registry` twice) each sum
+it raw for display. **Three of those three sit directly beside a comment curing
+the identical shape on a NEIGHBOURING field** — the sharpest under one reading
+*"NOT `sum(p.pnl_usd or 0 ...)`: that books every unpriced close as a measured
+break-even and prints the partial result as a whole total"*, with the line below
+it doing exactly that to `cost_usd`. Two differences fall out and only one is
+cosmetic. The property counts a resting limit order as committed and the CAP
+does not, so the same noun answers twice and the looser answer is the gate: one
+filled $60 position beside one resting $60 limit order reads $120 on the card
+and $60 at the gate.
+
+**AND THE FILED CLAIM THAT THE CAP "LETS THE NEXT ORDER THROUGH" WAS TOO STRONG,
+which driving it is what said.** Ten adopted positions at `cost_usd` 0.0 really
+do sum to $0.00 — and the order was still REFUSED, by the position-COUNT cap.
+A second backstop caught it, so the claim needed a book UNDER that cap and the
+note never said so. Driven at stock config the three caps are
+`$100/trade · $500 total · 5 positions`, and `5 x $100 == $500` exactly, so the
+exposure cap is **unreachable through any order this executor places**: the
+per-position cap bounds every one of them.
+
+**It is reachable through ADOPTED positions, which never passed that cap** —
+opened on the venue by hand or another process and swept in, with nothing
+bounding their margin. And those are precisely the population whose margin may
+be unread: `position_size_basis`'s own docstring calls `0.0` *"the ORPHAN case —
+exactly the position whose numbers deserve the least confidence"*, and
+`live_executor` builds one on both adoption paths and names the unread fields in
+`adoption_unread`. **The gate's only reachable inputs and the hole are the same
+population.** Driven, one adopted position beside two bot positions at $60:
+
+    adopted PRICED at $400 -> committed $520 (cap $500) -> next $50 order REFUSED
+    the SAME book, margin never stated -> reads $120    -> next $50 order ALLOWED
+
+Same book, same real risk, opposite verdict, decided by one field the venue
+declined to report. It is FILED with its measurement rather than swept in here,
+because the cap's answer to an unread margin is a decision that needs driving
+rather than a preference: refusing is fail-closed and defensible on
+`_fail_closed_restore`'s own argument, and counting it at the per-trade cap is a
+bound rather than a measurement — and the deciding evidence is how often a real
+adopted position carries no margin, which is a read of the adoption paths and
+not a taste.
 
 
 ## Public-surface rules
