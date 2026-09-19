@@ -3,6 +3,8 @@ import glob
 import os
 import pathlib
 import shutil
+import threading
+import typing
 
 import pytest
 
@@ -590,12 +592,13 @@ class _OutboundLedger:
         self.reached = set()
 
     def note(self, word, host, port, call):
-        self.rows.append((self.nodeid, word, host, port, call))
+        nodeid, how, thread = _connect_origin(self.nodeid)
+        self.rows.append(_Reach(nodeid, how, thread, word, host, port, call))
 
     def drain(self, nodeid):
-        mine = [r for r in self.rows if r[0] == nodeid]
+        mine = [r for r in self.rows if r.nodeid == nodeid]
         if mine:
-            self.rows = [r for r in self.rows if r[0] != nodeid]
+            self.rows = [r for r in self.rows if r.nodeid != nodeid]
         return mine
 
     def drain_all(self):
@@ -621,6 +624,88 @@ class _OutboundLedger:
 _OUTBOUND = _OutboundLedger()
 
 
+#: WHO is connecting, which the ledger above was never careful about.
+#:
+#: Its docstring is careful about WHEN the stamp is taken and says why. The
+#: stamp itself is `_OUTBOUND.nodeid` read at connect time -- right for the
+#: test's own code, which runs on the main thread, and WRONG for a thread that
+#: outlives it. `bot/utils/website_sync.py` alone has six
+#: `sync_*_in_background` spawners, each a `threading.Thread(daemon=True)`, so
+#: a sync started by test A does its HTTP while pytest is already on test C and
+#: the ledger named C.
+#:
+#: Driven on 2026-09-18 that named FOURTEEN tests across fourteen unrelated
+#: files -- four of them pure SOURCE SCANS, which cannot reach a socket at all
+#: -- and the run before it named a near-disjoint THIRTEEN, differing even in
+#: which parametrization of one test was accused. A checker with a blind spot
+#: manufactures exactly the accusation it exists to prevent, and the gate's
+#: flake filter forgave every one of them, because re-running a test alone
+#: starts no thread. `scripts/ci_test_gate.py` records this same module hiding
+#: behind this same filter a month earlier, through a different door.
+#:
+#: So a thread carries the nodeid that was current when it was STARTED, and the
+#: connect is attributed THERE -- which is also the seam a reader has to stub.
+#: What this cannot see is stated rather than guessed at: a thread started by C
+#: code or by `_thread.start_new_thread` never passes `Thread.start`, and a
+#: `Thread` subclass whose `start` does not call `super().start()` does not
+#: either. Both come out `unattributed`, which names the THREAD and no test,
+#: because an unattributable reach is a measurement and a wrong test name is
+#: not.
+_THREAD_ORIGIN = "_runeclaw_reach_origin"
+
+
+class _Reach(typing.NamedTuple):
+    """One refused connect. NAMED, because positions are how readers drift.
+
+    This row grew `how` and `thread` when the attribution above was fixed, and
+    the six readers that indexed it positionally all broke at once -- each of
+    them asserting a POSITION where it meant a field. A tuple subclass keeps
+    every existing unpack working and gives the next field somewhere to go
+    without moving anything a reader already reads.
+    """
+
+    nodeid: object          # the test this is attributed to, or None
+    how: str                # "test" | "thread" | "unattributed"
+    thread: str             # the thread that made the connect, by name
+    word: str               # the verdict: remote | proxy | unreadable
+    host: str
+    port: int
+    call: str               # "connect" | "connect_ex"
+
+
+def _stamp_thread_origins() -> None:
+    """Make every `Thread.start` remember which test started it."""
+    if getattr(threading.Thread.start, "_runeclaw_stamps_origin", False):
+        return                                  # already installed this session
+    real_start = threading.Thread.start
+
+    def start(self):
+        setattr(self, _THREAD_ORIGIN, _OUTBOUND.nodeid)
+        return real_start(self)
+
+    start._runeclaw_stamps_origin = True
+    threading.Thread.start = start
+
+
+def _connect_origin(nodeid):
+    """(nodeid, how, thread-name) for the connect happening right now.
+
+    `nodeid` is the asking LEDGER's own stamp, not the module singleton's. The
+    first draft read `_OUTBOUND.nodeid` here and the two `TestTheLedger` cases
+    -- which build a ledger of their own -- failed immediately: a second
+    instance could never be stamped, because the instance method was reading a
+    global. The thread stamp below is still the singleton's, and that is not
+    the same coupling: `Thread.start` is patched once for the session, so there
+    is exactly one ledger a running thread could have been started under.
+    """
+    cur = threading.current_thread()
+    if cur is threading.main_thread():
+        return nodeid, "test", cur.name
+    if hasattr(cur, _THREAD_ORIGIN):
+        return getattr(cur, _THREAD_ORIGIN), "thread", cur.name
+    return None, "unattributed", cur.name
+
+
 class _RefusedOutbound(ConnectionRefusedError):
     """What the code under test sees.
 
@@ -640,13 +725,64 @@ def _outbound_row_line(word, host, port, call):
     return f"    {where}"
 
 
+def _origin_note(rows):
+    """What to say about WHO connected, or "" when it was the test itself.
+
+    Pure, and separate from the sentence below, because the two answer
+    different questions and only one of them has ever been wrong: the rows are
+    a reading of what was refused, and this is a reading of whose code did it.
+    """
+    # THREE cases, not two, and the third was found by planning this slice's
+    # mutation round rather than by running it. A thread started during
+    # COLLECTION or in a session fixture DOES pass `Thread.start`, so it
+    # carries a stamp -- and the stamp is None, because no test was running.
+    # The first draft said "that this test started" under a header reading
+    # `<outside any test>`: two contradictory claims in one message, which is
+    # this slice's own subject rebuilt inside the cure for it.
+    #
+    # It is also NOT `unattributed`. There the harness never saw the thread
+    # start, which is a gap in the stamp's coverage; here the stamp worked and
+    # there is simply no test to name. Different facts, different sentences.
+    named = sorted({r.thread for r in rows if r.how == "thread" and r.nodeid})
+    anon = sorted({r.thread for r in rows if r.how == "thread" and not r.nodeid})
+    unattributed = sorted({r.thread for r in rows if r.how == "unattributed"})
+    note = ""
+    if named:
+        which = ", ".join(named)
+        note += (
+            f"\n  Made on a BACKGROUND THREAD ({which}) that this test started.\n"
+            "  A daemon thread outlives the test, so the connect can land while a\n"
+            "  LATER test is running — it is recorded against the test that\n"
+            "  STARTED it, because that is the seam to stub, and naming whichever\n"
+            "  test happened to be running is how fourteen innocent tests were\n"
+            "  accused on 2026-09-18.\n"
+        )
+    if anon:
+        which = ", ".join(anon)
+        note += (
+            f"\n  Made on a BACKGROUND THREAD ({which}) started while NO test was\n"
+            "  running — during collection, or from a session-scoped fixture. The\n"
+            "  harness saw it start; there is simply no test to name for it.\n"
+        )
+    if unattributed:
+        which = ", ".join(unattributed)
+        note += (
+            f"\n  Made on a thread ({which}) this harness did not see start, so\n"
+            "  NO test is named for it: an unattributable reach is a measurement\n"
+            "  and a wrong test name is not.\n"
+        )
+    return note
+
+
 def _reached_the_network_text(nodeid, rows):
     """The whole sentence, pure, so it can be driven without a suite."""
-    where = "\n".join(_outbound_row_line(w, h, p, c) for _n, w, h, p, c in rows)
+    where = "\n".join(_outbound_row_line(r.word, r.host, r.port, r.call)
+                      for r in rows)
     plural = "" if len(rows) == 1 else "s"
     return (
         f"{nodeid} reached the network.\n\n"
-        f"  {len(rows)} refused connect{plural}:\n{where}\n\n"
+        f"  {len(rows)} refused connect{plural}:\n{where}\n"
+        f"{_origin_note(rows)}\n"
         "A test that reaches a venue is a test asserting against whatever that\n"
         "venue answered — and when its stub is the thing that went missing, the\n"
         "assertion still passes, so this line is the only evidence there is. The\n"
@@ -696,6 +832,7 @@ def _refuse_outbound_connections() -> None:
     connect_ex._runeclaw_no_venue = True
     _socket.socket.connect = connect
     _socket.socket.connect_ex = connect_ex
+    _stamp_thread_origins()
     _prove_the_refusal_is_honest(_socket)
 
 
@@ -762,11 +899,11 @@ def pytest_sessionfinish(session, exitstatus):
     """
     rows = _OUTBOUND.drain_all()
     for r in rows:
-        if r[0]:
-            _OUTBOUND.note_reached(r[0])
-    fresh = [r for r in rows if _reach_file(r[0]) not in _REACH_BASELINED]
-    for nodeid in sorted({r[0] for r in fresh}, key=lambda n: (n is None, n)):
-        mine = [r for r in fresh if r[0] == nodeid]
+        if r.nodeid:
+            _OUTBOUND.note_reached(r.nodeid)
+    fresh = [r for r in rows if _reach_file(r.nodeid) not in _REACH_BASELINED]
+    for nodeid in sorted({r.nodeid for r in fresh}, key=lambda n: (n is None, n)):
+        mine = [r for r in fresh if r.nodeid == nodeid]
         print("\n" + _reached_the_network_text(
             nodeid or "<outside any test>", mine))
     if fresh:

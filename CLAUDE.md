@@ -461,6 +461,78 @@ loudly and by name. The containment is the backstop that makes a narrow stub
 safe; without it, each stub would have to be future-proof, and none of them can
 be.
 
+**AND THE CONTAINMENT NAMED FOURTEEN INNOCENT TESTS, WHILE THE FLAKE FILTER
+FORGAVE EVERY ONE.** The ledger's own docstring is careful about WHEN the stamp
+is taken and says why — `pytest_runtest_teardown` runs alongside the fixture
+finalizers, so a snapshot there attributes every artefact to the NEXT test. It
+was never careful about WHO is asking. The stamp is `_OUTBOUND.nodeid` read at
+connect time: right for the test's own code, which runs on the main thread, and
+wrong for a thread that outlives it. `bot/utils/website_sync.py` alone has six
+`sync_*_in_background` spawners, each a `threading.Thread(daemon=True)`, so a
+sync started by test A does its HTTP while pytest is already on test C.
+
+**THE TELL WAS THAT THE ACCUSED COULD NOT HAVE DONE IT.** The 2026-09-18
+preflight read `All local gates green` over `[gate] total failing: 14 |
+known-baseline: 0`, and the fourteen were in fourteen unrelated files — four of
+them pure SOURCE SCANS (`test_no_new_dead_public_api`,
+`test_no_hardcoded_risk_check_count`, `TestNoRawExceptionLeaksToTelegram`,
+`test_each_carries_a_guard[sweep]`), which cannot reach a socket at all. The run
+before it named a near-disjoint THIRTEEN, differing even in which
+PARAMETRIZATION of one test was accused (`[zones]` against `[sweep]`,
+`test_get_entries_cost` against `test_append_cost`). **A genuine state leak
+names the SAME tests every run** — the 40 `test_web_gateway.py` failures this
+file records were the same 40 — so a set that re-rolls is a different cause.
+Every refused connect was `127.0.0.1:33283`, which is this box's `HTTPS_PROXY`,
+refused as `proxy` exactly as intended.
+
+**AND THE REMEDY IT PRINTED WAS WRONG FOR THE TEST IT NAMED.** *"Stub the seam
+the test reaches through"* — `test_no_new_dead_public_api` reaches through no
+seam, it walks the tree. *A checker with a blind spot manufactures exactly the
+accusation it exists to prevent*, this file's own sentence, arriving inside the
+containment written from it. `scripts/ci_test_gate.py`'s own header records
+**the same module** producing phantom failures a month earlier through a
+different door, and says in as many words that *"the flake filter re-runs each
+new failure alone ... so the phantoms were quietly filed as flaky"*.
+
+**A thread carries the nodeid it was STARTED under**, stamped by a patched
+`Thread.start`, and the connect is attributed there — which is also the seam a
+reader has to stub. What the stamp cannot see is stated rather than guessed at:
+`_thread.start_new_thread`, a C extension's thread and a `Thread` subclass whose
+`start` skips `super()` never pass it. Those are `unattributed`, naming the
+THREAD and no test, because an unattributable reach is a measurement and a wrong
+test name is not.
+
+**THREE CASES, NOT TWO, AND THE THIRD WAS FOUND BY PLANNING THE MUTATION ROUND
+RATHER THAN BY RUNNING IT.** A thread started during COLLECTION or from a
+session fixture DOES pass `Thread.start`, so it carries a stamp — and the stamp
+is `None`. The first draft printed *"Made on a BACKGROUND THREAD that this test
+started"* under a header reading `<outside any test>`: two contradictory claims
+in one message, which is this slice's own subject rebuilt inside the cure for
+it. It is also NOT `unattributed` — there the harness never saw the thread
+start, a gap in the stamp's coverage; here the stamp worked and there is no test
+to name. Different facts, different sentences.
+
+**SIX ASSERTIONS INDEXED THE ROW POSITIONALLY AND ALL SIX BROKE AT ONCE**, each
+asserting a POSITION where it meant a FIELD. The row is a `NamedTuple` now and
+nothing spells an index, so the next field moves nothing a reader already reads.
+
+> **And the guard caught a real bug in the fix.** `TestTheLedger` builds a
+> ledger of its own, and the first `_connect_origin` read the module-level
+> `_OUTBOUND.nodeid` — an instance method answering from a global, so a second
+> ledger could never be stamped. Both of that class's cases failed immediately.
+
+**Twelve mutations, each killed — and the three that survived the first round
+were the corpus and the instrument, never the code.** Reading `hasattr` as
+truthiness survived because the only fixture for a `None` stamp built its row BY
+HAND and so never reached `_connect_origin`; it is DRIVEN now, with a thread
+started while no test is running. The thread note firing for the test's own code
+survived because the "unchanged case" row defaulted to `nodeid=None` and the
+mutation excluded it too — **a fixture that cannot fail is not a measurement**.
+And the stamp taken AFTER `real_start` is a genuine race whose drive would be
+the flake this containment exists to stop producing, so the ORDER is asserted as
+a shape with the reason written beside it — the narrow case where a source scan
+is the honest instrument.
+
 **A PUBLISHED PAGE TOLD AN AGENT DEVELOPER NINE TOOL NAMES AND AN ENDPOINT, AND
 THE ENDPOINT ANSWERS `Unknown tool` FOR ALL NINE.** That is the `/vault` hint
 shape at its largest scale so far — there a card named a COMMAND that did

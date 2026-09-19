@@ -26,9 +26,11 @@ from __future__ import annotations
 
 import ast
 import errno
+import inspect
 import os
 import socket
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -177,8 +179,8 @@ class TestTheLedger:
         led.note("remote", "api.bitget.com", 443, "connect")
         led.nodeid = "tests/b.py::test_b"
         led.note("remote", "api.bybit.com", 443, "connect")
-        assert [r[2] for r in led.drain("tests/a.py::test_a")] == ["api.bitget.com"]
-        assert [r[2] for r in led.drain("tests/b.py::test_b")] == ["api.bybit.com"]
+        assert [r.host for r in led.drain("tests/a.py::test_a")] == ["api.bitget.com"]
+        assert [r.host for r in led.drain("tests/b.py::test_b")] == ["api.bybit.com"]
 
     def test_draining_one_test_leaves_the_others(self):
         led = conftest._OutboundLedger()
@@ -188,8 +190,19 @@ class TestTheLedger:
         led.note("remote", "outside", 2, "connect")
         assert len(led.drain("tests/a.py::test_a")) == 1
         left = led.drain_all()
-        assert [r[0] for r in left] == [None]
+        assert [r.nodeid for r in left] == [None]
         assert led.drain_all() == []
+
+
+def _R(word="remote", host="api.bitget.com", port=443, call="connect",
+       nodeid=None, how="test", thread="MainThread"):
+    """One ledger row, BY NAME.
+
+    Six assertions in this file indexed the row positionally and all six broke
+    at once when it grew `how` and `thread` -- each of them asserting a
+    POSITION where it meant a field. Nothing here spells an index now.
+    """
+    return conftest._Reach(nodeid, how, thread, word, host, port, call)
 
 
 # ── the sentence ─────────────────────────────────────────────────────
@@ -198,7 +211,7 @@ class TestTheSentence:
         return conftest._reached_the_network_text("tests/x.py::test_y", rows)
 
     def test_it_names_the_test_the_address_and_both_remedies(self):
-        out = self._text([(None, "remote", "api.bitget.com", 443, "connect")])
+        out = self._text([_R()])
         assert "tests/x.py::test_y" in out
         assert "api.bitget.com:443" in out
         assert "Stub the seam" in out
@@ -206,12 +219,12 @@ class TestTheSentence:
 
     def test_it_says_the_code_under_test_saw_an_ordinary_refusal(self):
         # Without this the reader's next move is to look for a broken network.
-        out = self._text([(None, "remote", "api.bybit.com", 443, "connect")])
+        out = self._text([_R(host="api.bybit.com")])
         assert "ECONNREFUSED" in out
 
     def test_an_unplaceable_address_reads_differently_from_a_venue(self):
-        venue = self._text([(None, "remote", "api.bitget.com", 443, "connect")])
-        unread = self._text([(None, "unreadable", "<int>", -1, "connect")])
+        venue = self._text([_R()])
+        unread = self._text([_R(word="unreadable", host="<int>", port=-1)])
         assert "could not place" in unread
         assert "could not place" not in venue
 
@@ -222,10 +235,9 @@ class TestTheSentence:
             "remote", "h", 1, "connect")
 
     def test_the_count_agrees_with_the_rows(self):
-        out = self._text([(None, "remote", "a", 1, "connect"),
-                          (None, "remote", "b", 2, "connect")])
+        out = self._text([_R(host="a", port=1), _R(host="b", port=2)])
         assert "2 refused connects" in out
-        one = self._text([(None, "remote", "a", 1, "connect")])
+        one = self._text([_R(host="a", port=1)])
         assert "1 refused connect:" in one
 
 
@@ -284,7 +296,7 @@ class TestTheRefusalIsInstalled:
                 s.connect(("198.51.100.7", 443))
         finally:
             s.close()
-        assert [r[0] for r in refusals.drain_all()] == [request.node.nodeid]
+        assert [r.nodeid for r in refusals.drain_all()] == [request.node.nodeid]
 
     def test_the_stamp_is_cleared_when_the_test_ends(self, refusals):
         """A connect made between tests is not the last test's.
@@ -298,7 +310,7 @@ class TestTheRefusalIsInstalled:
         conftest._OUTBOUND.note("remote", "during", 1, "connect")
         conftest.pytest_runtest_logfinish("tests/planted.py::test_x", None)
         conftest._OUTBOUND.note("remote", "between", 2, "connect")
-        assert [(r[0], r[2]) for r in refusals.drain_all()] == [
+        assert [(r.nodeid, r.host) for r in refusals.drain_all()] == [
             ("tests/planted.py::test_x", "during"), (None, "between")]
 
     def test_the_code_under_test_can_still_catch_it(self, refusals):
@@ -327,7 +339,7 @@ class TestTheRefusalIsInstalled:
         finally:
             s.close()
         assert rc == errno.ECONNREFUSED
-        assert [r[4] for r in refusals.drain_all()] == ["connect_ex"]
+        assert [r.call for r in refusals.drain_all()] == ["connect_ex"]
 
     def test_loopback_still_connects(self, refusals):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -363,7 +375,7 @@ class TestTheRefusalIsInstalled:
         finally:
             s.close()
         assert seen == [("127.0.0.1", 9)]
-        assert [r[2] for r in refusals.drain_all()] == ["spied"]
+        assert [r.host for r in refusals.drain_all()] == ["spied"]
 
     def test_installing_twice_does_not_double_wrap(self):
         before = socket.socket.connect
@@ -648,3 +660,191 @@ class TestTheStatedLimits:
             socket.AF_UNIX, "/run/x.sock") == ("not-ip", "", -1)
         assert conftest._outbound_verdict(
             socket.AF_INET, "/run/x.sock")[0] == "unreadable"
+
+
+# ── WHO connected, not only WHEN ──────────────────────────────────────
+class TestABackgroundThreadIsNotTheTestThatWasRunning:
+    """The 2026-09-18 correction, driven end to end.
+
+    The ledger stamps at connect time, which is right for the test's own code
+    and WRONG for a thread that outlives it: `bot/utils/website_sync.py` alone
+    has six `sync_*_in_background` spawners, each a daemon thread, so a sync
+    started by test A does its HTTP while pytest is already on test C.
+
+    That preflight named FOURTEEN tests across fourteen unrelated files — four
+    of them pure source scans, which cannot reach a socket at all — and the run
+    before it named a near-disjoint THIRTEEN. The gate's flake filter forgave
+    every one, because re-running a test alone starts no thread; a genuine
+    state leak names the SAME tests every run.
+
+    No source scan can make this claim: whether the row lands on the right test
+    is a property of a running thread, so it is driven.
+    """
+
+    def _thread_that_connects(self, name):
+        """(start, released, finished) — a thread that reaches a venue on cue."""
+        release, finished, box = threading.Event(), threading.Event(), {}
+
+        def reach():
+            release.wait(5)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect(("198.51.100.7", 443))
+            except ConnectionRefusedError as exc:
+                box["refused"] = exc
+            except Exception as exc:                    # pragma: no cover
+                box["other"] = exc
+            finally:
+                s.close()
+                finished.set()
+
+        return threading.Thread(target=reach, name=name, daemon=True), release, finished, box
+
+    def test_it_is_attributed_to_the_test_that_started_it(self, refusals):
+        th, release, finished, box = self._thread_that_connects("planted-sync")
+
+        # Test A runs and starts the thread. The stamp is taken HERE.
+        conftest.pytest_runtest_logstart("tests/planted.py::test_started_it", None)
+        th.start()
+        conftest.pytest_runtest_logfinish("tests/planted.py::test_started_it", None)
+
+        # pytest has moved on. The connect lands now, during a LATER test.
+        conftest.pytest_runtest_logstart("tests/planted.py::test_running_later", None)
+        release.set()
+        assert finished.wait(5), "the planted thread never ran"
+        th.join(5)
+        conftest.pytest_runtest_logfinish("tests/planted.py::test_running_later", None)
+
+        assert "refused" in box, box            # it really did reach the socket
+        rows = refusals.drain_all()
+        assert [r.nodeid for r in rows] == ["tests/planted.py::test_started_it"]
+        assert [r.how for r in rows] == ["thread"]
+        assert [r.thread for r in rows] == ["planted-sync"]
+
+    def test_the_sentence_says_it_was_a_background_thread(self):
+        """Because "stub the seam the test reaches through" is the wrong
+        remedy on its own: a source scan reaches through no seam, and the
+        reader needs to know the connect is asynchronous."""
+        out = conftest._reached_the_network_text(
+            "tests/planted.py::test_started_it",
+            [_R(how="thread", thread="Thread-9 (sync_scan_data)")])
+        assert "BACKGROUND THREAD" in out
+        assert "Thread-9 (sync_scan_data)" in out
+        # And the ordinary case is UNCHANGED — no note where the test itself
+        # connected, or every honest report grows a paragraph about threads.
+        # The row a test's OWN connect makes carries THAT TEST's nodeid. The
+        # first draft passed `_R()`, whose nodeid defaults to None, so a
+        # mutation keying the note on `r.nodeid` alone excluded it as well and
+        # the assertion could not fail. A fixture that cannot fail is not a
+        # measurement of anything.
+        assert "BACKGROUND THREAD" not in conftest._reached_the_network_text(
+            "tests/planted.py::test_x",
+            [_R(nodeid="tests/planted.py::test_x", how="test")])
+
+    def test_a_thread_started_outside_any_test_does_not_say_this_test(self):
+        """FOUND WHILE PLANNING THE MUTATION ROUND, not while running it.
+
+        A thread started during collection, or from a session-scoped fixture,
+        DOES pass `Thread.start` — so it carries a stamp, and the stamp is
+        None because no test was running. The first draft said "that this test
+        started" under a header reading `<outside any test>`: two contradictory
+        claims in one message, which is this slice's own subject rebuilt inside
+        the cure for it.
+
+        It is also a DIFFERENT fact from `unattributed`. There the harness
+        never saw the thread start, which is a gap in the stamp's coverage;
+        here the stamp worked and there is no test to name.
+        """
+        out = conftest._reached_the_network_text(
+            "<outside any test>",
+            [_R(nodeid=None, how="thread", thread="session-sync")])
+        assert "BACKGROUND THREAD" in out
+        assert "started while NO test was" in out
+        assert "that this test started" not in out
+        # ...and it does not borrow the unattributed sentence either, which
+        # would claim a coverage gap the stamp did not have.
+        assert "did not see start" not in out
+
+    def test_a_thread_the_harness_never_saw_start_names_no_test(self, refusals):
+        """`_thread.start_new_thread` never passes `Thread.start`.
+
+        So does a C extension's thread. Naming whichever test was running
+        would be exactly the defect this class exists to remove, so the row
+        carries NO test: an unattributable reach is a measurement and a wrong
+        test name is not.
+        """
+        import _thread
+
+        finished, box = threading.Event(), {}
+
+        def reach():
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect(("198.51.100.7", 443))
+            except ConnectionRefusedError as exc:
+                box["refused"] = exc
+            finally:
+                s.close()
+                finished.set()
+
+        conftest.pytest_runtest_logstart("tests/planted.py::test_innocent", None)
+        _thread.start_new_thread(reach, ())
+        assert finished.wait(5), "the planted thread never ran"
+        conftest.pytest_runtest_logfinish("tests/planted.py::test_innocent", None)
+
+        assert "refused" in box, box
+        rows = refusals.drain_all()
+        assert [r.nodeid for r in rows] == [None]
+        assert [r.how for r in rows] == ["unattributed"]
+        out = conftest._reached_the_network_text("<outside any test>", rows)
+        assert "did not see start" in out
+        assert "tests/planted.py::test_innocent" not in out
+
+    def test_a_thread_started_outside_any_test_is_still_SEEN(self, refusals):
+        """DRIVEN, because a hand-built row cannot reach `_connect_origin`.
+
+        The mutation round caught this: `hasattr(cur, _THREAD_ORIGIN)` read as
+        truthiness survived every assertion, because a thread started while no
+        test was running carries a stamp of None — falsy — and the sibling
+        test above builds its row by hand. Truthiness files that thread as
+        `unattributed`, which claims the stamp never saw it. It did.
+        """
+        th, release, finished, box = self._thread_that_connects("collect-sync")
+        conftest._OUTBOUND.nodeid = None          # collection, or a session fixture
+        th.start()
+        release.set()
+        assert finished.wait(5), "the planted thread never ran"
+        th.join(5)
+
+        assert "refused" in box, box
+        rows = refusals.drain_all()
+        assert [r.how for r in rows] == ["thread"], "the stamp DID see it start"
+        assert [r.nodeid for r in rows] == [None]
+
+    def test_the_stamp_is_taken_BEFORE_the_thread_runs(self):
+        """A shape, because the race a drive would need is the flake itself.
+
+        The mutation that moves `setattr` below `real_start` leaves a window
+        in which the thread can connect before it is stamped. Driving that
+        means losing a race on purpose — a test that fails only sometimes,
+        which is the thing this whole containment exists to stop producing. So
+        the ORDER is asserted, and the reason it is a scan is written here
+        rather than left for the next reader to wonder about.
+        """
+        body = inspect.getsource(conftest._stamp_thread_origins)
+        assert "_THREAD_ORIGIN" in body and "real_start(self)" in body
+        assert body.index("setattr(self, _THREAD_ORIGIN") < body.index("return real_start(self)")
+
+    def test_the_stamp_is_installed_by_the_containment(self):
+        """A stamp nobody installed is a reading nobody takes.
+
+        Driven rather than grepped: install again (idempotent) and read the
+        attribute off `Thread.start` itself.
+        """
+        conftest._refuse_outbound_connections()
+        assert getattr(threading.Thread.start, "_runeclaw_stamps_origin", False)
+
+    def test_installing_twice_does_not_double_wrap_the_stamp(self):
+        before = threading.Thread.start
+        conftest._stamp_thread_origins()
+        assert threading.Thread.start is before
