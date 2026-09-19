@@ -32,7 +32,7 @@ from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
-from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol
+from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol, position_size_basis
 from bot.core import live_executor as _live_executor_mod
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
 from bot.core.market_scanner import MarketScanner, _classify_symbol
@@ -2831,28 +2831,76 @@ class RuneClawEngine:
 
         One row per active account (operator + every per-user executor):
         ``account``, ``user_id``, ``equity_usd``, ``open_positions``,
-        ``exposure_usd`` (margin committed), ``circuit_open``,
-        ``consecutive_losses``, ``error``. Breaker state is read directly from the
-        engine that OWNS that account's safety state — the shared engine for the
-        operator, the per-user engine (if one exists yet) for a user — so reading
-        the overview never creates state as a side effect. Fail-open per account:
-        an error on one account is captured in its ``error`` field instead of
-        aborting the sweep. Default (per-user OFF) → just the operator row.
+        ``exposure_usd`` (margin committed), ``exposure_scored``,
+        ``circuit_open``, ``consecutive_losses``, ``breaker_read``, ``error``.
+        Fail-open per account: an error on one account is captured in its
+        ``error`` field instead of aborting the sweep. Default (per-user OFF)
+        → just the operator row.
+
+        BREAKER STATE IS READ FROM THE ENGINE THAT OWNS IT, AND THAT ENGINE IS
+        BOUND LAZILY. ``_user_risk`` is populated by `risk_for`, so a per-user
+        account that has not traded IN THIS PROCESS has no entry in it — which
+        after every restart is all of them. The row used to default
+        ``circuit_open=False`` and ``consecutive_losses=0``, so the card printed
+        `·` in the column whose whole job is to say which accounts are halted,
+        and a measured streak of zero, for an account whose persisted state
+        nobody had opened. The EQUITY column one over already abstained (`—`)
+        for exactly this reason; five fields beside it asserted.
+
+        ``breaker_read`` is the three words, and ``circuit_open`` /
+        ``consecutive_losses`` are ``None`` for the two that are not readings:
+
+          ``read``           an engine was resident and answered
+          ``not_resident``   no engine is bound for this account in this
+                             process; its persisted state has not been opened
+          ``unreadable``     the engine was there and the read raised
+
+        THE FIX IS NOT TO CALL `risk_for`, and the reason is stronger than the
+        "no side effects" one this docstring used to give. `risk_for`
+        CONSTRUCTS a RiskEngine, and `RiskEngine.__init__` runs `_load_state`,
+        which is FAIL-CLOSED: a per-user state file that will not parse trips
+        THAT ACCOUNT'S BREAKER. A read command that can halt an account is not
+        a read command.
+
+        THE STAKES ARE SET ONE MODULE OVER. `proactive_monitor._recipients_for`
+        deliberately does NOT add the operator to a user's unprotected-position
+        alert, and says why: "Platform-level oversight has its own door in
+        `account_risk_overview`". This is that door.
         """
         rows: list[dict] = []
         for ex in self._all_live_executors():
             uid = getattr(ex, "user_id", None)
             row = {
                 "account": str(uid or "operator"), "user_id": uid,
-                "equity_usd": None, "open_positions": 0, "exposure_usd": 0.0,
-                "circuit_open": False, "consecutive_losses": 0,
+                "equity_usd": None, "open_positions": 0,
+                "exposure_usd": None, "exposure_scored": 0,
+                "circuit_open": None, "consecutive_losses": None,
+                "breaker_read": "unreadable",
                 "governor": None, "throttle": None, "cap_usd": None, "error": None,
             }
             try:
                 positions = list(getattr(ex, "open_positions", []) or [])
                 row["open_positions"] = len(positions)
-                row["exposure_usd"] = round(
-                    sum(float(getattr(p, "cost_usd", 0.0) or 0.0) for p in positions), 2)
+                # `cost_usd` is the MARGIN, and `position_size_basis` documents
+                # what 0.0 there means: "the venue never told us", the orphan
+                # case. `sum(float(... or 0.0))` folded those into the total and
+                # printed the result as the account's committed margin — a
+                # partial total presented as whole, on the row an admin reads to
+                # decide whether an account is over-committed. The scored count
+                # travels so the card can say when it bit; no readable margin at
+                # all is None, never $0.
+                margins = [position_size_basis(p)[0] for p in positions]
+                scored = [m for m in margins if m is not None]
+                row["exposure_scored"] = len(scored)
+                # A FLAT book has a measured exposure of $0 and an unreadable
+                # one has none, and `scored == []` is both. Folding them is the
+                # shapes-table row this whole reading exists to remove, arriving
+                # inside the fix for it — found by rendering the card and
+                # reading every line, which is the only thing that shows it.
+                if not positions:
+                    row["exposure_usd"] = 0.0
+                else:
+                    row["exposure_usd"] = round(sum(scored), 2) if scored else None
                 # Operator-set per-trade margin cap (/setcap), for this user only.
                 store = getattr(self, "_user_store", None)
                 if uid and store is not None:
@@ -2864,9 +2912,27 @@ class RuneClawEngine:
                 if bal:
                     row["equity_usd"] = round(float(bal.get("total", 0.0) or 0.0), 2)
                 eng = self._user_risk.get(str(uid)) if uid else self.risk
-                if eng is not None:
-                    row["circuit_open"] = bool(eng.circuit_breaker_active)
-                    row["consecutive_losses"] = int(getattr(eng, "consecutive_losses", 0) or 0)
+                if eng is None:
+                    row["breaker_read"] = "not_resident"
+                else:
+                    # The breaker read gets its OWN handler rather than riding
+                    # the row's. A property that raises used to abort the whole
+                    # row into `error`, throwing away the equity, position count
+                    # and exposure that had already been read — guard where a
+                    # composite view is owed omit, which is the table CLAUDE.md
+                    # draws. It also made `unreadable` a word no input could
+                    # reach, because every path to it set `error` too and the
+                    # renderer's ERROR branch won.
+                    try:
+                        row["circuit_open"] = bool(eng.circuit_breaker_active)
+                        row["consecutive_losses"] = int(getattr(eng, "consecutive_losses", 0) or 0)
+                        row["breaker_read"] = "read"
+                    except Exception as exc:
+                        row["circuit_open"] = None
+                        row["consecutive_losses"] = None
+                        row["breaker_read"] = "unreadable"
+                        logger.warning("Account overview: %s breaker read failed: %s",
+                                       row["account"], exc)
                     try:
                         row["governor"] = eng.live_performance_state()
                     except Exception:

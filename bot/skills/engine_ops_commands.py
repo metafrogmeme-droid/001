@@ -298,27 +298,87 @@ class EngineOpsCommands:
         lines = ["🛡 <b>ACCOUNT RISK</b>", "<pre>"]
         lines.append(f" {'ACCT':<10}{'EQUITY':>9}{'POS':>4}{'EXPOSURE':>10}{'CB':>4}{'STRK':>5}")
         lines.append(f" {_dash*10}{_dash*9}{_dash*4}{_dash*10}{_dash*4}{_dash*5}")
-        n_live = n_halted = 0
+        n_live = n_halted = n_unread = n_partial = n_faulted = n_error = 0
         for r in rows:
             acct = r["account"][:10]
             if r.get("error"):
+                # This row is in `len(rows)` and in none of the counters below,
+                # because it `continue`s before all of them. That was invisible
+                # while the footer said three things; with the clauses added
+                # here it reads as exhaustive, and a reader counting glyphs
+                # against the account total finds one missing — the subtraction
+                # a partial taxonomy invites. Counted, and the clause says
+                # exactly which figures it is absent from.
+                n_error += 1
                 lines.append(f" {acct:<10}  ERROR: {str(r['error'])[:24]}")
                 continue
             eq = r["equity_usd"]
             eq_s = f"${eq:,.0f}" if eq is not None else "—"
             pos = r["open_positions"]
-            exp = f"${r['exposure_usd']:,.0f}"
-            cb = "⛔" if r["circuit_open"] else "·"
-            strk = r["consecutive_losses"]
+            # The margin total is the sum over the positions whose margin the
+            # venue STATED. A row where none was readable prints a dash rather
+            # than $0, and a partial one is marked, because "$120 committed"
+            # over two positions and over the one of two that could be priced
+            # are different claims that used to render identically.
+            exp_v = r.get("exposure_usd")
+            # `or 0` here would mark EVERY row of an older payload partial,
+            # because an absent count is not a count of zero — the honesty
+            # gate said so on the line added to fix that very shape one column
+            # over. Absent means the producer did not state it, and a total
+            # nobody qualified is printed as it stands.
+            scored = r.get("exposure_scored")
+            if exp_v is None:
+                exp = "—"
+            elif isinstance(scored, int) and scored < pos:
+                exp = f"${exp_v:,.0f}*"
+                n_partial += 1
+            else:
+                exp = f"${exp_v:,.0f}"
+            # `·` is a CLAIM that this account is not halted. It is printed only
+            # for a breaker somebody read; `?` is the account whose safety state
+            # this process has never opened, which after a restart is every
+            # per-user account until it next trades.
+            read = r.get("breaker_read")
+            if read == "read":
+                cb = "⛔" if r["circuit_open"] else "·"
+                strk = str(r["consecutive_losses"])
+                if r["circuit_open"]:
+                    n_halted += 1
+            elif read == "not_resident":
+                # Nobody has opened this account's safety state in this
+                # process. It resolves itself the next time the account trades.
+                cb, strk = "?", "—"
+                n_unread += 1
+            else:
+                # The engine was there and would not answer — a fault, with a
+                # different remedy, so it keeps a glyph of its own rather than
+                # being folded in with the accounts nobody asked about.
+                cb, strk = "!", "—"
+                n_faulted += 1
             if eq is not None:
                 n_live += 1
-            if r["circuit_open"]:
-                n_halted += 1
             lines.append(f" {acct:<10}{eq_s:>9}{pos:>4}{exp:>10}{cb:>4}{strk:>5}")
         lines.append("</pre>")
-        lines.append(
-            f"\n<i>{len(rows)} account(s) · {n_live} with live equity · "
-            f"{n_halted} halted (⛔)</i>")
+        # `N halted` is a count over the rows whose breaker was READ, so the
+        # unread count travels with it or the footer reads as an all-clear over
+        # accounts nobody opened. Both extra clauses print only when they bite:
+        # a permanent "0 unread" is the row that trains a reader to skip the
+        # line.
+        foot = (f"{len(rows)} account(s) · {n_live} with live equity · "
+                f"{n_halted} halted (⛔)")
+        if n_unread:
+            foot += (f" · {n_unread} breaker not read (?) — no risk engine is "
+                     f"bound for these in this process")
+        if n_faulted:
+            foot += (f" · {n_faulted} breaker read FAILED (!) — the engine is "
+                     f"bound and would not answer")
+        if n_partial:
+            foot += (f" · {n_partial} exposure partial (*) — some positions' "
+                     f"margin was never stated by the venue")
+        if n_error:
+            foot += (f" · {n_error} not read at all (ERROR) — counted in the "
+                     f"total above and in none of the figures beside it")
+        lines.append(f"\n<i>{foot}</i>")
         # ⚙ Live-performance governor — surface only accounts it is actively
         # throttling (REDUCE/PAUSE) so the size changes aren't invisible. Quiet
         # when nothing is throttled or the governor is off.

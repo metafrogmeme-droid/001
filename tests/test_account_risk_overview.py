@@ -84,11 +84,18 @@ class TestAccountRiskOverview:
         assert rows["alice"]["exposure_usd"] == 15.0
         assert rows["alice"]["circuit_open"] is True
         assert rows["alice"]["consecutive_losses"] == 5
-        # bob has an executor but no per-user risk engine yet → fresh defaults.
+        # bob has an executor but no per-user risk engine yet. This used to
+        # assert `circuit_open is False` under a comment calling it "fresh
+        # defaults" — the DEFECT pinned as the contract, so a reader inherited
+        # an argument for it rather than a stale assertion. `_user_risk` is
+        # bound lazily by `risk_for`, so after every restart that is EVERY
+        # per-user account, and the card printed `·` (not halted) and a streak
+        # of 0 for an account whose persisted state nobody had opened.
         assert rows["bob"]["equity_usd"] == 250.0
         assert rows["bob"]["open_positions"] == 0
-        assert rows["bob"]["circuit_open"] is False
-        assert rows["bob"]["consecutive_losses"] == 0
+        assert rows["bob"]["breaker_read"] == "not_resident"
+        assert rows["bob"]["circuit_open"] is None
+        assert rows["bob"]["consecutive_losses"] is None
 
     async def test_no_per_user_engine_does_not_create_one(self):
         alice = _FakeExec(user_id="alice", positions=[])
