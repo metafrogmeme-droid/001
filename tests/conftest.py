@@ -1020,8 +1020,67 @@ def _write_reach_report(session):
               f"{type(exc).__name__}: {exc}")
 
 
+_AGENT_FEED_SHAPE_HINT = (
+    "tests/conftest.py refuses the agent feed's BACKGROUND FLUSHER for the "
+    "session. Only the thread is refused: `emit` still queues and `flush_once` "
+    "still runs, which is what every test of that module drives.\n\n"
+    "This is NOT a pass: a session-lived daemon that POSTs on a timer sends "
+    "from whichever test happens to be running, and a reach reported against "
+    "the wrong test is the defect the attribution above exists to remove."
+)
+
+
+def _refuse_a_background_flusher() -> None:
+    """The agent feed's flusher outlives the test that queued the event.
+
+    `AgentFeed.emit` lazily starts `agent-feed-flush`, which loops
+    `sleep(FLUSH_INTERVAL_S)` then `flush_once()` FOREVER and re-queues a
+    failed batch up to `MAX_RETRIES`. So one emit, in one test, POSTs
+    repeatedly across the REST of the session.
+
+    Driven on 2026-09-19 that is exactly what happened: ONE case in
+    `tests/test_alert_audience.py` -- the only one in the file whose alert is
+    not admin-scoped, so the only one `_dispatch` publishes to the mind-stream
+    -- made 19 refused connects, and before the attribution above was fixed
+    they were charged to fourteen innocent tests in fourteen unrelated files.
+
+    ONLY THE THREAD IS REFUSED, and that is what makes it narrow rather than a
+    wholesale stub. `emit` still queues, so `pending()` reads what it read;
+    `flush_once` still runs, and every test of this module already drives it
+    directly on an `AgentFeed()` of its own -- the module split it out "for
+    tests" and says so. Nothing about the feed becomes untestable. What stops
+    is a background sender no test controls and no test asked for.
+    """
+    from bot.core import agent_feed
+
+    if getattr(agent_feed.AgentFeed._ensure_flusher,
+               "_runeclaw_no_flusher", False):
+        return                                  # already installed this session
+
+    def _ensure_flusher(self) -> None:
+        return
+
+    _ensure_flusher._runeclaw_no_flusher = True
+    agent_feed.AgentFeed._ensure_flusher = _ensure_flusher
+
+    # DRIVEN, not asserted: a containment that is installed and containing
+    # nothing reports success over the leak it exists to prevent, which is
+    # `ruff_gate.check_version`'s CANNOT-CHECK distinction one harness over.
+    probe = agent_feed.AgentFeed()
+    probe.emit("info", "conftest self-test")
+    if probe.pending() != 1:
+        raise RuntimeError("emit stopped queueing: the refusal is too wide")
+    if probe._flusher is not None:
+        raise RuntimeError("a flusher thread started anyway")
+
+
 def pytest_configure(config):
     _refuse_a_live_store()
+    try:
+        _refuse_a_background_flusher()
+    except Exception as exc:
+        raise pytest.UsageError(
+            f"{_AGENT_FEED_SHAPE_HINT}\n\n  {type(exc).__name__}: {exc}") from exc
     try:
         _install_an_honest_monkeypatch_undo()
     except Exception as exc:

@@ -521,7 +521,53 @@ nothing spells an index, so the next field moves nothing a reader already reads.
 > `_OUTBOUND.nodeid` — an instance method answering from a global, so a second
 > ledger could never be stamped. Both of that class's cases failed immediately.
 
-**Twelve mutations, each killed — and the three that survived the first round
+**AND THE FIXED ATTRIBUTION NAMED ONE TEST, WHICH IS THE WHOLE CLAIM
+MEASURED.** The next full run reported ZERO flaky where the last had fourteen,
+and charged **19 refused connects to a single case** —
+`test_alert_audience.py::test_an_ordinary_alert_still_reaches_every_watching_chat`.
+Exactly one, and the right one: `_dispatch` publishes a title to the public
+mind-stream only when `alert.audience != "admin"`, and that is the one case in
+the file whose alert is not admin-scoped.
+
+**The sender is a SESSION-LIVED DAEMON with a retry loop.** `AgentFeed.emit`
+lazily starts `agent-feed-flush`, which loops `sleep(FLUSH_INTERVAL_S)` then
+`flush_once()` forever and RE-QUEUES a failed batch up to `MAX_RETRIES`. So one
+emit, in one test, POSTs repeatedly across the rest of the session — which is
+precisely how 19 connects came to be spread over fourteen later tests, and why
+the set re-rolled between runs.
+
+**ONLY THE THREAD IS REFUSED, and that is what keeps it from being the
+wholesale stub this file rejects.** `emit` still queues, so `pending()` reads
+what it read; `flush_once` still runs, and all seven tests of that module
+already drive it directly on an `AgentFeed()` of their own — the module split
+it out *"for tests"* and says so. Nothing about the feed becomes untestable.
+What stops is a background sender no test controls and none asked for. The
+install DRIVES its own refusal before the first test, because a containment
+that is installed and containing nothing reports success over the leak it
+exists to prevent.
+
+**AND THE GATE REFUSED TO DESCRIBE THE RUN RATHER THAN CALL IT GREEN.** A reach
+whose originating test has already finished lands at `pytest_sessionfinish`,
+which sets the exit status with no `FAILED` line — so `ci_test_gate` printed
+*"pytest exited 1 but no FAILED/ERROR lines were parsed. The gate cannot
+describe this run; refusing to call it green."* That is the CANNOT-CHECK
+discipline `ruff_gate.check_version` documents, in the one gate whose flake
+filter had spent the previous run forgiving the same reach fourteen times.
+
+> **And the round's own restore poisoned the tree, in the exact shape this
+> file already documents.** The preflight chapter says *"clear the cache
+> between mutations, not just the source"*, and this driver did — before each
+> run. It did not clear after the FINAL restore, and the last mutation
+> (`!= 1` -> `!= 0`) is the same byte length put back within the same second,
+> so *(mtime, size)* matched and the stale `.pyc` was reused. Every later
+> pytest invocation read `!= 1` on disk and behaved as `!= 0`, with
+> `git status` clean — and the only reason it was caught is that the new
+> containment's self-test raises rather than logging. **THE RESTORE IS ALSO A
+> MUTATION**, from the cache's side; the driver clears on restore now. A real
+> preflight clears every `__pycache__` first and so never saw it, which is
+> the targeted dev loop being the place this bites.
+
+**Sixteen mutations, each killed — and the three that survived the first round
 were the corpus and the instrument, never the code.** Reading `hasattr` as
 truthiness survived because the only fixture for a `None` stamp built its row BY
 HAND and so never reached `_connect_origin`; it is DRIVEN now, with a thread

@@ -848,3 +848,69 @@ class TestABackgroundThreadIsNotTheTestThatWasRunning:
         before = threading.Thread.start
         conftest._stamp_thread_origins()
         assert threading.Thread.start is before
+
+
+# ── the background sender no test asked for ───────────────────────────
+class TestTheAgentFeedFlusherNeverStarts:
+    """The reach the fixed attribution finally NAMED, and its cure.
+
+    `AgentFeed.emit` lazily starts `agent-feed-flush`, a daemon that loops
+    `sleep(FLUSH_INTERVAL_S)` then `flush_once()` forever and re-queues a
+    failed batch up to `MAX_RETRIES`. One emit therefore POSTs repeatedly
+    across the rest of the session.
+
+    Driven on 2026-09-19: ONE case in `tests/test_alert_audience.py` — the
+    only one in that file whose alert is not admin-scoped, so the only one
+    `_dispatch` publishes to the mind-stream — made 19 refused connects, and
+    before the attribution was fixed they were charged to fourteen innocent
+    tests in fourteen unrelated files.
+    """
+
+    def _feed(self):
+        from bot.core import agent_feed
+        return agent_feed
+
+    def test_an_emit_starts_no_thread(self):
+        af = self._feed()
+        before = {t.name for t in threading.enumerate()}
+        feed = af.AgentFeed()
+        feed.emit("info", "a planted event")
+        assert feed._flusher is None
+        assert {t.name for t in threading.enumerate()} == before
+
+    def test_but_emit_still_QUEUES(self):
+        """The refusal is the THREAD, not the feed. A containment wide enough
+        to stop `emit` would make every test of this module test nothing."""
+        feed = self._feed().AgentFeed()
+        feed.emit("info", "a planted event")
+        assert feed.pending() == 1
+
+    def test_and_flush_once_still_RUNS(self, monkeypatch):
+        """Which is what every test of this module already drives — the module
+        split `flush_once` out "for tests" and says so in its own docstring."""
+        af = self._feed()
+        sent = []
+        monkeypatch.setattr("bot.utils.website_sync.sync_agent_events",
+                            lambda wire: sent.append(len(wire)) or True)
+        feed = af.AgentFeed()
+        feed.emit("info", "a planted event")
+        assert feed.flush_once() == 1
+        assert sent == [1]
+
+    def test_the_module_singleton_is_contained_too(self):
+        """`FEED` is what production emits through, and the patch is on the
+        CLASS — so the singleton built at import time is covered by it. A
+        containment that reached only a fresh instance would refuse nothing
+        the product actually does."""
+        af = self._feed()
+        af.FEED.emit("info", "a planted event")
+        try:
+            assert af.FEED._flusher is None
+        finally:
+            af.FEED._drain()          # leave the shared queue as it was found
+
+    def test_installing_twice_does_not_double_wrap(self):
+        af = self._feed()
+        before = af.AgentFeed._ensure_flusher
+        conftest._refuse_a_background_flusher()
+        assert af.AgentFeed._ensure_flusher is before
