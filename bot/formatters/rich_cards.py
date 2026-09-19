@@ -935,12 +935,13 @@ def render_multi_analysis(
 # ── Open positions card ──────────────────────────────────────────
 
 def render_live_portfolio_summary(equity: Optional[float], open_count: int,
-                                  exposure: float,
+                                  exposure: Optional[float],
                                   realized_pnl: Optional[float],
                                   total_closed: int,
                                   win_rate: Optional[float],
                                   unscored: int = 0,
-                                  read_failed: bool = False) -> List[str]:
+                                  read_failed: bool = False,
+                                  exposure_note: str = "") -> List[str]:
     """The /portfolio (LIVE) header block, as a PURE function.
 
     Extracted so the WINDOW on each number can be asserted by rendering the
@@ -989,7 +990,14 @@ def render_live_portfolio_summary(equity: Optional[float], open_count: int,
         "Equity: <code>"
         + (f"${equity:,.2f}" if equity is not None else "unavailable")
         + "</code>",
-        f"Open: <code>{open_count}</code> | Exposure: <code>${exposure:,.2f}</code>",
+        # `exposure` is Optional for the same reason `equity` above it is:
+        # `committed_margin` answers None when no position's margin could be
+        # read, and `$0.00` there is a measured flat book. `exposure_note`
+        # carries the PARTIAL case, where a figure that looks whole covers
+        # only some of the rows.
+        ("Open: <code>" + str(open_count) + "</code> | Exposure: <code>"
+         + (f"${exposure:,.2f}" if exposure is not None else "unavailable")
+         + "</code>" + exposure_note),
         f"Realized PnL (all-time): {pnl_cell}",
     ]
     if read_failed:

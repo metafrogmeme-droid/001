@@ -121,7 +121,8 @@ def money(v: float | None) -> str:
 
 
 def render_balance_block(reading: BalanceReading, *, exposure: float | None,
-                         equity: float | None, sep: str) -> list[str]:
+                         equity: float | None, sep: str,
+                         exposure_note: str = "") -> list[str]:
     """The Balance section's lines.
 
     `equity` is passed in rather than read off the reading because the card
@@ -141,7 +142,8 @@ def render_balance_block(reading: BalanceReading, *, exposure: float | None,
         lines.append(f"- Used: <code>{UNKNOWN}</code>")
         lines.append(f"- Equity: <code>{UNKNOWN}</code>")
         # Not from the venue. Real, and the only figure on this block that is.
-        lines.append(f"- Exposure (bot-tracked): <code>{money(exposure)}</code>")
+        lines.append(f"- Exposure (bot-tracked): <code>{money(exposure)}</code>"
+                     f"{exposure_note}")
         return lines
 
     # `used` is the venue's; exposure is ours. The card has always shown the
@@ -152,5 +154,5 @@ def render_balance_block(reading: BalanceReading, *, exposure: float | None,
     lines.append(f"- Cash: <code>{money(reading.free)}</code>")
     lines.append(f"- Used: <code>{money(used_display)}</code>")
     lines.append(f"- Equity: <code>{money(equity)}</code>")
-    lines.append(f"- Exposure: <code>{money(exposure)}</code>")
+    lines.append(f"- Exposure: <code>{money(exposure)}</code>{exposure_note}")
     return lines

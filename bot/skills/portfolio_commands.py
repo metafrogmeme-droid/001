@@ -34,6 +34,7 @@ from telegram.ext import ContextTypes
 
 from bot.compat import UTC
 from bot.config import CONFIG
+from bot.core.live_executor import committed_margin, committed_margin_note
 from bot.core.trade_gate import entry_gate
 from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
@@ -435,7 +436,8 @@ class PortfolioCommands:
             _unmarked = len(live_open) - _marked
 
             # Live exposure
-            live_exposure = sum(lp.cost_usd for lp in live_open)
+            _exp = committed_margin(live_open)
+            live_exposure = _exp.total
 
             # Count filled vs pending for display
             _filled_count = sum(1 for lp in live_open if lp.status != "pending_fill")
@@ -466,7 +468,10 @@ class PortfolioCommands:
                 "",
                 f"- {t('lbl_equity', lang)}: <code>{_eq_str}</code>",
                 f"- {t('lbl_open_positions', lang)}: <code>{_pos_display}</code>",
-                f"- {t('lbl_exposure', lang)}: <code>${live_exposure:,.2f}</code>",
+                (f"- {t('lbl_exposure', lang)}: <code>"
+                 + (f"${live_exposure:,.2f}" if live_exposure is not None
+                    else t('pnl_unknown', lang))
+                 + "</code>" + committed_margin_note(_exp)),
                 _net_pnl_line,
                 (f"- {t('lbl_fees_paid', lang)}: <code>${live_total_fees:,.2f}</code>"
                  if _fees_known else
@@ -607,7 +612,8 @@ class PortfolioCommands:
             _card_open = len(live_open)
             _card_trades = len(live_closed)
             _card_exposure = ((live_exposure / display_equity * 100.0)
-                              if display_equity else None)
+                              if display_equity and live_exposure is not None
+                              else None)
             from bot.formatters.drawdown_card import enforced_drawdown as _ed
             try:
                 _card_dd, _card_dd_src, _ = _ed(self.engine.risk.drawdown_status())

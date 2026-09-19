@@ -697,6 +697,97 @@ def _to_float(value: Any) -> Optional[float]:
     return None if (f != f or f in (float("inf"), float("-inf"))) else f
 
 
+@dataclass(frozen=True)
+class CommittedMargin:
+    """What a book has committed, and how much of that was READ.
+
+    ``total`` sums the positions whose margin the venue STATED. It is None
+    when the book holds positions and not one of them could be read - never
+    0.0, because a FLAT book has a measured committed margin of zero and an
+    unreadable one has none, and ``scored == 0`` is both.
+
+    ``unread`` names the positions the venue stated no margin for.
+    ``cost_usd`` is 0.0 there: ``adopt_exchange_positions`` writes exactly
+    that and records "margin" in ``adoption_unread``. So ``sum(p.cost_usd
+    ...)`` reads capital nobody measured as capital nobody committed - a
+    partial total printed as whole on a card, and on the exposure CAP a hard
+    limit enforced over a figure that is only a floor.
+    """
+
+    total: Optional[float]
+    scored: int
+    counted: int
+    unread: tuple[str, ...]
+
+    @property
+    def complete(self) -> bool:
+        """Every position in the book had a margin on record."""
+        return self.scored == self.counted
+
+
+def committed_margin(positions: Any) -> CommittedMargin:
+    """The committed margin of a book - ONE reading, for every reader of it.
+
+    It was summed in five places, each summing ``p.cost_usd`` raw: the
+    exposure CAP in ``_preflight_check``, the ``total_exposure_usd``
+    property, and the /portfolio, risk and live-portfolio cards. A sixth -
+    the cross-account row in ``engine.account_risk_overview`` - had been
+    given this reading BY HAND, which is what a second copy looks like from
+    outside: it agrees with every fixture and diverges on the first edit to
+    either.
+
+    The margin of ONE position is ``position_size_basis``, which already
+    documents what ``cost_usd == 0.0`` means and refuses to derive a margin
+    from ``leverage``. Nothing about a position is re-decided here.
+    """
+    rows = list(positions or [])
+    read = [(p, position_size_basis(p)[0]) for p in rows]
+    scored = [m for _, m in read if m is not None]
+    unread = tuple(display_symbol(str(getattr(p, "symbol", "") or "")) or "?"
+                   for p, m in read if m is None)
+    if not rows:
+        # A flat book is a MEASUREMENT: nothing is committed because nothing
+        # is open. Folding it in with "nothing could be read" is the
+        # shapes-table row this reading exists to remove.
+        total: Optional[float] = 0.0
+    else:
+        total = round(sum(scored), 2) if scored else None
+    return CommittedMargin(total=total, scored=len(scored),
+                           counted=len(rows), unread=unread)
+
+
+def _money_or_dash(v: Optional[float]) -> str:
+    """`$1,234.56`, or an em dash - never a number standing in for none."""
+    return "\u2014" if v is None else f"${v:,.2f}"
+
+
+def committed_margin_note(reading: CommittedMargin) -> str:
+    """The shortfall on a card, said out loud - or "" when there is none.
+
+    It sits BESIDE whatever money renderer a card already uses rather than
+    replacing it, because the spelling of an absence is that card's
+    (``_money`` says "--", ``money`` says "unknown") and a second spelling on
+    one page is a second vocabulary. What is shared is the CLAIM: how much of
+    the book the figure covers.
+
+    Printed only when it bites - a permanent "3 of 3" on every healthy card
+    is the row that trains a reader to stop reading the line - and silent
+    when NOTHING was read, because the figure beside it is already the word
+    for that and a caveat about a figure that is not there is a hedge about
+    nothing.
+
+    PLAIN TEXT and parenthesised, for two reasons. `status_summary` is not
+    an HTML surface, so one note carrying markup would be two notes; and an
+    em dash already spells "unreadable" on that same line, so a second
+    meaning for it is a second vocabulary one separator wide. It is the
+    shape `account_commands`'s unpriced marker already uses.
+    """
+    if reading.total is None or reading.complete:
+        return ""
+    return (f" (margin read on {reading.scored} of "
+            f"{reading.counted} position(s))")
+
+
 # F-13 FIX: Maximum order history retained in memory
 _MAX_ORDER_HISTORY = 200
 # Orphan-adoption false-positive guard (see _recent_local_opens): grace period
@@ -2236,10 +2327,50 @@ class LiveExecutor:
             )
 
         # Check total exposure
-        total_exposure = sum(
-            p.cost_usd for p in self._positions.values()
-            if p.status == "open"
-        )
+        #
+        # THE BOOK THE CAP READS IS THE BOOK THE CARD READS. This summed
+        # `status == "open"` while `total_exposure_usd` - the figure every
+        # card printed - summed `open_positions`, which is open AND
+        # pending_fill. One noun, two answers, and the looser one was the
+        # gate: a resting limit order held cap room on every surface an
+        # operator reads and none in the limit that enforces it. A
+        # `pending_fill` row carries the sized margin (`cost_usd=cost` at
+        # placement), so counting it is a reading rather than an estimate,
+        # and the direction is fail-closed.
+        exposure = committed_margin(self.open_positions)
+        _cap_names = ", ".join(exposure.unread)
+        _cap_them = "them" if len(exposure.unread) > 1 else "it"
+        if exposure.total is None:
+            # Nothing in a non-empty book could be read. A different fact
+            # from the partial case below, so it gets its own sentence:
+            # there is no floor to quote, and quoting one would be a figure
+            # nobody measured printed as the account's committed capital.
+            return (
+                f"Total exposure cannot be measured: the venue stated no "
+                f"margin for any of the {exposure.counted} open position(s) "
+                f"on this account ({_cap_names}). Close {_cap_them} with "
+                f"/liveclose, or the ${MICRO_MAX_TOTAL_EXPOSURE:.2f} cap "
+                f"cannot be enforced."
+            )
+        if not exposure.complete:
+            # A margin nobody read is not a margin of zero, and this is the
+            # one reader where that is a HARD CAP rather than a card. An
+            # adopted position the venue stated no margin for carries
+            # `cost_usd == 0.0` and names "margin" in `adoption_unread`, so
+            # the raw sum read that capital as free. Refusing is fail-closed
+            # and it NAMES the position, because "exposure cannot be
+            # measured" does not say what to go and change - and adoption
+            # never re-reads a position it already tracks, so the figure
+            # never arrives on its own.
+            return (
+                f"Total exposure cannot be measured: the venue never stated "
+                f"a margin for {_cap_names}, so the ${exposure.total:,.2f} "
+                f"on record over {exposure.scored} of {exposure.counted} "
+                f"position(s) is a floor and not the total. Close "
+                f"{_cap_them} with /liveclose, or the "
+                f"${MICRO_MAX_TOTAL_EXPOSURE:.2f} cap cannot be enforced."
+            )
+        total_exposure = exposure.total
         if total_exposure + size_usd > MICRO_MAX_TOTAL_EXPOSURE:
             return (
                 f"Total exposure ${total_exposure + size_usd:.2f} would exceed "
@@ -11369,9 +11500,13 @@ class LiveExecutor:
         """
         return bool(getattr(self, "_closed_trades_read_failed", False))
 
-    @property
-    def total_exposure_usd(self) -> float:
-        return sum(p.cost_usd for p in self.open_positions)
+    # `total_exposure_usd` was here and is DELETED rather than repointed.
+    # A float cannot say that two of its three rows were read, so every card
+    # printing it published a partial total as a whole one; a lossy accessor
+    # kept beside the honest one is the second answer `committed_margin`
+    # exists to remove. No method replaces it either — every reader spells
+    # `committed_margin(<book>)`, so a test double describes a BOOK rather
+    # than pre-answering the question under test.
 
     def status_summary(self) -> str:
         """Human-readable status.
@@ -11385,10 +11520,11 @@ class LiveExecutor:
         open_pos = self.open_positions
         closed = self.closed_positions
         total_pnl = _pnl_stats(closed)["total"]
+        _exposure = committed_margin(self.open_positions)
         pnl_cell = "—" if total_pnl is None else f"${total_pnl:.4f}"
         return (
             f"Open: {len(open_pos)} | Closed: {len(closed)} | "
-            f"Exposure: ${self.total_exposure_usd:.2f} | "
+            f"Exposure: {_money_or_dash(_exposure.total)}{committed_margin_note(_exposure)} | "
             f"Realized PnL: {pnl_cell}"
         )
 

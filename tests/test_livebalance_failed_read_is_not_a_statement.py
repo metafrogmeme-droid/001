@@ -227,7 +227,6 @@ class TestTheRealCard:
         exec_stub._get_exchange = AsyncMock(return_value=MagicMock())
         exec_stub.open_positions = []
         exec_stub.closed_positions = []
-        exec_stub.total_exposure_usd = 0.0
         monkeypatch.setattr(h.engine, "balance_view_executor",
                             lambda *_a, **_k: exec_stub)
         monkeypatch.setattr(h, "_get_tg_id", lambda *_a, **_k: self.ADMIN)

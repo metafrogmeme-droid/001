@@ -26,6 +26,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.live_executor import committed_margin, committed_margin_note
 from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.logger import audit, system_log
@@ -917,7 +918,9 @@ class AccountCommands:
             realized_pnl = _bal["net"] if _realized_known else 0.0
             total_fees = _bal["fees"] if _fees_known else 0.0
             adopted_pnl = _bal_adopted["net"]
-            exposure = executor.total_exposure_usd
+            _exp = committed_margin(executor.open_positions)
+            exposure = _exp.total
+            _exp_note = committed_margin_note(_exp)
 
             # PnL sign
             pnl_sign = "+" if realized_pnl >= 0 else ""
@@ -956,7 +959,8 @@ class AccountCommands:
             # The higher of venue-reported `used` and bot-tracked exposure is
             # only meaningful when both are readings; the renderer decides.
             lines += render_balance_block(_reading, exposure=exposure,
-                                          equity=total_usd, sep=SEP)
+                                          equity=total_usd, sep=SEP,
+                                          exposure_note=_exp_note)
 
             # Spot holdings section. Skipped entirely when nothing was read:
             # an omitted section says "we cannot tell you", an empty one says
@@ -988,7 +992,8 @@ class AccountCommands:
             lines.append("- Realized: <code>"
                          + (f"${pnl_sign}{realized_pnl:.4f}" if _realized_known
                             else "unknown") + "</code>")
-            lines.append(f"- Exposure: <code>${exposure:,.2f}</code>")
+            lines.append(f"- Exposure: <code>{money(exposure)}</code>"
+                         f"{_exp_note}")
             lines.append(SEP)
             # The headline number on the card. `${None:,.2f}` raises, and the
             # nearest except would have swallowed the whole reply -- so being

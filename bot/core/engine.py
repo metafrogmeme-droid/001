@@ -32,7 +32,7 @@ from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
-from bot.core.live_executor import LiveExecutor, display_symbol, normalize_symbol, position_size_basis
+from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
 from bot.core.market_scanner import MarketScanner, _classify_symbol
@@ -2889,18 +2889,18 @@ class RuneClawEngine:
                 # decide whether an account is over-committed. The scored count
                 # travels so the card can say when it bit; no readable margin at
                 # all is None, never $0.
-                margins = [position_size_basis(p)[0] for p in positions]
-                scored = [m for m in margins if m is not None]
-                row["exposure_scored"] = len(scored)
-                # A FLAT book has a measured exposure of $0 and an unreadable
-                # one has none, and `scored == []` is both. Folding them is the
-                # shapes-table row this whole reading exists to remove, arriving
-                # inside the fix for it — found by rendering the card and
-                # reading every line, which is the only thing that shows it.
-                if not positions:
-                    row["exposure_usd"] = 0.0
-                else:
-                    row["exposure_usd"] = round(sum(scored), 2) if scored else None
+                #
+                # ONE READING, not a second copy of this judgement:
+                # `committed_margin` was extracted from the six lines that used
+                # to sit here, because a byte-identical copy agrees with every
+                # fixture and diverges on the first edit to either. It also
+                # keeps a FLAT book (a measured $0) apart from an unreadable
+                # one (None) — a distinction this row published only after the
+                # card was rendered and every line of it read, which is the
+                # only thing that shows it.
+                _cm = committed_margin(positions)
+                row["exposure_scored"] = _cm.scored
+                row["exposure_usd"] = _cm.total
                 # Operator-set per-trade margin cap (/setcap), for this user only.
                 store = getattr(self, "_user_store", None)
                 if uid and store is not None:
