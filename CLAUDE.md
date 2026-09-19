@@ -2771,6 +2771,74 @@ ONLY when it bites, the same rule.
 > apart.
 > (`tests/test_a_png_card_says_when_it_read_nothing.py`, `tests/png_text.py`.)
 
+**A NULL CLOSE BECOMES NaN SILENTLY, AND `float(None)` RAISES SIX LINES
+AWAY.** The reachability is three steps and each was DRIVEN rather than read:
+`ccxt.Exchange.parse_ohlcv` builds the close with `safe_number`, which answers
+`None` for a field that is null, missing OR empty; `np.array([...],
+dtype=float)` turns that `None` into `nan` **silently**; and `nan > 0` is
+False, so all three `if x > 0 else 0` guards in
+`rich_cards.fetch_analysis_data` took their else arm. The filed note for this
+said the site was the *cannot fire* shape because venue closes are positive —
+wrong about the MECHANISM, and only a drive said so.
+
+**WHAT EACH ELSE ARM PUBLISHED.** `change_pct = 0` kept the Velocity Gate
+SILENT — silent because it read 0, not because the market was calm — with
+`+0.0%` in the header beside it, `_pct`'s `sign = "+" if v >= 0` being the
+shapes table's *unreadable WON* verbatim. `vwap_pct = 0` is read one line down
+as **"price is +0.0% ABOVE VWAP"**, a DIRECTIONAL claim from a computation
+that never happened, and it fires exactly when `compute_vwap`'s own
+zero-volume fallback to `closes[-1]` lands on the unreadable close. And
+`vol_spike = 1.0` is "no spike" — the calm value — off an average nobody
+could compute.
+
+**A FOURTH SITE NEEDED NO NaN AT ALL, and two of its readers disagreed.** The
+orderbook fetch's own `except` set `{"bids": [], "asks": []}`, so a failed read
+summed to `0` on both sides — and THREE readers published a confident verdict
+from it: the header said **bearish** (`bid > ask` is False at 0/0),
+`_bid_ask_read` said **balanced** (every threshold comparison is False, so the
+fall-through won), and the comparison scorer charged **-1**. Two readings of
+one failed read, two different verdicts, on a card that prints both. A book
+that ANSWERED with no rows is still a real, thin reading and keeps its `0`.
+
+**AND THE SHARPEST CONSEQUENCE IS A RANKING, NOT A NUMBER.** The comparison
+card ends with a bold `<b>Preferred</b>`, scored partly on `abs(vwap_pct) <
+10` — True for an unread distance of `0`. Driven with the same book on both:
+an asset whose VWAP could NOT be read scored **2** and one MEASURED 14%
+extended scored **0**, so the unreadable one won. An unread input did not
+merely print wrong; it RANKED FAVOURABLY. An asset missing any term is not
+comparable with one that has them all, so it is not ranked and the cell names
+the missing reading — and fewer than two scorable assets is not a comparison
+at all, because "Preferred" over a set of one reads as a recommendation and is
+a statement about nothing.
+
+**ONE RULE FOR BOTH CANDLES, because which honest strategy the card took was
+decided by WHICH ROW the venue failed to price.** `mark = float(ohlcv[-1][4])`
+RAISED on a null forming close and the broad `except` turned that into no card
+at all — the GUARD strategy — while a null in any other row was coerced to NaN
+and published. Both read the record now, so a null on the bar that has not
+closed costs only the mark, and an unreadable PRICE refuses the card
+deliberately rather than by crashing at whichever line touched the value
+first. That distinction is what the mutation round asked for: deleting the
+guard leaves the card absent ANYWAY, because `vol_24h * price` raises a few
+lines down — same outcome, and a materially different one to read — so the
+test asserts the WARNING, not just the absence.
+
+> **And three fixtures were wrong before the code was, all of them mine.**
+> `close=None` doubled as the helper's own *use the default* sentinel, so the
+> test that asked for a series of null closes silently got an ordinary one.
+> The rows were stamped 2023, so every period had elapsed and the bar the test
+> called FORMING was kept as a closed one. And the index that planted the
+> 24h-ago close ignored that the forming bar is DROPPED before the window is
+> built. *When a fresh assertion fails, check whether the code or the
+> assertion is wrong* — here it was neither, three times: **a fixture that
+> cannot produce the state it names measures nothing**, and each reason is
+> now written beside the fixture.
+
+**Eighteen mutations, each killed.** Both whole-tree ratchets IMPROVED and were
+re-recorded in the same commit, which is the `known_failures.txt` rule: ruff
+1197 -> 1193 (the `else 0` one-liners were over-long) and mypy 573 -> 571.
+(`tests/test_an_unread_move_is_not_a_calm_market.py`.)
+
 **THE DOCUMENT A SESSION IS SCOPED FROM IS A SURFACE, and a *Gap* paragraph
 is a claim.** `docs/INCOME_MAP.md` is read FIRST to decide what to build next,
 and on 2026-09-16 it sent a reader to re-scope finished work twice in one
@@ -7641,9 +7709,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **404 of 977** reach for source text through `source_scan`, `code_only`
+Driven, **405 of 978** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 404 is a FLOOR and the honest shape is
+source scan that rule does not see, so 405 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

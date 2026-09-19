@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from bot.core.position_telemetry import pct_on_record, price_on_record
 from bot.formatters.drawdown_card import drawdown_source_note
 from bot.utils.candles import drop_forming_candle
 from bot.utils.i18n import t
@@ -193,7 +194,11 @@ def _fmt_price(p) -> str:
     return f"${p:,.6f}"
 
 
-def _fmt_vol(v: float) -> str:
+def _fmt_vol(v) -> str:
+    """A volume, or an em dash. `None >= 1e9` raises; `$0` is a claim."""
+    if pct_on_record(v) is None:
+        return "\u2014"
+    v = float(v)
     if v >= 1_000_000_000:
         return f"${v / 1e9:.1f}B"
     if v >= 1_000_000:
@@ -203,9 +208,19 @@ def _fmt_vol(v: float) -> str:
     return f"${v:,.0f}"
 
 
-def _pct(v: float) -> str:
-    sign = "+" if v >= 0 else ""
-    return f"{sign}{v:.1f}%"
+def _pct(v) -> str:
+    """A percent, or an em dash where the record holds none.
+
+    `sign = "+" if v >= 0 else ""` is the shapes table's *unreadable WON*
+    verbatim: `None >= 0` raises, and a NaN takes the else arm, so the two
+    ways of being absent printed as a loss and a crash. Guarded here rather
+    than at each call site, the rule `_fmt_price` states one function up —
+    a new caller inherits the honest behaviour instead of remembering it.
+    """
+    f = pct_on_record(v)
+    if f is None:
+        return "\u2014"
+    return f"{'+' if f >= 0 else ''}{f:.1f}%"
 
 
 def _verdict_header(status_icon: str, status_label: str, bias: str = "",
@@ -276,7 +291,11 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
             orderbook = await exchange.fetch_order_book(symbol, limit=20)
         except Exception as e:
             log.debug("Orderbook fetch failed for %s: %s", symbol, e)
-            orderbook = {"bids": [], "asks": []}
+            # NOT `{"bids": [], "asks": []}`. That summed to 0 on both sides
+            # and three readers below published a confident verdict from it.
+            # A book that answered with no rows is a real (thin) reading; a
+            # fetch that RAISED read nothing, and those must not be one value.
+            orderbook = None
 
         if not ohlcv:
             return None
@@ -291,7 +310,13 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         # of three or more leaves two). A line no input can reach is not a
         # check, it is a claim that there is one -- which is this slice's own
         # subject, and the first draft of this fix wrote one.
-        mark = float(ohlcv[-1][4]) if len(ohlcv[-1]) > 4 else 0.0
+        # ONE RULE FOR BOTH CANDLES. This was `float(ohlcv[-1][4])`, which
+        # RAISES on the `None` close ccxt's `safe_number` answers for a null,
+        # missing or empty field — while `np.array([...], dtype=float)` six
+        # lines down turns the same `None` into a silent NaN. So which of the
+        # two honest strategies the card took (guard, or coerce) was decided
+        # by WHICH ROW the venue failed to price, and nothing said so.
+        mark = price_on_record(ohlcv[-1][4] if len(ohlcv[-1]) > 4 else None)
         ohlcv = drop_forming_candle(ohlcv, timeframe)
 
         o = np.array([c[1] for c in ohlcv], dtype=float)
@@ -300,11 +325,23 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         c = np.array([c[4] for c in ohlcv], dtype=float)
         v = np.array([c[5] for c in ohlcv], dtype=float)
 
-        price = mark if mark > 0 else float(c[-1])
+        price = mark if mark is not None else price_on_record(c[-1])
+        if price is None:
+            # The GUARD strategy, which is what this function already does on
+            # every other failure: "Returns None on failure". Every figure
+            # below is relative to the price, so a card built without one
+            # would be a page of quantities with no subject.
+            log.warning("no readable price for %s: no card", symbol)
+            return None
         high_24h = float(np.max(h[-24:])) if len(h) >= 24 else float(np.max(h))
         low_24h = float(np.min(l[-24:])) if len(l) >= 24 else float(np.min(l))
         vwap = compute_vwap(h, l, c, v)
-        vwap_pct = ((price - vwap) / vwap * 100) if vwap > 0 else 0
+        # `nan > 0` is False, so the else arm was taken for a VWAP nobody
+        # could compute — and `0` is read one line down as "price is +0.0%
+        # ABOVE VWAP", a directional claim from a computation that never
+        # happened. `compute_vwap` falls back to `closes[-1]` on zero volume,
+        # so this fires exactly when that close is the unreadable one.
+        vwap_pct = pct_on_record(((price - vwap) / vwap * 100) if vwap > 0 else None)
         # None on short history, not 50.0 / 0.0: these feed DISPLAYS, and a
         # neutral RSI or a zero range for a dozen bars is a reading never
         # taken. _fmt_price(None) already renders an em dash; _fmt_rsi too.
@@ -314,18 +351,31 @@ async def fetch_analysis_data(exchange, symbol: str, timeframe: str = "1h",
         # Volume
         vol_24h = float(np.sum(v[-24:])) if len(v) >= 24 else float(np.sum(v))
         vol_avg = float(np.mean(v[-48:-24])) if len(v) >= 48 else float(np.mean(v[:-24])) if len(v) > 24 else vol_24h
-        vol_spike = vol_24h / vol_avg if vol_avg > 0 else 1.0
+        # 1.0 is "no spike" — the CALM value — read off an average nobody
+        # could compute. Not `pct_on_record` (this is a ratio, not a percent)
+        # and not `price_on_record` (0.0 is a real ratio: no volume at all
+        # against a real average), so the finiteness check is written out.
+        _spike = (vol_24h / vol_avg) if vol_avg > 0 else float("nan")
+        vol_spike = None if _spike != _spike or _spike in (
+            float("inf"), float("-inf")) else float(_spike)
 
         # Price change
-        price_24h_ago = float(c[-25]) if len(c) >= 25 else float(c[0])
-        change_pct = ((price - price_24h_ago) / price_24h_ago * 100) if price_24h_ago > 0 else 0
+        price_24h_ago = price_on_record(c[-25] if len(c) >= 25 else c[0])
+        # `0` here is what kept the Velocity Gate below SILENT — silent
+        # because it read 0, not because the market was calm — and printed
+        # `+0.0%` in the header beside it.
+        change_pct = (None if price_24h_ago is None else
+                      pct_on_record((price - price_24h_ago) / price_24h_ago * 100))
 
         # Orderbook depth
-        bid_depth = sum(b[1] for b in orderbook.get("bids", [])[:10])
-        ask_depth = sum(a[1] for a in orderbook.get("asks", [])[:10])
-        # Convert to USD-equivalent
-        bid_depth_usd = bid_depth * price
-        ask_depth_usd = ask_depth * price
+        if orderbook is None:
+            bid_depth_usd = ask_depth_usd = None
+        else:
+            bid_depth = sum(b[1] for b in orderbook.get("bids", [])[:10])
+            ask_depth = sum(a[1] for a in orderbook.get("asks", [])[:10])
+            # Convert to USD-equivalent
+            bid_depth_usd = bid_depth * price
+            ask_depth_usd = ask_depth * price
 
         # Support/Resistance
         supports, resistances = compute_support_resistance(h, l, c, price)
@@ -391,18 +441,35 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
     change = data["change_pct"]
     vol = data["volume_24h_usd"]
 
+    # Three readings the card used to state from a failed read. `vwap_pct`
+    # of 0 printed "price is +0.0% above VWAP" — a DIRECTIONAL claim from a
+    # computation that never happened — and `vol_spike` of 1.0 is "no spike",
+    # the calm value, read off an average nobody could compute.
+    _vp = data.get("vwap_pct")
+    if _vp is None:
+        _vwap_line = (f"- VWAP: {_fmt_price(data.get('vwap'))} \u2014 distance to "
+                      f"VWAP not read")
+    else:
+        _vwap_line = (
+            f"- VWAP: {_fmt_price(data['vwap'])} \u2014 price is {_pct(_vp)} "
+            f"{'above' if _vp >= 0 else 'below'} VWAP"
+            + (" (very extended)" if abs(_vp) > 10
+               else " (moderate)" if abs(_vp) > 5 else ""))
+    _sp = data.get("vol_spike")
+    _spike_txt = "\u2014" if _sp is None else f"{_sp:.1f}x"
+
     # Header
     lines = [
         f"\u2694\ufe0f <b>{pair}</b> \u2014 {_fmt_price(price)} | {_pct(change)} | Vol {_fmt_vol(vol)}",
         "",
         "<b>Current Snapshot:</b>",
         f"- Last: {_fmt_price(price)} | High: {_fmt_price(data['high_24h'])} | Low: {_fmt_price(data['low_24h'])}",
-        f"- VWAP: {_fmt_price(data['vwap'])} \u2014 price is {_pct(data['vwap_pct'])} {'above' if data['vwap_pct'] >= 0 else 'below'} VWAP"
-        + (" (very extended)" if abs(data["vwap_pct"]) > 10 else " (moderate)" if abs(data["vwap_pct"]) > 5 else ""),
+        _vwap_line,
         f"- Bid/Ask: {_fmt_vol(data['bid_depth'])} bid vs {_fmt_vol(data['ask_depth'])} ask \u2014 "
         + (_bid_ask_read(data["bid_depth"], data["ask_depth"])),
         f"- {data.get('timeframe', '1H')} structure: {data['structure']}",
-        f"- RSI: {_fmt_rsi(data['rsi'])} | ATR: {_fmt_price(data['atr'])} | Vol spike: {data['vol_spike']:.1f}x",
+        f"- RSI: {_fmt_rsi(data['rsi'])} | ATR: {_fmt_price(data['atr'])} | "
+        f"Vol spike: {_spike_txt}",
     ]
 
     # Key Levels
@@ -413,7 +480,13 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
         if i == 1:
             desc = " (breakout retest zone)"
         elif i == 2:
-            desc = " (VWAP area)" if abs(s[0] - data["vwap"]) / data["vwap"] < 0.02 else " (deeper support)"
+            # An unread VWAP used to label this "deeper support" — a
+            # confident placement against a level nobody computed. No
+            # qualifier is the honest third answer.
+            _vw = price_on_record(data.get("vwap"))
+            desc = ("" if _vw is None else
+                    " (VWAP area)" if abs(s[0] - _vw) / _vw < 0.02
+                    else " (deeper support)")
         lines.append(f"- Support {i}: {_fmt_price(s[0])}-{_fmt_price(s[1])}{desc}")
     for i, r in enumerate(data.get("resistances", []), 1):
         desc = " (current high)" if i == 1 else ""
@@ -435,22 +508,46 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
         lines.append(f"- Risk/Reward: 1:{rr:.1f}")
         lines.append(f"- Confidence: {idea.confidence:.0%}")
 
-    # Velocity gate warning
-    if abs(data["change_pct"]) > 15:
+    # Velocity gate warning. SILENCE IS TWO FACTS: a change measured inside
+    # the band, and a change nobody read — `abs(None)` raises and `abs(nan)`
+    # is never > 15, so an unreadable move used to read as a calm market on
+    # the one line that says whether a counter-trend entry is blocked.
+    _chg = data.get("change_pct")
+    _tf = data.get("timeframe", "1H")
+    if _chg is None:
         lines.append("")
-        gate_dir = "counter-trend short is blocked" if data["change_pct"] > 0 else "counter-trend long is blocked"
-        lines.append(f"\u26a0\ufe0f Velocity Gate: {data.get('timeframe', '1H')} change {_pct(data['change_pct'])} \u2014 {gate_dir}")
+        lines.append(f"\u26a0\ufe0f Velocity Gate: {_tf} change not read \u2014 whether "
+                     f"a counter-trend entry is blocked was not evaluated")
+    elif abs(_chg) > 15:
+        lines.append("")
+        gate_dir = ("counter-trend short is blocked" if _chg > 0
+                    else "counter-trend long is blocked")
+        lines.append(f"\u26a0\ufe0f Velocity Gate: {_tf} change {_pct(_chg)} \u2014 {gate_dir}")
 
-    # Orderbook concern
-    if data["ask_depth"] > data["bid_depth"] * 2:
+    # Orderbook concern. OMITTED rather than hedged when the book was not
+    # read: the Bid/Ask line above already says so in words, and a second
+    # sentence about the same absence is repetition, not disclosure.
+    _bid, _ask = data.get("bid_depth"), data.get("ask_depth")
+    if _bid is not None and _ask is not None and _ask > _bid * 2:
         lines.append("")
-        lines.append(f"\u26a0\ufe0f Concern: Ask-side dominance ({_fmt_vol(data['ask_depth'])} vs {_fmt_vol(data['bid_depth'])}) suggests distribution.")
+        lines.append(f"\u26a0\ufe0f Concern: Ask-side dominance ({_fmt_vol(_ask)} vs {_fmt_vol(_bid)}) suggests distribution.")
 
     return "\n".join(lines)
 
 
-def _bid_ask_read(bid: float, ask: float) -> str:
-    """Human-readable orderbook bias."""
+def _bid_ask_read(bid, ask) -> str:
+    """Human-readable orderbook bias, or that nobody read the book.
+
+    The fetch's own `except` used to hand back `{"bids": [], "asks": []}`, so
+    a failed read summed to `0` on both sides — and driven, THREE readers then
+    published a confident verdict from it, two of them disagreeing: the header
+    said "bearish" (`bid > ask` is False at 0/0), this function said
+    "balanced" (every threshold comparison is False, so the fall-through
+    wins), and the comparison scorer charged -1. Two readings of one failed
+    read, two different verdicts, on a card that prints both.
+    """
+    if bid is None or ask is None:
+        return "book not read"
     if bid > ask * 3:
         return "buyers stacking hard"
     if bid > ask * 1.5:
@@ -460,6 +557,25 @@ def _bid_ask_read(bid: float, ask: float) -> str:
     if ask > bid * 1.5:
         return "ask-side dominant (bearish)"
     return "balanced"
+
+
+def _vwap_cell(a: Dict[str, Any]) -> str:
+    """The comparison row's VWAP cell. An unread distance used to print
+    `+0.0% (tight)` — a measurement AND a verdict, from nothing."""
+    vp = a.get("vwap_pct")
+    if vp is None:
+        return "\u2014 (not read)"
+    tag = ("extended" if abs(vp) > 10 else "moderate" if abs(vp) > 5 else "tight")
+    return f"{_pct(vp)} ({tag})"
+
+
+def _book_cell(a: Dict[str, Any]) -> str:
+    """The comparison row's order-book cell, which said `bearish` for a book
+    nobody read while `_bid_ask_read` said `balanced` about the same one."""
+    bid, ask = a.get("bid_depth"), a.get("ask_depth")
+    if bid is None or ask is None:
+        return "\u2014 (book not read)"
+    return f"{_fmt_vol(bid)} vs {_fmt_vol(ask)} ({'bullish' if bid > ask else 'bearish'})"
 
 
 def render_comparison_table(assets: List[Dict[str, Any]],
@@ -479,8 +595,8 @@ def render_comparison_table(assets: List[Dict[str, Any]],
     rows = [
         ("Current Price", [_fmt_price(a["price"]) for a in assets]),
         ("24h Change", [_pct(a["change_pct"]) for a in assets]),
-        ("Above VWAP", [f"{_pct(a['vwap_pct'])} ({'extended' if abs(a['vwap_pct']) > 10 else 'moderate' if abs(a['vwap_pct']) > 5 else 'tight'})" for a in assets]),
-        ("Bid/Ask", [f"{_fmt_vol(a['bid_depth'])} vs {_fmt_vol(a['ask_depth'])} ({'bullish' if a['bid_depth'] > a['ask_depth'] else 'bearish'})" for a in assets]),
+        ("Above VWAP", [_vwap_cell(a) for a in assets]),
+        ("Bid/Ask", [_book_cell(a) for a in assets]),
         ("RSI", [_fmt_rsi(a['rsi']) for a in assets]),
         ("Volume", [_fmt_vol(a["volume_24h_usd"]) for a in assets]),
     ]
@@ -507,21 +623,53 @@ def render_comparison_table(assets: List[Dict[str, Any]],
                 rows.append(("R:R", rr_row))
                 break
 
-    # Determine verdict
-    scores = []
+    # THE VERDICT IS A RANKING, and an unread term used to score FAVOURABLY.
+    #
+    # `abs(vwap_pct) < 10` was True for an unread distance of 0, `bid > ask`
+    # was False at 0/0 from a failed fetch, and `vol_spike > 1.2` was False at
+    # the fallback 1.0. Driven with the same orderbook on both: an asset whose
+    # VWAP could NOT be read scored 2 and one MEASURED 14% extended scored 0,
+    # so the unreadable one won the bold <b>Preferred</b>.
+    #
+    # An asset missing any term is not comparable with one that has them all,
+    # so it is not ranked and the cell says which reading is missing.
+    scores, unread = [], []
     for a in assets:
-        s = 0
-        s += (1 if a["bid_depth"] > a["ask_depth"] else -1)
-        s += (1 if abs(a["vwap_pct"]) < 10 else -1)
-        s += (1 if a["vol_spike"] > 1.2 else 0)
+        s, missing = 0, []
+        bid, ask = a.get("bid_depth"), a.get("ask_depth")
+        if bid is None or ask is None:
+            missing.append("orderbook")
+        else:
+            s += (1 if bid > ask else -1)
+        vp = a.get("vwap_pct")
+        if vp is None:
+            missing.append("VWAP")
+        else:
+            s += (1 if abs(vp) < 10 else -1)
+        sp = a.get("vol_spike")
+        if sp is None:
+            missing.append("volume")
+        else:
+            s += (1 if sp > 1.2 else 0)
         if a["symbol"] in ideas_map:
             s += ideas_map[a["symbol"]].risk_reward_ratio
         scores.append(s)
+        unread.append(missing)
 
+    # A COMPARISON NEEDS TWO COMPARABLE THINGS. With fewer, "Preferred" would
+    # be a ranking over a set of one — which reads as a recommendation and is
+    # a statement about nothing. Ties still resolve by argument order, as they
+    # always did; no tie-break is invented here.
+    scorable = [i for i, m in enumerate(unread) if not m]
+    best_idx = max(scorable, key=lambda i: scores[i]) if len(scorable) > 1 else None
     verdict_row = []
-    best_idx = scores.index(max(scores))
     for i in range(len(assets)):
-        verdict_row.append("<b>Preferred</b>" if i == best_idx else "Secondary")
+        if unread[i]:
+            verdict_row.append(f"not ranked ({', '.join(unread[i])} unread)")
+        elif best_idx is None:
+            verdict_row.append("not ranked (nothing to compare with)")
+        else:
+            verdict_row.append("<b>Preferred</b>" if i == best_idx else "Secondary")
     rows.append(("Verdict", verdict_row))
 
     # Format as bullet list
