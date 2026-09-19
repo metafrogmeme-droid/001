@@ -38,6 +38,17 @@ const DEFAULT_HORIZON_DAYS = 90;
 const round2 = (n) => Math.round(n * 100) / 100;
 const clampNum = (n) => (Number.isFinite(n) ? n : 0);
 
+// A SAFETY fact the item reported, or null for one it did not. clampNum's 0 is
+// right for a COST (an unknown gas anchor really is "add nothing"), and wrong
+// for a lockup: it makes a duration nobody reported byte-identical to a
+// measured "withdraw anytime", which is the reassuring answer, from no data.
+const reportedNum = (n) => (Number.isFinite(n) ? n : null);
+// And `!!x` is wrong for a reported flag twice over: `!!undefined` is false —
+// the SAFE answer from no data — and `!!'false'` is true. Only a real boolean
+// (or the 0/1 some feeds use) is a reading.
+const reportedFlag = (v) => (typeof v === 'boolean' ? v
+  : (v === 0 || v === 1) ? Boolean(v) : null);
+
 /**
  * Estimated one-time cost to relocate `amountUsd` off `fromChain`.
  * `nativePrices` maps native token symbol → USD (e.g. {ETH: 3000, POL: 0.5}).
@@ -101,6 +112,11 @@ function breakeven(amountUsd, apyDeltaPct, moveCost, horizonDays = DEFAULT_HORIZ
  * Each item: { asset, amount_usd, from_chain?, current_apy?, best_apy,
  *   best_source?, custodial?, lockup_days? }. Returns ranked plans; items with
  * no positive APY delta are kept but marked worth:'no' (honest, not hidden).
+ *
+ * `custodial` and `lockup_days` come back as **null** when the item did not
+ * report them. They are the inputs to the two REQUIRED gates in
+ * `bot/guardian/yield_plan.py`, which refuses a move whose route nobody
+ * described — so this side must not answer for it.
  */
 function planMoves(items, opts = {}) {
   const nativePrices = opts.nativePrices || {};
@@ -120,8 +136,11 @@ function planMoves(items, opts = {}) {
       best_apy: round2(bestApy),
       delta_apy: deltaApy,
       best_source: (it && it.best_source) || null,
-      custodial: !!(it && it.custodial),
-      lockup_days: clampNum(it && it.lockup_days),
+      // null, not a manufactured 0/false: the two gates that decide whether a
+      // move is allowed (require_noncustodial, require_recallable) read these,
+      // and a value this scanner invented is not evidence of anything.
+      custodial: reportedFlag(it && it.custodial),
+      lockup_days: reportedNum(it && it.lockup_days),
       move_cost: cost,
       ...be,
     };
@@ -142,6 +161,8 @@ function planMoves(items, opts = {}) {
 }
 
 module.exports = {
+  reportedNum,
+  reportedFlag,
   moveCostUsd, breakeven, planMoves,
   CHAIN_GAS_ANCHOR, BRIDGE_FEE_BPS, BRIDGE_FEE_MIN_USD,
   UNKNOWN_GAS_USD, DEFAULT_HORIZON_DAYS,

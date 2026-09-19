@@ -28,13 +28,30 @@ from bot.core.proactive_monitor import Alert, ProactiveMonitor
 from bot.formatters.rich_cards import monitor_checks_line
 from bot.utils.i18n import t
 
+#: `run()` awaits these four before `_check_all`, and each one reaches OUT:
+#: `_refresh_news_radar` pulls three RSS feeds. Unstubbed, every test here that
+#: drives `run()` made a live fetch on its way to an assertion about check
+#: isolation — green, slow and nondeterministic, which is the signature
+#: `ci_test_gate`'s flake filter forgives. Quieted by PREFIX rather than by a
+#: list of four names, because a list is the shape where the fifth stage added
+#: tomorrow is the one missing from it; a stage with a prefix none of these
+#: cover is caught by `tests/conftest.py`'s refusal, loudly and by name.
+_OUTBOUND_STAGE_PREFIXES = ("_refresh_", "_probe_", "_deliver_")
+
 
 def _quiet_monitor() -> ProactiveMonitor:
-    """A real monitor whose every check has nothing to say."""
+    """A real monitor whose every check has nothing to say, and whose outbound
+    stages reach nothing."""
     m = ProactiveMonitor(SimpleNamespace())
     for n in dir(ProactiveMonitor):
         if n.startswith("_check_") and n != "_check_all":
             setattr(m, n, lambda: [])
+
+        async def _quiet(*_a, **_k):
+            return None
+
+        if n.startswith(_OUTBOUND_STAGE_PREFIXES):
+            setattr(m, n, _quiet)
     m._check_reports_push = lambda: None
     return m
 

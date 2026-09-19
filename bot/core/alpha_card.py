@@ -26,6 +26,7 @@ import numpy as np
 
 from bot.compat import UTC
 from bot.utils.candles import drop_forming_candle
+from bot.core.position_telemetry import pct_on_record
 from datetime import datetime
 
 logger = logging.getLogger("runeclaw.alpha")
@@ -165,7 +166,12 @@ async def build_alpha_insight(engine: Any, symbol: str) -> dict:
     try:
         tk = await exchange.fetch_ticker(symbol)
         d["price"] = float(tk.get("last") or 0)
-        d["change_24h_pct"] = float(tk.get("percentage") or 0)
+        # NOT `or 0`: ccxt reports `percentage: None` for a market whose
+        # venue does not publish a 24h change, and `app/lib/tickers.js`
+        # already writes `change: null` for the same fact one runtime over.
+        # Coerced here, the card had no way left to know and painted a flat
+        # day in the colour of a rise.
+        d["change_24h_pct"] = pct_on_record(tk.get("percentage"))
     except Exception as exc:
         d["error"] = f"unknown symbol or no ticker ({str(exc)[:80]})"
         return d
@@ -291,10 +297,11 @@ def format_alpha_card(d: dict) -> str:
         return f"⚠️ Alpha card unavailable for <b>{sym_disp}</b>: {_html.escape(str(d['error']))}"
 
     price = float(d.get("price") or 0)
-    chg = float(d.get("change_24h_pct") or 0)
+    chg = pct_on_record(d.get("change_24h_pct"))
+    chg_txt = "24h unread" if chg is None else f"{chg:+.2f}% 24h"
     lines: list[str] = []
     lines.append(f"📡 <b>{sym_disp} Daily Alpha</b>")
-    lines.append(f"Price <code>${fmt_price(price)}</code> ({chg:+.2f}% 24h)")
+    lines.append(f"Price <code>${fmt_price(price)}</code> ({chg_txt})")
     lines.append("")
 
     # ── Chart analysis ──

@@ -25,7 +25,7 @@ router.get('/', async (req, res) => {
   try {
     const wallet = require('../lib/wallet');
     const { buildIdleYield } = require('../lib/idle_yield');
-    const { planMoves } = require('../lib/cross_yield');
+    const { planMoves, reportedNum, reportedFlag } = require('../lib/cross_yield');
 
     const address = await wallet.walletAddressOf(uid).catch(() => null);
     if (!address) {
@@ -79,8 +79,11 @@ router.get('/', async (req, res) => {
         current_apy: 0,                       // idle wallet cash earns ~nothing
         best_apy: Number(r.best.apy) || 0,
         best_source: r.best.source,
-        custodial: !!r.best.custodial,
-        lockup_days: Number(r.best.lockup_days) || 0,
+        // The feed's own answer, forwarded. `!!` and `|| 0` each manufactured
+        // the reassuring value for a venue that reported neither, and these two
+        // fields are what the REQUIRED gates in bot/guardian/yield_plan.py read.
+        custodial: reportedFlag(r.best.custodial),
+        lockup_days: reportedNum(Number(r.best.lockup_days)),
       }));
 
     const out = planMoves(items, { nativePrices, horizonDays });

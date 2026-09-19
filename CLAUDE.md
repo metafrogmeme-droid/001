@@ -295,6 +295,400 @@ deletes `data/` before and after every test, so a second concurrent run is
 deleting the first one's state ~6000 times. Both were killed and one clean run
 was taken instead; a background suite is a lock on `data/`, not a spare core.
 
+**AND THE SAME FORGIVENESS WAS COVERING TWELVE TESTS THAT READ THE LIVE
+VENUES.** The flake filter's re-run-alone rule is right for a time-sensitive
+test and indistinguishable, from the gate's side, from a test whose stub went
+missing and whose venue answered the second time. Driven — every non-loopback
+connect refused and recorded, over the whole suite — **twelve tests in four
+files made 85 outbound connects to sixteen addresses**: api.bitget.com,
+api.bybit.com and the three news feeds `_refresh_news_radar` pulls. (That
+count is SUPERSEDED and kept because the correction below is about how it came
+to be wrong: driven in CI it is 74 tests across 42 files, and twelve was what
+this box could see past its own proxy.)
+
+**NOT ONE OF THE TWELVE ASSERTS AGAINST A VENUE, which is the quiet half.** A
+test that asserts against a live venue goes red the first time the venue
+disagrees; a test that merely REACHES one is slow, nondeterministic and GREEN.
+`test_scan_reads_the_executors_record.py` stubs the closed-trade file and
+asserts about the record it holds, and further into that same
+`_fetch_live_exchange_data` a real `ccxt.bitget` is built and `fetch_balance`
+called three times with its retries — `equity` is the only field that leg feeds
+and no test in the file reads it. Eight tests, passing either way, for as long
+as the file has existed.
+
+**THE CONTAINMENT IS IN THE HARNESS AND THE REFUSAL IS ORDINARY.**
+`tests/conftest.py` patches `socket.socket.connect`/`connect_ex`, which is the
+one chokepoint every higher-level client crosses — requests, aiohttp, ccxt sync
+and async alike — and answers ECONNREFUSED, because that is the state every
+venue reader here is written to handle: the test goes on exercising its own
+path, deterministically and in microseconds. A `BaseException` would escape
+those handlers and change the control flow of the code being driven, which is a
+different test. The harness records the attempt and the TEARDOWN is where it is
+said, since the broad `except` in the code under test swallows the only other
+evidence. The reading is four words and `not-ip` is a MEASUREMENT — AF_UNIX
+carries a path, so nothing about a venue can be claimed of it — while
+`unreadable` is refused with a sentence of its own, because reading an address
+nobody could place as loopback is the failed-read-as-allowed shape on the one
+gate whose whole job is to refuse.
+
+**Stated rather than implied, because a gate whose coverage is overstated is
+the failure this file exists to prevent.** DNS is untouched: `getaddrinfo`
+crosses no socket, so a name still resolves and only the connect is refused —
+the right chokepoint, since a resolution that never connects reads nothing. A
+SUBPROCESS has its own unpatched `socket`. Connectionless UDP is not covered
+either, and the tree has no `SOCK_DGRAM` at all, driven rather than assumed.
+The door is a whole-run decision (`RUNECLAW_ALLOW_TEST_NETWORK=1`, the shape
+`_OVERRIDE_ENV` one containment up already takes) and it SAYS SO at configure;
+there is deliberately no per-test marker, because no test in this tree needs
+the network and a marker nothing uses is a door painted on a wall.
+
+**AND THE TWELVE WAS A MEASUREMENT OF THIS BOX'S PROXY, NOT OF THE SUITE.** CI
+failed the slice that shipped that containment, naming **74** tests where this
+box had reported twelve — and the first hypothesis, that DNS fails on a runner
+so those tests never reach the connect, was DISPROVED by driving
+`socket.getaddrinfo`: all three venue names resolve here. The cause is one
+environment variable. `HTTPS_PROXY` on this box is `http://127.0.0.1:<port>`,
+so every proxied venue read connects to LOOPBACK — and `_outbound_verdict` read
+that as `local` and ALLOWED it. **`local` is a measurement of the ADDRESS, not
+of whether the connect leaves the box**, which is the same distinction the
+paragraph above draws for `not-ip` and got right there and wrong one branch
+over. The twelve were the raw-IP subset that bypasses the proxy; the proxy
+endpoints are read ONCE from the environment now and refused as `proxy`, a word
+of its own, BEFORE the loopback check — because "you reached a venue through
+127.0.0.1" and "you talked to your own test server" are different facts and
+only one of them is allowed.
+
+**STUBBING 42 FILES IN ONE COMMIT IS THE WHOLESALE CONVERSION THIS FILE
+REFUSES**, so enforcement became a two-way ratchet over
+`tests/network_reach_baseline.txt`, keyed by FILE. That key is a stated limit
+rather than a convenience: driven in CI, **60 of the 74 passed when re-run
+alone**, so the set is order-dependent and a nodeid baseline would churn run to
+run with its stale half acting as a flake generator.
+
+**GROWTH IS ENFORCED AND STALE IS NOT, and a ratchet with no way DOWN is a
+permanent list.** A new file reaching a venue fails, loudly, by name, on every
+run. A listed file that stopped reaching anything cannot be checked per-run for
+the order-dependence above — so the remedy is a deliberate re-measure, and the
+baseline's comment named `scripts/network_reach_gate.py` as where it happens.
+**For one commit that script did not exist.** That is the `/vault` hint shape
+pointed at a CODE COMMENT — there a card named a command that did nothing, here
+a comment names a remedy nobody built, which the next reader trusts precisely
+because the comment is right about everything else, and `manual_trade.py`'s
+three comments naming a `place_order` rule nobody had written are the same
+shape at three files' scale. It is built, and
+`tests/test_the_reach_baseline_can_be_re_measured.py` pins it BOTH ways: the
+comment names the script, the script is there, and it RUNS — a file that exists
+and raises on import is the same defect one layer down.
+
+**A REPORT PATH IS NOT A BYPASS, and that is the whole reason it is safe.**
+`RUNECLAW_REACH_REPORT` makes the session write the files that reached; it
+refuses nothing extra and allows nothing extra, so unlike a disable switch it
+cannot weaken the containment however it is set. Three things travel with the
+list because the STALE direction DELETES rows and a partial run's silence is
+not evidence: the collected count, pytest's exit status (0 and 1 are "ran
+through" — 1 is EXPECTED, since a file reaching the network fails its own
+test), and whether the WHOLE tests tree was asked for, judged in the conftest
+where the rootdir is known rather than left for the reader to re-derive. The
+gate has the three outcomes this repo keeps arriving at — matched, moved, and
+**could not check** — and `--write` refuses on the third rather than deleting
+forty rows on no evidence.
+
+**THE REPORT'S FIRST RUN RECORDED A FILE THAT DOES NOT EXIST.**
+`test_no_test_reaches_a_venue.py` drives the containment with SYNTHETIC nodeids
+(`tests/planted.py::test_planted`) — the right way to measure a rule the real
+tree cannot reach, and from the ledger's side indistinguishable from a real
+file. A list of the synthetic names would be the ten-of-eleven shape; whether
+the path IS a file is a measurement, so that is the reading, and the dropped
+rows are NAMED in the report rather than discarded quietly.
+
+> **And the mutation driver was killed with SIGTERM and left its mutation in
+> the tree.** The default handler terminates the process without running the
+> `finally` that restores the file, so `except Exception: return False` stayed
+> `return True` in `tests/conftest.py` — and `git status` showed only `M
+> tests/conftest.py`, which was true of my own edits anyway. It was caught
+> solely because the mutated function had a guard; the quiet direction is a
+> mutation stranded in code nothing drives, after which every green run means
+> nothing. The driver restores on SIGTERM/SIGINT/SIGHUP and at exit now. Two
+> more of this file's own rules were broken getting there: a mutation round was
+> started while a full suite was running (*"two full-suite runs at once are not
+> two measurements"* — `_clean_runtime_state` deletes `data/` ~6000 times per
+> run), and the waiter polled `pgrep -f "…mutate.py"`, whose own command line
+> contains that string, so it matched itself and would never have exited —
+> `verify_bot_alive.sh`'s recorded trap, in the dev loop.
+
+**IT FOUND A TEST PASSING FOR A REASON UNRELATED TO THE RULE IT NAMES.**
+`test_networth_gateway.py`'s credential double took `fields=None` and folded it
+into the DEFAULT keys, so `FakeStore(connected=True, fields=None)` — written
+under a comment reading *"Connected but the record can't decrypt"* — handed
+back real-looking credentials, `networth_reading` built a bybit client, and the
+`ok: False` the test asserts came from the LIVE VENUE rejecting them rather
+than from the branch under test. A sentinel default is the fix, and the
+assertion names the branch (`detail == "credentials unreadable"`) rather than
+three fields a bad venue answer produces identically.
+
+**ONE FILE, TWO MODULE OBJECTS — and the import system makes the copy.**
+`tests/` has no `__init__.py`, so pytest imports the conftest as the TOP-LEVEL
+module `conftest` while `import tests.conftest` resolves through the namespace
+package and imports it AGAIN. Both sit in `sys.modules`: two ledgers, two
+readings, for one containment. The guard's first draft imported the one nothing
+had installed — it drained an empty ledger, reported the spy unasked, and left
+the real rows for the containment to report against the guard that drives it.
+The module is taken from `socket.socket.connect.__globals__` now, which is the
+installed patch saying which copy it reads, and cannot name the wrong one
+however many copies exist. That is the second-copy shape arriving inside the
+instrument for the third time in this file, and the first time the copy had no
+author.
+
+**Thirty-two mutations, each killed — and the two that survived the first round
+were one of each kind.** A `%`-scope strip in the reading was an EQUIVALENT
+MUTANT: driven, `ipaddress.ip_address("::1%lo")` parses and answers
+`is_loopback` True by itself, so removing the strip changed no verdict on any
+input a socket can produce. The line is deleted and the property is driven in
+the guard instead, so the day that changes a test fails rather than the
+containment quietly refusing `::1` on a machine that spells its loopback with
+an interface. The other was a real gap in the guard: deleting the install's
+call to its own self-test left every other check green — the wiring claim was
+unasserted, and it is an AST CALL walk now, the shape the monkeypatch
+containment's twin already uses. Four of the thirty-two put each of the four
+stubs back, and each dies on the containment reporting the test by name, which
+is the end-to-end claim.
+
+**The four stubs are per-file and that is the right division.** A monitor test
+quiets the outbound stages by PREFIX rather than by a list of four names — a
+list is the shape where the fifth stage added tomorrow is the one missing from
+it — and a stage with a prefix none of them cover is caught by the refusal,
+loudly and by name. The containment is the backstop that makes a narrow stub
+safe; without it, each stub would have to be future-proof, and none of them can
+be.
+
+**AND THE CONTAINMENT NAMED FOURTEEN INNOCENT TESTS, WHILE THE FLAKE FILTER
+FORGAVE EVERY ONE.** The ledger's own docstring is careful about WHEN the stamp
+is taken and says why — `pytest_runtest_teardown` runs alongside the fixture
+finalizers, so a snapshot there attributes every artefact to the NEXT test. It
+was never careful about WHO is asking. The stamp is `_OUTBOUND.nodeid` read at
+connect time: right for the test's own code, which runs on the main thread, and
+wrong for a thread that outlives it. `bot/utils/website_sync.py` alone has six
+`sync_*_in_background` spawners, each a `threading.Thread(daemon=True)`, so a
+sync started by test A does its HTTP while pytest is already on test C.
+
+**THE TELL WAS THAT THE ACCUSED COULD NOT HAVE DONE IT.** The 2026-09-18
+preflight read `All local gates green` over `[gate] total failing: 14 |
+known-baseline: 0`, and the fourteen were in fourteen unrelated files — four of
+them pure SOURCE SCANS (`test_no_new_dead_public_api`,
+`test_no_hardcoded_risk_check_count`, `TestNoRawExceptionLeaksToTelegram`,
+`test_each_carries_a_guard[sweep]`), which cannot reach a socket at all. The run
+before it named a near-disjoint THIRTEEN, differing even in which
+PARAMETRIZATION of one test was accused (`[zones]` against `[sweep]`,
+`test_get_entries_cost` against `test_append_cost`). **A genuine state leak
+names the SAME tests every run** — the 40 `test_web_gateway.py` failures this
+file records were the same 40 — so a set that re-rolls is a different cause.
+Every refused connect was `127.0.0.1:33283`, which is this box's `HTTPS_PROXY`,
+refused as `proxy` exactly as intended.
+
+**AND THE REMEDY IT PRINTED WAS WRONG FOR THE TEST IT NAMED.** *"Stub the seam
+the test reaches through"* — `test_no_new_dead_public_api` reaches through no
+seam, it walks the tree. *A checker with a blind spot manufactures exactly the
+accusation it exists to prevent*, this file's own sentence, arriving inside the
+containment written from it. `scripts/ci_test_gate.py`'s own header records
+**the same module** producing phantom failures a month earlier through a
+different door, and says in as many words that *"the flake filter re-runs each
+new failure alone ... so the phantoms were quietly filed as flaky"*.
+
+**A thread carries the nodeid it was STARTED under**, stamped by a patched
+`Thread.start`, and the connect is attributed there — which is also the seam a
+reader has to stub. What the stamp cannot see is stated rather than guessed at:
+`_thread.start_new_thread`, a C extension's thread and a `Thread` subclass whose
+`start` skips `super()` never pass it. Those are `unattributed`, naming the
+THREAD and no test, because an unattributable reach is a measurement and a wrong
+test name is not.
+
+**THREE CASES, NOT TWO, AND THE THIRD WAS FOUND BY PLANNING THE MUTATION ROUND
+RATHER THAN BY RUNNING IT.** A thread started during COLLECTION or from a
+session fixture DOES pass `Thread.start`, so it carries a stamp — and the stamp
+is `None`. The first draft printed *"Made on a BACKGROUND THREAD that this test
+started"* under a header reading `<outside any test>`: two contradictory claims
+in one message, which is this slice's own subject rebuilt inside the cure for
+it. It is also NOT `unattributed` — there the harness never saw the thread
+start, a gap in the stamp's coverage; here the stamp worked and there is no test
+to name. Different facts, different sentences.
+
+**SIX ASSERTIONS INDEXED THE ROW POSITIONALLY AND ALL SIX BROKE AT ONCE**, each
+asserting a POSITION where it meant a FIELD. The row is a `NamedTuple` now and
+nothing spells an index, so the next field moves nothing a reader already reads.
+
+> **And the guard caught a real bug in the fix.** `TestTheLedger` builds a
+> ledger of its own, and the first `_connect_origin` read the module-level
+> `_OUTBOUND.nodeid` — an instance method answering from a global, so a second
+> ledger could never be stamped. Both of that class's cases failed immediately.
+
+**AND THE FIXED ATTRIBUTION NAMED ONE TEST, WHICH IS THE WHOLE CLAIM
+MEASURED.** The next full run reported ZERO flaky where the last had fourteen,
+and charged **19 refused connects to a single case** —
+`test_alert_audience.py::test_an_ordinary_alert_still_reaches_every_watching_chat`.
+Exactly one, and the right one: `_dispatch` publishes a title to the public
+mind-stream only when `alert.audience != "admin"`, and that is the one case in
+the file whose alert is not admin-scoped.
+
+**The sender is a SESSION-LIVED DAEMON with a retry loop.** `AgentFeed.emit`
+lazily starts `agent-feed-flush`, which loops `sleep(FLUSH_INTERVAL_S)` then
+`flush_once()` forever and RE-QUEUES a failed batch up to `MAX_RETRIES`. So one
+emit, in one test, POSTs repeatedly across the rest of the session — which is
+precisely how 19 connects came to be spread over fourteen later tests, and why
+the set re-rolled between runs.
+
+**ONLY THE THREAD IS REFUSED, and that is what keeps it from being the
+wholesale stub this file rejects.** `emit` still queues, so `pending()` reads
+what it read; `flush_once` still runs, and all seven tests of that module
+already drive it directly on an `AgentFeed()` of their own — the module split
+it out *"for tests"* and says so. Nothing about the feed becomes untestable.
+What stops is a background sender no test controls and none asked for. The
+install DRIVES its own refusal before the first test, because a containment
+that is installed and containing nothing reports success over the leak it
+exists to prevent.
+
+**AND THE GATE REFUSED TO DESCRIBE THE RUN RATHER THAN CALL IT GREEN.** A reach
+whose originating test has already finished lands at `pytest_sessionfinish`,
+which sets the exit status with no `FAILED` line — so `ci_test_gate` printed
+*"pytest exited 1 but no FAILED/ERROR lines were parsed. The gate cannot
+describe this run; refusing to call it green."* That is the CANNOT-CHECK
+discipline `ruff_gate.check_version` documents, in the one gate whose flake
+filter had spent the previous run forgiving the same reach fourteen times.
+
+> **And the round's own restore poisoned the tree, in the exact shape this
+> file already documents.** The preflight chapter says *"clear the cache
+> between mutations, not just the source"*, and this driver did — before each
+> run. It did not clear after the FINAL restore, and the last mutation
+> (`!= 1` -> `!= 0`) is the same byte length put back within the same second,
+> so *(mtime, size)* matched and the stale `.pyc` was reused. Every later
+> pytest invocation read `!= 1` on disk and behaved as `!= 0`, with
+> `git status` clean — and the only reason it was caught is that the new
+> containment's self-test raises rather than logging. **THE RESTORE IS ALSO A
+> MUTATION**, from the cache's side; the driver clears on restore now. A real
+> preflight clears every `__pycache__` first and so never saw it, which is
+> the targeted dev loop being the place this bites.
+
+**Sixteen mutations, each killed — and the three that survived the first round
+were the corpus and the instrument, never the code.** Reading `hasattr` as
+truthiness survived because the only fixture for a `None` stamp built its row BY
+HAND and so never reached `_connect_origin`; it is DRIVEN now, with a thread
+started while no test is running. The thread note firing for the test's own code
+survived because the "unchanged case" row defaulted to `nodeid=None` and the
+mutation excluded it too — **a fixture that cannot fail is not a measurement**.
+And the stamp taken AFTER `real_start` is a genuine race whose drive would be
+the flake this containment exists to stop producing, so the ORDER is asserted as
+a shape with the reason written beside it — the narrow case where a source scan
+is the honest instrument.
+
+**A PUBLISHED PAGE TOLD AN AGENT DEVELOPER NINE TOOL NAMES AND AN ENDPOINT, AND
+THE ENDPOINT ANSWERS `Unknown tool` FOR ALL NINE.** That is the `/vault` hint
+shape at its largest scale so far — there a card named a COMMAND that did
+nothing; here `docs/gitbook/mcp-integration.md`, the GitBook page
+`agent_card.json` names as the documentation, carried the status row
+*"Implemented -- `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp`"* and,
+under it, *"`app/routes/mcp.js` mounts it"*. Driven, `app/routes/mcp.js`
+references neither that module nor any `runeclaw_*` name and serves its own
+registry of thirty-four tools built on the public site's libraries; each of the
+nine comes back `{"code":-32602,"message":"Unknown tool: runeclaw_scan"}`. The
+card's `mcp_tools` listed the same nine and its `interfaces_note` named both
+files as the MCP interface, so every surface the product publishes for machine
+discovery pointed at the half with no door.
+
+**THE GUARD STANDING OVER IT CALLED ITSELF THE CONTROL AND CHECKED A DIFFERENT
+CLAIM.** `test_the_adapter_really_is_there_before_the_doc_claims_it` asserts
+three things and each is TRUE: the module exists, it builds a catalogue, and
+`app.use('/mcp'` is in `app/server.js`. **The conjunction is false** — existence
+of both ends is not a connection between them, which is `words_reach`'s "A DOOR
+EXISTING IS NOT THE DOOR LEADING WHERE THE ROW SAYS" one PROCESS boundary over,
+and `test_the_tool_map_is_the_catalogue_row_for_row` proved the doc's table and
+`TOOL_CATALOGUE` agree exactly — they do, about a catalogue nothing can reach.
+The missing assertion cannot be made from Python: it needs the route asked. It
+is the `web_reads.json` rule with a process boundary instead of a regex — *the
+sentence a surface tells a caller to use is a claim about ANOTHER surface, so
+the other surface checks it* — and it drives `tools/list` against every name
+either publishing surface carries.
+
+**THE SURFACE IS SAFE BECAUSE THE DOCUMENT IS WRONG ABOUT IT, and that settled
+the wiring question with evidence rather than taste.** `POST /mcp` is mounted
+with no auth — `routes/mcp.js` says so in its own comments — and driven,
+`runeclaw_portfolio` renders six dollar figures and `runeclaw_risk` two, the
+OPERATOR's book, because `call_tool` takes one shared bearer token and passes no
+caller identity to any skill. Mounting the catalogue there as the doc claimed
+would publish account dollars on an anonymous route against the percent-ratio-
+count rule and hand every caller the operator's book — the leak
+`viewer_executor` and `live_view(user_id)` closed on six surfaces, arriving
+through a door nobody had pointed at. Three questions precede any door (who the
+caller is, what a per-caller read means with one shared token, which tools may
+answer at all) and none is a wiring line, so they are STATED — on the page, in
+the module docstring — rather than answered by a slice that was scoped as a
+documentation fix.
+
+**Fixed in the adapter anyway, because fix before you wire and the fixing is
+most of the work.** A module nobody reaches becomes defective exactly the way
+`market_cap`, `basis`, `seasonality` and `quant_analyze` each did, and this one
+had two. `_redact_string` scrubbed the traceback for the audit log and the
+CALLER's copy three lines below was a bare f-string of the exception, so a ccxt
+error's `?apiKey=` reached whoever called the tool — `quant_skill._safe_reason`
+one module over, with the redaction present and pointed at the other string.
+And `_fullscan` advertised four modes over two behaviours: it branches on
+`mode == "quick"` and nothing else, so `swing` and `scalp` ran the identical
+whole-universe sweep with the reply echoing `"mode": "scalp"` back over it —
+`ProScanSkill`'s `MODE_CFG.get(mode, MODE_CFG["intraday"])` defect, one adapter
+over. **An acceptance is a claim**, so the validator reads the vocabulary
+`_fullscan` branches on rather than a set literal of its own.
+
+**`MCP_ALLOW_EXECUTE` is the hint shape pointed at an ENVIRONMENT VARIABLE.**
+The catalogue comment told the next developer to re-enable execution "behind
+`MCP_ALLOW_EXECUTE=true`" and the published page repeated it to an operator as
+the gate to set. Driven, it has no reader in either runtime: setting it does
+nothing at all. *The flag arrives with the code that reads it*, and the guard is
+two-way — the day something reads it, the test fails and the wording becomes
+true rather than being kept false by a guard.
+
+**The count in the description was correct and is derived anyway, and the guard
+written for it found the same shape one digit over.** `_fullscan` really does
+sweep 67 symbols — `scan_skill.UNIVERSE` and `deepscan_universe_size()`'s
+`DEEPSCAN_UNIVERSE + TRADFI_PERPETUALS` (115) are two lists and the two counts
+differ legitimately, so reading the second as a correction to the first would
+have replaced a true number with a wrong one. But a number a list decides is the
+part that rots first, so it is counted; and the assertion that it is DERIVED
+rather than typed fired on `"'quick' (top 10 symbols, top 10 signals)"` sitting
+beside `UNIVERSE[:10]` — a second copy of a bound at one digit's scale, in a
+sentence I had just written. *When a fresh assertion fails, check whether the
+code or the assertion is wrong before touching the code*: the assertion was
+right both times.
+
+**The card's list is RENDERED, and the renderer refuses an empty one.** A
+hand-written list of the route's thirty-four tools is the `/setllm`
+ten-of-eleven shape, so `app/scripts/render_agent_card_tools.js` writes it and
+a test re-renders and compares — `scripts/render_secret_shapes.py`'s rule with
+the runtimes the other way round, committed rather than generated at boot for
+the reason that precedent gives. A registry it cannot read RAISES rather than
+writing `mcp_tools: []`, because an empty list on that field publishes *this
+agent exposes no MCP tools* from a read that failed.
+
+**Twenty-three mutations, each killed — and the one that survived the first
+round was a coverage gap, which is the round doing its job.** `_scan_universe`
+imports `scan_skill` inside the function because that module pulls the engine
+in, and its `except` is what keeps this file importable by the one production
+import there is; with `scan_skill` importable in every fixture, swapping the
+`return ()` for a bare `raise` changed no verdict anywhere. Planted (`sys.modules`
+entry of `None`), it dies. Two more are worth naming for what they prove about
+the guards rather than the code: the status row restored to its false form dies
+on the JS side only, which is the direction a Python suite cannot see; and the
+card's list going one name stale dies on the re-render comparison rather than on
+any assertion about a name, because a list that is merely SHORT advertises
+nothing false and only the render can say it drifted.
+
+> **And two of the new assertions matched my own retraction.** The correction
+> has to name what it corrected — the page says the row *used to read* the false
+> sentence — so a bare scan for that sentence matches the fix and reports it as
+> the defect. `_unquoted` exists in the sibling guard for exactly this and it
+> happened here anyway, twice: once in the JS pin (re-bounded to the status
+> TABLE, where the claim actually lived) and once in the Python one, which
+> passed only by accident of line wrapping until it was made to read the source's
+> own voice. *A comment that quotes the string it forbids*, from the author's
+> side, for the second slice running.
+
 ## The rule behind most of the tests here
 
 **Unreadable is never zero, and absent is never a measurement.**
@@ -345,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 757 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 741 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -2290,6 +2684,160 @@ the else arm needs `price == 0`, at which point every figure on the card is
 already nonsense. *Don't fix what cannot fire* — and the arithmetic is driven
 in the suite so the day either half changes, that fails rather than the card
 quietly starting to publish 0.
+
+**A PNG IS A SURFACE NO GUARD HERE COULD READ AS TEXT, AND FIVE CARDS PRINTED
+A MEASURED ZERO ON IT.** The one instrument that existed for a rendered card
+counts PIXELS (`test_the_trend_headline_says_when_it_read_nothing`) — the
+right tool for a COLOUR claim and unable to answer *what did it say* — and
+its own fixture carries `change_24h_pct: 1.2`, a readable value, so **a
+fixture where every field is readable cannot tell a coerced figure from an
+honest one**: the RWA aggregate's recorded lesson, arriving inside the test
+written for this very card. A source scan could not answer it either, because
+the defect is not a spelling but which quantity a figure holds — the
+`size_usd` distinction. `tests/png_text.py` is the seam (*when there is no
+seam, make one*): every `ImageDraw.text` call a card makes, with its fill.
+Driven from a bare `{}`, it read back `CONFIDENCE 0%` and `SCORE 0%` in the
+ACCENT colour, `+0.00% 24h` in GREEN three lines under a `$—` that abstains
+correctly, `+0.0%` beside a GREEN DIRECTION DOT, and `LONG | HOLD` over an
+empty string. Each is a row of the shapes table: `up = chg >= 0` is
+*unreadable WON* verbatim, `.get("confidence", 0)` is *absent field is zero*,
+the grid footer's `up + down` over a set holding unread rows is *a partial
+total printed as whole*, and the HOLD cell is `_status_lines`' defect in an
+image.
+
+**THE COERCION WAS AT THE PRODUCER TOO, which is where a renderer-only fix
+leaves the card with nothing to read.** `alpha_card.py` wrote
+`float(tk.get("percentage") or 0)`, and ccxt reports `percentage: None` for a
+market whose venue publishes no 24h change — `app/lib/tickers.js` writes
+`change: null` for the identical fact one runtime over and says so in its own
+comment. `scan_skill.py` already sets `change_pct_24h=None` outright, and
+`skill_registry`'s TEXT scan card has counted `bullish`/`bearish`/**`unread`**
+with `is not None` guards since it was written: the PNG's producer was the
+uncured copy of an aggregate its sibling had already fixed, which is the RWA
+sector rollup one runtime over. `pct_on_record` is the reading, deliberately
+NOT `price_on_record` — that one refuses `<= 0` because a price of zero is a
+level nobody stated, and for a percent `0.0` is a measured flat day and
+`-5.2` a measured fall, so refusing either replaces a reading with an
+absence. A READ zero still prints, in green, on every one of these cards.
+
+**TWO OF THE FIVE WERE FOUND BY THE DRIVE AND BY NOTHING ELSE.** `SCORE` is a
+second LABEL for `confidence`, not a second field — the renderer reads no
+`score` key and its docstring lists only `confidence` — and with no margin,
+no TP2 and no RSI **both cells are reached**, so one reading was drawn twice
+side by side under two names, which tells a reader they are two readings that
+agree. The comment I wrote there first claimed the branch was unreachable
+once the confidence cell had been drawn; rendering the card said otherwise,
+which is *a comment claiming a check the code does not make*, from the
+author's side. And the confidence has a FOURTH site — the auto-summary's
+`Score {confidence:.0f}%` — which a scan for the three CELL sites misses
+entirely; it was found by the card RAISING on `None.__format__`.
+
+**Thirty-five mutations, thirty-two killed, one equivalent, two refused —
+and not one of the three was the code's.** The two refusals were the
+driver's: its anchors spelled `\u25bc` and `\u2014` where the file holds the
+real `▼` and `—`, so both matched zero times, and a driver that took that
+for a kill would have reported coverage of two branches it never touched.
+The survivor was a coverage gap that needed a SEAM rather than a fixture:
+the grid producer's bucket arithmetic lived inside a 400-line async handler,
+so `up + down` could be restored and nothing could reach it to object.
+`breadth_counts` is that seam, and `producer: keeps its own count` dies on it
+now. The remaining survivor is a genuine EQUIVALENT MUTANT — `(c or 0) > 0`
+against `c is not None and c > 0`, identical for every value `pct_on_record`
+can hand back — and the explicit form STAYS rather than being collapsed,
+because the terse one is literally a row of the shapes table and the next
+reader would read it as the defect; what is driven instead is the property
+that makes them equivalent, so the day that return type changes, a test
+fails rather than the count quietly starting to differ.
+
+**THE THREE BUCKETS DO NOT SUM, and that is stated rather than papered
+over.** A MEASURED flat is a real reading in neither direction and is not
+unread either. It gets no fourth row, because a permanent `0 flat` on every
+card is what trains a reader to stop reading the line — and the footer prints
+no denominator beside the three, so nothing there invites the subtraction
+that would make the gap a false third number. The unread row itself prints
+ONLY when it bites, the same rule.
+
+> **And three of this slice's own fixtures were wrong before the code was.**
+> An empty `grid` returns `b""` before the footer is ever reached, so the two
+> footer tests drew zero strings and measured nothing; the `CHANGE_UNREAD`
+> count is 4 (one definition, three renderers) where I asserted five; and I
+> expected `up: 2` from `[1.2, -3.0, None, 0.0]` in the same commit as writing
+> the docstring that says a measured flat is in neither bucket. *When a fresh
+> assertion fails, check whether the code or the assertion is wrong before
+> touching the code* — three times in one slice, and a fourth in the guard:
+> `fill_of`'s only decoy was a string that appears nowhere, which a SUBSTRING
+> match refuses just as readily, so the assertion named a comparison it could
+> not measure. `"CONF"` inside `"CONFIDENCE"` is the input that tells them
+> apart.
+> (`tests/test_a_png_card_says_when_it_read_nothing.py`, `tests/png_text.py`.)
+
+**A NULL CLOSE BECOMES NaN SILENTLY, AND `float(None)` RAISES SIX LINES
+AWAY.** The reachability is three steps and each was DRIVEN rather than read:
+`ccxt.Exchange.parse_ohlcv` builds the close with `safe_number`, which answers
+`None` for a field that is null, missing OR empty; `np.array([...],
+dtype=float)` turns that `None` into `nan` **silently**; and `nan > 0` is
+False, so all three `if x > 0 else 0` guards in
+`rich_cards.fetch_analysis_data` took their else arm. The filed note for this
+said the site was the *cannot fire* shape because venue closes are positive —
+wrong about the MECHANISM, and only a drive said so.
+
+**WHAT EACH ELSE ARM PUBLISHED.** `change_pct = 0` kept the Velocity Gate
+SILENT — silent because it read 0, not because the market was calm — with
+`+0.0%` in the header beside it, `_pct`'s `sign = "+" if v >= 0` being the
+shapes table's *unreadable WON* verbatim. `vwap_pct = 0` is read one line down
+as **"price is +0.0% ABOVE VWAP"**, a DIRECTIONAL claim from a computation
+that never happened, and it fires exactly when `compute_vwap`'s own
+zero-volume fallback to `closes[-1]` lands on the unreadable close. And
+`vol_spike = 1.0` is "no spike" — the calm value — off an average nobody
+could compute.
+
+**A FOURTH SITE NEEDED NO NaN AT ALL, and two of its readers disagreed.** The
+orderbook fetch's own `except` set `{"bids": [], "asks": []}`, so a failed read
+summed to `0` on both sides — and THREE readers published a confident verdict
+from it: the header said **bearish** (`bid > ask` is False at 0/0),
+`_bid_ask_read` said **balanced** (every threshold comparison is False, so the
+fall-through won), and the comparison scorer charged **-1**. Two readings of
+one failed read, two different verdicts, on a card that prints both. A book
+that ANSWERED with no rows is still a real, thin reading and keeps its `0`.
+
+**AND THE SHARPEST CONSEQUENCE IS A RANKING, NOT A NUMBER.** The comparison
+card ends with a bold `<b>Preferred</b>`, scored partly on `abs(vwap_pct) <
+10` — True for an unread distance of `0`. Driven with the same book on both:
+an asset whose VWAP could NOT be read scored **2** and one MEASURED 14%
+extended scored **0**, so the unreadable one won. An unread input did not
+merely print wrong; it RANKED FAVOURABLY. An asset missing any term is not
+comparable with one that has them all, so it is not ranked and the cell names
+the missing reading — and fewer than two scorable assets is not a comparison
+at all, because "Preferred" over a set of one reads as a recommendation and is
+a statement about nothing.
+
+**ONE RULE FOR BOTH CANDLES, because which honest strategy the card took was
+decided by WHICH ROW the venue failed to price.** `mark = float(ohlcv[-1][4])`
+RAISED on a null forming close and the broad `except` turned that into no card
+at all — the GUARD strategy — while a null in any other row was coerced to NaN
+and published. Both read the record now, so a null on the bar that has not
+closed costs only the mark, and an unreadable PRICE refuses the card
+deliberately rather than by crashing at whichever line touched the value
+first. That distinction is what the mutation round asked for: deleting the
+guard leaves the card absent ANYWAY, because `vol_24h * price` raises a few
+lines down — same outcome, and a materially different one to read — so the
+test asserts the WARNING, not just the absence.
+
+> **And three fixtures were wrong before the code was, all of them mine.**
+> `close=None` doubled as the helper's own *use the default* sentinel, so the
+> test that asked for a series of null closes silently got an ordinary one.
+> The rows were stamped 2023, so every period had elapsed and the bar the test
+> called FORMING was kept as a closed one. And the index that planted the
+> 24h-ago close ignored that the forming bar is DROPPED before the window is
+> built. *When a fresh assertion fails, check whether the code or the
+> assertion is wrong* — here it was neither, three times: **a fixture that
+> cannot produce the state it names measures nothing**, and each reason is
+> now written beside the fixture.
+
+**Eighteen mutations, each killed.** Both whole-tree ratchets IMPROVED and were
+re-recorded in the same commit, which is the `known_failures.txt` rule: ruff
+1197 -> 1193 (the `else 0` one-liners were over-long) and mypy 573 -> 571.
+(`tests/test_an_unread_move_is_not_a_calm_market.py`.)
 
 **THE DOCUMENT A SESSION IS SCOPED FROM IS A SURFACE, and a *Gap* paragraph
 is a claim.** `docs/INCOME_MAP.md` is read FIRST to decide what to build next,
@@ -5553,6 +6101,102 @@ MEASURED zero; `fetchTrendingPairs` was reachable by no test until `global.fetch
 was driven directly; and `cover`'s absent-figure guard needed a fixture where
 the figure itself is a dash.
 
+**THE TWO GATES THE MODULE CALLS *REQUIRED* PASSED ON FIELDS NOBODY
+REPORTED, AND `checked` SAID 8 EITHER WAY.** `bot/guardian/yield_plan.py`
+opens by locking its v1 scope — *"stables-only, non-custodial + recallable
+REQUIRED"* — and describes its own triple-gate as *"each evaluated
+independently, any failure → skip, fail-closed"*. Two of its eight rules
+failed OPEN. `require_noncustodial` read `bool(move.get("custodial"))` and
+`require_recallable` read `(_num(move.get("lockup_days")) or 0.0) > 0`, so a
+move that said nothing about either was byte-identical to one MEASURED as
+non-custodial and withdraw-anytime — the reassuring answer, from no data, on
+the two rules that exist to establish the opposite. And `checked` is the one
+number a reader has for how much was measured: driven, it is **8** for a move
+that reported both and **8** for a move that reported neither.
+
+**`bool("false")` IS TRUE AND `bool(None)` IS FALSE — one expression, two
+wrong answers, decided by spelling.** Driven through the old reader, a
+`custodial: "false"` from a feed that spells its booleans as strings came back
+*"move is custodial — a non-custodial route is required"*: a REFUSAL, which
+looks like the gate working, for a route the feed had just described as the
+safe one. The same expression one value over reads an absent field as that
+same safe one. `_flag` answers a real boolean (or the 0/1 JSON sometimes
+carries) and `None` for everything else, and `None` is refused BY NAME.
+
+**FOUR COPIES OF THE COERCION, AND THE LAST TWO WERE LITERALS IN A BROWSER.**
+`planMoves` published `custodial: !!(it && it.custodial)` and
+`lockup_days: clampNum(it && it.lockup_days)`; `app/routes/cross_yield.js`
+forwarded the feed's answer as `!!r.best.custodial` and
+`Number(r.best.lockup_days) || 0`; and the dashboard's own plan panel simply
+wrote `custodial: false, lockup_days: 0` — so the two REQUIRED gates were
+decided by the page that displays their verdict. Driven, the panel's move at
+its own defaults came back `verdict: pass`, `checked 8`, **zero reasons**, and
+the preview painted the pass. It asserted a third thing as well:
+`breakeven_days: net > 0 ? 12 : null`, a twelve-day figure nobody computed,
+against a thirty-day horizon rule. The panel asks now (a *not stated* default
+on both controls) and OMITS what it was not told, which is the whole answer —
+nothing an operator typed into a plan form establishes whether a destination
+custodies their coins.
+
+**A SIZE NOBODY REPORTED CLEARS EVERY CAP THERE IS.** `amount = _num(...) or
+0.0` is the same shape on the third field and it reaches further: `$0` is
+under the `$50` per-move cap and under the `$150` daily one, so both bounds
+passed; the authority envelope was then asked to authorise a **$0** transfer
+and its allow was taken as authority for a move of unknown notional; and the
+plan carried `notional_usd: 0.00` — the figure on the preview an operator
+SIGNS from, printed as a measured size. Each is refused with its own sentence
+now, and the plan's field is `None`, never `0.00`.
+
+**THE ONE RULE THAT READ `None` CORRECTLY SAID IT BADLY.**
+`max_breakeven_days` was already `if d is None or d > v` — the right refusal
+from the start — and then rendered it as *"breakeven None days exceeds the
+30-day horizon"*, interpolating the absence as a figure inside a sentence
+about exceeding a limit. Same refusal, named.
+
+**`clampNum` STAYS, and the distinction is the design rather than an
+oversight.** Its `0` is right for a COST — an unknown gas anchor really is
+*add nothing* — and wrong for a lockup, because one is an estimate the module
+is allowed to make and the other is a safety fact only the venue can state.
+That is `pct_on_record` against `price_on_record` one module over: the same
+coercion is honest or fatal depending on what the number means, so the fix is
+a second reader beside it (`reportedNum`, `reportedFlag`) rather than a change
+to the one that was right.
+
+**Recorded, not changed: the sibling cannot fire.** `bot/core/idle_yield.py`
+carries an `else 0` on the same field, and its only producer,
+`idle_yield_feeds.build_idle_options`, sets `lockup_days` explicitly under its
+own comment *"all curated venues are withdraw-anytime"* — so no input in the
+tree reaches that arm. *Don't fix what cannot fire*, the `scan_skill`
+precedent; its `custodial` derivation is documented and conservative in the
+same way.
+
+**Twenty-six mutations, each killed — and the two that survived the first
+round were my own guard's SPELLING, not the code.** The panel used to write
+`custodial: false` as an object key, and the assertion was written against
+that spelling; the mutation that puts the assertion back as
+`move.custodial = false` on the conditional line is the same claim in the
+other syntax, and `!/custodial:\s*false/` never saw it. And `/yp-cust/`
+matched `yp-cust-removed`, so the mutation that DELETES the control acquitted
+itself by leaving its own name behind. **An assertion that names ONE spelling
+is not an assertion about the claim**: it is an `assigns(name, value)` reading
+covering both `:` and `=` now, and the control is anchored on `id="yp-cust"`.
+The honesty ratchet fell 744 → 741 and was re-recorded in the same commit,
+which is the `known_failures.txt` rule.
+
+> **And the gate refused the slice on a SECOND ANSWER I had written into the
+> cache-buster.** `js/dashboard.js` is versioned by a per-bundle COUNTER —
+> 191, 192, 193, 194, one per change — and I bumped the markup to `196`
+> because that is this slice's number, which is a fact about the todo list and
+> not about the bundle. `app/test/asset_versions.json` is the one reading, and
+> it went un-updated, so `cache_buster_ratchet` failed BOTH ways at once: the
+> content changed against a recorded sha (*"will not reach a browser that has
+> visited before"*) and the manifest and the markup disagreed about the
+> number. Twenty of twenty-one gates were green and this was the twenty-first;
+> the summary line printed by the run was the PIPE's exit status, `0`, which is
+> why the rule is to read the per-gate list and never the headline.
+(`tests/test_an_unreported_lockup_is_not_a_recallable_route.py`,
+`app/test/cross_yield_reports_what_it_was_told.test.js`.)
+
 **A CHIP IS A BADGE AND `align-items: stretch` MADE IT A CAPSULE THE HEIGHT OF
 THE CARD.** Reported from the live site with a screenshot: the Signals card on
 a phone rendered `▲ LONG` as a ~390px pill, the pattern name wrapped one or two
@@ -6349,7 +6993,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 209 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 211 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -7161,9 +7805,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **402 of 973** reach for source text through `source_scan`, `code_only`
+Driven, **405 of 979** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 402 is a FLOOR and the honest shape is
+source scan that rule does not see, so 405 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

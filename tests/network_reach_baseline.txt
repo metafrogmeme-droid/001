@@ -1,0 +1,82 @@
+# Test FILES that reach the network, and a RATCHET over them.
+#
+# A file NOT listed here that makes an outbound connect is a HARD FAILURE, by
+# name, at that test's teardown. A file listed here still has its connects
+# REFUSED — nothing here reaches a venue — and its count is printed at the end
+# of every run so the backlog stays visible.
+#
+# ── why this exists, and why it is a backlog rather than a sweep ───────────
+#
+# tests/conftest.py refuses every outbound connect the suite makes. It shipped
+# enforcing hard, on a measurement of twelve tests in four files — taken on a
+# box whose HTTPS_PROXY is http://127.0.0.1:33283, where the reading answered
+# `local` for the proxy and ALLOWED it. Every proxied venue read went out
+# through loopback and was never seen; the twelve it did find are the ones
+# that connect by raw IP and bypass the proxy, which is why the set looked
+# plausible. CI has no proxy, connects direct, and reported SEVENTY-FOUR.
+#
+# Stubbing that many seams across these files is the wholesale conversion
+# CLAUDE.md refuses, so the set is recorded and the growth direction enforced.
+# Each row is a stub that was never made — not a test that needs the network.
+#
+# ── keyed by FILE, and the stale half is NOT enforced ──────────────────────
+#
+# Driven in CI, 60 of the 74 PASSED when re-run alone: the set is
+# order-dependent, so a nodeid baseline would churn run to run and its stale
+# direction would be a flake generator. A file is the stable unit, and GROWTH
+# is the direction that matters — it can only fire when something new appears.
+# Re-measuring the stale half is a deliberate act (drop a row, run the suite,
+# see whether it comes back), not a gate. A gate whose coverage is overstated
+# is the failure this repo is organised around; the limit is written down
+# rather than left to be discovered.
+#
+# ── the four files that are NOT here ───────────────────────────────────────
+#
+# test_scan_reads_the_executors_record.py, test_monitor_liveness.py,
+# test_monitor_one_broken_check_does_not_silence_the_rest.py and
+# test_networth_gateway.py were stubbed when the containment landed. The
+# monitor one is back below: its outbound-stage stub covers `run()`, and CI
+# found a second reader the local measurement could not see.
+#
+tests/test_an_unsized_row_is_not_an_absent_position.py
+tests/test_analysis_chain_bounds.py
+tests/test_atomic_write.py
+tests/test_audit_batch2.py
+tests/test_audit_batch3.py
+tests/test_audit_fixes_batch_1.py
+tests/test_audit_v7_followups.py
+tests/test_backtest_edge_cases.py
+tests/test_backtest_smoke.py
+tests/test_backtest_validity.py
+tests/test_core.py
+tests/test_coverage_gate_measures_what_it_names.py
+tests/test_deploy_smoke_guard.py
+tests/test_journal_gap_honesty.py
+tests/test_kill_switch_reaches_executor.py
+tests/test_live_executor.py
+tests/test_llm_endpoint_probe.py
+tests/test_macro_cards_are_reachable.py
+tests/test_marketing_public_no_dollars.py
+tests/test_monitor_liveness.py
+tests/test_mtf_availability.py
+tests/test_mtf_wiring.py
+tests/test_news_byon.py
+tests/test_no_i18n_shadowing.py
+tests/test_portfolio_backtest.py
+tests/test_portfolio_book_is_not_clobbered.py
+tests/test_purge_reaches_the_bot_database.py
+tests/test_red_team_runner.py
+tests/test_registered_skills_are_reachable.py
+tests/test_scan_timeout_parity.py
+tests/test_self_audit_says_not_measurable_apart_from_not_distinguished.py
+tests/test_share_command.py
+tests/test_telegram_commands.py
+tests/test_the_abort_says_why_the_stop_could_not_be_placed.py
+tests/test_the_fee_is_one_rule_and_the_ratio_is_net_of_it.py
+tests/test_the_funding_card_says_which_venues_it_read.py
+tests/test_the_income_map_says_who_may_run_a_command.py
+tests/test_the_same_words_run_the_same_scan.py
+tests/test_the_scan_payload_says_what_it_could_not_read.py
+tests/test_the_session_timeout_covers_what_it_claims.py
+tests/test_the_tier_gate_is_asked_about_a_feature.py
+tests/test_win_rate_scoring.py

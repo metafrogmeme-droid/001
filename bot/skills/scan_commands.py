@@ -39,6 +39,8 @@ from telegram.ext import ContextTypes
 
 from bot.compat import UTC
 from bot.config import CONFIG
+from bot.core.position_telemetry import pct_on_record
+from bot.formatters.signal_card import breadth_counts
 from bot.skills.command_guard import guard
 from bot.skills.scan_coverage import coverage_note
 from bot.skills.scan_hints import _scan_timeout_hint
@@ -766,17 +768,26 @@ class ScanCommands:
             for s, (closes, rsi) in zip(top, enriched):
                 grid.append({
                     "sym": s.symbol, "price": getattr(s, "price", 0) or 0,
-                    "change_pct": getattr(s, "change_pct_24h", 0) or 0,
+                    # NOT `or 0`: `scan_skill` sets `change_pct_24h=None` for
+                    # a symbol whose change it could not read, and the card
+                    # cannot tell an absence from a flat day once it is one.
+                    "change_pct": pct_on_record(
+                        getattr(s, "change_pct_24h", None)),
                     "spark": closes, "rsi": rsi,
                 })
-            up = sum(1 for s in signals if (getattr(s, "change_pct_24h", 0) or 0) > 0)
-            dn = sum(1 for s in signals if (getattr(s, "change_pct_24h", 0) or 0) < 0)
-            vol = sum((getattr(s, "volume_usd_24h", 0) or 0) for s in signals)
+            # THREE buckets, through the seam rather than counted here:
+            # `up + down` over a set holding unread rows is a partial total
+            # printed as the whole scan, and arithmetic inside this handler
+            # is arithmetic no test can drive.
+            breadth = breadth_counts(
+                [getattr(s, "change_pct_24h", None) for s in signals])
+            breadth["vol_usd"] = sum(
+                (getattr(s, "volume_usd_24h", 0) or 0) for s in signals)
             png = render_scan_grid_card({
                 "title": title,
                 "timestamp": f"{datetime.now(UTC).strftime('%H:%M')} UTC",
                 "grid": grid,
-                "summary": {"up": up, "down": dn, "vol_usd": vol},
+                "summary": breadth,
             })
             if not png:
                 return False
@@ -1389,7 +1400,7 @@ class ScanCommands:
                 row = {
                     "sym": s["symbol"],
                     "price": s["price"],
-                    "change_pct": s["change_pct"],
+                    "change_pct": pct_on_record(s.get("change_pct")),
                     "spark": closes,
                     "rsi": rsi,
                 }

@@ -1,10 +1,47 @@
 """
-RUNECLAW MCP Tool Server -- exposes the skill registry as MCP-callable tools
-for the Bitget Agent Hub.
+RUNECLAW MCP tool ADAPTER over the skill registry -- in-process, no HTTP door.
 
 This module wraps each registered skill as a typed MCP tool with JSON Schema
 input definitions, dispatches incoming tool calls to ``skill.execute()``, and
 returns structured JSON responses.
+
+**IT IS NOT WHAT SERVES ``POST /mcp``, AND THE PUBLISHED DOC SAID IT WAS.**
+``docs/gitbook/mcp-integration.md`` -- the page an agent developer reads before
+integrating, published on GitBook -- carried the row
+
+    MCP tool adapter layer | Implemented -- bot/mcp/server.py, live over
+    JSON-RPC at POST /mcp
+
+and the sentence "``app/routes/mcp.js`` mounts it at ``POST /mcp``". Driven,
+``app/routes/mcp.js`` contains no reference to this module and none to any
+``runeclaw_*`` name; it serves its own table of thirty-four tools built on the
+public site's libraries. Every one of the nine names the doc and
+``agent_card.json`` advertise answers::
+
+    {"code": -32602, "message": "Unknown tool: runeclaw_scan"}
+
+Nothing constructs ``RuneClawMCPServer`` outside tests. The one production
+import of this file reads ``_MCP_AUTH_TOKEN`` to assert the constructor refuses
+to start without it -- a check about a constant, not a caller.
+
+**THE SURFACE IS SAFE BECAUSE THE DOCUMENT IS WRONG ABOUT IT**, which is why
+this is recorded here rather than wired. ``POST /mcp`` is mounted with no auth
+(``app/server.js``; ``routes/mcp.js`` says so in its own comments), and driven,
+``runeclaw_portfolio`` renders six dollar figures and ``runeclaw_risk`` two --
+the OPERATOR's book, because ``call_tool`` takes one shared bearer token and
+passes no caller identity to any skill. Mounting this catalogue there as the
+doc claimed would publish account dollars on an unauthenticated route, against
+the rule that only percent, ratio and count go on a public payload, and would
+hand every anonymous caller the operator's book: the leak ``viewer_executor``
+and ``live_view(user_id)`` were written to close, arriving through a door
+nobody had pointed at. Three things have to be decided before it gets a door --
+who the caller is, what a per-caller read means with one shared token, and
+which tools may answer at all -- and none of them is a wiring line.
+
+What IS true of this file is checked by
+``tests/test_the_mcp_adapter_says_what_it_does.py``; what the doc and the agent
+card may claim is checked, against the route itself, by
+``app/test/the_published_mcp_tools_are_tools_the_route_answers.test.js``.
 
 Usage::
 
@@ -12,7 +49,7 @@ Usage::
 
     server = RuneClawMCPServer()
     tools  = await server.list_tools()
-    result = await server.call_tool("runeclaw_scan", {})
+    result = await server.call_tool("runeclaw_scan", {}, auth_token=...)
 """
 
 from __future__ import annotations
@@ -30,6 +67,7 @@ from bot.skills.skill_registry import (
     SkillRegistry,
     build_default_registry,
 )
+from bot.utils.exc_text import _safe_exc_text
 from bot.utils.logger import audit, system_log
 
 # C5 FIX: bearer token authentication for MCP tool calls.
@@ -38,6 +76,51 @@ _MCP_AUTH_TOKEN: str = os.environ.get("MCP_AUTH_TOKEN", "")
 
 # SEC-H3 FIX: strict symbol format validator for MCP entry points.
 _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
+
+def _scan_universe() -> tuple[str, ...]:
+    """`scan_skill.UNIVERSE`, read once, or empty when it cannot be read.
+
+    Imported inside the function because `scan_skill` pulls the engine in and
+    this module is imported by a fail-closed constructor check. An empty tuple
+    is an absence the description then STATES rather than a count it invents.
+    """
+    try:
+        from bot.skills.scan_skill import UNIVERSE
+        return tuple(UNIVERSE)
+    except Exception:  # noqa: BLE001 -- an unreadable universe is not zero
+        return ()
+
+
+def _universe_phrase() -> str:
+    """How many symbols the sweep covers, or that nobody could count them."""
+    n = len(_FULLSCAN_UNIVERSE)
+    return f"{n}-symbol" if n else "whole-universe (size not readable here)"
+
+
+# The universe `_fullscan` really sweeps, COUNTED rather than typed into the
+# description beside it. It is 67 today and that number was correct -- but it
+# is a number in prose that a list decides, which is the part that rots first;
+# `deepscan_universe_size()` exists one skill over for exactly this, and
+# `DeepScanSkill.description` carried a stale "67+ symbols" against a universe
+# of 115 for years. This is NOT that universe: `scan_skill.UNIVERSE` and
+# `DEEPSCAN_UNIVERSE + TRADFI_PERPETUALS` are two different lists and the two
+# counts differ legitimately.
+_FULLSCAN_UNIVERSE = _scan_universe()
+
+# `_fullscan` branches on "quick" and nothing else, so these two words are the
+# whole vocabulary. Read by the argument validator in `call_tool` and by the
+# catalogue description above, so the accepted set and the advertised set
+# cannot drift apart.
+_FULLSCAN_MODES: frozenset[str] = frozenset({"quick", "deep"})
+
+# The two bounds `_fullscan` slices with. Named because the description beside
+# them stated both by hand -- "'quick' (top 10 symbols, top 10 signals)" -- and
+# a number typed beside the code that decides it is the same second copy as the
+# universe size one line up, at one digit's scale. The guard that found this was
+# written for the universe count and fired on these instead.
+_QUICK_SYMBOLS = 10
+_QUICK_SIGNALS = 10
+_DEEP_SIGNALS = 20
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +185,20 @@ TOOL_CATALOGUE: tuple[MCPToolDef, ...] = (
     # Exposing trade execution over MCP would bypass the human-confirmation
     # gate, violating the fail-closed design.  An agent on the Hub could
     # call runeclaw_analyze → runeclaw_execute fully autonomously.
-    # Re-enable only behind MCP_ALLOW_EXECUTE=true AND with caller auth.
     # See: Audit finding A (MCP execute bypass).
+    #
+    # THIS COMMENT NAMED A SWITCH AND NOTHING READS IT. It used to end
+    # "Re-enable only behind MCP_ALLOW_EXECUTE=true AND with caller auth", and
+    # `docs/gitbook/mcp-integration.md` repeated the name to an operator as the
+    # gate to set. Driven, `MCP_ALLOW_EXECUTE` has no reader anywhere in the
+    # tree: setting it does nothing at all, which is the `/vault` hint shape
+    # pointed at an environment variable -- a surface naming a command that
+    # does nothing. The flag arrives with the code that reads it. Until then
+    # what exists is a DECISION, not a knob, and the decision has three parts
+    # and no default: who the caller is (`call_tool` takes one shared bearer
+    # token and passes no identity to any skill), what confirmation means with
+    # no chat to confirm in, and what the audit record of an agent-initiated
+    # order looks like.
     MCPToolDef(
         mcp_name="runeclaw_explain",
         skill_name="explain_trade",
@@ -164,14 +259,29 @@ TOOL_CATALOGUE: tuple[MCPToolDef, ...] = (
     MCPToolDef(
         mcp_name="runeclaw_fullscan",
         skill_name="_fullscan",
+        # AN ACCEPTANCE IS A CLAIM, and this one advertised four modes over two
+        # behaviours. `_fullscan` branches on `mode == "quick"` and nothing
+        # else, so 'swing' and 'scalp' ran the identical whole-universe sweep
+        # and the reply echoed `"mode": "scalp"` back over it -- a card headed
+        # with a strategy nobody ran, which is `ProScanSkill`'s own recorded
+        # defect (`MODE_CFG.get(mode, MODE_CFG["intraday"])`, a scalp request
+        # rendered as an intraday card with no marker) one adapter over. Those
+        # two modes are `pro_scan`'s and reaching them from here would be a new
+        # dispatch, not a wording fix, so the vocabulary narrows to what this
+        # function does.
         description=(
-            "Run full 67-symbol market scan across the RUNECLAW universe. "
-            "Returns ranked signals with RSI, volume, chart patterns, and scores."
+            f"Run a full {_universe_phrase()} market scan across the "
+            "RUNECLAW scan universe. Returns ranked signals with RSI, volume, "
+            "chart patterns, and scores."
         ),
         params=(
             MCPToolParam(
                 name="mode", type="string",
-                description="Scan mode: 'quick' (top 10), 'deep' (all 67), 'swing', 'scalp'.",
+                description=(
+                    f"Scan mode: 'quick' (top {_QUICK_SYMBOLS} symbols, top "
+                    f"{_QUICK_SIGNALS} signals) or 'deep' (the whole universe, "
+                    f"top {_DEEP_SIGNALS})."
+                ),
                 required=False,
                 default="quick",
             ),
@@ -376,12 +486,17 @@ class RuneClawMCPServer:
         # or an unrecognized `mode` that silently triggers the full 67-symbol scan.
         if "bars" in kwargs and isinstance(kwargs["bars"], int):
             kwargs["bars"] = max(1, min(kwargs["bars"], 5000))
+        # The accepted set is `_FULLSCAN_MODES`, which is what `_fullscan`
+        # branches on -- a second copy here is a second answer about which
+        # modes exist, and the copy that used to sit in this literal accepted
+        # two the function does nothing with.
         if "mode" in kwargs and isinstance(kwargs["mode"], str):
-            if kwargs["mode"].lower() not in {"quick", "deep", "swing", "scalp"}:
+            if kwargs["mode"].lower() not in _FULLSCAN_MODES:
                 return MCPResponse(
                     status="error",
                     tool=name,
-                    result="Invalid mode. Expected one of: quick, deep, swing, scalp.",
+                    result=("Invalid mode. Expected one of: "
+                            + ", ".join(sorted(_FULLSCAN_MODES)) + "."),
                 ).to_dict()
             kwargs["mode"] = kwargs["mode"].lower()
 
@@ -417,10 +532,20 @@ class RuneClawMCPServer:
                 result="error",
                 data={"tool": name, "traceback": tb},
             )
+            # THE REDACTION WAS THREE LINES UP AND POINTED AT THE OTHER STRING.
+            # `_redact_string` scrubbed the traceback for the LOG and the
+            # caller's copy was a bare f-string of the exception, so a ccxt
+            # error carrying `https://api.bitget.com/...?apiKey=...` reached
+            # whoever called the tool verbatim. `quant_skill._safe_reason`
+            # recorded the identical shape -- a docstring promising "never a
+            # key, never a URL with a token" over a trim and a truncation --
+            # and the cure is the same one table: `_safe_exc_text` reads
+            # `secret_shapes` and knows the bot-token shape the key=value
+            # redactor does not.
             return MCPResponse(
                 status="error",
                 tool=name,
-                result=f"Skill execution failed: {exc}",
+                result=f"Skill execution failed: {_safe_exc_text(exc)}",
             ).to_dict()
 
     async def shutdown(self) -> None:
@@ -489,7 +614,7 @@ class RuneClawMCPServer:
 
         exchange = await self._engine.scanner._get_exchange()
         results = []
-        symbols = UNIVERSE[:10] if mode == "quick" else UNIVERSE
+        symbols = UNIVERSE[:_QUICK_SYMBOLS] if mode == "quick" else UNIVERSE
         batch_size = 10
         for i in range(0, len(symbols), batch_size):
             batch = symbols[i:i + batch_size]
@@ -509,7 +634,8 @@ class RuneClawMCPServer:
                 await asyncio.sleep(1.0)
 
         results.sort(key=lambda r: r.get("score", 0), reverse=True)
-        top = results[:20] if mode != "quick" else results[:10]
+        top = (results[:_DEEP_SIGNALS] if mode != "quick"
+               else results[:_QUICK_SIGNALS])
         return json.dumps({
             "mode": mode,
             "total_scanned": len(results),

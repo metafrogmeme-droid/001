@@ -2037,6 +2037,99 @@ half of the measurement that says where the measurement stops.
   names and saw an explicit allow-list I did not enumerate, so the Python MCP
   surface is unmeasured.
 
+  **ANSWERED for bot/mcp/, and the doubt was pointed at the wrong risk.** The
+  allow-list is nine tools and it is not what an agent reaches: driven,
+  `POST /mcp` answers thirty-four tools from `app/routes/mcp.js`'s own registry
+  and every one of the nine answers `{"code":-32602,"message":"Unknown tool:
+  runeclaw_scan"}`. `app/routes/mcp.js` references neither `bot/mcp/server.py`
+  nor any `runeclaw_*` name; nothing outside the tests constructs
+  `RuneClawMCPServer`, and the one production import of the file reads
+  `_MCP_AUTH_TOKEN` to assert the constructor refuses to start without it —
+  a check about a constant, not a caller.
+
+  What WAS measurable is that two published surfaces sent an agent developer
+  at it. `docs/gitbook/mcp-integration.md` — the GitBook page `agent_card.json`
+  names as the documentation — carried the status row *"Implemented --
+  `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp`"* and the sentence
+  *"`app/routes/mcp.js` mounts it"*; the card's own `mcp_tools` listed the same
+  nine and its `interfaces_note` named both files as the MCP interface. The
+  guard standing over the page proved its table and `TOOL_CATALOGUE` agree
+  exactly — they do, about a catalogue nothing can reach — and its CONTROL
+  asserted the module exists, builds a catalogue, and that `app.use('/mcp'` is
+  in `server.js`: three true things whose conjunction is false, because both
+  ends existing is not a connection between them.
+
+  **The surface is safe because the document is wrong about it**, which is what
+  settled the wiring question with evidence rather than taste. `POST /mcp` is
+  mounted with no auth (`app/server.js:415`; `routes/mcp.js` says so in its own
+  comments), and driven, `runeclaw_portfolio` renders six dollar figures and
+  `runeclaw_risk` two — the OPERATOR's book, because `call_tool` takes one
+  shared bearer token and passes no caller identity to any skill. Mounting the
+  catalogue there as the doc claimed would put account dollars on an anonymous
+  route against §4 and hand every caller the operator's book. Three questions
+  precede any door — who the caller is, what a per-caller read means with one
+  shared token, which tools may answer at all — and none is a wiring line, so
+  they are written on the page and in the module rather than answered here.
+
+  **AND THE CONTAINMENT THAT SHIPPED BESIDE IT MEASURED THIS BOX'S PROXY.** CI
+  named 74 tests reaching the network where the local run reported twelve. The
+  cause was one variable: `HTTPS_PROXY` here is loopback, so every proxied
+  venue read connected to 127.0.0.1 and `_outbound_verdict` read that as
+  `local` and allowed it — `local` is a measurement of the ADDRESS, not of
+  whether the connect leaves the box. Proxy endpoints are read once from the
+  environment and refused as `proxy` before the loopback check; enforcement is
+  a two-way ratchet over `tests/network_reach_baseline.txt` (42 files), keyed
+  by FILE because 60 of the 74 pass when re-run alone and a nodeid baseline
+  would churn.
+
+  GROWTH is enforced every run; STALE is a deliberate re-measure, and the
+  baseline's comment named `scripts/network_reach_gate.py` as where it happens
+  **one commit before that script existed** — the `/vault` hint shape pointed
+  at a code comment. It is built: a report path that changes no verdict
+  (`RUNECLAW_REACH_REPORT`), three outcomes including CANNOT CHECK, and a
+  `--write` that refuses a partial run rather than deleting forty rows on no
+  evidence. Filed and NOT done here: stubbing the 42 files' venue seams, of
+  which the 14 that still fail when re-run alone are the loudest.
+
+  Fixed in the adapter itself, because a module nobody reaches becomes
+  defective in exactly the ways `market_cap`, `basis` and `quant_analyze` did:
+  the caller's error copy was a bare f-string of the exception with
+  `_redact_string` applied to the traceback three lines above it, so a venue
+  URL's query token reached whoever called the tool; and `_fullscan` advertised
+  four modes over two behaviours, echoing `"mode": "scalp"` back over the
+  identical whole-universe sweep. `MCP_ALLOW_EXECUTE`, named as the re-enable
+  switch by the module comment and the published page, has no reader in either
+  runtime — the `/vault` hint shape pointed at an environment variable.
+  (`tests/test_the_mcp_adapter_says_what_it_does.py`,
+  `app/test/the_published_mcp_tools_are_tools_the_route_answers.test.js`.)
+
+  **PARTLY ANSWERED for bot/formatters/, and the instrument was the finding.**
+  24 files and 8,073 lines of renderers were driven rather than read: every
+  single-dict formatter called with nothing readable, and the card read back.
+  The TEXT cards were honest — earlier slices had cured them — and the PNG
+  cards were not, because nothing in this tree could read a PNG as text. The
+  only instrument that existed counts PIXELS, which answers a COLOUR claim
+  and not *what did it say*, and its fixture carries a readable change, so it
+  could not have told a coerced figure from an honest one.
+
+  Five cards printed a measured zero from a bare `{}`: `CONFIDENCE 0%` and
+  `SCORE 0%` in the accent colour, `+0.00% 24h` in green three lines under a
+  `$—` that abstains, `+0.0%` beside a green direction dot, and a
+  `LONG | HOLD` label over an empty string. The coercion was at the PRODUCER
+  as well — `float(tk.get("percentage") or 0)`, where ccxt reports `None` for
+  a market with no published change and `app/lib/tickers.js` already writes
+  `change: null` for the same fact — and `skill_registry`'s text scan card had
+  been counting `unread` as its own bucket the whole time, so the PNG's
+  producer was the uncured copy of an aggregate its sibling had already
+  fixed. `tests/png_text.py` is the seam that makes every PNG renderer
+  driveable; `pct_on_record` is the reading, and a MEASURED zero still prints
+  in green on every one of those cards. Recorded in CLAUDE.md under "A PNG IS
+  A SURFACE NO GUARD HERE COULD READ AS TEXT".
+
+  The other seven packages (`bot/guardian/`, `bot/compliance/`,
+  `bot/proofofpnl/`, `bot/risk/`, `bot/llm/`, `bot/db/`, `bot/api/`) are still
+  unread — about 18,000 lines.
+
 - README.md and README.zh-TW.md — the task named the README command table
   explicitly and I did not open it. I used bot/skills/command_catalog.py
   instead, on the strength of its own claim that a test asserts catalogue and
@@ -2077,6 +2170,29 @@ half of the measurement that says where the measurement stops.
   only handle_meme_swap_build and handle_trade_copilot. Endpoints I did not
   trace to a caller: /account/purge, /guardian/review*, /policy/*, /profile,
   /share-card, /user/strategy, /chat/history.
+
+  ANSWERED, in the negative, which is the useful direction here: every one of
+  the seven has a caller and eleven of the twelve handlers behind them reach an
+  authorisation decision. `/account/purge` is `app/auth.js`'s delete path,
+  `/chat/history` hydrates the chat drawer through `app/routes/chat.js`,
+  `/user/strategy` is `app/routes/botstrategy.js`, `/share-card` is
+  `app/routes/share.js`, `/guardian/review*` is `app/routes/guardian_review.js`
+  and the four `/policy/*` are `app/routes/controls.js`. Driven for the gate
+  rather than grepped: five carry `_guard_user` (and through it
+  `permission_denial`, so F-14 staleness applies), two carry `_is_admin_id`,
+  and the four policy handlers carry `_is_admin_id` through
+  `_policy_op_guard`. The twelfth, `handle_share_card`, reaches no
+  authorisation decision and is named in `scripts/guard_lint.py`'s
+  `web-route-auth` rule as one of eight public-by-design exemptions, each with
+  its own reason — "PNG from three clamped query params" — so the absence is a
+  recorded decision rather than a gap.
+
+  **And the first probe written for this reproduced the blind spot this repo
+  had already recorded.** Reading each handler's OWN body for a gate call said
+  the four `/policy/*` handlers had none, because the gate is one frame out in
+  `_policy_op_guard` — the same one-hop gap the `check_user` ratchet documents,
+  manufacturing exactly the accusation it exists to make. Following local
+  helper hops to a fixed point is what answered it.
 
 - Permission and tier gating for nearly every door I report. I verified
   REGISTRATION and WIRING, not who may run what. The only guards I actually

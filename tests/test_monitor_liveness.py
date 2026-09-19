@@ -56,6 +56,22 @@ def test_monitor_run_records_heartbeat(monkeypatch):
     pm = ProactiveMonitor(SimpleNamespace())
     assert pm.last_loop_ts is None
 
+    # `run()` awaits four outbound stages before the checks, and
+    # `_refresh_news_radar` pulls three RSS feeds — so this test made a live
+    # fetch on its way to an assertion about a heartbeat. They are quieted by
+    # PREFIX rather than by name for the reason the sibling file states: a
+    # list of four is the shape where the fifth is the one missing from it,
+    # and a stage with a new prefix is caught by `tests/conftest.py`'s refusal
+    # rather than by silence. Quiet rather than raising: the claim here is
+    # that the stamp lands BEFORE the checks, which the checks' own failure
+    # already exercises one line down.
+    async def _quiet(*_a, **_k):
+        return None
+
+    for _n in dir(ProactiveMonitor):
+        if _n.startswith(("_refresh_", "_probe_", "_deliver_")):
+            monkeypatch.setattr(pm, _n, _quiet)
+
     async def _stop_sleep(_s):
         pm._running = False
 

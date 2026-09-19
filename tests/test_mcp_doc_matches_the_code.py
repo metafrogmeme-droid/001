@@ -96,6 +96,26 @@ def test_the_adapter_really_is_there_before_the_doc_claims_it():
     The two tests above would both pass if the adapter were deleted and the doc
     left claiming it — which would be the worse error. This asserts the code the
     doc now points at actually exists, so the claim and the thing move together.
+
+    **AND IT WAS NARROWER THAN THE CLAIM READ OFF IT.** Its three assertions
+    were each TRUE and the conjunction was false. The doc's row read
+    "Implemented -- `bot/mcp/server.py`, live over JSON-RPC at `POST /mcp`" and
+    the paragraph under it said `app/routes/mcp.js` mounts it; this test checked
+    that the module EXISTS, that it builds a catalogue, and that
+    `app.use('/mcp'` appears in `app/server.js`. Existence of both ends is not a
+    connection between them. Driven, `app/routes/mcp.js` names neither this
+    module nor any `runeclaw_*` tool and serves its own registry, so every one of
+    the nine answered `Unknown tool` while this file reported green — and its
+    sibling below proved the doc's table and `TOOL_CATALOGUE` agree exactly,
+    which they did, about a catalogue nothing could reach.
+
+    That is `words_reach`'s "a door existing is not the door leading where the
+    row says" one PROCESS boundary over, and the missing assertion cannot be
+    made from Python: it needs the route to be asked. It lives in
+    `app/test/the_published_mcp_tools_are_tools_the_route_answers.test.js`,
+    which drives `tools/list` against every name the doc and `agent_card.json`
+    publish. What stays here is the narrower claim this file CAN make, said as
+    the narrow one it is.
     """
     server = ROOT / "bot" / "mcp" / "server.py"
     assert server.exists(), "bot/mcp/server.py is gone but the doc claims it"
@@ -106,6 +126,19 @@ def test_the_adapter_really_is_there_before_the_doc_claims_it():
     assert "app.use('/mcp'" in mount, (
         "POST /mcp is no longer mounted, so the doc promises a surface that is "
         "not served")
+    # The half this file got wrong: the two are SEPARATE, and the page has to
+    # say so. Checked here as well as across the boundary because a reader of
+    # this file is the one who would otherwise re-conflate them.
+    route = (ROOT / "app" / "routes" / "mcp.js").read_text(encoding="utf-8")
+    assert "bot/mcp" not in route and "bot.mcp" not in route, (
+        "app/routes/mcp.js now references bot/mcp — the doc may describe them "
+        "as one surface again, and the guards written for their separation "
+        "need rewriting rather than working around")
+    doc = _doc()
+    assert "Which surface answers your call" in doc, (
+        "mcp-integration.md no longer distinguishes app/routes/mcp.js from "
+        "bot/mcp/server.py, which is the state it was in when its status row "
+        "called the unserved adapter live at POST /mcp")
 
 
 def test_the_doc_does_not_promise_human_confirmation():

@@ -49,11 +49,44 @@ def _pos(pnl_usd, *, symbol="BTC/USDT:USDT", tid="t1"):
     )
 
 
+class _TheVenueIsNotPartOfThisTest(RuntimeError):
+    """Raised by the stand-in exchange the `record` fixture installs."""
+
+
 @pytest.fixture
 def record(tmp_path, monkeypatch):
-    """Point the reader at a temp file and hand back a writer for it."""
+    """Point the reader at a temp file and hand back a writer for it.
+
+    IT ALSO REFUSES THE VENUE LEG, and that is not tidying. The reader under
+    test reads this file and then builds a REAL `ccxt.bitget` and calls
+    `fetch_balance` against api.bitget.com — three times with its retries — so
+    every test below reached the live venue on its way to the
+    `_file_only_result` path it asserts about. `equity` is the only field that
+    leg feeds and no test here reads it, so they passed either way: slow,
+    nondeterministic and green, which is the exact signature `ci_test_gate`'s
+    flake filter forgives. The stand-in takes the same path in microseconds;
+    the two tests further down that have something to say about the venue leg
+    install their own exchange after this one.
+    """
+    import sys
+    import types
+
     path = tmp_path / "closed_trades.json"
     monkeypatch.setattr(ss, "_closed_trades_file", lambda: str(path))
+
+    class _Refuses:
+        def set_sandbox_mode(self, *a, **k):
+            pass
+
+        def fetch_balance(self, *a, **k):
+            raise _TheVenueIsNotPartOfThisTest("fetch_balance")
+
+        def fetch_positions(self, *a, **k):
+            raise _TheVenueIsNotPartOfThisTest("fetch_positions")
+
+    fake = types.ModuleType("ccxt")
+    fake.bitget = lambda *a, **k: _Refuses()
+    monkeypatch.setitem(sys.modules, "ccxt", fake)
 
     def write(rows):
         path.write_text(json.dumps(rows, default=str), encoding="utf-8")

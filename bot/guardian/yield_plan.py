@@ -61,6 +61,20 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
+def _flag(v: Any) -> Optional[bool]:
+    """A boolean the move REPORTED, or None for one it did not.
+
+    `bool(v)` is the wrong reader for a safety flag twice over: `bool(None)`
+    is False, so an unreported field reads as the SAFE answer, and
+    `bool("false")` is True, so the string spelling reads as the unsafe one.
+    Only a real boolean (or the 0/1 JSON sometimes carries) is a reading."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int) and v in (0, 1):
+        return bool(v)
+    return None
+
+
 def evaluate_yield_policy(rules: Any, move: dict, *,
                           spent_today_usd: float = 0.0) -> dict:
     """Pure, per-rule fail-open evaluation of a yield policy against one move.
@@ -73,7 +87,10 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
     checked = 0
     move = move or {}
     asset = str(move.get("asset") or "").upper()
-    amount = _num(move.get("amount_usd")) or 0.0
+    # NOT `or 0.0`. A size nobody reported cannot be SHOWN to be under a cap,
+    # and $0 passes every cap there is — so the coercion turned an unread
+    # notional into a move that clears the per-move and per-day limits.
+    amount = _num(move.get("amount_usd"))
     for rule in (rules or []):
         if not isinstance(rule, dict):
             continue
@@ -89,7 +106,14 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
             v, d = _num(val), _num(move.get("breakeven_days"))
             if v is not None:
                 checked += 1
-                if d is None or d > v:
+                # This is the ONE rule that read None correctly from the start —
+                # it just said it badly, interpolating the absence as a figure
+                # ("breakeven None days exceeds…"). Same refusal, named.
+                if d is None:
+                    reasons.append(
+                        f"the move's breakeven was not reported, so the "
+                        f"{int(v)}-day horizon could not be checked")
+                elif d > v:
                     reasons.append(f"breakeven {d} days exceeds the {int(v)}-day horizon")
         elif rtype == "min_net_horizon_usd":
             v, d = _num(val), _num(move.get("net_horizon_usd"))
@@ -101,14 +125,22 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
             v = _num(val)
             if v is not None:
                 checked += 1
-                if amount > v + 1e-9:
+                if amount is None:
+                    reasons.append(
+                        f"the move's size was not reported, so the ${v:.2f} "
+                        f"per-move cap could not be checked")
+                elif amount > v + 1e-9:
                     reasons.append(f"move ${amount:.2f} exceeds the ${v:.2f} per-move cap")
         elif rtype == "max_daily_move_usd":
             v = _num(val)
             if v is not None:
                 checked += 1
                 spent = _num(spent_today_usd) or 0.0
-                if spent + amount > v + 1e-9:
+                if amount is None:
+                    reasons.append(
+                        f"the move's size was not reported, so the ${v:.2f} "
+                        f"daily cap could not be checked")
+                elif spent + amount > v + 1e-9:
                     reasons.append(
                         f"daily total ${spent + amount:.2f} would exceed the ${v:.2f} cap")
         elif rtype == "allowed_assets":
@@ -125,14 +157,30 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
                 if frm and frm not in allow:
                     reasons.append(f"chain '{frm}' is not allowed ({', '.join(allow)})")
         elif rtype == "require_noncustodial":
+            # A REQUIREMENT, not a bound: the module's locked v1 scope calls
+            # non-custodial REQUIRED, so a route nobody described is refused
+            # rather than assumed safe. `bool(move.get("custodial"))` read an
+            # unreported field as False — the reassuring answer, from no data.
             if bool(val):
                 checked += 1
-                if bool(move.get("custodial")):
+                cust = _flag(move.get("custodial"))
+                if cust is None:
+                    reasons.append(
+                        "the move does not say whether the route is custodial — "
+                        "a non-custodial route has to be shown, not assumed")
+                elif cust:
                     reasons.append("move is custodial — a non-custodial route is required")
         elif rtype == "require_recallable":
+            # Same reading, same reason. `(… or 0.0) > 0` made an unreported
+            # lockup indistinguishable from a measured "withdraw anytime".
             if bool(val):
                 checked += 1
-                if (_num(move.get("lockup_days")) or 0.0) > 0:
+                lockup = _num(move.get("lockup_days"))
+                if lockup is None:
+                    reasons.append(
+                        "the move does not say whether the destination locks funds up — "
+                        "a recallable route has to be shown, not assumed")
+                elif lockup > 0:
                     reasons.append("destination has a lockup — a recallable route is required")
         # unknown rule type → skip (fail-open), never block.
     return {"verdict": "pass" if not reasons else "fail",
@@ -158,7 +206,7 @@ def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
     move = move or {}
     reasons: list[str] = []
     asset = str(move.get("asset") or "").upper()
-    amount = _num(move.get("amount_usd")) or 0.0
+    amount = _num(move.get("amount_usd"))          # None = the size was not reported
     dest = str(dest or "").strip()
 
     # Locked hard-gate: stables only (v1 moves nothing else).
@@ -185,6 +233,14 @@ def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
     authority_ok = False
     if not dest:
         reasons.append("no destination address for the first-leg transfer")
+    elif amount is None:
+        # The envelope's own limits are NOTIONAL limits. Passing 0.0 here asked
+        # it to authorise a $0 transfer and took the allow as authority for a
+        # move of unknown size — so the gate is refused with its own reason
+        # rather than answered from a number nobody reported.
+        reasons.append(
+            "the move's size was not reported, so the authority envelope's "
+            "notional limits could not be checked")
     else:
         try:
             from bot.guardian.authority import authorize
@@ -210,7 +266,10 @@ def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
             "dest": dest,
             "network": str(move.get("from_chain") or "").lower() or None,
             "to_chain": str(to_chain or "").lower() or None,
-            "notional_usd": round(amount, 2),
+            # None, never 0.00: this is the figure on the preview an operator
+            # signs from, and $0.00 reads as a measured size rather than as one
+            # the move never stated.
+            "notional_usd": None if amount is None else round(amount, 2),
         }
     return {
         "verdict": "execute" if execute else "skip",
