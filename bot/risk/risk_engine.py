@@ -3452,12 +3452,14 @@ class RiskEngine:
                 # Empty file = no prior state (same as missing)
                 return
             data = json.loads(raw)
-            self._circuit_open = data.get("circuit_open", False)
-            self._consecutive_losses = data.get("consecutive_losses", 0)
-            self._last_loss_time = data.get("last_loss_time")
-            self._circuit_breaker_trips = data.get("circuit_breaker_trips", 0)
-            self._circuit_trip_cause = data.get("circuit_trip_cause", "")
-            self._circuit_trip_day = data.get("circuit_trip_day", "")
+            state = self._read_state_dict(data)
+            if state is None:
+                # Valid JSON that is not a risk state — a list, a string, an
+                # object with no `circuit_open`, or a field of the wrong type.
+                # `_read_state_dict` says why; this is the same CORRUPT case
+                # the docstring above names, reached without an exception.
+                raise ValueError("state file is not a readable risk state")
+            self._apply_state_dict(state)
             self._restore_dd_override(data)
             self._restore_live_daily(data)
             self._restore_live_peak(data)
@@ -3471,7 +3473,8 @@ class RiskEngine:
             # Other I/O errors (permissions, etc.) → also fail-closed
             self._fail_closed_restore("State file unreadable", "IO_FAIL_CLOSED")
 
-    def _fail_closed_restore(self, what: str, result: str) -> None:
+    def _fail_closed_restore(self, what: str, result: str,
+                            rescue: bool = True) -> None:
         """Open the breaker because the risk state could not be read.
 
         Halting is right — an unknown risk state is not a safe one. Two things
@@ -3509,16 +3512,24 @@ class RiskEngine:
         self._circuit_breaker_trips += 1
         self._circuit_trip_cause = "state_unreadable"
         self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
-        kept = ""
-        try:
-            damaged = self._state_file + ".corrupt"
-            if os.path.exists(self._state_file) and not os.path.exists(damaged):
-                # Only the FIRST rescue is kept: a second failure overwriting
-                # it would lose the good copy on the second restart.
-                os.replace(self._state_file, damaged)
-                kept = f" Original preserved at {os.path.basename(damaged)}."
-        except OSError:
-            kept = " Could not preserve the original."
+        if rescue:
+            kept = ""
+            try:
+                damaged = self._state_file + ".corrupt"
+                if os.path.exists(self._state_file) and not os.path.exists(damaged):
+                    # Only the FIRST rescue is kept: a second failure overwriting
+                    # it would lose the good copy on the second restart.
+                    os.replace(self._state_file, damaged)
+                    kept = f" Original preserved at {os.path.basename(damaged)}."
+            except OSError:
+                kept = " Could not preserve the original."
+        else:
+            # The COMBINED loader's caller owns the damaged file and this engine
+            # does not know its path, so there is nothing here to move aside.
+            # Rescuing `self._state_file` instead would preserve a file that
+            # read perfectly well and label it as the evidence.
+            kept = (" The unreadable block is in the engine's combined state "
+                    "file; this engine's own state file was not touched.")
         audit(risk_log,
               f"{what} — assuming circuit breaker ACTIVE (fail-closed). "
               f"Trading is halted and stays halted until /reset: the loss "
@@ -3602,20 +3613,147 @@ class RiskEngine:
         except Exception:
             pass
 
-    def _load_from_state_dict(self, data: dict) -> None:
-        """C2-34: Restore risk state from a dict (no file I/O).
-        Uses fail-closed semantics matching _load_state."""
-        self._circuit_open = data.get("circuit_open", False)
-        self._consecutive_losses = data.get("consecutive_losses", 0)
-        self._last_loss_time = data.get("last_loss_time")
-        self._circuit_breaker_trips = data.get("circuit_breaker_trips", 0)
-        self._circuit_trip_cause = data.get("circuit_trip_cause", "")
-        self._circuit_trip_day = data.get("circuit_trip_day", "")
+    def _load_from_state_dict(self, data: Any) -> None:
+        """C2-34: restore risk state from the combined file's ``risk`` block.
+
+        Its docstring used to say "uses fail-closed semantics matching
+        `_load_state`" over a body with no `try` and six bare
+        ``.get(key, <the safe value>)`` calls, and every one of those defaults
+        is the reassuring answer: breaker CLOSED, streak 0, cause erased.
+        Driven against an engine `__init__` had just restored as HALTED, a
+        ``risk`` block that is present and carries none of those keys took it
+        from `open=True streak=4 cause='daily_loss' trips=2` to
+        `open=False streak=0 cause='' trips=0` — silently, with no exception,
+        no log and no audit. `_load_state`'s three documented outcomes are
+        missing file, empty file and CORRUPT FILE → assume the breaker tripped;
+        this had one outcome and it was the third one's opposite.
+
+        THE SIBLING IN THE SAME FAMILY ALREADY REFUSES.
+        `PortfolioTracker._load_from_state_dict` opens
+        ``if "balance" not in data: raise ValueError(...)`` and validates every
+        trailing-state row. One file's worth of the same idea, two methods of
+        the same name, and the one guarding the HALT is the one that checked
+        nothing.
+
+        So the block is READ first (`_read_state_dict`) and applied only if it
+        is a risk state; anything else is an unreadable one, and the answer to
+        an unreadable risk state is the one `_fail_closed_restore` already
+        gives. It rescues no file here — the damaged one is the COMBINED file,
+        which belongs to the engine that called this, not to `self._state_file`,
+        and moving the wrong file aside would mislabel the evidence.
+        """
+        state = self._read_state_dict(data)
+        if state is None:
+            self._fail_closed_restore(
+                "Combined state's risk block is not a readable risk state",
+                "COMBINED_BLOCK_FAIL_CLOSED", rescue=False)
+            return
+        was_open = self._circuit_open
+        self._apply_state_dict(state)
         self._restore_dd_override(data)
+        # The THIRD restore helper, which this path did not call for the life
+        # of the combined file. `_export_state_dict` writes `live_daily_pnl`
+        # and `live_daily_day` with three paragraphs about why the day travels
+        # with the number; `_load_state` reads them back; this did not — so on
+        # the one path production takes the day's realized LIVE loss was
+        # written to disk on every close and read by nobody on restart. That is
+        # the incident `__init__` describes above the field in as many words
+        # ("lose 4.5% against a 5% cap, redeploy, lose 4.5% again ... and this
+        # deployment redeploys often"), still live, one loader over — and the
+        # comment two fields down claiming they "are RESTORED from disk now"
+        # was true of `_load_state` alone.
+        self._restore_live_daily(data)
         self._restore_live_peak(data)
         if self._circuit_open:
             audit(risk_log, "Circuit breaker state restored from combined state: ACTIVE",
                   action="state_restore", result="LOADED")
+        elif was_open:
+            # The erasure is the event nobody could see. `__init__` restores
+            # from the individual file first and the combined block then wins,
+            # so a halt going away here is a real state change on the safety
+            # control, and it was the one outcome with no line of its own.
+            audit(risk_log,
+                  "Circuit breaker was OPEN after the individual-file restore "
+                  "and the combined state says CLOSED — the combined file is "
+                  "the newer record, so trading resumes.",
+                  action="state_restore", result="CLEARED_BY_COMBINED")
+
+    # The six fields both loaders restore, and the one place that decides what
+    # each of them may be. They used to be six byte-identical `.get` lines in
+    # each of `_load_state` and `_load_from_state_dict` — a second copy that
+    # agreed on every fixture and diverged on the first edit to either, which
+    # is exactly what happened to the three restore helpers beside them.
+    _STATE_FIELDS: tuple[tuple[str, type | tuple[type, ...], Any], ...] = (
+        ("circuit_open", bool, False),
+        ("consecutive_losses", int, 0),
+        ("last_loss_time", (int, float), None),
+        ("circuit_breaker_trips", int, 0),
+        ("circuit_trip_cause", str, ""),
+        ("circuit_trip_day", str, ""),
+    )
+
+    @classmethod
+    def _read_state_dict(cls, data: Any) -> Optional[dict]:
+        """The six restorable fields, or ``None`` for a block that is not a
+        risk state — which is a MEASUREMENT and not a value.
+
+        Three ways a block fails to be one, and the caller fails closed on all
+        three because an unknown risk state is not a safe one:
+
+        * it is not a mapping at all (a list, a string, ``null``);
+        * it does not carry ``circuit_open`` — the field that says whether
+          trading is halted. `PortfolioTracker._load_from_state_dict` demands
+          ``balance`` for the identical reason; a block without this one is
+          not a risk state, it is some other object;
+        * a field it DOES carry is not of that field's type. ``bool("false")``
+          is True and ``bool(None)`` is False, so a feed that spells its
+          booleans as strings would hand the breaker its state by spelling —
+          the trap `yield_plan._flag` was written for one directory over. A
+          value of the wrong type is not a weaker reading of the field, it is
+          no reading of it.
+
+        ``bool`` is checked BEFORE ``int``, because ``isinstance(True, int)``
+        is True in Python and a ``circuit_breaker_trips`` of ``True`` is not a
+        count of one.
+        """
+        if not isinstance(data, dict):
+            return None
+        if "circuit_open" not in data:
+            return None
+        out: dict = {}
+        for key, typ, default in cls._STATE_FIELDS:
+            if key not in data:
+                out[key] = default
+                continue
+            val = data[key]
+            if val is None and default is None:
+                # `last_loss_time` is `Optional[float]` and None is its
+                # ORDINARY value — an engine that has not had a loss writes
+                # one on every save. Refusing it read every honest block as
+                # unreadable and halted the engine on every restart, which
+                # the real-boot drive caught and no reading of this function
+                # would have. None is a reading only where the field's own
+                # default says the absence is one.
+                out[key] = None
+                continue
+            if isinstance(val, bool) is not (typ is bool):
+                # A bool where a number/string is wanted, or anything else
+                # where a bool is wanted. Both are the spelling trap above.
+                return None
+            if not isinstance(val, typ):
+                return None
+            out[key] = val
+        return out
+
+    def _apply_state_dict(self, state: dict) -> None:
+        """Write a block that `_read_state_dict` has already accepted."""
+        self._circuit_open = bool(state["circuit_open"])
+        self._consecutive_losses = int(state["consecutive_losses"])
+        _llt = state["last_loss_time"]
+        self._last_loss_time = None if _llt is None else float(_llt)
+        self._circuit_breaker_trips = int(state["circuit_breaker_trips"])
+        self._circuit_trip_cause = str(state["circuit_trip_cause"])
+        self._circuit_trip_day = str(state["circuit_trip_day"])
 
     def _restore_live_peak(self, data: dict) -> None:
         """Restore the live drawdown high-water mark, IF the operator opted in.

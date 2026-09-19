@@ -739,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 741 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 737 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -6577,6 +6577,167 @@ The claim is corrected to what the code really buys, the non-difference is kept
 as a test that says it is one, and the mutation dies.
 (`tests/test_the_session_timeout_covers_what_it_claims.py`.)
 
+**"USES FAIL-CLOSED SEMANTICS MATCHING `_load_state`" OVER A BODY WITH NO
+`try` AND SIX DEFAULTS THAT ARE EACH THE REASSURING ANSWER.**
+`RiskEngine._load_state` documents three outcomes — missing file and empty file
+are a fresh start, and a CORRUPT one means *assume the breaker TRIPPED*.
+`_load_from_state_dict`, which is the loader the PRODUCTION path takes, claimed
+to match it and had one outcome: `data.get("circuit_open", False)`,
+`data.get("consecutive_losses", 0)`, `data.get("circuit_trip_cause", "")`.
+Driven against an engine `__init__` had just restored as HALTED, a `"risk"`
+block that is present and carries none of those keys took it from
+`open=True streak=4 cause='daily_loss' trips=2` to
+`open=False streak=0 cause='' trips=0` — silently, no exception, no log, no
+audit. `bool("false")` is True and `bool(None)` is False, so
+`circuit_open: "false"` from a feed that spells its booleans as strings read as
+OPEN and `circuit_open: 0` read as closed: the trap `yield_plan._flag` was
+written for one directory over, on the field that says whether trading is
+halted.
+
+**THE SIBLING IN THE SAME FAMILY ALREADY REFUSES.**
+`PortfolioTracker._load_from_state_dict` opens
+`if "balance" not in data: raise ValueError(...)` and validates every
+trailing-state row by its keys. One file's worth of the same idea, two methods
+of the same NAME, and the one guarding the HALT is the one that checked nothing.
+The block is READ first now (`_read_state_dict`) and applied only if it is a
+risk state; anything else gets `_fail_closed_restore`, which is the answer that
+function already gives to an unreadable one. It rescues no file on this path —
+the damaged one is the engine's COMBINED file, which a `RiskEngine` does not
+know the path of, and moving `self._state_file` aside instead would preserve a
+file that read perfectly well and label it as the evidence.
+
+**THE DAY'S REALIZED LIVE LOSS WAS WRITTEN ON EVERY CLOSE AND READ BY NOBODY ON
+RESTART, and the incident is described in full above the field it belongs to.**
+`__init__`'s comment says it in as many words: *"Lose 4.5% against a 5% cap,
+redeploy, lose 4.5% again, and the gate reads 4.5% while the day is really 9.0%
+— the breaker that exists to stop exactly that never trips, and this deployment
+redeploys often."* Twenty lines down: *"They are RESTORED from disk now."* True
+of `_load_state` and false of the loader production takes. There are THREE
+restore helpers and the combined path called TWO — `_restore_dd_override` and
+`_restore_live_peak` but not `_restore_live_daily` — so the fix that closed the
+hole for the drawdown PEAK reached both loaders and the one for the daily
+accumulator reached one. Driven on a real `RiskEngine` through the real
+`_wire_combined_state_saver`: `combined_state.json` holds
+`live_daily_pnl=-412.55` for today, the individual file is ABSENT (the combined
+saver is wired before the first save, so it never gets written), and
+`live_daily_pnl_today()` answers **`0.0`** after the restart. `_utc_day`'s own
+docstring names `_restore_live_daily` as one of the four readers of its one
+rule; on the production path that reader never ran.
+
+**THE DRIVE CAUGHT A DEFECT IN THE FIX THAT WOULD HAVE HALTED EVERY BOOT.**
+`last_loss_time` is `Optional[float]` and an engine that has not had a loss
+writes `None` on every save, so a type check that refused `None` read every
+HONEST block as unreadable and failed closed on every restart. `None` is a
+reading exactly where the field's own default says the absence is one. No
+reading of `_read_state_dict` would have shown it; the real-boot drive did, and
+a shipped version would have stopped trading on the next deploy.
+
+**AND THE CROSS-ACCOUNT CARD MAKES THE SAME CLAIM ABOUT THE SAME STATE.**
+`engine.account_risk_overview` reads the breaker from
+`self._user_risk.get(str(uid))`, and `_user_risk` is populated LAZILY by
+`risk_for` — so a per-user account that has not traded IN THIS PROCESS has no
+entry, which after every restart is all of them. The row defaulted
+`circuit_open=False` and `consecutive_losses=0`, so `/accounts` printed `·` in
+the column whose whole job is to say which accounts are halted, and a measured
+streak of zero, for an account whose persisted state nobody had opened; the
+footer's `N halted (⛔)` counted over those rows too. **The EQUITY column one
+over already abstained** (`—` for a read that did not answer), which is the
+tell: the card knew how to say it for one field and five beside it asserted.
+
+**THE STAKES ARE SET ONE MODULE OVER.** `proactive_monitor._recipients_for`
+deliberately does NOT add the operator to a user's unprotected-position alert,
+and says why: *"Platform-level oversight has its own door in
+`account_risk_overview`"*. That is this card.
+
+**THE FIX IS NOT TO CALL `risk_for`, and the reason is stronger than the one
+the docstring gave.** It said only that the overview never creates state as a
+side effect. `risk_for` CONSTRUCTS a `RiskEngine`, and `__init__` runs
+`_load_state`, which is fail-closed: a per-user state file that will not parse
+would TRIP THAT ACCOUNT'S BREAKER as a side effect of an admin READ. A read
+command that can halt an account is not a read command. So `breaker_read` is
+three words — `read`, `not_resident`, `unreadable` — `circuit_open` and
+`consecutive_losses` are `None` for the last two, and the card prints `?` for
+an account nobody opened and `!` for an engine that is bound and would not
+answer, because those have different remedies and the first resolves itself the
+next time that account trades.
+
+**`unreadable` WAS A WORD NO INPUT COULD REACH until the read got its own
+handler.** A breaker property that raises used to abort the whole ROW into
+`error`, throwing away the equity, position count and exposure already read —
+guard where a composite view is owed omit, the table this file opens with — and
+every path to `unreadable` set `error` too, so the renderer's ERROR branch won.
+A line no input can reach is a claim that there is a check.
+
+**AND THE EXPOSURE WAS A PARTIAL TOTAL PRINTED AS WHOLE.**
+`sum(float(getattr(p, "cost_usd", 0.0) or 0.0) for p in positions)` folded every
+position whose margin the venue never stated into the account's committed
+margin — on the one field `position_size_basis` documents as *"0.0 there means
+the venue never told us"*, the orphan case. It sums the READ margins now, marks
+the row `*` when fewer were scored than there are positions, and says so in the
+footer; both clauses print only when they bite, because a permanent "0 unread"
+is the row that trains a reader to skip the line.
+
+> **And the fix reintroduced its own subject one line down.** `scored == []` is
+> both "no margin was readable" and "there are no positions", so a FLAT book —
+> a measured $0 — printed the unread dash. Found by rendering the card and
+> reading every line of it, which is the only thing that shows it and is how
+> every other instance in this file was found.
+
+**THE EQUITY CLAIM IN MY OWN SCOPE NOTE DID NOT SURVIVE DRIVING.** It said the
+card asserts `$0` equity from a read that never happened. Driven,
+`fetch_balance`'s error branch answers `total: 0` and BOTH
+`get_live_equity` and `get_user_live_equity` filter it
+(`if "error" not in bal or bal.get("total", 0) > 0`), so the card is handed
+`None` and prints `—`; on the success path `total` is always a real float. *A
+measurement you remember is not a measurement* — the third time in this file,
+and the first where the wrong claim was caught before the commit rather than
+after. **The kill switch was measured and left alone for the same reason**:
+`emergency_halt` walks `_user_risk` and so misses a non-resident account's
+engine, but `self._halted = True` is global and is what `_halted_now()` reads
+as the live executor module's halt check, so execution stops for every account;
+and resume leaves a non-resident user's persisted OPEN breaker open, which is
+the safe direction. *Don't fix what cannot fire.*
+
+**Twenty-six mutations, each killed — and the two that survived the first round
+were my own guards, both passing for a reason unrelated to the rule they
+name.** A `_load_state` fed valid JSON that is not a risk state fails closed
+either way: with the read it raises `ValueError` into the `CORRUPT_FAIL_CLOSED`
+branch, and without it `_apply_state_dict(None)` raises `TypeError` into the
+catch-all and the operator is told *"State file unreadable"* — which sends them
+to check permissions and disk for a file that read perfectly and holds the
+wrong thing. The assertion names the RESULT now, and the mutation dies. The
+other is this file's own recurring one: `—` spells BOTH an unread exposure and
+the streak of an unread breaker, so `assert "—" in row` passed against the
+mutation that prints `$0` for the first. The row is fixed-width and each cell
+is read by its own columns now — *asserting a short string is the assertion
+that keeps misfiring*, for the third slice running. Ratchets moved and were
+re-recorded in the same commit: honesty 741 → 737, and the honesty gate itself
+caught an `or 0` I had added to the renderer while fixing that very shape one
+column over — an absent `exposure_scored` is not a count of zero, and coercing
+it would have marked every row of an older payload partial.
+(`tests/test_a_risk_state_nobody_read_is_not_a_safe_one.py`.)
+
+**AND THE SWEEP FROM THERE FOUND A HARD CAP PASSING ON MARGIN NOBODY READ.**
+*Ask which OTHER surface makes the same claim*, applied to this fix's own
+quantity: committed margin is summed in FOUR places.
+`LiveExecutor.total_exposure_usd` sums `p.cost_usd` over `open_positions` and
+is read by `/livebalance`'s card and the registry's; the MICRO_MAX_TOTAL_EXPOSURE
+gate sums it again INLINE over `status == "open"` alone and refuses the next
+order on the result. Two differences fall out and only one is cosmetic. The
+property counts a resting limit order as committed and the CAP does not, so the
+same noun answers twice and the looser answer is the gate. And `cost_usd` is
+`0.0` for a position whose margin the venue never stated — the orphan case
+`position_size_basis` is written for, which `live_executor` itself builds on both
+adoption paths and names in `adoption_unread` — so an adopted position
+contributes nothing to the total and the cap lets the next order through as
+though that capital were free. A card printing a low number and a hard limit
+failing OPEN are different sizes of claim. It is FILED with its measurement
+rather than swept in here, because the cap's answer to an unread margin is a
+decision that needs driving rather than a preference: refusing is fail-closed
+and defensible on `_fail_closed_restore`'s own argument, and counting it at the
+per-trade cap is a bound rather than a measurement.
+
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -7805,9 +7966,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **405 of 979** reach for source text through `source_scan`, `code_only`
+Driven, **406 of 980** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 405 is a FLOOR and the honest shape is
+source scan that rule does not see, so 406 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
