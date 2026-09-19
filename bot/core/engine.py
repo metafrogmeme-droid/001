@@ -14,7 +14,7 @@ import math
 import time
 from datetime import datetime
 from bot.compat import UTC
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, NamedTuple, Optional, Tuple
 
 from pathlib import Path
 
@@ -34,6 +34,7 @@ from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
+from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
@@ -605,6 +606,22 @@ def give_up_cost_s(gave_up: Optional[int]) -> Optional[float]:
         return round(n * timeout / conc, 1)
     except (TypeError, ValueError, AttributeError):
         return None
+
+
+class _LiveRecheck(NamedTuple):
+    """What one pre-execution re-check read about one account. NAMED, because
+    positions are how readers drift.
+
+    This row grew `available_usd` when the live margin bounds learned to read
+    the account, and the nine assertions that unpacked it positionally all
+    broke at once -- each asserting a POSITION where it meant a field. Read by
+    name and the next figure moves nothing a reader already reads. The
+    precedent is `tests/conftest.py`'s `_Reach`, for the same reason.
+    """
+
+    equity: Optional[float]        # the account's total, or None: unread
+    open_count: Optional[int]      # positions open on it, or None: not live
+    available_usd: Optional[float] # free margin off that same payload, or None
 
 
 class RuneClawEngine:
@@ -1244,17 +1261,21 @@ class RuneClawEngine:
                 "live sizing refused until a fresh read", user_id, exc)
         return None
 
-    async def _live_recheck_context(self, user_id: str = "") -> tuple:
-        """Return ``(live_equity, live_open_count)`` for the account THIS user's
-        confirm will execute on, so the pre-execution risk re-check sizes and
-        counts against the RIGHT account.
+    async def _live_recheck_context(self, user_id: str = "") -> "_LiveRecheck":
+        """What the pre-execution re-check knows about the account THIS user's
+        confirm will execute on, so it sizes and counts against the RIGHT one.
 
         Operator/default path is byte-identical to the prior inline logic (shared
         balance cache + operator exchange position count). A regular user under
         per-user live gets their OWN account's balance + open-position count.
+
+        `available_usd` is the AVAILABLE margin off the SAME payload the equity
+        came from. It is read here rather than fetched again by the bound: two
+        reads of one balance in one confirm are two answers, and `size_bounds`
+        is the only thing that consumes it.
         """
         if not CONFIG.is_live():
-            return None, None
+            return _LiveRecheck(None, None, None)
         ex = self._executor_for(user_id)
         # Executor identity decides, as in get_user_live_equity: the recheck
         # sizes and counts against the account the order will EXECUTE on.
@@ -1265,7 +1286,8 @@ class RuneClawEngine:
         )
         if not per_user:
             # Operator path — preserves the exact prior behaviour.
-            live_eq = (self.live_balance_cached() or {}).get("total")
+            _bal = self.live_balance_cached() or {}
+            live_eq = _bal.get("total")
             try:
                 exchange_ct = await get_exchange_position_count(self)
                 pending_ct = sum(
@@ -1275,13 +1297,15 @@ class RuneClawEngine:
                 live_open = exchange_ct + pending_ct
             except Exception:
                 live_open = len(self.live_executor.open_positions)
-            return live_eq, live_open
+            return _LiveRecheck(live_eq, live_open,
+                                size_bounds.available_from_balance(_bal))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
         # open_positions already filters to open + pending_fill for this account.
         live_open = len(ex.open_positions)
-        return live_eq, live_open
+        return _LiveRecheck(live_eq, live_open,
+                            size_bounds.available_from_balance(bal or {}))
 
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
@@ -4252,7 +4276,8 @@ class RuneClawEngine:
         except Exception:
             return ""
 
-    def _high_conviction_ceiling(self, user_id: str = "") -> Optional[float]:
+    def _high_conviction_ceiling(self, user_id: str = "",
+                                 available_usd: Optional[float] = None) -> Optional[float]:
         """The margin ceilings already binding before this rule runs.
 
         confirm_trade feeds MICRO_MAX_POSITION_USD and the per-user cap INTO
@@ -4268,7 +4293,13 @@ class RuneClawEngine:
         ceiling: Optional[float] = None
         try:
             if CONFIG.is_live():
-                ceiling = float(CONFIG.execution.max_live_position_usd)
+                # The executed bound, not a config constant: with the
+                # balance-relative feature off this is MICRO_MAX_POSITION_USD
+                # exactly, and with it on a target above what the account can
+                # carry would be raised here and silently clamped back at the
+                # executor — an audit line naming a margin nothing placed.
+                ceiling = float(_live_executor_mod.size_bounds_for(
+                    available_usd).per_trade_usd)
             cap = self._per_user_margin_cap(user_id)
             if cap is not None:
                 ceiling = float(cap) if ceiling is None else min(ceiling, float(cap))
@@ -4277,7 +4308,8 @@ class RuneClawEngine:
         return ceiling
 
     def _high_conviction_margin(self, idea, size_usd: float,
-                                user_id: str = "") -> float:
+                                user_id: str = "",
+                                available_usd: Optional[float] = None) -> float:
         """Flat margin for an idea at or above the confidence floor.
 
         Normal sizing is fixed-fractional — risk_budget / stop_distance_pct —
@@ -4310,7 +4342,7 @@ class RuneClawEngine:
                 return size_usd
             target = float(cfg.high_conviction_margin_usd)
             # Never above a ceiling that was already binding.
-            _ceiling = self._high_conviction_ceiling(user_id)
+            _ceiling = self._high_conviction_ceiling(user_id, available_usd)
             if _ceiling is not None and target > _ceiling:
                 audit(trade_log,
                       f"High-conviction target ${target:.2f} capped to "
@@ -6532,10 +6564,16 @@ class RuneClawEngine:
         # Through live_balance_cached(): a cache whose timestamp stopped
         # advancing hours ago is not the current equity, and evaluate()
         # already REFUSES a live entry it cannot size ("LIVE_EQUITY: unreadable").
-        live_eq = (self.live_balance_cached() or {}).get("total") if CONFIG.is_live() else None
-        # Pass micro-test cap so risk evaluates the actual execution size
-        from bot.core.live_executor import MICRO_MAX_POSITION_USD
-        exec_cap = MICRO_MAX_POSITION_USD if CONFIG.is_live() else None
+        _bal_now = (self.live_balance_cached() or {}) if CONFIG.is_live() else {}
+        live_eq = _bal_now.get("total") if CONFIG.is_live() else None
+        # Pass the execution cap so risk evaluates the actual executed size.
+        # It is the EXECUTOR's bound rather than a flat constant: with the
+        # balance-relative feature off, or with no available margin on the
+        # cached payload, it is byte-identical to MICRO_MAX_POSITION_USD.
+        exec_cap = None
+        if CONFIG.is_live():
+            exec_cap = _live_executor_mod.size_bounds_for(
+                size_bounds.available_from_balance(_bal_now)).per_trade_usd
         # LIVE FIX: pass live open position count so risk check #5 is accurate
         # CRITICAL: count BOTH filled positions AND pending limit orders.
         # Pending limit orders can fill at any time, so they must count
@@ -7146,20 +7184,29 @@ class RuneClawEngine:
         # Stale-data check #12 guards against time drift (>300s = reject).
         self._transition(AgentState.RISK_CHECK, f"re-checking risk for {trade_id}")
         try:
-            from bot.core.live_executor import MICRO_MAX_POSITION_USD
-            recheck_cap = MICRO_MAX_POSITION_USD if CONFIG.is_live() else None
+            # LIVE FIX: size + count against the account this confirm executes
+            # on. Default/operator → the shared operator balance + exchange
+            # count (byte-identical). A regular user under per-user live →
+            # THEIR OWN account's equity + open-position count, so they are
+            # never sized against the operator's (much larger) balance. The
+            # third figure is that same payload's AVAILABLE margin, which the
+            # execution bound below is derived from.
+            _rc = await self._live_recheck_context(user_id)
+            live_eq_recheck, live_open_recheck = _rc.equity, _rc.open_count
+            # The account this confirm will EXECUTE on decides the bound, so
+            # it is read off THAT executor. With the balance-relative feature
+            # off, or with no available margin on the payload, it is
+            # byte-identical to MICRO_MAX_POSITION_USD.
+            recheck_cap = None
+            if CONFIG.is_live():
+                recheck_cap = _live_executor_mod.size_bounds_for(
+                    _rc.available_usd).per_trade_usd
             # Per-user margin cap (operator-set, tighten-only): a regular user's
             # live trade is capped at THEIR ceiling, never above the global micro
             # cap. None when unset / operator / per-user off → no change.
             _user_cap = self._per_user_margin_cap(user_id)
             if _user_cap is not None:
                 recheck_cap = _user_cap if recheck_cap is None else min(recheck_cap, _user_cap)
-            # LIVE FIX: size + count against the account this confirm executes on.
-            # Default/operator → the shared operator balance + exchange count
-            # (byte-identical). A regular user under per-user live → THEIR OWN
-            # account's equity + open-position count, so they are never sized
-            # against the operator's (much larger) balance.
-            live_eq_recheck, live_open_recheck = await self._live_recheck_context(user_id)
             # Per-user risk isolation: this confirm-time gate runs against the
             # engine that owns THIS user's breaker/streak/daily-loss/drawdown
             # state. Default (per-user OFF) → shared operator engine, unchanged.
@@ -7384,8 +7431,10 @@ class RuneClawEngine:
         # Live mode — execute via LiveExecutor with micro-test safety limits
         self._transition(AgentState.EXECUTING, f"executing LIVE trade {trade_id}")
         # Flat margin for high-conviction ideas. A TARGET only: every
-        # reducer below still applies and can only lower it.
-        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
+        # reducer below still applies and can only lower it. The available
+        # margin is the one read this confirm already took.
+        size_usd = self._high_conviction_margin(
+            idea, recheck.position_size_usd, user_id, _rc.available_usd)
 
         # Resolve WHICH executor places this order. With PER_USER_LIVE_ENABLED off
         # (default) this is always the shared operator executor, so everything

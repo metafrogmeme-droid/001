@@ -370,7 +370,8 @@ async def test_recheck_sizes_on_none_when_the_shared_balance_is_stale(age):
     with patch("bot.core.engine.get_exchange_position_count",
                new=AsyncMock(return_value=1)):
         try:
-            eq, cnt = await eng._live_recheck_context("")
+            _rc = await eng._live_recheck_context("")
+            eq, cnt = _rc.equity, _rc.open_count
         finally:
             p.stop()
     assert eq is None
@@ -384,7 +385,8 @@ async def test_recheck_sizes_on_a_fresh_shared_balance():
     with patch("bot.core.engine.get_exchange_position_count",
                new=AsyncMock(return_value=1)):
         try:
-            eq, _cnt = await eng._live_recheck_context("")
+            _rc = await eng._live_recheck_context("")
+            eq = _rc.equity
         finally:
             p.stop()
     assert eq == 10_000.0
