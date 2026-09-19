@@ -739,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 744 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 741 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -6101,6 +6101,102 @@ MEASURED zero; `fetchTrendingPairs` was reachable by no test until `global.fetch
 was driven directly; and `cover`'s absent-figure guard needed a fixture where
 the figure itself is a dash.
 
+**THE TWO GATES THE MODULE CALLS *REQUIRED* PASSED ON FIELDS NOBODY
+REPORTED, AND `checked` SAID 8 EITHER WAY.** `bot/guardian/yield_plan.py`
+opens by locking its v1 scope — *"stables-only, non-custodial + recallable
+REQUIRED"* — and describes its own triple-gate as *"each evaluated
+independently, any failure → skip, fail-closed"*. Two of its eight rules
+failed OPEN. `require_noncustodial` read `bool(move.get("custodial"))` and
+`require_recallable` read `(_num(move.get("lockup_days")) or 0.0) > 0`, so a
+move that said nothing about either was byte-identical to one MEASURED as
+non-custodial and withdraw-anytime — the reassuring answer, from no data, on
+the two rules that exist to establish the opposite. And `checked` is the one
+number a reader has for how much was measured: driven, it is **8** for a move
+that reported both and **8** for a move that reported neither.
+
+**`bool("false")` IS TRUE AND `bool(None)` IS FALSE — one expression, two
+wrong answers, decided by spelling.** Driven through the old reader, a
+`custodial: "false"` from a feed that spells its booleans as strings came back
+*"move is custodial — a non-custodial route is required"*: a REFUSAL, which
+looks like the gate working, for a route the feed had just described as the
+safe one. The same expression one value over reads an absent field as that
+same safe one. `_flag` answers a real boolean (or the 0/1 JSON sometimes
+carries) and `None` for everything else, and `None` is refused BY NAME.
+
+**FOUR COPIES OF THE COERCION, AND THE LAST TWO WERE LITERALS IN A BROWSER.**
+`planMoves` published `custodial: !!(it && it.custodial)` and
+`lockup_days: clampNum(it && it.lockup_days)`; `app/routes/cross_yield.js`
+forwarded the feed's answer as `!!r.best.custodial` and
+`Number(r.best.lockup_days) || 0`; and the dashboard's own plan panel simply
+wrote `custodial: false, lockup_days: 0` — so the two REQUIRED gates were
+decided by the page that displays their verdict. Driven, the panel's move at
+its own defaults came back `verdict: pass`, `checked 8`, **zero reasons**, and
+the preview painted the pass. It asserted a third thing as well:
+`breakeven_days: net > 0 ? 12 : null`, a twelve-day figure nobody computed,
+against a thirty-day horizon rule. The panel asks now (a *not stated* default
+on both controls) and OMITS what it was not told, which is the whole answer —
+nothing an operator typed into a plan form establishes whether a destination
+custodies their coins.
+
+**A SIZE NOBODY REPORTED CLEARS EVERY CAP THERE IS.** `amount = _num(...) or
+0.0` is the same shape on the third field and it reaches further: `$0` is
+under the `$50` per-move cap and under the `$150` daily one, so both bounds
+passed; the authority envelope was then asked to authorise a **$0** transfer
+and its allow was taken as authority for a move of unknown notional; and the
+plan carried `notional_usd: 0.00` — the figure on the preview an operator
+SIGNS from, printed as a measured size. Each is refused with its own sentence
+now, and the plan's field is `None`, never `0.00`.
+
+**THE ONE RULE THAT READ `None` CORRECTLY SAID IT BADLY.**
+`max_breakeven_days` was already `if d is None or d > v` — the right refusal
+from the start — and then rendered it as *"breakeven None days exceeds the
+30-day horizon"*, interpolating the absence as a figure inside a sentence
+about exceeding a limit. Same refusal, named.
+
+**`clampNum` STAYS, and the distinction is the design rather than an
+oversight.** Its `0` is right for a COST — an unknown gas anchor really is
+*add nothing* — and wrong for a lockup, because one is an estimate the module
+is allowed to make and the other is a safety fact only the venue can state.
+That is `pct_on_record` against `price_on_record` one module over: the same
+coercion is honest or fatal depending on what the number means, so the fix is
+a second reader beside it (`reportedNum`, `reportedFlag`) rather than a change
+to the one that was right.
+
+**Recorded, not changed: the sibling cannot fire.** `bot/core/idle_yield.py`
+carries an `else 0` on the same field, and its only producer,
+`idle_yield_feeds.build_idle_options`, sets `lockup_days` explicitly under its
+own comment *"all curated venues are withdraw-anytime"* — so no input in the
+tree reaches that arm. *Don't fix what cannot fire*, the `scan_skill`
+precedent; its `custodial` derivation is documented and conservative in the
+same way.
+
+**Twenty-six mutations, each killed — and the two that survived the first
+round were my own guard's SPELLING, not the code.** The panel used to write
+`custodial: false` as an object key, and the assertion was written against
+that spelling; the mutation that puts the assertion back as
+`move.custodial = false` on the conditional line is the same claim in the
+other syntax, and `!/custodial:\s*false/` never saw it. And `/yp-cust/`
+matched `yp-cust-removed`, so the mutation that DELETES the control acquitted
+itself by leaving its own name behind. **An assertion that names ONE spelling
+is not an assertion about the claim**: it is an `assigns(name, value)` reading
+covering both `:` and `=` now, and the control is anchored on `id="yp-cust"`.
+The honesty ratchet fell 744 → 741 and was re-recorded in the same commit,
+which is the `known_failures.txt` rule.
+
+> **And the gate refused the slice on a SECOND ANSWER I had written into the
+> cache-buster.** `js/dashboard.js` is versioned by a per-bundle COUNTER —
+> 191, 192, 193, 194, one per change — and I bumped the markup to `196`
+> because that is this slice's number, which is a fact about the todo list and
+> not about the bundle. `app/test/asset_versions.json` is the one reading, and
+> it went un-updated, so `cache_buster_ratchet` failed BOTH ways at once: the
+> content changed against a recorded sha (*"will not reach a browser that has
+> visited before"*) and the manifest and the markup disagreed about the
+> number. Twenty of twenty-one gates were green and this was the twenty-first;
+> the summary line printed by the run was the PIPE's exit status, `0`, which is
+> why the rule is to read the per-gate list and never the headline.
+(`tests/test_an_unreported_lockup_is_not_a_recallable_route.py`,
+`app/test/cross_yield_reports_what_it_was_told.test.js`.)
+
 **A CHIP IS A BADGE AND `align-items: stretch` MADE IT A CAPSULE THE HEIGHT OF
 THE CARD.** Reported from the live site with a screenshot: the Signals card on
 a phone rendered `▲ LONG` as a ~390px pill, the pattern name wrapped one or two
@@ -7709,7 +7805,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **405 of 978** reach for source text through `source_scan`, `code_only`
+Driven, **405 of 979** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 405 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

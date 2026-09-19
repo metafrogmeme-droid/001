@@ -9787,6 +9787,9 @@
         <label class="small muted">To chain<select id="yp-to" class="input input--sm">${opts}</select></label>
         <label class="small muted">Δ APY %<input id="yp-dapy" class="input input--sm" type="number" value="3"></label>
         <label class="small muted">Net-of-cost (USD)<input id="yp-net" class="input input--sm" type="number" value="1.2"></label>
+        <label class="small muted">Route custodies the asset?<select id="yp-cust" class="input input--sm">
+          <option value="">not stated</option><option value="no">no</option><option value="yes">yes</option></select></label>
+        <label class="small muted">Destination lockup (days)<input id="yp-lock" class="input input--sm" type="number" placeholder="not stated"></label>
         <label class="small muted" style="grid-column:1/3">Destination (recallable, allowlisted)<input id="yp-dest" class="input input--sm" placeholder="0x…" spellcheck="false"></label>
       </div>
       <button class="btn btn--sm btn--primary" id="yp-run" type="button" style="margin-top:8px">Preview plan</button>
@@ -9797,13 +9800,25 @@
       const amt = parseFloat(panel.querySelector('#yp-amt').value) || 0;
       const dapy = parseFloat(panel.querySelector('#yp-dapy').value) || 0;
       const net = parseFloat(panel.querySelector('#yp-net').value) || 0;
-      // Build a scanner-shaped move; worth='yes' requires a positive net horizon.
+      // Build a scanner-shaped move from what was TYPED. `worth` is derived
+      // from the operator's own net-of-cost figure and says so.
+      //
+      // The two safety facts are NOT asserted here. `custodial: false,
+      // lockup_days: 0` used to be literals in this file, so the two gates
+      // bot/guardian/yield_plan.py calls REQUIRED were decided by the browser
+      // and the panel then painted a green tick beside them. Left unstated,
+      // they are omitted and the gate refuses by name — which is the answer,
+      // because nothing the operator typed establishes either one.
+      const custSel = (panel.querySelector('#yp-cust') || {}).value || '';
+      const lockRaw = (panel.querySelector('#yp-lock') || {}).value;
+      const lockNum = lockRaw === '' || lockRaw == null ? null : Number(lockRaw);
       const move = {
         asset: (panel.querySelector('#yp-asset').value || '').toUpperCase(),
         amount_usd: amt, from_chain: panel.querySelector('#yp-from').value,
-        delta_apy: dapy, net_horizon_usd: net, breakeven_days: net > 0 ? 12 : null,
-        custodial: false, lockup_days: 0, worth: net > 0 ? 'yes' : 'no',
+        delta_apy: dapy, net_horizon_usd: net, worth: net > 0 ? 'yes' : 'no',
       };
+      if (custSel === 'no' || custSel === 'yes') move.custodial = custSel === 'yes';
+      if (Number.isFinite(lockNum)) move.lockup_days = lockNum;
       run.disabled = true; out.textContent = 'Evaluating gates…';
       try {
         const r = await fetchJSON('/api/web3/cross-plan', {
