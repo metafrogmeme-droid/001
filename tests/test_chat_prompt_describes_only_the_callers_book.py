@@ -780,8 +780,8 @@ class TestTheTools:
     def test_a_linked_user_gets_their_own_book(self, monkeypatch, skill_name):
         import asyncio
         reg = self._cfg(monkeypatch)
-        user_ex = NS(open_positions=[USER_POS], closed_positions=[], closed_trades_read_failed=False,
-                     total_exposure_usd=50.0)
+        user_ex = NS(open_positions=[USER_POS], closed_positions=[],
+                     closed_trades_read_failed=False)
         engine = self._tool_engine(viewer=lambda uid: user_ex if uid == "555" else _op_ex(),
                                    equity=96.5, balance={"total": 96.5, "free": 40.0})
         skill = reg.build_default_registry().get(skill_name)
@@ -796,8 +796,8 @@ class TestTheTools:
         # deliberately produced — the card crashed on the case it worded.
         import asyncio
         reg = self._cfg(monkeypatch)
-        user_ex = NS(open_positions=[], closed_positions=[], closed_trades_read_failed=False,
-                     total_exposure_usd=0.0)
+        user_ex = NS(open_positions=[], closed_positions=[],
+                     closed_trades_read_failed=False)
         engine = self._tool_engine(viewer=lambda uid: user_ex, equity=None, balance=None)
         out = asyncio.run(reg.build_default_registry().get("playbook").execute(engine, user_id="555"))
         # Anchored to each field's own line: "Total Exposure: $0.00" on this
@@ -809,7 +809,7 @@ class TestTheTools:
     def test_per_user_off_is_the_operator_book_for_anyone(self, monkeypatch):
         import asyncio
         reg = self._cfg(monkeypatch)
-        op = _op_ex(total_exposure_usd=50.0)
+        op = _op_ex()
         engine = self._tool_engine(viewer=lambda uid: op)
         out = asyncio.run(reg.build_default_registry().get("check_risk").execute(engine, user_id="555"))
         _check(out, ["4,242"], ["No linked live account"])

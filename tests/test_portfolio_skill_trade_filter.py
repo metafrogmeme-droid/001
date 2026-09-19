@@ -29,7 +29,6 @@ class _FakeExecutor:
     def __init__(self, closed):
         self.open_positions = []
         self.closed_positions = closed
-        self.total_exposure_usd = 0.0
 
 
 class _FakeEngine:

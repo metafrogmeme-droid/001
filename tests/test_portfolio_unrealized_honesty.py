@@ -26,6 +26,7 @@ defect; the question is always which OTHER surface makes the same claim.
 """
 from __future__ import annotations
 
+import ast
 from types import SimpleNamespace as NS
 
 from tests.source_scan import code_only, handler_sources
@@ -39,9 +40,39 @@ def _src() -> str:
 
 
 def _portfolio_block() -> str:
-    src = _src()
-    i = src.index("live_unrealized = 0.0")
-    return src[i - 900:i + 2600]
+    """`_cmd_portfolio`'s OWN body, bounded by its `def`.
+
+    THIS USED TO BE `src[i - 900:i + 2600]` around `live_unrealized = 0.0` —
+    a fixed CHARACTER window, so any line added to the card slid an
+    assertion off the end of it. The `committed_margin` slice did exactly
+    that: the exposure row grew from one line to four, `_marked == 0` fell
+    outside the window, and the gate refused a tree where the property held
+    throughout. **A boundary that is "whatever happens to be next" is a
+    boundary that manufactures accusations** — this file's own subject,
+    arriving in its own instrument, and the shape CLAUDE.md already records
+    an `ast.FunctionDef` lookup as the fix for.
+
+    One definition in the tree, so there is nothing to disambiguate; a
+    second (a `...` typing stub, the trap `command_gates.py` records) would
+    make this ambiguous and is asserted against rather than guessed at.
+    """
+    found = []
+    for path in handler_sources():
+        src = code_only(path.read_text(encoding="utf-8"))
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:  # pragma: no cover - a handler file must parse
+            continue
+        lines = src.split("\n")
+        for node in ast.walk(tree):
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == "_cmd_portfolio"
+                    and node.end_lineno is not None):
+                found.append("\n".join(lines[node.lineno - 1:node.end_lineno]))
+    assert len(found) == 1, (
+        f"expected exactly one `_cmd_portfolio` in the handler sources, "
+        f"found {len(found)} — an ambiguous name cannot bound a block")
+    return found[0]
 
 
 class TestUnmarkedPositionsAreNotCountedAsZero:

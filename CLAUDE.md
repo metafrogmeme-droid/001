@@ -6719,9 +6719,9 @@ it would have marked every row of an older payload partial.
 
 **AND THE SWEEP FROM THERE FOUND A HARD CAP PASSING ON MARGIN NOBODY READ.**
 *Ask which OTHER surface makes the same claim*, applied to this fix's own
-quantity: committed margin is summed in five places, and the count is DRIVEN by
-an AST walk rather than remembered, because the note filed for it said four and
-an AST walk said five — *a measurement you remember is not a measurement*,
+quantity: committed margin WAS summed in five places, and the count is DRIVEN
+by an AST walk rather than remembered, because the note filed for it said four
+and an AST walk said five — *a measurement you remember is not a measurement*,
 inside the paragraph recording that rule. `LiveExecutor.total_exposure_usd`
 sums `p.cost_usd` over `open_positions`; the MICRO_MAX_TOTAL_EXPOSURE gate sums
 it again INLINE over `status == "open"` alone and refuses the next order on the
@@ -6758,13 +6758,99 @@ population.** Driven, one adopted position beside two bot positions at $60:
     the SAME book, margin never stated -> reads $120    -> next $50 order ALLOWED
 
 Same book, same real risk, opposite verdict, decided by one field the venue
-declined to report. It is FILED with its measurement rather than swept in here,
-because the cap's answer to an unread margin is a decision that needs driving
-rather than a preference: refusing is fail-closed and defensible on
-`_fail_closed_restore`'s own argument, and counting it at the per-trade cap is a
-bound rather than a measurement — and the deciding evidence is how often a real
-adopted position carries no margin, which is a read of the adoption paths and
-not a taste.
+declined to report.
+
+**THE GATE REFUSES NOW, BY NAME, and the deciding evidence was the adoption
+path rather than a taste.** The filed note said the cap's answer "needs driving
+rather than a preference", and what driving it said is that adoption path A is
+the ONLY producer of an unread margin — `margin = _margin if _margin is not
+None else 0.0` — and it already publishes `adoption_unread` naming the field.
+So the cap does not have to GUESS, it has to ASK. That is what separates this
+from `leverage_readback`'s `governs=None`, which KEEPS its confirmation for a
+stated reason: there the unreadable case is the ORDINARY payload shape and
+refusing it would abort every trade, where here it takes a specific, visible,
+fixable condition. Refusing also has to TERMINATE, and it does: `/liveclose` is
+a door that exists, and adoption never re-reads a position it already tracks
+(`if (sym, side) in tracked: continue`), so the figure never arrives on its own
+and a sentence that said "wait" would be a door painted on a wall.
+
+**Two sentences, because "a floor" and "no floor" are different facts.** A
+partial book quotes what was read and says it is a floor over N of M. A book
+where nothing could be read quotes NOTHING — there is no floor, and printing
+`$0.00` there is the figure nobody measured published as the account's
+committed capital, which is the shape the whole slice removes arriving inside
+one branch of the cure for it.
+
+**`total_exposure_usd` IS DELETED, and so is the method that would have
+replaced it.** A float cannot say that two of its three rows were read, so
+every card printing it published a partial total as a whole one; a lossy
+accessor kept beside the honest one is the second answer this reading exists to
+remove, which is `_venue_map`'s ruling and `_parse_leverage_readback`'s. No
+`ex.committed_margin()` method stands in its place either — every reader spells
+`committed_margin(<book>)`, so a test double describes a BOOK rather than
+pre-answering the question under test, and three stubs that had carried the old
+float simply stopped needing it.
+
+**Each card keeps its OWN spelling of an absence and shares the CLAIM.**
+`_money` says `--`, `money` says `unknown`, and a second spelling on one page
+would be a second vocabulary; what travels is `committed_margin_note`, which
+says how much of the book the figure covers. It is plain text and
+parenthesised, because `status_summary` is not an HTML surface and an em dash
+already spells "unreadable" on that same line. It prints only when it bites,
+and is silent when NOTHING was read — a caveat about a figure that is not there
+is a hedge about nothing.
+
+**And the cap and the card read ONE book now.** The gate summed `status ==
+"open"` and every card summed `open_positions`, which is open AND
+`pending_fill`, so a resting limit order held cap room on every surface an
+operator reads and none in the limit that enforces it. A `pending_fill` row
+carries the sized margin at placement, so counting it is a reading rather than
+an estimate, and the direction is fail-closed.
+
+**Twenty-three mutations, each killed — and the five survivors across the
+rounds were all my own guard, never the code.** Four were one gap wearing four
+hats: the note reaching a CARD is a different claim from the note being right,
+and the guard asserted the second and called it the first. Two of those four
+also needed a fixture the prose had described and none had planted.
+`/livebalance` prints the figure TWICE (the Balance block and the PnL
+waterfall) and the assertion took the FIRST line containing "Exposure", so
+dropping the note from the waterfall was read off its sibling — every such line
+is checked now. And `/portfolio`'s `live_exposure or 0` is indistinguishable
+from the guard on a PARTIAL book, because both render `$25.00`; only a book
+where NOTHING was read separates them, which is the input the fixture now
+carries.
+
+**THE FIFTH WAS HIDING BEHIND A FALSE KILL, and only collapsing an import
+found it.** `position_size_basis` left `engine.py`'s import with the call it
+served, so the mutation that restored the hand-written copy of this judgement
+died on a `NameError` — reported as `killed`, for a reason unrelated to the
+rule, which is how a round reports coverage it does not have. Restored WITH
+its import (the driver takes multi-edit mutations now), it SURVIVED: the guard
+planted a marker `CommittedMargin` and then asserted about the SOURCE, a
+fixture that cannot fail. It drives `account_risk_overview` and reads the ROW
+now, with a `scored` and a `total` the fixture's own book cannot produce.
+
+**And the import was collapsed back to one line for a second reason.** Written
+as a five-line block it shifted every line below it by five, and
+`docs/INCOME_MAP.md` makes four `bot/core/engine.py:<line>` citations below
+it — the invalidation the resolvability ratchet was REFUSED for
+(*"a `path:line` pair is invalidated by any line added ABOVE a cited line in
+any cited file"*). The blank-line probe caught exactly one of the four, which
+is the probe's own stated limit arriving as a measurement. One line, same
+file length, and nothing the map cites moves.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A GUARD WHOSE BOUNDARY WAS A
+CHARACTER COUNT.** `test_portfolio_unrealized_honesty` sliced the card as
+`src[i - 900:i + 2600]` around `live_unrealized = 0.0`, so the exposure row
+growing from one line to four slid `_marked == 0` off the END of the window
+and the gate failed on a tree where every property it names held throughout.
+That is *a boundary that is "whatever happens to be next"* — this file's own
+sentence, which already records the `ast.FunctionDef` lookup as the fix, in a
+guard nobody had converted. It is bounded by `_cmd_portfolio`'s own `def` now,
+and it ASSERTS there is exactly one definition of that name rather than
+guessing, because a `...` typing stub is the ambiguity `command_gates.py`
+records. Sixth time the full gate has refused a slice on a test none of the
+slice's own suites ran.
 
 
 ## Public-surface rules
@@ -7995,7 +8081,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **406 of 980** reach for source text through `source_scan`, `code_only`
+Driven, **406 of 981** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 406 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

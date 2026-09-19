@@ -18,7 +18,11 @@ from pathlib import Path
 from bot.compat import UTC
 from typing import Any, Optional
 
-from bot.core.live_executor import position_size_basis
+from bot.core.live_executor import (
+    committed_margin,
+    committed_margin_note,
+    position_size_basis,
+)
 from bot.core.live_readiness import mode_label
 from bot.utils.leveraged_return import position_leverage
 from bot.core.position_telemetry import (
@@ -875,7 +879,9 @@ class CheckRiskSkill(BaseSkill):
             display_equity = await engine.get_effective_equity_async(user_id)
             live_open = executor.open_positions
             live_closed = executor.closed_positions
-            total_exp = sum(lp.cost_usd for lp in live_open)
+            _exp = committed_margin(live_open)
+            total_exp = _exp.total
+            exp_note = committed_margin_note(_exp)
             display_open = len(live_open)
             display_total_trades = len(live_closed)
             # `sum((p.pnl_usd or 0) ...)` books every unpriced close as a
@@ -896,6 +902,7 @@ class CheckRiskSkill(BaseSkill):
         else:
             display_equity = state.equity_usd
             total_exp = sum(p.entry_price * p.quantity for p in portfolio.open_positions)
+            exp_note = ""
             display_open = state.open_positions
             display_total_trades = state.total_trades
             display_pnl = state.daily_pnl
@@ -903,8 +910,11 @@ class CheckRiskSkill(BaseSkill):
         # A LIVE numerator over a PAPER denominator understated exposure and
         # then coloured a gauge with it. Unreadable equity means the ratio is
         # unknown, not zero.
+        # `total_exp` is Optional now: a live book where no margin could be
+        # read has no exposure to take a ratio of, and 0% is the reassuring
+        # end of that range - the reading this gauge is coloured from.
         exp_pct = (total_exp / display_equity * 100
-                   if display_equity else None)
+                   if display_equity and total_exp is not None else None)
 
         from bot.risk.risk_engine import _CORRELATION_GROUPS
         groups: dict[str, int] = {}
@@ -934,7 +944,7 @@ class CheckRiskSkill(BaseSkill):
                                 display_pnl, display_win_rate, gate=gate, dd=dd)
         return self._risk(state, cb, streak, total_exp, exp_pct, groups,
                           display_equity, display_open, display_pnl, gate=gate,
-                          dd=dd)
+                          dd=dd, exp_note=exp_note)
 
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
@@ -1016,7 +1026,7 @@ class CheckRiskSkill(BaseSkill):
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
               display_equity, display_open, display_pnl, gate=None,
-              dd=(None, None, 0.0)):
+              dd=(None, None, 0.0), exp_note=""):
         _gw = gate_words(gate)
         cb_icon, cb_label = _gw.split(" ", 1)
         grp = ", ".join(f"{g}={c}" for g, c in groups.items()) if groups else "none"
@@ -1052,7 +1062,7 @@ class CheckRiskSkill(BaseSkill):
             f"\U0001f4b0 <b>Capital</b>\n"
             f"- Equity: <code>{_money(display_equity)}</code>\n"
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
-            f"- Exposure: <code>{_money(total_exp)}</code>\n"
+            f"- Exposure: <code>{_money(total_exp)}</code>{exp_note}\n"
             f"- Positions: <code>{display_open} / {CONFIG.risk.max_open_positions}</code>\n"
             f"- Groups: <code>{grp}</code>\n\n"
             # ── Configured limits ──
@@ -1152,7 +1162,8 @@ class GetPortfolioSkill(BaseSkill):
             # stats carry the tri-state; None means "no measurement" and the
             # renderer paints neither a figure nor an accent for it.
             live_total_pnl = _stats["realized_pnl"]
-            live_exposure = sum(lp.cost_usd for lp in live_open)
+            _exp = committed_margin(live_open)
+            live_exposure = _exp.total
             total_closed = _stats["total"]
             wr = _stats["win_rate"]
 
@@ -1164,7 +1175,9 @@ class GetPortfolioSkill(BaseSkill):
             from bot.formatters.rich_cards import render_live_portfolio_summary
             lines = render_live_portfolio_summary(
                 equity=display_equity, open_count=len(live_open),
-                exposure=live_exposure, realized_pnl=live_total_pnl,
+                exposure=live_exposure,
+                exposure_note=committed_margin_note(_exp),
+                realized_pnl=live_total_pnl,
                 total_closed=total_closed, win_rate=wr,
                 unscored=_stats.get("unscored", 0),
                 read_failed=bool(getattr(
@@ -3338,7 +3351,8 @@ class PlaybookSkill(BaseSkill):
             display_equity = await engine.get_effective_equity_async(_user_id)
             live_pos = executor.open_positions
             live_open_count = len(live_pos)
-            total_exposure = executor.total_exposure_usd
+            _exp = committed_margin(executor.open_positions)
+            total_exposure = _exp.total
             closed_trades = executor.closed_positions
             # Tri-state, not a sum: `or 0` books an unpriced close as a
             # measured break-even, and an empty book as $+0.00.
@@ -3348,7 +3362,8 @@ class PlaybookSkill(BaseSkill):
             # None, not 0: with the equity unread the ratio is unknown, and
             # "0% utilised" is the reassuring end of the range.
             utilization_pct = (total_exposure / display_equity * 100
-                               if display_equity else None)
+                               if display_equity and total_exposure is not None
+                               else None)
             # Age-gated, and the balance OF THE BOOK ABOVE (engine.live_view):
             # the direct cache read showed an hours-old "Available" as current
             # when venue fetches kept failing, and it was the OPERATOR's
@@ -3364,7 +3379,8 @@ class PlaybookSkill(BaseSkill):
                          + (_money(float(free_bal)) if free_bal is not None
                             else "unavailable") + "</code>")
             lines.append(f"- Open Positions: <code>{live_open_count}</code>")
-            lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>")
+            lines.append(f"- Total Exposure: <code>{_money(total_exposure)}</code>"
+                         f"{committed_margin_note(_exp)}")
             # `{utilization_pct:.1f}` raised TypeError on the None the line
             # above it deliberately produces — the card crashed on exactly
             # the unread-equity case it was written to word.
