@@ -39,8 +39,12 @@ from typing import Any, Awaitable, Callable, Optional
 
 try:  # bot/utils stays transport-agnostic — outbound.py imports no PTB either
     from telegram.error import NetworkError, RetryAfter, TimedOut
+    _PTB_ERRORS = True
 except ImportError:  # pragma: no cover - PTB is a hard runtime dep of the bot
-    NetworkError = RetryAfter = TimedOut = None  # type: ignore[assignment]
+    # Nothing is assigned over the imported names: rebinding a class to None
+    # is what mypy reports as "cannot assign to a type", and a flag says the
+    # same thing without lying about what the names are.
+    _PTB_ERRORS = False
 
 #: Never wait longer than this on a single retry, whatever RetryAfter asks.
 #: A flood-limit wait of minutes must not park an interactive handler; the
@@ -50,7 +54,7 @@ MAX_RETRY_WAIT = 20.0
 
 def is_transient_tg_error(exc: BaseException) -> bool:
     """True when the SAME request is worth sending again."""
-    if exc is None or (NetworkError is None and RetryAfter is None):
+    if exc is None or not _PTB_ERRORS:
         return False
     if isinstance(exc, (RetryAfter, TimedOut)):
         return True

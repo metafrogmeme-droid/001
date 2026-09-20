@@ -29,6 +29,7 @@ from bot.compat import UTC
 from typing import Optional, Any
 from bot.utils.paths import state_path
 from bot.utils.outbound import reply_safe
+from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import position_size_basis
 from bot.core.limit_input import (consume_pending, limit_expired_text,
@@ -863,7 +864,6 @@ from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CA
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
-from bot.utils.tg_retry import send_with_retry
 from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore)

@@ -15,8 +15,7 @@ to receive the identical refusal and delaying the caller's real fallback.
 import asyncio
 
 import pytest
-from telegram.error import (BadRequest, Conflict, Forbidden, InvalidToken,
-                            NetworkError, RetryAfter, TimedOut)
+from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, NetworkError, RetryAfter, TimedOut
 
 from bot.utils.tg_retry import MAX_RETRY_WAIT, is_transient_tg_error, send_with_retry
 
@@ -132,6 +131,7 @@ class TestTheSendPathSaysWhatItDelivered:
     @staticmethod
     def _host(reply_text):
         from types import SimpleNamespace
+
         from bot.skills.telegram_handler import TelegramHandler
 
         msg = SimpleNamespace(reply_text=reply_text)
