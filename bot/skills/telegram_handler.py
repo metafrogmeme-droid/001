@@ -863,6 +863,7 @@ from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier, PROVIDER_CA
 from bot.skills.skill_registry import SkillRegistry, build_default_registry
 from bot.skills.user_middleware import cmd_link as _cmd_link, cmd_unlink as _cmd_unlink, cmd_me as _cmd_me, cmd_sync as _cmd_sync
 from bot.utils.logger import audit, system_log, _redact_string
+from bot.utils.tg_retry import send_with_retry
 from bot.skills.skill_permissions import DANGEROUS_SKILLS, permission_for
 from bot.utils.user_store import (SELF_ADMISSION_BY,
                                   SELF_ADMISSION_ROLE, UserStore)
@@ -1404,11 +1405,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         elif update.message:
             method = update.message.reply_text
         else:
+            # No valid target: the reply was built and has nowhere to go.
+            # Said out loud, because a silent `return` here is the same
+            # undiagnosable drop the audit at the end of this method exists
+            # to prevent.
+            audit(system_log, "Telegram reply dropped: no valid target",
+                  action="tg_send", result="failed",
+                  data={"chars": len(text), "edit": bool(edit)})
             return  # No valid target
 
         # Telegram max message length is 4096 chars — split if needed
         MAX_LEN = 4000  # leave margin for safety
         chunks = self._split_message(text, MAX_LEN)
+        delivered = failed = 0
 
         for i, chunk in enumerate(chunks):
             # Only attach reply_markup to the last chunk
@@ -1426,10 +1435,21 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 send_method = method
 
             try:
-                await send_method(chunk, parse_mode="HTML", reply_markup=markup)
+                # A fresh coroutine per attempt: the 2026-09-20 ~03:11 loss
+                # was one transient NetworkError ("Bad Gateway") that the
+                # plain-text fallback below could not rescue, because that
+                # fallback retries the PARSE, not the transport. Retry the
+                # transport here; refusals (BadRequest and friends) still
+                # fall through to the fallback immediately, unchanged.
+                await send_with_retry(
+                    lambda: send_method(chunk, parse_mode="HTML",
+                                        reply_markup=markup),
+                    logger=system_log,
+                    what=f"reply chunk {i + 1}/{len(chunks)}")
                 # Captured AFTER the send returns, so the transcript holds what
                 # was delivered and never a chunk Telegram refused.
                 _capture_reply(chunk)
+                delivered += 1
             except Exception as e:
                 # If editing failed (e.g. photo message), fall back to new message
                 if edit and update.callback_query and update.callback_query.message:
@@ -1437,6 +1457,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     try:
                         await fallback_method(chunk, parse_mode="HTML", reply_markup=markup)
                         _capture_reply(chunk)
+                        delivered += 1
                         continue
                     except Exception:
                         pass
@@ -1447,10 +1468,34 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 if edit and update.callback_query and update.callback_query.message:
                     plain_method = update.callback_query.message.reply_text
                 try:
-                    await plain_method(plain, parse_mode=None, reply_markup=markup)
+                    await send_with_retry(
+                        lambda: plain_method(plain, parse_mode=None,
+                                             reply_markup=markup),
+                        logger=system_log,
+                        what=f"plain fallback chunk {i + 1}/{len(chunks)}")
                     _capture_reply(plain)
+                    delivered += 1
                 except Exception as e2:
+                    failed += 1
                     system_log.error("Failed to send message chunk %d/%d: %s", i + 1, len(chunks), e2)
+
+        # One audit line per outbound reply, success included. Long commands
+        # (/deepscan, /fullscan) used to write NOTHING on the happy path —
+        # the only evidence a card was built was the user saying they never
+        # got it. Chars and chunk counts, never the text itself: the reply
+        # is user-facing content and system.jsonl is not a transcript (the
+        # transcript is `_capture_reply`'s job, and it only holds what was
+        # actually delivered).
+        _chat = update.effective_chat
+        audit(system_log,
+              "Telegram reply sent" if not failed else
+              ("Telegram reply lost" if not delivered
+               else "Telegram reply partially delivered"),
+              action="tg_send",
+              result="ok" if delivered and not failed else "failed",
+              data={"chat_id": _chat.id if _chat else None,
+                    "chunks": len(chunks), "delivered": delivered,
+                    "failed": failed, "chars": len(text), "edit": bool(edit)})
 
     async def _send_error(self, update: Update, command_name: str, exc: Exception) -> None:
         """Log the real exception server-side and send a friendly, generic
@@ -1548,26 +1593,53 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         buf = _io.BytesIO(png)
         buf.name = "chart.png"
         cap = caption[:1024]  # Telegram photo caption limit
+
+        def _audit_photo(result: str) -> None:
+            # Same reasoning as `_send`'s audit: a chart the user never
+            # received used to be visible only as the absence of a complaint.
+            audit(system_log,
+                  "Telegram photo sent" if result == "ok" else "Telegram photo lost",
+                  action="tg_send_photo", result=result,
+                  data={"chat_id": chat_id, "bytes": len(png)})
+
         try:
-            await bot.send_photo(
-                chat_id=int(chat_id), photo=buf,
-                caption=cap, parse_mode="HTML",
-                reply_markup=reply_markup)
+            # Transport retry around the photo too — `send_fn` on the
+            # proactive path is exactly this call, and the 03:11 loss was a
+            # transient NetworkError. The rewind lives INSIDE the factory:
+            # every attempt re-reads the same BytesIO, and a retry of a
+            # buffer the previous attempt drained would upload an empty
+            # file — a silently blank chart is worse than a failed one.
+            def _send_html():
+                buf.seek(0)
+                return bot.send_photo(
+                    chat_id=int(chat_id), photo=buf,
+                    caption=cap, parse_mode="HTML",
+                    reply_markup=reply_markup)
+
+            await send_with_retry(_send_html, logger=system_log, what="photo")
             _capture_reply(cap)
+            _audit_photo("ok")
             return True
         except Exception as exc:
             system_log.debug("send_photo HTML failed (%s), retrying plain", exc)
-            buf.seek(0)
             try:
                 plain_cap = re.sub(r"<[^>]+>", "", cap)
-                await bot.send_photo(
-                    chat_id=int(chat_id), photo=buf,
-                    caption=plain_cap, parse_mode=None,
-                    reply_markup=reply_markup)
+
+                def _send_plain():
+                    buf.seek(0)
+                    return bot.send_photo(
+                        chat_id=int(chat_id), photo=buf,
+                        caption=plain_cap, parse_mode=None,
+                        reply_markup=reply_markup)
+
+                await send_with_retry(_send_plain, logger=system_log,
+                                      what="photo (plain)")
                 _capture_reply(plain_cap)
+                _audit_photo("ok")
                 return True
             except Exception as exc2:
                 system_log.warning("send_photo failed: %s", exc2)
+                _audit_photo("failed")
                 return False
 
     async def _maybe_send_chart(self, update: Update, data: dict, idea) -> None:

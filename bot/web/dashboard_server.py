@@ -320,7 +320,11 @@ async def handle_index(request: web.Request) -> web.Response:
     """Serve the dashboard HTML."""
     html_path = pathlib.Path(__file__).parent / "dashboard.html"
     if html_path.exists():
-        return web.FileResponse(html_path, content_type="text/html")
+        # No content_type kwarg: aiohttp's FileResponse does not accept one
+        # (it takes `headers=` instead) and raised TypeError on every hit —
+        # a 500 on the gateway's index route. FileResponse infers text/html
+        # from the .html suffix, as handle_performance_chart below relies on.
+        return web.FileResponse(html_path)
     return web.Response(text="Dashboard HTML not found", status=404)
 
 

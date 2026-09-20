@@ -56,6 +56,7 @@ from bot.formatters.rich_cards import (
     tick_error_line,
 )
 from bot.utils.logger import audit, system_log
+from bot.utils.tg_retry import send_with_retry
 
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import state_path
@@ -3620,13 +3621,25 @@ class ProactiveMonitor:
                 logger.debug("Agent feed alert event skipped: %s", _feed_exc)
 
         async def _send_to_chat(chat_id: str) -> None:
+            # Transport retry around the alert itself. Incident 2026-09-20
+            # ~03:11 UTC: `telegram.error.NetworkError: Bad Gateway` — one
+            # transient 502 — killed a nightly alert, and the except below
+            # caught it at debug level. The message was built, addressed
+            # and lost, and no surface said so. `send_with_retry` retries
+            # the transient shape (NetworkError/TimedOut/RetryAfter) and
+            # re-raises everything else, so the fallbacks and the failure
+            # audit below stay exactly as live as before.
             try:
                 if alert.buttons:
                     # 3-arg form only when needed, so existing 2-arg send_fns
                     # (tests, custom integrations) keep working untouched.
-                    await send_fn(chat_id, full_msg, alert.buttons)
+                    await send_with_retry(
+                        lambda: send_fn(chat_id, full_msg, alert.buttons),
+                        logger=logger, what=f"alert {alert.alert_type}")
                 else:
-                    await send_fn(chat_id, full_msg)
+                    await send_with_retry(
+                        lambda: send_fn(chat_id, full_msg),
+                        logger=logger, what=f"alert {alert.alert_type}")
                 if alert.idea is not None and self._chart_fn is not None:
                     try:
                         await self._chart_fn(chat_id, alert.idea)
@@ -3660,7 +3673,20 @@ class ProactiveMonitor:
                         logger.debug("alert transcript record skipped for "
                                      "%s: %s", chat_id, rexc)
             except Exception as exc:
-                logger.debug("Failed to send alert to %s: %s", chat_id, exc)
+                # Warning, not debug: this is the line that swallowed the
+                # 03:11 loss. And the CLASS NAME, not str(exc) — `logger`
+                # here is a plain module logger with no redactor, and a
+                # NetworkError message can carry the bot token via the
+                # request URL (the reason telegram_handler's
+                # `_operator_exc_detail` refuses to show one).
+                logger.warning("Failed to send alert %s to %s: %s",
+                               alert.alert_type, chat_id, type(exc).__name__)
+                audit(system_log,
+                      f"Proactive alert LOST after retries: {alert.alert_type}",
+                      action="proactive_alert", result="failed",
+                      data={"type": alert.alert_type, "chat_id": chat_id,
+                            "severity": alert.severity,
+                            "error": type(exc).__name__})
 
         recipients = self._recipients_for(alert)
         await asyncio.gather(*[_send_to_chat(cid) for cid in recipients])
