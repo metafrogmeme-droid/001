@@ -1486,16 +1486,26 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # is user-facing content and system.jsonl is not a transcript (the
         # transcript is `_capture_reply`'s job, and it only holds what was
         # actually delivered).
-        _chat = update.effective_chat
-        audit(system_log,
-              "Telegram reply sent" if not failed else
-              ("Telegram reply lost" if not delivered
-               else "Telegram reply partially delivered"),
-              action="tg_send",
-              result="ok" if delivered and not failed else "failed",
-              data={"chat_id": _chat.id if _chat else None,
-                    "chunks": len(chunks), "delivered": delivered,
-                    "failed": failed, "chars": len(text), "edit": bool(edit)})
+        #
+        # Wrapped, and reading `effective_chat` through getattr: this block
+        # runs AFTER the message went out, so an exception here would hand
+        # the caller a failure about a reply that WAS delivered — the exact
+        # confusion the audit exists to remove. Partial update stubs are a
+        # legitimate shape at this seam (button-dispatch tests build one).
+        try:
+            _chat = getattr(update, "effective_chat", None)
+            audit(system_log,
+                  "Telegram reply sent" if not failed else
+                  ("Telegram reply lost" if not delivered
+                   else "Telegram reply partially delivered"),
+                  action="tg_send",
+                  result="ok" if delivered and not failed else "failed",
+                  data={"chat_id": getattr(_chat, "id", None),
+                        "chunks": len(chunks), "delivered": delivered,
+                        "failed": failed, "chars": len(text),
+                        "edit": bool(edit)})
+        except Exception as _audit_exc:  # noqa: BLE001 — audit is best-effort
+            system_log.debug("tg_send audit skipped: %s", _audit_exc)
 
     async def _send_error(self, update: Update, command_name: str, exc: Exception) -> None:
         """Log the real exception server-side and send a friendly, generic

@@ -116,3 +116,81 @@ class TestRetry:
         with pytest.raises(RetryAfter):
             await send_with_retry(flooded, attempts=2, base_delay=1.0)
         assert slept == [MAX_RETRY_WAIT]
+
+
+class TestTheSendPathSaysWhatItDelivered:
+    """`_send` writes one audit line per reply — and never breaks the send.
+
+    The audit block runs AFTER the message went out, so an exception there
+    would hand the caller a failure about a reply that WAS delivered. It is
+    wrapped for that reason, and reads `effective_chat` through getattr:
+    partial update stubs are a legitimate shape at this seam (the
+    button-dispatch suite builds one), and three of its tests broke the day
+    the first draft read the attribute directly.
+    """
+
+    @staticmethod
+    def _host(reply_text):
+        from types import SimpleNamespace
+        from bot.skills.telegram_handler import TelegramHandler
+
+        msg = SimpleNamespace(reply_text=reply_text)
+        update = SimpleNamespace(callback_query=None, message=msg,
+                                 effective_user=SimpleNamespace(id=1))
+        host = SimpleNamespace()
+        host._send = TelegramHandler._send.__get__(host)
+        # staticmethod: binding it would pass `host` as the text.
+        host._split_message = TelegramHandler._split_message
+        return host, update
+
+    async def test_a_delivered_reply_is_audited_ok(self, monkeypatch):
+        sent = []
+
+        async def reply_text(text, **kw):
+            sent.append(text)
+
+        host, update = self._host(reply_text)
+        rows = []
+        import bot.skills.telegram_handler as th
+        monkeypatch.setattr(th, "audit",
+                            lambda ch, msg, **kw: rows.append((msg, kw)))
+
+        await host._send(update, "<b>done</b>")
+
+        assert sent == ["<b>done</b>"]
+        assert len(rows) == 1
+        msg, kw = rows[0]
+        assert kw["action"] == "tg_send" and kw["result"] == "ok"
+        assert kw["data"]["delivered"] == 1 and kw["data"]["failed"] == 0
+        # Chars and counts, never the text: system.jsonl is not the transcript.
+        assert "done" not in str(kw["data"])
+
+    async def test_a_reply_nobody_got_is_audited_failed(self, monkeypatch):
+        async def broken(text, **kw):
+            raise BadRequest("Message can't be parsed")  # not transient, no retry
+
+        host, update = self._host(broken)
+        rows = []
+        import bot.skills.telegram_handler as th
+        monkeypatch.setattr(th, "audit",
+                            lambda ch, msg, **kw: rows.append((msg, kw)))
+        monkeypatch.setattr(th.system_log, "error", lambda *a, **k: None)
+
+        await host._send(update, "x")
+
+        assert len(rows) == 1
+        assert rows[0][1]["result"] == "failed"
+        assert rows[0][1]["data"]["delivered"] == 0
+
+    async def test_a_partial_update_stub_does_not_break_a_delivered_send(self):
+        # No `effective_chat` attribute at all — the shape that broke three
+        # button-dispatch tests. The send must still complete quietly.
+        sent = []
+
+        async def reply_text(text, **kw):
+            sent.append(text)
+
+        host, update = self._host(reply_text)
+        assert not hasattr(update, "effective_chat")
+        await host._send(update, "card")
+        assert sent == ["card"]
