@@ -739,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 734 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 730 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7342,6 +7342,127 @@ see.
 `bot/backtest/benchmark_record.py`, `benchmark/majors_1h/result.json`.)
 
 
+**A TICKER-PRICED CLOSE SAID "EXCHANGE HISTORY UNAVAILABLE" 175 TIMES AND
+NEVER WHY.** The 2026-09-21 parity card read *175 close(s) inferred
+(ticker_fallback)* over 194 filled trades, and the operator's log carried one
+sentence per close — *Using ticker price for %s close — exchange history
+unavailable* — because every stage of `_fetch_bitget_close_data` caught its
+own exception at DEBUG. Whether the endpoint RAISED (an auth, permission or
+network fault), ANSWERED rows that matched nothing (a matching defect) or
+ANSWERED no rows (a symbol, product-type or window question) was unknowable
+from the log: three remedies, one word, and the quiet case reads as healthy.
+That is *grep MARGIN MODE MISMATCH coming back empty said nothing at all*, one
+lookup over, 175 times. Every realized figure the product prints — parity,
+`/performance`, the weekly review, the journal's R, the live-performance
+governor's window, the equity throttle's PF — is built on these closes, so a
+90%-approximate record is a 90%-approximate everything.
+
+**And a matched fill's PRICE was thrown away over a SECONDARY field.** Stage 2
+kept a fill only `if fill_price > 0 and profit != 0`, on both of its branches.
+Bitget writes `profit: "0"` on every open-side fill and on a close whose
+realized figure it did not fill in, so a close-side fill the venue had just
+matched by our own stop order id was discarded because a field BESIDE its
+price read 0 — and the ticker, strictly worse, won. `bot/core/close_lookup.py`
+is the vocabulary: one `StageOutcome` per attempt (raised — the exception
+CLASS, never its text, because a ccxt error string carries the request and the
+request carries the signature; no_rows; unmatched, with the nearest entry gap
+so a 0.6% miss under a 0.5% tolerance is visible as the near miss it is;
+skipped, and why), `lookup_sentence` is the WARNING said ONCE per position (the
+sweep retries the lookup thirty times before it gives up, and thirty copies of
+one sentence is how a log stops being read), and `lookup_class` is the word
+the closed RECORD carries — the outcome of the most authoritative stage that
+was ASKED, because repairing that stage is what prices the most closes.
+`closed_trade_row` writes it, the loader reads it, and the parity card counts
+CAUSES rather than closes: *why the venue lookup priced none of them: history
+raised NetworkError ×120 · fills unmatched ×40 · unrecorded ×15*, with the
+digest naming the most common one. An older row's absence is `unrecorded`,
+counted rather than folded into a cause it never stated.
+
+**The venue check skipped three stages and the docstring promised one.**
+`if self._venue.id != "bitget": return None` sat above ALL of the lookup — the
+Bitget history endpoint, ccxt's `fetch_my_trades` and `fetch_closed_orders`
+alike — under a docstring saying other venues "fall back to order-fill /
+ticker close data". A Bybit, BingX or Hyperliquid account was ticker-priced on
+every swept close BY CONSTRUCTION. The check gates stage 1 alone now and
+records that it did; the two generic stages run for every ccxt venue, with the
+close-side fee read off ccxt's unified `fee.cost` where Bitget's raw
+`feeDetail` is not there. A matched fill whose profit the venue did not state
+keeps its price and hands the caller `pnl: None` under
+`exchange_fill_*_local_pnl` — the caller's fee arithmetic was already there
+for `closed_order`, which has answered `pnl: None` since it was written, and a
+genuine break-even close priced off its fill comes out as the fee it cost,
+which is the truth of it.
+
+**An adopted position divided by its own unread entry.** `price_diff =
+abs(entry_price_hist - pos.entry_price) / pos.entry_price` with `entry_price`
+0.0 — `adoption_unread`'s own case — raised ZeroDivisionError into the stage's
+broad `except` at DEBUG, so an adopted position could never match its own
+history row and was ticker-priced on every close, quietly. With no entry price
+the row is matched on what the record does hold: the SIDE, and the earliest
+close after the position was tracked (a later row on the same symbol is a
+later position); a payload whose rows carry no side says it cannot be matched
+rather than guessing.
+
+**A fill from before the position opened could price its close.** The
+close-side branch took the LAST sell fill on the symbol with a non-zero profit
+and no time check at all, so the previous position's exit was a candidate for
+this one's. It is bounded to fills after the open now, and in HEDGE mode an
+unmarked, unpriced close-side fill is refused with its reason — the other side
+opening looks identical from the fill's side — where one-way mode takes it,
+because a sell after a long IS a close of it there.
+
+**Three ticker words for three paths, one reading.** The bot's own close order
+filling with no readable price, a position gone before the close arrived, and
+the sweep giving up after ten ticks each wrote `ticker_fallback` (the sweep
+with a retry suffix), so the card could not say which path produced the 175 —
+and the parity reader compared ONE exact word, so the sweep's suffixed rows
+were never counted as inferred at all: the inferred count was a floor nobody
+knew was one. `ticker_after_bot_close` is the bot's own path's word,
+`is_ticker_priced` reads every spelling, and the count moves UP the first time
+a suffixed row is on the record — which is the measurement, not a regression.
+
+**The two source-scan guards over the old function broke on the move while
+their property held.** `test_history_path_falls_back_to_inference` and
+`test_combined_tpsl_decides_by_price_not_id` scanned the monolithic lookup for
+spellings, and the lookup is three stage methods now. Each DRIVES its claim (a
+bare `closeType` at the stop infers a stop hit; one combined TPSL id at the
+stop reads as the stop, never as the target) with the spelling pin kept over
+the stage that carries the branch.
+
+> **And three of the guard's own assertions were wrong before the code was.**
+> Two asserted the class `fills unmatched` for a fixture whose HISTORY endpoint
+> had answered no rows — the class is the first stage ASKED, which is the rule
+> as written, and the fills stage's reason lives in the sentence. The third
+> built its digest fixture as `[row] * 4`, four references to ONE dict, so
+> editing "one row's cause" edited four. *A fixture that cannot produce the
+> state it names measures nothing*, one list multiplication over.
+
+**Recorded, not changed.** `exchange_sync._get_actual_close_price` — the paper
+book's ghost sweep — has the same DEBUG-swallowed stages and answers *manually
+closed* off a ticker near neither level; `test_ghost_close_is_not_priced_at_the_entry`
+pins that wording as a decision, so it is filed with this slice's leaf as the
+instrument to reuse rather than changed under a guard that says otherwise.
+
+**Thirty-one mutations, each killed on the first round, none refused — and
+three anchors were refused before the round could run.** `for stage in
+STAGES:` opens two of the leaf's walks, the Bitget venue check sits in three
+places in the executor and `if pos.entry_price > 0:` in three, so the
+driver's one-line spelling of each matched more than once and it refused all
+three rather than edit the first match — a kill for a mutation of the wrong
+function is how a round reports coverage it does not have. Each is anchored
+with the lines beside it now. Three are worth naming for what they prove
+about the guards rather than the code: the venue early return restored above
+every stage passes every assertion a Bitget fixture can make, because the
+sentence and the class read identically there, and dies only on the Bybit
+DRIVE that reaches `fetch_my_trades`; the WARNING said on every attempt dies
+on a count of log records over repeated lookups of one position, which no
+assertion about the sentence's words can see; and the digest printing the
+cause unescaped dies on a cause spelled `<Fake>`, planted because every real
+exception class is alphanumeric and a fixture that cannot carry the character
+cannot measure the escape.
+(`tests/test_a_ticker_priced_close_says_why.py`, `bot/core/close_lookup.py`.)
+
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8570,7 +8691,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **410 of 987** reach for source text through `source_scan`, `code_only`
+Driven, **410 of 988** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 410 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

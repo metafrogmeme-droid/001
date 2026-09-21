@@ -1021,6 +1021,14 @@ class ProactiveMonitor:
             if s.get("inferred_fills"):
                 extra += (f"\n⚠ {s['inferred_fills']} of {s['trades']} strategy exits are "
                           f"ticker-priced — their PnL is approximate")
+                causes = v.get("inferred_causes") or {}
+                if causes:
+                    # The most common cause, so the digest says what to fix
+                    # and not only how much is approximate. Escaped: the
+                    # cause carries an exception class name read off a venue
+                    # driver, which is text this process did not write.
+                    top, n_top = next(iter(causes.items()))
+                    extra += f" (most often: {_html.escape(str(top))} ×{n_top})"
             if v.get("edge_sentence"):
                 extra += (f"\nVerdict: {_html.escape(v['edge_sentence'])}; "
                           f"{_html.escape(v.get('ballpark_sentence', ''))}")

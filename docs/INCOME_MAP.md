@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1848-1857
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5821 (…
+bot/core/live_executor.py:5854 (…
 
 **Scalping** — **shipped**
 
@@ -167,7 +167,7 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4722 creates the entry order idempotently, :6341/:6364 attach
+live_executor.py:4755 creates the entry order idempotently, :6374/:6397 attach
 the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
@@ -202,7 +202,7 @@ the two growth ceilings default to the flat caps, so raising a bound needs
 floor, one dollar target, opt-in — and `idea.confidence` otherwise reaches
 sizing only through the opt-in Kelly path and the drawdown-recovery
 confidence FLOOR, which is a refusal rather than a size. Leverage is worse:
-`_standard_leverage` (live_executor.py:1522) — the half of the leverage
+`_standard_leverage` (live_executor.py:1555) — the half of the leverage
 reading that is not this idea's margin-risk cap — takes a SYMBOL and never
 sees confidence at all, and its volatility de-leveraging reads an ATR map
 whose only writer has no production caller. A quality ladder within the

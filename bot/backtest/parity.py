@@ -51,6 +51,7 @@ from bot.backtest.benchmark_record import (
 )
 from bot.config import CONFIG
 from bot.core.arb_tracker import MIN_VERDICT_ENTRIES, mean_interval
+from bot.core.close_lookup import UNRECORDED, is_ticker_priced
 from bot.learning.readiness import wilson_lower_bound
 from bot.utils.close_reason import is_execution_abort, is_filled_close
 from bot.utils.paths import state_path
@@ -222,7 +223,29 @@ def _row(nets: list[float], inferred: int = 0) -> dict:
 
 
 def _ticker_priced(t: dict) -> bool:
-    return t.get("fill_source") == "ticker_fallback"
+    """Every spelling of a ticker-priced close (close_lookup.is_ticker_priced):
+    the exact-word comparison this used to make missed the sweep's
+    ``ticker_fallback_after_N_retries`` rows, so the inferred count was a
+    floor that nobody knew was one."""
+    return is_ticker_priced(t.get("fill_source"))
+
+
+def inferred_causes(strategy: list[dict]) -> dict[str, int]:
+    """Why the ticker-priced rows were ticker-priced, by the class the venue
+    lookup stamped on each (``close_lookup`` on the record: ``history raised
+    NetworkError``, ``fills unmatched``, ...), most common first. A row from
+    a build that recorded no cause is ``unrecorded``, counted rather than
+    folded into a cause it did not state. This is what turns next week's
+    inferred count into something an operator can act on: 120 x "history
+    raised AuthenticationError" is a permission to fix, 40 x "fills
+    unmatched" is a matching defect to read."""
+    counts: dict[str, int] = {}
+    for t in strategy:
+        if not _ticker_priced(t):
+            continue
+        cause = str(t.get("close_lookup") or UNRECORDED)
+        counts[cause] = counts.get(cause, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def _group(trades: list[dict], key: str,
@@ -359,9 +382,14 @@ def parity_verdict(strategy: list[dict], benchmark: BenchmarkReading, *,
                 f"and are not in the comparison")
     if inferred and n:
         v["inferred_sentence"] = (
-            f"{inferred} of {n} strategy exits are ticker-priced (fill_source=ticker_fallback: "
+            f"{inferred} of {n} strategy exits are ticker-priced (fill_source=ticker_*: "
             f"the exit price inferred from a ticker, not an exchange fill), so every figure "
             f"above is approximate to that extent")
+        causes = inferred_causes(strategy)
+        v["inferred_causes"] = causes
+        v["inferred_cause_sentence"] = (
+            "why the venue lookup priced none of them: "
+            + " · ".join(f"{k} ×{c}" for k, c in causes.items()))
     return v
 
 
@@ -478,7 +506,7 @@ def format_report(s: dict) -> str:
     lines.append(card_line(BenchmarkReading(**s["benchmark"])))
     lines.append(f"  Verdict: {v['edge_sentence']}")
     lines.append(f"           {v['ballpark_sentence']}")
-    for key in ("outside_sentence", "inferred_sentence"):
+    for key in ("outside_sentence", "inferred_sentence", "inferred_cause_sentence"):
         if v.get(key):
             lines.append(f"           {v[key]}")
     # Fee parity — the concrete fills/fees gap.

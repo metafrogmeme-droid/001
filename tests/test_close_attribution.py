@@ -15,6 +15,9 @@ evidence, and the scalp time-stop label no longer rendering "0h max".
 
 import inspect
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
 
 from bot.core.live_executor import LiveExecutor, LivePosition
 
@@ -70,14 +73,43 @@ class TestCloseTypeClassifier:
 # ── inference fallback replaces flat unknowns ─────────────────────────
 
 class TestInferenceFallbacks:
-    def test_history_path_falls_back_to_inference(self):
-        src = inspect.getsource(LiveExecutor._fetch_bitget_close_data)
+    # These two used to scan the one monolithic lookup for a spelling; the
+    # lookup is three stage methods now (bot/core/close_lookup.py's slice), and
+    # a guard written against one spelling breaks on a move while the property
+    # it names holds. Each is DRIVEN now, with the source pin kept over the
+    # stage that carries the branch.
+
+    @pytest.mark.asyncio
+    async def test_history_path_falls_back_to_inference(self, tmp_path):
+        ex = _executor(tmp_path)
+        exchange = AsyncMock()
+        # A bare closeType carries no mechanism: the fill sitting AT the stop
+        # is inferred as a stop hit, never booked as a flat unknown.
+        exchange.privateMixGetV2MixPositionHistoryPosition = AsyncMock(return_value={
+            "data": {"list": [{"openAvgPrice": "100", "closeAvgPrice": "95.0",
+                               "pnl": "-5", "netProfit": "-5.1", "openFee": "0.05",
+                               "closeFee": "0.05", "closeType": ""}]}})
+        out = await ex._close_from_history(_pos(), exchange, None, [])
+        assert out is not None and "SL HIT" in out["reason"]
+        assert out["reason"] != "CLOSED (unknown)"
+        src = inspect.getsource(LiveExecutor._close_from_history)
         assert "_close_reason_from_type" in src
         # every remaining unknown must have gone through inference first
-        assert '"reason": "CLOSED (unknown)"' not in src
+        for stage in (LiveExecutor._close_from_history, LiveExecutor._fill_by_order_id,
+                      LiveExecutor._fill_by_close_side, LiveExecutor._close_from_orders):
+            assert '"reason": "CLOSED (unknown)"' not in inspect.getsource(stage)
 
-    def test_combined_tpsl_decides_by_price_not_id(self):
-        src = inspect.getsource(LiveExecutor._fetch_bitget_close_data)
+    def test_combined_tpsl_decides_by_price_not_id(self, tmp_path):
+        ex = _executor(tmp_path)
+        pos = _pos(sl=95.0, tp=110.0)
+        pos.sl_order_id = pos.tp_order_id = "combo-1"
+        # One id serves both legs; a fill at the stop must read as the stop.
+        out, _why = ex._fill_by_order_id(pos, [{"order": "combo-1", "price": 95.0,
+                                                "side": "sell", "info": {"profit": "-5"}}])
+        assert out is not None
+        assert "SL HIT" in out["reason"] and "(exchange, combined TPSL)" in out["reason"]
+        assert not out["reason"].startswith("TP HIT")
+        src = inspect.getsource(LiveExecutor._fill_by_order_id)
         assert "pos.sl_order_id == pos.tp_order_id" in src
         # the combined branch must run BEFORE the tp-id match that caused
         # the every-combined-fill-is-TP mislabel
