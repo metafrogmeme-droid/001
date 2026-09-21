@@ -7122,6 +7122,102 @@ rather than hand-written: the stand-in written for it listed five attributes
 and the verification block reached for a sixth.
 (`tests/test_the_venue_gets_the_capped_leverage.py`.)
 
+**A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
+INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
+firewall — *"The comment over that scan named the wrong half as off ... A
+comment that misdescribes which half of a security gate is disabled is how the
+gate goes unexamined"* — and `bot/config.py` still read **"Default OFF → no scan
+runs"** above `_env_bool("GUARDIAN_FIREWALL_ENABLED", True)` when this slice
+opened. **The lesson was written down and the line was never fixed**, which is
+the `/vault` hint shape pointed at this document.
+
+`tests/test_flag_prose_matches_default.py` was written for it, and its own
+docstring is careful about being narrow: an earlier broad draft reported five
+contradictions of which **three were false**, and *"a checker with a 60%
+false-positive rate gets muted, and a muted checker is worse than none."* That
+reasoning was right. The narrowness was the finding: driven whole-tree, its
+four limits held eighteen instances.
+
+**Twelve were READER comments, in files it never opened** — it scans
+`bot/config.py` only. Five sit on the live sizing path (the live-performance
+governor, correlation sizing, Kelly, the volatility-targeted cap), each
+described as opt-in and off while shrinking every order the engine places. The
+sixth is worse than a size multiplier: it stands above
+`self._circuit_open = False`, so a reader is told the daily-loss breaker latches
+until a human runs `/reset` when by default it **clears itself at the UTC day
+rollover**. **Six more were `bot/config.py`'s own declarations, and every one
+had the same history** — a later measurement or audit changed the default, the
+new sentence was appended, and the opening parenthetical was left stale, so the
+first thing a reader sees is the wrong half. Two of those point the other way
+and are the more dangerous direction: `MODE_MIN_CONFIDENCE_ENABLED` and
+`STRUCTURE_TRAIL_ENABLED` promised a protection was ON while the flag shipped
+`False`. And its rule was ONE-WAY, so it could not have seen either.
+
+**THE TWO FALSE ACCUSATIONS THAT MADE IT NARROW ARE SOLVED RATHER THAN
+SIDESTEPPED, and the instrument made both of them again on its first two runs.**
+`tests/default_comments.py` first paired each comment with the nearest
+`CONFIG.<section>.<attr>` below it and accused FOUR correct comments —
+`backtest/engine.py` twice and `order_flow.py` twice — whose text says "Own env
+flag, default OFF" about a LOCAL `_env_bool(..., False)` sitting right there,
+with an unrelated `CONFIG.` reference on the next line. A local declaration WINS
+now, and that correction also found one the `CONFIG.`-only draft could not see
+at all: `chart_patterns.py`, whose comment sits **one line above the declaration
+it contradicts**. Then a bare `opt-in` trigger accused `LIVE_OPEN_TO_KEY_HOLDERS`
+— an AUTHORIZATION flag — whose comment reads *"OFF restores the staged rollout
+(opt-in allowlist)"*: a sentence about what the OFF **state** does, claiming
+nothing about which state ships. Requiring the word *default* cost no coverage,
+because every real finding in the tree also spells "default OFF". *A checker
+with a blind spot manufactures exactly the accusation it exists to prevent* —
+twice, inside the instrument written from that sentence.
+
+**AND READING THE OLD GUARD FIXED A GAP IN THE NEW ONE.** Its block-joining is
+not tidiness: the claim that started it was WRAPPED — `"(opt-in, default"` ended
+one line and `"OFF; deep-audit medium)"` began the next — so a per-line match
+saw neither half. The first draft of the new reader rule matched per line and
+had the identical hole. It reads the whole contiguous block now, and that case
+is a planted test rather than a property nobody drives.
+
+**A BLOCK THAT CLAIMS BOTH IS ITS OWN FINDING**, because a reader cannot tell
+which sentence is live — and in all six the stale one was the opener. The last
+of them was not a contradiction at all but a SECOND COPY: the Guardian block
+ended *"Blocking is a separate, stricter opt-in below and stays off by
+default"*, which is true, and which `guardian_firewall_block_high`'s own comment
+already says two lines down. Stating a default twice is two places to keep in
+step, so the sentence became a pointer and the duplicate claim went.
+
+**Thirty-one mutations, each killed — and the one that survived the first round
+was a real defect in the rule, not a coverage gap.** The window was measured
+from the block's START, so an eighteen-line explanation pushed its own
+`CONFIG.` reference beyond it and the reading went SILENT: restoring Kelly's
+false "opt-in, default OFF" changed no verdict, because the block it sits in
+opens with the C-03 note twelve lines earlier. **The rule was quietest on
+exactly the longest, most-explanatory comments** — the ones most likely to be
+believed. The window is measured from the block's END now, where the flag is,
+and the long-block case is a planted test rather than a property nobody drives.
+Two more were refused rather than counted: one anchor matched twice (the
+`(True|False)` group is in two patterns) and one matched zero times, and a
+driver that took either for a kill would have reported coverage it did not
+have.
+
+**AND THE OLD GUARD'S FIRST ASSERTION PASSED BY ACCIDENT OF A LINE BREAK.** It
+reads `"Default OFF: it changes live entry behavior" not in doc` — and that
+docstring NARRATES the sentence it replaced, so the literal is right there. It
+passed only because the narration wraps as `"Default\n    OFF: it changes ..."`.
+That is *a comment that quotes the string it forbids* surviving on whitespace;
+the check is whitespace-normalised and counts occurrences now, so the
+retraction may name what it corrected exactly once and a second live claim
+fails.
+
+**NO BASELINE.** The tree is at zero, so it holds from here with nothing to
+forgive — the ruling `test_i18n_locales` already set. The old file keeps only
+what the rule cannot subsume: the `LearningConfig` DOCSTRING case, pinned by
+name because no general docstring rule could be made trustworthy, and the
+`LIVE_OPEN_TO_KEY_HOLDERS` fixture, which is now acquitted by the RULE rather
+than by an exemption naming it.
+(`tests/test_a_comment_names_the_default_the_flag_has.py`,
+`tests/default_comments.py`.)
+
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8350,7 +8446,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **409 of 985** reach for source text through `source_scan`, `code_only`
+Driven, **409 of 986** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 409 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

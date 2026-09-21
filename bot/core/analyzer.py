@@ -1415,11 +1415,11 @@ class Analyzer:
                   data={"symbol": signal.symbol, "regime": regime.value,
                         "penalty": regime_confidence_penalty})
 
-        # Regime HARD gates (opt-in, default OFF). The penalties above SOFTEN
+        # Regime HARD gates (default ON). The penalties above SOFTEN
         # the lowest-edge regimes; with the flag ON, the worst become hard
         # no-trades — chop has no directional edge, and a counter-trend entry
-        # into a strong trend is where drawdowns cluster. Default OFF keeps the
-        # soft-penalty behaviour byte-for-byte.
+        # into a strong trend is where drawdowns cluster. Setting it OFF
+        # restores the soft-penalty behaviour byte-for-byte.
         if CONFIG.analyzer.regime_hard_gates_enabled:
             _adx = float(indicators.get("adx", 0) or 0)
             _gate_reason = self._regime_hard_gate_reason(regime, direction, _adx)
@@ -1612,7 +1612,7 @@ class Analyzer:
         # funding_arb above rewards/penalises the INSTANTANEOUS funding direction;
         # this adds the missing dimension — the carry COST a trade would PAY over
         # its expected hold (a swing pays many funding intervals, a scalp ~none).
-        # Bounded, only ever REDUCES confidence, fail-open, default OFF.
+        # Bounded, only ever REDUCES confidence, fail-open, default ON.
         try:
             if (CONFIG.analyzer.funding_cost_aware_enabled
                     and order_flow is not None and hasattr(order_flow, "funding_rate")):
