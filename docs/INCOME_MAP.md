@@ -100,7 +100,7 @@ the user signs in their own wallet at /swap (swap-page.js:181). It is double-
 gated off: build_swap refuses unless the /memeplan plan came back allowed,
 which needs MEME_TRADING_ENABLED (default OFF, meme_executor.py:8-9), and
 `signable` is False unless MEME_EXECUTION_NETWORK=mainnet, which
-.env.example:871 ships as `simulate`.
+.env.example:883 ships as `simulate`.
 
 *Gap.* No CEX spot order path of any kind — not disabled-by-flag but absent, and
 deliberately so. The one spot-swap door is Solana DEX only, single-leg, no
@@ -120,7 +120,7 @@ adding /swap without a landing link fails on the sa…
 Swing is a first-class hold-duration class in the engine, not a label.
 analyzer.py:1154 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2117-2118), trailing ENABLED at 1.5 ATR
+ATR / TP 3.5 ATR (config.py:2136-2137), trailing ENABLED at 1.5 ATR
 (:2119-2120), a 48h time-close with a 12h warn (:2121-2122), min confidence
 0.50 (:2136), max risk 2% (:2142) — every one distinct from the scalp row
 above it. skill_registry.py:1858 reads those multipliers when it builds the
@@ -142,15 +142,15 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1848-1857
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5854 (…
+bot/core/live_executor.py:5859 (…
 
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
-TP 2.0 ATR (config.py:2101-2102), trailing deliberately OFF (:2103), a 2h
+TP 2.0 ATR (config.py:2120-2121), trailing deliberately OFF (:2103), a 2h
 time-close with a 1h warn (:2105-2106), min confidence 0.65 (:2134), max risk
 1% (:2140); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
-of movement; config.py:1572 recomputes session VWAP on 15m candles
+of movement; config.py:1591 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:928) dispatches pro_scan mode=scalp — 5m candles, top-3 by
 volume, tight zones (skill_registry.py:2356); the router's scan_scalp intent
@@ -167,7 +167,7 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4755 creates the entry order idempotently, :6374/:6397 attach
+live_executor.py:4758 creates the entry order idempotently, :6374/:6397 attach
 the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
@@ -176,11 +176,11 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
-Autonomously: engine.py:5361-5419 confirms and executes any idea at or above
+Autonomously: engine.py:5382-5440 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2316-2317), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (config.py:2335-2336), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
 additionally needs _can_trade_live (telegram_handler.py:3930), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
@@ -197,19 +197,25 @@ Default OFF (`SIZE_BOUNDS_ENABLED`), and arming it alone can only TIGHTEN —
 the two growth ceilings default to the flat caps, so raising a bound needs
 `SIZE_BOUNDS_MAX_POSITION_USD` / `SIZE_BOUNDS_MAX_TOTAL_USD` as well.
 
-*Gap.* TRADE QUALITY still moves neither the size nor the leverage.
-`_high_conviction_margin` (engine.py:4310) is binary and flat — one confidence
-floor, one dollar target, opt-in — and `idea.confidence` otherwise reaches
-sizing only through the opt-in Kelly path and the drawdown-recovery
-confidence FLOOR, which is a refusal rather than a size. Leverage is worse:
-`_standard_leverage` (live_executor.py:1555) — the half of the leverage
-reading that is not this idea's margin-risk cap — takes a SYMBOL and never
-sees confidence at all, and its volatility de-leveraging reads an ATR map
-whose only writer has no production caller. A quality ladder within the
-bounds above, and confidence reaching that chooser, is unbuilt. The cap
-itself now reaches the VENUE as well as the sizing, which is what a ladder
-needed first: one that set one leverage and sized at another would inherit
-the defect that fix removed.
+TRADE QUALITY chooses a size and a leverage within those bounds
+(`bot/risk/quality_ladder.py`). The analyzer's MEASURED confidence lands on a
+rung of a `name:floor:size_mult:leverage_mult` table (`QUALITY_LADDER_RUNGS`,
+default `A:0.85:1.0:1.0,B:0.70:0.75:0.8,C:0.0:0.5:0.6`). The size half
+multiplies the pre-cap figure AND the notional cap — pre-cap alone is clamped
+straight back, the USER_RISK_PREF lesson — and the leverage half writes a
+reduce-only cap onto the idea through the same attribute the margin-risk cap
+uses, so the VENUE is set to the rung's leverage and the margin-risk verdict is
+measured at it (the sizing leverage cancels out of that ratio, which is why the
+cap had to reach the venue first). A manual ticket's confidence is a stamp
+(`build_manual_idea` writes 1.0 on every one), so it takes no rung, and the
+same reading now decides Kelly's confidence factor (default ON, tighten-only)
+and the high-conviction floor. A table with a multiplier above 1.0 is refused
+rather than clamped: growth is what `SIZE_BOUNDS_MAX_*` is for. Both halves
+default OFF (`QUALITY_LADDER_SIZE_ENABLED`, `QUALITY_LADDER_LEVERAGE_ENABLED`)
+and SHADOW when off — the risk gate audits the rung it would have applied with
+`result="SHADOW"`. The check and both fill cards carry the size's BASIS
+(`bot/core/size_trace.py`): which step decided the figure, how many steps it
+took, and whether something off the record changed it after.
 
 **Funding rate farming** — partial
 
@@ -263,7 +269,7 @@ decision after shadow evidence, not a card.
 **Basis trades** — partial
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
-constructed at engine.py:549 and called on every tick (engine.py:5824) — its
+constructed at engine.py:553 and called on every tick (engine.py:5845) — its
 result is handed to analyzer.analyze at :5956 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
@@ -329,10 +335,10 @@ execution on a real venue.
 The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (risk/risk_engine.py:105) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5361-5419
+signal modules; RiskEngine (risk/risk_engine.py:113) is the fail-closed pre-
+trade gate whose whole enforcing set /enforcing lists. engine.py:5382-5440
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2376) with no human in the loop, adaptively moved by
+(default 0.85, config.py:2395) with no human in the loop, adaptively moved by
 realized win rate (:5302) and suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
@@ -344,7 +350,7 @@ rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2316) — so "the bot trades for you" is live only after the operator
+(config.py:2335) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -782,7 +788,7 @@ grants achievement glyphs 'by arithmetic, never by grant tables'
 on the leaderboard/track-record boards, and bot/proofofpnl/erc8004.py:52 binds
 a fills-derived reputation block into a signed ERC-8004 identity card (which
 refuses to attach any reputation to an unpublished statement, and whose
-publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at .env.example:607).
+publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at .env.example:619).
 
 *Gap.* Nothing REWARDS any of it, and I checked rather than assumed:
 computeReputation's only non-test caller in the tree is the route that prints
@@ -905,7 +911,7 @@ NFTs" (app/lib/opensea.js:88). Both HTTP routes (/radar, /wallet/:address)
 have no browser caller anywhere in the repo; the chat intercept and /nft on
 Telegram — the same card, fetched rendered over the sync channel — are the UI
 doors. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
-commented out at .env.example:744 and set nowhere, so configured() is false
+commented out at .env.example:756 and set nowhere, so configured() is false
 and every reader honestly answers available:false / not_configured rather than
 a fabricated radar. The Telegram door, /nft, renders that same honest card
 (market_commands.py fetches the web intercept's own rendering), so an
@@ -1030,7 +1036,7 @@ rarity or valuation model, no sweep/snipe/alert on floor movement; the Worlds
 view prints counts and links with NO price at all. Nothing farms an in-game
 asset or currency: no game is integrated, only the metaverse COLLECTION slugs
 are recognised. And the whole surface is inert until the operator sets
-OPENSEA_API_KEY — commented out at .env.example:744 — in which case every door
+OPENSEA_API_KEY — commented out at .env.example:756 — in which case every door
 honestly answers available:false rather than an empty radar.
 
 *The verifier refused part of this row.* Still partial, but the door list is wrong in both directions. (1) EVERY door
@@ -1106,7 +1112,7 @@ values for the unfurl. Separately, X is an OAuth IDENTITY provider:
 app/lib/oauth2.js:58 requests scope `tweet.read users.read` but the only call
 made with the token is profileUrl `users/me` (parseProfile reads id + avatar),
 and the provider is advertised only when both env vars are set —
-.env.example:559 ships them commented out.
+.env.example:571 ships them commented out.
 
 *Gap.* Nothing posts to X, schedules a post, reads a timeline or mentions, or
 measures a single impression/follower. There is no per-user X account
@@ -1411,7 +1417,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:6548-6576
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:6569-6597
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1711,7 +1717,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7076
+bot/core/stock_trading.py, also read by bot/core/engine.py:7111
 (get_market_session) and scan_commands.py:345.
 
 **Price alerts and anomaly-alert scoping**
@@ -2426,10 +2432,10 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:873`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2565`, and three sibling call
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:877`),
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2584`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
-  (`bot/core/engine.py:637`). Every handler guards its own read and has an
+  (`bot/core/engine.py:641`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the
   forming-candle hygiene the shared cache slice added.
 

@@ -93,8 +93,16 @@ from bot.core.leverage import (
     leverage_floor,
     margin_risk_verdict,
     set_margin_risk_cap,
+    tighten_leverage_cap,
 )
+from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
 from bot.risk.live_perf_gate import governor_verdict
+from bot.risk.quality_ladder import (
+    kelly_confidence_factor,
+    ladder_leverage,
+    ladder_verdict,
+    rungs_from_config,
+)
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
@@ -1070,6 +1078,18 @@ class RiskEngine:
         passed: list[str] = []
         failed: list[str] = []
         is_manual = getattr(idea, 'source', '') == 'manual'
+        # The size trace starts HERE, on this evaluation: every step below
+        # that changes the figure records what it left, and the check carries
+        # which step decided it. Reset rather than appended, because an idea
+        # is evaluated at proposal time and again at confirm time.
+        reset_size_trace(idea)
+        # The quality ladder's reading of THIS idea -- measured at its
+        # confidence, or unmeasured (a manual ticket's stamp, an unreadable
+        # field). Read once; the size half, the cap and the leverage half all
+        # ask this one verdict. The table is read off this module's CONFIG so
+        # a test that plants one drives it.
+        _rungs, _rungs_note = rungs_from_config(CONFIG.risk)
+        _ladder = ladder_verdict(idea, _rungs, _rungs_note)
 
         try:
             state = self._portfolio.snapshot()
@@ -1172,6 +1192,8 @@ class RiskEngine:
             st_risk_pct = CONFIG.strategy_types.get_max_risk_pct(_st)
             risk_budget = sizing_equity * (st_risk_pct / 100.0)
             position_usd = risk_budget / stop_distance_pct
+            note_size_step(idea, f"fixed-fractional ({_st} risk {st_risk_pct:g}% / "
+                                 f"stop {stop_distance_pct * 100:.2f}%)", position_usd)
 
         # Apply execution cap (e.g., micro-test $10 limit).
         # The risk engine must evaluate the ACTUAL position size that will
@@ -1179,7 +1201,10 @@ class RiskEngine:
         # a $10 micro-test position on a $100 account (10% exposure) gets
         # rejected because the theoretical size (e.g., $43) exceeds 20%.
         if max_position_usd is not None and max_position_usd > 0:
+            _before = position_usd
             position_usd = min(position_usd, max_position_usd)
+            note_size_step(idea, "execution ceiling (per-account bound)", position_usd,
+                           before=_before)
 
         # C2-11 FIX: Compute macro size multiplier BEFORE the notional cap and
         # check #2, so the capped value reflects the macro-adjusted size.
@@ -1219,6 +1244,7 @@ class RiskEngine:
         regime_mult = regime_params.get("position_size_mult", 1.0)
         if regime_mult != 1.0:
             position_usd *= regime_mult
+            note_size_step(idea, f"regime x{regime_mult:.2f}", position_usd)
 
         # Session-aware position sizing: reduce size in low-liquidity sessions.
         # Only reductions (mult < 1.0) applied pre-cap; never increases.
@@ -1230,12 +1256,15 @@ class RiskEngine:
             _session_mult = _session.size_multiplier
             if _session_mult < 1.0:
                 position_usd *= _session_mult
+                note_size_step(idea, f"session x{_session_mult:.2f}", position_usd)
         except Exception as _session_exc:
             # RC-AUD-011: fail toward SAFETY.  The session sizer must never *block*
             # risk evaluation (it reduces, never rejects), but a provider error
             # must not silently leave the position full-size — apply a conservative
             # default reduction and audit it.
             position_usd *= _PROVIDER_FALLBACK_SIZE_MULT
+            note_size_step(idea, f"session provider fallback x{_PROVIDER_FALLBACK_SIZE_MULT}",
+                           position_usd)
             audit(risk_log,
                   f"Session provider error — applying conservative size×"
                   f"{_PROVIDER_FALLBACK_SIZE_MULT} fallback ({_session_exc})",
@@ -1250,8 +1279,10 @@ class RiskEngine:
             if _eq_mult <= 0:
                 failed.append("EQUITY_CURVE: trading paused — equity below 2σ of MA")
                 position_usd = 0.0  # #50: a paused trade reports size 0, not a phantom notional
+                note_size_step(idea, "equity-curve breaker paused", position_usd)
             else:
                 position_usd *= _eq_mult
+                note_size_step(idea, f"equity-curve breaker x{_eq_mult:.2f}", position_usd)
 
         # Live-performance governor (default ON): de-risk on REALIZED
         # recent results. Reduces size when the recent window underperforms and
@@ -1265,8 +1296,11 @@ class RiskEngine:
                         "LIVE_PERF_GOVERNOR: trading paused — realized win rate "
                         "and net PnL below floor over recent window")
                     position_usd = 0.0  # #50: paused → report size 0, not a phantom notional
+                    note_size_step(idea, "live-performance governor paused", position_usd)
                 else:
                     position_usd *= _gov_mult
+                    note_size_step(idea, f"live-performance governor x{_gov_mult:.2f}",
+                                   position_usd)
 
         # Continuous equity throttle (opt-in, default OFF): scale size off the
         # rolling PF of recent realized closes — proportional degradation as
@@ -1277,6 +1311,7 @@ class RiskEngine:
             _thr_mult = self.equity_throttle_multiplier
             if _thr_mult < 1.0:
                 position_usd *= _thr_mult
+                note_size_step(idea, f"equity throttle x{_thr_mult:.2f}", position_usd)
                 passed.append(f"EQUITY_THROTTLE: size×{_thr_mult:.2f} "
                               "(rolling PF below full-size band)")
 
@@ -1298,6 +1333,7 @@ class RiskEngine:
                 getattr(self, "_person_user_id", ""))
             if _pref_mult < 1.0 and CONFIG.risk.user_risk_pref_sizing_enabled:
                 position_usd *= _pref_mult
+                note_size_step(idea, f"risk preference x{_pref_mult:.2f}", position_usd)
                 passed.append(f"USER_RISK_PREF: size x{_pref_mult:.2f} ({_pref_why})")
         except Exception as _pref_exc:
             # A preferences lookup must never affect a trade. Unlike the
@@ -1308,15 +1344,42 @@ class RiskEngine:
             _pref_mult = 1.0
             passed.append(f"USER_RISK_PREF: skipped (error: {_pref_exc})")
 
+        # Trade QUALITY, measured (bot/risk/quality_ladder.py). `_ladder` was
+        # read once at the top. The size half applies HERE, pre-cap, and AGAIN
+        # to the notional cap below -- the cap binds on ~every crypto trade,
+        # so a pre-cap multiply alone is clamped straight back to the same
+        # number (the USER_RISK_PREF lesson, recorded at the cap site). An
+        # unmeasured quality -- a manual ticket, whose confidence is a stamp
+        # -- takes no rung and the line says so; a measured one on the top
+        # rung says it kept full size, because a rule that fires silently on
+        # one trade in three is a rule nobody can see working. TIGHTEN-ONLY:
+        # the table refuses a multiplier above 1.0 before it gets here.
+        if CONFIG.risk.quality_ladder_size_enabled:
+            if not _ladder.measured:
+                passed.append(f"QUALITY_LADDER: size not applied ({_ladder.why})")
+            elif _ladder.size_mult < 1.0:
+                position_usd *= _ladder.size_mult
+                note_size_step(idea, f"quality ladder rung {_ladder.rung} "
+                                     f"x{_ladder.size_mult:.2f}", position_usd)
+                passed.append(f"QUALITY_LADDER: size x{_ladder.size_mult:.2f} ({_ladder.why})")
+            else:
+                passed.append(f"QUALITY_LADDER: full size ({_ladder.why})")
+            if _ladder.table_note:
+                passed.append(f"QUALITY_LADDER: {_ladder.table_note}")
+
         # Drawdown recovery mode: require higher confidence, reduce size
         if self._in_drawdown_recovery:
             if idea.confidence < CONFIG.risk.drawdown_recovery_conf_min:
                 failed.append(f"DD_RECOVERY: confidence {idea.confidence:.2f} < {CONFIG.risk.drawdown_recovery_conf_min} (recovery mode)")
+            _before = position_usd
             position_usd *= CONFIG.risk.drawdown_recovery_size_mult
+            note_size_step(idea, f"drawdown recovery x{CONFIG.risk.drawdown_recovery_size_mult:.2f}",
+                           position_usd, before=_before)
 
         # C2-11: Apply macro reduction pre-cap
         if _macro_size_mult < 1.0:
             position_usd *= _macro_size_mult
+            note_size_step(idea, f"macro x{_macro_size_mult:.2f}", position_usd)
 
         # Portfolio-aware correlation sizing (default ON). Shrink the
         # new trade when it stacks on existing open positions in the SAME
@@ -1327,6 +1390,7 @@ class RiskEngine:
             _corr_mult = self._correlation_size_factor(idea)
             if _corr_mult < 1.0:
                 position_usd *= _corr_mult
+                note_size_step(idea, f"correlation x{_corr_mult:.2f}", position_usd)
 
         # C-03 FIX: Cap position_usd at max_notional BEFORE check #2 runs.
         # The fixed-fractional formula (risk_budget / stop_distance) routinely
@@ -1342,14 +1406,19 @@ class RiskEngine:
         # Kelly can only shrink the position, never grow it — a no-edge or
         # no-history Kelly returns 0.0, which is treated as "leave size as-is"
         # (it never forces the size to zero). The hard cap + check #2 below remain
-        # authoritative. Confidence SCALES the fraction (kelly_f * 0.5 * conf),
-        # so a MANUAL ticket — stamped confidence=1.0 by build_manual_idea —
-        # takes the unshrunk half-Kelly where an analyzer idea is shrunk by
-        # its own measured confidence.
+        # authoritative. Confidence SCALES the fraction (kelly_f * 0.5 * conf)
+        # -- the MEASURED confidence: `_kelly_size_usd` asks the quality
+        # ladder's reading, so a MANUAL ticket takes the unshrunk half-Kelly
+        # because its confidence is a stamp rather than a measurement, and an
+        # analyzer idea is shrunk by its own. It used to read the stamp
+        # itself, which gave the same answer for exactly as long as the stamp
+        # stayed 1.0.
         if CONFIG.risk.kelly_sizing_enabled:
             kelly_usd = self._kelly_size_usd(idea, sizing_equity)
             if kelly_usd > 0:
+                _before = position_usd
                 position_usd = min(position_usd, kelly_usd)
+                note_size_step(idea, "half-Kelly ceiling", position_usd, before=_before)
 
         # #47: the notional cap %. Per-strategy when enabled (a scalp can ride a
         # tighter ceiling than a position trade), else the global max_position_pct.
@@ -1362,6 +1431,9 @@ class RiskEngine:
             _cap_pct = CONFIG.risk.max_position_pct
 
         max_notional_usd = sizing_equity * (_cap_pct / 100.0)
+        # Every rule that tightens the CAP names itself here, so the size
+        # trace can say which figure the cap was and what made it that.
+        _cap_tight: list[str] = []
         # Volatility-targeted cap (default ON; tighten-only). The notional
         # cap binds on ~every crypto trade, so the engine effectively runs flat
         # margin — realized per-trade risk = margin×lev×stop% ∝ ATR%, scaling UP
@@ -1377,6 +1449,8 @@ class RiskEngine:
                 _vt = CONFIG.risk.vol_target_atr_pct / _cur_atr_pct
                 _vt = max(CONFIG.risk.vol_target_floor, min(1.0, _vt))
                 max_notional_usd *= _vt
+                if _vt < 1.0:
+                    _cap_tight.append(f"vol-target x{_vt:.2f}")
         # Regime down-sizing also tightens the CAP, not just pre-cap
         # position_usd. The fixed-fractional formula routinely produces sizes
         # far above the notional cap (see comment above), so the cap is
@@ -1392,6 +1466,7 @@ class RiskEngine:
         # trade exceed the hard cap.
         if regime_mult < 1.0:
             max_notional_usd *= regime_mult
+            _cap_tight.append(f"regime x{regime_mult:.2f}")
         # Equity throttle tightens the CAP as well as pre-cap size — the cap
         # binds on ~every trade (see the regime_mult note above), so a pre-cap
         # multiplication alone would be silently clamped away. Net effect:
@@ -1400,6 +1475,7 @@ class RiskEngine:
             _thr_cap_mult = self.equity_throttle_multiplier
             if _thr_cap_mult < 1.0:
                 max_notional_usd *= _thr_cap_mult
+                _cap_tight.append(f"equity throttle x{_thr_cap_mult:.2f}")
         # Per-user risk preference tightens the CAP as well as the pre-cap
         # size, for the reason spelled out for regime_mult and the equity
         # throttle immediately above: the cap binds on ~every crypto trade, so
@@ -1412,8 +1488,18 @@ class RiskEngine:
         # wearing a flag.
         if CONFIG.risk.user_risk_pref_sizing_enabled and _pref_mult < 1.0:
             max_notional_usd *= _pref_mult
+            _cap_tight.append(f"risk preference x{_pref_mult:.2f}")
+        # The quality ladder tightens the CAP for the same reason the three
+        # above it do: pre-cap alone is clamped straight back.
+        if (CONFIG.risk.quality_ladder_size_enabled and _ladder.measured
+                and _ladder.size_mult < 1.0):
+            max_notional_usd *= _ladder.size_mult
+            _cap_tight.append(f"quality ladder x{_ladder.size_mult:.2f}")
         if max_notional_usd > 0 and position_usd > max_notional_usd:
             position_usd = max_notional_usd
+            note_size_step(idea, f"notional cap {_cap_pct:g}% of ${sizing_equity:,.2f} equity"
+                                 + (f" ({', '.join(_cap_tight)})" if _cap_tight else ""),
+                           position_usd)
         # SHADOW, audited here rather than at the resolve site because the
         # would-be number is only knowable after the cap. #36 is the precedent
         # for the CHANNEL: two shadow deltas went to logger.debug, which has no
@@ -1426,6 +1512,28 @@ class RiskEngine:
                   data={"multiplier": _pref_mult, "reason": _pref_why,
                         "current_usd": round(position_usd, 2),
                         "would_be_usd": round(position_usd * _pref_mult, 2)})
+        # The quality ladder's SHADOW: with either half off, a measured rung
+        # that would have tightened is audited on the channel the applied
+        # path uses, so the ladder's effect is on record before it is armed.
+        # The size figure is the post-cap one, for the reason the user-pref
+        # shadow above sits here.
+        if (_ladder.measured and (_ladder.size_mult < 1.0 or _ladder.leverage_mult < 1.0)
+                and not (CONFIG.risk.quality_ladder_size_enabled
+                         and CONFIG.risk.quality_ladder_leverage_enabled)):
+            _shadow: dict[str, Any] = {
+                "rung": _ladder.rung, "confidence": _ladder.confidence,
+                "size_mult": _ladder.size_mult, "leverage_mult": _ladder.leverage_mult,
+                "size_enabled": bool(CONFIG.risk.quality_ladder_size_enabled),
+                "leverage_enabled": bool(CONFIG.risk.quality_ladder_leverage_enabled),
+                "current_usd": round(position_usd, 2),
+                "table_note": _ladder.table_note,
+            }
+            if not CONFIG.risk.quality_ladder_size_enabled:
+                _shadow["would_be_usd"] = round(position_usd * _ladder.size_mult, 2)
+            audit(risk_log,
+                  f"Quality ladder shadow: {_ladder.why} would apply size "
+                  f"x{_ladder.size_mult:.2f}, leverage x{_ladder.leverage_mult:.2f}",
+                  action="quality_ladder", result="SHADOW", data=_shadow)
 
         # Auto-reset a DAILY-LOSS breaker trip once the UTC day has rolled over
         # (default ON). Without it a single bad day latches the breaker
@@ -1754,6 +1862,31 @@ class RiskEngine:
                     leverage = max(1, int(_lev_override))
             except Exception:
                 pass
+            # Trade QUALITY caps the leverage the VENUE is set to, before the
+            # margin-risk cap measures anything -- so the verdict below is
+            # measured at the leverage this trade will really run at. The
+            # cap rides on the idea through the same reduce-only attribute
+            # the margin-risk reduction writes (`tighten_leverage_cap` keeps
+            # the lower of the two), and `_compute_target_leverage` reads it
+            # for the set path and the sizing path alike: a cap that reached
+            # only the sizing would bound nothing, the #201 lesson.
+            if CONFIG.risk.quality_ladder_leverage_enabled:
+                if not _ladder.measured:
+                    passed.append(f"QUALITY_LADDER: leverage not capped ({_ladder.why})")
+                elif _ladder.leverage_mult < 1.0:
+                    _lev_floor = leverage_floor(CONFIG.exchange)
+                    _ladder_lev = ladder_leverage(leverage, _ladder, floor=_lev_floor)
+                    if _ladder_lev < leverage:
+                        tighten_leverage_cap(idea, _ladder_lev)
+                        passed.append(f"QUALITY_LADDER: leverage {leverage}x→{_ladder_lev}x "
+                                      f"({_ladder.why})")
+                        leverage = _ladder_lev
+                    else:
+                        passed.append(f"QUALITY_LADDER: leverage stays {leverage}x "
+                                      f"({_ladder.why}; x{_ladder.leverage_mult:.2f} of "
+                                      f"{leverage}x is under the {_lev_floor}x floor)")
+                else:
+                    passed.append(f"QUALITY_LADDER: leverage stays {leverage}x ({_ladder.why})")
             # The measurement, the reduction and the sentence are ONE reading
             # (`bot/core/leverage.margin_risk_verdict`), because the executor
             # applies the same cap and a second copy of it is a second answer
@@ -2474,6 +2607,8 @@ class RiskEngine:
             timestamp=datetime.now(UTC),
             intent_policy=intent_policy_result,
             authority=authority_result,
+            size_basis=size_basis(idea, position_usd),
+            size_path=size_path(idea),
         )
 
         # Audit V7 follow-up: make the margin/notional/leverage relationship
@@ -2560,7 +2695,10 @@ class RiskEngine:
         avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0.0
         avg_loss = (abs(sum(t.pnl for t in losses)) / len(losses)) if losses else 0.0
 
-        fraction = self.kelly_position_size(idea.confidence, win_rate, avg_win, avg_loss)
+        # Same reading as `_kelly_size_usd`: two Kelly sizers scaling by two
+        # readings of "confidence" would be two answers about a manual ticket.
+        _conf, _conf_why = kelly_confidence_factor(idea)
+        fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
         return round(equity * fraction, 2)
 
     def _kelly_size_usd(self, idea: TradeIdea, sizing_equity: float) -> float:
@@ -2584,7 +2722,10 @@ class RiskEngine:
         win_rate = len(wins) / len(closed)
         avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0.0
         avg_loss = (abs(sum(t.pnl for t in losses)) / len(losses)) if losses else 0.0
-        fraction = self.kelly_position_size(idea.confidence, win_rate, avg_win, avg_loss)
+        # The MEASURED confidence, or 1.0 for an unmeasured one (a manual
+        # ticket's stamp): `bot/risk/quality_ladder.kelly_confidence_factor`.
+        _conf, _conf_why = kelly_confidence_factor(idea)
+        fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
         return round(sizing_equity * fraction, 2)
 
     # ── Feature #2: Multi-Timeframe Confirmation ─────────────────────

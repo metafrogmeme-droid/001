@@ -789,6 +789,25 @@ class RiskLimits:
     # measurable before it is enabled. Shadow that only reaches logger.debug is
     # shadow nobody can see — see tests/test_shadow_deltas_observable.py.
     user_risk_pref_sizing_enabled: bool = _env_bool("USER_RISK_PREF_SIZING_ENABLED", False)
+    # Trade QUALITY chooses a size and a leverage within the bounds
+    # (bot/risk/quality_ladder.py). A rung table `name:floor:size_mult:lev_mult`
+    # maps the analyzer's MEASURED confidence to a tighten-only pair of
+    # multipliers; a manual ticket's confidence is a stamp, not a measurement,
+    # and takes no rung. Growth is not a rung -- every multiplier above 1.0 is
+    # refused, and a table that does not parse falls back to this default with
+    # a note on the check line. Two halves, two flags, both default OFF, and
+    # SHADOW when off: the engine audits the rung it would have applied with
+    # result="SHADOW", so the ladder's effect is measurable before it moves
+    # money. The leverage half caps the leverage the VENUE is set to (through
+    # the same reduce-only attribute the margin-risk cap writes), so the cap
+    # bounds what fills rather than what the order was sized at.
+    quality_ladder_size_enabled: bool = _env_bool("QUALITY_LADDER_SIZE_ENABLED", False)
+    quality_ladder_leverage_enabled: bool = _env_bool("QUALITY_LADDER_LEVERAGE_ENABLED", False)
+    # The default table is written here AND as quality_ladder.DEFAULT_RUNGS_TEXT
+    # (this module cannot import that one without a cycle); a guard pins the
+    # two spellings equal.
+    quality_ladder_rungs: str = _env("QUALITY_LADDER_RUNGS",
+                                     "A:0.85:1.0:1.0,B:0.70:0.75:0.8,C:0.0:0.5:0.6").strip()
     equity_throttle_floor_mult: float = _env_float_bounded("EQUITY_THROTTLE_FLOOR_MULT", 0.25, 0.05, 1.0)
     # Fable-5 round 5 — funding-clock gate (default ON). Blocks an entry
     # ONLY when it would enter on the PAYING side of an extreme funding

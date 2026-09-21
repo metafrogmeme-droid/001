@@ -8,6 +8,7 @@ Human confirmation is REQUIRED before execution.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import math
@@ -23,6 +24,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.margin_clamp import clamp_to_free_margin
+from bot.core.size_trace import note_size_step, size_basis
 from bot.core.system_health import SystemHealthMonitor
 from bot.core.adaptive_threshold import (
     auto_confirm_is_disabled,
@@ -32,6 +34,7 @@ from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
+from bot.core.leverage import apply_margin_risk_cap
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
@@ -44,6 +47,7 @@ from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
+from bot.risk.quality_ladder import quality_reading
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -4336,7 +4340,24 @@ class RuneClawEngine:
             cfg = CONFIG.execution
             if not getattr(cfg, "high_conviction_enabled", False):
                 return size_usd
-            conf = float(getattr(idea, "confidence", 0.0) or 0.0)
+            # The floor is compared against a MEASURED confidence. A manual
+            # ticket's confidence is a stamp (build_manual_idea writes 1.0 on
+            # every one), so it cleared every floor by construction; the
+            # quality ladder's reading is what says which this is, and an
+            # unmeasured one leaves the risk engine's figure alone -- said
+            # in the audit rather than silently, because "the flat margin
+            # did not apply" and "the flat margin is off" are different
+            # facts.
+            _q = quality_reading(idea)
+            if not _q.measured or _q.confidence is None:
+                audit(trade_log,
+                      f"High-conviction sizing not applied to "
+                      f"{getattr(idea, 'asset', '?')}: {_q.why}",
+                      action="high_conviction_size", result="UNMEASURED",
+                      data={"asset": getattr(idea, "asset", None), "why": _q.why,
+                            "size_usd": round(size_usd, 2)})
+                return size_usd
+            conf = float(_q.confidence)
             floor = float(cfg.high_conviction_min_confidence)
             if conf < floor:
                 return size_usd
@@ -6828,10 +6849,19 @@ class RuneClawEngine:
         (``check_stops_all``). Never calls ``live_executor``.
         """
         size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
+        note_size_step(idea, "high-conviction target", size_usd,
+                       before=recheck.position_size_usd)
         try:
             leverage = int(CONFIG.exchange.default_leverage)
         except (TypeError, ValueError):
             leverage = 1
+        # The paper fill runs at the leverage the risk gate capped this idea
+        # to (the quality ladder's rung, or a margin-risk reduction), read off
+        # the same attribute the live set path reads. Reduce-only and a no-op
+        # for an idea carrying no cap -- which every idea was before the
+        # ladder, so the paper book is byte-identical with the flag off. A
+        # card saying "leverage x0.80" beside "@ 5x" would be two answers.
+        leverage = apply_margin_risk_cap(leverage, idea)
         portfolio = self.user_portfolios.get(user_id)
         try:
             trade = portfolio.open_position(idea, size_usd, leverage=leverage)
@@ -6879,6 +6909,10 @@ class RuneClawEngine:
                     "user_id": user_id, "is_paper": True})
         self._transition(AgentState.IDLE, f"paper filled {trade_id}")
         _dir = idea.direction.value
+        # Which step decided the size: the trace the risk gate started and
+        # this path appended to. Empty for an idea carrying none, and then
+        # the card prints no sentence about a path nobody recorded.
+        _basis = size_basis(idea, size_usd)
         return (
             f"📝 <b>[PAPER]</b> Simulated {_dir} <b>{idea.asset}</b>\n"
             f"Entry <code>${idea.entry_price:,.4f}</code> | "
@@ -6886,7 +6920,8 @@ class RuneClawEngine:
             f"TP <code>${idea.take_profit:,.4f}</code>\n"
             f"Size <code>${size_usd:,.2f}</code> @ {leverage}x  •  "
             f"<i>practice mode — no real order placed</i>\n"
-            f"Trade ID: <code>{trade.trade_id}</code>"
+            + (f"Sizing: <i>{html.escape(_basis)}</i>\n" if _basis else "")
+            + f"Trade ID: <code>{trade.trade_id}</code>"
         )
 
     async def confirm_trade(self, trade_id: str, user_id: str = "") -> str:
@@ -7435,6 +7470,8 @@ class RuneClawEngine:
         # margin is the one read this confirm already took.
         size_usd = self._high_conviction_margin(
             idea, recheck.position_size_usd, user_id, _rc.available_usd)
+        note_size_step(idea, "high-conviction target", size_usd,
+                       before=recheck.position_size_usd)
 
         # Resolve WHICH executor places this order. With PER_USER_LIVE_ENABLED off
         # (default) this is always the shared operator executor, so everything
@@ -7496,6 +7533,7 @@ class RuneClawEngine:
             _is_pyramid_add = True
             original_size = size_usd
             size_usd = size_usd * 0.5
+            note_size_step(idea, "pyramid add x0.50", size_usd)
             audit(trade_log,
                   f"Pyramid add: half size ${original_size:.2f} -> ${size_usd:.2f}",
                   action="pyramid_half_size", result="APPLIED")
@@ -7529,6 +7567,8 @@ class RuneClawEngine:
             if _sess.size_multiplier < 1.0:
                 _orig = size_usd
                 size_usd = round(size_usd * _sess.size_multiplier, 2)
+                note_size_step(idea, f"stock session {_sess.session_name} "
+                                     f"x{_sess.size_multiplier:.2f}", size_usd)
                 audit(trade_log,
                       f"Stock session sizing: {idea.asset} {_sess.session_name} "
                       f"x{_sess.size_multiplier:.2f} — ${_orig:.2f} -> ${size_usd:.2f}",
@@ -7578,7 +7618,9 @@ class RuneClawEngine:
                   action="live_size_clamp", result="CLAMPED",
                   data={"requested": round(size_usd, 2), "available": round(_sized, 2),
                         "user_id": user_id})
+        _before_clamp = size_usd
         size_usd = _sized
+        note_size_step(idea, "free-margin clamp", size_usd, before=_before_clamp)
 
         # Manual margin override: if user specified a fixed margin via /trade command.
         # Audit V7 follow-up (double-leverage fix): size_usd is MARGIN everywhere —
@@ -7591,7 +7633,9 @@ class RuneClawEngine:
         if hasattr(self, '_manual_margin_override') and idea.id in self._manual_margin_override:
             manual_margin = self._manual_margin_override.pop(idea.id)
             leverage = CONFIG.exchange.default_leverage
+            _before_manual = size_usd
             size_usd = manual_margin  # margin; executor applies leverage for notional
+            note_size_step(idea, "manual margin override", size_usd, before=_before_manual)
             audit(system_log,
                   f"Manual margin override: ${manual_margin:.2f} margin "
                   f"(≈${manual_margin * leverage:.2f} notional at {leverage}x)",
@@ -7611,6 +7655,7 @@ class RuneClawEngine:
                       data={"requested": round(size_usd, 2), "cap": round(_cap, 2),
                             "user_id": user_id})
                 size_usd = _cap
+                note_size_step(idea, "per-user ceiling", size_usd)
             # Same three-valued read as the automatic path above: a manual
             # margin must not be clamped against an unreported figure either.
             _msized, _mwhy = clamp_to_free_margin(size_usd, live_bal)
@@ -7634,7 +7679,9 @@ class RuneClawEngine:
                       action="manual_margin_clamp", result="CLAMPED",
                       data={"requested": round(size_usd, 2),
                             "available": round(_msized, 2), "user_id": user_id})
+            _before_mclamp = size_usd
             size_usd = _msized
+            note_size_step(idea, "free-margin clamp", size_usd, before=_before_mclamp)
 
         # C2-53 FIX: Reject trade when ATR is missing or zero.
         # A zero ATR produces SL at entry price = immediate stop-out.

@@ -131,6 +131,16 @@ GATES: dict[str, tuple[str, str, str]] = {
         "a user's self-declared risk appetite changes what the agent SAYS and "
         "not what it sizes — their positions are the same size as everybody "
         "else's"),
+    "quality_ladder_size_enabled": (
+        "Quality ladder (size)", KIND_SIZE,
+        "a 0.58 idea and a 0.92 idea are sized identically — the analyzer's "
+        "measured confidence moves no size; the rung it would apply is only "
+        "audited as SHADOW"),
+    "quality_ladder_leverage_enabled": (
+        "Quality ladder (leverage)", KIND_SIZE,
+        "trade quality caps nothing — every idea is set on the venue at the "
+        "standard leverage whatever its confidence; the rung it would apply "
+        "is only audited as SHADOW"),
     "live_performance_governor_enabled": (
         "Live performance governor", KIND_SIZE,
         "no closed-loop de-risking when realized outcomes are losing"),

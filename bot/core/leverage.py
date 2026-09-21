@@ -146,6 +146,36 @@ def set_margin_risk_cap(idea: Any, leverage: Optional[int]) -> None:
         pass
 
 
+def tighten_leverage_cap(idea: Any, leverage: Optional[int]) -> None:
+    """Record a leverage cap for this idea, keeping the LOWER of it and any
+    cap already on record.
+
+    The margin-risk cap and the quality ladder both write the one attribute
+    `apply_margin_risk_cap` reads, and they are decided at different points
+    of the risk gate; a second writer that overwrote would silently undo the
+    first, in whichever order they happened to run. ``set_margin_risk_cap``
+    keeps its own contract (a verdict names the leverage the cap allows) and
+    the gate calls it AFTER this, on a leverage it measured from the
+    ladder's -- so its figure is never above this one; a later reordering
+    is what this min() is for. ``None`` writes nothing, as its sibling.
+    """
+    if leverage is None:
+        return
+    try:
+        lev = max(1, int(leverage))
+    except (TypeError, ValueError):
+        return
+    try:
+        prior = getattr(idea, RISK_CAP_ATTR, None)
+        prior_i = int(prior) if prior else None
+    except (TypeError, ValueError):
+        prior_i = None
+    try:
+        setattr(idea, RISK_CAP_ATTR, lev if prior_i is None else min(prior_i, lev))
+    except Exception:
+        pass
+
+
 def apply_margin_risk_cap(target: int, idea: Any) -> int:
     """Clamp ``target`` down to this idea's margin-risk cap. REDUCE-ONLY.
 

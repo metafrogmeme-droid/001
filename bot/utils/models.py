@@ -181,6 +181,12 @@ class RiskCheck(BaseModel):
     checks_failed: list[str] = Field(default_factory=list)
     reason: str = ""
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Which step decided `position_size_usd`, and every step that led there
+    # (bot/core/size_trace.py). A figure with no basis is a claim the reader
+    # cannot check; "which bound bit" is the one question an operator asks of
+    # a size they did not expect. Empty for a check built without a trace.
+    size_basis: str = ""
+    size_path: list[str] = Field(default_factory=list)
     # Guardian Intent Compiler: the compiled-policy evaluation for this trade
     # (policy_id, hash, mode, verdict, violations, checked/skipped). Optional so
     # every existing construction stays valid; the risk engine sets it when a
