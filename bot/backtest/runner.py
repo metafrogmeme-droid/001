@@ -15,9 +15,12 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
+from bot.backtest.benchmark_record import profit_factor
 from bot.backtest.data_loader import DataLoader
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.funding import funding_figure, funding_note
@@ -841,6 +844,50 @@ def _attribution_report(result) -> str:
     return "\n".join(lines)
 
 
+def pooled_stats(trades) -> dict:
+    """The pooled OOS figures as DATA — one reading for the printed report and
+    for the artefact the benchmark command writes, so the file cannot say
+    something the console did not.
+
+    ``pf`` is None when there is no losing trade: a profit factor is gross win
+    over gross loss and over nothing it is not a ratio. The console used to
+    print ``inf`` there, which reads as a measurement of infinite edge; the
+    parity card had the same ``inf`` one module over (`parity._pf`), and both
+    answer None now. ``mean_net_usd`` is the per-trade mean the parity verdict
+    compares the live book against."""
+    n = len(trades)
+    nets = [float(t.net_pnl_usd) for t in trades]
+    wins = sum(1 for x in nets if x > 0)
+    losses = sum(1 for x in nets if x < 0)
+    gross_win = sum(x for x in nets if x > 0)
+    gross_loss = sum(-x for x in nets if x < 0)
+    return {
+        "trades": n,
+        "wins": wins,
+        "losses": losses,
+        "flat": n - wins - losses,
+        "net_usd": round(sum(nets), 4),
+        "gross_win_usd": round(gross_win, 4),
+        "gross_loss_usd": round(gross_loss, 4),
+        "win_rate": (wins / n) if n else None,
+        "pf": profit_factor(nets),
+        "mean_net_usd": (sum(nets) / n) if n else None,
+    }
+
+
+def _code_sha() -> str | None:
+    """The commit the benchmark was measured at, best-effort: None on a box
+    with no git rather than a guess, and the artefact says so."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(Path(__file__).resolve().parents[2]),
+            capture_output=True, text=True, timeout=5, check=False)
+        sha = out.stdout.strip()
+        return sha if out.returncode == 0 and len(sha) >= 7 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _pooled_attribution_report(trades, *, label: str) -> str:
     """Attribution over a POOLED trade set (e.g. every walk-forward OOS fold's
     trades merged). A single full-window backtest halts on the circuit breaker
@@ -850,14 +897,12 @@ def _pooled_attribution_report(trades, *, label: str) -> str:
     Calmar here (those need a single continuous equity curve)."""
     if not trades:
         return ""
-    gross_win = sum(t.net_pnl_usd for t in trades if t.net_pnl_usd > 0)
-    gross_loss = sum(-t.net_pnl_usd for t in trades if t.net_pnl_usd <= 0)
-    wins = sum(1 for t in trades if t.net_pnl_usd > 0)
-    pooled_pf = (gross_win / gross_loss) if gross_loss > 0 else float("inf")
-    pf_str = "inf" if pooled_pf == float("inf") else f"{pooled_pf:.2f}"
+    s = pooled_stats(trades)
+    pf_str = "— (no losing trade)" if s["pf"] is None else f"{s['pf']:.2f}"
     lines = ["", f"  ── EDGE ATTRIBUTION ({label}) " + "─" * 30,
-             f"  Pooled: {len(trades)} trades  net ${sum(t.net_pnl_usd for t in trades):+,.2f}"
-             f"  win {wins / len(trades):.0%}  PF {pf_str}"]
+             f"  Pooled: {s['trades']} trades  net ${s['net_usd']:+,.2f}"
+             f"  win {s['win_rate']:.0%}  PF {pf_str}  ({s['wins']}W/{s['losses']}L"
+             + (f"/{s['flat']}F" if s["flat"] else "") + ")"]
     lines.extend(_bucket_lines(trades))
     return "\n".join(lines)
 
@@ -1004,12 +1049,22 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
             # behind to notice it, which is what happened.
             _write_json(args.output, {
                 "mode": "portfolio_walk_forward",
+                # When and at which commit: the parity card prints both, so
+                # an artefact the code has moved past is stated as old rather
+                # than read as current (docs/FROZEN_BENCHMARK.md's own
+                # 2026-09-11 note is a baseline that drifted unseen).
+                "recorded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "code_sha": _code_sha(),
+                "dataset": getattr(args, "dataset", None),
+                "honest": bool(getattr(args, "honest", False)),
                 "folds_requested": args.walk_forward,
                 "folds_run": len(folds),
                 "profitable_folds": prof,
                 "mean_oos_return_pct": mean_oos,
                 "worst_oos_return_pct": min(rets) if rets else None,
                 "pooled_trades": len(pooled),
+                # The same reading the console printed above, as data.
+                "pooled": pooled_stats(pooled),
                 "data_source": data_source,
                 "universe": universe,
                 "commission_pct": config.commission_pct,

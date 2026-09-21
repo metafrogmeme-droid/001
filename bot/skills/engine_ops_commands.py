@@ -795,7 +795,7 @@ class EngineOpsCommands:
         import html as _html
         from bot.backtest.parity import (_bucket_lines, _group,
                                          format_report, load_closed_trades,
-                                         parity_summary)
+                                         parity_summary, strategy_exits)
         from bot.core.market_scanner import category_for_symbol
 
         path = self.engine.live_executor._closed_trades_file
@@ -814,14 +814,13 @@ class EngineOpsCommands:
                                        CONFIG.risk.commission_pct)
         report = format_report(summary)
         # Evidence extension: the per-asset-class bucket (classpf's view,
-        # inside the parity framing). Filter never-filled records with the
-        # SAME rule the headline stats use — previously this bucket counted
-        # all raw records, so its totals disagreed with the summary (25 vs
-        # 18) and win rates were diluted by zero-PnL non-fills.
-        from bot.utils.close_reason import is_filled_close
-        from bot.backtest.parity import _net
-        filled = [tr for tr in trades
-                  if is_filled_close(tr.get("close_reason"), _net(tr))]
+        # inside the parity framing). The rows are the headline's own —
+        # `strategy_exits` is the ONE rule (never-filled, unscored and the
+        # execution aborts each excluded there) — because this bucket used to
+        # apply its own copy of the filter, and a bucket over a different
+        # population than the headline it sits under is a second answer to
+        # "how many trades" (25 vs 18, once).
+        filled = strategy_exits(trades)
         for tr in filled:
             tr["asset_class"] = category_for_symbol(tr.get("symbol", "") or "")
         cls_lines = _bucket_lines("By asset class",

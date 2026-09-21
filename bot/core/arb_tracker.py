@@ -275,10 +275,13 @@ class ArbVerdict:
         return (round(100.0 * lo / self.notional, 4), round(100.0 * hi / self.notional, 4))
 
 
-def _mean_interval(samples: list[float], z: float = _Z) -> Optional[tuple]:
+def mean_interval(samples: list[float], z: float = _Z) -> Optional[tuple]:
     """The 95% normal interval on the mean of ``samples``; None below two.
     The shadow scoreboard's instrument (`mean_r_interval`), for the same
-    reason it is not Wilson: a signed magnitude per entry, not a proportion."""
+    reason it is not Wilson: a signed magnitude per entry, not a proportion.
+    Public because the parity verdict is the third reader (a live book's
+    per-trade net is the same kind of quantity); a third private copy would be
+    a third answer about what an interval is."""
     n = len(samples)
     if n < 2:
         return None
@@ -313,7 +316,7 @@ def arb_verdict(carries: list[PaperCarry], *, notional: float = PAPER_NOTIONAL_U
     if not carries:
         return ArbVerdict("thin", "no tracked history yet — nothing to score", **base)
     mean = (sum(samples) / scored) if scored else None
-    interval = _mean_interval(samples)
+    interval = mean_interval(samples)
     base.update(mean_net_usd=None if mean is None else round(mean, 4),
                 interval_usd=interval)
     open_note = f" ({total - scored} still open, not scored)" if total > scored else ""

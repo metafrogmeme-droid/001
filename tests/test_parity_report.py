@@ -1,7 +1,11 @@
 """The parity report reads live realized trades and reports the same lens as the
 frozen benchmark (PF / win / net + fee parity + per-family breakdown), so live
-can be compared to the +0.31% / PF 1.14 backtest and any fills/fees gap shows up.
-Pure, read-only; fail-soft on missing/malformed data.
+can be compared to the benchmark ON RECORD (bot/backtest/benchmark_record —
+the artefact the benchmark command writes, never a number typed into the
+card) and any fills/fees gap shows up. Pure, read-only; fail-soft on
+missing/malformed data. The verdict, the execution-abort split and the
+provenance-merged reason rows are pinned in
+tests/test_the_parity_card_reads_the_benchmark_on_record.py.
 """
 import json
 

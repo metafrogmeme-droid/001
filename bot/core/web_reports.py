@@ -155,7 +155,21 @@ def _parity_section(engine) -> Optional[dict]:
     keep = ("trades", "excluded_non_fills", "unscored_pnl", "win_rate", "pf",
             "fees_read", "realized_fee_rate", "modeled_fee_rate",
             "fee_vs_model", "fee_drag_of_gross", "inferred_fills")
-    return {k: summary.get(k) for k in keep}
+    out = {k: summary.get(k) for k in keep}
+    # The verdict's WORDS and the benchmark's scale-free figures travel; the
+    # sentences do not, because each carries a per-trade dollar mean, and the
+    # benchmark's pooled net is a dollar figure too (a simulated one, on a
+    # public route — the rule is about the shape, not the account).
+    v = summary.get("verdict") or {}
+    b = summary.get("benchmark") or {}
+    out["aborts"] = (summary.get("aborts") or {}).get("trades")
+    out["verdict"] = {k: v.get(k) for k in ("edge", "ballpark", "n", "in_universe",
+                                            "outside", "inferred", "min_trades")}
+    out["benchmark"] = {k: b.get(k) for k in ("state", "reason", "dataset", "recorded_at",
+                                              "code_sha", "folds_run", "profitable_folds",
+                                              "mean_oos_return_pct", "pooled_trades",
+                                              "pooled_win_rate", "pooled_pf")}
+    return out
 
 
 def _yield_section(engine) -> Optional[dict]:

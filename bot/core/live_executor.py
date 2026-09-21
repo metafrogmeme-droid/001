@@ -45,6 +45,10 @@ from bot.core.order_rules import (
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
+from bot.core.close_lookup import (
+    StageOutcome, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
+    lookup_skipped, lookup_unmatched, nearest_entry_gap_pct,
+)
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import apply_margin_risk_cap, leverage_floor
 from bot.core import size_bounds
@@ -478,6 +482,7 @@ def closed_trade_row(pos) -> dict:
         "close_reason": pos.close_reason,
         "origin": pos.origin,
         "fill_source": pos.fill_source,
+        "close_lookup": pos.close_lookup,
         # Provenance for the parity/attribution buckets — the fields lived on
         # LivePosition since the strategy-type work but were never serialized,
         # so the live parity report's "By setup"/"By signal type" sections
@@ -485,6 +490,18 @@ def closed_trade_row(pos) -> dict:
         "strategy_type": pos.strategy_type,
         "signal_type": pos.signal_type,
     }
+def _num_or_none(v) -> Optional[float]:
+    """A venue field as a number, or None when it is not one. Bitget spells
+    its numbers as strings; an absent or empty field is an absence, never 0."""
+    if isinstance(v, bool) or v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None
+
+
 #: What a close card prints where a number would go when nothing could be read.
 UNREAD = "unread"
 
@@ -1188,10 +1205,21 @@ class LivePosition:
     #                 "adopted" (orphan on exchange), "reclaimed" (own limit
     #                 order re-tracked).
     #   fill_source — how the CLOSE record was sourced:
-    #                 "bitget_position_history"/"exchange_fill_*"/"closed_order"
-    #                 (authoritative) vs "ticker_fallback" (inferred, not truth).
+    #                 "bitget_position_history" / "exchange_fill_sltp" /
+    #                 "exchange_fill_recent" / "closed_order" (the venue priced
+    #                 it); "exchange_fill_*_local_pnl" (the venue's fill PRICE,
+    #                 a P&L it did not state derived here); and three ticker
+    #                 words, one per path, all read by
+    #                 close_lookup.is_ticker_priced: "ticker_fallback" (gone
+    #                 before the bot's close arrived), "ticker_after_bot_close"
+    #                 (the bot's own close order filled, its price unread) and
+    #                 "ticker_fallback_after_N_retries" (the sweep gave up).
+    #   close_lookup — WHY a ticker-priced close was ticker-priced: the
+    #                 venue lookup's class (close_lookup.lookup_class), None
+    #                 when a stage priced it.
     origin: str = "executed"
     fill_source: Optional[str] = None
+    close_lookup: Optional[str] = None
 
 
 # ── Kill-switch awareness ────────────────────────────────────────────────────
@@ -1368,6 +1396,11 @@ class LiveExecutor:
         # before the process died. Cleared once reconcile has resolved the
         # position's true state (closed for real, or confirmed still open).
         self._recovered_from_closing: set[str] = set()
+        # Positions whose failed venue close lookup has already been said at
+        # WARNING (bot/core/close_lookup.py): the sweep retries the lookup up
+        # to thirty times per position before it gives up, and thirty copies
+        # of one sentence is how a log stops being read.
+        self._close_lookup_warned: set[str] = set()
         # Dynamic leverage: ATR-based volatility ratios per symbol
         self._last_atr_pct: dict[str, float] = {}  # symbol -> ATR/price ratio
         # Symbols already warned about unverifiable leverage (once per process)
@@ -10211,7 +10244,13 @@ class LiveExecutor:
                     ticker = await main_exchange.fetch_ticker(pos.symbol)
                     fill_price = float(ticker.get("last", 0) or 0)
                     if fill_price > 0:
-                        _fill_src = "ticker_fallback"
+                        # Its own word: this is the bot's close order, filled,
+                        # whose price no read gave up. The 25227 path's
+                        # "ticker_fallback" is a position that was gone before
+                        # the close arrived, and the sweep's is a third thing;
+                        # one word covered all three and the card could not
+                        # say which path produced the 175.
+                        _fill_src = "ticker_after_bot_close"
                 except Exception as _tick_exc:
                     logger.warning("Close price ticker fallback failed for %s: %s",
                                    pos.symbol, _tick_exc)
@@ -10699,44 +10738,104 @@ class LiveExecutor:
     async def _fetch_bitget_close_data(
         self, pos: LivePosition,
     ) -> dict | None:
-        """Query Bitget position history API for actual close price and PnL.
+        """Query the venue for the actual close price and PnL of a position
+        that is gone from its book.
 
-        Returns dict with keys: close_price, pnl, fees, reason, source
-        or None if the lookup fails.
+        Returns dict with keys: close_price, pnl, fees, reason, source,
+        pnl_is_net (and leverage off the history row) -- or None when no
+        stage could price the close, in which case ``pos.close_lookup`` says
+        WHY (bot/core/close_lookup.py) and the caller falls back to a ticker.
 
-        This is the authoritative source — Bitget's own closed-position
-        record with the real fill price, realized PnL, and fees.
-        Bitget-only channel (v2 history endpoint): other venues return None
-        and the caller falls back to order-fill / ticker close data.
+        Three stages, most authoritative first:
+          1. Bitget's own position history (v2 endpoint) -- Bitget ONLY. Every
+             other venue SKIPS this stage and records that it did; it used to
+             skip all three, so a Bybit/BingX/Hyperliquid account was
+             ticker-priced on every swept close by construction while this
+             docstring promised "the caller falls back to order-fill data".
+          2. fetch_my_trades -- matched by the stop/target order ids, then by
+             a close-side fill after the position opened. Every ccxt venue.
+          3. fetch_closed_orders -- the stop/target order, filled. Every ccxt
+             venue.
+
+        A matched fill's PRICE is kept whether or not the venue's per-fill
+        profit field was populated: the price is the venue's own, and a P&L
+        the venue did not state is derived by the caller from the fee
+        arithmetic it already has (``pnl: None``, source ``*_local_pnl``).
+        The old rule discarded the whole match when that field read 0 -- an
+        authoritative price thrown away because a secondary field was
+        unpopulated, after which the ticker, strictly worse, won. For this
+        field 0 is not a stated profit: Bitget writes "0" on every open-side
+        fill and on a close whose realized figure it did not fill in, and a
+        genuine break-even close priced off its fill comes out as the fee it
+        cost, which is the truth of it.
+
+        The stage walk is recorded, so the WARNING at the end names what each
+        stage did (raised -- the exception CLASS, never its text; answered
+        rows that matched nothing, with the nearest entry gap; answered no
+        rows; skipped, and why) -- once per position, because the sweep
+        retries this thirty times before it gives up.
         """
-        if self._venue.id != "bitget":
-            return None
+        outcomes: list[StageOutcome] = []
         exchange = await self._get_exchange()
         ccxt_symbol = self._venue.swap_symbol(pos.symbol)
-        # Bitget raw symbol: strip /USDT:USDT → e.g. "BTCUSDT"
-        # Handle all possible formats: "BZ/USDT:USDT" → "BZUSDT", "BZUSDT" stays
+        opened_ms = int(pos.opened_at.timestamp() * 1000) if pos.opened_at else None
+
+        # -- 1. Bitget position history endpoint (most accurate) ----------
+        if self._venue.id != "bitget":
+            outcomes.append(lookup_skipped(
+                "history", f"{self._venue.id} has no position-history channel here"))
+        else:
+            found = await self._close_from_history(pos, exchange, opened_ms, outcomes)
+            if found is not None:
+                return found
+
+        # -- 2. fetch_my_trades -- every ccxt venue -----------------------
+        found = await self._close_from_fills(pos, exchange, ccxt_symbol, opened_ms, outcomes)
+        if found is not None:
+            return found
+
+        # -- 3. fetch_closed_orders -- every ccxt venue -------------------
+        found = await self._close_from_orders(pos, exchange, ccxt_symbol, outcomes)
+        if found is not None:
+            return found
+
+        # -- 4. Nothing priced the close: say WHY, once, and let the caller
+        # fall back to a ticker. The class rides on the position so the
+        # record it books carries the cause and next week's parity card can
+        # count causes rather than closes.
+        pos.close_lookup = lookup_class(outcomes)
+        sentence = lookup_sentence(pos.symbol, outcomes)
+        if pos.trade_id in self._close_lookup_warned:
+            logger.debug("%s (repeat; the caller falls back to a ticker)", sentence)
+        else:
+            self._close_lookup_warned.add(pos.trade_id)
+            logger.warning("%s -- the caller falls back to a ticker", sentence)
+        return None
+
+    async def _close_from_history(self, pos: LivePosition, exchange,
+                                  opened_ms: Optional[int],
+                                  outcomes: list[StageOutcome]) -> dict | None:
+        """Stage 1: GET /api/v2/mix/position/history-position.
+
+        Returns (v2 field names): openAvgPrice, closeAvgPrice, pnl (gross),
+        netProfit (fee-adjusted), openFee, closeFee. NOTE: the v1 endpoint used
+        openPrice/achievedProfits -- reading those v1 names off a v2 response
+        yields None -> 0, which silently skipped every row (entry_price_hist<=0
+        -> continue) and made this authoritative lookup always return None,
+        forcing the ticker/inference fallback (incident TI-a4ba8a82).
+
+        Progressively wider time windows: 5 min before the position opened,
+        1 hour before, then no filter at all (the venue's last 20 positions).
+        """
+        # Bitget raw symbol: strip /USDT:USDT -> e.g. "BTCUSDT"
+        # Handle all possible formats: "BZ/USDT:USDT" -> "BZUSDT", "BZUSDT" stays
         raw_symbol = pos.symbol.split(":")[0].replace("/", "")
         if not raw_symbol.endswith("USDT"):
             raw_symbol = raw_symbol + "USDT"
-
-        # ── 1. Bitget position history endpoint (most accurate) ────────
-        # GET /api/v2/mix/position/history-position
-        # Returns (v2 field names): openAvgPrice, closeAvgPrice, pnl (gross),
-        # netProfit (fee-adjusted), openFee, closeFee. NOTE: the v1 endpoint used
-        # openPrice/achievedProfits — reading those v1 names off a v2 response
-        # yields None -> 0, which silently skipped every row (entry_price_hist<=0
-        # -> continue) and made this authoritative lookup always return None,
-        # forcing the ticker/inference fallback (incident TI-a4ba8a82).
-        #
-        # Try with progressively wider time windows:
-        #   Pass 1: from 5 min before position opened (tight)
-        #   Pass 2: from 1 hour before position opened (wider)
-        #   Pass 3: no startTime filter at all (widest — gets last 20 positions)
         time_windows: list[Optional[int]] = []
-        if pos.opened_at:
-            ts_ms = int(pos.opened_at.timestamp() * 1000)
-            time_windows.append(ts_ms - 300_000)    # 5 min before open
-            time_windows.append(ts_ms - 3_600_000)  # 1 hour before open
+        if opened_ms is not None:
+            time_windows.append(opened_ms - 300_000)    # 5 min before open
+            time_windows.append(opened_ms - 3_600_000)  # 1 hour before open
         time_windows.append(None)  # no filter
 
         for since_ms in time_windows:
@@ -10754,235 +10853,341 @@ class LiveExecutor:
                     "Position history for %s (window=%s): %d entries returned",
                     raw_symbol, since_ms, len(entries),
                 )
+                if not entries:
+                    outcomes.append(lookup_no_rows("history"))
+                    continue
 
-                # Match by entry price — use 0.5% tolerance (partial fills shift avg)
-                best_match = None
-                best_price_diff = float("inf")
-                for entry in entries:
-                    # v2 name is openAvgPrice; keep the v1 openPrice as a
-                    # defensive fallback so a legacy payload still matches.
-                    entry_price_hist = float(
-                        entry.get("openAvgPrice") or entry.get("openPrice") or 0)
-                    if entry_price_hist <= 0:
-                        continue
-                    price_diff = abs(entry_price_hist - pos.entry_price) / pos.entry_price
-                    if price_diff < 0.005 and price_diff < best_price_diff:  # within 0.5%
-                        best_match = entry
-                        best_price_diff = price_diff
+                best_match, best_price_diff, miss = self._match_history_row(pos, entries, opened_ms)
+                if best_match is None:
+                    outcomes.append(lookup_unmatched(
+                        "history", len(entries),
+                        nearest_entry_gap_pct(
+                            (_num_or_none(e.get("openAvgPrice") or e.get("openPrice"))
+                             for e in entries), pos.entry_price),
+                        miss))
+                    continue
 
-                if best_match:
-                    entry = best_match
-                    close_price = float(entry.get("closeAvgPrice", 0) or 0)
-                    # v2 name is pnl (gross); keep achievedProfits (v1) as fallback.
-                    pnl = float(entry.get("pnl") or entry.get("achievedProfits") or 0)
-                    open_fee = abs(float(entry.get("openFee", 0) or 0))
-                    close_fee = abs(float(entry.get("closeFee", 0) or 0))
-                    total_fees = open_fee + close_fee
-                    net_profit = float(entry.get("netProfit", 0) or 0)
-                    # Leverage as the exchange applied it. Not present on every
-                    # history payload; captured best-effort so the caller can
-                    # reconcile a stale/config-derived pos.leverage when available.
-                    hist_leverage = int(float(
-                        entry.get("leverage") or entry.get("openLeverage") or 0))
+                entry = best_match
+                close_price = float(entry.get("closeAvgPrice", 0) or 0)
+                # v2 name is pnl (gross); keep achievedProfits (v1) as fallback.
+                pnl = float(entry.get("pnl") or entry.get("achievedProfits") or 0)
+                open_fee = abs(float(entry.get("openFee", 0) or 0))
+                close_fee = abs(float(entry.get("closeFee", 0) or 0))
+                total_fees = open_fee + close_fee
+                net_profit = float(entry.get("netProfit", 0) or 0)
+                # Leverage as the exchange applied it. Not present on every
+                # history payload; captured best-effort so the caller can
+                # reconcile a stale/config-derived pos.leverage when available.
+                hist_leverage = int(float(
+                    entry.get("leverage") or entry.get("openLeverage") or 0))
 
-                    if close_price > 0:
-                        # netProfit is the fee-adjusted figure. When it is 0 the
-                        # field is (almost always) just unpopulated, not a true
-                        # break-even, so fall back to gross `pnl`. But total_fees
-                        # here is the FULL round trip (openFee+closeFee), so derive
-                        # net locally and flag it NET — otherwise the caller's
-                        # _reconcile_exchange_close_pnl adds a SECOND estimated
-                        # entry fee on top of fees that already include the open
-                        # leg (entry-fee double-count).
-                        if net_profit != 0:
-                            final_pnl = net_profit
-                            _pnl_is_net = True
-                        elif total_fees > 0:
-                            final_pnl = pnl - total_fees
-                            _pnl_is_net = True
-                        else:
-                            final_pnl = pnl
-                            _pnl_is_net = False
-                        close_type = (entry.get("closeType") or "").lower()
-                        reason = self._close_reason_from_type(
-                            pos, close_type, close_price, final_pnl)
-                        if reason is None:
-                            # closeType carried no mechanism (bare market
-                            # close / unclassified). Fall back to price
-                            # inference against the stored levels — a fill
-                            # sitting AT the stop or target is a trigger
-                            # Bitget reported oddly, not an unknown.
-                            reason = self._infer_close_reason(pos, close_price)
+                if close_price <= 0:
+                    outcomes.append(lookup_unmatched(
+                        "history", len(entries), None,
+                        "the matched row carries no close price"))
+                    continue
+                # netProfit is the fee-adjusted figure. When it is 0 the
+                # field is (almost always) just unpopulated, not a true
+                # break-even, so fall back to gross `pnl`. But total_fees
+                # here is the FULL round trip (openFee+closeFee), so derive
+                # net locally and flag it NET -- otherwise the caller's
+                # _reconcile_exchange_close_pnl adds a SECOND estimated
+                # entry fee on top of fees that already include the open
+                # leg (entry-fee double-count).
+                if net_profit != 0:
+                    final_pnl = net_profit
+                    _pnl_is_net = True
+                elif total_fees > 0:
+                    final_pnl = pnl - total_fees
+                    _pnl_is_net = True
+                else:
+                    final_pnl = pnl
+                    _pnl_is_net = False
+                close_type = (entry.get("closeType") or "").lower()
+                reason = self._close_reason_from_type(
+                    pos, close_type, close_price, final_pnl)
+                if reason is None:
+                    # closeType carried no mechanism (bare market
+                    # close / unclassified). Fall back to price
+                    # inference against the stored levels -- a fill
+                    # sitting AT the stop or target is a trigger
+                    # Bitget reported oddly, not an unknown.
+                    reason = self._infer_close_reason(pos, close_price)
 
-                        logger.info(
-                            "Bitget position history for %s: close=%.4f, pnl=%.4f, fees=%.4f, lev=%dx (price_diff=%.4f%%)",
-                            pos.symbol, close_price, final_pnl, total_fees, hist_leverage, best_price_diff * 100,
-                        )
-                        return {
-                            "close_price": close_price,
-                            "pnl": final_pnl,
-                            "fees": total_fees,
-                            "reason": reason,
-                            "source": "bitget_position_history",
-                            "leverage": hist_leverage,
-                            # True when pnl is already fee-adjusted: either
-                            # netProfit was populated, or we derived net locally
-                            # from the full round-trip fees above.
-                            "pnl_is_net": _pnl_is_net,
-                        }
+                logger.info(
+                    "Bitget position history for %s: close=%.4f, pnl=%.4f, fees=%.4f, lev=%dx (price_diff=%.4f%%)",
+                    pos.symbol, close_price, final_pnl, total_fees, hist_leverage, best_price_diff * 100,
+                )
+                return {
+                    "close_price": close_price,
+                    "pnl": final_pnl,
+                    "fees": total_fees,
+                    "reason": reason,
+                    "source": "bitget_position_history",
+                    "leverage": hist_leverage,
+                    # True when pnl is already fee-adjusted: either
+                    # netProfit was populated, or we derived net locally
+                    # from the full round-trip fees above.
+                    "pnl_is_net": _pnl_is_net,
+                }
             except Exception as e:
                 logger.debug("Bitget position history lookup failed for %s (window=%s): %s",
                              pos.symbol, since_ms, e)
+                outcomes.append(lookup_raised("history", e))
+        return None
 
-        # ── 2. fetchMyTrades — match any recent close trade by symbol ──
-        # Not just SL/TP order IDs — also find manual close fills
-        # Try without since filter if first attempt returns nothing useful
-        for attempt, use_since in enumerate([(True,), (False,)]):
+    @staticmethod
+    def _match_history_row(pos: LivePosition, entries: list,
+                           opened_ms: Optional[int]) -> tuple[Optional[dict], float, str]:
+        """Which history row is THIS position: ``(row, entry gap, why-not)``.
+
+        By entry price within 0.5% (partial fills shift the average) when the
+        record holds one. An ADOPTED position's entry is the field the venue
+        never stated (``adoption_unread``, 0.0), and the old expression
+        divided by it -- a ZeroDivisionError swallowed at DEBUG, so an adopted
+        position could never match its own history and was ticker-priced on
+        every close. With no entry price the row is matched on what the
+        record does hold: the SIDE, and a close time after the position was
+        tracked, taking the earliest such close (a later row on the same
+        symbol is a later position). A payload whose rows carry no side
+        cannot be matched that way, and says so rather than guessing.
+        """
+        if pos.entry_price > 0:
+            best, best_diff = None, float("inf")
+            for entry in entries:
+                # v2 name is openAvgPrice; keep the v1 openPrice as a
+                # defensive fallback so a legacy payload still matches.
+                entry_price_hist = float(
+                    entry.get("openAvgPrice") or entry.get("openPrice") or 0)
+                if entry_price_hist <= 0:
+                    continue
+                price_diff = abs(entry_price_hist - pos.entry_price) / pos.entry_price
+                if price_diff < 0.005 and price_diff < best_diff:  # within 0.5%
+                    best, best_diff = entry, price_diff
+            return best, best_diff, ""
+        side = (pos.direction or "").lower()
+        sided = [e for e in entries if str(e.get("holdSide") or "").lower() == side]
+        if not any(e.get("holdSide") for e in entries):
+            return None, float("inf"), "entry price unread and the rows carry no holdSide"
+        if opened_ms is None:
+            return None, float("inf"), "entry price unread and the record holds no open time"
+        after = []
+        for e in sided:
+            closed_ms = _num_or_none(e.get("utime") or e.get("ctime"))
+            if closed_ms is not None and closed_ms >= opened_ms:
+                after.append((closed_ms, e))
+        if not after:
+            return None, float("inf"), (
+                f"entry price unread; no {side} row closed after the position was tracked")
+        after.sort(key=lambda t: t[0])
+        return after[0][1], 0.0, ""
+
+    async def _close_from_fills(self, pos: LivePosition, exchange, ccxt_symbol: str,
+                                opened_ms: Optional[int],
+                                outcomes: list[StageOutcome]) -> dict | None:
+        """Stage 2: fetch_my_trades -- the stop/target order ids first, then a
+        close-side fill after the position opened. Tried with a since filter
+        from the open, then without one when the filtered read matched
+        nothing."""
+        for attempt, use_since in enumerate((True, False)):
             try:
-                if use_since[0] and pos.opened_at:
-                    since_ms_trades = int(pos.opened_at.timestamp() * 1000) - 300_000
-                else:
-                    since_ms_trades = None
+                since_ms_trades = (opened_ms - 300_000) if (use_since and opened_ms is not None) else None
                 trades = await exchange.fetch_my_trades(
                     ccxt_symbol, since=since_ms_trades, limit=50,
                     params=self._venue.futures_params(),
                 )
-
-                # First try matching by SL/TP order IDs
-                if pos.sl_order_id or pos.tp_order_id:
-                    relevant = [
-                        t for t in trades
-                        if t.get("order") in (pos.sl_order_id, pos.tp_order_id)
-                    ]
-                    if relevant:
-                        fill_price = float(relevant[-1].get("price", 0) or 0)
-                        total_profit = 0.0
-                        total_fees = 0.0
-                        for rt in relevant:
-                            info = rt.get("info", {})
-                            profit = float(info.get("profit", 0) or 0)
-                            total_profit += profit
-                            fee_detail = info.get("feeDetail", {})
-                            if isinstance(fee_detail, dict):
-                                total_fees += abs(float(fee_detail.get("totalFee", 0) or 0))
-                        matched_order = relevant[-1].get("order")
-                        if pos.sl_order_id and pos.sl_order_id == pos.tp_order_id:
-                            # v3 COMBINED TPSL: one order id serves BOTH legs,
-                            # so id-matching cannot tell which leg fired — the
-                            # old tp-first check labeled every combined stop
-                            # fill "TP HIT". Decide by the fill price against
-                            # the stored levels instead.
-                            reason = self._infer_close_reason(
-                                pos, fill_price).replace(
-                                "(inferred)", "(exchange, combined TPSL)")
-                        elif matched_order == pos.tp_order_id:
-                            reason = "TP HIT (exchange)"
-                        elif matched_order == pos.sl_order_id:
-                            reason = stop_exit_label(
-                                pos.direction == "LONG", pos.entry_price,
-                                pos.stop_loss, fill_price,
-                                bool(pos.trailing_state
-                                     and pos.trailing_state.get("trailing_active")),
-                                total_profit,
-                            ) + " (exchange)"
-                        else:
-                            # Close-side fill not tied to our SL/TP order IDs —
-                            # infer from price before conceding unknown.
-                            reason = self._infer_close_reason(pos, fill_price)
-                        if fill_price > 0 and total_profit != 0:
-                            return {
-                                "close_price": fill_price,
-                                "pnl": total_profit,
-                                "fees": total_fees,
-                                "reason": reason,
-                                "source": "exchange_fill_sltp",
-                                # Bitget's per-fill "profit" is gross (same
-                                # convention as achievedProfits above); fees
-                                # here are close-side only, never the entry
-                                # leg — caller must not treat this as net.
-                                "pnl_is_net": False,
-                            }
-
-                # Then try matching by reduceOnly / close side trades
-                close_side = "sell" if pos.direction == "LONG" else "buy"
-                close_fills = [
-                    t for t in trades
-                    if t.get("side") == close_side
-                    and t.get("order") not in (getattr(pos, 'limit_order_id', None),)
-                ]
-                if close_fills:
-                    last_fill = close_fills[-1]
-                    fill_price = float(last_fill.get("price", 0) or 0)
-                    info = last_fill.get("info", {})
-                    profit = float(info.get("profit", 0) or 0)
-                    total_fees = 0.0
-                    fee_detail = info.get("feeDetail", {})
-                    if isinstance(fee_detail, dict):
-                        total_fees = abs(float(fee_detail.get("totalFee", 0) or 0))
-                    if fill_price > 0 and profit != 0:
-                        return {
-                            "close_price": fill_price,
-                            "pnl": profit,
-                            "fees": total_fees,
-                            # Unrecognized close-side fill — infer from the
-                            # fill price before conceding unknown.
-                            "reason": self._infer_close_reason(pos, fill_price),
-                            "source": "exchange_fill_recent",
-                            # Gross, close-side fee only — see exchange_fill_sltp note.
-                            "pnl_is_net": False,
-                        }
-
+                if not trades:
+                    outcomes.append(lookup_no_rows("fills"))
+                else:
+                    found, miss = self._fill_by_order_id(pos, trades)
+                    if found is None:
+                        # Both branches' reasons travel: a stop/target fill
+                        # without a price and a close-side fill from before
+                        # the open are different facts about one answer.
+                        found, miss2 = self._fill_by_close_side(pos, trades, opened_ms)
+                        miss = f"{miss}; {miss2}"
+                    if found is not None:
+                        return found
+                    outcomes.append(lookup_unmatched("fills", len(trades), None, miss))
                 # If we got trades but none matched, try without since filter
-                if trades and use_since[0]:
+                if trades and use_since:
                     continue
                 break
             except Exception as e:
                 logger.debug("fetchMyTrades lookup failed for %s (attempt %d): %s",
                              pos.symbol, attempt, e)
+                outcomes.append(lookup_raised("fills", e))
                 if attempt == 0:
                     continue
                 break
+        return None
 
-        # ── 3. fetchClosedOrders — only actually filled orders ─────────
-        if pos.sl_order_id or pos.tp_order_id:
-            try:
-                closed_orders = await exchange.fetch_closed_orders(
-                    ccxt_symbol, limit=20,
-                    params=self._venue.futures_params(),
-                )
-                for o in closed_orders:
-                    if o.get("id") in (pos.sl_order_id, pos.tp_order_id):
-                        filled = float(o.get("filled", 0) or 0)
-                        status = (o.get("status") or "").lower()
-                        if filled <= 0 or status in ("cancelled", "canceled", "expired"):
-                            continue
-                        avg = o.get("average") or o.get("price")
-                        if avg and float(avg) > 0:
-                            if o["id"] == pos.tp_order_id:
-                                reason = "TP HIT (exchange)"
-                            else:
-                                reason = stop_exit_label(
-                                    pos.direction == "LONG", pos.entry_price,
-                                    pos.stop_loss, float(avg),
-                                    bool(pos.trailing_state
-                                         and pos.trailing_state.get("trailing_active")),
-                                ) + " (exchange)"
-                            return {
-                                "close_price": float(avg),
-                                "pnl": None,  # Not available from orders
-                                "fees": 0.0,
-                                "reason": reason,
-                                "source": "closed_order",
-                            }
-            except Exception as e:
-                logger.debug("fetchClosedOrders failed for %s: %s", pos.symbol, e)
+    @staticmethod
+    def _fill_fee(trade: dict) -> float:
+        """The close-side fee the venue reported on a fill: Bitget's raw
+        ``feeDetail.totalFee`` where it is there, else ccxt's unified
+        ``fee.cost`` (every other venue). 0.0 when neither is on the fill --
+        the caller's reconcile then carries the venue's close fee as nothing
+        and estimates the entry leg, which is what it has always done."""
+        info = trade.get("info") or {}
+        fee_detail = info.get("feeDetail") if isinstance(info, dict) else None
+        if isinstance(fee_detail, dict) and fee_detail.get("totalFee") not in (None, ""):
+            return abs(float(fee_detail.get("totalFee") or 0))
+        fee = trade.get("fee")
+        if isinstance(fee, dict) and isinstance(fee.get("cost"), (int, float)):
+            return abs(float(fee["cost"]))
+        return 0.0
 
-        # ── 4. No exchange data found — return None (never estimate) ───
-        logger.warning(
-            "No exchange close data found for %s — all lookups failed "
-            "(raw_symbol=%s). Will use ticker price as last resort.",
-            pos.symbol, raw_symbol,
-        )
+    def _fill_by_order_id(self, pos: LivePosition, trades: list) -> tuple[Optional[dict], str]:
+        """The fills that ARE the stop or the target order, by id."""
+        if not (pos.sl_order_id or pos.tp_order_id):
+            return None, "no stop/target order ids on record"
+        relevant = [
+            t for t in trades
+            if t.get("order") in (pos.sl_order_id, pos.tp_order_id)
+        ]
+        if not relevant:
+            return None, "no fill carries the stop/target order id"
+        fill_price = float(relevant[-1].get("price", 0) or 0)
+        if fill_price <= 0:
+            return None, "the stop/target fill carries no price"
+        total_profit = 0.0
+        total_fees = 0.0
+        for rt in relevant:
+            info = rt.get("info", {})
+            total_profit += float((info.get("profit") if isinstance(info, dict) else 0) or 0)
+            total_fees += self._fill_fee(rt)
+        matched_order = relevant[-1].get("order")
+        if pos.sl_order_id and pos.sl_order_id == pos.tp_order_id:
+            # v3 COMBINED TPSL: one order id serves BOTH legs,
+            # so id-matching cannot tell which leg fired -- the
+            # old tp-first check labeled every combined stop
+            # fill "TP HIT". Decide by the fill price against
+            # the stored levels instead.
+            reason = self._infer_close_reason(
+                pos, fill_price).replace(
+                "(inferred)", "(exchange, combined TPSL)")
+        elif matched_order == pos.tp_order_id:
+            reason = "TP HIT (exchange)"
+        elif matched_order == pos.sl_order_id:
+            reason = stop_exit_label(
+                pos.direction == "LONG", pos.entry_price,
+                pos.stop_loss, fill_price,
+                bool(pos.trailing_state
+                     and pos.trailing_state.get("trailing_active")),
+                total_profit,
+            ) + " (exchange)"
+        else:
+            # Close-side fill not tied to our SL/TP order IDs --
+            # infer from price before conceding unknown.
+            reason = self._infer_close_reason(pos, fill_price)
+        stated = total_profit != 0
+        return {
+            "close_price": fill_price,
+            # Bitget's per-fill "profit" is gross (same convention as
+            # achievedProfits above); fees here are close-side only, never
+            # the entry leg -- caller must not treat this as net. A profit
+            # the venue did not state is None: the caller derives it from
+            # the fill price, and the source word says so.
+            "pnl": total_profit if stated else None,
+            "fees": total_fees,
+            "reason": reason,
+            "source": "exchange_fill_sltp" if stated else "exchange_fill_sltp_local_pnl",
+            "pnl_is_net": False,
+        }, ""
+
+    def _fill_by_close_side(self, pos: LivePosition, trades: list,
+                            opened_ms: Optional[int]) -> tuple[Optional[dict], str]:
+        """A close-side fill on this symbol after the position opened -- a
+        manual close, an app close, a liquidation leg -- that no order id of
+        ours names. In ONE-WAY mode a sell after a long IS a close of it; in
+        hedge mode (or with the mode undetected) a close-side fill can be the
+        OTHER side opening, so there it is taken only when the venue's own
+        row says close (``tradeSide``/``reduceOnly``) or carries a realized
+        profit. A fill from before the position opened is never its close:
+        the last close-side fill on the symbol used to match with no time
+        check at all, so the previous position's exit could price this one."""
+        close_side = "sell" if pos.direction == "LONG" else "buy"
+        candidates = []
+        for t in trades:
+            if t.get("side") != close_side:
+                continue
+            if t.get("order") in (getattr(pos, "limit_order_id", None),):
+                continue
+            ts = _num_or_none(t.get("timestamp"))
+            if opened_ms is not None and ts is not None and ts < opened_ms - 300_000:
+                continue
+            candidates.append(t)
+        if not candidates:
+            return None, f"no {close_side} fill after the position opened"
+        last_fill = candidates[-1]
+        fill_price = float(last_fill.get("price", 0) or 0)
+        if fill_price <= 0:
+            return None, "the close-side fill carries no price"
+        info = last_fill.get("info", {}) if isinstance(last_fill.get("info"), dict) else {}
+        profit = float(info.get("profit", 0) or 0)
+        stated = profit != 0
+        venue_says_close = ("close" in str(info.get("tradeSide") or "").lower()
+                            or bool(info.get("reduceOnly")))
+        if not stated and not venue_says_close and self._hedge_mode is not False:
+            return None, ("a close-side fill with no stated profit and no close marker, "
+                          "and the account is not known to be one-way")
+        return {
+            "close_price": fill_price,
+            "pnl": profit if stated else None,
+            "fees": self._fill_fee(last_fill),
+            # Unrecognized close-side fill -- infer from the
+            # fill price before conceding unknown.
+            "reason": self._infer_close_reason(pos, fill_price),
+            "source": "exchange_fill_recent" if stated else "exchange_fill_recent_local_pnl",
+            # Gross, close-side fee only -- see exchange_fill_sltp note.
+            "pnl_is_net": False,
+        }, ""
+
+    async def _close_from_orders(self, pos: LivePosition, exchange, ccxt_symbol: str,
+                                 outcomes: list[StageOutcome]) -> dict | None:
+        """Stage 3: fetch_closed_orders -- only actually filled orders."""
+        if not (pos.sl_order_id or pos.tp_order_id):
+            outcomes.append(lookup_skipped("orders", "no stop/target order ids on record"))
+            return None
+        try:
+            closed_orders = await exchange.fetch_closed_orders(
+                ccxt_symbol, limit=20,
+                params=self._venue.futures_params(),
+            )
+            if not closed_orders:
+                outcomes.append(lookup_no_rows("orders"))
+                return None
+            for o in closed_orders:
+                if o.get("id") in (pos.sl_order_id, pos.tp_order_id):
+                    filled = float(o.get("filled", 0) or 0)
+                    status = (o.get("status") or "").lower()
+                    if filled <= 0 or status in ("cancelled", "canceled", "expired"):
+                        continue
+                    avg = o.get("average") or o.get("price")
+                    if avg and float(avg) > 0:
+                        if o["id"] == pos.tp_order_id:
+                            reason = "TP HIT (exchange)"
+                        else:
+                            reason = stop_exit_label(
+                                pos.direction == "LONG", pos.entry_price,
+                                pos.stop_loss, float(avg),
+                                bool(pos.trailing_state
+                                     and pos.trailing_state.get("trailing_active")),
+                            ) + " (exchange)"
+                        return {
+                            "close_price": float(avg),
+                            "pnl": None,  # Not available from orders
+                            "fees": 0.0,
+                            "reason": reason,
+                            "source": "closed_order",
+                        }
+            outcomes.append(lookup_unmatched(
+                "orders", len(closed_orders), None,
+                "no filled order carries the stop/target id"))
+        except Exception as e:
+            logger.debug("fetchClosedOrders failed for %s: %s", pos.symbol, e)
+            outcomes.append(lookup_raised("orders", e))
         return None
 
     @staticmethod
@@ -11273,8 +11478,9 @@ class LiveExecutor:
             _confirmed = False
             exchange_reported_pnl = None
             logger.warning(
-                "Using ticker price for %s close — exchange history unavailable (inferred: %s)",
-                pos.symbol, reason,
+                "Using ticker price for %s close — no venue stage priced it "
+                "(%s; the lookup's own warning names what each stage did) (inferred: %s)",
+                pos.symbol, pos.close_lookup or "cause unrecorded", reason,
             )
 
         # ── Record accurate close ────────────────────────────────────
@@ -12139,6 +12345,7 @@ class LiveExecutor:
                     close_reason=item.get("close_reason"),
                     origin=item.get("origin") or "executed",
                     fill_source=item.get("fill_source"),
+                    close_lookup=item.get("close_lookup"),
                     strategy_type=item.get("strategy_type") or "swing",
                     signal_type=item.get("signal_type") or "momentum_confluence",
                 )

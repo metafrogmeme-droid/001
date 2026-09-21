@@ -40,6 +40,14 @@ router.get('/', authMiddleware, async (req, res) => {
     // for a genuinely quiet night. This is the composite case from CLAUDE.md's
     // table, so the strategy is OMIT: a dead source leaves itself out and says
     // which one it was, rather than blanking the two that still read.
+    // The window is HALF-OPEN: [last, now). Every count is bounded above by
+    // the same instant `last_seen_at` advances to, so a row created while
+    // this digest is being read belongs to the NEXT digest, once. The counts
+    // used to be `>= last` with no upper bound, so a row stamped at or after
+    // the read's own `now` was counted by this read AND by the next one --
+    // the double-report the header says never happens, and the reason the
+    // guard for it failed on a fast CI runner: the fixture's rows and the
+    // read shared a millisecond.
     const out = {
       away_s: Math.max(0, Math.floor((now.getTime() - last.getTime()) / 1000)),
       since: last.toISOString(),
@@ -50,18 +58,20 @@ router.get('/', authMiddleware, async (req, res) => {
     };
     try {
       const [sc] = await pool.execute(
-        'SELECT COUNT(*) AS n FROM signals WHERE created_at >= ?', [last]);
+        'SELECT COUNT(*) AS n FROM signals WHERE created_at >= ? AND created_at < ?',
+        [last, now]);
       out.signals_new = Number(sc[0] && sc[0].n) || 0;
     } catch (e) { out.unreadable.push('signals'); }
     try {
       const [ec] = await pool.execute(
-        'SELECT COUNT(*) AS n FROM agent_events WHERE created_at >= ?', [last]);
+        'SELECT COUNT(*) AS n FROM agent_events WHERE created_at >= ? AND created_at < ?',
+        [last, now]);
       out.events_new = Number(ec[0] && ec[0].n) || 0;
     } catch (e) { out.unreadable.push('events'); }
     try {
       const [tr] = await pool.execute(
-        'SELECT pnl FROM arena_trades WHERE user_id = ? AND closed_at >= ?',
-        [userId, last]);
+        'SELECT pnl FROM arena_trades WHERE user_id = ? AND closed_at >= ? AND closed_at < ?',
+        [userId, last, now]);
       // arena_trades.pnl is NOT NULL (db.js) — one of the repo's proven-safe
       // columns — so summing it needs no scored-denominator dance.
       out.arena = {

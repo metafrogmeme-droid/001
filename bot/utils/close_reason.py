@@ -79,6 +79,31 @@ NON_FILL_CLOSE_REASONS = frozenset({
 })
 
 
+# Close reasons that mean the bot OPENED the position and FLATTENED it seconds
+# later for an EXECUTION reason — the post-fill guards: the fill came in at a
+# leverage the venue would not correct, the stop could not be placed, the fill
+# slipped past the guard. Capital WAS at risk (the fees are real money), so
+# `is_filled_close` keeps them, and they are not strategy exits: the strategy
+# never chose to get out, the executor refused to stay in. A backtest cannot
+# have one, so a live-vs-benchmark comparison that counts them is comparing
+# unlike things — the 2026-09-21 parity card carried eleven of them inside
+# its 194 "filled trades", its win rate, its PF and its net.
+#
+# DERIVED, the way NON_FILL_CLOSE_REASONS is: a guard reads every literal
+# `reason="…"` the executor hands its OWN close_position and pins the set
+# equal, so the fourth flatten guard written tomorrow fails a test rather than
+# being counted as a losing trade on every card.
+EXECUTION_ABORT_REASONS = frozenset({
+    "leverage_overshoot", "sl_placement_failed", "slippage_guard",
+})
+
+
+def is_execution_abort(close_reason: Optional[str]) -> bool:
+    """True when the record is a post-fill flatten by one of the executor's
+    own guards — real money, not a strategy outcome."""
+    return (close_reason or "").strip().lower() in EXECUTION_ABORT_REASONS
+
+
 def is_filled_close(close_reason: Optional[str], pnl: Optional[float]) -> bool:
     """True when a closed-trade record represents a REAL fill (capital was
     deployed). Zero-PnL records whose close reason is a non-fill marker are
