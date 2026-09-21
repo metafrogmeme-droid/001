@@ -1906,7 +1906,12 @@ class RiskEngine:
                     standard_leverage=_lev_std,
                     floor=leverage_floor(CONFIG.exchange),
                     size_enabled=bool(CONFIG.risk.quality_ladder_size_enabled),
-                    leverage_enabled=bool(CONFIG.risk.quality_ladder_leverage_enabled)))
+                    leverage_enabled=bool(CONFIG.risk.quality_ladder_leverage_enabled),
+                    # Whose engine: "" on the shared one, the user's id on a
+                    # per-user one (`risk_for` sets it through
+                    # `set_person_identity`). The reading the drawdown and
+                    # the risk preference already take, one block up.
+                    engine=self._person_user_id))
             except Exception as _ledger_exc:
                 risk_log.warning("quality ladder: the evaluation could not be recorded (%s)",
                                  type(_ledger_exc).__name__)

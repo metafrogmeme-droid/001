@@ -16,7 +16,13 @@ WHAT IS DRIVEN HERE
   half is OFF, the rung's leverage exact and floor-aware, an applied row
   carrying no would-be
 * `summarize`: per-rung counts, the unmeasured split, the span, and a row
-  another build wrote COUNTED rather than dropped
+  another build wrote COUNTED rather than dropped; rows counted by the ENGINE
+  that evaluated (the shared engine, or a per-user one by its user), and a
+  row an older build wrote without the engine counted as "not recorded" --
+  never as the shared engine, and still on its rung
+* the gate names the engine: "" on the shared engine, the user's id on one
+  `set_person_identity` was told about -- which `risk_for` does for every
+  per-user engine it builds (a scan, stated as one)
 * the gate writes ONE row per sized evaluation -- flags off (would-be),
   flags on (applied), a manual ticket (no rung) -- and a refusal before
   sizing leaves none; a ledger fault does not cost the trade its verdict or
@@ -96,7 +102,7 @@ def _row(**kw):
     """A row as the gate writes it, with the defaults a rung-B shadow has."""
     base = ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=1300.0,
                              standard_leverage=5, floor=2, size_enabled=False,
-                             leverage_enabled=False, now=1_758_000_000.0)
+                             leverage_enabled=False, engine="", now=1_758_000_000.0)
     base.update(kw)
     return base
 
@@ -159,20 +165,20 @@ class TestTheRowSaysWhatTheRungWouldDo:
     def test_a_measured_rung_on_carries_the_applied_figure_and_no_would_be(self):
         r = ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=975.0,
                               standard_leverage=5, floor=2, size_enabled=True,
-                              leverage_enabled=True)
+                              leverage_enabled=True, engine="")
         assert r["size_usd"] == 975.0 and r["size_would_usd"] is None
         assert r["leverage_ladder"] == 4, "the rung's leverage is recorded whether or not it applied"
 
     def test_the_top_rung_cuts_nothing(self):
         r = ls.evaluation_row(idea=_idea(0.92), verdict=_verdict(0.92), size_usd=1300.0,
                               standard_leverage=5, floor=2, size_enabled=False,
-                              leverage_enabled=False)
+                              leverage_enabled=False, engine="")
         assert r["rung"] == "A" and r["size_would_usd"] is None and r["leverage_ladder"] is None
 
     def test_a_manual_ticket_is_unmeasured_with_no_rung(self):
         r = ls.evaluation_row(idea=_idea(1.0, "manual"), verdict=_verdict(1.0, "manual"),
                               size_usd=1300.0, standard_leverage=5, floor=2,
-                              size_enabled=False, leverage_enabled=False)
+                              size_enabled=False, leverage_enabled=False, engine="")
         assert r["measured"] is False and r["rung"] is None and r["confidence"] is None
         assert r["size_would_usd"] is None and r["leverage_ladder"] is None
         assert r["source"] == ql.MANUAL_SOURCE
@@ -180,11 +186,27 @@ class TestTheRowSaysWhatTheRungWouldDo:
     def test_the_rung_leverage_is_floor_aware(self):
         r = ls.evaluation_row(idea=_idea(0.60), verdict=_verdict(0.60), size_usd=100.0,
                               standard_leverage=3, floor=2, size_enabled=False,
-                              leverage_enabled=False)
+                              leverage_enabled=False, engine="")
         assert r["leverage_ladder"] == 2, "x0.60 of 3x is 1x, under the 2x floor"
 
     def test_every_row_carries_every_key(self):
-        assert set(_row()) == set(ls.ROW_KEYS)
+        assert set(_row()) == set(ls.ROW_KEYS) | {ls.ENGINE_KEY}, \
+            "the readability floor plus the engine, which is deliberately not part of it"
+
+    def test_the_row_names_the_engine_it_was_given(self):
+        assert _row()[ls.ENGINE_KEY] == ls.SHARED_ENGINE == ""
+        r = ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=1300.0,
+                              standard_leverage=5, floor=2, size_enabled=False,
+                              leverage_enabled=False, engine="7")
+        assert r[ls.ENGINE_KEY] == "7"
+
+    def test_the_engine_is_required_not_defaulted(self):
+        """A default of "" would file every caller that forgot it under the
+        shared engine in silence -- the value would MEAN something."""
+        with pytest.raises(TypeError):
+            ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=1300.0,  # type: ignore[call-arg]
+                              standard_leverage=5, floor=2, size_enabled=False,
+                              leverage_enabled=False)
 
 
 # ── the summary ─────────────────────────────────────────────────────────────
@@ -195,14 +217,14 @@ class TestTheSummaryCountsWhatItCanReadAndNamesWhatItCannot:
                 _row(ts=20.0),
                 ls.evaluation_row(idea=_idea(0.92), verdict=_verdict(0.92), size_usd=1300.0,
                                   standard_leverage=5, floor=2, size_enabled=False,
-                                  leverage_enabled=False, now=30.0),
+                                  leverage_enabled=False, engine="", now=30.0),
                 ls.evaluation_row(idea=_idea(1.0, "manual"), verdict=_verdict(1.0, "manual"),
                                   size_usd=1300.0, standard_leverage=5, floor=2,
-                                  size_enabled=False, leverage_enabled=False, now=40.0),
+                                  size_enabled=False, leverage_enabled=False, engine="", now=40.0),
                 ls.evaluation_row(idea=SimpleNamespace(asset="X", source="scan", confidence=None),
                                   verdict=ql.ladder_verdict(SimpleNamespace(confidence=None, source="scan")),
                                   size_usd=1300.0, standard_leverage=5, floor=2,
-                                  size_enabled=False, leverage_enabled=False, now=50.0)]
+                                  size_enabled=False, leverage_enabled=False, engine="", now=50.0)]
         s = ls.summarize(rows)
         assert (s.n, s.unreadable, s.first_ts, s.last_ts) == (5, 0, 10.0, 50.0)
         by = {st.rung: st for st in s.by_rung}
@@ -215,13 +237,36 @@ class TestTheSummaryCountsWhatItCanReadAndNamesWhatItCannot:
     def test_an_applied_row_counts_as_applied_not_would(self):
         r = ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=975.0,
                               standard_leverage=5, floor=2, size_enabled=True,
-                              leverage_enabled=True, now=1.0)
+                              leverage_enabled=True, engine="", now=1.0)
         st = ls.summarize([r]).by_rung[0]
         assert (st.size_applied, st.size_would, st.lev_applied, st.lev_would) == (1, 0, 1, 0)
 
     def test_a_row_another_build_wrote_is_counted_never_dropped(self):
         s = ls.summarize([_row(ts=1.0), {"rung": "B", "ts": 2.0}])
         assert (s.n, s.unreadable) == (1, 1)
+
+    def test_rows_are_counted_by_engine_most_rows_first_and_a_manual_row_counts(self):
+        rows = [_row(ts=1.0, engine="7"),
+                ls.evaluation_row(idea=_idea(1.0, "manual"), verdict=_verdict(1.0, "manual"),
+                                  size_usd=1300.0, standard_leverage=5, floor=2,
+                                  size_enabled=False, leverage_enabled=False, engine="7",
+                                  now=2.0),
+                _row(ts=3.0), _row(ts=4.0), _row(ts=5.0)]
+        s = ls.summarize(rows)
+        assert s.by_engine == (("", 3), ("7", 2)), \
+            "most rows first, not first appearance; the manual ticket is the user engine's too"
+        assert s.engine_unrecorded == 0
+        assert (s.n, s.unmeasured_manual) == (5, 1)
+
+    def test_a_row_an_older_build_wrote_without_the_engine_is_still_on_its_rung(self):
+        older = _row(ts=1.0)
+        del older[ls.ENGINE_KEY]
+        s = ls.summarize([older, _row(ts=2.0)])
+        assert (s.n, s.unreadable) == (2, 0), "readable in every other respect"
+        assert (s.by_rung[0].rung, s.by_rung[0].n) == ("B", 2)
+        assert s.by_engine == (("", 1),) and s.engine_unrecorded == 1, \
+            "absent is its own bucket, never the shared engine"
+        assert ls.ENGINE_KEY not in ls.ROW_KEYS
 
     def test_an_empty_record_has_no_span(self):
         s = ls.summarize([])
@@ -288,6 +333,38 @@ class TestTheGateRecordsEverySizedEvaluation:
             "the margin-risk verdict after the write site still ran"
         assert ledger.rows() == []
 
+    def test_the_shared_engine_records_its_empty_identity(self, ledger, monkeypatch):
+        monkeypatch.setattr(rem, "CONFIG", _cfg())
+        _engine().evaluate(_idea(0.72), atr=2.0)
+        assert ledger.rows()[0][ls.ENGINE_KEY] == ls.SHARED_ENGINE
+
+    def test_a_per_user_engine_records_its_user(self, ledger, monkeypatch):
+        """`engine.risk_for` builds a per-user engine and tells it whose it is
+        through `set_person_identity` (pinned below); the row has to carry
+        that id and never the shared engine's."""
+        monkeypatch.setattr(rem, "CONFIG", _cfg())
+        eng = _engine()
+        eng.set_person_identity("7")
+        chk = eng.evaluate(_idea(0.72), atr=2.0)
+        assert chk.verdict == RiskVerdict.APPROVED
+        assert ledger.rows()[0][ls.ENGINE_KEY] == "7"
+
+    def test_risk_for_tells_every_per_user_engine_whose_it_is(self):
+        """A SCAN, stated as one: `risk_for` needs a whole RuneClawEngine to
+        drive, and the claim is the wiring -- the per-user engine it builds is
+        handed the user id through `set_person_identity` before it is cached."""
+        import ast
+        import inspect
+        import textwrap
+
+        from bot.core.engine import RuneClawEngine
+        fn = ast.parse(textwrap.dedent(inspect.getsource(RuneClawEngine.risk_for)))
+        calls = [node for node in ast.walk(fn)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                 and node.func.attr == "set_person_identity"]
+        assert len(calls) == 1
+        assert ast.unparse(calls[0].args[0]) == "str(user_id)"
+
     def test_the_gate_reads_the_module_singleton_at_call_time(self, ledger, monkeypatch):
         """A ledger bound at import would be the seam-as-default-argument
         defect: the fixture above patches the module attribute, and the row
@@ -330,18 +407,18 @@ class TestTheCardReadsTheRecord:
         led.record(_row(ts=1_758_003_600.0))
         led.record(ls.evaluation_row(idea=_idea(0.92), verdict=_verdict(0.92), size_usd=1300.0,
                                      standard_leverage=5, floor=2, size_enabled=False,
-                                     leverage_enabled=False, now=1_758_007_200.0))
+                                     leverage_enabled=False, engine="", now=1_758_007_200.0))
         led.record(ls.evaluation_row(idea=_idea(1.0, "manual"), verdict=_verdict(1.0, "manual"),
                                      size_usd=1300.0, standard_leverage=5, floor=2,
                                      size_enabled=False, leverage_enabled=False,
-                                     now=1_758_010_800.0))
+                                     engine="", now=1_758_010_800.0))
         lines = _card(led).split("\n")
         assert lines[0] == "<b>Quality ladder — what the rungs would have done</b>"
         assert lines[2] == "Flags: size ⬜ OFF · leverage ⬜ OFF"
         assert lines[3].startswith("Table: A ≥0.85 → size x1.00 / leverage x1.00 · B ≥0.70")
         # 1_758_000_000 is 2025-09-16 05:20 UTC; the fourth row is three hours on.
         assert lines[4] == ("Record: 4 sized evaluation(s) · 2025-09-16 05:20 UTC → "
-                            "2025-09-16 08:20 UTC · every account this bot evaluates for")
+                            "2025-09-16 08:20 UTC · shared engine 4")
         assert lines[5] == "  <b>A</b> ≥0.85: 1 — full size, standard leverage"
         assert lines[6] == ("  <b>B</b> ≥0.70: 2 — size would have been cut x0.75 on 2 "
                             "(avg $1,300.00 → $975.00) · leverage would have been cut 5x→4x on 2")
@@ -350,13 +427,43 @@ class TestTheCardReadsTheRecord:
         assert lines[9] == ("With both halves on, the size would have been cut on 2 of 4 "
                             "and the leverage on 2 of 4.")
         assert lines[10].startswith("<i>Would-be size = the post-cap figure × the rung multiplier.")
+        assert "The shared engine is the operator's; it evaluates for every caller while " \
+               "PER_USER_LIVE_ENABLED is off" in lines[10], "the word is on the card, so its note is"
         assert "is full" not in lines[10], "the FULL sentence only when the record is full"
+
+    def test_the_record_line_names_each_engine_and_the_rows_with_none(self, tmp_path):
+        led = ls.LadderLedger(str(tmp_path / "l.json"))
+        led.record(_row(ts=1_758_000_000.0, engine="7"))
+        led.record(_row(ts=1_758_003_600.0))
+        led.record(_row(ts=1_758_007_200.0))
+        older = _row(ts=1_758_010_800.0)
+        del older[ls.ENGINE_KEY]
+        led.record(older)
+        lines = _card(led).split("\n")
+        assert lines[4] == ("Record: 4 sized evaluation(s) · 2025-09-16 05:20 UTC → "
+                            "2025-09-16 08:20 UTC · shared engine 2 · user 7 1 · "
+                            "engine not recorded on 1")
+        assert lines[6].startswith("  <b>B</b> ≥0.70: 4 —"), "the older row is on its rung"
+
+    def test_a_record_of_user_engines_alone_carries_no_shared_engine_note(self, tmp_path):
+        led = ls.LadderLedger(str(tmp_path / "l.json"))
+        led.record(_row(ts=1_758_000_000.0, engine="7"))
+        lines = _card(led).split("\n")
+        assert lines[4].endswith(" · user 7 1")
+        assert "shared engine" not in lines[-1], \
+            "a vocabulary note about a word that is not on the card"
+
+    def test_a_user_id_is_escaped_on_the_record_line(self, tmp_path):
+        led = ls.LadderLedger(str(tmp_path / "l.json"))
+        led.record(_row(ts=1_758_000_000.0, engine="<b>7</b>"))
+        line = _card(led).split("\n")[4]
+        assert "user &lt;b&gt;7&lt;/b&gt; 1" in line and "<b>7</b>" not in line
 
     def test_an_applied_row_reads_as_cut_not_would_have(self, tmp_path):
         led = ls.LadderLedger(str(tmp_path / "l.json"))
         led.record(ls.evaluation_row(idea=_idea(), verdict=_verdict(), size_usd=975.0,
                                      standard_leverage=5, floor=2, size_enabled=True,
-                                     leverage_enabled=True, now=1.0))
+                                     leverage_enabled=True, engine="", now=1.0))
         card = _card(led, size=True, lev=True)
         assert "Flags: size ✅ ON · leverage ✅ ON" in card
         assert "size cut x0.75 on 1 (applied)" in card and "leverage cut 5x→4x on 1 (applied)" in card
@@ -394,7 +501,7 @@ class TestTheCardReadsTheRecord:
         led = ls.LadderLedger(str(tmp_path / "l.json"))
         led.record(ls.evaluation_row(idea=_idea(0.92), verdict=_verdict(0.92), size_usd=1300.0,
                                      standard_leverage=5, floor=2, size_enabled=False,
-                                     leverage_enabled=False, now=1.0))
+                                     leverage_enabled=False, engine="", now=1.0))
         assert "No row would have been cut, and none was" in _card(led)
 
 

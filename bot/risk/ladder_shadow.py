@@ -35,9 +35,19 @@ overwritten -- `exchange_credentials._load`'s rule, because a record of
 evidence destroyed by the reader that could not open it is the
 `secrets_vault` defect one store over. Rows recorded after that live in
 memory, the card says the file could not be read and how much was recorded
-since, and the next boot reads the same file again. The record spans one bot
-process, every account it evaluates for: rows carry no user, and the card
-says so.
+since, and the next boot reads the same file again.
+
+WHOSE. The record spans one bot process, and each row names the ENGINE that
+evaluated -- the reading `RiskEngine._person_user_id` already holds: "" on
+the shared engine (the operator's, which `engine.risk_for` answers for EVERY
+caller while PER_USER_LIVE_ENABLED is off, and for the operator, admins and
+the auto path when it is on), and the user's own id on a per-user engine,
+which `risk_for` tells whose it is through `set_person_identity` the moment
+it builds one. The first draft of this module said a RiskEngine carries no
+user id and that the record therefore could not name an account; driving
+`risk_for` is what said otherwise. The card counts by engine, and a row an
+older build wrote without the key is counted as "engine not recorded" --
+never as the shared engine.
 """
 
 from __future__ import annotations
@@ -75,10 +85,23 @@ ROW_KEYS = ("ts", "symbol", "source", "measured", "confidence", "rung", "why",
             "size_usd", "size_would_usd", "leverage_std", "leverage_ladder",
             "table_note")
 
+# The engine that evaluated is a key of its own and deliberately NOT in
+# ROW_KEYS: a row a build wrote before the engine was recorded is readable in
+# every other respect, and folding it into "unreadable" would drop it from
+# the rung counts it can be placed in. Its absence is its own bucket on the
+# card -- ABSENT IS NOT ZERO, PER BUCKET -- and never the shared engine,
+# because "nobody wrote it down" and "the shared engine evaluated" are
+# different facts that would otherwise share one count.
+ENGINE_KEY = "engine"
+# `RiskEngine._person_user_id` on the engine with no person identity: the
+# shared operator engine. A per-user engine carries its user's id there.
+SHARED_ENGINE = ""
+
 
 def evaluation_row(*, idea: Any, verdict: LadderVerdict, size_usd: float,
                    standard_leverage: int, floor: int, size_enabled: bool,
-                   leverage_enabled: bool, now: Optional[float] = None) -> Dict[str, Any]:
+                   leverage_enabled: bool, engine: str,
+                   now: Optional[float] = None) -> Dict[str, Any]:
     """One sized evaluation, as the ledger records it. Pure.
 
     ``size_usd`` is the gate's post-cap figure AS SIZED -- with the size half
@@ -87,10 +110,14 @@ def evaluation_row(*, idea: Any, verdict: LadderVerdict, size_usd: float,
     times the multiplier. ``leverage_ladder`` is the rung's leverage whenever
     the rung would cut it (exact, floor-aware), whether or not the leverage
     half applied it; ``leverage_std`` is the standard it would cut FROM.
+    ``engine`` is the evaluating engine's own `_person_user_id` -- REQUIRED
+    rather than defaulted, because a default of "" would file every caller
+    that forgot it under the shared engine in silence.
     """
     size = float(size_usd)
     row: Dict[str, Any] = {
         "ts": float(time.time() if now is None else now),
+        ENGINE_KEY: str(engine),
         "symbol": str(getattr(idea, "asset", "") or ""),
         "source": str(getattr(idea, "source", "") or ""),
         "measured": bool(verdict.measured),
@@ -144,6 +171,8 @@ class LadderSummary(NamedTuple):
     unmeasured_manual: int
     unmeasured_other: int
     measured_no_rung: int        # measured, and the table reached no rung (unreachable while the last floor is 0)
+    by_engine: Tuple[Tuple[str, int], ...]  # (engine id, readable rows), most rows first; "" is the shared engine
+    engine_unrecorded: int       # readable rows a build wrote before the engine was recorded
 
 
 def _readable(row: Dict[str, Any]) -> bool:
@@ -169,11 +198,20 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> LadderSummary:
     order: List[str] = []
     man = oth = norung = 0
     tss: List[float] = []
+    engines: Counter = Counter()
+    engine_unrecorded = 0
     for r in readable:
         try:
             tss.append(float(r["ts"]))
         except (TypeError, ValueError):
             pass
+        # Counted over EVERY readable row, measured or not: the question is
+        # whose evaluations are on the record, and a manual ticket a user's
+        # engine sized is one of that engine's.
+        if ENGINE_KEY in r:
+            engines[str(r[ENGINE_KEY])] += 1
+        else:
+            engine_unrecorded += 1
         if not r["measured"]:
             if r["source"] == MANUAL_SOURCE:
                 man += 1
@@ -219,13 +257,30 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> LadderSummary:
         for name, st in ((n, stats[n]) for n in order))
     return LadderSummary(len(readable), unreadable,
                          min(tss) if tss else None, max(tss) if tss else None,
-                         by_rung, man, oth, norung)
+                         by_rung, man, oth, norung,
+                         tuple(engines.most_common()), engine_unrecorded)
 
 
 # ── the card ────────────────────────────────────────────────────────────────
 
 def _flag_word(on: bool) -> str:
     return "✅ ON" if on else "⬜ OFF"
+
+
+def _engine_word(engine: str) -> str:
+    """The engine on the card: the shared one by name, a per-user one by its
+    user. Escaped, because the id is whatever the user store handed the
+    engine and this card is Telegram HTML."""
+    if engine == SHARED_ENGINE:
+        return "shared engine"
+    return f"user {html.escape(engine)}"
+
+
+def _record_line(s: LadderSummary, span: str) -> str:
+    who = [f"{_engine_word(e)} {n}" for e, n in s.by_engine]
+    if s.engine_unrecorded:
+        who.append(f"engine not recorded on {s.engine_unrecorded}")
+    return " · ".join([f"Record: {s.n} sized evaluation(s)", span] + who)
 
 
 def _table_line(rungs: Sequence[Rung]) -> str:
@@ -291,8 +346,7 @@ def render_ladder_report(ledger: LadderLedger, risk_cfg: Any,
         return "\n".join(lines)
     s = summarize(rows)
     span = f"{stamp(s.first_ts)} → {stamp(s.last_ts)}" if s.n else "no readable row"
-    lines.append(f"Record: {s.n} sized evaluation(s) · {span} · every account this bot "
-                 f"evaluates for")
+    lines.append(_record_line(s, span))
     if s.unreadable:
         lines.append(f"  {s.unreadable} row(s) another build wrote could not be read and "
                      f"are counted here, not below")
@@ -327,6 +381,12 @@ def render_ladder_report(ledger: LadderLedger, risk_cfg: Any,
                      "landed on a rung that keeps full size and standard leverage.")
     foot = ["Would-be size = the post-cap figure × the rung multiplier. A refusal "
             "before sizing leaves no row."]
+    if any(e == SHARED_ENGINE for e, _ in s.by_engine):
+        # Said only when the word is on the card: a vocabulary note under a
+        # record that names no shared engine is a caveat about nothing.
+        foot.append("The shared engine is the operator's; it evaluates for every "
+                    "caller while PER_USER_LIVE_ENABLED is off, and for the operator, "
+                    "admins and the auto path when it is on.")
     if ledger.full:
         foot.append(f"The record keeps the last {MAX_ROWS} rows and is full, so older "
                     f"rows may have been dropped.")

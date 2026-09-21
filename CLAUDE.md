@@ -7735,13 +7735,15 @@ scoreboard. Every document that described the shadow — `.env.example`, the
 map, the config comment, both `gate_inventory` rows, the catalogue row — names
 `/shadow ladder` under a pin that the name reaches a handler, and the harness
 cleans the file in the same commit as the feature, per `_STATE_GLOBS`'s own
-rule. One thing is FILED rather than done: the record spans one bot process
-across every account it evaluates for, because a `RiskEngine` carries no user
-id; the card says so rather than implying a book it cannot name. The other
-thing this paragraph filed — the balance-relative bounds have the same shape
-one flag over, `size_bounds.resolve` answering `flat` with the flag off and
-computing no would-be although the balance is in hand at `execute()`
-regardless — is the next chapter, and it is done.
+rule. One thing was FILED rather than done — the record spans one bot process
+across every account it evaluates for, "because a `RiskEngine` carries no user
+id" — and that clause was a claim nobody drove: every per-user engine is told
+whose it is the moment `risk_for` builds one, which the chapter after the
+bounds one records. The other thing this paragraph filed — the
+balance-relative bounds have the same shape one flag over,
+`size_bounds.resolve` answering `flat` with the flag off and computing no
+would-be although the balance is in hand at `execute()` regardless — is the
+next chapter, and it is done.
 
 **Twenty-six mutations, each killed on the first round, none refused — and
 two are worth naming for what they prove about the guards rather than the
@@ -7815,7 +7817,7 @@ rule that a record the reader could not open is never destroyed by it, so
 is a subclass that adds only its row builder and its report. The bounds
 card is three-valued at the top in the same words as the ladder's, counts
 per ACCOUNT (the executor knows whose book it runs — the one thing the
-ladder's record cannot say), keeps the unread-balance orders apart from the
+ladder's record did not yet say), keeps the unread-balance orders apart from the
 read ones (an unread balance leaves nothing to compare, and folding it into
 "would not have cut" is the reassuring answer from no data), and says FIRST
 that the population is live orders: paper fills never reach the executor,
@@ -7855,6 +7857,71 @@ never zero), and the two mutations that make it answer zero die on a row whose
 pre-clamp size is a string another build could have written — the fixture the
 first round did not have.
 (`tests/test_the_bounds_shadow_is_readable.py`.)
+
+**"BECAUSE A `RiskEngine` CARRIES NO USER ID" WAS FILED, REPEATED TWICE, AND
+FALSE.** The ladder chapter filed its record as spanning every account
+because the engine could not say whose evaluation a row was; the bounds
+chapter repeated it as the one thing the executor's record could do that the
+ladder's could not; and the module docstring said it a third time. Driven,
+`engine.risk_for` builds every per-user `RiskEngine` and, before caching it,
+calls `set_person_identity(str(user_id), …)` — so `_person_user_id` names the
+user on a per-user engine and is `""` on exactly one engine, the shared one.
+Two readers in the SAME method already took that reading: the person-level
+drawdown (`_person_drawdown_pct`, which answers nothing for an empty id) and the
+risk preference (`multiplier_for_user`, whose own comment says *"only the
+PER-USER engines carry an identity"*), one block above the record site. *A
+measurement you remember is not a measurement* — this file's own rule,
+arriving for the first time as a claim written into a module's docstring as
+the reason for a design.
+
+**The engine is a key of its own and deliberately NOT in `ROW_KEYS`.** Adding
+it to the readability floor would make every row the current build wrote
+before this slice "a row another build wrote", dropped from the rung counts
+it can be placed in perfectly well. So a row without the key is readable in
+every other respect, and its absence is its own bucket — *engine not
+recorded on N* — never the shared engine, because "nobody wrote it down" and
+"the shared engine evaluated" are different facts that would otherwise share
+one count. That is ABSENT IS NOT ZERO, PER BUCKET, from the analyze-budget
+chapter, on a record rather than a batch. The kwarg is REQUIRED rather than
+defaulted for the reason the bounds record's `size_before_usd` is: a default
+of `""` would file every caller that forgot it under the shared engine in
+silence, and a value that means something must not be the value a mistake
+produces.
+
+**The word has to be "shared", not "operator".** With PER_USER_LIVE_ENABLED
+off — the default — `risk_for` answers the shared engine for EVERY caller, so
+a row it wrote may be a user's own ticket sized off the shared book; naming
+that engine "operator" would claim the evaluation was for the operator's
+account. The card counts *shared engine N · user 7 M*, most rows first, the
+id escaped (it is whatever the user store handed the engine, on a Telegram
+HTML card), and the footnote says what the shared engine is — only when the
+word is on the card, because a vocabulary note under a record that names no
+shared engine is a caveat about nothing.
+
+**Sixteen mutations, each killed on the first round, none refused — and three
+are worth naming for what they prove about the guards rather than the code.**
+The record site naming the shared engine for EVERY evaluation dies on exactly
+one test, the per-user drive (`set_person_identity("7")`, then the row read
+back): every assertion the shared-engine fixtures can make agrees with it,
+because a site that answers `""` for everybody is indistinguishable from the
+right one on a card that only ever shows the shared engine — the asymmetric-
+fixture rule, one field over. The engine DEFAULTED to `""` instead of
+required dies only on the signature pin, because every drive passes the
+argument and a default is invisible from a call that supplies it — the narrow
+case where a shape assertion is the honest instrument, and the reason it is
+stated as one. And the engine joining the readability floor dies on the
+older-build row alone: a row carrying every other key is readable, and
+folding it into `unreadable` would have dropped it from the rung it can be
+placed in, which is the whole argument for `ENGINE_KEY` staying out of
+`ROW_KEYS`. The rest die where the drives say — no engine passed, the key
+dropped from the row, an older row counted as the shared engine, only
+measured rows counted, engines listed by first appearance rather than by
+count, the Record line without them, a blank word for the shared engine, the
+unrecorded rows unnamed, an id unescaped, the note dropped, the note on every
+record, the note naming the wrong flag. The derived source-scan count moved
+by one, because the suite reads `risk_for`'s source to pin the one
+`set_person_identity` call it makes.
+(`tests/test_the_ladder_shadow_is_readable.py`.)
 
 ## Public-surface rules
 
@@ -9084,9 +9151,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **412 of 993** reach for source text through `source_scan`, `code_only`
+Driven, **413 of 993** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 412 is a FLOOR and the honest shape is
+source scan that rule does not see, so 413 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
