@@ -220,8 +220,9 @@ default OFF (`QUALITY_LADDER_SIZE_ENABLED`, `QUALITY_LADDER_LEVERAGE_ENABLED`)
 and SHADOW when off — the risk gate audits the rung it would have applied with
 `result="SHADOW"` and records every sized evaluation in `data/ladder_ledger.json`
 (`bot/risk/ladder_shadow.py`), which `/shadow ladder` renders: per-rung counts
-with their span, what each half would have cut and what it did cut where it is
-on — the audit line alone was a shadow nobody could read back. The check and
+with their span and the engine that evaluated (the shared operator engine, or a
+per-user one by its user), what each half would have cut and what it did cut
+where it is on — the audit line alone was a shadow nobody could read back. The check and
 both fill cards carry the size's BASIS
 (`bot/core/size_trace.py`): which step decided the figure, how many steps it
 took, and whether something off the record changed it after.

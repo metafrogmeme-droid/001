@@ -13,7 +13,8 @@ applied to the bounds.
 
 WHAT IS RECORDED. One row per live order the preflight was asked about, on
 every account this bot executes for (the executor knows its account, so the
-card can count per account, which the ladder's cannot). The row carries the
+card counts per account; the ladder's record names the ENGINE that evaluated,
+which is the same fact one gate up). The row carries the
 order as the preflight saw it (already clamped to the bounds IN FORCE), the
 balance read (or that it was not), the bounds in force and the bounds that
 WOULD be in force with the flag on -- `size_bounds.resolve` over the same
