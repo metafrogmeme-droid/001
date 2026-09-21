@@ -7017,6 +7017,111 @@ one place an operator reading about the caps will look.
 > WAS; it is never arithmetic on a number.
 
 
+**THE REDUCTION REACHED THE NUMBER THAT CANCELS OUT.** `max_margin_risk_pct`
+bounds SL-distance × leverage, and its own comment says so; `RiskEngine`
+enforces it by REDUCING leverage and writing the reduction onto the idea "for
+the executor". Driven, that quantity is decided entirely by the leverage the
+VENUE is set to:
+
+    loss_at_stop / venue_locked_margin = L_venue × sl_dist_pct / 100
+
+The leverage an order is SIZED at decides the notional, and so the dollar
+loss, and **moves that ratio not at all** — it cancels. The reduction reached
+`_size_or_block` and nothing else: `_ensure_leverage` and
+`_ensure_leverage_generic` called `_compute_target_leverage(symbol)` with no
+idea in sight, so the venue kept the standard number. Sized at 2x with the
+venue still at 5x and a 10% stop, the audit line read `30.0% ≤ 30.0%` while
+the real figure was **50%** of the margin the venue had locked; at a 20% stop
+it was **100%** — liquidation AT the stop, from the control written to prevent
+exactly that. The clamp's own comment says it stops orders "blowing through
+the very cap the engine reported enforcing", and driven, it does not.
+
+**AND THE SENTENCE ASSERTED ITS OWN `≤`.** `new_margin` was computed and the
+comparison was never made — the operator was a LITERAL in the f-string — so
+when `max(min_leverage, …)` floored the reduction ABOVE the cap the line read
+`SL 16.0% × 2x = 32.0% ≤ 30.0%` and was appended to `passed`. Driven over the
+stop distances a trade can have, that is every stop past 15%: at 20% it printed
+`40.0% ≤ 30.0%` as a passed check. `margin_risk_verdict` MAKES the comparison
+now, and a reduction that does not clear the cap is REFUSED — the same answer
+the flag-off arm already gives, and the only honest one, because there is no
+permitted leverage at which that stop distance fits.
+
+**LATENT, ARMED BY ONE ENV VAR — and the same one buys nothing.** Both sit
+behind `dynamic_leverage_enabled`, which defaults False and whose `else` arm
+fails the trade outright. So nothing shipped was wrong; what shipped was a
+switch that arms two defects. Driven with the flag ON, the protection it
+advertises is INERT: `update_atr` is the only writer of the ATR map and has no
+production caller, so every symbol comes back at the standard leverage with a
+`no ATR reading on record` WARNING, exactly as the disabled flag gives it.
+
+**ONE READING, THREE READERS — and the clamp sits at ONE site.**
+`_compute_target_leverage(symbol, idea)` is the number to place an order with;
+`_standard_leverage(symbol)` is the half that depends only on the symbol. The
+cap is applied once, over every return of the base, rather than at each of the
+three call sites: three sites is the shape where the fourth added tomorrow is
+the one that misses it. `execute()` has held the idea all along and simply
+never passed it, and the SET runs before the SIZE in that same method — a
+claim the guard asks as an ORDER of two calls rather than as two line numbers. The leverage READ-BACK (#155's fix) now verifies the number that will
+actually be used, which the old shape could not do: a venue answering 5x under
+a 3x cap was the healthy case.
+
+**THE HARNESS STUBBED THE FUNCTION UNDER TEST.** `tests/leverage_drive.py` —
+the one driver two suites share — did `ex._compute_target_leverage = lambda
+symbol: target`, so the clamp was REPLACED by the fixture and no test could
+ever have asked what leverage the venue was pushed for a capped idea. It is
+planted at `_standard_leverage` now, one layer down, so the real reading runs
+in every drive; `test_leverage_guard_is_exercised.py`'s own fixture had the
+same shape and went the same way.
+
+**SEVEN PINS ASSERTED A SPELLING AND BROKE ON A RENAME WHILE THEIR PROPERTY
+HELD.** `test_leverage_cap_honored.py` required `_size_or_block`'s source to
+contain a specific `min(...)` in a specific order; two dedup pins spelled
+`self._compute_target_leverage(symbol)` exactly; the readback suite pinned the
+whole `def` line and the wrapped call; the discipline scan pinned the call and
+the `min(lev, default_lev)`; and the override pin sliced the gate block between
+two string literals, one of which was a log message — its own comment already
+complained that "half of it was solid and half moved whenever somebody
+renumbered a check", and the slice became EMPTY when the block moved into the
+leaf. Each is a shape or a drive now. `test_no_router_intent…`'s lesson, one
+subsystem over: **a guard written against one spelling is not a guard about the
+claim.**
+
+**Two of the new guards needed the traps this file already records.**
+`code_only` blanks DOCSTRINGS, so a class whose body opens with one no longer
+parses — the AST reads RAW source and the string scans read the blanked copy.
+And `inspect.getsource` of a METHOD is indented, which `ast.parse` refuses.
+Both are written down here and both happened again.
+
+**A hand-written CONFIG stand-in forgot the next attribute, in the fixture
+written this hour.** The gate drive's first `SimpleNamespace` listed
+`exchange`, `risk` and `is_live`; `_evaluate_locked` reached for
+`strategy_types`. It overrides `exchange` by DELEGATION now, so everything not
+named falls through — the same correction the prompt suites' stub store needed.
+
+**And the floor had two invented defaults for a field that is never absent** —
+1 in `live_executor`, 2 in `risk_engine`, for `CONFIG.exchange.min_leverage`,
+a dataclass field with its own default of 2. Unreachable from production, and
+a fallback that cannot fire while disagreeing with its twin is a claim that
+there is a check. `bot/core/leverage.py` already owned reduce-only leverage
+resolution (`resolve_user_leverage`); the floor, the cap clamp, the attribute
+NAME the two modules each spelled by hand, and the verdict live there now.
+
+**Twenty-six mutations, each killed — and the two that survived the first round
+were the guard's own coverage, never the code's.** `MIN_LEVERAGE_DEFAULT = 2 ->
+1` changed no verdict, because the assertion compared `leverage_floor()` to
+`MIN_LEVERAGE_DEFAULT`: **a guard deriving its expectation from the thing it
+guards moves with it and can see nothing**, which is the lesson `SCAN_DISPATCH`
+already records one subsystem over. It reads the number out of
+`bot/config.py`'s own `_env_float_bounded("MIN_LEVERAGE", 2, ...)` declaration
+now. And dropping the idea from the Bitget entry's hand-off to the generic path
+survived because the shared harness builds a `bitget` venue while the generic
+test calls that method DIRECTLY -- **a seam driven from both ends and never
+across is a seam nothing measures.** It is driven through `_ensure_leverage` on
+a real non-Bitget venue now, with the venue object taken from `get_venue`
+rather than hand-written: the stand-in written for it listed five attributes
+and the verification block reached for a sixth.
+(`tests/test_the_venue_gets_the_capped_leverage.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8245,9 +8350,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **408 of 984** reach for source text through `source_scan`, `code_only`
+Driven, **409 of 985** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 408 is a FLOOR and the honest shape is
+source scan that rule does not see, so 409 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -46,6 +46,7 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.plan_cleanup import plan_rows_to_cancel
+from bot.core.leverage import apply_margin_risk_cap, leverage_floor
 from bot.core import size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
@@ -1494,13 +1495,44 @@ class LiveExecutor:
                             self._venue.id, cfg.default_leverage, cfg.margin_mode)
         return self._exchange
 
-    def _compute_target_leverage(self, symbol: str) -> int:
-        """Single source of truth for dynamic leverage (deep-audit medium).
+    def _compute_target_leverage(self, symbol: str, idea: Any = None) -> int:
+        """The leverage for this order — the ONE number the venue is set to.
 
-        Used by BOTH the set-leverage path (_ensure_leverage) and the sizing path
-        (execute), which had diverged: the set path still scaled leverage UP
-        ×1.4 in low vol while sizing was reduce-only, so the exchange leverage
-        and the leverage used to size the order disagreed.
+        ``idea`` carries the risk gate's margin-risk cap, and passing it is
+        what makes that cap real. `max_margin_risk_pct` bounds SL-distance ×
+        leverage, and driven, the leverage an order is SIZED at cancels out of
+        that ratio entirely:
+
+            loss_at_stop / venue_locked_margin = L_venue × sl_dist_pct / 100
+
+        So the reduction reaching only `_size_or_block` — which is where it
+        reached — moved the dollar loss and moved the capped quantity not at
+        all: sized at 2x with the venue at 5x and a 10% stop, the audit line
+        read "30.0% ≤ 30.0%" while the real figure was 50% of the margin the
+        venue had locked; at a 20% stop it was 100%, liquidation at the stop.
+
+        The clamp is applied HERE, once, over every return of the standard
+        computation, rather than at each of the three call sites: three sites
+        is the shape where the fourth added tomorrow is the one that misses it.
+        It is reduce-only and a no-op for an idea with no cap, so every path
+        that never met the risk gate keeps the leverage it had.
+        """
+        return apply_margin_risk_cap(self._standard_leverage(symbol), idea)
+
+    def _standard_leverage(self, symbol: str) -> int:
+        """The standard leverage for a symbol, before this idea's risk cap.
+
+        NOT the number to place an order with — `_compute_target_leverage` is,
+        and it is what every caller asks. This is the half that depends only on
+        the SYMBOL, kept separate so the per-idea clamp has one site rather
+        than one per return.
+
+        Both executor paths reach it through that one reading, which is what
+        the consolidation bought: they had diverged once already, the set path
+        scaling leverage UP ×1.4 in low vol while sizing was reduce-only, so
+        the exchange leverage and the leverage used to size the order
+        disagreed. The margin-risk cap then reintroduced exactly that, one
+        field over, by reaching the sizing path alone.
 
         Dynamic leverage only ever REDUCES from the configured default — never
         increases it — because up-scaling in low realized vol amplified losses on
@@ -1560,7 +1592,7 @@ class LiveExecutor:
                       data={"symbol": symbol, "leverage": default_lev,
                             "atr_readings_held": len(self._last_atr_pct)})
                 return default_lev
-            min_lev = int(getattr(cfg, "min_leverage", 1))
+            min_lev = leverage_floor(cfg)
             lev = default_lev
             if atr_pct > 0.04:        # high vol (>4% ATR) → halve
                 lev = max(min_lev, lev // 2)
@@ -1584,8 +1616,17 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
-    async def _ensure_leverage(self, symbol: str, side: str = "") -> None:
+    async def _ensure_leverage(self, symbol: str, side: str = "",
+                               idea: Any = None) -> None:
         """Set leverage and margin mode for a symbol (futures only).
+
+        ``idea`` is the order this leverage is being set FOR, when there is
+        one. It carries the risk gate's margin-risk cap, and the venue is the
+        end that cap has to reach: sizing an order at the reduced leverage
+        while the venue stays at the standard one leaves the capped quantity
+        exactly where it was (see `_compute_target_leverage`). With no idea the
+        target is the symbol's standard leverage, which is what every caller
+        got before.
 
         ``side`` is the direction this order will fill in, when the caller
         knows it. Bitget's ISOLATED margin holds leverage per side, so the
@@ -1606,7 +1647,7 @@ class LiveExecutor:
         # method is Bitget account topology (UTA probes, v2 verification
         # endpoints, crossed/cross quirk) that does not exist elsewhere.
         if self._venue.id != "bitget":
-            await self._ensure_leverage_generic(exchange, symbol)
+            await self._ensure_leverage_generic(exchange, symbol, idea)
             return
 
         # ── Set margin mode (best-effort; the verification read below is the
@@ -1732,7 +1773,7 @@ class LiveExecutor:
                       data={"symbol": symbol, "configured": cfg.margin_mode})
 
         # ── Set leverage (dynamic scaling via the shared, reduce-only helper) ──
-        _target_leverage = self._compute_target_leverage(symbol)
+        _target_leverage = self._compute_target_leverage(symbol, idea)
 
         # Did the exchange ACCEPT the target? A bare set_leverage that returns
         # without raising is NOT a confirmation — see the per-side block below
@@ -2070,7 +2111,8 @@ class LiveExecutor:
             await self._detect_hold_mode()
 
     async def _ensure_leverage_generic(self, exchange: ccxt.Exchange,
-                                       symbol: str) -> None:
+                                       symbol: str,
+                                       idea: Any = None) -> None:
         """Venue-neutral margin-mode + leverage setup via plain ccxt.
 
         Used for venues without Bitget's account-topology special cases
@@ -2079,7 +2121,7 @@ class LiveExecutor:
         symbol (e.g. BTC 40x, many alts 10x) and an over-cap set call
         would fail and leave the venue default in place."""
         cfg = CONFIG.exchange
-        target = self._compute_target_leverage(symbol)
+        target = self._compute_target_leverage(symbol, idea)
         sym = self._venue.swap_symbol(symbol)
         try:
             market = exchange.market(sym)
@@ -4597,23 +4639,16 @@ class LiveExecutor:
         # Calculate quantity
         # For futures with leverage: size_usd is the margin (collateral).
         # Notional exposure = margin * leverage, so qty = (size_usd * leverage) / price.
-        # Dynamic leverage scaling — shared, reduce-only helper so the
-        # leverage used to SIZE the order matches the leverage SET on the
-        # exchange in _ensure_leverage (they had diverged: deep-audit medium).
-        leverage_mult = self._compute_target_leverage(symbol)
-        # Honor the risk engine's margin-risk-capped leverage. When SL distance
-        # × leverage would exceed max_margin_risk_pct, RiskEngine.evaluate()
-        # reduces leverage and writes idea._adjusted_leverage "for the executor"
-        # — but it was never read, so orders sized at full leverage and blew
-        # through the very cap the engine reported enforcing. Clamp reduce-only:
-        # this can only LOWER the sized leverage, never raise it, so it is a
-        # no-op whenever the risk gate left leverage unchanged.
-        _risk_lev = getattr(idea, "_adjusted_leverage", None)
-        if _risk_lev:
-            try:
-                leverage_mult = min(int(leverage_mult), int(_risk_lev))
-            except (TypeError, ValueError):
-                pass
+        # Dynamic leverage scaling AND the risk gate's margin-risk cap, from
+        # the one reading `_ensure_leverage` asked with this same idea — so
+        # the leverage used to SIZE the order is the leverage SET on the
+        # exchange. They had diverged twice. First the set path scaled UP ×1.4
+        # in low vol while sizing was reduce-only (deep-audit medium), which
+        # `_compute_target_leverage` was written to end. Then the margin-risk
+        # cap was clamped HERE and nowhere else, which rebuilt the divergence
+        # one field over — and that one enforced nothing, because the sizing
+        # leverage cancels out of the ratio the cap bounds.
+        leverage_mult = self._compute_target_leverage(symbol, idea)
         quantity = (size_usd * leverage_mult) / current_price
         return None, leverage_mult, quantity
 
@@ -6086,7 +6121,7 @@ class LiveExecutor:
                 # The DIRECTION matters: Bitget isolated margin holds leverage
                 # per side, so the field that decides this fill is that side's.
                 await self._ensure_leverage(
-                    swap_sym, getattr(idea.direction, "value", "") or "")
+                    swap_sym, getattr(idea.direction, "value", "") or "", idea)
 
             # Convert symbol to the perpetual/swap format for the futures order
             # path so the market lookup, price rounding, tick snap and

@@ -9,7 +9,9 @@ order. Both now call the single reduce-only _compute_target_leverage, which
 never exceeds the configured default.
 """
 
+import ast
 import inspect
+import textwrap
 from types import SimpleNamespace
 
 import bot.core.live_executor as live_executor_mod
@@ -77,15 +79,57 @@ class TestComputeTargetLeverage:
         assert ex._compute_target_leverage("BTC/USDT:USDT") == 1
 
 
+def _decides_leverage(method) -> bool:
+    """Does this method ASK for the leverage rather than work one out?
+
+    An AST walk rather than a literal, because the literal is what rotted:
+    both pins here spelled `self._compute_target_leverage(symbol)`, and the
+    call grew an `idea` argument the day the margin-risk cap had to reach the
+    venue — so they failed on a rename while the property they name held
+    throughout. A guard written against one SPELLING is not a guard about the
+    claim.
+    """
+    tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
+    return any(isinstance(n, ast.Call)
+               and isinstance(n.func, ast.Attribute)
+               and n.func.attr == "_compute_target_leverage"
+               and isinstance(n.func.value, ast.Name)
+               and n.func.value.id == "self"
+               for n in ast.walk(tree))
+
+
 class TestBothPathsUseHelper:
     def test_set_path_uses_helper(self):
-        src = inspect.getsource(LiveExecutor._ensure_leverage)
-        assert "_target_leverage = self._compute_target_leverage(symbol)" in src
+        assert _decides_leverage(LiveExecutor._ensure_leverage)
         # The old up-scaling branch is gone.
-        assert "* 1.4" not in src
+        assert "* 1.4" not in inspect.getsource(LiveExecutor._ensure_leverage)
+
+    def test_the_other_set_path_uses_helper(self):
+        # The venue-neutral ccxt path. It was never pinned here, and it is the
+        # one a non-Bitget venue takes — so a leverage rule that reached only
+        # the Bitget topology would have been invisible from this file.
+        assert _decides_leverage(LiveExecutor._ensure_leverage_generic)
 
     def test_size_path_uses_helper(self):
         # The size path is `_size_or_block`, extracted from execute() verbatim.
-        src = inspect.getsource(LiveExecutor._size_or_block)
-        assert "leverage_mult = self._compute_target_leverage(symbol)" in src
+        assert _decides_leverage(LiveExecutor._size_or_block)
         assert "self._size_or_block(" in inspect.getsource(LiveExecutor.execute)
+
+    def test_nothing_else_decides_a_leverage(self):
+        """Exactly three methods ask, and no fourth quietly works one out.
+
+        The number is DERIVED — a list of the three would be the shape where
+        the fourth added tomorrow is the one missing from it.
+        """
+        tree = ast.parse(inspect.getsource(live_executor_mod))
+        asks = sorted(
+            fn.name
+            for fn in ast.walk(tree)
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "_compute_target_leverage"
+                    for n in ast.walk(fn))
+        )
+        assert asks == ["_ensure_leverage", "_ensure_leverage_generic",
+                        "_size_or_block"], asks

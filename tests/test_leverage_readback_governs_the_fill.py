@@ -33,6 +33,7 @@ agree cannot tell the two readings apart.
 
 from __future__ import annotations
 
+import ast
 import logging
 import pathlib
 
@@ -44,8 +45,17 @@ from tests.source_scan import code_only
 
 TRADE_CHANNEL = "runeclaw.trade"
 
-SRC = code_only(
-    pathlib.Path("bot/core/live_executor.py").read_text(encoding="utf-8"))
+_EXECUTOR = pathlib.Path("bot/core/live_executor.py").read_text(encoding="utf-8")
+
+SRC = code_only(_EXECUTOR)
+"""The module with comments and docstrings blanked — for the string scans.
+
+`RAW` is what the AST reads, because `code_only` blanks DOCSTRINGS too and a
+class whose body opens with one no longer parses. CLAUDE.md records that trap;
+it is the same file, read two ways for two questions.
+"""
+
+RAW = _EXECUTOR
 
 
 @pytest.fixture(autouse=True)
@@ -539,13 +549,47 @@ class TestAModeNobodyReadSaysSo:
 
 
 class TestTheCallerHandsOverTheDirection:
+    """Asked as a SHAPE, not as a spelling.
+
+    Both of these were literal source matches — the exact `def` line and the
+    exact wrapped call — and both broke the day `_ensure_leverage` grew an
+    `idea` parameter so the margin-risk cap could reach the venue, while the
+    property they name held throughout. The claim is that the method TAKES a
+    side and that the order path HANDS IT the idea's direction; how either is
+    spelled is not the claim.
+    """
+
+    @staticmethod
+    def _ensure_leverage_def():
+        tree = ast.parse(RAW)
+        defs = [n for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and n.name == "_ensure_leverage"]
+        assert len(defs) == 1, [d.lineno for d in defs]
+        return defs[0]
+
     def test_the_method_takes_a_side(self):
-        assert "async def _ensure_leverage(self, symbol: str, side: str = \"\")" \
-            in SRC
+        args = [a.arg for a in self._ensure_leverage_def().args.args]
+        assert args[:2] == ["self", "symbol"], args
+        assert "side" in args, args
 
     def test_the_order_path_passes_the_ideas_direction(self):
-        assert 'await self._ensure_leverage(\n                    swap_sym, ' \
-            'getattr(idea.direction, "value", "") or "")' in SRC
+        """The direction argument is read off THE IDEA, at the one call site.
+
+        Derived from the parameter's position rather than written down, so
+        adding a parameter moves nothing a reader already reads.
+        """
+        params = [a.arg for a in self._ensure_leverage_def().args.args]
+        side_at = params.index("side") - 1          # `self` is not passed
+
+        calls = [n for n in ast.walk(ast.parse(RAW))
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "_ensure_leverage"]
+        assert len(calls) == 1, [ast.unparse(c) for c in calls]
+        assert len(calls[0].args) > side_at, ast.unparse(calls[0])
+        handed = ast.unparse(calls[0].args[side_at])
+        assert "idea.direction" in handed, handed
 
     def test_the_mode_is_read_once_outside_the_try(self):
         """An AttributeError inside that try is swallowed by the broad handler

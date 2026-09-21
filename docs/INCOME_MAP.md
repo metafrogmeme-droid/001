@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1848-1857
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5786 (…
+bot/core/live_executor.py:5821 (…
 
 **Scalping** — **shipped**
 
@@ -202,10 +202,14 @@ the two growth ceilings default to the flat caps, so raising a bound needs
 floor, one dollar target, opt-in — and `idea.confidence` otherwise reaches
 sizing only through the opt-in Kelly path and the drawdown-recovery
 confidence FLOOR, which is a refusal rather than a size. Leverage is worse:
-`_compute_target_leverage` (live_executor.py:1497) takes a SYMBOL and never
+`_standard_leverage` (live_executor.py:1522) — the half of the leverage
+reading that is not this idea's margin-risk cap — takes a SYMBOL and never
 sees confidence at all, and its volatility de-leveraging reads an ATR map
 whose only writer has no production caller. A quality ladder within the
-bounds above, and confidence reaching that chooser, is unbuilt.
+bounds above, and confidence reaching that chooser, is unbuilt. The cap
+itself now reaches the VENUE as well as the sizing, which is what a ladder
+needed first: one that set one leverage and sized at another would inherit
+the defect that fix removed.
 
 **Funding rate farming** — partial
 
