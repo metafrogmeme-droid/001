@@ -96,6 +96,7 @@ from bot.core.leverage import (
     tighten_leverage_cap,
 )
 from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
+from bot.risk import ladder_shadow
 from bot.risk.live_perf_gate import governor_verdict
 from bot.risk.quality_ladder import (
     kelly_confidence_factor,
@@ -1862,6 +1863,9 @@ class RiskEngine:
                     leverage = max(1, int(_lev_override))
             except Exception:
                 pass
+            # The standard this evaluation would be SET at before any rung
+            # touches it: the ledger row below records the cut FROM it.
+            _lev_std = leverage
             # Trade QUALITY caps the leverage the VENUE is set to, before the
             # margin-risk cap measures anything -- so the verdict below is
             # measured at the leverage this trade will really run at. The
@@ -1887,6 +1891,25 @@ class RiskEngine:
                                       f"{leverage}x is under the {_lev_floor}x floor)")
                 else:
                     passed.append(f"QUALITY_LADDER: leverage stays {leverage}x ({_ladder.why})")
+            # THE RECORD. Every sized evaluation, applied or shadow, measured
+            # or not, goes to the ladder ledger (bot/risk/ladder_shadow.py) --
+            # the SHADOW audit above is a log line nobody reads back, and the
+            # flag it exists to inform needs a record a card can render. The
+            # write sits here rather than at the shadow site because the
+            # leverage the rung would cut FROM is bound only now; nothing
+            # changes `position_usd` between the two sites (driven). Its own
+            # try, never the enclosing one: a ledger fault must not skip the
+            # margin-risk verdict this block computes next.
+            try:
+                ladder_shadow.LADDER_LEDGER.record(ladder_shadow.evaluation_row(
+                    idea=idea, verdict=_ladder, size_usd=position_usd,
+                    standard_leverage=_lev_std,
+                    floor=leverage_floor(CONFIG.exchange),
+                    size_enabled=bool(CONFIG.risk.quality_ladder_size_enabled),
+                    leverage_enabled=bool(CONFIG.risk.quality_ladder_leverage_enabled)))
+            except Exception as _ledger_exc:
+                risk_log.warning("quality ladder: the evaluation could not be recorded (%s)",
+                                 type(_ledger_exc).__name__)
             # The measurement, the reduction and the sentence are ONE reading
             # (`bot/core/leverage.margin_risk_verdict`), because the executor
             # applies the same cap and a second copy of it is a second answer

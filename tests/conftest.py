@@ -27,6 +27,13 @@ _STATE_FILES = (
     "data/risk_state.json",
     "data/risk_state.json.bak",
     "data/risk_state.json.tmp",
+    # The quality ladder's record (bot/risk/ladder_shadow.py): the risk gate
+    # writes a row on EVERY sized evaluation, so every test that runs the gate
+    # writes this file. Listed in the same commit as the feature, per the
+    # rule the glob block below records.
+    "data/ladder_ledger.json",
+    "data/ladder_ledger.json.bak",
+    "data/ladder_ledger.json.tmp",
     # Roadmap P0: the persisted user store leaked across tests. A stale
     # last_seen on a seeded admin tripped the 24h sensitive-command staleness
     # check (user_store.has_permission), so /pause, /resume, emergency-stop and

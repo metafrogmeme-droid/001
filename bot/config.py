@@ -797,8 +797,10 @@ class RiskLimits:
     # refused, and a table that does not parse falls back to this default with
     # a note on the check line. Two halves, two flags, both default OFF, and
     # SHADOW when off: the engine audits the rung it would have applied with
-    # result="SHADOW", so the ladder's effect is measurable before it moves
-    # money. The leverage half caps the leverage the VENUE is set to (through
+    # result="SHADOW" and records every sized evaluation for /shadow ladder
+    # (bot/risk/ladder_shadow.py), so the ladder's effect is READABLE before
+    # it moves money -- an audit line nobody reads back is not a measurement
+    # anyone can act on. The leverage half caps the leverage the VENUE is set to (through
     # the same reduce-only attribute the margin-risk cap writes), so the cap
     # bounds what fills rather than what the order was sized at.
     quality_ladder_size_enabled: bool = _env_bool("QUALITY_LADDER_SIZE_ENABLED", False)

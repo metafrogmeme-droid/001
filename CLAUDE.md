@@ -7682,6 +7682,80 @@ on that card is the risk gate's and does not move.
 > before the first gate now, and refuses rather than measures; the preflight
 > chapter's own paragraph records it.
 
+**THE LADDER SHADOWED INTO A LOG LINE NOBODY READ BACK, and the flags it
+exists to inform had nothing to be flipped on.** `QUALITY_LADDER_SIZE_ENABLED`
+and `QUALITY_LADDER_LEVERAGE_ENABLED` shipped default OFF and "shadow when
+off": the risk gate audits the rung it would have applied with
+`result="SHADOW"`. Driven, `grep -rn quality_ladder bot/ scripts/` found that
+audit's writer, the two flags, the flag card's ON/OFF row — and no reader. #36
+had moved the sizing shadows from `logger.debug`, which has no handler, onto
+the audit channel so they could be SEEN, and this file quotes it as the
+precedent for the channel; nothing made them READABLE, so the operator who
+asked for size and leverage by trade quality could arm the flags on a memory
+of grep and on nothing else. *Detection that alters nothing is telemetry, not
+a control*, this file's own sentence about `defang_if_flagged`: a shadow
+nobody can render is telemetry with a good reputation. `.env.example` and
+`docs/INCOME_MAP.md` both said "the risk gate audits the rung it would have
+applied", which was true of the log and false of any surface.
+
+**A RECORD, NOT A LOG LINE, and every sized evaluation rather than the cuts.**
+`bot/risk/ladder_shadow.py` is the shadow book's shape one control over:
+`data/ladder_ledger.json`, the newest 500 rows, atomic writes. The gate writes
+one row per SIZED evaluation — measured or not, applied or shadow — at the one
+site where both halves are known: the standard leverage the rung would cut
+FROM is bound only in the leverage half, three hundred lines below the shadow
+audit, and nothing changes the post-cap size between the two sites (driven).
+It sits in a `try` of its own, because a ledger fault inside the enclosing one
+would skip the margin-risk verdict that block computes next, and a refusal
+before sizing leaves no row, which the card says. The cuts alone would be a
+partial total printed as whole: "41 sized, 12 on rung B" is as much the
+evidence as "12 would have been cut".
+
+**`/shadow ladder` renders it, three-valued at the top and with its span on
+every count.** A file that will not parse is said and NEVER overwritten —
+`exchange_credentials._load`'s rule, because a record of evidence destroyed by
+the reader that could not open it is the `secrets_vault` defect one store over
+— and rows recorded after that live in memory, counted since the load. An
+empty record is *"nothing has reached the gate's sizing since the record
+began"*, not a reading of the ladder; a measured zero on a rung IS a reading
+and prints as `C ≥0.00: 0`; a row another build wrote is counted, never
+dropped; the FULL sentence appears only when the record is full and says MAY.
+No recommendation is derived: a count of would-have cuts is evidence about
+FREQUENCY and says nothing about outcomes, and "the evidence supports
+enabling" off a count alone is the self-audit's own recorded defect. The
+would-be size is the post-cap figure × the rung multiplier — the SHADOW
+audit's own arithmetic, exact for the multiplicative steps and not for a
+ceiling that would have bound differently at the smaller figure — and the card
+says so; the would-be leverage is `ladder_leverage`, exact and floor-aware.
+
+**The scoreboard names the sub-mode, and a card that names a command claims
+the command does something**, so the handler is driven with `ladder`: the
+card for an admin, the refusal for anyone else, the pointer line on the
+scoreboard. Every document that described the shadow — `.env.example`, the
+map, the config comment, both `gate_inventory` rows, the catalogue row — names
+`/shadow ladder` under a pin that the name reaches a handler, and the harness
+cleans the file in the same commit as the feature, per `_STATE_GLOBS`'s own
+rule. Two things are FILED rather than done. The balance-relative bounds have
+the same shape one flag over: `size_bounds.resolve` answers `flat` with the
+flag off and computes no would-be, although the balance is in hand at
+`execute()` regardless, and that record belongs on this card the day it
+exists. And the record spans one bot process across every account it
+evaluates for, because a `RiskEngine` carries no user id; the card says so
+rather than implying a book it cannot name.
+
+**Twenty-six mutations, each killed on the first round, none refused — and
+two are worth naming for what they prove about the guards rather than the
+code.** The record's own `try` removed dies on exactly one test, the one that
+plants a RAISING row builder: the fault then reaches the enclosing block's
+`except`, which files *MARGIN_RISK: evaluation error* and never measures the
+cap — a ledger fault costing a trade its margin-risk verdict is invisible
+from every assertion about the row, and visible only from the check line
+that stopped appearing. And the harness's cleanup row removed dies on a scan
+of the list literal, stated as one: a rule over what `_clean_runtime_state`
+deletes has no behaviour a single test can drive, which is the `_STATE_GLOBS`
+block's own reason for listing the file in the same commit as the feature.
+(`tests/test_the_ladder_shadow_is_readable.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8910,7 +8984,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **411 of 991** reach for source text through `source_scan`, `code_only`
+Driven, **411 of 992** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 411 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

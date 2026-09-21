@@ -38,6 +38,11 @@ from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
 
+# The scoreboard's last line. A card that names a command claims the command
+# does something, so `/shadow ladder` is driven by the guard that reads this.
+LADDER_POINTER = ("<i>/shadow ladder — what the quality ladder would have done to "
+                  "size and leverage, and did where a half is on.</i>")
+
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
 
@@ -675,13 +680,30 @@ class EngineOpsCommands:
     async def _cmd_shadow(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /shadow — the counterfactual shadow book scoreboard.
         Every gate-rejected idea trades on paper; a gate whose blocked
-        trades net POSITIVE R is eating edge, negative is saving money."""
+        trades net POSITIVE R is eating edge, negative is saving money.
+
+        ``/shadow ladder`` — the quality ladder's record: what the rungs would
+        have done to size and leverage on every sized evaluation, and what they
+        did where a half is on (bot/risk/ladder_shadow.py). The two flags
+        default OFF and "shadow when off", and the shadow used to reach an
+        audit line nobody read back; this is the reader.
+        """
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
+        args = [str(a).lower() for a in (getattr(ctx, "args", None) or [])]
+        if args[:1] == ["ladder"]:
+            try:
+                from bot.risk import ladder_shadow
+                await self._send(update, ladder_shadow.render_ladder_report(
+                    ladder_shadow.LADDER_LEDGER, CONFIG.risk))
+            except Exception as exc:
+                await self._send(update,
+                                 f"Ladder record unavailable: {_safe_exc_text(exc)}")
+            return
         try:
             from bot.core.shadow_book import SHADOW_BOOK
-            await self._send(update, SHADOW_BOOK.render_report())
+            await self._send(update, SHADOW_BOOK.render_report() + "\n\n" + LADDER_POINTER)
         except Exception as exc:
             await self._send(update,
                              f"Shadow book unavailable: {_safe_exc_text(exc)}")
