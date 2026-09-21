@@ -209,14 +209,34 @@ worse trades fill them. The `SKIP_SIGNAL_TYPES` lever exists (default empty, no
 behavior change) but the benchmark says leave it empty on this universe. Recorded
 so it isn't re-chased.
 
+## The benchmark on record (`benchmark/majors_1h/result.json`)
+
+The number the parity card compares live against is READ from a written
+artefact, never typed into the card. The artefact is produced by the benchmark
+one-liner with `-o` and committed:
+
+```bash
+python -m bot.backtest.runner --dataset benchmark/majors_1h --honest --walk-forward 6 -o benchmark/majors_1h/result.json
+```
+
+It carries `data_source` (the frozen dataset's hash — the reader refuses an
+artefact whose hash is not the one in the `manifest.json` beside it, naming
+both, and a test pins the committed pair), `recorded_at`, `code_sha` (the commit it was measured
+at), the fold table and the POOLED figures as data (`pooled`: trades, wins,
+losses, net, win rate, PF — PF is `null` with no losing trade, never `inf`).
+The parity card prints the commit and the date, so an artefact the code has
+moved past reads as old rather than as current; re-run the command and commit
+the file to re-baseline. **This is the "written file" the note above asks
+for**, and the 2026-09-21 artefact reproduces that note exactly: mean OOS
+−0.38%, 1 of 6 folds profitable, 112 pooled trades, PF 0.63.
+
 ## Is live tracking the benchmark? (`bot.backtest.parity`)
 
-The benchmark says the strategy is profitable here; the parity report closes the
-loop against reality. It reads the LIVE realized trades and reports the same lens
-— realized PF / win / net, **fee parity** (realized round-trip fee rate vs the
-modeled `commission_pct`), and per-signal-type / per-setup / per-exit-reason
-breakdowns — so a fills/fees/slippage gap between live and the +0.31% backtest
-shows up directly:
+The parity report closes the loop against reality. It reads the LIVE realized
+trades and reports the same lens — realized PF / win / net, **fee parity**
+(realized round-trip fee rate vs the modeled `commission_pct`), and
+per-signal-type / per-setup / per-exit-reason breakdowns — beside the
+benchmark on record, and then ANSWERS the question it used to end on:
 
 ```bash
 python -m bot.backtest.parity          # reads data/closed_trades.json
@@ -226,8 +246,23 @@ python -m bot.backtest.parity --file <path.json>
 Pure, read-only (no exchange calls). The point isn't to reproduce backtest P&L
 trade-for-trade (live and backtest take different trades) but to answer: are live
 *fills and fees* as good as the model assumes, and is live realized edge in the
-same ballpark as the benchmark? A `fee_vs_model > 1.25×` or a realized PF well
-under 1.14 is the signal that execution — not the strategy — is the leak.
+benchmark's ballpark? Two verdicts, each with its interval and its floor: live's
+own edge (the 95% interval on the per-trade net clears zero, or does not, or
+straddles it), and the live hit rate in the benchmark's OWN universe against the
+benchmark's pooled hit rate (a Wilson interval, because a hit rate is a
+proportion; the two profit factors are printed beside it and never rounded to a
+word). Rows outside the benchmark's universe are counted and named, never
+compared; the ticker-priced share qualifies every figure. Three kinds of row
+are kept apart: never-filled records (no capital at risk), EXECUTION ABORTS
+(`leverage_overshoot`, `sl_placement_failed`, `slippage_guard` — the bot opened
+and a post-fill guard flattened; real fees, not a strategy exit, and a backtest
+cannot have one) and strategy exits, which every headline figure describes.
+
+A `fee_vs_model > 1.25×` is the signal that execution is the leak. A live PF
+under the benchmark's is NOT that signal by itself: the card used to say so
+against a typed `PF 1.14` while the benchmark on record reproduces at PF 0.63,
+so a week at the benchmark's own PF was being read as an execution problem.
+Read the two verdicts, and the artefact's date.
 
 ## Integrity guarantees (locked by `tests/test_benchmark_snapshot.py`)
 

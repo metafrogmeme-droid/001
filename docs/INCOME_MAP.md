@@ -221,7 +221,7 @@ at once, widest spread first, and names the delta-neutral direction. /arb
 (:241) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
 FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots,
 prints the fee reality check (0.24% of notional for four taker legs,
-arb_tracker.py:43) and a VERDICT over the record — `arb_verdict`, four
+arb_tracker.py:50) and a VERDICT over the record — `arb_verdict`, four
 outcomes: survives fees (the whole 95% interval on the per-entry net carry
 above zero, past floors of 10 closed entries and 72h held), does not survive
 fees (the whole interval below zero), record too thin (a floor unmet, or an
@@ -250,7 +250,7 @@ risk/funding_clock.py times settlements.
 proposal card is the last reading before an execution path, and there is no
 flag, button or executor for one yet — deliberately: a flag read by nothing
 and a button leading to "not built" are both doors painted on a wall.
-arb_tracker.py:18 states it outright: "Strictly paper: nothing here places,
+arb_tracker.py:16 states it outright: "Strictly paper: nothing here places,
 sizes, or even proposes an order," and venue_router.js:3 says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
 gated decision that does not exist in this codebase." No per-leg margin

@@ -1004,18 +1004,35 @@ class ProactiveMonitor:
             fee_x = s.get("fee_vs_model")
             drift = " ⚠️ fees running above model — /parity for the breakdown" \
                 if (fee_x is not None and fee_x > 1.5) else ""
-            fee_clause = (f"(<code>{fee_x:.1f}×</code> the modeled rate)" if fee_x is not None
+            # Two decimals: the full card prints 0.46×, and a digest that
+            # rounded the same reading to "0.5×" was a second answer.
+            fee_clause = (f"(<code>{fee_x:.2f}×</code> the modeled rate)" if fee_x is not None
                           else f"(fee record on {int(s.get('fees_read') or 0)} of "
                                f"{s['trades']} closes — ratio withheld)")
+            from bot.backtest.parity import _pf_str, aborts_line
+            v = s.get("verdict") or {}
+            # The digest carries what the full card carries: the aborts kept
+            # apart, the ticker-priced share (a net printed as measured over a
+            # record 90% approximate is the claim the full card qualified and
+            # this one did not), and the verdict's two words.
+            extra = ""
+            if aborts_line(s):
+                extra += f"\n{_html.escape(aborts_line(s))}"
+            if s.get("inferred_fills"):
+                extra += (f"\n⚠ {s['inferred_fills']} of {s['trades']} strategy exits are "
+                          f"ticker-priced — their PnL is approximate")
+            if v.get("edge_sentence"):
+                extra += (f"\nVerdict: {_html.escape(v['edge_sentence'])}; "
+                          f"{_html.escape(v.get('ballpark_sentence', ''))}")
             body = (
                 "📏 <b>Weekly parity — live vs model</b>\n\n"
-                f"Filled trades: <b>{s['trades']}</b> · win rate "
+                f"Strategy exits: <b>{s['trades']}</b> · win rate "
                 f"<code>{s['win_rate'] * 100:.0f}%</code> · PF "
-                f"<code>{s['pf']:.2f}</code>\n"
+                f"<code>{_pf_str(s['pf'])}</code>\n"
                 f"Net <code>${s['net_pnl']:+,.2f}</code> · fees "
                 f"<code>${s['total_fees']:,.2f}</code> "
                 f"{fee_clause}"
-                f"{drift}\n\n<i>/parity for the full bucketed report.</i>")
+                f"{drift}{extra}\n\n<i>/parity for the full bucketed report.</i>")
             return [Alert(alert_type="PARITY_DIGEST", severity="INFO",
                           title="Weekly parity digest", body=body,
                           dedup_key=f"parity_{week}", audience="admin")]

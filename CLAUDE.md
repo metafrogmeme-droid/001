@@ -739,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 737 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 734 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7218,6 +7218,130 @@ than by an exemption naming it.
 `tests/default_comments.py`.)
 
 
+**THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
+RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
+ended *"Backtest benchmark (majors_1h, --honest): +0.31% / PF 1.14 — is live
+in the same ballpark?"* — two figures typed into `parity.py` from a run in
+August, while `docs/FROZEN_BENCHMARK.md` records the 2026-09-11 re-run of the
+same command on the same `dataset_hash` at **−0.38% / PF 0.63** and says the
++0.31% *did not reproduce*. Driven again on 2026-09-21, seventy seconds: 6
+folds, 1 profitable, 112 pooled trades, PF 0.63 — the retraction, exactly. So
+the question the card asked — is live's PF 0.63 in the ballpark of 1.14? —
+pointed the operator at execution while live and the benchmark were the SAME
+number, and the doc's own sentence *"under 1.14 is the signal that execution —
+not the strategy — is the leak"* said so in as many words. That is the `/vault`
+hint shape pointed at a NUMBER: a card naming a figure its own record had
+withdrawn, which the next reader trusts because the card is right about
+everything else on it.
+
+**The benchmark is READ, not typed.** `benchmark/majors_1h/result.json` is
+written by the canonical command (the one `docs/FROZEN_BENCHMARK.md` names) and
+carries `recorded_at`, `code_sha`, the pooled block and the dataset hash;
+`benchmark_on_record` is three-valued — none (the card names the command to
+write one), unreadable (a file that parses and cannot answer is *not "no
+benchmark"*, and the reason says which check refused it), read — and the
+artefact is pinned to the `manifest.json` BESIDE it, both hashes on the card
+when they differ, because a result recorded off a re-frozen dataset answers a
+question about data no longer on disk. **That pin was a test's until the
+reachability ratchet said `manifest_hash` had no production caller**: a guard
+over the committed pair is right about the pair on the day it runs and says
+nothing about the artefact somebody regenerates over a new snapshot tomorrow,
+so the reader pins it itself and the guard drives both refusals.
+
+**TWO VERDICTS, MADE BY THE CODE FROM FIGURES THE CARD ALREADY HELD.** The
+live EDGE is the arb verdict's discipline — the whole 95% interval on the
+per-trade net clear of zero, past the same floor of ten — with `mean_interval`
+promoted from the arb tracker rather than copied, because a third private copy
+of an interval is a third answer about what an interval is; a losing mean whose
+interval reaches zero is *no edge measurable either way*, never NEGATIVE and
+never "too thin". The BALLPARK is a hit-rate question — the one scale-free
+figure both sides carry an interval instrument for (`wilson_lower_bound`, the
+readiness module's own; a per-trade dollar mean is not comparable across
+account sizes and a profit factor has no interval instrument here, so the PFs
+are printed beside the verdict and never rounded to a word) — over the rows in
+the benchmark's OWN universe: 128 crypto and 66 stock, ETF and commodity rows
+against ten majors, so the 66 are counted and named and never compared. **A
+point estimate with any tolerance a reader would accept gets both directions
+wrong**: four of ten is eleven points under 51% and *in* (the interval on ten
+trades runs 17%..69%), and 470 of 1000 is four points under and *below*
+(44%..50%). The sample decides, not the gap.
+
+**ELEVEN EXECUTION ABORTS WERE IN THE STRATEGY'S WIN RATE.** `leverage_overshoot`
+×10 and `sl_placement_failed` ×1 are the post-fill flatten guards — a position
+closed seconds after it opened because the venue filled it at the wrong
+leverage or refused its stop — and `is_filled_close` counts them as filled,
+which they are. The headline folded them in as eleven losses at a round trip of
+fees. `EXECUTION_ABORT_REASONS` is DERIVED from the executor's own
+`close_position(reason=…)` literals — the guard walks the AST, so the fourth
+flatten guard written tomorrow fails a test rather than being counted as a
+losing trade on every card — `partition` reads the four kinds of row once
+(never-filled, unscored, abort, strategy), and every reader asks
+`strategy_exits`: the card, the digest, the web section and `/parity`'s
+asset-class bucket, which used to apply its own copy of the filter, and a bucket
+over a different population than the headline it sits under is a second answer
+to "how many trades".
+
+**PF `inf` IS NOT A MEASUREMENT, and one reason was two rows.** `manual_nlp 14
+… PF inf` and `TP HIT (inferred) 9 … PF 5451.06` (eight wins over a one-cent
+loss): a profit factor over no loss is not a ratio, so `profit_factor` — one
+function in the artefact reader, which the runner's pooled block and the card
+both call, because the runner had its own copy of the arithmetic printing the
+same `inf` — answers None, the row prints a dash, and the sample (W/L, /F only
+when a flat exists) travels beside every figure so a reader can see what a
+ratio was made of. The executor's provenance suffixes (` (inferred)`,
+` (exchange)`, ` (exchange, combined TPSL)`) had split ONE reason into two
+rows, `SL HIT 1 tr` beside `SL HIT (inferred) 51 tr`; the bucket is the reason
+and the provenance is a count beside it, and `(no reason recorded)` stays
+apart from `CLOSED (unknown)`, because a record that says nothing and a record
+that says "unknown" are different facts.
+
+**The digest omitted what the card carried.** The weekly parity digest printed
+the net as measured over a record 90% ticker-priced — 175 of 194 closes
+`fill_source=ticker_fallback`, the root cause filed as its own slice — rounded
+the card's `0.46×` to `0.5×` (a second answer), and carried neither the aborts
+nor a verdict. It carries all three from the same summary now, escaped at the
+boundary: the ballpark sentence lists the benchmark's universe, which is read
+off a file, and Telegram's HTML parser refuses a whole message over one stray
+tag.
+
+**Four of the guard's own fixtures were wrong before the code was, and the
+ratchets found three more.** The card-shaped fixture was fourteen trailing
+stops short of the card it names, so six tests asserted 183 strategy exits over
+169 — *a fixture that cannot produce the state it names measures nothing*. The
+losing-mean straddle summed to +0.5. The floor test built `bar` rows where it
+meant `bar − 1`, a fixture ON the boundary and on the wrong side of it. And the
+NO FOLD RAN assertion, `"0.00%" not in line`, matched the sentence's own *this
+is not a 0.00% result* — *asserting a short string is ABSENT is the assertion
+that keeps misfiring*, from the author's side, so the sentence no longer
+carries the digit. The digest's `0.46×` fixture typed the LIVE box's rate
+(`COMMISSION_PCT=0.1`) where this box runs 0.06, so the fee is derived for the
+rate the digest reads. Then mypy grew by nine in the slice's own two files
+(`float(_net(t))` on an Optional), the honesty gate by one
+(`float(_net(t) or 0.0)` — the or-zero shape, in the module written to remove
+it), and fixing the type error found a division: with a floor of zero and no
+in-universe row, the old branch divided by `k`. `_scored_nets` is the explicit
+filter now, both ratchets improved (honesty 737 → 734, ruff I001 599 → 598)
+and were re-recorded in the same commit.
+
+**Thirty-three mutations, each killed — and the one that survived the first
+round was the corpus's.** With the None filter dropped from `partition`,
+`_group` still skipped the row (it has its own guard) and every net was still
+filtered; what moved was the ticker-priced COUNT and the abort COUNT, which
+read a row's `fill_source` and `close_reason` without asking whether it was
+scored — and no fixture held an unscored row that could change a count. The
+other first-round gap was the driver's: the abort-vocabulary anchor spelled the
+set on one line where the file wraps it, matched zero times, and was REFUSED
+rather than reported as a kill. Two mutations are recorded rather than run as
+equivalent: `_scored_nets` against `float(_net(t) or 0.0)` over rows the
+partition has already scored, and the escape on the aborts line, whose every
+word is the executor's own literal. And two INCOME_MAP citations into
+`arb_tracker.py` were found stale by READING them on the way past — `:18` for a
+quote at 16, `:43` for a constant at 50 — the case the blank-line probe cannot
+see.
+(`tests/test_the_parity_card_reads_the_benchmark_on_record.py`,
+`bot/backtest/benchmark_record.py`, `benchmark/majors_1h/result.json`.)
+
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8446,9 +8570,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **409 of 986** reach for source text through `source_scan`, `code_only`
+Driven, **410 of 987** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 409 is a FLOOR and the honest shape is
+source scan that rule does not see, so 410 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
