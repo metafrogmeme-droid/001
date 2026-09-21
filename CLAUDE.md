@@ -6853,6 +6853,275 @@ records. Sixth time the full gate has refused a slice on a test none of the
 slice's own suites ran.
 
 
+**AND THE CAP IT ENFORCED SAID THE SAME THING TO A $200 ACCOUNT AND A $20,000
+ONE.** The slice above made the exposure cap read the whole book; the FIGURE it
+reads against was three flat absolute dollars written once at import —
+`MICRO_MAX_POSITION_USD` $100, `MICRO_MAX_TOTAL_EXPOSURE` $500,
+`PER_USER_MAX_FUNDS_USD` an `os.environ` read defaulting to the string `"100"`.
+The SIZE was never the problem: `_evaluate_locked` has sized off the account
+since it was written (`sizing_equity * max_position_pct`, then fixed-fractional
+by stop distance) and every multiplier around it is tighten-only. It is the
+CEILING that knew nothing, and it lands on that sizing at one line —
+`position_usd = min(position_usd, max_position_usd)` — which `engine.py` fills
+with the constant.
+
+**THE RESERVE WAS THE SHARPEST OF THE FOUR, BECAUSE IT READS LIKE A PERCENT AND
+IS NOT ONE.** `MIN_RESERVE_PCT = 20.0` was applied to
+`MICRO_MAX_TOTAL_EXPOSURE` — twenty percent of a CONSTANT — so the "capital
+buffer" the warning names was a fraction of a number the operator typed and had
+no relationship to the money in the account. A buffer is what is left in the
+account after the trade, or it is not a buffer. It is a share of the AVAILABLE
+balance now, the audit line says which basis the 20% was of, and with no balance
+on record it stays exactly the figure it has always been rather than a
+fabricated one.
+
+**THREE BASES, AND THE UNREAD ONE NEVER MOVES A BOUND IN EITHER DIRECTION.**
+`bot/core/size_bounds.py` answers `flat` (the feature is off), `unread` (on, and
+nobody read a balance) and `balance`. A READ `0.0` takes the BALANCE branch and
+yields a bound of `$0.00` that refuses the next order by name: fully-deployed
+capital and an empty wallet are real states, and folding them into `unread`
+would be this file's own subject at the one reader that decides whether money
+moves. `margin_clamp.read_money_field` is the reading, because it tests
+PRESENCE rather than truthiness. Refusing on `unread` HERE would be a second
+answer — `clamp_to_free_margin` already refuses an unreadable free margin one
+layer down, with its own two reasons — so the bounds only say they were not
+measured.
+
+**ARMING THE FLAG ALONE CANNOT RAISE ANY POSITION ON ANY ACCOUNT, and that is
+the whole safety argument.** The two growth ceilings default to the flat caps,
+so with `SIZE_BOUNDS_ENABLED=1` and nothing else changed a balance can only
+TIGHTEN: a $200 account is held to what it can carry and a $20,000 one is still
+held at the operator's $100. Growth needs `SIZE_BOUNDS_MAX_POSITION_USD` /
+`SIZE_BOUNDS_MAX_TOTAL_USD`, a second number typed deliberately, and the card
+prints which bound bit — `$41.20/trade` alone sends an operator to raise a
+percentage that was never binding. No artificial FLOOR under a balance-derived
+bound, which is a refusal rather than an omission: a dust balance honestly
+supports a dust bound, and inventing a floor publishes a cap nobody's balance
+supports.
+
+**THE BALANCE IS READ ONCE PER ORDER AND THE FLAT FIGURES ARE THE CALLER'S.**
+`execute()` takes one `available_margin()` reading and hands it to the clamp and
+to the preflight, because two reads in one order are two answers; that reading
+is TTL'd, answers `None` for a failed read, and never revives an EXPIRED one,
+since a stale figure presented as the free margin now is the defect the bound
+exists to remove. `size_bounds_for` is module-level rather than a method, the
+ruling `committed_margin` already set one function up — nothing there is
+per-instance state, so a method would say the executor decides when the executor
+is never consulted, and a test double would have to pre-answer the question
+under test. It hands the leaf `live_executor`'s OWN constants rather than
+config's, because a long list of guards patches those and re-reading config
+would mean two answers to "what is the flat cap" with the patched one no longer
+binding.
+
+**What is deliberately NOT balance-relative, each with its reason.**
+`MICRO_MAX_OPEN_POSITIONS` stays flat: a count is not a fraction of money, and
+deriving one from a balance would be a number nobody measured.
+`PER_USER_MAX_FUNDS_USD` stays flat because its own comment already states the
+property — *"a test account can lose at most what the operator deliberately
+allowed it, regardless of the account's balance"* — and a recorded decision is
+overturned by a new argument or not at all. And `_margin_basis`, the notional
+hard-block, keeps the flat constant: a hard block that TIGHTENS on a
+venue-reported balance is a trade refused for a reason nobody chose, and `max`
+makes the constant only ever a floor on the basis anyway.
+
+**Twenty-eight mutations, each killed — and SEVEN survived the first round,
+every one my own guard and not the code.** The sharpest was an assertion
+satisfied by the wrong clause: `"(ceiling)" in why` is true of a sentence whose
+TOTAL clause says it, so the mutation making the per-trade clause always read
+"balance" passed a green suite. It is read per CLAUSE now. Two were scans
+standing in for behaviour — the reserve branch wrapped in `if False:` leaves both
+`reserve_basis` literals in the file, and the card asking `size_bounds_for(None)`
+passes every source assertion while printing the operator's figures to a $20,000
+account; both are driven. Two were claims nothing reached: the tightening
+argument was driven against config STAND-INS, so a `$10,000` default for
+`SIZE_BOUNDS_MAX_POSITION_USD` — one env var as a 100x raise — changed no
+verdict, and `size_bounds_for` dropping the caller's flat figures is invisible
+until a guard patches `MICRO_MAX_POSITION_USD`, which is the whole reason that
+parameter exists. The last two were arguments nothing asserted: the recheck
+context returning `None` for the available margin, and the live high-conviction
+call dropping it — `test_both_sizing_paths_use_it` counts CALLS and says nothing
+about their arguments.
+
+> **And the fixture for the reserve drive sat exactly ON its own boundary.**
+> `remaining < reserve_needed` with both at $150 is False, so the branch the
+> test exists to reach was never entered and the drive measured nothing. *A
+> fixture positioned either side of a boundary measures nothing about the
+> comparison that decides it* — this file's own sentence, in the test written
+> to close a gap the round had just found.
+
+> **And the guard anchored its own slice to a comment, for the third time in
+> this file.** `code_only` blanks comments, so `src.index("    # ── Order
+> idempotency")` raised on the first run — and bounding by `ast.FunctionDef`
+> over the BLANKED source then raised too, because `code_only` blanks
+> DOCSTRINGS and a class whose body opens with one no longer parses. The
+> segment comes from the RAW source and the comments are blanked after.
+
+> **And three of this slice's own branches were a second copy.** The `flat`,
+> `unread` and not-a-figure returns were byte-identical constructions differing
+> only in `basis` and `why` — the second-copy shape inside the leaf whose
+> subject is that two answers are two answers, and the mutation driver REFUSED
+> a row for it (one anchor, two matches). One `_operator_bounds` now, so a
+> field added tomorrow cannot reach two of the three and miss the last.
+
+> **And the whole-tree mypy ratchet found a `getattr` answering `Any`.** The
+> margin cache was read with `getattr(self, "_avail_margin_cache", None)`, so
+> the name it unpacked was `Any` and BOTH of that function's returns were
+> untyped. A class-level annotated default is the fix, and it is a better cache
+> besides. The ruff baseline improved (1193 -> 1191) and was re-recorded in the
+> same commit, which is the `known_failures.txt` rule.
+
+**AND THE FULL GATE REFUSED THE SLICE ON TEN TESTS NONE OF ITS SUITES RAN, and
+nine of the ten were ONE cause.** `_live_recheck_context` grew a third figure
+and nine assertions unpacked it POSITIONALLY, so all nine broke at once --
+each asserting a POSITION where it meant a field. That is
+`tests/conftest.py`'s `_Reach` verbatim, one module over, and the remedy this
+file already records for it: the row is a `NamedTuple` (`_LiveRecheck`), every
+reader spells `.equity` / `.open_count` / `.available_usd`, and the next
+figure moves nothing a reader already reads. Seventh time the full gate has
+refused a slice on a test none of the slice's own suites ran.
+
+**MY OWN GUARD ASSERTED A SPELLING, and the rename broke it while the property
+held throughout.** `test_the_live_path_hands_the_ceiling_the_balance_it_read`
+required the 4th argument to be the literal `_avail_recheck` -- so it failed
+on a refactor that changed nothing about the claim, which is
+`test_unread_mark_is_not_break_even`'s recorded shape arriving from the
+author's side. The claim is that the argument is the figure THIS confirm
+ALREADY READ, so the name the recheck was bound to is DERIVED from the one
+`await self._live_recheck_context(...)` assignment and the argument has to be
+that read's own `available_usd`, however either is spelled. Driven, it also
+got stronger: a SECOND recheck read in one confirm now fails too, where the
+spelling assertion could not see it.
+
+**THE TENTH WAS A `path:line` BLOCK, AND A GENERATOR IS THE WHOLE DIFFERENCE.**
+Six config fields shifted 33 citations in `.env.example`'s generated
+safety-flags section by +41 lines each -- no flag added, none removed, nothing
+semantic. That is the invalidation this file refuses a resolvability RATCHET
+over ("most firings on edits with no relation to the document"), and here it
+is answered rather than refused, because `scripts/safety_flag_inventory.py
+--section` regenerates the block and `test_the_block_is_what_the_generator
+_produces` pins that the committed block IS what it produces. The flags
+themselves are correctly OUT of that inventory -- it covers what DEFAULTS ON,
+i.e. protections, and `SIZE_BOUNDS_ENABLED` defaults off -- so they are
+documented by hand beside the three flat caps they derive from, which is the
+one place an operator reading about the caps will look.
+
+> **And the INCOME_MAP citations shifted NON-UNIFORMLY, so the arithmetic
+> anybody would reach for is wrong.** The same commit inserted 16 lines in one
+> place and changed 1-line hunks into 2-line ones in three others, so the
+> offset is +16 for one span, +15 for the next and +17 after that -- a blanket
+> `+15` re-pointed `_high_conviction_margin` at `return ceiling`, which is a
+> citation landing on a line that is not blank and which the probe therefore
+> cannot see. `difflib`'s opcodes give an exact old-line -> new-line map for
+> every UNCHANGED line, so each citation lands on the byte it landed on
+> before. A citation is re-derived from what it MEANT or mapped from where it
+> WAS; it is never arithmetic on a number.
+
+
+**THE REDUCTION REACHED THE NUMBER THAT CANCELS OUT.** `max_margin_risk_pct`
+bounds SL-distance × leverage, and its own comment says so; `RiskEngine`
+enforces it by REDUCING leverage and writing the reduction onto the idea "for
+the executor". Driven, that quantity is decided entirely by the leverage the
+VENUE is set to:
+
+    loss_at_stop / venue_locked_margin = L_venue × sl_dist_pct / 100
+
+The leverage an order is SIZED at decides the notional, and so the dollar
+loss, and **moves that ratio not at all** — it cancels. The reduction reached
+`_size_or_block` and nothing else: `_ensure_leverage` and
+`_ensure_leverage_generic` called `_compute_target_leverage(symbol)` with no
+idea in sight, so the venue kept the standard number. Sized at 2x with the
+venue still at 5x and a 10% stop, the audit line read `30.0% ≤ 30.0%` while
+the real figure was **50%** of the margin the venue had locked; at a 20% stop
+it was **100%** — liquidation AT the stop, from the control written to prevent
+exactly that. The clamp's own comment says it stops orders "blowing through
+the very cap the engine reported enforcing", and driven, it does not.
+
+**AND THE SENTENCE ASSERTED ITS OWN `≤`.** `new_margin` was computed and the
+comparison was never made — the operator was a LITERAL in the f-string — so
+when `max(min_leverage, …)` floored the reduction ABOVE the cap the line read
+`SL 16.0% × 2x = 32.0% ≤ 30.0%` and was appended to `passed`. Driven over the
+stop distances a trade can have, that is every stop past 15%: at 20% it printed
+`40.0% ≤ 30.0%` as a passed check. `margin_risk_verdict` MAKES the comparison
+now, and a reduction that does not clear the cap is REFUSED — the same answer
+the flag-off arm already gives, and the only honest one, because there is no
+permitted leverage at which that stop distance fits.
+
+**LATENT, ARMED BY ONE ENV VAR — and the same one buys nothing.** Both sit
+behind `dynamic_leverage_enabled`, which defaults False and whose `else` arm
+fails the trade outright. So nothing shipped was wrong; what shipped was a
+switch that arms two defects. Driven with the flag ON, the protection it
+advertises is INERT: `update_atr` is the only writer of the ATR map and has no
+production caller, so every symbol comes back at the standard leverage with a
+`no ATR reading on record` WARNING, exactly as the disabled flag gives it.
+
+**ONE READING, THREE READERS — and the clamp sits at ONE site.**
+`_compute_target_leverage(symbol, idea)` is the number to place an order with;
+`_standard_leverage(symbol)` is the half that depends only on the symbol. The
+cap is applied once, over every return of the base, rather than at each of the
+three call sites: three sites is the shape where the fourth added tomorrow is
+the one that misses it. `execute()` has held the idea all along and simply
+never passed it, and the SET runs before the SIZE in that same method — a
+claim the guard asks as an ORDER of two calls rather than as two line numbers. The leverage READ-BACK (#155's fix) now verifies the number that will
+actually be used, which the old shape could not do: a venue answering 5x under
+a 3x cap was the healthy case.
+
+**THE HARNESS STUBBED THE FUNCTION UNDER TEST.** `tests/leverage_drive.py` —
+the one driver two suites share — did `ex._compute_target_leverage = lambda
+symbol: target`, so the clamp was REPLACED by the fixture and no test could
+ever have asked what leverage the venue was pushed for a capped idea. It is
+planted at `_standard_leverage` now, one layer down, so the real reading runs
+in every drive; `test_leverage_guard_is_exercised.py`'s own fixture had the
+same shape and went the same way.
+
+**SEVEN PINS ASSERTED A SPELLING AND BROKE ON A RENAME WHILE THEIR PROPERTY
+HELD.** `test_leverage_cap_honored.py` required `_size_or_block`'s source to
+contain a specific `min(...)` in a specific order; two dedup pins spelled
+`self._compute_target_leverage(symbol)` exactly; the readback suite pinned the
+whole `def` line and the wrapped call; the discipline scan pinned the call and
+the `min(lev, default_lev)`; and the override pin sliced the gate block between
+two string literals, one of which was a log message — its own comment already
+complained that "half of it was solid and half moved whenever somebody
+renumbered a check", and the slice became EMPTY when the block moved into the
+leaf. Each is a shape or a drive now. `test_no_router_intent…`'s lesson, one
+subsystem over: **a guard written against one spelling is not a guard about the
+claim.**
+
+**Two of the new guards needed the traps this file already records.**
+`code_only` blanks DOCSTRINGS, so a class whose body opens with one no longer
+parses — the AST reads RAW source and the string scans read the blanked copy.
+And `inspect.getsource` of a METHOD is indented, which `ast.parse` refuses.
+Both are written down here and both happened again.
+
+**A hand-written CONFIG stand-in forgot the next attribute, in the fixture
+written this hour.** The gate drive's first `SimpleNamespace` listed
+`exchange`, `risk` and `is_live`; `_evaluate_locked` reached for
+`strategy_types`. It overrides `exchange` by DELEGATION now, so everything not
+named falls through — the same correction the prompt suites' stub store needed.
+
+**And the floor had two invented defaults for a field that is never absent** —
+1 in `live_executor`, 2 in `risk_engine`, for `CONFIG.exchange.min_leverage`,
+a dataclass field with its own default of 2. Unreachable from production, and
+a fallback that cannot fire while disagreeing with its twin is a claim that
+there is a check. `bot/core/leverage.py` already owned reduce-only leverage
+resolution (`resolve_user_leverage`); the floor, the cap clamp, the attribute
+NAME the two modules each spelled by hand, and the verdict live there now.
+
+**Twenty-six mutations, each killed — and the two that survived the first round
+were the guard's own coverage, never the code's.** `MIN_LEVERAGE_DEFAULT = 2 ->
+1` changed no verdict, because the assertion compared `leverage_floor()` to
+`MIN_LEVERAGE_DEFAULT`: **a guard deriving its expectation from the thing it
+guards moves with it and can see nothing**, which is the lesson `SCAN_DISPATCH`
+already records one subsystem over. It reads the number out of
+`bot/config.py`'s own `_env_float_bounded("MIN_LEVERAGE", 2, ...)` declaration
+now. And dropping the idea from the Bitget entry's hand-off to the generic path
+survived because the shared harness builds a `bitget` venue while the generic
+test calls that method DIRECTLY -- **a seam driven from both ends and never
+across is a seam nothing measures.** It is driven through `_ensure_leverage` on
+a real non-Bitget venue now, with the venue object taken from `get_venue`
+rather than hand-written: the stand-in written for it listed five attributes
+and the verification block reached for a sixth.
+(`tests/test_the_venue_gets_the_capped_leverage.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -7269,7 +7538,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 211 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 212 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -8081,9 +8350,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **407 of 983** reach for source text through `source_scan`, `code_only`
+Driven, **409 of 985** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 407 is a FLOOR and the honest shape is
+source scan that rule does not see, so 409 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

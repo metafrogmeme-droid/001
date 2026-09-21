@@ -101,9 +101,15 @@ class FakeExchange:
 @pytest.fixture
 def ex(tmp_path, monkeypatch):
     """An executor whose target leverage is fixed, so the tests are about the
-    verification and not about the sizing model that chooses the number."""
+    verification and not about the sizing model that chooses the number.
+
+    Planted at `_standard_leverage`, the symbol-only half, so
+    `_compute_target_leverage` stays REAL — a fixture that replaces the
+    function under test cannot see what that function does, and the per-idea
+    margin-risk clamp it applies is exactly what reaches the venue from here.
+    """
     e = LiveExecutor(state_dir=str(tmp_path))
-    monkeypatch.setattr(e, "_compute_target_leverage", lambda symbol: TARGET)
+    monkeypatch.setattr(e, "_standard_leverage", lambda symbol: TARGET)
     return e
 
 

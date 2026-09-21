@@ -89,6 +89,11 @@ if TYPE_CHECKING:
 from dataclasses import dataclass
 
 from bot.config import CONFIG
+from bot.core.leverage import (
+    leverage_floor,
+    margin_risk_verdict,
+    set_margin_risk_cap,
+)
 from bot.risk.live_perf_gate import governor_verdict
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
@@ -1746,33 +1751,35 @@ class RiskEngine:
                     leverage = max(1, int(_lev_override))
             except Exception:
                 pass
-            if leverage > 1 and idea.entry_price > 0:
-                sl_dist_pct = abs(idea.entry_price - idea.stop_loss) / idea.entry_price * 100
-                margin_risk = sl_dist_pct * leverage
-                max_margin_risk = CONFIG.risk.max_margin_risk_pct
-                if margin_risk > max_margin_risk + 0.5:  # small tolerance
-                    # Dynamic leverage: reduce leverage to fit within cap
-                    if getattr(CONFIG.exchange, 'dynamic_leverage_enabled', False) and sl_dist_pct > 0:
-                        safe_lev = int(max_margin_risk / sl_dist_pct)
-                        min_lev = getattr(CONFIG.exchange, 'min_leverage', 2)
-                        safe_lev = max(min_lev, safe_lev)
-                        new_margin = sl_dist_pct * safe_lev
-                        passed.append(
-                            f"MARGIN_RISK: reduced leverage {leverage}x→{safe_lev}x "
-                            f"(SL {sl_dist_pct:.1f}% × {safe_lev}x = {new_margin:.1f}% ≤ {max_margin_risk:.1f}%)")
-                        # Store adjusted leverage on idea for executor (dynamic
-                        # attr; setattr keeps the runtime behaviour identical while
-                        # not tripping the typed-attribute check).
-                        try:
-                            setattr(idea, "_adjusted_leverage", safe_lev)
-                        except Exception:
-                            pass
-                    else:
-                        failed.append(f"MARGIN_RISK: {margin_risk:.1f}% (SL {sl_dist_pct:.1f}% × {leverage}x) exceeds {max_margin_risk:.1f}% cap")
-                else:
-                    passed.append(f"MARGIN_RISK: {margin_risk:.1f}% OK (SL {sl_dist_pct:.1f}% × {leverage}x)")
+            # The measurement, the reduction and the sentence are ONE reading
+            # (`bot/core/leverage.margin_risk_verdict`), because the executor
+            # applies the same cap and a second copy of it is a second answer
+            # about how much of the account a stop may take. It also made the
+            # comparison real: this block used to compute `new_margin` and then
+            # print "≤ {cap}" as a LITERAL, so when `max(min_leverage, …)`
+            # floored the reduction ABOVE the cap the line read
+            # "SL 16.0% × 2x = 32.0% ≤ 30.0%" and was filed in `passed`.
+            _mr = margin_risk_verdict(
+                leverage=leverage,
+                entry_price=idea.entry_price,
+                stop_loss=idea.stop_loss,
+                max_margin_risk_pct=CONFIG.risk.max_margin_risk_pct,
+                min_leverage=leverage_floor(CONFIG.exchange),
+                may_reduce=bool(getattr(CONFIG.exchange,
+                                        'dynamic_leverage_enabled', False)),
+            )
+            if _mr.state == "reduced":
+                # Rides on the IDEA because that is the one thing both the set
+                # path and the sizing path hold. The venue is the end this cap
+                # has to reach: the leverage an order is sized at cancels out
+                # of the ratio being bounded, so a reduction that reached only
+                # the sizing path bounded nothing.
+                set_margin_risk_cap(idea, _mr.leverage)
+                passed.append(_mr.sentence)
+            elif _mr.state == "refused":
+                failed.append(_mr.sentence)
             else:
-                passed.append("MARGIN_RISK: no leverage, skipped")
+                passed.append(_mr.sentence)
         except Exception as exc:
             failed.append(f"MARGIN_RISK: evaluation error ({exc})")
 

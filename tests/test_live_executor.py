@@ -146,11 +146,20 @@ class TestLiveExecutorSafety:
             yield
 
     def test_preflight_rejects_over_max_position(self):
-        """size over the per-position micro limit is rejected."""
+        """size over the per-position limit is rejected, and NAMES it.
+
+        This asserted the literal "exceeds micro-test limit". The refusal is
+        worded off `size_bounds` now, because the bound is no longer one flat
+        constant for every account -- so the claim is what the sentence has to
+        CARRY (the size asked for, the bound that refused it, and which figure
+        produced the bound), not the phrase it used to be spelled with.
+        """
         executor = LiveExecutor()
         err = executor._preflight_check(MICRO_MAX_POSITION_USD + 50.0)
         assert err is not None
-        assert "exceeds micro-test limit" in err
+        assert f"${MICRO_MAX_POSITION_USD + 50.0:.2f}" in err, err
+        assert f"${MICRO_MAX_POSITION_USD:,.2f}" in err, err
+        assert "per-trade margin limit" in err, err
 
     def test_preflight_rejects_over_total_exposure(self):
         """total over the exposure micro limit is rejected."""

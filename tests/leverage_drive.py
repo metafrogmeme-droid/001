@@ -32,6 +32,7 @@ class LeverageDrive:
         self.set_calls: list = []
         self.leverage_reads: int = 0
         self.position_reads: int = 0
+        self.target_asks: list = []
 
     @property
     def hold_sides(self) -> list:
@@ -47,6 +48,7 @@ def drive_ensure_leverage(
     set_raises: bool = False,
     per_side_raises: bool = False,
     fail_open: bool = True,
+    idea: Any = None,
     margin_mode: Optional[str] = None,
     side: str = "",
     force_per_side: Optional[str] = None,
@@ -58,6 +60,9 @@ def drive_ensure_leverage(
     ``readings`` is the sequence `fetch_leverage` answers (an ``Exception``
     entry is raised instead of returned); ``positions`` is what
     `fetch_positions` answers, or ``None`` to make that call raise.
+    ``idea`` is the order the leverage is being set for, when the test has
+    one — it is what carries the risk gate's margin-risk cap, so a test can
+    plant a reduced cap and read the number the VENUE was pushed.
     ``margin_mode`` is planted as the executor's OBSERVED mode — the value the
     margin-mode verification read above would have written — because the read
     that decides which leverage field governs is placed under that mode, not
@@ -131,7 +136,22 @@ def drive_ensure_leverage(
         return ex_obj
 
     ex._get_exchange = _get_exchange
-    ex._compute_target_leverage = lambda symbol: target
+    # Stubbed one layer DOWN, at the symbol-only half, so
+    # `_compute_target_leverage` itself is the REAL method in every drive —
+    # including the per-idea margin-risk clamp it applies. A harness that
+    # stubs the function under test cannot see what that function does, which
+    # is how the clamp reaching only the sizing path went unmeasured: nothing
+    # here could ever have asked what leverage the venue was pushed for an
+    # idea the risk gate had capped.
+    ex._standard_leverage = lambda symbol: target
+
+    _real_target = ex._compute_target_leverage
+
+    def _recording_target(symbol, idea=None):
+        out.target_asks.append((symbol, idea))
+        return _real_target(symbol, idea)
+
+    ex._compute_target_leverage = _recording_target
 
     async def _detect_hold_mode():
         return None
@@ -140,7 +160,7 @@ def drive_ensure_leverage(
 
     async def _all() -> None:
         for _ in range(max(1, runs)):
-            await ex._ensure_leverage("TRX/USDT", side)
+            await ex._ensure_leverage("TRX/USDT", side, idea)
 
     try:
         asyncio.run(_all())

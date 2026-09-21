@@ -39,10 +39,13 @@ class TestDynamicLeverageOnlyReduces:
             assert _dyn_lev(d, atr_pct=atr) <= d, f"atr={atr} exceeded default {d}"
 
     def test_executor_source_has_no_upscale_and_caps_at_default(self):
-        # The dynamic-leverage rule now lives in the single _compute_target_leverage
-        # helper, used by both the set-leverage and sizing paths (deep-audit dedup).
+        # The dynamic-leverage rule lives in `_standard_leverage`, the
+        # symbol-only half of the one reading both the set-leverage and the
+        # sizing path ask (deep-audit dedup). `_compute_target_leverage` is
+        # that half plus this idea's margin-risk cap, which can only reduce
+        # further — so the cap at the default is asserted where it is made.
         import bot.core.live_executor as le
-        helper_src = inspect.getsource(le.LiveExecutor._compute_target_leverage)
+        helper_src = inspect.getsource(le.LiveExecutor._standard_leverage)
         # No low-vol up-scale anywhere in the rule.
         assert "* 1.4" not in helper_src
         # Explicit cap at the default leverage.
@@ -54,6 +57,11 @@ class TestDynamicLeverageOnlyReduces:
         size_src = inspect.getsource(le.LiveExecutor._size_or_block)
         exec_src = inspect.getsource(le.LiveExecutor.execute)
         ensure_src = inspect.getsource(le.LiveExecutor._ensure_leverage)
-        assert "self._compute_target_leverage(symbol)" in size_src
-        assert "self._compute_target_leverage(symbol)" in ensure_src
+        # Asked by NAME rather than by spelling: the call grew an `idea`
+        # argument when the margin-risk cap had to reach the venue, and a
+        # literal `(symbol)` broke on that while the property it names held
+        # throughout. WHICH arguments each path passes is the subject of
+        # `test_the_set_and_sized_leverage_are_one_number.py`, which drives it.
+        assert "self._compute_target_leverage(" in size_src
+        assert "self._compute_target_leverage(" in ensure_src
         assert "* 1.4" not in size_src and "* 1.4" not in exec_src and "* 1.4" not in ensure_src

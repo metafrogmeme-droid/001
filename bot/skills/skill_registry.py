@@ -3396,8 +3396,23 @@ class PlaybookSkill(BaseSkill):
                 lines.append(
                     f"  <i>covers {_rp['scored']} of {_rp['count']} closes — "
                     f"{_rp['unscored']} carry no recorded P&L</i>")
-            from bot.core.live_executor import MICRO_MAX_POSITION_USD, MICRO_MAX_TOTAL_EXPOSURE, MICRO_MAX_OPEN_POSITIONS
-            lines.append(f"- Micro Limits: <code>${MICRO_MAX_POSITION_USD:.0f}/pos · ${MICRO_MAX_TOTAL_EXPOSURE:.0f} total · {MICRO_MAX_OPEN_POSITIONS} max</code>")
+            # The bounds this account is actually held to, and WHICH figure
+            # produced them. They were three flat constants, so the line said
+            # the same thing to a $200 account and a $20,000 one; `why` names
+            # the bound that bit, because "$41.20/trade" alone sends an
+            # operator to raise a percentage that was never binding.
+            from bot.core.live_executor import (
+                MICRO_MAX_OPEN_POSITIONS,
+                size_bounds_for,
+            )
+            _lim = size_bounds_for(
+                float(free_bal) if free_bal is not None else None)
+            lines.append(
+                f"- Limits: <code>{_money(_lim.per_trade_usd)}/pos · "
+                f"{_money(_lim.total_usd)} total · "
+                f"{MICRO_MAX_OPEN_POSITIONS} max</code>")
+            if _lim.basis != "flat":
+                lines.append(f"  <i>{_lim.why}</i>")
         else:
             lines.append(f"- Equity: <code>{_money(state.equity_usd)}</code>")
             lines.append(f"- Open Positions: <code>{state.open_positions}</code>")

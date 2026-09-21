@@ -666,7 +666,8 @@ class TestOperatorWithOwnKeys:
             v = e.live_view("777")
         assert v["scope"] == "own" and v["executor"] is user_ex and v["total"] == 96.5
         # the pre-execution recheck sizes and counts against the same account
-        eq, n_open = asyncio.run(e._live_recheck_context("777"))
+        _rc = asyncio.run(e._live_recheck_context("777"))
+        eq, n_open = _rc.equity, _rc.open_count
         assert eq == 96.5 and n_open == 1
 
     def test_an_operator_without_own_keys_still_reads_the_operator_balance(self, monkeypatch):

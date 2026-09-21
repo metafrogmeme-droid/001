@@ -332,7 +332,11 @@ def test_a_short_already_at_its_stop_is_refused(ex, audits):
 
 
 def test_sizing_honours_the_risk_engines_reduce_only_clamp(ex, audits, monkeypatch):
-    monkeypatch.setattr(ex, "_compute_target_leverage", lambda s: 10)
+    # Planted at `_standard_leverage` — the symbol-only half — so the clamp
+    # under test is the one that really runs. Stubbing
+    # `_compute_target_leverage` replaced it, which is why the clamp reaching
+    # only this path and never the venue was invisible from here.
+    monkeypatch.setattr(ex, "_standard_leverage", lambda s: 10)
     blk, lev, qty = ex._size_or_block(_idea(_adjusted_leverage=3), SYM, 100.0, 100.0)
     assert blk is None
     assert lev == 3, "the engine's cap must LOWER the sized leverage"
@@ -340,13 +344,13 @@ def test_sizing_honours_the_risk_engines_reduce_only_clamp(ex, audits, monkeypat
 
 
 def test_the_clamp_never_raises_leverage(ex, audits, monkeypatch):
-    monkeypatch.setattr(ex, "_compute_target_leverage", lambda s: 5)
+    monkeypatch.setattr(ex, "_standard_leverage", lambda s: 5)
     _, lev, qty = ex._size_or_block(_idea(_adjusted_leverage=20), SYM, 100.0, 100.0)
     assert lev == 5 and qty == pytest.approx(5.0)
 
 
 def test_a_junk_clamp_value_is_ignored(ex, audits, monkeypatch):
-    monkeypatch.setattr(ex, "_compute_target_leverage", lambda s: 5)
+    monkeypatch.setattr(ex, "_standard_leverage", lambda s: 5)
     _, lev, _ = ex._size_or_block(_idea(_adjusted_leverage="x"), SYM, 100.0, 100.0)
     assert lev == 5
 

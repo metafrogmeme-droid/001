@@ -1852,6 +1852,47 @@ class ExecutionConfig:
         "HIGH_CONVICTION_MARGIN_USD", 100.0, 1.0, 10_000_000.0)
     max_live_total_exposure_usd: float = _env_float_bounded("MICRO_MAX_TOTAL_EXPOSURE", 500.0, 1.0, 100_000_000.0)
     max_live_open_positions: int = int(_env_float_bounded("MICRO_MAX_OPEN_POSITIONS", 5, 1, 1000))
+    # ── Balance-relative live bounds (opt-in, default OFF) ──
+    #
+    # The three caps above are flat absolute dollars read once at import, so
+    # they say the same thing to a $200 account and a $20,000 one. Sizing is
+    # already balance-relative (sizing_equity x max_position_pct, then
+    # fixed-fractional by stop distance); it is the CEILING that knows nothing
+    # about the account. When this is on, bot.core.size_bounds derives the
+    # per-trade and total margin bounds from the AVAILABLE balance the venue
+    # reported.
+    #
+    # ARMING THE FLAG ALONE CANNOT RAISE ANY POSITION. The two ceilings below
+    # default to the flat caps, so with the flag on and nothing else changed a
+    # balance can only TIGHTEN a bound — a small account is held to what it can
+    # carry and a large one is still held at the operator's figure. Growth
+    # needs SIZE_BOUNDS_MAX_POSITION_USD / SIZE_BOUNDS_MAX_TOTAL_USD, a second
+    # number the operator types deliberately.
+    #
+    # An unread balance keeps the flat bounds and says so: it is never the
+    # reason a bound moves in either direction. A READ 0.00 is a measurement
+    # (fully-deployed capital, an empty wallet) and yields a bound of $0.00,
+    # which refuses the next order by name.
+    balance_relative_bounds_enabled: bool = _env_bool("SIZE_BOUNDS_ENABLED", False)
+    balance_bounds_per_trade_pct: float = _env_float_bounded(
+        "SIZE_BOUNDS_PER_TRADE_PCT", 10.0, 0.01, 100.0)
+    balance_bounds_total_pct: float = _env_float_bounded(
+        "SIZE_BOUNDS_TOTAL_PCT", 50.0, 0.01, 100.0)
+    # The capital buffer, as a share of the ACCOUNT. MIN_RESERVE_PCT was
+    # applied to MICRO_MAX_TOTAL_EXPOSURE — twenty percent of a constant — so
+    # the "remaining capital" it warned about had no relationship to the money
+    # in the account.
+    balance_bounds_reserve_pct: float = _env_float_bounded(
+        "SIZE_BOUNDS_RESERVE_PCT", 20.0, 0.0, 100.0)
+    # The growth half. Default to the flat caps: see above.
+    balance_bounds_max_position_usd: float = _env_float_bounded(
+        "SIZE_BOUNDS_MAX_POSITION_USD",
+        _env_float_bounded("MICRO_MAX_POSITION_USD", 100.0, 1.0, 10_000_000.0),
+        1.0, 10_000_000.0)
+    balance_bounds_max_total_usd: float = _env_float_bounded(
+        "SIZE_BOUNDS_MAX_TOTAL_USD",
+        _env_float_bounded("MICRO_MAX_TOTAL_EXPOSURE", 500.0, 1.0, 100_000_000.0),
+        1.0, 100_000_000.0)
     # WebSocket price staleness guard. The live SL/TP monitoring loop prefers
     # sub-second WS prices over REST, but is_connected() reflects socket state,
     # not data freshness — a silently-stalled-but-connected feed would serve a

@@ -168,7 +168,8 @@ class TestLiveRecheckContext:
         eng = _engine()
         eng._executor_for = lambda uid: eng.live_executor
         try:
-            assert await eng._live_recheck_context("alice") == (None, None)
+            rc = await eng._live_recheck_context("alice")
+            assert (rc.equity, rc.open_count, rc.available_usd) == (None, None, None)
         finally:
             p.stop()
 
@@ -180,7 +181,8 @@ class TestLiveRecheckContext:
         with patch("bot.core.engine.get_exchange_position_count",
                    new=AsyncMock(return_value=3)):
             try:
-                eq, cnt = await eng._live_recheck_context("")
+                _rc = await eng._live_recheck_context("")
+                eq, cnt = _rc.equity, _rc.open_count
                 assert eq == 10_000.0
                 assert cnt == 3 + 1   # exchange count + 1 pending_fill
             finally:
@@ -194,7 +196,8 @@ class TestLiveRecheckContext:
         with patch("bot.core.engine.get_exchange_position_count",
                    new=AsyncMock(side_effect=RuntimeError("rpc down"))):
             try:
-                eq, cnt = await eng._live_recheck_context("")
+                _rc = await eng._live_recheck_context("")
+                eq, cnt = _rc.equity, _rc.open_count
                 assert eq == 10_000.0
                 assert cnt == 2       # len(local open_positions)
             finally:
@@ -208,7 +211,8 @@ class TestLiveRecheckContext:
         eng._executor_for = lambda uid: user_ex
         eng.get_user_live_equity = AsyncMock(return_value={"total": 100.0})
         try:
-            eq, cnt = await eng._live_recheck_context("alice")
+            _rc = await eng._live_recheck_context("alice")
+            eq, cnt = _rc.equity, _rc.open_count
             assert eq == 100.0
             assert cnt == 2
         finally:
@@ -221,7 +225,8 @@ class TestLiveRecheckContext:
         eng._executor_for = lambda uid: user_ex
         eng.get_user_live_equity = AsyncMock(return_value=None)
         try:
-            eq, cnt = await eng._live_recheck_context("alice")
+            _rc = await eng._live_recheck_context("alice")
+            eq, cnt = _rc.equity, _rc.open_count
             assert eq is None     # caller falls back to capped paper sizing
             assert cnt == 1
         finally:

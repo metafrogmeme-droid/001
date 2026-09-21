@@ -181,11 +181,48 @@ def test_an_unresolvable_ceiling_does_not_silently_lift_the_cap(eng):
 
 
 def test_the_ceiling_is_derived_from_the_same_caps_confirm_trade_uses():
+    """Same BOUND, not the same spelling.
+
+    This asserted the literal `max_live_position_usd`, and the day that
+    constant stopped being read directly -- the bound is `size_bounds_for`
+    now, so a small account is held to what it can carry -- the assertion
+    failed while the property it names held throughout. A scan measuring a
+    spelling rather than a claim is the shape this repository keeps
+    recording, so the execution half is DRIVEN: patch the one function both
+    readers call and see the ceiling move.
+    """
     fn = ENGINE_SRC[ENGINE_SRC.index("def _high_conviction_ceiling"):]
     fn = fn[:fn.index("def _high_conviction_margin")]
-    assert "max_live_position_usd" in fn
     assert "_per_user_margin_cap" in fn
     assert "min(ceiling" in fn, "two ceilings compose by taking the tighter"
+
+    import types
+
+    from bot.core import live_executor as _lx
+
+    seen = []
+
+    def _fake_bounds(available_usd=None):
+        seen.append(available_usd)
+        return types.SimpleNamespace(per_trade_usd=42.0)
+
+    _real = _lx.size_bounds_for
+    _real_live = type(CONFIG).is_live
+    _lx.size_bounds_for = _fake_bounds
+    # The ceiling is a LIVE-only reading, so the drive has to be in live
+    # mode or it measures the `None` every paper call returns. CONFIG is the
+    # frozen singleton, so the method is swapped on the CLASS and restored in
+    # a `finally` -- the shape the vault-key suites use, for the same reason.
+    type(CONFIG).is_live = lambda self: True
+    try:
+        _on(margin=100.0)
+        # Executed through the real method: a ceiling read from anywhere but
+        # this one function cannot answer 42.
+        assert _Eng()._high_conviction_ceiling("", 900.0) == 42.0
+        assert seen == [900.0], "the available margin has to reach the bound"
+    finally:
+        _lx.size_bounds_for = _real
+        type(CONFIG).is_live = _real_live
 
 
 def test_it_does_not_touch_leverage():
@@ -197,19 +234,37 @@ def test_it_does_not_touch_leverage():
 
 
 def test_the_hard_caps_are_untouched():
-    """MICRO_MAX_POSITION_USD still clamps in the executor, and this rule
-    must not have raised it."""
+    """The executor still clamps, and this rule must not have raised it.
+
+    The clamp reads `size_bounds_for`, which with the balance-relative
+    feature off IS `MICRO_MAX_POSITION_USD` -- so the claim is the BOUND,
+    driven, rather than the spelling of the line that applies it.
+    """
     from bot.core import live_executor
     assert live_executor.MICRO_MAX_POSITION_USD == CONFIG.execution.max_live_position_usd
+    assert (live_executor.size_bounds_for(None).per_trade_usd
+            == live_executor.MICRO_MAX_POSITION_USD)
     ex = code_only(open("bot/core/live_executor.py", encoding="utf-8").read())
-    assert "size_usd = min(size_usd, MICRO_MAX_POSITION_USD)" in ex
+    assert "size_usd = min(size_usd, _bounds.per_trade_usd)" in ex
 
 
 def test_both_sizing_paths_use_it():
     """Paper is the rehearsal for live; they must size the same way or the
-    simulation stops predicting anything."""
-    assert ENGINE_SRC.count(
-        "self._high_conviction_margin(idea, recheck.position_size_usd, user_id)") == 2
+    simulation stops predicting anything.
+
+    Counted as CALLS rather than as a literal argument list: the live path
+    grew a fourth argument (the available margin this confirm already read)
+    and the literal count went to one while both paths still called it.
+    """
+    import ast
+    tree = ast.parse(ENGINE_SRC)
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "_high_conviction_margin"]
+    assert len(calls) == 2, [ast.unparse(c) for c in calls]
+    for c in calls:
+        assert ast.unparse(c.args[1]) == "recheck.position_size_usd"
 
 
 def test_the_change_is_audited():

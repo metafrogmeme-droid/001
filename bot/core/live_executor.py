@@ -46,6 +46,8 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import get_venue
 from bot.core.plan_cleanup import plan_rows_to_cancel
+from bot.core.leverage import apply_margin_risk_cap, leverage_floor
+from bot.core import size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
@@ -723,6 +725,27 @@ class CommittedMargin:
     def complete(self) -> bool:
         """Every position in the book had a margin on record."""
         return self.scored == self.counted
+
+
+def size_bounds_for(available_usd: Optional[float] = None) -> size_bounds.SizeBounds:
+    """The margin bounds for an account with this AVAILABLE margin.
+
+    Module-level rather than a method, for the reason `committed_margin`
+    already gives one function up: nothing here is per-instance state, so a
+    method would say the executor decides when the executor is never
+    consulted -- and a test double would have to pre-answer the question
+    under test instead of describing a book.
+
+    The FLAT figures are this module's own constants rather than config's,
+    because they are read once at import and a long list of guards patches
+    them; re-reading config inside the leaf would mean two answers to "what
+    is the flat cap" and the patched one would stop binding.
+    """
+    return size_bounds.resolve(
+        available_usd, CONFIG.execution,
+        flat_per_trade=MICRO_MAX_POSITION_USD,
+        flat_total=MICRO_MAX_TOTAL_EXPOSURE,
+    )
 
 
 def committed_margin(positions: Any) -> CommittedMargin:
@@ -1472,13 +1495,44 @@ class LiveExecutor:
                             self._venue.id, cfg.default_leverage, cfg.margin_mode)
         return self._exchange
 
-    def _compute_target_leverage(self, symbol: str) -> int:
-        """Single source of truth for dynamic leverage (deep-audit medium).
+    def _compute_target_leverage(self, symbol: str, idea: Any = None) -> int:
+        """The leverage for this order — the ONE number the venue is set to.
 
-        Used by BOTH the set-leverage path (_ensure_leverage) and the sizing path
-        (execute), which had diverged: the set path still scaled leverage UP
-        ×1.4 in low vol while sizing was reduce-only, so the exchange leverage
-        and the leverage used to size the order disagreed.
+        ``idea`` carries the risk gate's margin-risk cap, and passing it is
+        what makes that cap real. `max_margin_risk_pct` bounds SL-distance ×
+        leverage, and driven, the leverage an order is SIZED at cancels out of
+        that ratio entirely:
+
+            loss_at_stop / venue_locked_margin = L_venue × sl_dist_pct / 100
+
+        So the reduction reaching only `_size_or_block` — which is where it
+        reached — moved the dollar loss and moved the capped quantity not at
+        all: sized at 2x with the venue at 5x and a 10% stop, the audit line
+        read "30.0% ≤ 30.0%" while the real figure was 50% of the margin the
+        venue had locked; at a 20% stop it was 100%, liquidation at the stop.
+
+        The clamp is applied HERE, once, over every return of the standard
+        computation, rather than at each of the three call sites: three sites
+        is the shape where the fourth added tomorrow is the one that misses it.
+        It is reduce-only and a no-op for an idea with no cap, so every path
+        that never met the risk gate keeps the leverage it had.
+        """
+        return apply_margin_risk_cap(self._standard_leverage(symbol), idea)
+
+    def _standard_leverage(self, symbol: str) -> int:
+        """The standard leverage for a symbol, before this idea's risk cap.
+
+        NOT the number to place an order with — `_compute_target_leverage` is,
+        and it is what every caller asks. This is the half that depends only on
+        the SYMBOL, kept separate so the per-idea clamp has one site rather
+        than one per return.
+
+        Both executor paths reach it through that one reading, which is what
+        the consolidation bought: they had diverged once already, the set path
+        scaling leverage UP ×1.4 in low vol while sizing was reduce-only, so
+        the exchange leverage and the leverage used to size the order
+        disagreed. The margin-risk cap then reintroduced exactly that, one
+        field over, by reaching the sizing path alone.
 
         Dynamic leverage only ever REDUCES from the configured default — never
         increases it — because up-scaling in low realized vol amplified losses on
@@ -1538,7 +1592,7 @@ class LiveExecutor:
                       data={"symbol": symbol, "leverage": default_lev,
                             "atr_readings_held": len(self._last_atr_pct)})
                 return default_lev
-            min_lev = int(getattr(cfg, "min_leverage", 1))
+            min_lev = leverage_floor(cfg)
             lev = default_lev
             if atr_pct > 0.04:        # high vol (>4% ATR) → halve
                 lev = max(min_lev, lev // 2)
@@ -1562,8 +1616,17 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
-    async def _ensure_leverage(self, symbol: str, side: str = "") -> None:
+    async def _ensure_leverage(self, symbol: str, side: str = "",
+                               idea: Any = None) -> None:
         """Set leverage and margin mode for a symbol (futures only).
+
+        ``idea`` is the order this leverage is being set FOR, when there is
+        one. It carries the risk gate's margin-risk cap, and the venue is the
+        end that cap has to reach: sizing an order at the reduced leverage
+        while the venue stays at the standard one leaves the capped quantity
+        exactly where it was (see `_compute_target_leverage`). With no idea the
+        target is the symbol's standard leverage, which is what every caller
+        got before.
 
         ``side`` is the direction this order will fill in, when the caller
         knows it. Bitget's ISOLATED margin holds leverage per side, so the
@@ -1584,7 +1647,7 @@ class LiveExecutor:
         # method is Bitget account topology (UTA probes, v2 verification
         # endpoints, crossed/cross quirk) that does not exist elsewhere.
         if self._venue.id != "bitget":
-            await self._ensure_leverage_generic(exchange, symbol)
+            await self._ensure_leverage_generic(exchange, symbol, idea)
             return
 
         # ── Set margin mode (best-effort; the verification read below is the
@@ -1710,7 +1773,7 @@ class LiveExecutor:
                       data={"symbol": symbol, "configured": cfg.margin_mode})
 
         # ── Set leverage (dynamic scaling via the shared, reduce-only helper) ──
-        _target_leverage = self._compute_target_leverage(symbol)
+        _target_leverage = self._compute_target_leverage(symbol, idea)
 
         # Did the exchange ACCEPT the target? A bare set_leverage that returns
         # without raising is NOT a confirmation — see the per-side block below
@@ -2048,7 +2111,8 @@ class LiveExecutor:
             await self._detect_hold_mode()
 
     async def _ensure_leverage_generic(self, exchange: ccxt.Exchange,
-                                       symbol: str) -> None:
+                                       symbol: str,
+                                       idea: Any = None) -> None:
         """Venue-neutral margin-mode + leverage setup via plain ccxt.
 
         Used for venues without Bitget's account-topology special cases
@@ -2057,7 +2121,7 @@ class LiveExecutor:
         symbol (e.g. BTC 40x, many alts 10x) and an over-cap set call
         would fail and leave the venue default in place."""
         cfg = CONFIG.exchange
-        target = self._compute_target_leverage(symbol)
+        target = self._compute_target_leverage(symbol, idea)
         sym = self._venue.swap_symbol(symbol)
         try:
             market = exchange.market(sym)
@@ -2292,8 +2356,58 @@ class LiveExecutor:
             return
         self._leverage_blocked_until[key] = time.monotonic() + seconds
 
-    def _preflight_check(self, size_usd: float, symbol: str = "") -> Optional[str]:
-        """Run micro-test safety checks. Returns error string or None."""
+    # ── The margin bounds for THIS account ───────────────────────────
+    #: How long an available-margin reading stands before it is taken again.
+    #: The bound it produces decides whether an order is placed, so a figure
+    #: minutes old is not this account's free margin now.
+    _AVAIL_MARGIN_TTL_SEC = 30.0
+
+    #: (monotonic stamp, the figure or None). A CLASS default rather than a
+    #: `getattr` fallback, which answered `Any` and made both returns below
+    #: untyped -- the whole-tree mypy ratchet is what said so.
+    _avail_margin_cache: Optional[tuple[float, Optional[float]]] = None
+
+    async def available_margin(self) -> Optional[float]:
+        """The AVAILABLE margin the venue reported for this account, or None.
+
+        Three-valued by construction: `fetch_balance` publishes `free` through
+        `_free_or_none`, so a venue that did not report the balance-coin entry
+        answers None rather than the fabricated 0.0 RC-2026-017 records.
+
+        Cached for `_AVAIL_MARGIN_TTL_SEC`. `execute()` reads it once per
+        order and hands the figure to both the clamp and the preflight; two
+        reads in one order would be two answers to one question. A read that
+        FAILS answers None and leaves an unexpired reading alone -- a network
+        blip must not erase a figure taken five seconds ago -- but it never
+        revives an expired one, because a stale reading presented as the
+        account's free margin now is the defect this bound exists to remove.
+        """
+        now = time.monotonic()
+        cached = self._avail_margin_cache
+        if cached is not None:
+            at, cached_value = cached
+            if now - at < self._AVAIL_MARGIN_TTL_SEC:
+                return cached_value
+        try:
+            bal = await self.fetch_balance()
+        except Exception as exc:
+            logger.debug("Available-margin read failed: %s", exc)
+            return None
+        value = size_bounds.available_from_balance(bal)
+        self._avail_margin_cache = (now, value)
+        return value
+
+    def _preflight_check(self, size_usd: float, symbol: str = "",
+                         available_usd: Optional[float] = None) -> Optional[str]:
+        """Run live safety checks. Returns error string or None.
+
+        ``available_usd`` is the AVAILABLE margin the venue reported, read
+        once by the caller. None means nobody read one: the bounds are then
+        the operator's flat figures and say so, because an unreadable
+        balance may not be the reason a bound moves in either direction --
+        and `clamp_to_free_margin` already refuses an unreadable free
+        margin one layer down, with its own two reasons.
+        """
         # A symbol the overshoot guard just flattened is refused until its block
         # expires. Without this the guard is a fee pump: Bitget's sticky
         # per-symbol leverage does not heal because we closed, so the engine
@@ -2319,11 +2433,21 @@ class LiveExecutor:
                 # it was stored under, or it never leaves.
                 self._leverage_blocked_until.pop(_rest, None)
 
+        # ── The bounds for THIS account ──────────────────────────────
+        #
+        # These were flat absolute dollars read once at import, so they said
+        # the same thing to a $200 account and a $20,000 one. `size_bounds`
+        # derives them from the AVAILABLE margin the venue reported; with the
+        # feature off, or with no balance read, they are the operator's flat
+        # figures and the sentence says which.
+        bounds = size_bounds_for(available_usd)
+
         # Cap position size
-        if size_usd > MICRO_MAX_POSITION_USD:
+        if size_usd > bounds.per_trade_usd:
             return (
-                f"Position size ${size_usd:.2f} exceeds micro-test limit "
-                f"${MICRO_MAX_POSITION_USD:.2f}"
+                f"Position size ${size_usd:.2f} exceeds the "
+                f"${bounds.per_trade_usd:,.2f} per-trade margin limit "
+                f"({bounds.why})"
             )
 
         # Check total exposure
@@ -2349,7 +2473,7 @@ class LiveExecutor:
                 f"Total exposure cannot be measured: the venue stated no "
                 f"margin for any of the {exposure.counted} open position(s) "
                 f"on this account ({_cap_names}). Close {_cap_them} with "
-                f"/liveclose, or the ${MICRO_MAX_TOTAL_EXPOSURE:.2f} cap "
+                f"/liveclose, or the ${bounds.total_usd:,.2f} cap "
                 f"cannot be enforced."
             )
         if not exposure.complete:
@@ -2368,13 +2492,14 @@ class LiveExecutor:
                 f"on record over {exposure.scored} of {exposure.counted} "
                 f"position(s) is a floor and not the total. Close "
                 f"{_cap_them} with /liveclose, or the "
-                f"${MICRO_MAX_TOTAL_EXPOSURE:.2f} cap cannot be enforced."
+                f"${bounds.total_usd:,.2f} cap cannot be enforced."
             )
         total_exposure = exposure.total
-        if total_exposure + size_usd > MICRO_MAX_TOTAL_EXPOSURE:
+        if total_exposure + size_usd > bounds.total_usd:
             return (
-                f"Total exposure ${total_exposure + size_usd:.2f} would exceed "
-                f"micro-test limit ${MICRO_MAX_TOTAL_EXPOSURE:.2f}"
+                f"Total exposure ${total_exposure + size_usd:,.2f} would exceed "
+                f"the ${bounds.total_usd:,.2f} total margin limit "
+                f"({bounds.why})"
             )
 
         # LIVE-1 (operator directive, live-testing protection): every LINKED
@@ -2403,17 +2528,33 @@ class LiveExecutor:
                 )
 
         # GETCLAW: Capital buffer guard — keep minimum reserve after trade.
-        # Deploying too much leaves no buffer for margin calls or new opportunities.
-        # Warn (don't block) if remaining equity drops below 20% of limit.
-        MIN_RESERVE_PCT = 20.0
-        remaining = MICRO_MAX_TOTAL_EXPOSURE - total_exposure - size_usd
-        reserve_needed = MICRO_MAX_TOTAL_EXPOSURE * (MIN_RESERVE_PCT / 100.0)
+        # Deploying too much leaves no buffer for margin calls or new
+        # opportunities. Warn, never block.
+        #
+        # THIS READ LIKE A PERCENT AND WAS NOT ONE. It was
+        # `MICRO_MAX_TOTAL_EXPOSURE * 0.20` — twenty percent of a CONSTANT —
+        # so the "remaining capital" it warned about was a fraction of a
+        # number the operator typed and had no relationship to the money in
+        # the account. A buffer is what is left in the account after the
+        # trade, or it is not a buffer. With a balance on record it is a
+        # share of that balance; with none, it stays exactly the figure it
+        # has always been, and the audit line says which it was.
+        if bounds.reserve_usd is not None:
+            remaining = (bounds.available_usd or 0.0) - total_exposure - size_usd
+            reserve_needed = bounds.reserve_usd
+            reserve_basis = "available balance"
+        else:
+            remaining = bounds.total_usd - total_exposure - size_usd
+            reserve_needed = bounds.total_usd * 0.20
+            reserve_basis = "the configured total limit"
         if remaining < reserve_needed and remaining > 0:
             audit(trade_log,
-                  f"Capital buffer warning: ${remaining:.2f} remaining after trade "
-                  f"(reserve target: ${reserve_needed:.2f})",
+                  f"Capital buffer warning: ${remaining:,.2f} remaining after "
+                  f"trade (reserve target ${reserve_needed:,.2f}, "
+                  f"20% of {reserve_basis})",
                   action="capital_buffer", result="WARN",
                   data={"remaining": remaining, "reserve": reserve_needed,
+                        "reserve_basis": reserve_basis,
                         "exposure": total_exposure, "new_size": size_usd})
 
         # Check open positions count
@@ -4498,23 +4639,16 @@ class LiveExecutor:
         # Calculate quantity
         # For futures with leverage: size_usd is the margin (collateral).
         # Notional exposure = margin * leverage, so qty = (size_usd * leverage) / price.
-        # Dynamic leverage scaling — shared, reduce-only helper so the
-        # leverage used to SIZE the order matches the leverage SET on the
-        # exchange in _ensure_leverage (they had diverged: deep-audit medium).
-        leverage_mult = self._compute_target_leverage(symbol)
-        # Honor the risk engine's margin-risk-capped leverage. When SL distance
-        # × leverage would exceed max_margin_risk_pct, RiskEngine.evaluate()
-        # reduces leverage and writes idea._adjusted_leverage "for the executor"
-        # — but it was never read, so orders sized at full leverage and blew
-        # through the very cap the engine reported enforcing. Clamp reduce-only:
-        # this can only LOWER the sized leverage, never raise it, so it is a
-        # no-op whenever the risk gate left leverage unchanged.
-        _risk_lev = getattr(idea, "_adjusted_leverage", None)
-        if _risk_lev:
-            try:
-                leverage_mult = min(int(leverage_mult), int(_risk_lev))
-            except (TypeError, ValueError):
-                pass
+        # Dynamic leverage scaling AND the risk gate's margin-risk cap, from
+        # the one reading `_ensure_leverage` asked with this same idea — so
+        # the leverage used to SIZE the order is the leverage SET on the
+        # exchange. They had diverged twice. First the set path scaled UP ×1.4
+        # in low vol while sizing was reduce-only (deep-audit medium), which
+        # `_compute_target_leverage` was written to end. Then the margin-risk
+        # cap was clamped HERE and nowhere else, which rebuilt the divergence
+        # one field over — and that one enforced nothing, because the sizing
+        # leverage cancels out of the ratio the cap bounds.
+        leverage_mult = self._compute_target_leverage(symbol, idea)
         quantity = (size_usd * leverage_mult) / current_price
         return None, leverage_mult, quantity
 
@@ -4722,6 +4856,13 @@ class LiveExecutor:
         # legitimate per-trade range. Manual-margin trades intentionally exceed
         # the micro cap, so the ceiling scales with the actual margin used.
         _notional = quantity * current_price
+        # The basis stays the OPERATOR's flat figure rather than the
+        # balance-relative bound. This is a HARD BLOCK against a
+        # sizing/leverage misconfiguration, and a hard block that tightens on
+        # a venue-reported balance is a trade refused for a reason nobody
+        # chose. It is only ever a FLOOR on the basis anyway: when the bound
+        # is larger than the flat cap, `size_usd` has already been clamped to
+        # the bound and `max` picks it.
         _margin_basis = max(size_usd, MICRO_MAX_POSITION_USD)
         _max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage_mult) or 1),
                        int(leverage_mult or 1))
@@ -5860,8 +6001,13 @@ class LiveExecutor:
         order_type = order_type.lower()
         if order_type not in ("market", "limit"):
             order_type = "market"
-        # Clamp to micro limit
-        size_usd = min(size_usd, MICRO_MAX_POSITION_USD)
+        # ── The bounds for THIS account, read ONCE ───────────────────
+        # The figure is handed to the clamp here and to the preflight below:
+        # two reads in one order would be two answers to one question, and
+        # the preflight is the reader that refuses on it.
+        _avail = await self.available_margin()
+        _bounds = size_bounds_for(_avail)
+        size_usd = min(size_usd, _bounds.per_trade_usd)
 
         # ── GETCLAW ORDER RULES: market hours + weekend adjustments ── (see _apply_order_rules)
         order_type, size_usd, asset_class, defer_tp_sl = self._apply_order_rules(
@@ -5874,7 +6020,8 @@ class LiveExecutor:
         self._note_settlement_clock(idea)
 
         # Pre-flight
-        preflight_err = self._preflight_check(size_usd, symbol=idea.asset)
+        preflight_err = self._preflight_check(size_usd, symbol=idea.asset,
+                                              available_usd=_avail)
         if preflight_err:
             audit(trade_log, f"Live execution blocked: {preflight_err}",
                   action="live_execute", result="BLOCKED",
@@ -5974,7 +6121,7 @@ class LiveExecutor:
                 # The DIRECTION matters: Bitget isolated margin holds leverage
                 # per side, so the field that decides this fill is that side's.
                 await self._ensure_leverage(
-                    swap_sym, getattr(idea.direction, "value", "") or "")
+                    swap_sym, getattr(idea.direction, "value", "") or "", idea)
 
             # Convert symbol to the perpetual/swap format for the futures order
             # path so the market lookup, price rounding, tick snap and
