@@ -26,11 +26,12 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Sequence
 
 import toolchain
 
@@ -58,6 +59,28 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 #: every script named here really does exit 2 for that reason.
 CANNOT_CHECK_EXIT = 2
 CANNOT_CHECK_GATES = ("ruff_gate.py", "mypy_gate.py", "honesty_gate.py")
+
+#: The signals a NON-INTERACTIVE SHELL LAUNCHER rewrites to SIG_IGN before this
+#: process starts -- `&` with job control off sets SIGINT and SIGQUIT, `nohup`
+#: sets SIGHUP -- and which every child then inherits. A non-interactive bash
+#: cannot take one back ("signals ignored upon entry to the shell cannot be
+#: trapped or reset"), so a `trap` in a script the suite drives never arms.
+LAUNCHER_REWRITTEN_SIGNALS = ("SIGINT", "SIGQUIT", "SIGHUP")
+
+#: The subset the TEST gate's verdict depends on. `tests/test_deploy_smoke_guard.py`
+#: sends SIGINT to the smoke guard and requires its trap to answer exit 3; with
+#: SIGINT inherited as ignored the guard FINISHES, which is the one verdict that
+#: test exists to prove is never reported. On 2026-09-21 a preflight launched as
+#: `(nohup ... &)` went red on exactly that case, in the full run and re-run
+#: alone, on a file byte-identical to main: twenty-two minutes measuring the
+#: launcher, reported as a regression. SIGHUP is deliberately NOT here -- no test
+#: sends it, so `nohup` alone is a launcher the suite can be measured under.
+#: `tests/test_the_preflight_refuses_a_launcher_that_ignores_sigint.py` pins
+#: this tuple both ways against what the suite really sends to a child.
+TEST_GATE_SIGNALS = ("SIGINT",)
+
+#: The steps that verdict belongs to, matched the way CANNOT_CHECK_GATES is.
+SIGNAL_SENSITIVE_GATES = ("ci_test_gate.py",)
 
 
 class Outcome(NamedTuple):
@@ -167,6 +190,41 @@ def uncovered() -> list[str]:
 SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "site-packages"}
 
 
+def ignored_signals(names: Sequence[str] = LAUNCHER_REWRITTEN_SIGNALS) -> list[str]:
+    """The launcher-rewritable signals THIS process currently ignores.
+
+    A measurement of the launch, not of the tree: `signal.getsignal` answers
+    `SIG_IGN` for a disposition inherited from a background command of a
+    non-interactive shell, and the default handler for a foreground run. A
+    name this platform does not define is skipped rather than reported,
+    because an absent signal is not an ignored one.
+    """
+    out: list[str] = []
+    for n in names:
+        sig = getattr(signal, n, None)
+        if sig is None:
+            continue
+        if signal.getsignal(sig) is signal.SIG_IGN:
+            out.append(n)
+    return out
+
+
+def launch_refusal(cmd: str, ignored: Sequence[str]) -> Optional[str]:
+    """Why a step cannot check on this launch, or None when it can.
+
+    Only a step named in SIGNAL_SENSITIVE_GATES can be refused, and only for a
+    signal in TEST_GATE_SIGNALS that the launch really ignores: `nohup` alone
+    (SIGHUP) refuses nothing, because nothing in the suite depends on SIGHUP.
+    """
+    if not any(g in cmd for g in SIGNAL_SENSITIVE_GATES):
+        return None
+    hit = [n for n in TEST_GATE_SIGNALS if n in ignored]
+    if not hit:
+        return None
+    return (f"{', '.join(hit)} is ignored in this process (see LAUNCHER above) "
+            "-- a test that interrupts a child with it would watch the child finish")
+
+
 def purge_pycache() -> int:
     """Delete every ``__pycache__`` under the repo. Returns how many.
 
@@ -245,6 +303,28 @@ def main() -> int:
         print("  Until then those gates report CANNOT CHECK, which is neither a "
               "pass nor a failure.")
 
+    # Read the launcher's signal dispositions the same way, once and up front.
+    # A background command of a non-interactive shell inherits SIGINT as
+    # ignored, so does every child, and a test that sends SIGINT to a script
+    # expecting its trap to answer watches it finish instead. That is a
+    # condition of the LAUNCH, and the test gate's verdict under it is not
+    # comparable to CI's -- so that gate is filed as CANNOT CHECK below rather
+    # than run into a red that reads as a regression.
+    ignored = ignored_signals()
+    blocking = [n for n in TEST_GATE_SIGNALS if n in ignored]
+    if blocking:
+        print("\n\033[33mLAUNCHER -- the test gate cannot check on this "
+              "launch:\033[0m")
+        print(f"  {', '.join(blocking)} is ignored in this process: a background "
+              "command of a non-interactive shell inherits SIG_IGN, and bash "
+              "cannot reset a signal ignored at entry, so a script's `trap` "
+              "never arms.")
+        print("  Fix: run the preflight in the foreground, or under a launcher "
+              "that keeps the default disposition -- `python3 -c \"import signal; "
+              "print(signal.getsignal(signal.SIGINT))\"` says which you have.")
+        print("  Until then that gate reports CANNOT CHECK, which is neither a "
+              "pass nor a failure.")
+
     results: list[Outcome] = []
     SHELL_BUILTINS = ("set", "if", "for", "while", "cd", "export", "true")
     for name, cmd, wd in plan:
@@ -261,6 +341,13 @@ def main() -> int:
             print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
             results.append(Outcome(name, None, 0.0, True,
                                    f"{tool!r} is not installed"))
+            continue
+        why = launch_refusal(cmd, ignored)
+        if why is not None:
+            # Not run at all: a verdict from a launch that ignores the signal
+            # this gate's own test sends is not a measurement of the tree.
+            print(f"\n\033[33m— SKIP\033[0m {name}\n  {why}")
+            results.append(Outcome(name, None, 0.0, True, why))
             continue
         print(f"\n\033[36m▶ {name}\033[0m\n  $ ({wd}) {_flatten(cmd)}")
         t0 = time.monotonic()
