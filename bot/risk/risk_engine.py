@@ -1253,7 +1253,7 @@ class RiskEngine:
             else:
                 position_usd *= _eq_mult
 
-        # Live-performance governor (opt-in, default OFF): de-risk on REALIZED
+        # Live-performance governor (default ON): de-risk on REALIZED
         # recent results. Reduces size when the recent window underperforms and
         # pauses (rejects) when it is both losing often and net-negative. Only
         # ever tightens; no-op until live_perf_min_samples closed trades accrue.
@@ -1318,7 +1318,7 @@ class RiskEngine:
         if _macro_size_mult < 1.0:
             position_usd *= _macro_size_mult
 
-        # Portfolio-aware correlation sizing (opt-in, default OFF). Shrink the
+        # Portfolio-aware correlation sizing (default ON). Shrink the
         # new trade when it stacks on existing open positions in the SAME
         # correlation group AND direction — the marginal portfolio risk of each
         # additional correlated, same-side bet is larger. Only reduces (mult in
@@ -1337,12 +1337,15 @@ class RiskEngine:
         # stays bounded.  Check #2 then re-asserts that this per-trade cap held
         # (a fail-closed invariant); the per-SYMBOL aggregate exposure limit
         # (max_symbol_exposure_pct) is enforced separately by check #15.
-        # Kelly sizing (opt-in, default OFF; tighten-only). Take the SMALLER of
+        # Kelly sizing (default ON; tighten-only). Take the SMALLER of
         # the fixed-fractional size and the half-Kelly size from realized history.
         # Kelly can only shrink the position, never grow it — a no-edge or
         # no-history Kelly returns 0.0, which is treated as "leave size as-is"
         # (it never forces the size to zero). The hard cap + check #2 below remain
-        # authoritative. Default OFF makes this byte-identical to prior behaviour.
+        # authoritative. Confidence SCALES the fraction (kelly_f * 0.5 * conf),
+        # so a MANUAL ticket — stamped confidence=1.0 by build_manual_idea —
+        # takes the unshrunk half-Kelly where an analyzer idea is shrunk by
+        # its own measured confidence.
         if CONFIG.risk.kelly_sizing_enabled:
             kelly_usd = self._kelly_size_usd(idea, sizing_equity)
             if kelly_usd > 0:
@@ -1359,7 +1362,7 @@ class RiskEngine:
             _cap_pct = CONFIG.risk.max_position_pct
 
         max_notional_usd = sizing_equity * (_cap_pct / 100.0)
-        # Volatility-targeted cap (opt-in, default OFF; tighten-only). The notional
+        # Volatility-targeted cap (default ON; tighten-only). The notional
         # cap binds on ~every crypto trade, so the engine effectively runs flat
         # margin — realized per-trade risk = margin×lev×stop% ∝ ATR%, scaling UP
         # with volatility (the inverse of risk parity). Float the binding cap
@@ -1425,7 +1428,7 @@ class RiskEngine:
                         "would_be_usd": round(position_usd * _pref_mult, 2)})
 
         # Auto-reset a DAILY-LOSS breaker trip once the UTC day has rolled over
-        # (opt-in, default OFF). Without it a single bad day latches the breaker
+        # (default ON). Without it a single bad day latches the breaker
         # until a human runs /reset, even after daily_pnl rolls back to ~0. Only
         # the daily-loss cause is cleared; drawdown/streak/manual stay manual, and
         # if today is also a loss the daily-loss check below re-trips immediately.

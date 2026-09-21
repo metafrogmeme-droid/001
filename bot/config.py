@@ -627,10 +627,11 @@ class RiskLimits:
     # Guardian Prompt-Injection & Transaction Firewall: master switch for scanning
     # inbound chat-action text (Telegram free text / web chat) for manipulation
     # shapes (bot/guardian/firewall.py) before it can steer an agent that acts.
-    # Default OFF → no scan runs, byte-identical to before. When ON it is
+    # Default ON (the LIVE-1 audit below); OFF → no scan runs. When ON it is
     # TELEMETRY-FIRST: the scan classifies + records a FIREWALL verdict to the
-    # tamper-evident chain and can warn, but never blocks a message. Blocking is a
-    # separate, stricter opt-in below and stays off by default.
+    # tamper-evident chain and can warn, but never blocks a message. Blocking is
+    # a separate, stricter switch: guardian_firewall_block_high, declared below
+    # with its own default — stating it twice is two places to keep in step.
     # LIVE-1 enablement audit (2026-07-20): protection-only Guardian modules
     # default ON for live testing — the firewall runs in WARN mode
     # (block_high stays opt-in), twin/sentinel/escape are read-only
@@ -683,8 +684,8 @@ class RiskLimits:
     # correlation group AND direction with already-open positions, so the second
     # and third correlated bet are smaller (the marginal portfolio risk they add
     # is larger). It can only SHRINK size (multiplier in [floor, 1.0]); the
-    # notional/margin caps and every gate below stay authoritative. Default OFF
-    # makes this byte-identical to prior behaviour.
+    # notional/margin caps and every gate below stay authoritative. Default ON;
+    # setting it OFF makes this byte-identical to prior behaviour.
     correlation_sizing_enabled: bool = _env_bool("CORRELATION_SIZING_ENABLED", True)
     # Reduction per same-group same-direction open position (0.20 → −20% each).
     correlation_sizing_step: float = _env_float_bounded("CORRELATION_SIZING_STEP", 0.20, 0.0, 1.0)
@@ -697,7 +698,7 @@ class RiskLimits:
     #   - forces covariance-based portfolio VaR on (falls back to the per-trade
     #     proxy whenever data is insufficient — never a downgrade to skip),
     #   - caps drawdown at live_max_drawdown_pct (tighter than the paper limit).
-    # Default OFF → byte-identical until enabled; in paper mode it never applies.
+    # Default ON; OFF → byte-identical to before. In paper mode it never applies.
     live_risk_hardening_enabled: bool = _env_bool("LIVE_RISK_HARDENING_ENABLED", True)
     live_max_drawdown_pct: float = _env_float_bounded("LIVE_MAX_DRAWDOWN_PCT", 7.0, 0.1, 100.0)
     # Persist the live drawdown high-water mark across restarts (default OFF).
@@ -720,7 +721,7 @@ class RiskLimits:
     # loosen a gate, and is a no-op below live_perf_min_samples closed trades (fails
     # OPEN = normal sizing). Distinct from the equity-curve breaker (equity vs MA)
     # and the consecutive-loss breaker (streak): this reads realized win rate + net
-    # PnL of the most recent trades. Default OFF → byte-identical until enabled.
+    # PnL of the most recent trades. Default ON; OFF → byte-identical to before.
     # Regime-aware position sizing (default ON). The analyzer already
     # classifies a per-symbol market regime (TREND_UP/TREND_DOWN/EXPANSION/RANGE/
     # CHOP), but it was never bridged into the risk engine, so _current_regime
@@ -1485,7 +1486,7 @@ class AnalyzerConfig:
     # WF-positive configuration.
     smc_voters_enabled: bool = _env_bool("SMC_VOTERS_ENABLED", False)
 
-    # Strategy-mode confidence floor (default ON): a SPECIFIC selected
+    # Strategy-mode confidence floor (default OFF): a SPECIFIC selected
     # mode's min_confidence (e.g. BREAKOUT 0.65, LIQUIDITY_SWEEP 0.68)
     # RAISES the per-strategy-type bar when stricter. The CONSERVATIVE
     # catch-all default is exempt — applying its bar to every uncertain
@@ -2042,7 +2043,7 @@ class TrailingStopConfig:
     #                            multistage behaviour unchanged.
     trail_rule: str = _env("TRAILING_RULE", "multistage")
     playbook_atr_mult: float = _env_float("TRAILING_PLAYBOOK_ATR_MULT", 2.0)
-    # Structure trailing (default ON): once trailing is active (>=1R), the
+    # Structure trailing (default OFF): once trailing is active (>=1R), the
     # stop also ratchets to just beyond the most recent CONFIRMED swing
     # (3-bar fractal, excluding unconfirmed recent bars) — tighten-only, on
     # top of whichever ATR rule is active. Applied identically in the

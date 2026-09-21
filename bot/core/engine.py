@@ -6402,7 +6402,7 @@ class RuneClawEngine:
                   "timeframe": timeframe,
               })
 
-        # ── Closed-loop learning nudge (opt-in, default OFF) ──────────────
+        # ── Closed-loop learning nudge (default ON) ───────────────────────
         # The orchestrator already logs every decision + outcome; here we read
         # that experience back. Down-weight setups (same symbol + direction +
         # regime) that have historically LOST, slightly up-weight winners. The
@@ -8610,7 +8610,7 @@ class RuneClawEngine:
                 except Exception:
                     pass
                 # Feed the paper/sim close into the learning loop's WRITE side
-                # (opt-in, default OFF). Live closes record via
+                # (default ON). Live closes record via
                 # _on_live_position_closed — which now also journals them;
                 # for a long time that claim was made here and nowhere
                 # enforced, leaving /journal empty in pure-live mode. this lets the simulation-first

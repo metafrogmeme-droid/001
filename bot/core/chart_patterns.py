@@ -1373,7 +1373,7 @@ def detect_liquidity_sweep(
     # with the LATEST close (closes[-1]) even for a bar 2-3 back, so an old bar's
     # wick plus the current bar's position could fire a false sweep. When enabled,
     # each candidate bar is checked against ITS OWN close (deep-audit medium).
-    # Default OFF keeps the legacy behaviour byte-identical.
+    # Default ON; setting it OFF restores the legacy behaviour byte-for-byte.
     use_own_close = _env_bool("LIQUIDITY_SWEEP_OWN_CLOSE", True)
 
     # Check last 3 bars for sweeps (not just the last bar)
