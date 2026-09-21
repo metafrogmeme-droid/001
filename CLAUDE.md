@@ -7735,13 +7735,13 @@ scoreboard. Every document that described the shadow — `.env.example`, the
 map, the config comment, both `gate_inventory` rows, the catalogue row — names
 `/shadow ladder` under a pin that the name reaches a handler, and the harness
 cleans the file in the same commit as the feature, per `_STATE_GLOBS`'s own
-rule. Two things are FILED rather than done. The balance-relative bounds have
-the same shape one flag over: `size_bounds.resolve` answers `flat` with the
-flag off and computes no would-be, although the balance is in hand at
-`execute()` regardless, and that record belongs on this card the day it
-exists. And the record spans one bot process across every account it
-evaluates for, because a `RiskEngine` carries no user id; the card says so
-rather than implying a book it cannot name.
+rule. One thing is FILED rather than done: the record spans one bot process
+across every account it evaluates for, because a `RiskEngine` carries no user
+id; the card says so rather than implying a book it cannot name. The other
+thing this paragraph filed — the balance-relative bounds have the same shape
+one flag over, `size_bounds.resolve` answering `flat` with the flag off and
+computing no would-be although the balance is in hand at `execute()`
+regardless — is the next chapter, and it is done.
 
 **Twenty-six mutations, each killed on the first round, none refused — and
 two are worth naming for what they prove about the guards rather than the
@@ -7755,6 +7755,106 @@ of the list literal, stated as one: a rule over what `_clean_runtime_state`
 deletes has no behaviour a single test can drive, which is the `_STATE_GLOBS`
 block's own reason for listing the file in the same commit as the feature.
 (`tests/test_the_ladder_shadow_is_readable.py`.)
+
+**THE BOUNDS SHADOWED NOTHING, and the balance they would have read was in
+hand on every order.** `SIZE_BOUNDS_ENABLED` ships OFF, and with it off
+`size_bounds.resolve` answers `flat` — the operator's constants — and
+computes no would-be at all, while `LiveExecutor.execute` reads the venue's
+AVAILABLE margin once on every live order regardless and hands it to the
+clamp and the preflight. So the one question an operator has before arming
+the flag — how often would the balance-relative bound have been tighter than
+the flat $100, and on how many orders would it have cut or refused — was
+computable for free, from a figure already read, and recorded nowhere. That
+is the ladder chapter's own filed item, with the arrow pointed at the
+executor rather than the gate, and the fix is the same shape:
+`bot/core/bounds_shadow.py` writes one row per live order the preflight is
+asked about, in a `try` of its own (a ledger fault must not decide an order
+in either direction), and `/shadow bounds` renders it.
+
+**THE COMPARISON IS THE PREFLIGHT'S OWN READING, extracted, because a second
+copy of "what refuses an order" is a second answer.** `_preflight_check`
+held its three refusals inline — the per-trade limit, the unread book, the
+total — and the record needed to ask the same three questions of the
+would-be bounds. Restating them in the shadow would have agreed with the
+preflight on every fixture and diverged on the first edit to either, which
+is what a byte-identical copy looks like from outside; so
+`size_bounds.bounds_verdict` is the ONE reading, the preflight returns its
+sentence (byte-identical to the three it used to build), and the row asks
+it twice, once with the bounds in force and once with `size_bounds_if_armed`
+— `resolve` over the same balance with `enabled=True`. `reserve_read` is the
+same extraction for the reserve, with its basis named (the available
+balance, or the configured total limit when none was read).
+
+**A PER-TRADE BOUND IS A CLAMP, NOT A REFUSAL, and the total is read at the
+clamped size.** The executor cuts an order to the per-trade bound before the
+preflight ever sees it, so the would-be row cannot say "refused": it says
+*would have cut to $X* and reads the would-be total and reserve at THAT
+size. Driven, a $100 order into a $200 account with $70 committed is cut to
+$20 by the would-be bound (10% of available) and clears the would-be total
+of $100 (70 + 20 = 90) — where the same $100 read at the flat size would
+have breached it (70 + 100 = 170), a refusal the flag would never produce.
+And the applied count is a READING rather than an inference: with the flag
+on, `execute()` hands the preflight the size it held BEFORE the clamp, and a
+caller that hands none leaves that count unmeasured on the card. The guard
+walks `execute()` by AST for the assignment sitting above the clamp and the
+argument carrying it, because the claim is an ORDER of two lines.
+
+> **And my own fixture's arithmetic was wrong before the code was.** The
+> first draft planted $90 committed and asserted the clamped $20 cleared the
+> $100 total; 90 + 20 is 110, the code answered `total`, and it was right.
+> *When a fresh assertion fails, check whether the code or the assertion is
+> wrong before touching the code* — the fixture sits at $70 now, with the
+> $85 case beside it for the refusal, and both directions are driven.
+
+**ONE LEDGER, TWO RECORDS.** The ladder's ledger was written a slice earlier
+as a class of its own, and the bounds needed the same file-backed ring with
+the same three states — fresh, read, unreadable-and-never-overwritten. A
+second class would have been a second copy of the `exchange_credentials`
+rule that a record the reader could not open is never destroyed by it, so
+`bot/utils/shadow_ledger.py` is the one `ShadowLedger` and `LadderLedger`
+is a subclass that adds only its row builder and its report. The bounds
+card is three-valued at the top in the same words as the ladder's, counts
+per ACCOUNT (the executor knows whose book it runs — the one thing the
+ladder's record cannot say), keeps the unread-balance orders apart from the
+read ones (an unread balance leaves nothing to compare, and folding it into
+"would not have cut" is the reassuring answer from no data), and says FIRST
+that the population is live orders: paper fills never reach the executor,
+and a card headed "orders" over a live-only record is a partial set
+presented as the universe. No recommendation is derived, for the reason
+the ladder card gives.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A STAND-IN THAT SPELLED THREE
+PARAMETERS.** `test_the_executor_records_the_bound_only_when_it_binds`
+(the ladder slice's own guard, none of whose suites this slice ran) plants
+`ex._preflight_check = lambda size_usd, symbol="", available_usd=None: …`
+and drives `execute()` to that refusal — and `execute()` now hands the
+preflight a fourth argument, the size it held BEFORE the clamp, so the
+stand-in raised `TypeError` inside the drive on a tree whose every property
+held. That is the venue-cap chapter's *"a hand-written stand-in that must
+remember each attribute is one that will forget the next"*, one parameter
+over, and the eighth time the full gate has refused a slice on a test none
+of the slice's own suites ran. The stand-in takes `**kw` and RECORDS what it
+was handed now, so the fourth argument is a DRIVE there (`seen == [(bound,
+bound * 10)]`) beside the AST pin the bounds suite keeps, rather than a
+signature the fixture has to keep in step with the code.
+
+**Thirty-four mutations, each killed — and the two that survived the first
+round were one of each kind.** A private copy of the per-trade refusal in the
+preflight, returning BEFORE the leaf is asked, survived because the guard drove
+only the TOTAL refusal through `_preflight_check` with an exact match: the
+copied per-trade sentence agreed with every fixture, which is what a
+byte-identical copy looks like from outside, and a `[copy]` appended to it
+changed no verdict anywhere. The leaf is PLANTED now — a verdict no copy could
+produce — and the preflight has to hand it back, on the over-bound size and
+the in-bound one alike. The other was an EQUIVALENT mutant of my own:
+`summarize` tested `before is None` and then let `float(before)` raise into an
+`except` that counted the same bucket, so deleting the None test changed no
+verdict — a branch no input can reach differently is a claim that there is a
+check. One reading of both figures now (`_figure`: None for absent or junk,
+never zero), and the two mutations that make it answer zero die on a row whose
+pre-clamp size is a string another build could have written — the fixture the
+first round did not have.
+(`tests/test_the_bounds_shadow_is_readable.py`.)
 
 ## Public-surface rules
 
@@ -8984,9 +9084,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **411 of 992** reach for source text through `source_scan`, `code_only`
+Driven, **412 of 993** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 411 is a FLOOR and the honest shape is
+source scan that rule does not see, so 412 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

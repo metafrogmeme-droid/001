@@ -1891,6 +1891,11 @@ class ExecutionConfig:
     # needs SIZE_BOUNDS_MAX_POSITION_USD / SIZE_BOUNDS_MAX_TOTAL_USD, a second
     # number the operator types deliberately.
     #
+    # With the flag OFF the executor still records what these bounds WOULD
+    # have done to every live order (bot/core/bounds_shadow.py), and
+    # /shadow bounds renders it -- the flag is armed on evidence, not on the
+    # flat figures' silence.
+    #
     # An unread balance keeps the flat bounds and says so: it is never the
     # reason a bound moves in either direction. A READ 0.00 is a measurement
     # (fully-deployed capital, an empty wallet) and yields a bound of $0.00,

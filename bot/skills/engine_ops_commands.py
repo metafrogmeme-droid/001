@@ -41,7 +41,9 @@ from bot.utils.logger import audit, system_log
 # The scoreboard's last line. A card that names a command claims the command
 # does something, so `/shadow ladder` is driven by the guard that reads this.
 LADDER_POINTER = ("<i>/shadow ladder — what the quality ladder would have done to "
-                  "size and leverage, and did where a half is on.</i>")
+                  "size and leverage, and did where a half is on. /shadow bounds — "
+                  "what the balance-relative bounds would have done to every live "
+                  "order, and did where the flag is on.</i>")
 
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
@@ -687,6 +689,10 @@ class EngineOpsCommands:
         did where a half is on (bot/risk/ladder_shadow.py). The two flags
         default OFF and "shadow when off", and the shadow used to reach an
         audit line nobody read back; this is the reader.
+
+        ``/shadow bounds`` — the balance-relative bounds' record: what they
+        would have done to every live order the preflight saw, and did where
+        the flag is on (bot/core/bounds_shadow.py).
         """
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
@@ -700,6 +706,18 @@ class EngineOpsCommands:
             except Exception as exc:
                 await self._send(update,
                                  f"Ladder record unavailable: {_safe_exc_text(exc)}")
+            return
+        if args[:1] == ["bounds"]:
+            try:
+                from bot.core import bounds_shadow
+                from bot.core import live_executor as _lx
+                await self._send(update, bounds_shadow.render_bounds_report(
+                    bounds_shadow.BOUNDS_LEDGER, CONFIG.execution,
+                    flat_per_trade=_lx.MICRO_MAX_POSITION_USD,
+                    flat_total=_lx.MICRO_MAX_TOTAL_EXPOSURE))
+            except Exception as exc:
+                await self._send(update,
+                                 f"Bounds record unavailable: {_safe_exc_text(exc)}")
             return
         try:
             from bot.core.shadow_book import SHADOW_BOOK

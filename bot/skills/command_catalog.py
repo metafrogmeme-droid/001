@@ -196,7 +196,8 @@ GROUPS: List[Group] = [
         ("crossasset", "cross-asset correlation context"),
         ("gates", "per-gate pass/fail telemetry"),
         ("flags", "deep-audit opt-in flags"),
-        ("shadow", "counterfactual shadow book — /shadow ladder for what the quality ladder would have done"),
+        ("shadow", "counterfactual shadow book — /shadow ladder and /shadow bounds for what "
+                   "the size controls would have done"),
         ("audit", "nightly self-audit report"),
         ("parity", "live ↔ backtest parity"),
         ("attribution", "which indicators drive wins"),
@@ -461,7 +462,7 @@ DESC_ZH: Dict[str, str] = {
     "compliance": "受限司法管轄區與全域同意帳本",
     "readiness": "學習迴路是否已驗證到可套用",
     "gates": "各關卡通過/失敗遙測", "flags": "深度稽核選用旗標",
-    "shadow": "反事實影子帳本 — /shadow ladder 看品質階梯本來會怎麼做",
+    "shadow": "反事實影子帳本 — /shadow ladder 與 /shadow bounds 看倉位控制本來會怎麼做",
     "audit": "每夜自我稽核報告", "parity": "實盤 ↔ 回測一致性", "attribution": "哪些指標帶來獲利",
     "slippage": "滑價統計", "accounts": "各帳戶風險快照", "closeall": "平掉所有持倉",
     "drawdownlimit": "覆寫回撤上限", "leverage": "標準槓桿", "venue": "顯示或切換交易場所",
