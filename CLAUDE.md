@@ -152,6 +152,31 @@ lint failure the way CI sees it (`PATH=/usr/local/bin:$PATH python3
 scripts/ruff_gate.py`) before fixing it, or the fix is aimed at a different
 tool's opinion.
 
+**AND THE LAUNCHER IS A CONDITION OF THE BOX TOO, and it manufactured a
+regression on 2026-09-21.** A full preflight started as
+`(nohup python3 scripts/preflight.py > log 2>&1 &)` went red on ONE test the
+slice never touched -- `test_deploy_smoke_guard.py`'s SIGINT case -- in the
+full run and when the flake filter re-ran it alone, on a file byte-identical
+to main. A non-interactive shell sets SIGINT and SIGQUIT to IGNORED for a
+background command, every child inherits that, and a non-interactive bash
+cannot take it back (*"signals ignored upon entry to the shell cannot be
+trapped or reset"*), so the smoke guard's own `trap` never armed, the
+interrupt was swallowed and the check FINISHED -- the one verdict that test
+exists to prove is never reported. Driven, `signal.getsignal(SIGINT)` is the
+default handler in the foreground and `SIG_IGN` under that launcher. **The
+preflight reads its dispositions ONCE, up front, beside the toolchain
+versions** (`ignored_signals`), and files the test gate as CANNOT CHECK
+(`launch_refusal`) rather than running it twenty-two minutes into a red that
+reads as a regression; every other gate still runs. It is deliberately narrow
+-- only a signal the suite really sends to a child refuses anything, so
+`nohup` alone (SIGHUP) is a launcher the suite can be measured under -- and
+`TEST_GATE_SIGNALS` is pinned both ways against what `tests/` sends, by an AST
+walk for the CALL, because the first draft of that pin read the file as text
+and accused ITSELF: the guard's own scan spelled `send_signal(` in a string
+literal beside a real `signal.SIGHUP`, which is *a comment that quotes the
+string it forbids* one token kind over.
+(`tests/test_the_preflight_refuses_a_launcher_that_ignores_sigint.py`.)
+
 **Do not** substitute a bare `pytest`. The suite runs through
 `scripts/ci_test_gate.py`, which enforces `tests/known_failures.txt` — a
 baseline entry that starts *passing* is a hard failure, so stale entries
@@ -6557,13 +6582,57 @@ fix. Every claim is driven: the permission each command carries is read from
 the live AST walk rather than written down, so a re-gate MOVES the assertion
 instead of going stale the way `golive` did.
 
-**What the permission unit cannot express is recorded rather than hidden.**
-`status` gates `/connect`, `/disconnect` and `/exchange` — which write and erase
-exchange API credentials — beside nine read cards, so expiring it would expire
-*"is the bot running"* and not expiring it leaves credential writes unexpired.
-Splitting that permission is its own slice; the guard asserts the state as it
-stands, so a future split trips it and the next reader arrives at the note
-rather than at a silent change.
+**What the permission unit could not express was recorded rather than
+hidden, and then split.** `status` gated `/connect` and `/disconnect` — the
+caller's exchange API keys WRITTEN and ERASED — beside nine read cards, so
+expiring it would have expired *"is the bot running"* and not expiring it left
+the writes unexpired: a hijacked-but-idle chat, the case F-14 exists for, could
+replace or erase the account's credentials with no `/start`. The two writes
+carry `connect` now, held by exactly the roles that hold `status` (the slice
+moved WHICH permission, not WHO may link; `pending` holds neither), and it is
+the second DECLARED row, at the cap the guard sets, with its reason: every
+role that reads the engine may link an account, so neither derivation reaches
+it. `/exchange` stays on `status` because it is a READ, and a read that
+expires is a bot that stops answering questions — the split is by
+CONSEQUENCE, not by subject.
+
+**A DECLARED ROW IS A CLAIM, so the declaration is checked rather than
+trusted.** `tests/test_the_credential_writes_have_their_own_permission.py`
+walks the handler sources for every command whose body WRITES the credential
+store — a mutating method called on `get_credential_store()` or on a local
+bound from it — and requires its permission to expire, or an admin gate. The
+RECEIVER is read, because `/connect` deletes the secret-bearing MESSAGE before
+any gate can return and a walk keyed on `.delete(` alone would accuse that
+line: a checker with a blind spot manufactures the accusation it exists to
+prevent, and the decoy is in the planted table. The rule is driven on planted
+tables too, because on the real tree it passes and a mutation of the RULE
+changes no verdict there — a rule no input can reach is a claim that there is
+a check. Both handlers are driven with a refusing `_guard`: nothing stored,
+nothing erased, and the secret-bearing message still deleted first.
+
+**And `/disconnect` erased every linked venue and said "Bitget account
+unlinked".** `delete(tg_id)` drops the whole record — Bybit, BingX and
+Hyperliquid included — and the card named one venue whatever was erased, over
+a link the caller may have made on another. It reads `list_venues` BEFORE the
+erase and names what it removed; the no-link sentence names no venue either.
+
+**Seventeen mutations, each killed on the first round, none refused — and
+three are worth naming for what they prove about the guards rather than the
+code.** The venues read AFTER the erase dies on one test only, and only
+because the fixture's store FORGETS what it erased: a stub that kept answering
+the venues after `delete` could not tell the two orders apart, which is the
+plan-cleanup round's own lesson (a stub that always succeeds cannot tell an
+increment above the await from one below it) one store over. The walk keyed
+on `.delete(` alone, receiver unread, dies on the real tree as well as on the
+two planted decoys — `/connect`'s message delete then reads as a second
+credential write, and the writers' equality is exact — where the walk
+descending into a nested def dies on the planted table and nowhere else,
+because no command in this tree keeps a store-writing helper inside its body.
+And the rule accepting any permission, or acquitting an unregistered writer,
+dies on the planted tables alone for the same reason: on the real tree every
+writer carries `connect`, so a mutation of the RULE changes no verdict there,
+which is the reason the tables exist.
+(`tests/test_the_credential_writes_have_their_own_permission.py`.)
 
 **Ten mutations, each killed — and the survivor was my own docstring claiming a
 check the code does not distinctively make.** It said the WILDCARD is read
@@ -7609,9 +7678,9 @@ on that card is the risk gate's and does not move.
 > foreground and `SIG_IGN` under that launcher, and every case passes in the
 > foreground. The gate did not fail; its launcher had changed a fact the test
 > depends on, which is `ruff_gate.check_version`'s CANNOT-CHECK distinction
-> arriving through the shell -- and a preflight that reads its own SIGINT
-> disposition before the first gate, and refuses rather than measures, is
-> filed rather than done here.
+> arriving through the shell -- and the preflight reads its own dispositions
+> before the first gate now, and refuses rather than measures; the preflight
+> chapter's own paragraph records it.
 
 ## Public-surface rules
 
@@ -8841,7 +8910,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **411 of 989** reach for source text through `source_scan`, `code_only`
+Driven, **411 of 991** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 411 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

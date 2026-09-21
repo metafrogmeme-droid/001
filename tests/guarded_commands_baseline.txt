@@ -35,14 +35,14 @@ _cmd_buy trade
 _cmd_calibration admin
 _cmd_classpf portfolio
 _cmd_compliance compliance
-_cmd_connect status
+_cmd_connect connect
 _cmd_costs costs
 _cmd_daily_report journal
 _cmd_dashboard dashboard
 _cmd_deepscan deepscan
 _cmd_defi defi
 _cmd_dip run
-_cmd_disconnect status
+_cmd_disconnect connect
 _cmd_duel start
 _cmd_emergency_stop halt
 _cmd_enforcing enforcing

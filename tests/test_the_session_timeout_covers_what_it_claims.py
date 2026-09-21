@@ -127,7 +127,8 @@ class TestTheMissingRow:
             "idle_trader", _permission_of("_cmd_unstake")) == "stale_session"
 
     def test_opening_a_position_still_expires(self, store):
-        """The one row the old set got right, and the only DECLARED row now."""
+        """The one row the old set got right; `connect` joined it as the
+        second declared row when the credential writes left `status`."""
         assert store.permission_denial(
             "idle_trader", _permission_of("_cmd_trade")) == "stale_session"
 
@@ -201,8 +202,9 @@ class TestTheDerivation:
             f"sure THAT expires) or the row is dead and goes.")
 
     def test_the_declared_set_is_small_enough_to_read(self):
-        """Not a cap for its own sake: the declared set exists because one
-        permission escapes both derivations. A growing list is the shape this
+        """Not a cap for its own sake: the declared set exists because two
+        permissions escape both derivations (`trade`, and `connect` since the
+        credential writes left `status`). A growing list is the shape this
         file replaced, so growth asks for a derivation rather than a row."""
         assert len(DECLARED_SENSITIVE_PERMISSIONS) <= 2, (
             f"{sorted(DECLARED_SENSITIVE_PERMISSIONS)} -- a hand-written list "
@@ -286,26 +288,37 @@ class TestOneReading:
             "the function-local set is back; it is the thing this file is about")
 
 
-class TestWhatThePermissionUnitCannotExpress:
-    """RECORDED, NOT FIXED -- with its measurement, so a future split trips
-    this rather than changing in silence."""
+class TestWhatThePermissionUnitCouldNotExpress:
+    """RECORDED with its measurement by the slice that wrote this file, and
+    SPLIT by the next one: `status` gated /connect and /disconnect -- which
+    write and erase exchange API credentials -- beside read cards, so expiring
+    it would have expired "is the bot running" and not expiring it left the
+    writes unexpired. The writes carry `connect` now; the full claim, driven
+    on both ends, is `tests/test_the_credential_writes_have_their_own_permission.py`.
+    What stays here is the half this file owns: `status` is still a read
+    permission and still does not expire."""
 
-    def test_status_gates_credential_writes_beside_reads(self):
-        """The unit is the PERMISSION and `status` is coarser than the
-        question: it gates /connect, /disconnect and /exchange -- which write
-        and erase exchange API credentials -- beside read cards. Expiring it
-        would expire "is the bot running"; not expiring it leaves credential
-        writes unexpired. Splitting that permission is its own slice."""
+    def test_the_credential_writes_left_status(self):
         gated = _gated()
         status = set(gated.get("status", []))
         writes = {"_cmd_connect", "_cmd_disconnect"}
-        assert writes <= status, (
-            "the credential commands left `status`. If they now have their own "
-            "permission, decide whether IT expires and rewrite this test to "
-            "say so -- do not just delete it.")
-        assert len(status) > len(writes) + 2, (
-            "`status` no longer carries read cards, so it may simply be "
-            "sensitive now")
+        assert not (writes & status), (
+            "a credential write is back on `status`, the permission that must "
+            "not expire because it gates the read cards")
+        assert len(status) > 2, "`status` no longer carries read cards"
         assert not is_sensitive_permission("status"), (
-            "`status` expires now -- if that was deliberate, the read cards it "
-            "gates expire with it, and that is the thing to check")
+            "`status` expires now -- the read cards it gates expire with it, "
+            "and that is the thing to check")
+
+    def test_the_writes_permission_expires(self, store):
+        for handler in writes_today():
+            perm = _permission_of(handler)
+            assert is_sensitive_permission(perm), (handler, perm)
+            assert store.permission_denial("idle_trader", perm) == "stale_session"
+
+
+def writes_today() -> tuple[str, ...]:
+    """The two credential-write handlers, by name: the structural walk that
+    DERIVES them lives in the sibling file, and this one asks only whether
+    the permission those two carry expires."""
+    return ("_cmd_connect", "_cmd_disconnect")

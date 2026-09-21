@@ -126,7 +126,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
-        "trade", "risk", "status", "enforcing", "rejected", "halt", "reset", "macro",
+        "trade", "risk", "status", "connect", "enforcing", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
@@ -157,7 +157,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "paper": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
-        "trade", "risk", "status", "enforcing", "rejected", "macro",
+        "trade", "risk", "status", "connect", "enforcing", "rejected", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
@@ -167,7 +167,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     "viewer": {
         "lang",
-        "start", "help", "dashboard", "scan", "deepscan", "status", "risk", "enforcing",
+        "start", "help", "dashboard", "scan", "deepscan", "status", "connect", "risk", "enforcing",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops",
@@ -288,13 +288,22 @@ DEFAULT_AUTO_ROLE = SELF_ADMISSION_ROLE
 SESSION_MAX_AGE_SECONDS = 86400
 
 
-#: The one sensitive permission neither derivation below reaches, declared with
-#: its reason rather than left to a list. `trade` opens a position: `paper`
-#: holds it, so the operator-control derivation (`trader - paper`) does not name
-#: it, and it is not admin-only either. A row belongs here only when it is
-#: consequential AND no derivation reaches it -- a SECOND row would be a sign
-#: that the derivations are the thing to fix, which is why the guard counts.
-DECLARED_SENSITIVE_PERMISSIONS = frozenset({"trade"})
+#: The sensitive permissions neither derivation below reaches, each declared
+#: with its reason rather than left to a list. `trade` opens a position:
+#: `paper` holds it, so the operator-control derivation (`trader - paper`)
+#: does not name it, and it is not admin-only either. `connect` WRITES the
+#: caller's exchange API keys (/connect) and ERASES every linked venue
+#: (/disconnect): every role that may read the engine may link an account, so
+#: the same two derivations miss it for the same reason. A row belongs here
+#: only when it is consequential AND no derivation reaches it -- the guard
+#: caps the set at two, and a THIRD row is the sign that the derivations are
+#: the thing to fix. The declaration is CHECKED rather than trusted:
+#: `tests/test_the_credential_writes_have_their_own_permission.py` walks the
+#: handler sources for every command whose body writes the credential store
+#: and requires its permission to expire (or an admin gate), so the next
+#: command that grows a `store.set_venue(...)` under a read permission fails
+#: by name.
+DECLARED_SENSITIVE_PERMISSIONS = frozenset({"trade", "connect"})
 
 
 def is_admin_only_permission(permission: str) -> bool:
@@ -345,13 +354,19 @@ def is_sensitive_permission(permission: str) -> bool:
     real position on the same account behind the same confirm card, was
     expired. Same account, same money, opposite treatment.
 
-    WHAT THIS CANNOT EXPRESS is stated rather than hidden: the unit is the
-    PERMISSION and some permissions are coarser than the question. `status`
-    gates /connect, /disconnect and /exchange -- which write and erase exchange
-    API credentials -- beside nine read cards, so expiring it would expire "is
-    the bot running" and not expiring it leaves credential writes unexpired.
-    Splitting that permission is its own slice; this function cannot do it, and
-    saying so is the difference between a limit and a hole nobody named.
+    WHAT THE PERMISSION UNIT COULD NOT EXPRESS was recorded here rather than
+    hidden, and then split. `status` gated /connect, /disconnect and /exchange
+    -- the first two write and erase exchange API credentials -- beside nine
+    read cards, so expiring it would have expired "is the bot running" and not
+    expiring it left credential writes unexpired: a hijacked-but-idle chat,
+    the case F-14 exists for, could replace or erase the account's keys with
+    no /start. The two WRITES carry `connect` now, held by exactly the roles
+    that hold `status` (the slice moved WHICH permission, not WHO may link),
+    and /exchange stays on `status` because it is a read and a read that
+    expires is a bot that stops answering questions. The split is by
+    CONSEQUENCE, and the unit is still the permission: a command that writes
+    the store under a read permission is caught by the structural rule the
+    declared set's comment names, not by anything here.
     """
     return (permission in OPERATOR_CONTROL_PERMISSIONS
             or permission in VOUCHED_ONLY_PERMISSIONS
