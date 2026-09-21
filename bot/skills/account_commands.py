@@ -204,6 +204,16 @@ def optional_venue_absences(absent: list[str], present: set[str]) -> list[str]:
             continue
     return out
 
+def _venue_label(v: str) -> str:
+    """A venue's display name, or its id title-cased when the registry has
+    no row for it. Module-level: /connect's usage lines and /disconnect's
+    card name venues with the same words, from one definition."""
+    from bot.core.venues import get_venue
+    try:
+        return getattr(get_venue(v), "display_name", None) or v.title()
+    except Exception:
+        return v.title()
+
 
 class AccountCommands:
     """A user's own account, and the operator's keys. Host contract below."""
@@ -253,21 +263,16 @@ class AccountCommands:
                 "— never in a group.")
             return
 
-        if not await self._guard(update, "status"):
+        # `connect`, not `status`: this WRITES the caller's exchange keys, and
+        # F-14's session timeout reaches `connect` (a declared sensitive
+        # permission) where it must not reach the read cards `status` gates.
+        if not await self._guard(update, "connect"):
             return
 
         from bot.core.exchange_credentials import (
             get_credential_store, validate_venue_credentials, basic_venue_format_ok,
             valid_venue_ids, _VENUE_FIELDS,
         )
-        from bot.core.venues import get_venue
-
-        def _venue_label(v: str) -> str:
-            try:
-                return getattr(get_venue(v), "display_name", None) or v.title()
-            except Exception:
-                return v.title()
-
         # Optional leading venue token; default Bitget so the legacy form
         # (/connect <key> <secret> <pass>) is byte-identical.
         args = list(ctx.args or [])
@@ -746,26 +751,41 @@ class AccountCommands:
         await self._send(update, "\n".join(lines))
 
     async def _cmd_disconnect(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/disconnect — remove YOUR linked Bitget account credentials."""
-        if not await self._guard(update, "status"):
+        """/disconnect — remove YOUR linked exchange credentials (every venue)."""
+        # `connect`, the permission the write door carries: erasing the keys is
+        # the other half of storing them, and F-14 expires it (see /connect).
+        if not await self._guard(update, "connect"):
             return
         from bot.core.exchange_credentials import get_credential_store
         tg_id = self._get_tg_id(update)
-        existed = get_credential_store().delete(tg_id)
+        store = get_credential_store()
+        # Read what is linked BEFORE erasing it: `delete` removes every venue
+        # on the record and answers only whether there was one, and the card
+        # used to say "Bitget account unlinked" over a Bybit or Hyperliquid
+        # link -- one venue named whatever was erased.
+        try:
+            venues = list(store.list_venues(tg_id))
+        except Exception:
+            venues = []
+        existed = store.delete(tg_id)
         # Drop any cached executor bound to the now-deleted credentials.
         try:
             self.engine.invalidate_user_executor(tg_id)
         except Exception:
             pass
         if existed:
-            audit(system_log, "User removed own Bitget account via /disconnect",
-                  action="disconnect", result="OK", data={"user": tg_id})
+            audit(system_log, "User removed own exchange credentials via /disconnect",
+                  action="disconnect", result="OK",
+                  data={"user": tg_id, "venues": venues})
+            named = ", ".join(_venue_label(v) for v in venues)
+            head = (f"🔴 <b>Exchange account unlinked</b> — {named}"
+                    if named else "🔴 <b>Exchange account unlinked</b>")
             await self._send(update,
-                "🔴 <b>Bitget account unlinked</b>\n"
+                f"{head}\n"
                 "Your encrypted keys were deleted. Use <code>/connect</code> to relink.")
         else:
             await self._send(update,
-                "No Bitget account is linked. Use <code>/connect</code> to link one.")
+                "No exchange account is linked. Use <code>/connect</code> to link one.")
 
     async def _cmd_exchange(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/exchange — show YOUR linked-account status (never reveals keys)."""

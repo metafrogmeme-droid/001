@@ -6582,13 +6582,57 @@ fix. Every claim is driven: the permission each command carries is read from
 the live AST walk rather than written down, so a re-gate MOVES the assertion
 instead of going stale the way `golive` did.
 
-**What the permission unit cannot express is recorded rather than hidden.**
-`status` gates `/connect`, `/disconnect` and `/exchange` — which write and erase
-exchange API credentials — beside nine read cards, so expiring it would expire
-*"is the bot running"* and not expiring it leaves credential writes unexpired.
-Splitting that permission is its own slice; the guard asserts the state as it
-stands, so a future split trips it and the next reader arrives at the note
-rather than at a silent change.
+**What the permission unit could not express was recorded rather than
+hidden, and then split.** `status` gated `/connect` and `/disconnect` — the
+caller's exchange API keys WRITTEN and ERASED — beside nine read cards, so
+expiring it would have expired *"is the bot running"* and not expiring it left
+the writes unexpired: a hijacked-but-idle chat, the case F-14 exists for, could
+replace or erase the account's credentials with no `/start`. The two writes
+carry `connect` now, held by exactly the roles that hold `status` (the slice
+moved WHICH permission, not WHO may link; `pending` holds neither), and it is
+the second DECLARED row, at the cap the guard sets, with its reason: every
+role that reads the engine may link an account, so neither derivation reaches
+it. `/exchange` stays on `status` because it is a READ, and a read that
+expires is a bot that stops answering questions — the split is by
+CONSEQUENCE, not by subject.
+
+**A DECLARED ROW IS A CLAIM, so the declaration is checked rather than
+trusted.** `tests/test_the_credential_writes_have_their_own_permission.py`
+walks the handler sources for every command whose body WRITES the credential
+store — a mutating method called on `get_credential_store()` or on a local
+bound from it — and requires its permission to expire, or an admin gate. The
+RECEIVER is read, because `/connect` deletes the secret-bearing MESSAGE before
+any gate can return and a walk keyed on `.delete(` alone would accuse that
+line: a checker with a blind spot manufactures the accusation it exists to
+prevent, and the decoy is in the planted table. The rule is driven on planted
+tables too, because on the real tree it passes and a mutation of the RULE
+changes no verdict there — a rule no input can reach is a claim that there is
+a check. Both handlers are driven with a refusing `_guard`: nothing stored,
+nothing erased, and the secret-bearing message still deleted first.
+
+**And `/disconnect` erased every linked venue and said "Bitget account
+unlinked".** `delete(tg_id)` drops the whole record — Bybit, BingX and
+Hyperliquid included — and the card named one venue whatever was erased, over
+a link the caller may have made on another. It reads `list_venues` BEFORE the
+erase and names what it removed; the no-link sentence names no venue either.
+
+**Seventeen mutations, each killed on the first round, none refused — and
+three are worth naming for what they prove about the guards rather than the
+code.** The venues read AFTER the erase dies on one test only, and only
+because the fixture's store FORGETS what it erased: a stub that kept answering
+the venues after `delete` could not tell the two orders apart, which is the
+plan-cleanup round's own lesson (a stub that always succeeds cannot tell an
+increment above the await from one below it) one store over. The walk keyed
+on `.delete(` alone, receiver unread, dies on the real tree as well as on the
+two planted decoys — `/connect`'s message delete then reads as a second
+credential write, and the writers' equality is exact — where the walk
+descending into a nested def dies on the planted table and nowhere else,
+because no command in this tree keeps a store-writing helper inside its body.
+And the rule accepting any permission, or acquitting an unregistered writer,
+dies on the planted tables alone for the same reason: on the real tree every
+writer carries `connect`, so a mutation of the RULE changes no verdict there,
+which is the reason the tables exist.
+(`tests/test_the_credential_writes_have_their_own_permission.py`.)
 
 **Ten mutations, each killed — and the survivor was my own docstring claiming a
 check the code does not distinctively make.** It said the WILDCARD is read
@@ -8866,7 +8910,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **411 of 990** reach for source text through `source_scan`, `code_only`
+Driven, **411 of 991** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 411 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
