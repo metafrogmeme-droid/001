@@ -794,6 +794,42 @@ defaults:
       the operator and auto-trade paths are byte-identical either way. While
       OFF the engine still audits the would-be delta with result="SHADOW".
 
+  quality_ladder_size_enabled:
+    value: false
+    env_var: QUALITY_LADDER_SIZE_ENABLED
+    description: >
+      Default OFF. Trade QUALITY chooses a size within the bounds
+      (bot/risk/quality_ladder.py): the rung table maps the analyzer's
+      MEASURED confidence to a tighten-only size multiplier, applied to the
+      pre-cap size AND to the notional cap (a pre-cap multiply alone is
+      clamped straight back). A manual ticket's confidence is a stamp, not a
+      measurement, and takes no rung; an unreadable confidence changes
+      nothing and says so on the check line. While OFF the engine audits the
+      rung it would have applied with result="SHADOW".
+
+  quality_ladder_leverage_enabled:
+    value: false
+    env_var: QUALITY_LADDER_LEVERAGE_ENABLED
+    description: >
+      Default OFF. The ladder's other half: the rung's leverage multiplier
+      caps the leverage the VENUE is set to, through the same reduce-only
+      attribute the margin-risk cap writes, so the cap bounds what fills
+      rather than what the order was sized at. The margin-risk verdict is
+      then measured at the capped leverage. Reduce-only and floored at
+      MIN_LEVERAGE; never above the standard leverage. While OFF the engine
+      audits the rung it would have applied with result="SHADOW".
+
+  quality_ladder_rungs:
+    value: "A:0.85:1.0:1.0,B:0.70:0.75:0.8,C:0.0:0.5:0.6"
+    env_var: QUALITY_LADDER_RUNGS
+    description: >
+      The rung table both ladder halves read: `name:floor:size_mult:lev_mult`
+      rows, comma-separated, floors descending, the last floor 0.0 so every
+      measured confidence lands on a rung. Every multiplier must be in
+      (0, 1] — growth is not a rung — and a table that does not parse falls
+      back to this default with a note on the check line rather than
+      raising or silently sizing off a half-read table.
+
   regime_sizing_enabled:
     value: true
     env_var: REGIME_SIZING_ENABLED

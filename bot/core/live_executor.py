@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import logging
 import os
@@ -51,6 +52,7 @@ from bot.core.close_lookup import (
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import apply_margin_risk_cap, leverage_floor
+from bot.core.size_trace import note_size_step, size_basis
 from bot.core import size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
@@ -4358,6 +4360,7 @@ class LiveExecutor:
         if is_weekend:
             old_size = size_usd
             size_usd = adjust_size_for_weekend(size_usd, asset_class, is_weekend)
+            note_size_step(idea, f"weekend rule ({asset_class})", size_usd, before=old_size)
             if size_usd != old_size:
                 audit(trade_log,
                       f"Weekend size reduction: ${old_size:.2f} → ${size_usd:.2f} ({asset_class})",
@@ -4992,6 +4995,8 @@ class LiveExecutor:
                     # Tier C = marginal confluence — reduce size
                     old_sz = size_usd
                     size_usd = round(size_usd * entry_result.size_multiplier, 2)
+                    note_size_step(idea, f"entry tier C x{entry_result.size_multiplier:.2f}",
+                                   size_usd)
                     audit(trade_log,
                           f"Tier C size reduced: ${old_sz:,.2f} → ${size_usd:,.2f} "
                           f"(×{entry_result.size_multiplier:.2f}) for {symbol}",
@@ -5936,6 +5941,7 @@ class LiveExecutor:
                            position_confirmed: Any, verify: dict, exchange_fees: float,
                            _lev_mismatch: Optional[tuple[int, int]], _lev_close_failed: bool,
                            _slip_warn: str = "", _pos_state: Any = None,
+                           size_usd: Optional[float] = None,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
@@ -5962,6 +5968,14 @@ class LiveExecutor:
         fee_line = ""
         if exchange_fees > 0:
             fee_line = f"\n- Fees: <code>${exchange_fees:.4f}</code>"
+
+        # Which step decided the margin this order was sized at
+        # (bot/core/size_trace.py). The card printed the cost and nothing
+        # about how it came to be that figure; `size_usd` is the executor's
+        # own final sizing figure, so a step this path took and did not
+        # record shows up as one. Empty trace, no line.
+        _basis = size_basis(idea, size_usd)
+        sizing_line = f"\n- Sizing: <i>{html.escape(_basis)}</i>" if _basis else ""
 
         sl_tp_warn = ""
         if sl_id is None and tp_id is None:
@@ -5999,7 +6013,7 @@ class LiveExecutor:
             f"{'─' * 16}\n"
             f"- Fill: <code>${fill_price:,.4f}</code>\n"
             f"- Qty: <code>{filled_qty:.6f}</code>\n"
-            f"- Cost: <code>${cost:.2f}</code>\n"
+            f"- Cost: <code>${cost:.2f}</code>{sizing_line}\n"
             f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
             f"- Leverage: <code>{leverage}x</code>\n"
             f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
@@ -6040,7 +6054,10 @@ class LiveExecutor:
         # the preflight is the reader that refuses on it.
         _avail = await self.available_margin()
         _bounds = size_bounds_for(_avail)
+        _before_bound = size_usd
         size_usd = min(size_usd, _bounds.per_trade_usd)
+        note_size_step(idea, f"per-account bound ({_bounds.basis})", size_usd,
+                       before=_before_bound)
 
         # ── GETCLAW ORDER RULES: market hours + weekend adjustments ── (see _apply_order_rules)
         order_type, size_usd, asset_class, defer_tp_sl = self._apply_order_rules(
@@ -6621,7 +6638,7 @@ class LiveExecutor:
                 idea, side, leverage, is_futures, fill_price, filled_qty, cost, order_id,
                 sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
                 exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
-                pos_verify.get("state"))
+                pos_verify.get("state"), size_usd=size_usd)
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()

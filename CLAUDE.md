@@ -739,7 +739,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 730 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 728 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7463,6 +7463,156 @@ cannot measure the escape.
 (`tests/test_a_ticker_priced_close_says_why.py`, `bot/core/close_lookup.py`.)
 
 
+**A 0.58 IDEA AND A 0.92 IDEA WERE SIZED IDENTICALLY, AND SET TO THE SAME
+LEVERAGE, ON EVERY ACCOUNT WITHOUT A KELLY ESTIMATE.** The bounds (#199) say
+how much an account may carry and the cap the venue is set to (#201) bounds
+how far a stop may take it; fourteen multipliers tighten a trade for a reason
+of their own, and not one of them read the one thing the analyzer measured
+about THIS trade. Confidence reached sizing through two doors only: Kelly's
+`kelly_f * 0.5 * conf`, a ceiling that exists once twenty closes are on
+record, and `_high_conviction_margin`, which is binary and flat -- one floor,
+one dollar target, opt-in. Leverage never saw it at all: `_standard_leverage`
+takes a SYMBOL. `bot/risk/quality_ladder.py` is the reading, a table of
+rungs (`name:floor:size_mult:leverage_mult`, top rung first, last floor 0.0)
+that the MEASURED confidence lands on, and every rung tightens or leaves
+alone. Growth is not a rung: a multiplier above 1.0 is REFUSED rather than
+clamped, with the defaults used and a note on the check line, because a
+table whose author wrote 1.3 wanted growth and silently handing them 1.0 is a
+second answer about what the table says -- and a confidence figure the
+calibrator can move by 0.05 per slice is not evidence that a larger position
+is safe.
+
+**A MANUAL TICKET'S CONFIDENCE IS A STAMP, and it had been clearing every
+floor by construction.** `build_manual_idea` writes `confidence=1.0` on every
+hand-typed ticket; nothing measured that, it is the value that passes. So
+the reading is three-valued -- measured at the confidence, unmeasured because
+the source is `manual`, unmeasured because the field cannot be read -- and an
+unmeasured quality takes NO rung: size x1.00, leverage untouched, the line
+says why. The same reading now decides Kelly's confidence factor (a stamp of
+0.6 no longer shrinks a manual ticket's half-Kelly, and a stamp of 1.0 no
+longer un-shrinks it by luck) and the high-conviction floor, which a manual
+ticket cleared on its stamp and now declines with an `UNMEASURED` audit --
+because "the flat margin did not apply" and "the flat margin is off" are
+different facts. A second Kelly sizer with no production caller
+(`get_recommended_size`) reads the same factor, so the two cannot drift; it
+is recorded here rather than deleted, because a slice about sizing is not
+the slice that decides what a dark method is for.
+
+**THE CAP IS TIGHTENED AS WELL AS THE PRE-CAP FIGURE, and the fixture that
+proves it sits UNDER the cap.** The notional cap binds on ~every crypto
+trade, so a pre-cap multiply alone is clamped straight back to the same
+number -- the USER_RISK_PREF lesson, recorded at the cap site, where that
+feature's first version tightened nothing with the reduction sitting in
+`checks_passed` saying it had. Driven: rung B answers exactly three quarters
+of the flags-off figure on the standard fixture (the cap half), and 750 of
+1,000 on a 20% stop that sizes under the cap (the pre-cap half). One fixture
+cannot see both, and the mutation that dropped either half survives the
+other's.
+
+**THE LEVERAGE HALF WRITES WHERE THE MARGIN-RISK CAP WRITES, FIRST, and the
+verdict is measured at the leverage the trade will run at.** The rung's
+leverage rides on the idea through `RISK_CAP_ATTR`, the one attribute both
+executor paths read (#201's whole point: the sizing leverage cancels out of
+the ratio the margin-risk cap bounds, so a cap that reached only the sizing
+bounded nothing), and `tighten_leverage_cap` keeps the LOWER of the two
+writers whatever order they run in. The margin-risk verdict is then measured
+at the ladder's leverage -- `SL 3.0% × 4x` on the line, and a stop the ladder
+already brought under the cap is not refused for a leverage the trade is no
+longer at; driven with dynamic leverage on and an 8% stop, rung B takes 5x to
+4x, the verdict takes 4x to 3x, and the idea carries 3. The paper fill reads
+the same attribute, so a card cannot say "leverage x0.80" beside "@ 5x". A
+floor is a floor in both directions: the fixture at a 1x standard under a 2x
+floor caught the leaf answering 2 -- `max(lo, min(base, reduced))`, a
+reduce-only rule RAISING the leverage -- before the round ran. *When a fresh
+assertion fails, check whether the code or the assertion is wrong*: the
+assertion was right.
+
+**BOTH HALVES DEFAULT OFF AND SHADOW WHEN OFF**, the shape
+`USER_RISK_PREF_SIZING_ENABLED` already takes: with either flag off, a
+measured rung that would have tightened is audited on the channel the
+applied path uses (`action="quality_ladder", result="SHADOW"`), with the
+would-be size only when the size half is the one that is off -- a would-be
+figure beside an applied one is two answers. The flags-off size is
+byte-identical, and the shadow's own drive first recorded TWO records for one
+evaluation: the fixture's baseline call shadows too, and the recorder was
+installed before it. The fixture clears the ledger between the two now; the
+code was right.
+
+**"SIZE $37.50 @ 5X" WAS THE WHOLE CARD, and nothing said which of twenty
+steps made it that figure.** `bot/core/size_trace.py` rides on the idea --
+the one object the risk gate, the engine and the executor all hold, and the
+executor's shallow copy SHARES the list, driven -- and every step that
+changes the size records what it left: the fixed-fractional base, the
+execution ceiling, regime, session, the breakers, the throttle, the
+preference, the rung, drawdown recovery, macro, correlation, the Kelly
+ceiling and the notional cap with the rules that tightened it named in the
+label; then the engine's high-conviction target, pyramid half, stock session,
+free-margin clamp, manual override and per-user ceiling; then the executor's
+per-account bound, weekend rule and entry-quality cut. `RiskCheck` carries
+`size_basis` and `size_path`, and both fill cards print the basis under the
+figure: *notional cap 13% of $10,000.00 equity (quality ladder x0.75) decided
+$975.00 (3 steps from fixed-fractional (swing risk 2% / stop 3.00%)
+$6,666.67)*.
+
+**A STEP THAT CHANGED NOTHING IS NOT A STEP, and the trace is RESET per
+evaluation.** `size_basis` names the LAST recorded step as the decider, so a
+ceiling that never bound, recorded anyway, would be named as having decided a
+figure it never touched -- the `size_usd` two-meanings defect wearing a
+sentence. Every clamp hands `note_size_step` the figure it started from and a
+no-op is dropped; driven, a $1e9 ceiling leaves no step and a $50 one is the
+decider. An idea is evaluated at proposal time and again at confirm time, so
+the trace starts fresh at the top of `_evaluate_locked`, or the second
+card would narrate the first evaluation's steps under its own figure.
+
+**WHAT THE TRACE CANNOT SEE IS SAID, AND A SCAN KEEPS IT FROM BEING THE
+ORDINARY READING.** The card is handed the executor's own final figure and
+`size_basis` compares it to the last recorded step: a disagreement prints
+*then changed to $80.00 by a step not on record* rather than naming the wrong
+step. That clause is the backstop, not the design, so a SCAN -- stated as one,
+because `_confirm_trade_inner` is a 400-line async method behind Telegram,
+the compliance engine and an exchange -- walks both money paths and requires
+every assignment to `size_usd` to be followed by its note, with a
+tuple-unpack delegating to the callee it names; it is driven on a planted
+tree, because the real one has zero and a rule no input can reach is a claim
+that there is a check. `execute` is driven to a PLANTED preflight refusal --
+far enough for the bound and the order rules to have run on the trace, not
+one line further -- so the bound is recorded only when it bound.
+
+**Thirty-six mutations, thirty-five killed on the first round, one EQUIVALENT
+-- and the equivalence is a property of two sets in another module.** The
+weekend note's `before=` survived: `is_weekend_queued` answers True only for
+a class outside `_ALWAYS_OPEN` and `_PRE_IPO`, every class the classifier can
+emit there is in `_WEEKDAY_ONLY`, and `adjust_size_for_weekend` reduces those
+by 35% -- so the note always records a real change and no product input
+separates the two spellings. The `before=` STAYS, as the uniform rule every
+clamp on both money paths follows, and what is driven instead is the property
+that makes it equivalent, so the day a class joins one set and not the other a
+test fails rather than the note quietly naming a no-op as the decider. Two
+more are worth naming for what they prove about the guards rather than the
+code: the cap-only and pre-cap-only halves each die on exactly one fixture and
+survive the other, which is why the second fixture exists; and the paper fill
+ignoring the cap on the idea dies on `@ 4x` and nothing else, because the size
+on that card is the risk gate's and does not move.
+(`tests/test_trade_quality_chooses_size_and_leverage.py`.)
+
+> **And the first full run was red on a test the slice never touched, and
+> the instrument was the launcher.** `test_a_signalled_check_reports_no_verdict`
+> sends SIGINT to the deploy smoke guard and expects exit 3; it got 0, in the
+> full run and re-run alone, on a file byte-identical to main. The preflight
+> had been started as a background subshell under `nohup`, and a
+> non-interactive shell sets SIGINT to IGNORED for a background command -- a
+> disposition every child inherits and a non-interactive bash cannot reset
+> (*"signals ignored upon entry to the shell cannot be trapped or reset"*), so
+> the guard's own `trap` never armed and the interrupt was swallowed: the check
+> FINISHED, which is the verdict the test exists to prove is never reported.
+> Driven, `signal.getsignal(SIGINT)` reads the default handler in the
+> foreground and `SIG_IGN` under that launcher, and every case passes in the
+> foreground. The gate did not fail; its launcher had changed a fact the test
+> depends on, which is `ruff_gate.check_version`'s CANNOT-CHECK distinction
+> arriving through the shell -- and a preflight that reads its own SIGINT
+> disposition before the first gate, and refuses rather than measures, is
+> filed rather than done here.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8691,9 +8841,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **410 of 988** reach for source text through `source_scan`, `code_only`
+Driven, **411 of 989** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 410 is a FLOOR and the honest shape is
+source scan that rule does not see, so 411 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
