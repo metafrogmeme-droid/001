@@ -63,7 +63,7 @@ question, which is the shape this repository keeps finding in maps and gates.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from bot.core.margin_clamp import read_money_field
 
@@ -232,3 +232,112 @@ def resolve(
         available_usd=round(avail, 2),
         why=why,
     )
+
+
+# ── The preflight's own refusals, over ONE set of bounds ────────────────────
+#
+# `LiveExecutor._preflight_check` used to spell these comparisons inline. The
+# bounds shadow (bot/core/bounds_shadow.py) asks the same question of the
+# bounds that WOULD be in force with the flag on, and a second copy of the
+# comparison is a second answer about what refuses an order -- so the reading
+# lives here and both callers hand it their bounds. The sentences are the
+# preflight's, byte for byte: every guard that pins them is a guard over this
+# function now.
+
+class BoundsVerdict(NamedTuple):
+    """What one set of bounds says about one order.
+
+    ``state`` is ``ok``, ``per_trade`` (the order is over the per-trade
+    bound), ``exposure_unread`` / ``exposure_partial`` (the total cannot be
+    enforced because the book's committed margin was not read, wholly or in
+    part), or ``total`` (the order would take the book over the total bound).
+    ``sentence`` is the preflight's refusal, None for ``ok``. ``exposure_total``
+    is the book's READ committed margin, set only when the verdict could read
+    it -- ``ok`` and ``total`` -- and None otherwise, never 0.0.
+    """
+
+    state: str
+    sentence: Optional[str]
+    exposure_total: Optional[float]
+
+
+def bounds_verdict(size_usd: float, bounds: SizeBounds, exposure: Any) -> BoundsVerdict:
+    """The preflight's refusals in the preflight's own ORDER: the per-trade
+    bound first (it needs no book), then the book's readability, then the
+    total. ``exposure`` is a `live_executor.CommittedMargin` (duck-typed:
+    ``total``, ``complete``, ``unread``, ``counted``, ``scored``)."""
+    if size_usd > bounds.per_trade_usd:
+        return BoundsVerdict("per_trade", (
+            f"Position size ${size_usd:.2f} exceeds the "
+            f"${bounds.per_trade_usd:,.2f} per-trade margin limit "
+            f"({bounds.why})"), None)
+    names = ", ".join(exposure.unread)
+    them = "them" if len(exposure.unread) > 1 else "it"
+    if exposure.total is None:
+        # Nothing in a non-empty book could be read. A different fact from
+        # the partial case below, so it gets its own sentence: there is no
+        # floor to quote, and quoting one would be a figure nobody measured
+        # printed as the account's committed capital.
+        return BoundsVerdict("exposure_unread", (
+            f"Total exposure cannot be measured: the venue stated no "
+            f"margin for any of the {exposure.counted} open position(s) "
+            f"on this account ({names}). Close {them} with "
+            f"/liveclose, or the ${bounds.total_usd:,.2f} cap "
+            f"cannot be enforced."), None)
+    total = float(exposure.total)
+    if not exposure.complete:
+        # A margin nobody read is not a margin of zero, and this is the one
+        # reader where that is a HARD CAP rather than a card. An adopted
+        # position the venue stated no margin for carries `cost_usd == 0.0`
+        # and names "margin" in `adoption_unread`, so the raw sum read that
+        # capital as free. Refusing is fail-closed and it NAMES the position,
+        # because "exposure cannot be measured" does not say what to go and
+        # change - and adoption never re-reads a position it already tracks,
+        # so the figure never arrives on its own.
+        return BoundsVerdict("exposure_partial", (
+            f"Total exposure cannot be measured: the venue never stated "
+            f"a margin for {names}, so the ${total:,.2f} "
+            f"on record over {exposure.scored} of {exposure.counted} "
+            f"position(s) is a floor and not the total. Close "
+            f"{them} with /liveclose, or the "
+            f"${bounds.total_usd:,.2f} cap cannot be enforced."), None)
+    if total + size_usd > bounds.total_usd:
+        return BoundsVerdict("total", (
+            f"Total exposure ${total + size_usd:,.2f} would exceed "
+            f"the ${bounds.total_usd:,.2f} total margin limit "
+            f"({bounds.why})"), total)
+    return BoundsVerdict("ok", None, total)
+
+
+class ReserveRead(NamedTuple):
+    """The capital buffer after one order, over one set of bounds.
+
+    ``state`` is ``ok`` (the buffer holds), ``warn`` (something is left and it
+    is under the reserve) or ``spent`` (nothing is left). ``basis`` says what
+    the 20% was OF: the available balance when one was read, the configured
+    total limit when none was -- the distinction the bounds slice records as
+    the sharpest of its four.
+    """
+
+    state: str
+    remaining: float
+    needed: float
+    basis: str
+
+
+def reserve_read(size_usd: float, bounds: SizeBounds, exposure_total: float) -> ReserveRead:
+    if bounds.reserve_usd is not None and bounds.available_usd is not None:
+        remaining = float(bounds.available_usd) - exposure_total - size_usd
+        needed = float(bounds.reserve_usd)
+        basis = "available balance"
+    else:
+        remaining = bounds.total_usd - exposure_total - size_usd
+        needed = bounds.total_usd * 0.20
+        basis = "the configured total limit"
+    if remaining <= 0:
+        state = "spent"
+    elif remaining < needed:
+        state = "warn"
+    else:
+        state = "ok"
+    return ReserveRead(state, remaining, needed, basis)

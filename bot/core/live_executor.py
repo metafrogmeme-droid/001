@@ -53,7 +53,7 @@ from bot.core.close_lookup import (
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import apply_margin_risk_cap, leverage_floor
 from bot.core.size_trace import note_size_step, size_basis
-from bot.core import size_bounds
+from bot.core import bounds_shadow, size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
@@ -762,6 +762,18 @@ def size_bounds_for(available_usd: Optional[float] = None) -> size_bounds.SizeBo
     """
     return size_bounds.resolve(
         available_usd, CONFIG.execution,
+        flat_per_trade=MICRO_MAX_POSITION_USD,
+        flat_total=MICRO_MAX_TOTAL_EXPOSURE,
+    )
+
+
+def size_bounds_if_armed(available_usd: Optional[float] = None) -> size_bounds.SizeBounds:
+    """The bounds that WOULD be in force with `SIZE_BOUNDS_ENABLED` on, over
+    the same balance and the same flat figures `size_bounds_for` reads. The
+    bounds shadow (bot/core/bounds_shadow.py) records what these would have
+    done to every live order; with the flag on the two readings are one."""
+    return size_bounds.resolve(
+        available_usd, CONFIG.execution, enabled=True,
         flat_per_trade=MICRO_MAX_POSITION_USD,
         flat_total=MICRO_MAX_TOTAL_EXPOSURE,
     )
@@ -2433,7 +2445,8 @@ class LiveExecutor:
         return value
 
     def _preflight_check(self, size_usd: float, symbol: str = "",
-                         available_usd: Optional[float] = None) -> Optional[str]:
+                         available_usd: Optional[float] = None,
+                         size_before_bound: Optional[float] = None) -> Optional[str]:
         """Run live safety checks. Returns error string or None.
 
         ``available_usd`` is the AVAILABLE margin the venue reported, read
@@ -2442,6 +2455,11 @@ class LiveExecutor:
         balance may not be the reason a bound moves in either direction --
         and `clamp_to_free_margin` already refuses an unreadable free
         margin one layer down, with its own two reasons.
+
+        ``size_before_bound`` is the size the caller held BEFORE it clamped
+        to the per-account bound -- the bounds shadow records it so an
+        applied cut is a reading rather than an inference; a caller that
+        hands none leaves that count unmeasured, and the card says so.
         """
         # A symbol the overshoot guard just flattened is refused until its block
         # expires. Without this the guard is a fee pump: Bitget's sticky
@@ -2477,16 +2495,6 @@ class LiveExecutor:
         # figures and the sentence says which.
         bounds = size_bounds_for(available_usd)
 
-        # Cap position size
-        if size_usd > bounds.per_trade_usd:
-            return (
-                f"Position size ${size_usd:.2f} exceeds the "
-                f"${bounds.per_trade_usd:,.2f} per-trade margin limit "
-                f"({bounds.why})"
-            )
-
-        # Check total exposure
-        #
         # THE BOOK THE CAP READS IS THE BOOK THE CARD READS. This summed
         # `status == "open"` while `total_exposure_usd` - the figure every
         # card printed - summed `open_positions`, which is open AND
@@ -2497,45 +2505,38 @@ class LiveExecutor:
         # placement), so counting it is a reading rather than an estimate,
         # and the direction is fail-closed.
         exposure = committed_margin(self.open_positions)
-        _cap_names = ", ".join(exposure.unread)
-        _cap_them = "them" if len(exposure.unread) > 1 else "it"
-        if exposure.total is None:
-            # Nothing in a non-empty book could be read. A different fact
-            # from the partial case below, so it gets its own sentence:
-            # there is no floor to quote, and quoting one would be a figure
-            # nobody measured printed as the account's committed capital.
-            return (
-                f"Total exposure cannot be measured: the venue stated no "
-                f"margin for any of the {exposure.counted} open position(s) "
-                f"on this account ({_cap_names}). Close {_cap_them} with "
-                f"/liveclose, or the ${bounds.total_usd:,.2f} cap "
-                f"cannot be enforced."
-            )
-        if not exposure.complete:
-            # A margin nobody read is not a margin of zero, and this is the
-            # one reader where that is a HARD CAP rather than a card. An
-            # adopted position the venue stated no margin for carries
-            # `cost_usd == 0.0` and names "margin" in `adoption_unread`, so
-            # the raw sum read that capital as free. Refusing is fail-closed
-            # and it NAMES the position, because "exposure cannot be
-            # measured" does not say what to go and change - and adoption
-            # never re-reads a position it already tracks, so the figure
-            # never arrives on its own.
-            return (
-                f"Total exposure cannot be measured: the venue never stated "
-                f"a margin for {_cap_names}, so the ${exposure.total:,.2f} "
-                f"on record over {exposure.scored} of {exposure.counted} "
-                f"position(s) is a floor and not the total. Close "
-                f"{_cap_them} with /liveclose, or the "
-                f"${bounds.total_usd:,.2f} cap cannot be enforced."
-            )
-        total_exposure = exposure.total
-        if total_exposure + size_usd > bounds.total_usd:
-            return (
-                f"Total exposure ${total_exposure + size_usd:,.2f} would exceed "
-                f"the ${bounds.total_usd:,.2f} total margin limit "
-                f"({bounds.why})"
-            )
+
+        # THE RECORD. Every preflighted order goes to the bounds ledger
+        # (bot/core/bounds_shadow.py) with what the bounds in force said and
+        # what the balance-relative bounds WOULD say over the same balance,
+        # so the flag can be armed on evidence rather than on the flat
+        # figures' silence. Its own try: a ledger fault must not decide an
+        # order, in either direction.
+        try:
+            bounds_shadow.BOUNDS_LEDGER.record(bounds_shadow.order_row(
+                account=self.user_id, symbol=symbol, size_usd=size_usd,
+                available_usd=available_usd, in_force=bounds,
+                would=size_bounds_if_armed(available_usd), exposure=exposure,
+                enabled=bool(getattr(CONFIG.execution,
+                                     "balance_relative_bounds_enabled", False)),
+                size_before_usd=size_before_bound))
+        except Exception as _ledger_exc:
+            logger.warning("bounds shadow: the order could not be recorded (%s)",
+                           type(_ledger_exc).__name__)
+
+        # The per-trade bound, the book's readability and the total bound,
+        # in that order, from ONE reading (`size_bounds.bounds_verdict`) --
+        # the shadow above asks it about the would-be bounds, and a second
+        # copy of the comparison here would be a second answer about what
+        # refuses an order. The sentences are the ones this method always
+        # printed, and the reasons each refusal is worded as it is sit
+        # beside it in the leaf.
+        _verdict = size_bounds.bounds_verdict(size_usd, bounds, exposure)
+        if _verdict.sentence is not None:
+            return _verdict.sentence
+        # `ok` is answered only over a complete reading of the book
+        # (`bounds_verdict` pins it), so the total is a float here.
+        total_exposure = cast(float, _verdict.exposure_total)
 
         # LIVE-1 (operator directive, live-testing protection): every LINKED
         # (per-user) account carries its own hard max-funds ceiling — total
@@ -2574,22 +2575,15 @@ class LiveExecutor:
         # trade, or it is not a buffer. With a balance on record it is a
         # share of that balance; with none, it stays exactly the figure it
         # has always been, and the audit line says which it was.
-        if bounds.reserve_usd is not None:
-            remaining = (bounds.available_usd or 0.0) - total_exposure - size_usd
-            reserve_needed = bounds.reserve_usd
-            reserve_basis = "available balance"
-        else:
-            remaining = bounds.total_usd - total_exposure - size_usd
-            reserve_needed = bounds.total_usd * 0.20
-            reserve_basis = "the configured total limit"
-        if remaining < reserve_needed and remaining > 0:
+        _reserve = size_bounds.reserve_read(size_usd, bounds, total_exposure)
+        if _reserve.state == "warn":
             audit(trade_log,
-                  f"Capital buffer warning: ${remaining:,.2f} remaining after "
-                  f"trade (reserve target ${reserve_needed:,.2f}, "
-                  f"20% of {reserve_basis})",
+                  f"Capital buffer warning: ${_reserve.remaining:,.2f} remaining after "
+                  f"trade (reserve target ${_reserve.needed:,.2f}, "
+                  f"20% of {_reserve.basis})",
                   action="capital_buffer", result="WARN",
-                  data={"remaining": remaining, "reserve": reserve_needed,
-                        "reserve_basis": reserve_basis,
+                  data={"remaining": _reserve.remaining, "reserve": _reserve.needed,
+                        "reserve_basis": _reserve.basis,
                         "exposure": total_exposure, "new_size": size_usd})
 
         # Check open positions count
@@ -6071,7 +6065,8 @@ class LiveExecutor:
 
         # Pre-flight
         preflight_err = self._preflight_check(size_usd, symbol=idea.asset,
-                                              available_usd=_avail)
+                                              available_usd=_avail,
+                                              size_before_bound=_before_bound)
         if preflight_err:
             audit(trade_log, f"Live execution blocked: {preflight_err}",
                   action="live_execute", result="BLOCKED",

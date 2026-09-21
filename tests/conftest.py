@@ -34,6 +34,12 @@ _STATE_FILES = (
     "data/ladder_ledger.json",
     "data/ladder_ledger.json.bak",
     "data/ladder_ledger.json.tmp",
+    # The balance-relative bounds' record (bot/core/bounds_shadow.py): the
+    # executor's preflight writes a row on EVERY live order it is asked
+    # about, so every test that drives the preflight writes this file.
+    "data/bounds_ledger.json",
+    "data/bounds_ledger.json.bak",
+    "data/bounds_ledger.json.tmp",
     # Roadmap P0: the persisted user store leaked across tests. A stale
     # last_seen on a seeded admin tripped the 24h sensitive-command staleness
     # check (user_store.has_permission), so /pause, /resume, emergency-stop and

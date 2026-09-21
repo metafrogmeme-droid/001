@@ -140,7 +140,8 @@ class TestTheLedgerHasThreeLoadStates:
         def _boom(*a, **k):
             raise OSError("disk")
 
-        monkeypatch.setattr(ls, "atomic_write_json", _boom)
+        from bot.utils import shadow_ledger as sl
+        monkeypatch.setattr(sl, "atomic_write_json", _boom)
         assert led.record(_row()) is False
         assert len(led.rows()) == 1
 

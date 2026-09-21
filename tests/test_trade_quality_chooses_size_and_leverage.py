@@ -663,7 +663,15 @@ class TestEverySizeStepIsOnTheRecord:
         per-account bound and the order rules to have run on the trace, and
         not one line further. The executor works on a shallow copy of the
         idea and the copy shares the list, which is the whole reason the
-        engine's idea can carry the executor's steps."""
+        engine's idea can carry the executor's steps.
+
+        The stand-in preflight takes ``**kw`` and RECORDS what it was handed:
+        its first draft spelled three parameters, and the full gate refused
+        the bounds-shadow slice on it when `execute` grew a fourth
+        (``size_before_bound``, the size held BEFORE the clamp) -- a
+        hand-written stand-in that must remember each parameter is one that
+        will forget the next. Recording it makes that argument a drive
+        rather than a signature the fixture has to keep in step."""
         ex = lx.LiveExecutor.__new__(lx.LiveExecutor)
         ex._persistence_broken = False
         seen = []
@@ -677,8 +685,8 @@ class TestEverySizeStepIsOnTheRecord:
         ex.available_margin = _avail
         ex._note_funding_rate = _funding
         ex._note_settlement_clock = lambda idea: None
-        ex._preflight_check = lambda size_usd, symbol="", available_usd=None: (
-            seen.append(size_usd) or "planted refusal")
+        ex._preflight_check = lambda size_usd, symbol="", available_usd=None, **kw: (
+            seen.append((size_usd, kw.get("size_before_bound"))) or "planted refusal")
         monkeypatch.setattr(lx, "audit", lambda log, msg, **kw: None)
 
         bound = lx.size_bounds_for(50.0).per_trade_usd
@@ -686,7 +694,8 @@ class TestEverySizeStepIsOnTheRecord:
         reset_size_trace(idea)
         note_size_step(idea, "fixed-fractional", bound * 10)
         out = asyncio.run(ex.execute(idea, bound * 10))
-        assert "planted refusal" in out and seen == [bound]
+        assert "planted refusal" in out and seen == [(bound, bound * 10)], \
+            "the preflight is handed the clamped size AND the size held before the clamp"
         assert size_basis(idea, bound).startswith(f"per-account bound ({lx.size_bounds_for(50.0).basis}) decided")
 
         small = _idea()

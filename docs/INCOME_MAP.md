@@ -195,7 +195,12 @@ AVAILABLE balance the venue reported, three-valued (`flat` / `unread` /
 the clamp, both engine execution caps and the live-portfolio card ask.
 Default OFF (`SIZE_BOUNDS_ENABLED`), and arming it alone can only TIGHTEN —
 the two growth ceilings default to the flat caps, so raising a bound needs
-`SIZE_BOUNDS_MAX_POSITION_USD` / `SIZE_BOUNDS_MAX_TOTAL_USD` as well.
+`SIZE_BOUNDS_MAX_POSITION_USD` / `SIZE_BOUNDS_MAX_TOTAL_USD` as well. With the
+flag off the preflight still records what the balance-relative bounds would
+have done to every live order (`bot/core/bounds_shadow.py`,
+`data/bounds_ledger.json`), and `/shadow bounds` renders it: how often the
+would-be per-trade bound would have cut the order, how often the total bound
+would have refused it, per account, with the balance-unread rows counted apart.
 
 TRADE QUALITY chooses a size and a leverage within those bounds
 (`bot/risk/quality_ladder.py`). The analyzer's MEASURED confidence lands on a
