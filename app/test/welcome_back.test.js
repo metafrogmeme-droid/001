@@ -81,7 +81,11 @@ test('a quick return shows a tiny window with zero activity', async () => {
 test('after a real absence the digest counts what actually happened', async () => {
   // Simulate 10 hours away…
   pool.users.find((u) => u.id === userId).last_seen_at = new Date(Date.now() - 10 * 3600 * 1000);
-  const now = new Date();
+  // Stamped a second BEFORE the read, not at it: a row stamped at the test's
+  // own `new Date()` shared a millisecond with the read's `now` on a fast CI
+  // runner, which is the window's edge -- and a fixture ON the boundary
+  // measures the race, not the rule. The edge has its own test below.
+  const now = new Date(Date.now() - 1000);
   // …during which: one signal, two engine events, one own close (+50), and
   // a close by SOMEBODY ELSE (must not leak into the caller's arena digest).
   pool.signals.push({ id: 9001, symbol: 'BTCUSDT', direction: 'LONG', created_at: now });
@@ -110,6 +114,28 @@ test('reading the digest advances the window — nothing double-reports', async 
   assert.equal(r.data.signals_new, 0);
   assert.equal(r.data.events_new, 0);
   assert.equal(r.data.arena.closes, 0);
+});
+
+test('a row created while a digest is read is the NEXT digest\'s, once', async () => {
+  // The window is half-open, [last, now): a row stamped at or after the
+  // read's own instant is not in that read and IS in the next one. The old
+  // counts were `>= last` with no upper bound, so such a row was reported by
+  // the read that opened at it AND by the read after -- twice. A far-future
+  // stamp stands in for "created after the read opened", because the test
+  // cannot plant a row at the handler's own clock; moving the stamp back to
+  // "just now" afterwards is the row's time arriving.
+  const late = { id: 9003, symbol: 'SOLUSDT', direction: 'LONG',
+    created_at: new Date(Date.now() + 3600 * 1000) };
+  pool.signals.push(late);
+  const a = await req('GET', '/api/since', { token });
+  assert.equal(a.data.signals_new, 0, 'not reported by a read that opened before it');
+  const b = await req('GET', '/api/since', { token });
+  assert.equal(b.data.signals_new, 0, 'and not reported early by the next read either');
+  late.created_at = new Date();          // its moment arrives, after read b
+  const c = await req('GET', '/api/since', { token });
+  assert.equal(c.data.signals_new, 1, 'reported by the first digest whose window holds it');
+  const d = await req('GET', '/api/since', { token });
+  assert.equal(d.data.signals_new, 0, 'and never again');
 });
 
 // ---- Shipped page wiring (source assertions) ----------------------------

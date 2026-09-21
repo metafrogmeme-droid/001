@@ -475,9 +475,15 @@ class MemoryDB {
     }
 
     if (cmd.includes('FROM SIGNALS') && cmd.includes('COUNT(*)') && cmd.includes('CREATED_AT >=')) {
-      // welcome-back digest: signals since a cutoff
+      // welcome-back digest: signals in the half-open window [lo, hi) --
+      // the upper bound is the read's own instant (routes/since.js), so a
+      // row created during the read is the next digest's, once.
       const lo = new Date(params[0]).getTime();
-      const n = this.signals.filter(s => new Date(s.created_at).getTime() >= lo).length;
+      const hi = cmd.includes('CREATED_AT <') ? new Date(params[1]).getTime() : Infinity;
+      const n = this.signals.filter(s => {
+        const c = new Date(s.created_at).getTime();
+        return c >= lo && c < hi;
+      }).length;
       return [[{ n }], []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('COUNT(*)')) {
@@ -1038,10 +1044,14 @@ class MemoryDB {
         return [rows.map(r => ({ ...r })), []];
       }
       if (cmd.includes('USER_ID = ?') && cmd.includes('CLOSED_AT >=')) {
-        // welcome-back digest: the caller's own closes since a cutoff
+        // welcome-back digest: the caller's own closes in the half-open
+        // window [lo, hi) -- see the signals count above.
         const lo = new Date(params[1]).getTime();
-        const rows = this.arenaTrades.filter(t => t.user_id === params[0]
-          && new Date(t.closed_at).getTime() >= lo);
+        const hi = cmd.includes('CLOSED_AT <') ? new Date(params[2]).getTime() : Infinity;
+        const rows = this.arenaTrades.filter(t => {
+          const c = new Date(t.closed_at).getTime();
+          return t.user_id === params[0] && c >= lo && c < hi;
+        });
         return [rows.map(r => ({ ...r })), []];
       }
       if (cmd.includes('CLOSED_AT >=')) {
@@ -1413,10 +1423,14 @@ class MemoryDB {
       return [{ insertId: row.id }, []];
     }
     if (cmd.includes('FROM AGENT_EVENTS') && cmd.includes('COUNT(*)')) {
-      // welcome-back digest: engine events since a cutoff
+      // welcome-back digest: engine events in the half-open window [lo, hi)
+      // -- see the signals count.
       const lo = new Date(params[0]).getTime();
-      const n = this.agentEvents.filter(
-        e => new Date(e.created_at).getTime() >= lo).length;
+      const hi = cmd.includes('CREATED_AT <') ? new Date(params[1]).getTime() : Infinity;
+      const n = this.agentEvents.filter(e => {
+        const c = new Date(e.created_at).getTime();
+        return c >= lo && c < hi;
+      }).length;
       return [[{ n }], []];
     }
     if (cmd.includes('FROM AGENT_EVENTS') && cmd.includes('OFFSET')) {
