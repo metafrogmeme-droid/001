@@ -87,7 +87,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
 only mode" (trading_commands.py:950, :959), and a tree-wide grep finds no spot
-create_order in bot/ at all (venues.py:206 sets defaultType 'spot' only for
+create_order in bot/ at all (venues.py:276 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1848-1857
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5859 (…
+bot/core/live_executor.py:5885 (…
 
 **Scalping** — **shipped**
 
@@ -167,9 +167,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4758 creates the entry order idempotently, :6374/:6397 attach
+live_executor.py:4784 creates the entry order idempotently, :6400/:6423 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:1399, :1415, :1503); venues.py:206 selects the swap
+productType USDT-FUTURES (:1413, :1429, :1517); venues.py:276 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1007); signal cards from /analyze, /scan and the pro scans

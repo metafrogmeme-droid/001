@@ -235,11 +235,8 @@ Price-derived sentiment proxy as the 11th confluence voter. Combines:
 - **Contrarian logic**: extreme fear -> bullish vote [+0.3, +0.6], extreme greed -> bearish vote [-0.6, -0.3]
 - **Funding-rate contrarian**: extreme positive funding adds bearish offset, extreme negative adds bullish
 
-### Multi-Agent Swarm Protocol (NEW)
-Composable agent collaboration via experimental, in-process pub/sub architecture. Five specialized agents:
-Scanner (perceives market), Analyst (generates theses), Risk (gates every trade), Executor (manages positions),
-Sentinel (monitors for black swans). Communication via SwarmBus pub/sub, with Sentinel broadcasting HALT
-to all agents when severity >= 0.8. Ready for production deployment as separate Agent Hub agents.
+### Multi-Agent Swarm Protocol (planned)
+In-process pub/sub scaffolding in `bot/core/swarm.py`: Scanner, Analyst, Risk, Executor and Sentinel over a SwarmBus. Nothing in the running bot constructs that bus — the module is on `tests/unreachable_baseline.txt`, and the roadmap row is planned. The limitations section is the live description.
 
 ### Multi-User Live Trading (NEW)
 RUNECLAW supports **multiple users trading live on their own Bitget accounts**, each isolated from the others. Default OFF — set `PER_USER_LIVE_ENABLED=true` to enable. Every layer is gated and the operator path is byte-identical until enabled:
