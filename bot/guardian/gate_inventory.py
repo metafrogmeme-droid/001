@@ -135,12 +135,12 @@ GATES: dict[str, tuple[str, str, str]] = {
         "Quality ladder (size)", KIND_SIZE,
         "a 0.58 idea and a 0.92 idea are sized identically — the analyzer's "
         "measured confidence moves no size; the rung it would apply is only "
-        "audited as SHADOW"),
+        "recorded (/shadow ladder)"),
     "quality_ladder_leverage_enabled": (
         "Quality ladder (leverage)", KIND_SIZE,
         "trade quality caps nothing — every idea is set on the venue at the "
         "standard leverage whatever its confidence; the rung it would apply "
-        "is only audited as SHADOW"),
+        "is only recorded (/shadow ladder)"),
     "live_performance_governor_enabled": (
         "Live performance governor", KIND_SIZE,
         "no closed-loop de-risking when realized outcomes are losing"),

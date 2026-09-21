@@ -213,7 +213,11 @@ and the high-conviction floor. A table with a multiplier above 1.0 is refused
 rather than clamped: growth is what `SIZE_BOUNDS_MAX_*` is for. Both halves
 default OFF (`QUALITY_LADDER_SIZE_ENABLED`, `QUALITY_LADDER_LEVERAGE_ENABLED`)
 and SHADOW when off — the risk gate audits the rung it would have applied with
-`result="SHADOW"`. The check and both fill cards carry the size's BASIS
+`result="SHADOW"` and records every sized evaluation in `data/ladder_ledger.json`
+(`bot/risk/ladder_shadow.py`), which `/shadow ladder` renders: per-rung counts
+with their span, what each half would have cut and what it did cut where it is
+on — the audit line alone was a shadow nobody could read back. The check and
+both fill cards carry the size's BASIS
 (`bot/core/size_trace.py`): which step decided the figure, how many steps it
 took, and whether something off the record changed it after.
 
