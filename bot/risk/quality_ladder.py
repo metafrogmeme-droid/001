@@ -157,6 +157,20 @@ def quality_reading(idea: Any) -> QualityReading:
     because that field is a stamp on a manual ticket (see the module header).
     Never raises.
 
+    IT DELIBERATELY DOES NOT ASK ``confidence_inherited_from``, and the reason
+    is measured rather than preferred. A drift re-offer's confidence really is
+    about another trade, so "unmeasured" reads like the honest answer -- and
+    this reading's consumers take an unmeasured quality as *abstain*, not as
+    *be careful*: `ladder_verdict` returns multipliers of 1.0 ("no rung, no
+    reduction") and `kelly_confidence_factor` returns 1.0 ("half-Kelly
+    unscaled"). Driven on a re-offer of a 0.30-confidence thesis, routing it
+    through here moves size x0.50 -> x1.00, leverage 5x -> 5x (from 3x) and
+    Kelly x0.30 -> x1.00: it DOUBLES the weakest re-offers and raises their
+    leverage, in the flattering direction, which is the defect this module
+    exists to remove. The auto-confirm door asks the extra question itself --
+    see `auto_confirm_refusal` -- because refusing an execution and abstaining
+    from a reduction are opposite consequences of one word.
+
     The verdict is ``confidence_on_record``'s -- one reading, so the parser
     that admits a confidence and the ladder that sizes off one cannot answer
     differently about what a readable confidence is. ``_num`` is asked again
@@ -324,15 +338,19 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
     added tomorrow is the one missing from it, and it would be a THIRD copy of
     a judgement production already writes twice.
 
-    THE WRITER SET IS FIVE SOURCES, and an earlier draft of this docstring said
-    eight. It listed every ``source=`` literal in the tree -- and ``getclaw``,
-    ``swarm`` and ``mcp_shield`` build a `TradeIdea` that never reaches
-    ``_pending_ideas`` at all (zero references in any of the three files), so
-    naming them claimed coverage this reading does not have, which is the
-    failure the repo's own gates exist to prevent. What really writes there is
-    the analyzer (``"unknown"``), `scan_skill` and its retry, the drift
-    re-analysis (``"auto_reanalyze"``, via `callback_handler`), and `manual`.
-    The reading refuses exactly the last one.
+    THE WRITER SET IS FOUR SOURCES, and it has been counted wrong twice. An
+    earlier draft said EIGHT: it listed every ``source=`` literal in the tree,
+    and ``getclaw``, ``swarm`` and ``mcp_shield`` build a `TradeIdea` that
+    never reaches ``_pending_ideas`` at all (zero references in any of the
+    three files) -- coverage claimed, not held. The correction said FIVE, which
+    was right on the day and counted ``"scan_skill_retry"`` as its own source;
+    that site now builds through `drift_offer.reanalyzed_idea` like its twin,
+    so the string is retired and nothing in the tree writes or reads it. What
+    writes there is the analyzer (``"unknown"``, via ``_analyze_signal`` --
+    the tick, the force scan, and four `skill_registry` sites), `scan_skill`,
+    the drift re-analysis (``"auto_reanalyze"``, from BOTH retry sites), and
+    `manual`. This reading refuses the last; the door below also refuses a
+    re-offer, by its provenance rather than by its source.
 
     AN UNREADABLE CONFIDENCE IS REFUSED TOO, and it is the same rule rather
     than a second one -- `auto_confirm_is_disabled`'s own docstring says a
@@ -350,20 +368,44 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
     executes it under the caller's own id. Proposing and executing are
     different acts and only the second one is being narrowed here.
 
-    WHAT IT CANNOT SEE, stated because a gate whose coverage is overstated is
-    the failure this repo's gates exist to prevent. This asks about the
-    CONFIDENCE. The drift re-offer (``source == "auto_reanalyze"``, built by
-    `formatters/drift_offer.reanalyzed_idea` and registered by
-    `callback_handler`) copies the ORIGINAL idea's confidence, so it reads as
-    measured and passes here -- while its own call-site comment says "OFFERED,
-    not executed ... executing it spends money on a thesis the user never saw,
-    on the strength of a button they pressed for a different one", and its own
-    `reasoning` says the levels are "flat placeholders, not a fresh analysis".
-    That is the same door one source over, and no reading of a confidence can
-    close it: the defect there is the GEOMETRY, not the number. It needs a
-    decision of its own -- a marker the loop refuses, or not registering the
-    re-offer into the swept dict at all -- and is recorded here rather than
-    answered by widening this one into a rule nobody measured.
+    TWO QUESTIONS, NOT ONE, and the paragraph that used to sit here said the
+    second could not be asked. It read: "no reading of a confidence can close
+    it: the defect there is the GEOMETRY, not the number." Half right, and the
+    wrong half decided the design. The geometry really is different -- driven,
+    the drift re-offer's reward:risk is ``TARGET_PCT/STOP_PCT``, a CONSTANT, so
+    an analyst thesis at 15:1 and one at 0.1:1 both come out ~2:1. But what
+    closes it IS about the confidence: not its VALUE, its SUBJECT. A re-offer's
+    number was measured, honestly, about a trade that is not this one, and
+    `confidence_inherited_from` is the producer saying which -- so no reader
+    has to infer it from a source string.
+
+    SO THE QUESTION IS ASKED HERE AND NOT IN `quality_reading`, WHICH IS
+    MEASURED RATHER THAN PREFERRED. That reading looks like the natural home
+    and its consumers take "unmeasured" as *abstain*, not as *be careful*:
+    `ladder_verdict` answers 1.0 ("no rung, no reduction") and
+    `kelly_confidence_factor` answers 1.0 ("half-Kelly unscaled"). Driven on a
+    re-offer of a 0.30-confidence thesis, routing it through there moves size
+    x0.50 -> x1.00, leverage 3x -> 5x and Kelly x0.30 -> x1.00: it would
+    DOUBLE the weakest re-offers and raise their leverage while closing this
+    door. Refusing an execution and abstaining from a reduction are opposite
+    consequences of one word, so the door asks its own question and the sizing
+    path is left byte-identical -- driven, a re-offer still takes the rung its
+    original's confidence buys.
+
+    THAT IS STILL NOT A SOURCE LIST, and the distinction is drivable rather
+    than asserted: an idea carrying ``source="auto_reanalyze"`` and nothing
+    else PASSES, while `reanalyzed_idea`'s real product is refused. Same
+    source, two verdicts, decided by the field the builder set.
+
+    WHAT IT STILL CANNOT SEE, stated because a gate whose coverage is
+    overstated is the failure this repo's gates exist to prevent: a producer
+    that copies a confidence across a geometry change and does NOT set the
+    field. There is one such producer today and it sets it. A second one
+    written tomorrow would pass here, and nothing in this module can notice --
+    which is why `tests/test_a_drift_re_offer_is_not_auto_confirmed.py` walks
+    the tree for a `TradeIdea(` built from another object's ``.confidence`` and
+    fails on one that neither declares its provenance nor carries a reason in
+    `tests/confidence_provenance_baseline.txt`.
     """
     reading = quality_reading(idea)
     # `and reading.confidence is not None` was here and is DELETED: the one
@@ -373,6 +415,12 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
     # there is a check. The property it was claiming is driven in the guard
     # instead, so the day that return type changes a test fails rather than
     # this reading quietly starting to admit an unmeasured one.
-    if reading.measured:
-        return None
-    return reading.why
+    if not reading.measured:
+        return reading.why
+    inherited = getattr(idea, "confidence_inherited_from", None)
+    if inherited:
+        # Measured, and not about this trade. See the docstring for why this
+        # sits here rather than inside the reading above.
+        return (f"confidence carried from {inherited}: measured about that "
+                f"idea's levels, not these")
+    return None

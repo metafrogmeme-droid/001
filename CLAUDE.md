@@ -8269,6 +8269,89 @@ that module, and a driver that took that for a kill would have reported
 coverage of a function it never edited.
 (`tests/test_a_hand_typed_ticket_is_not_auto_confirmed.py`.)
 
+**AND THE DOOR ONE SOURCE OVER WAS OPEN, WITH A COMMENT FOUR LINES ABOVE IT
+SAYING IT WAS SHUT.** The slice above recorded the drift re-offer as the same
+door one source over and said the reading could not close it -- *"no reading
+of a confidence can close it: the defect there is the GEOMETRY, not the
+number."* Half right, and the wrong half decided the design. Driven at the
+dataclass defaults, `reanalyzed_idea` copies the ORIGINAL thesis's confidence
+verbatim, so `auto_confirm_refusal` answered `None` and the loop executed a
+trade nobody had looked at. And the geometry is sharper than "different": both
+levels are flat percentages of the new price, so the re-offer's reward:risk is
+`TARGET_PCT/STOP_PCT`, a **CONSTANT** -- an analyst thesis at 15:1 and one at
+0.1:1 both come out ~2:1, and the engine's `min_risk_reward` gate is satisfied
+by arithmetic rather than by evidence. What closes it IS about the confidence:
+not its VALUE, its SUBJECT. `confidence_inherited_from` is the producer saying
+which trade the number was measured about, so no reader infers it from a
+source string.
+
+**AND THE TIDIER HOME FOR IT POINTED THE WRONG WAY, which only a drive said.**
+`quality_reading` is where the manual stamp is refused and reads as the
+obvious place -- and its consumers take "unmeasured" as ABSTAIN, not as
+be-careful: `ladder_verdict` answers 1.0 (*"no rung, no reduction"*) and
+`kelly_confidence_factor` answers 1.0 (*"half-Kelly unscaled"*). Driven on a
+re-offer of a **0.30**-confidence thesis, routing it through the reading moves
+size x0.50 -> x1.00, leverage 3x -> 5x and Kelly x0.30 -> x1.00. The fix would
+have **doubled the weakest re-offers and raised their leverage** while closing
+the door -- loosening something in the flattering direction, inside the cure.
+So the door asks its own question and the sizing path is left byte-identical,
+which is a test rather than a promise.
+
+**THE URGENT HALF WAS AT A SITE THE NOTE DID NOT NAME, AND IT NEEDED NO RACE.**
+`drift_offer`'s module docstring says the auto-execution "goes" and the
+re-analysis "stays" -- and it was converted at ONE of the two sites that do
+this. `scan_skill.py` still rebuilt the idea from an INLINE SECOND COPY of the
+same flat geometry, with a hard-coded confidence and the literal reasoning
+*"Auto re-analyzed after price drift"* -- **the exact string that docstring
+quotes as the thing it removed** -- and then called `confirm_trade` on it. One
+tap on a live Telegram path, a different trade placed, no auto-confirm loop
+involved. The auto-confirm door is the narrow race; this was the ordinary one.
+
+**THE GUARD FOR IT WAS ONE FILE SHORT, AND ITS CLAIM IS WHAT GAVE IT AWAY.**
+`test_the_drift_retry_offers_and_never_confirms` forbids the literal
+`confirm_trade(retry_id` over `handler_sources()` -- driven, 16 files, and
+`scan_skill.py` is not one of them, while that literal sat verbatim at
+`scan_skill.py:1802`. COVERAGE OF A CLASS IS NOT COVERAGE OF THE CLAIM read
+off it, which is `command_gates.py`'s lesson one scope over. The replacement is
+DERIVED from what every such site has in common -- the drift message it
+branches on -- and is bounded by the `ast.If` node rather than by a character
+count, because a block that is "everything within N characters" is a boundary
+that manufactures accusations.
+
+**THE CONSTANTS WERE SPELLED THREE TIMES IN ONE FILE AND I KNEW ABOUT TWO.**
+The fresh assertion is what found the third: `0.97`/`1.06` in the limit-order
+branch, a function away from the pair I had just consolidated. And the first
+draft of that assertion ACCUSED MY OWN COMMENT, which had to name the
+percentages it removed -- *a comment that quotes the string it forbids*, from
+the author's side, for the fourth slice running. It reads `code_only` now.
+
+**A SECOND CARRIER CANNOT ARRIVE SILENTLY**, so the rule walks the tree for a
+`TradeIdea(` built from another object's `.confidence` and fails on one that
+neither declares its provenance nor carries a reason in
+`tests/confidence_provenance_baseline.txt`. That walk found a site nobody had
+named -- `api_bridge.py`'s `/confirm`, where the confidence is CALLER-SUPPLIED
+(`ConfirmRequest.confidence`, default **0.7**) rather than inherited. From the
+AST's side a request body and an idea are the same shape, and narrowing to
+"another TradeIdea" would mean guessing a type from a name, so the rule
+over-reports by construction and the honest answer is a recorded decision per
+site. That row's reason is itself a finding: a token-gated caller may hand the
+sizing ladder a confidence nobody measured, under an unset `source` that reads
+as the analyzer's own `"unknown"`. Recorded, not answered by a slice scoped to
+the drift re-offer.
+
+**AND #422's OWN TEST HAD PINNED THIS AS THE CONTRACT.** Its writer table
+carried a row labelled *"auto_reanalyze (the drift re-offer)"* asserting it
+"must still auto-confirm" -- built as `_idea(source="auto_reanalyze")`, an
+object `reanalyzed_idea` never returns. A fixture that cannot produce the
+state it names, pinning a half-fix as a requirement, written in the commit
+that fixed the neighbour. It is relabelled for what it really measures, and it
+is now the PROOF that the refusal is derived: same source, two verdicts,
+decided by the field the builder set. The writer set has been counted wrong
+twice -- eight (every `source=` literal, three of which never reach the dict),
+then five (counting `scan_skill_retry`, a string that now has no writer and no
+reader at all) -- and is **four**.
+(`tests/test_a_drift_re_offer_is_not_auto_confirmed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8685,7 +8768,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 213 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 214 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -9497,9 +9580,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **414 of 1002** reach for source text through `source_scan`, `code_only`
+Driven, **415 of 1003** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 414 is a FLOOR and the honest shape is
+source scan that rule does not see, so 415 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -12,6 +12,12 @@ from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.candles import drop_forming_candle
+from bot.formatters.drift_offer import (
+    STOP_PCT,
+    TARGET_PCT,
+    reanalyzed_idea,
+    render_reanalyzed_offer,
+)
 from bot.formatters.rich_cards import (
     fetch_analysis_data,
     render_analysis_card,
@@ -1635,8 +1641,9 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
             atr_val = _compute_atr(h, l_arr, c_arr)
         except Exception:
             pass
-        sl = round(price * (0.97 if direction == Direction.LONG else 1.03), 6)
-        tp = round(price * (1.06 if direction == Direction.LONG else 0.94), 6)
+        _long_lim = direction == Direction.LONG
+        sl = round(price * ((1 - STOP_PCT) if _long_lim else (1 + STOP_PCT)), 6)
+        tp = round(price * ((1 + TARGET_PCT) if _long_lim else (1 - TARGET_PCT)), 6)
         try:
             idea = TradeIdea(asset=symbol, direction=direction, entry_price=price,
                              stop_loss=sl, take_profit=tp, confidence=0.6,
@@ -1702,8 +1709,12 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
     engine = context.bot_data.get("engine")
     if engine is None:
         await query.message.reply_text("Engine not available."); return
-    sl = round(price * (0.97 if direction == Direction.LONG else 1.03), 6)
-    tp = round(price * (1.06 if direction == Direction.LONG else 0.94), 6)
+    # The same two constants `drift_offer` names, rather than a third spelling
+    # of them -- this file had the pair written out in THREE places, and the
+    # guard's own assertion is what found the one nobody had counted.
+    _long = direction == Direction.LONG
+    sl = round(price * ((1 - STOP_PCT) if _long else (1 + STOP_PCT)), 6)
+    tp = round(price * ((1 + TARGET_PCT) if _long else (1 - TARGET_PCT)), 6)
     try:
         idea = TradeIdea(asset=symbol, direction=direction, entry_price=price,
                          stop_loss=sl, take_profit=tp, confidence=0.6,
@@ -1775,14 +1786,21 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
             try:
                 ticker = await exchange.fetch_ticker(symbol)
                 new_price = float(ticker.get("last", 0))
-                if new_price > 0:
-                    new_sl = round(new_price * (0.97 if direction == Direction.LONG else 1.03), 6)
-                    new_tp = round(new_price * (1.06 if direction == Direction.LONG else 0.94), 6)
-                    new_idea = TradeIdea(
-                        asset=symbol, direction=direction, entry_price=new_price,
-                        stop_loss=new_sl, take_profit=new_tp, confidence=0.6,
-                        reasoning=f"Auto re-analyzed after price drift for {symbol}",
-                        source="scan_skill_retry")
+                # OFFERED, not executed -- the rule `drift_offer`'s module
+                # docstring states ("The re-analysed trade is a DIFFERENT
+                # trade. Offer it; never execute it"), applied to the SECOND
+                # site that does this. The analyze card was converted when that
+                # module was written and this one was not, so the same rebuild
+                # went on being placed with no second tap: a different entry,
+                # flat placeholder levels, and -- driven -- a reward:risk of
+                # exactly TARGET_PCT/STOP_PCT whatever the signal found.
+                #
+                # `reanalyzed_idea` replaces an INLINE SECOND COPY of that
+                # geometry, spelled out here as bare percentages, whose
+                # `reasoning` was the literal string that module's docstring
+                # quotes as the thing it removed -- still here, one file over.
+                new_idea = reanalyzed_idea(idea, new_price)
+                if new_idea is not None:
                     # Re-fetch ATR with fresh data
                     ohlcv2 = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
                     ohlcv2 = drop_forming_candle(ohlcv2, "4h")
@@ -1798,10 +1816,32 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
                             f"  <i>{rc2.reason}</i>",
                             parse_mode="HTML")
                         return
-                    retry_id = new_idea.id
-                    engine._pending_ideas[retry_id] = new_idea
-                    engine._pending_atr[retry_id] = atr2
-                    result = await engine.confirm_trade(retry_id, user_id=caller_uid)
+                    engine._pending_ideas[new_idea.id] = new_idea
+                    engine._pending_atr[new_idea.id] = atr2
+                    # The import is OUTSIDE the try that may fail, because a
+                    # name bound only on the happy path is unbound on the other
+                    # one and the NameError lands three lines below -- the
+                    # `fw_verdict` shape this repo already records once.
+                    from bot.utils.i18n import t as _t2
+                    _lang2 = "en"
+                    try:
+                        _h2 = context.bot_data.get("telegram_handler") if context else None
+                        if _h2 is not None:
+                            _lang2 = _h2._lang(update)
+                    except Exception:
+                        _lang2 = "en"
+                    kb2 = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(_t2("btn_take_it", _lang2),
+                            callback_data=f"confirm:{new_idea.id}:{caller_uid}"),
+                        InlineKeyboardButton(_t2("lbl_limit", _lang2),
+                            callback_data=f"setlimit:{new_idea.id}:{caller_uid}"),
+                        InlineKeyboardButton(_t2("btn_skip", _lang2),
+                            callback_data=f"reject:{new_idea.id}:{caller_uid}"),
+                    ]])
+                    await query.message.reply_text(
+                        render_reanalyzed_offer(idea, new_idea),
+                        parse_mode="HTML", reply_markup=kb2)
+                    return
             except Exception as retry_exc:
                 log.error("Auto re-analyze failed for %s: %s", symbol, retry_exc)
                 result = f"Auto re-analyze failed: {retry_exc}"

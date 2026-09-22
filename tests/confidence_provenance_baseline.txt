@@ -1,0 +1,27 @@
+# `TradeIdea(...)` constructions that carry ANOTHER object's `.confidence`
+# without declaring `confidence_inherited_from` — each with the reason it is
+# safe anyway.
+#
+# Read by tests/test_a_drift_re_offer_is_not_auto_confirmed.py, two ways: an
+# undeclared site not listed here is a hard failure, AND a listed site that
+# has since started declaring (or stopped carrying a confidence at all) is a
+# hard failure too. That is the known_failures.txt rule — an exemption kept
+# past its reason is a hole with a good reputation, and a stale row must not
+# be allowed to sit in front of the next real one.
+#
+# Format:  <path>::<dotted.function>#<occurrence>  <reason>
+# (two spaces separate the key from the reason; a row with no reason fails)
+#
+# The key carries no LINE NUMBER on purpose, for the reason
+# candle_hygiene_baseline.txt gives: a path:line pair is invalidated by any
+# edit above it, so the gate would spend most of its firings on churn.
+#
+# WHY A BASELINE AND NOT A NARROWER RULE. The walk asks "does this
+# construction's `confidence=` read some other object's `.confidence`", which
+# is a question about SHAPE, and from the AST's side a request body and a
+# TradeIdea are the same shape. Narrowing it to "another TradeIdea" would mean
+# guessing a type from a name, which is the trap `csf.market_is_perp` records
+# one module over. So the rule over-reports by construction and the honest
+# answer is a recorded decision per site rather than a cleverer regex.
+
+api_bridge.py::confirm_trade#0  `req` is a ConfirmRequest, not an idea: the confidence is CALLER-SUPPLIED (ConfirmRequest.confidence, default 0.7), so nothing was inherited from another trade and there is no origin id to name. Driven, this construction is not registered into `_pending_ideas`, so it reaches no auto-confirm loop; it is confirmed directly by a token-gated caller. That a caller may hand the sizing ladder a confidence nobody measured — under `source` unset, so it reads as the analyzer's own `"unknown"` — is a real and SEPARATE question about that surface, recorded here rather than answered by a slice scoped to the drift re-offer.
