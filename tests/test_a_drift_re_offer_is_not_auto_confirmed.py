@@ -555,3 +555,33 @@ def test_the_drift_offer_docstring_is_true_of_both_sites():
         assert "Auto re-analyzed after price drift" not in (ROOT / path).read_text(), (
             f"{path} still carries the reasoning string the docstring says "
             f"was removed")
+
+
+def test_a_re_offer_of_a_manual_ticket_does_not_launder_the_stamp():
+    """`reanalyzed_idea` copies the confidence and OVERWRITES the source.
+
+    So a drift re-offer built from a MANUAL ticket carries `confidence=1.0`
+    under `source="auto_reanalyze"` -- and #422's refusal, which keys on
+    `source == "manual"`, does not fire for it. That is the stamp laundered
+    through a rebuild, and it is closed here as a side effect rather than by
+    a rule of its own: the provenance field is set whatever the original was.
+
+    Reachability is narrow and stated rather than claimed: `_confirm_trade_
+    inner`'s drift branch is doubly exempt for a manual ticket (`is_manual`
+    and `order_type == "limit"`), so the ordinary single-confirm flow does
+    not reach it. This is the backstop for the day either exemption moves.
+    """
+    from bot.risk.quality_ladder import quality_reading as _qr
+    manual = _idea(confidence=1.0, source="manual")
+    assert auto_confirm_refusal(manual) is not None, "the stamp is refused"
+
+    offer = reanalyzed_idea(manual, 111.0)
+    assert offer.source == "auto_reanalyze", (
+        "the rebuild overwrites the source -- this is the laundering step")
+    assert _qr(offer).measured is True, (
+        "and #422's manual row cannot see it any more, which is why the "
+        "refusal below has to come from the provenance field")
+    assert offer.confidence_inherited_from == manual.id
+    why = auto_confirm_refusal(offer)
+    assert why is not None and manual.id in why, (
+        f"a re-offer of a manual ticket must still be refused: {why!r}")
