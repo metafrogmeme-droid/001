@@ -40,6 +40,9 @@ DOC = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     "tests/test_preflight_matches_ci.py",
     "docs/LIVE_HARDENING_RUNBOOK.md",
     "scripts/cloudflared/",
+    "scripts/launch_all.sh.template",
+    "scripts/systemd/README.md",
+    "scripts/systemd/runeclaw-status.sh",
     ".github/workflows/ci.yml",
     "app/lib/version.js",
 ])
@@ -1162,3 +1165,95 @@ def test_the_gate_noun_section_names_numbers_a_drive_returns():
                 and node.body[0].value.value is Ellipsis)
     assert stubs == 2 and "twice more that way" in flat, stubs
     assert f"`_hop_def` found {words[stubs + 1]}" in flat, stubs
+
+
+# ── the deploy chapter describes the deploy that exists ───────────────────
+#
+# It described ONE of the two processes for months. `api_bridge.py` — the
+# uvicorn app on :8000 that insight/patterns/lab read — appeared nowhere, in
+# the chapter whose own title is about a dead bot looking live, and whose own
+# 2026-08-25 incident was the bridge being down for hours because nothing had
+# ever started it. It also printed `nohup python -m bot.main`: no `--mode
+# telegram` in the chapter whose first paragraph is about that flag, and a
+# bare `python`, which this box does not have at all.
+#
+# ANCHORED TO THE FENCED CODE BLOCKS, NOT THE PROSE. The chapter now contains
+# the sentence "`python3`, not `python`." — so an absence check over the whole
+# chapter matches its own explanation and passes for the wrong reason, which
+# is the trap this file's own "asserting a short string is ABSENT" section
+# records. The commands are what an operator copies; they are what get read.
+
+DEPLOY_CHAPTER = DOC[
+    DOC.index("## Deploying so a dead bot cannot look like a live one"):
+    DOC.index("## Operational docs")
+]
+
+
+def _fenced_blocks(chapter: str) -> list[str]:
+    """Just the ```bash blocks — the lines somebody actually copies."""
+    return re.findall(r"```(?:bash|sh)?\n(.*?)```", chapter, re.S)
+
+
+def test_the_deploy_chapter_names_both_processes():
+    for proc in ("bot.main", "api_bridge"):
+        assert proc in DEPLOY_CHAPTER, (
+            f"the deploy chapter does not mention {proc}. There are two "
+            "processes; a chapter describing one of them is how the bridge "
+            "went missing for hours on 2026-08-25."
+        )
+
+
+def test_no_command_it_prints_invokes_a_bare_python():
+    """`python3`, never `python` — this box has no unversioned name."""
+    for block in _fenced_blocks(DEPLOY_CHAPTER):
+        for line in block.splitlines():
+            assert not re.search(r"(?<![\w3])python(?![\w3])", line), (
+                f"this command invokes a bare `python`: {line.strip()!r}. "
+                "Debian and Ubuntu dropped the unversioned name; the box has "
+                "no `python`, so this writes 'command not found' into bot.log "
+                "while nohup reports a successful launch."
+            )
+
+
+def test_every_bot_main_command_it_prints_passes_the_mode():
+    printed = [ln for b in _fenced_blocks(DEPLOY_CHAPTER)
+               for ln in b.splitlines() if "bot.main" in ln]
+    assert printed, "the chapter prints no bot.main invocation at all"
+    for line in printed:
+        assert "--mode telegram" in line, (
+            f"missing `--mode telegram`: {line.strip()!r}. The default was "
+            "once `cli`, which finds no TTY and exits ZERO — ~15 consecutive "
+            "deploys printed DEPLOY_DONE and left nothing running."
+        )
+
+
+def test_the_units_it_restarts_are_the_units_that_exist():
+    """The names in the chapter's systemctl line are real unit files."""
+    restart = [ln for b in _fenced_blocks(DEPLOY_CHAPTER)
+               for ln in b.splitlines() if "systemctl restart" in ln]
+    assert restart, "the chapter prints no systemctl restart line"
+    named = set()
+    for line in restart:
+        named.update(re.findall(r"runeclaw-[\w-]+", line))
+    assert named, "the systemctl line names no unit"
+    for unit in named:
+        assert (ROOT / "scripts" / "systemd" / f"{unit}.service").is_file(), (
+            f"the chapter restarts {unit}, which is not a unit file in "
+            "scripts/systemd/ — a card that names a command is claiming the "
+            "command does something."
+        )
+
+
+@pytest.mark.parametrize("unit", ["runeclaw-bot", "runeclaw-bridge"])
+def test_the_supervision_claims_are_the_units_own_settings(unit):
+    """Driven off the unit files, so the prose cannot drift from them."""
+    text = (ROOT / "scripts" / "systemd" / f"{unit}.service").read_text()
+    assert re.search(r"^Restart=always\s*$", text, re.M), (
+        f"{unit} is not Restart=always. `on-failure` does not restart the "
+        "2026-08-01 failure, which was the bot exiting ZERO."
+    )
+    assert re.search(r"^StartLimitIntervalSec=0\s*$", text, re.M), (
+        f"{unit} dropped StartLimitIntervalSec=0 — the chapter explains why "
+        "`systemctl status` reads active after 200 crashes on the strength of "
+        "that line, and NRestarts being the number that separates them."
+    )

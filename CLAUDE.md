@@ -9474,71 +9474,157 @@ ticks pointed at the wrong subsystem.
 
 ## Deploying so a dead bot cannot look like a live one
 
-`python -m bot.main` defaults to `--mode telegram`. It used to default to
+**There are TWO processes and only one of them was ever being started.**
+`python3 -m bot.main` is the Telegram bot, the engine, and the gateway on
+:8080. `api_bridge.py` is a SEPARATE uvicorn app on :8000, and three dashboard
+panels read it — insight, patterns, lab. On 2026-08-25 the bridge was down for
+hours: nothing had crashed, nothing had ever *started* it. The bot restarted
+fine, the gateway recovered, the status page called the system healthy, and two
+panels returned 502 until an operator noticed broken pages. A deploy that
+starts one of two processes and reports success is the same defect as a suite
+that runs a subset and reports it as the whole.
+
+`python3 -m bot.main` defaults to `--mode telegram`. It used to default to
 `cli`, which finds no TTY and **exits zero** — so a launcher that forgot the
 flag printed `DEPLOY_DONE` and left nothing running. That happened on ~15
 consecutive redeploys on 2026-08-01, because `git reset --hard` restored the
-flagless launcher every time.
+flagless launcher every time. Pass it anyway: it costs nothing and survives
+the default changing back.
 
-Two habits stop it recurring:
+**Do not hand-roll the sequence — both halves are already written.** Another
+copy of this procedure is another answer, which is the rule this file states
+about every other map.
 
-- **Keep the launcher outside the repo.** Anything inside it is one
-  `git reset --hard` away from reverting. `deploy.sh` in here only symlinks
-  persistent `.env`/`data` back in; it is not the entry point.
-- **Gate `DEPLOY_DONE` on the process still being alive**, not on it having
-  started:
+`scripts/launch_all.sh.template` is the launcher. It runs the source gate,
+symlinks the persistent state, resolves the interpreter ONCE and dies if it
+cannot name one, starts both processes, smoke-tests each by PID, waits for
+both PORTS to answer, and only then prints `DEPLOY_DONE`. It ships as a
+`.template` because **anything inside the repo is one `git reset --hard` away
+from reverting** — which is precisely the 2026-08-01 failure — so copy it out
+before using it:
 
-  ```bash
-  nohup python -m bot.main >> bot.log 2>&1 &
-  scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
-  echo "DEPLOY_DONE"
-  ```
+```bash
+cp scripts/launch_all.sh.template ~/launch_all.sh && chmod +x ~/launch_all.sh
+```
 
-  Prefer `--pid`: the launcher knows what it started, and `pgrep -f` matching
-  a *pattern* also matches the checking script's own command line. The first
-  draft of that script reported OK for a process that had never existed.
+`scripts/systemd/` is the other half, and it answers what the launcher cannot:
+a deploy-time gate has nothing to say about 03:00 on a Tuesday. `Restart=always`,
+not `on-failure` — the 2026-08-01 failure was the bot exiting **zero**, which
+`on-failure` does not restart. Once those units are installed the deploy is
+three lines, and **`launch_all.sh` must not also run**: the two would fight and
+leave two bots bound to :8080, one of them losing.
 
-  It also treats a **zombie as dead** — `kill -0` succeeds on a defunct
-  process, and since the deploy script is the parent that has not reaped it,
-  the naive check passes on exactly the failure it exists to catch.
+```bash
+scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
+sudo systemctl restart runeclaw-bot runeclaw-bridge
+scripts/systemd/runeclaw-status.sh || { echo "DEPLOY FAILED"; exit 1; }
+```
 
-- **Gate it on the code being the code you think it is**, before starting
-  anything:
+**`systemctl status` cannot answer "is it healthy" and that is deliberate.**
+Both units set `StartLimitIntervalSec=0` so systemd never gives up — a
+supervisor that stops after five attempts has reproduced the outage it was
+installed to end. The cost is that fifteen seconds after a crash the unit
+reads `active (running)` again, so a process that has died 200 times today and
+one that has run untouched for a week are indistinguishable. `NRestarts` is the
+number that separates them and `runeclaw-status.sh` prints it, with three
+outcomes — a unit that was never installed is not a stopped one.
 
-  ```bash
-  scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
-  ```
+**`python3`, not `python`.** This chapter printed `nohup python -m bot.main`
+for months. Debian and Ubuntu dropped the unversioned name years ago and this
+box has no `python` at all, so that line writes `python: command not found`
+into `bot.log` and the launcher moves on: nohup succeeded, a PID exists, and
+the reason sits in a log nobody reads. `verify_bot_alive.sh` catches it, which
+is what it is for — but the failure had already been reported as a launch.
 
-  On 2026-08-20 a deploy ran `git fetch origin && git reset --hard
-  origin/main` and reported success while landing on a commit **255 commits
-  stale**: `origin` on that box is a GitLab mirror and the real repository is
-  a remote named `backup`. Every other check passed, because each was true of
-  the stale tree — the pull worked, the symlinks resolved, the user store
-  loaded, 18 users were present. The only thing wrong was *which code*, and
-  nothing asked. A restart would have applied new configuration to a binary
-  containing none of the fixes it was meant to deploy.
+If you are starting a process by hand, **gate on it still being alive**, not
+on it having started:
 
-  **Never reset to a remote-tracking ref. Reset to the URL:**
+```bash
+nohup python3 -m bot.main --mode telegram >> bot.log 2>&1 &
+scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
+```
 
-  ```bash
-  git fetch https://github.com/metafrogmeme-droid/001 main
-  git reset --hard FETCH_HEAD
-  ```
+Prefer `--pid`: the launcher knows what it started, and `pgrep -f` matching a
+*pattern* also matches the checking script's own command line. The first draft
+of that script reported OK for a process that had never existed. It also
+treats a **zombie as dead** — `kill -0` succeeds on a defunct process, and
+since the deploy script is the parent that has not reaped it, the naive check
+passes on exactly the failure it exists to catch. And put the gate on its own
+line: `&` binds looser than `&&`, so chaining it onto the launch runs it in a
+background subshell, which was observed on 2026-08-08 with the gate never
+executing at all.
 
-  A remote *name* is a per-machine nickname that can point anywhere, so
-  "use the right remote" is advice, and advice is what failed. Fetching a URL
-  writes `FETCH_HEAD` and no `refs/remotes/*`, so there is no stale ref left
-  to reset to by mistake — which also sidesteps the trap that `git fetch
-  origin main` updates `FETCH_HEAD` while leaving `refs/remotes/origin/main`
-  untouched.
+**Gate it on the code being the code you think it is**, before starting
+anything:
 
-  The guard reads the URL with `git ls-remote` and consults nothing local, and
-  it separates **could not check** (exit 3) from both verdicts — a gate that
-  reads an unreachable network as "up to date" ships stale code on the one day
-  the network is down.
+```bash
+scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
+```
+
+On 2026-08-20 a deploy ran `git fetch origin && git reset --hard origin/main`
+and reported success while landing on a commit **255 commits stale**: `origin`
+on that box is a GitLab mirror and the real repository is a remote named
+`backup`. Every other check passed, because each was true of the stale tree —
+the pull worked, the symlinks resolved, the user store loaded, 18 users were
+present. The only thing wrong was *which code*, and nothing asked. A restart
+would have applied new configuration to a binary containing none of the fixes
+it was meant to deploy.
+
+**Never reset to a remote-tracking ref. Reset to the URL:**
+
+```bash
+git fetch https://github.com/metafrogmeme-droid/001 main
+git reset --hard FETCH_HEAD
+```
+
+A remote *name* is a per-machine nickname that can point anywhere, so "use the
+right remote" is advice, and advice is what failed. Fetching a URL writes
+`FETCH_HEAD` and no `refs/remotes/*`, so there is no stale ref left to reset to
+by mistake — which also sidesteps the trap that `git fetch origin main` updates
+`FETCH_HEAD` while leaving `refs/remotes/origin/main` untouched.
+
+The guard reads the URL with `git ls-remote` and consults nothing local, and it
+separates **could not check** (exit 3) from both verdicts — a gate that reads
+an unreachable network as "up to date" ships stale code on the one day the
+network is down. It is deliberately **not** in the systemd units for the same
+reason: it reads the network, and a supervisor that refuses to restart the bot
+during a blip fails exactly when it is needed.
+
+`deploy.sh` symlinks the persistent `.env` and `data/` back in and is not the
+entry point. Nothing needs to remember it: the launcher runs it, and both
+units run it as `ExecStartPre`. Both paths are gitignored, so `git reset
+--hard` leaves them alone in any case.
+
+**And the units already wait for the port**, via
+`ExecStartPost=wait_for_port.sh`, so there is nothing to chain after a
+`systemctl restart` — which is just as well. **Observed twice on 2026-09-17:**
+chaining `&& sleep 2 && pgrep` onto a `systemctl --user restart` killed the
+invoking SSH session, exit 143 (SIGTERM). Running the restart as its own
+command and verifying in a second one worked both times.
+
+The mechanism is NOT established — the likeliest reading is that the shell
+sits in the restarted unit's control group and `KillMode=control-group` reaps
+it along with the service, but nobody has run the two commands that would
+settle it:
+
+```bash
+systemctl --user show <unit> -p KillMode -p Delegate -p Type
+cat /proc/self/cgroup        # from the invoking shell, before restarting
+```
+
+Written down as an OBSERVATION with its diagnostic rather than a diagnosis,
+because a plausible cause recorded as the cause is how the real one stops
+being looked for. What is certain is that it was `systemctl --user`; the units
+in `scripts/systemd/` are SYSTEM units (`User=mulerun`, installed to
+`/etc/systemd/system`), whose cgroups do not hold a login shell, so the
+question does not arise for them.
 
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps
   table, dashboard vocabulary, deploy verification
+- `scripts/launch_all.sh.template` — the launcher: both processes, both
+  ports, `DEPLOY_DONE` gated on all of it
+- `scripts/systemd/README.md` — supervising the two processes, and why
+  `systemctl status` cannot answer whether they are healthy
 - `scripts/cloudflared/` — named-tunnel procedure for the bot gateway
