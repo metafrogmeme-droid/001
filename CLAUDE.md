@@ -8025,9 +8025,18 @@ so the module ratchet passes; and `_candidate_methods` skips any method with a
 `decorator_list`, so every `@staticmethod` is declined. **A `@staticmethod` is
 not a registration**: it changes binding, not reachability, which is what that
 exclusion exists for. Measured by admitting binding-only decorators, the
-blind spot is **8** dark public staticmethods, `RiskEngine.check_timeframe_alignment`
-among them. That is recorded with its number rather than fixed here -- each of
-the eight needs a triage reason, which is its own slice. What IS fixed is the
+blind spot is **14** dark public methods -- **9** `@staticmethod` and **5**
+`@property` -- `RiskEngine.check_timeframe_alignment` among them. That
+sentence used to say *eight dark public staticmethods*, and the number was
+not wrong: its NOUN was a subset presented as the whole. `@property` is
+equally binding-only and equally declined by a `decorator_list` test, and the
+receiver sweep contributes one more the identifier sweep cannot see. Coverage
+UNDERSTATED, which is the quiet direction, in the sentence that named the
+method for measuring it. **The widening is done**: all fourteen carry a triage
+reason in `tests/unreachable_methods_baseline.txt`, the ambiguity count moved
+31 -> 41 in the same commit, and `@abstractmethod` stays OUT of the allowlist
+-- one instance in `bot/`, on a class with bases, and an abstract method is
+reached through its overrides, which is nearer a registration than a binding. What IS fixed is the
 batcher, because a module nothing calls becomes defective in exactly this way:
 beside the clamp, `item.get("direction", "LONG")` made an ABSENT direction a
 LONG and the `else "LONG"` did the same for a word it cannot place, so a row
@@ -9580,7 +9589,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **415 of 1003** reach for source text through `source_scan`, `code_only`
+Driven, **415 of 1004** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 415 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
