@@ -62,6 +62,9 @@ _LOCAL = re.compile(r'_env_bool\(\s*"([A-Z0-9_]+)"\s*,\s*(True|False)\s*\)')
 _DECL = re.compile(r'(\w+)\s*:\s*bool\s*=\s*_env_bool\(\s*"([A-Z0-9_]+)"\s*,'
                    r'\s*(True|False)\s*\)')
 _CONFIG_REF = re.compile(r"CONFIG\.(\w+)\.(\w+)")
+#: The same read without a section. Tried after the sectioned one — see
+#: `_resolve`, where the ORDER is load-bearing.
+_CONFIG_FLAT = re.compile(r"CONFIG\.(\w+)(?!\s*\.)")
 
 
 class Finding(NamedTuple):
@@ -86,7 +89,23 @@ def declared_defaults(src: Optional[str] = None) -> dict[str, tuple[str, bool]]:
             for m in _DECL.finditer(text)}
 
 
+# A RETRACTION HAS TO NAME THE SENTENCE IT CORRECTS, and nobody writes a LIVE
+# claim inside quotation marks. So a quoted span is not a claim -- which is
+# the generic form of the occurrence-counting `test_flag_prose_matches_default`
+# already does for one literal, and of `_unquoted` in the MCP doc guard.
+#
+# POST-JOIN IS THE WHOLE MECHANISM. `"[^"\n]*"` refuses newlines, and the
+# retraction this rule was widened onto wraps its quote across two comment
+# lines (`... is "disabled by default (threshold` / `1.0)" ...`). Applied to
+# the raw lines the strip changes nothing and the block still claims "off";
+# applied after the block is joined it acquits exactly. Reusing the sibling
+# helper at the wrong point in the pipeline would ship a fix that fixes
+# nothing, and a green tree would not say so.
+_QUOTED = re.compile(r'"[^"\n]*"')
+
+
 def _claim(text: str) -> Optional[str]:
+    text = _QUOTED.sub(" ", text)
     off, on = bool(_OFF.search(text)), bool(_ON.search(text))
     if off and on:
         return "both"
@@ -139,6 +158,22 @@ def _resolve(window: str, decl: dict[str, tuple[str, bool]]
         got = decl.get(m.group(2))
         if got:
             return got[0], got[1], "CONFIG attr"
+    # FLAT ATTRIBUTES, TRIED LAST. `_CONFIG_REF` demands a SECTIONED two-dot
+    # reference, and a body of flags is read flat -- `CONFIG.auto_confirm_
+    # live_enabled` has no section -- so those comments resolved to nothing
+    # and their claims were dropped in silence. That narrowness was written
+    # down NOWHERE: the module's own account of what it deliberately does not
+    # claim lists five limits and this is not among them, which is why it
+    # survived.
+    #
+    # LAST is not cosmetic. A flat pattern tried first reads
+    # `CONFIG.risk.flag_a` as the section name `risk` and loses every
+    # sectioned resolution, and `TestTheTwoFalseAccusationsItAlreadyMade`
+    # pins that a local `_env_bool` wins ahead of both.
+    for m in _CONFIG_FLAT.finditer(window):
+        got = decl.get(m.group(1))
+        if got:
+            return got[0], got[1], "CONFIG flat attr"
     return None
 
 

@@ -30,8 +30,12 @@ staking, social growth, and the trust layer that has to come first.
   seasons, weekly quests, and a percent-only public board.
 - **Agent-facing surface** — MCP server, public REST endpoints, ERC-8257 tool manifest and
   ERC-8004 identity (`/developers`).
-- **Twelve languages** — the web UI ships fully translated in en, es, zh, pt, fr, de, nl, ja, ko,
-  ru, tr, ar, with a test that fails the build if a swept page regrows untranslated copy.
+- **Fourteen languages** — the web UI ships fully translated in ar, de, en, es, fr, hi, it, ja,
+  ko, nl, pt, ru, tr, zh, with a test that fails the build if a swept page regrows untranslated
+  copy. (This row said *twelve* and listed twelve for as long as `it` and `hi` have shipped —
+  while `agent_card.json` already published `"interface": 14`, so the product's own machine
+  surface contradicted its roadmap. The count is derived by
+  `tests/test_the_income_map_census_is_the_one_a_walk_returns.py` now.)
 
 > **Status is checked against the running product, not against intent.** Rows are moved to
 > 🟢 only when the described capability is reachable by a user today; where something shipped

@@ -93,8 +93,45 @@ class TestTheReadingIsAMeasurementOfTheLaunch:
             assert "SIGINT" not in preflight.ignored_signals()
 
     def test_an_ignored_sigint_is_reported(self):
-        with _disposition(signal.SIGINT, signal.SIG_IGN):
+        """The EXACT list, so every other rewritten signal is neutralised.
+
+        THIS TEST ASSUMED A LAUNCHER, in the file whose whole subject is that
+        the launcher is a condition of the box. It planted ONE disposition and
+        asserted an exact list, which is only true when the other two are at
+        their defaults -- so under `nohup`, whose SIGHUP every child inherits
+        as SIG_IGN, the reading is `["SIGINT", "SIGHUP"]` and this failed on a
+        tree where nothing was wrong. The full preflight found it, run under
+        exactly the launcher CLAUDE.md blesses: *"`nohup` alone (SIGHUP) is a
+        launcher the suite can be measured under"*.
+
+        Its SIBLING already got this right -- `test_an_ignored_sighup_is_
+        reported_as_a_measurement` explicitly puts SIGINT back to the default
+        handler before asserting `== ["SIGHUP"]`. This one simply forgot the
+        symmetric half.
+        """
+        with _disposition(signal.SIGINT, signal.SIG_IGN), \
+                _disposition(signal.SIGQUIT, signal.SIG_DFL), \
+                _disposition(signal.SIGHUP, signal.SIG_DFL):
             assert preflight.ignored_signals() == ["SIGINT"]
+
+    def test_the_exact_list_assertions_neutralise_every_other_rewritten_signal(self):
+        """The rule the two above now follow, so a FOURTH signal added to
+        `LAUNCHER_REWRITTEN_SIGNALS` cannot quietly reintroduce this.
+
+        An exact-list assertion that plants one disposition is measuring the
+        launcher as much as the reading. This drives it: with ALL of them
+        ignored, the reading names all of them -- so any test asserting a
+        shorter exact list has to say why the others are not ignored.
+        """
+        import contextlib
+        names = list(preflight.LAUNCHER_REWRITTEN_SIGNALS)
+        with contextlib.ExitStack() as stack:
+            for name in names:
+                stack.enter_context(
+                    _disposition(getattr(signal, name), signal.SIG_IGN))
+            assert sorted(preflight.ignored_signals()) == sorted(names), (
+                "every rewritten signal that is ignored must be reported; a "
+                "reading that names fewer is a partial list printed as whole")
 
     def test_an_ignored_sighup_is_reported_as_a_measurement(self):
         """nohup's own disposition is READ -- the policy of whether it refuses

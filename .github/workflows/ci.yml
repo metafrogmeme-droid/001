@@ -284,8 +284,24 @@ jobs:
       # are easy to undo by accident — a single `cargo update` re-breaks
       # deployability while every host check stays green. Hence this gate.
       - name: Install the SBF toolchain (pinned to Anchor.toml's solana_version)
+        env:
+          # The installer for the version Anchor.toml pins, checksummed rather
+          # than executed sight-unseen. This was `sh -c "$(curl ...)"` -- the
+          # same execution as a `curl | sh` one syntax over, which is exactly
+          # why a grep for the pipe form reported this repo clean.
+          #
+          # STATE THE LIMIT: this pins the ENTRYPOINT, not the toolchain. The
+          # script then downloads release tarballs itself, so a compromised
+          # release host still serves compromised binaries to a script whose
+          # hash checks out. Pinning those needs the tarballs fetched and
+          # checksummed directly, which is a larger change than this one.
+          ANZA_INSTALL_SHA256: cec72cde1cf36eb35cd8326245d23af0b6791fab68337c2953e2ca2a40af2c50
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          set -euo pipefail
+          curl -sSfLo anza-install.sh "https://release.anza.xyz/v1.18.26/install"
+          echo "${ANZA_INSTALL_SHA256}  anza-install.sh" | sha256sum -c -
+          sh anza-install.sh
+          rm -f anza-install.sh
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Build — SBF bytecode (deployable artifact)
@@ -325,8 +341,28 @@ jobs:
       # cargo-audit is installed rather than pulled from an action so the gate
       # logic lives in this repo and is testable locally. rust-cache keeps
       # ~/.cargo/bin across runs, so the compile cost is paid once.
+      #
+      # VERSION-PINNED, and this is the one unpinned remote execution whose
+      # output SURVIVES THE JOB. `cargo install cargo-audit --locked` resolved
+      # whatever was newest on the day, compiled it, and left the binary in
+      # ~/.cargo/bin -- which the step's own comment above says rust-cache
+      # keeps across runs, and which this workflow's header records as a store
+      # that "is not governed by `permissions:` at all". So an unpinned
+      # resolution here is not one job's risk, it is every later job's.
+      #
+      # It is also the SCA gate: the gitleaks block ~230 lines down refuses
+      # exactly this, in as many words -- "this step is a supply-chain control,
+      # so it must not itself execute an unverified download" -- and the tool
+      # whose job is to find vulnerable dependencies was the one installed
+      # without pinning its own.
+      #
+      # `--locked` already fixes the TRANSITIVE set from the crate's own
+      # lockfile; `--version` is what fixes which crate. Bump deliberately:
+      # 0.22.2 was `max_stable_version` on crates.io when this was pinned, and
+      # the advisory DB is fetched at run time, so pinning the tool does not
+      # pin the advisories it reports.
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        run: cargo install cargo-audit --locked --version 0.22.2
 
       - name: SCA — RustSec advisory ratchet
         run: python3 scripts/cargo_audit_gate.py
@@ -671,8 +707,24 @@ jobs:
       # paths used to route through — which is how that dependency was found,
       # and is itself worth having wired into CI.
       - name: Install the Solana CLI (for solana-test-validator)
+        env:
+          # The installer for the version Anchor.toml pins, checksummed rather
+          # than executed sight-unseen. This was `sh -c "$(curl ...)"` -- the
+          # same execution as a `curl | sh` one syntax over, which is exactly
+          # why a grep for the pipe form reported this repo clean.
+          #
+          # STATE THE LIMIT: this pins the ENTRYPOINT, not the toolchain. The
+          # script then downloads release tarballs itself, so a compromised
+          # release host still serves compromised binaries to a script whose
+          # hash checks out. Pinning those needs the tarballs fetched and
+          # checksummed directly, which is a larger change than this one.
+          ANZA_INSTALL_SHA256: cec72cde1cf36eb35cd8326245d23af0b6791fab68337c2953e2ca2a40af2c50
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
+          set -euo pipefail
+          curl -sSfLo anza-install.sh "https://release.anza.xyz/v1.18.26/install"
+          echo "${ANZA_INSTALL_SHA256}  anza-install.sh" | sha256sum -c -
+          sh anza-install.sh
+          rm -f anza-install.sh
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # nohup + setsid: each `run:` block is its own shell, and a bare `&` child

@@ -8025,9 +8025,18 @@ so the module ratchet passes; and `_candidate_methods` skips any method with a
 `decorator_list`, so every `@staticmethod` is declined. **A `@staticmethod` is
 not a registration**: it changes binding, not reachability, which is what that
 exclusion exists for. Measured by admitting binding-only decorators, the
-blind spot is **8** dark public staticmethods, `RiskEngine.check_timeframe_alignment`
-among them. That is recorded with its number rather than fixed here -- each of
-the eight needs a triage reason, which is its own slice. What IS fixed is the
+blind spot is **14** dark public methods -- **9** `@staticmethod` and **5**
+`@property` -- `RiskEngine.check_timeframe_alignment` among them. That
+sentence used to say *eight dark public staticmethods*, and the number was
+not wrong: its NOUN was a subset presented as the whole. `@property` is
+equally binding-only and equally declined by a `decorator_list` test, and the
+receiver sweep contributes one more the identifier sweep cannot see. Coverage
+UNDERSTATED, which is the quiet direction, in the sentence that named the
+method for measuring it. **The widening is done**: all fourteen carry a triage
+reason in `tests/unreachable_methods_baseline.txt`, the ambiguity count moved
+31 -> 41 in the same commit, and `@abstractmethod` stays OUT of the allowlist
+-- one instance in `bot/`, on a class with bases, and an abstract method is
+reached through its overrides, which is nearer a registration than a binding. What IS fixed is the
 batcher, because a module nothing calls becomes defective in exactly this way:
 beside the clamp, `item.get("direction", "LONG")` made an ABSENT direction a
 LONG and the `else "LONG"` did the same for a word it cannot place, so a row
@@ -8268,6 +8277,132 @@ second-copy anchor `reading = quality_reading(idea)` matches three times in
 that module, and a driver that took that for a kill would have reported
 coverage of a function it never edited.
 (`tests/test_a_hand_typed_ticket_is_not_auto_confirmed.py`.)
+
+**AND THE DOOR ONE SOURCE OVER WAS OPEN, WITH A COMMENT FOUR LINES ABOVE IT
+SAYING IT WAS SHUT.** The slice above recorded the drift re-offer as the same
+door one source over and said the reading could not close it -- *"no reading
+of a confidence can close it: the defect there is the GEOMETRY, not the
+number."* Half right, and the wrong half decided the design. Driven at the
+dataclass defaults, `reanalyzed_idea` copies the ORIGINAL thesis's confidence
+verbatim, so `auto_confirm_refusal` answered `None` and the loop executed a
+trade nobody had looked at. And the geometry is sharper than "different": both
+levels are flat percentages of the new price, so the re-offer's reward:risk is
+`TARGET_PCT/STOP_PCT`, a **CONSTANT** -- an analyst thesis at 15:1 and one at
+0.1:1 both come out ~2:1, and the engine's `min_risk_reward` gate is satisfied
+by arithmetic rather than by evidence. What closes it IS about the confidence:
+not its VALUE, its SUBJECT. `confidence_inherited_from` is the producer saying
+which trade the number was measured about, so no reader infers it from a
+source string.
+
+**AND THE TIDIER HOME FOR IT POINTED THE WRONG WAY, which only a drive said.**
+`quality_reading` is where the manual stamp is refused and reads as the
+obvious place -- and its consumers take "unmeasured" as ABSTAIN, not as
+be-careful: `ladder_verdict` answers 1.0 (*"no rung, no reduction"*) and
+`kelly_confidence_factor` answers 1.0 (*"half-Kelly unscaled"*). Driven on a
+re-offer of a **0.30**-confidence thesis, routing it through the reading moves
+size x0.50 -> x1.00, leverage 3x -> 5x and Kelly x0.30 -> x1.00. The fix would
+have **doubled the weakest re-offers and raised their leverage** while closing
+the door -- loosening something in the flattering direction, inside the cure.
+So the door asks its own question and the sizing path is left byte-identical,
+which is a test rather than a promise.
+
+**THE URGENT HALF WAS AT A SITE THE NOTE DID NOT NAME, AND IT NEEDED NO RACE.**
+`drift_offer`'s module docstring says the auto-execution "goes" and the
+re-analysis "stays" -- and it was converted at ONE of the two sites that do
+this. `scan_skill.py` still rebuilt the idea from an INLINE SECOND COPY of the
+same flat geometry, with a hard-coded confidence and the literal reasoning
+*"Auto re-analyzed after price drift"* -- **the exact string that docstring
+quotes as the thing it removed** -- and then called `confirm_trade` on it. One
+tap on a live Telegram path, a different trade placed, no auto-confirm loop
+involved. The auto-confirm door is the narrow race; this was the ordinary one.
+
+**THE GUARD FOR IT WAS ONE FILE SHORT, AND ITS CLAIM IS WHAT GAVE IT AWAY.**
+`test_the_drift_retry_offers_and_never_confirms` forbids the literal
+`confirm_trade(retry_id` over `handler_sources()` -- driven, 16 files, and
+`scan_skill.py` is not one of them, while that literal sat verbatim at
+`scan_skill.py:1802`. COVERAGE OF A CLASS IS NOT COVERAGE OF THE CLAIM read
+off it, which is `command_gates.py`'s lesson one scope over. The replacement is
+DERIVED from what every such site has in common -- the drift message it
+branches on -- and is bounded by the `ast.If` node rather than by a character
+count, because a block that is "everything within N characters" is a boundary
+that manufactures accusations.
+
+**THE CONSTANTS WERE SPELLED THREE TIMES IN ONE FILE AND I KNEW ABOUT TWO.**
+The fresh assertion is what found the third: `0.97`/`1.06` in the limit-order
+branch, a function away from the pair I had just consolidated. And the first
+draft of that assertion ACCUSED MY OWN COMMENT, which had to name the
+percentages it removed -- *a comment that quotes the string it forbids*, from
+the author's side, for the fourth slice running. It reads `code_only` now.
+
+**A SECOND CARRIER CANNOT ARRIVE SILENTLY**, so the rule walks the tree for a
+`TradeIdea(` built from another object's `.confidence` and fails on one that
+neither declares its provenance nor carries a reason in
+`tests/confidence_provenance_baseline.txt`. That walk found a site nobody had
+named -- `api_bridge.py`'s `/confirm`, where the confidence is CALLER-SUPPLIED
+(`ConfirmRequest.confidence`, default **0.7**) rather than inherited. From the
+AST's side a request body and an idea are the same shape, and narrowing to
+"another TradeIdea" would mean guessing a type from a name, so the rule
+over-reports by construction and the honest answer is a recorded decision per
+site. That row's reason is itself a finding: a token-gated caller may hand the
+sizing ladder a confidence nobody measured, under an unset `source` that reads
+as the analyzer's own `"unknown"`. Recorded, not answered by a slice scoped to
+the drift re-offer.
+
+**AND #422's OWN TEST HAD PINNED THIS AS THE CONTRACT.** Its writer table
+carried a row labelled *"auto_reanalyze (the drift re-offer)"* asserting it
+"must still auto-confirm" -- built as `_idea(source="auto_reanalyze")`, an
+object `reanalyzed_idea` never returns. A fixture that cannot produce the
+state it names, pinning a half-fix as a requirement, written in the commit
+that fixed the neighbour. It is relabelled for what it really measures, and it
+is now the PROOF that the refusal is derived: same source, two verdicts,
+decided by the field the builder set. The writer set has been counted wrong
+twice -- eight (every `source=` literal, three of which never reach the dict),
+then five (counting `scan_skill_retry`, a string that now has no writer and no
+reader at all) -- and is **four**.
+(`tests/test_a_drift_re_offer_is_not_auto_confirmed.py`.)
+
+
+**"IT MUST BE RE-DRIVEN BEFORE ANYTHING IS SEQUENCED OFF IT" WAS RIGHT TO
+DEMAND THE DRIVE AND WRONG ABOUT WHAT IT WOULD FIND.** The census in
+`docs/INCOME_MAP.md` -- *Fifteen categories, ninety leaves*, shipped 5 /
+partial 33 / 52 with nothing behind them -- is the figure a reader uses to
+decide what to build next, and I had filed it as a number that could not be
+trusted until re-measured. Re-measured, it reproduces **to the digit**: 15
+categories, 90 leaf rows, 5 / 33 / 52, and *"Four of the five shipped leaves
+are in Active Trading"* checks out too. It was right all along, and **no test
+read it** -- the map has derived guards over its doors, its admin-only
+sentences and its `path:line` citations, and the numbers at the very top were
+the part nothing checked. A figure that is correct and unguarded is one edit
+from being a figure that is wrong and trusted.
+
+**AND THE SAME WALK FOUND A SECOND DOCUMENT COUNT THAT REALLY WAS STALE, WITH
+THE PRODUCT'S OWN CARD CONTRADICTING IT.** `docs/ROADMAP.md` claimed **Twelve
+languages** and named twelve codes; driven, `SUPPORTED_LANGS` in
+`bot/utils/i18n.py` carries **fourteen** (`it` and `hi`), and
+`agent_card.json` already published `"interface": 14`. So the machine-readable
+surface and the roadmap disagreed, in the tree, and nothing compared them. A
+count can be right while the LIST is wrong, so the guard checks both -- and the
+mutation that drops one code from the list while leaving the number dies
+separately from the one that changes the number.
+
+**THAT IS THE WHOLE OF WHAT LAYER 0 CAN HONESTLY MEAN HERE.** Not a checklist
+of claims to re-audit by hand -- the four claims I re-drove were two true, one
+FALSE and one whose "no production importer" clause was wrong
+(`live_e2e_test.py` imports `bot.mcp.server`, which is also why the module is
+not on `unreachable_baseline.txt`) -- but the count DERIVED from the thing it
+counts. Most of that family already exists here: the map's doors are
+re-resolved against the command catalogue, its admin-only sentences against
+the real decorators, `test_claude_md_accuracy` reads ~40 numbers out of this
+file. What was missing was two documents' worth of arithmetic at the top of
+each.
+
+**The internal-consistency line is drawn and stated**, because a guard whose
+coverage is overstated is the failure this file is about: the census check
+asks whether the map's numbers describe the map's own tables, which is the
+part that rots when a leaf is added. Whether each leaf's VERDICT is true of
+the code is a different question, and the map states its own three limits for
+it -- code-reading not execution, citations unverified, only doors checked.
+(`tests/test_the_income_map_census_is_the_one_a_walk_returns.py`.)
 
 ## Public-surface rules
 
@@ -8685,7 +8820,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 213 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 214 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -9497,9 +9632,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **414 of 1002** reach for source text through `source_scan`, `code_only`
+Driven, **415 of 1005** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 414 is a FLOOR and the honest shape is
+source scan that rule does not see, so 415 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

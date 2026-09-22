@@ -230,3 +230,138 @@ class TestItRunsAsCIRunsIt:
         body = [ln for ln in proc.stdout.splitlines() if ln.strip()]
         assert any(":" in ln and ln.split()[0] in hg.SHAPES for ln in body)
         assert "place to LOOK, not a defect" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# THE MONEY-PATH READING. It is a READING, not a second ratchet, and the
+# difference is measured rather than preferred: the baseline is keyed
+# shape -> FILE, so `bot/core/live_executor.py` and each `bot/risk/*.py`
+# already ratchet independently and in both directions. What was missing was
+# VISIBILITY -- nothing printed how much of the backlog sits where the money
+# is. A separate money baseline would be a second answer about what the
+# backlog is, with its own re-record discipline and its own way to disagree
+# with `counts`.
+# ---------------------------------------------------------------------------
+
+def test_the_partition_is_derived_from_the_coverage_gate():
+    """One list, read from the gate that already owns it and already pins it
+    (`tests/test_coverage_gate_measures_what_it_names.py`). A second copy is a
+    second answer about which modules are the money path."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from ci_test_gate import COV_TARGETS
+    assert hg.MONEY_PREFIXES == tuple(t.replace(".", "/") for t in COV_TARGETS), (
+        "MONEY_PREFIXES must be COV_TARGETS in path form, never a hand-written "
+        f"list: {hg.MONEY_PREFIXES} vs {COV_TARGETS}")
+    assert hg.MONEY_PREFIXES, "an empty partition would make every assertion below vacuous"
+
+    # AND EQUALITY IS NOT DERIVATION. A hand-written list agrees with the
+    # derived one on every fixture and diverges on the first edit to either,
+    # which is what a second copy looks like from outside -- the mutation that
+    # spelled the three names inline survived the assertion above. So the
+    # SOURCE is patched and the module re-imported: a copy cannot follow.
+    import importlib
+
+    import ci_test_gate
+    original = ci_test_gate.COV_TARGETS
+    try:
+        ci_test_gate.COV_TARGETS = ("bot.planted", "bot.also_planted")
+        reloaded = importlib.reload(hg)
+        assert reloaded.MONEY_PREFIXES == ("bot/planted", "bot/also_planted"), (
+            "the partition did not follow COV_TARGETS, so it is a copy rather "
+            f"than a reading: {reloaded.MONEY_PREFIXES}")
+    finally:
+        ci_test_gate.COV_TARGETS = original
+        importlib.reload(hg)
+    assert hg.MONEY_PREFIXES == tuple(t.replace(".", "/") for t in COV_TARGETS), (
+        "the fixture must put the module back")
+
+
+def test_the_fingerprint_hashes_the_partition():
+    """Without this, COV_TARGETS moves under a recorded money figure and the
+    fingerprint still says the rule set is unchanged -- the exact trap
+    `_rules_fingerprint`'s own docstring cites from `ruff_gate.check_version`.
+    """
+    before = hg._rules_fingerprint()
+    original = hg.MONEY_PREFIXES
+    try:
+        hg.MONEY_PREFIXES = original + ("bot/nowhere",)
+        after = hg._rules_fingerprint()
+    finally:
+        hg.MONEY_PREFIXES = original
+    assert before != after, (
+        "the partition is not in the fingerprint, so a money sub-total could "
+        "change meaning with the rule set reported unchanged")
+    assert hg._rules_fingerprint() == before, "the fixture must restore it"
+
+
+@pytest.mark.parametrize("rel, expected", [
+    ("bot/core/live_executor.py", True),
+    ("bot/risk/risk_engine.py", True),
+    ("bot/compliance/engine.py", True),
+    ("bot/risk/", True),
+    # the near misses a prefix match gets wrong if it is written carelessly
+    ("bot/core/live_executor_helpers.py", False),
+    ("bot/riskier/thing.py", False),
+    ("bot/core/engine.py", False),
+    ("scripts/honesty_gate.py", False),
+])
+def test_the_partition_reads_a_path(rel, expected):
+    """`bot/risk` must not claim `bot/riskier`, and `live_executor` must not
+    claim `live_executor_helpers` -- a bare `startswith` gets both wrong."""
+    assert hg.is_money_path(rel) is expected, rel
+
+
+def test_an_unreadable_partition_is_not_a_zero():
+    """COV_TARGETS is imported in a try. If that import ever fails the honest
+    answer is NOT MEASURED -- a `0.0%` there would be the gate's own subject
+    turned on itself."""
+    original = hg.MONEY_PREFIXES
+    try:
+        hg.MONEY_PREFIXES = ()
+        line = hg._money_line([("or-zero-assign", "bot/core/live_executor.py", 1, "x")])
+    finally:
+        hg.MONEY_PREFIXES = original
+    assert "NOT MEASURED" in line and "not a zero" in line, line
+    assert "0.0%" not in line, (
+        "an unreadable partition must not render as a measured share")
+
+
+def test_the_line_reports_hits_AND_distinct_lines():
+    """A hit is not a site. Tree-wide it is 726 hits over 579 distinct lines --
+    they differ by 25%, and every number this repo quotes about the backlog is
+    a HIT count that prose then reads as "places to look"."""
+    hits = [
+        ("or-zero-assign", "bot/core/live_executor.py", 10, "a"),
+        ("or-zero-coerce", "bot/core/live_executor.py", 10, "a"),   # same LINE
+        ("get-default-zero", "bot/risk/risk_engine.py", 22, "b"),
+        ("or-zero-assign", "bot/core/engine.py", 33, "c"),          # not money
+    ]
+    line = hg._money_line(hits)
+    assert "3 hit(s) over 2 line(s)" in line, line
+    assert "75.0% of the backlog" in line, line
+    assert "bot/compliance" in line and "no hits" in line, (
+        "a partition member with nothing in it is NAMED -- `bot.compliance` "
+        f"contributes zero today and that is a reading: {line}")
+
+
+def test_the_line_reaches_the_operator():
+    """A reading nobody can see is telemetry. Every assertion above drives
+    `_money_line` directly, so deleting the ONE `print` that puts it in front
+    of a human changed no verdict -- the mutation survived a green round."""
+    root = Path(__file__).resolve().parents[1]
+    out = subprocess.run(
+        [sys.executable, "scripts/honesty_gate.py"],
+        cwd=root, capture_output=True, text=True)
+    assert "money path (COV_TARGETS)" in out.stdout, (
+        f"the gate ran and never printed the money line:\n{out.stdout[-600:]}")
+
+
+def test_the_real_tree_reports_a_money_share():
+    """The claim end to end, against the tree as it is."""
+    line = hg._money_line(hg.scan())
+    assert "money path (COV_TARGETS)" in line
+    assert "NOT MEASURED" not in line
+    assert "bot/core/live_executor" in line, (
+        "the distribution is printed rather than summarised — 130 of the 136 "
+        f"are one file, which is what makes 'split by money path' a sub-total "
+        f"for one file: {line}")

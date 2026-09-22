@@ -30,7 +30,7 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **31** method names remain ambiguous and are not checked by anything — the
+# **41** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
 #
@@ -131,13 +131,58 @@ bot/utils/attestation.py:AttestationEngine.verify_batch
 # dead; the seventh (SentimentAnalyzer) is a @staticmethod and stays excluded
 # by the decorator rule. These are renderers with no reader — cheap to wire to
 # a command, and cheaper to delete, but that is a product call either way.
+#
+# ── THE BINDING-ONLY WIDENING ───────────────────────────────────────────────
+#
+# Fourteen rows below arrived at once, and none of them is new code. The sweep
+# declined ANY decorated def, on the reason that a decorator is a registration
+# this detector cannot follow -- true of `@router.post`, false of
+# `@staticmethod`, which registers nothing and only changes how a name binds.
+# So every public `@staticmethod` and `@property` in bot/ was acquitted BY
+# OMISSION for as long as this ratchet has existed. A false accusation is loud
+# and gets fixed; a false acquittal just sits there.
+#
+# Measured: 9 `@staticmethod` and 5 `@property`, 13 through the identifier
+# sweep and one (`SentimentAnalyzer.format_for_telegram`) through the receiver
+# sweep. The ambiguity count moved 31 -> 41 in the same commit, which is what
+# that half of the ratchet is for.
+#
+# `@abstractmethod` is NOT in the allowlist: one instance in bot/, on a class
+# with bases (so `node.bases` declines it anyway), and an abstract method IS
+# reached through its overrides -- nearer a registration than a binding.
+#
+# The triage, by group:
+#
+# PURE CALCULATORS WITH NO CALLER. Analyzer.rank_vwap_resilience,
+# SentimentAnalyzer.composite_sentiment / format_for_telegram, and the three
+# SmartMoneyEngine flow scorers are stateless functions on live classes,
+# written and never wired -- the `market_cap` / `basis` / `seasonality` shape
+# this repo records four times, where a module nobody reads becomes defective
+# in exactly the ways nobody notices. Each needs a surface decision (which
+# card, which permission), not a wiring line, and RECORDING them is what makes
+# that decision visible instead of assumed.
+#
+# SmartBatcher.build_batch_prompt / parse_batch_response sit on a class whose
+# whole body has no production caller -- CLAUDE.md already records that, and
+# these two rows are that fact arriving at method granularity.
+#
+# ACCESSORS OVER STATE SOMETHING ELSE READS. MacroEventProvider.event_count /
+# calendar_hash, SentimentEngine.current_regime, SwarmAgent.inbox_count and
+# ProofOfPnLPublisher.last_publish_ts each expose one private field. They are
+# cheap and harmless, and they are also the surface a future card would read,
+# so deleting them would be as wrong as claiming they are live. SwarmAgent's
+# module is already on unreachable_baseline.txt.
+#
+# RiskEngine.check_timeframe_alignment is the one worth naming on its own: a
+# 2-of-3 multi-timeframe alignment rule, on the RISK ENGINE, with six callers
+# and all six in tests/test_risk_upgrades.py. The MTF gate the engine really
+# runs is elsewhere; this is a second, dark answer to a question the product
+# already answers, which is the second-copy shape with no reader rather than
+# two readers.
+#
 bot/compliance/compliance_engine.py:ComplianceEngine.format_for_telegram
-bot/core/exchange_flow.py:ExchangeFlowProvider.format_for_telegram
-bot/core/macro_events.py:MacroEventProvider.format_for_telegram
-bot/core/validation_gate.py:BacktestValidationGate.format_for_telegram
-bot/core/ws_feed.py:BitgetWSFeed.format_for_telegram
-
 bot/core/analyzer.py:Analyzer.get_no_trade_reason
+bot/core/analyzer.py:Analyzer.rank_vwap_resilience
 bot/core/black_swan.py:BlackSwanDetector.clear_alerts
 bot/core/cost.py:CostTracker.record_infra
 bot/core/cost.py:CostTracker.snapshot_lifetime
@@ -145,21 +190,36 @@ bot/core/engine.py:RuneClawEngine.get_futures_exchange
 bot/core/engine.py:RuneClawEngine.get_rebalance_signals
 bot/core/engine.py:RuneClawEngine.set_confirmation_callback
 bot/core/exchange_credentials.py:ExchangeCredentialStore.set_active
+bot/core/exchange_flow.py:ExchangeFlowProvider.format_for_telegram
 bot/core/live_executor.py:LiveExecutor.update_atr
 bot/core/llm_cache.py:SemanticLLMCache.purge_expired
+bot/core/macro_events.py:MacroEventProvider.calendar_hash
+bot/core/macro_events.py:MacroEventProvider.event_count
+bot/core/macro_events.py:MacroEventProvider.format_for_telegram
 bot/core/metrics.py:MetricsEngine.record_circuit_breaker_trip
 bot/core/metrics.py:MetricsEngine.record_risk_check
 bot/core/news.py:NewsRadar.for_symbol
+bot/core/sentiment.py:SentimentAnalyzer.composite_sentiment
+bot/core/sentiment.py:SentimentAnalyzer.format_for_telegram
+bot/core/sentiment.py:SentimentEngine.current_regime
 bot/core/signal_tracker.py:SignalTracker.get_pair_stats
 bot/core/signal_tracker.py:SignalTracker.record_signal
 bot/core/smart_exits.py:AdaptiveLimitDistance.optimal_offset
 bot/core/smart_exits.py:TimeOfDayEdge.get_best_hours
 bot/core/smart_exits.py:TimeOfDayEdge.get_edge
+bot/core/smart_money.py:SmartMoneyEngine.analyze_exchange_flow
+bot/core/smart_money.py:SmartMoneyEngine.analyze_whale_activity
+bot/core/smart_money.py:SmartMoneyEngine.composite_flow_signal
+bot/core/swarm.py:SwarmAgent.inbox_count
 bot/core/swarm.py:SwarmCoordinator.inject_anomaly
 bot/core/swarm.py:SwarmCoordinator.process_signal
 bot/core/token_optimizer.py:OptimizationStats.record_batch
+bot/core/token_optimizer.py:SmartBatcher.build_batch_prompt
+bot/core/token_optimizer.py:SmartBatcher.parse_batch_response
 bot/core/validation_gate.py:BacktestValidationGate.format_badge
+bot/core/validation_gate.py:BacktestValidationGate.format_for_telegram
 bot/core/validation_gate.py:BacktestValidationGate.get_all_validations
+bot/core/ws_feed.py:BitgetWSFeed.format_for_telegram
 bot/core/ws_feed.py:BitgetWSFeed.get_all_ticks
 bot/core/ws_feed.py:BitgetWSFeed.get_tick
 bot/learning/experience.py:ExperienceMemory.get_rejection_patterns
@@ -179,11 +239,13 @@ bot/mcp/server.py:MCPResponse.to_json
 bot/mcp/server.py:RuneClawMCPServer.call_tool
 bot/mcp/server.py:RuneClawMCPServer.list_tools
 bot/nlp/conversation_store.py:ConversationStore.clear_all
+bot/proofofpnl/scheduler.py:ProofOfPnLPublisher.last_publish_ts
 bot/risk/multi_portfolio.py:MultiUserPortfolio.all_user_ids
 bot/risk/multi_portfolio.py:MultiUserPortfolio.snapshot_all
 bot/risk/multi_portfolio.py:MultiUserPortfolio.venue_portfolios
 bot/risk/order_router.py:SmartOrderRouter.optimal_order_type
 bot/risk/person_peak.py:PersonPeakStore.reseed
+bot/risk/risk_engine.py:RiskEngine.check_timeframe_alignment
 bot/risk/risk_engine.py:RiskEngine.warning_rate_summary
 bot/skills/getclaw_wrapper.py:GetClawAdapter.evaluate_signal
 bot/skills/getclaw_wrapper.py:GetClawAdapter.to_getclaw_format

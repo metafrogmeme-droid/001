@@ -1,6 +1,41 @@
-# F-10 FIX: Pinned dependency versions for reproducible builds.
-# Generated from pip freeze. Use `pip install -r requirements.lock` for production.
-# Update periodically and re-test: `pip install --upgrade -r requirements.txt && pip freeze > requirements.lock`
+# F-10 FIX: Pinned dependency versions, and the SUBJECT OF THE SCA GATE.
+#
+# WHAT THIS FILE IS FOR, corrected. The header used to call this the
+# production install, and its update command named a root-level
+# requirements.txt. Driven, both were false: there is no such file at this
+# path (the shipped manifest is `bot/requirements.txt`), and nothing anywhere
+# installs this file -- the
+#
+# (The false command is described rather than spelled. The first draft of this
+# retraction wrote it out, and the guard below -- which requires every
+# manifest this header tells a reader to install to exist -- accused the
+# correction. A comment that quotes the string it forbids, caught by the
+# assertion written in the same commit; and the SECOND draft was accused too,
+# because the sentence explaining the trap spelled the pattern as well.)
+# Dockerfile and the Makefile install `bot/requirements.txt`, and CI installs
+# `requirements-ci.txt`. A header naming a command that does nothing is the
+# /vault hint shape pointed at a requirements file, and the next reader trusts
+# it precisely because the pins beside it are right.
+#
+# What it IS is the one thing `pip-audit` reads (.github/workflows/ci.yml, the
+# "SCA -- dependency vulnerability audit" step). So its real job is to be a
+# SUPERSET of what ships: every package the Dockerfile installs must appear
+# here, or that package is shipped and never audited. Driven today, all 12 of
+# `bot/requirements.txt` are here, plus the five the api_bridge and chart
+# stack need (fastapi, uvicorn, pandas, matplotlib, mplfinance).
+# `tests/test_ci_executes_nothing_it_did_not_pin.py` pins that containment, so
+# a dependency added to the shipped manifest and not to this one fails rather
+# than going unaudited.
+#
+# NOT COVERED, stated rather than implied: the ten dev/test packages in
+# `requirements-ci.txt` that are not here (pytest and friends, ruff, mypy,
+# bandit, hypothesis, pip-audit, pyjwt) are installed in CI and audited by
+# nothing. They do not ship -- driven, `pyjwt` has zero imports in `bot/`,
+# `scripts/` or `api_bridge.py` -- so the production artefact's coverage is
+# complete and CI's own toolchain's is not.
+#
+# Regenerate against the shipped manifest, not a file that is not there:
+#   pip install --upgrade -r bot/requirements.txt && pip freeze > requirements.lock
 python-dotenv==1.2.2
 pydantic==2.13.3
 ccxt==4.5.56

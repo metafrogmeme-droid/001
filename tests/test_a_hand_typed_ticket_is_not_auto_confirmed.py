@@ -174,18 +174,31 @@ def test_the_refusal_is_derived_not_a_list():
     field's default, and admitting it admits every forgotten argument. A
     denylist naming "manual" is the shape where the source added tomorrow is
     the one missing from it. The derived reading needs neither: it refuses
-    exactly one of the eight and passes the other seven.
+    exactly one of these and passes the rest.
     """
-    # THE FIVE SOURCES THAT REALLY WRITE INTO `_pending_ideas`. An earlier
-    # draft of this table listed eight -- every `source=` literal in the tree.
-    # Driven, `getclaw`, `swarm` and `mcp_shield` build a TradeIdea that never
-    # reaches that dict (zero `_pending_ideas` references in any of the three
-    # files), so naming them claimed coverage this table does not have.
+    # THE FOUR SOURCES THAT REALLY WRITE INTO `_pending_ideas`, counted wrong
+    # twice. An earlier draft listed eight -- every `source=` literal in the
+    # tree -- and driven, `getclaw`, `swarm` and `mcp_shield` build a TradeIdea
+    # that never reaches that dict. The correction said five, counting
+    # `"scan_skill_retry"`; that site builds through `drift_offer` now, so the
+    # string is retired and nothing writes or reads it.
     cases = [
         ("analyzer (the autonomous tick)", _idea(confidence=0.86)),
         ("scan_skill", _idea(confidence=0.6, source="scan_skill")),
-        ("scan_skill_retry", _idea(confidence=0.6, source="scan_skill_retry")),
-        ("auto_reanalyze (the drift re-offer)",
+        # `source="auto_reanalyze"` AND NOTHING ELSE still passes, and that is
+        # the assertion rather than an oversight: the drift re-offer's real
+        # product IS refused now (see
+        # tests/test_a_drift_re_offer_is_not_auto_confirmed.py), and it is
+        # refused for the provenance field its builder sets, not for its
+        # source. Same source, two verdicts. This row is what proves the
+        # refusal is derived from the field rather than from a list of names.
+        #
+        # It used to be labelled "auto_reanalyze (the drift re-offer)" and
+        # asserted that the re-offer "must still auto-confirm" -- a fixture
+        # that could not produce the state it named, since it built an object
+        # `reanalyzed_idea` never returns, and therefore a guard pinning a
+        # half-fix as the contract.
+        ("an idea whose only auto_reanalyze marker is its source",
          _idea(confidence=0.86, source="auto_reanalyze")),
     ]
     for name, idea in cases:

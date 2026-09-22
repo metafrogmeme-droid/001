@@ -125,6 +125,14 @@ class TradeIdea(BaseModel):
     analysis_version: Optional[str] = None       # analyzer schema/version tag
     data_bars: Optional[int] = None              # bars the analysis actually saw
     data_thin: Optional[bool] = None             # <50-bar window (see audit #10)
+    # The id of the idea this idea's `confidence` was measured about, when that
+    # is not this one. None on every idea whose confidence describes its OWN
+    # levels, which is every producer but one: only `drift_offer.reanalyzed_idea`
+    # carries a confidence across a change of geometry, and it is the only party
+    # that knows it did. A default of None is therefore correct for a producer
+    # that never thinks about this field, which is what keeps it from being a
+    # list every new producer has to remember to join.
+    confidence_inherited_from: Optional[str] = None
 
     @property
     def risk_reward_ratio(self) -> float:

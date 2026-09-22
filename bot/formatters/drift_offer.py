@@ -56,6 +56,15 @@ def reanalyzed_idea(original: TradeIdea, new_price: float) -> Optional[TradeIdea
                    f"drifted. Levels are flat {STOP_PCT:.0%}/{TARGET_PCT:.0%} "
                    f"placeholders, not a fresh analysis."),
         source="auto_reanalyze",
+        # THE CONFIDENCE IS THE ORIGINAL'S AND IT IS NOT ABOUT THIS TRADE.
+        # Driven: the analyst's reward:risk -- 0.1, 2.0, 15.0 alike -- comes
+        # out of here as TARGET_PCT/STOP_PCT, a CONSTANT, because both levels
+        # are flat percentages of the new price. So the number copied on the
+        # line above was measured about a 15:1 setup and is being carried onto
+        # a 2:1 one. Saying which idea it came from is what lets
+        # `quality_reading` answer "not a measurement about this" without a
+        # reader having to infer it from the source string.
+        confidence_inherited_from=original.id,
     )
 
 

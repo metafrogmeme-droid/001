@@ -73,8 +73,56 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 BASELINE = Path(__file__).parent / "unreachable_functions_baseline.txt"
+
+# A DECORATOR IS A REGISTRATION -- EXCEPT WHEN IT IS ONLY A BINDING.
+#
+# The method sweeps below decline any decorated def, on the reason that "this
+# detector cannot know what a registry does with the name, and guessing is how
+# five FastAPI handlers got falsely accused". That is exactly right for
+# `@router.post`, `@app.get` and `@lru_cache`, and it is wrong for
+# `@staticmethod`: a staticmethod is registered nowhere. It changes HOW a name
+# binds, not WHETHER anything reaches it, which is the only question these
+# sweeps ask.
+#
+# Measured before widening: 14 public methods in bot/ carry nothing but these
+# decorators and have no caller outside tests -- 9 `@staticmethod` and 5
+# `@property`, `RiskEngine.check_timeframe_alignment` among them. They were
+# acquitted by OMISSION, which is the quiet direction: a false accusation is
+# loud and gets fixed, a false acquittal just sits there.
+#
+# `@abstractmethod` is deliberately NOT here, measured rather than preferred:
+# there is exactly one in bot/ (`BaseSkill.execute`), it sits on a class WITH
+# bases so `node.bases` declines it regardless, and it is the least like the
+# others -- an abstract method IS reached, through its overrides, which is
+# nearer a registration than a binding.
+_BINDING_ONLY = {
+    "staticmethod", "classmethod", "property",
+    "cached_property", "functools.cached_property",
+}
+
+
+def _only_binding_decorators(node) -> bool:
+    """True when every decorator on `node` merely changes how it binds.
+
+    ALL, not ANY, and that is load-bearing: a `@field_validator(...)` sitting
+    above a `@classmethod` is a registration with a binding under it, and
+    reading that as binding-only would accuse every pydantic validator in the
+    tree.
+    """
+    for dec in node.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if ast.unparse(target) not in _BINDING_ONLY:
+            return False
+    return True
+
+
+def _declines_for_decorators(node) -> bool:
+    """The old `if node.decorator_list:` test, minus the binding-only case."""
+    return bool(node.decorator_list) and not _only_binding_decorators(node)
 
 SKIP_DIRS = {"__pycache__", "node_modules", ".git", "venv", ".venv", "target",
              "build", "dist", ".pytest_cache", "site-packages"}
@@ -385,7 +433,7 @@ def _candidate_methods() -> dict:
                     for sub in node.body:
                         if not isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             continue
-                        if sub.name.startswith("_") or sub.decorator_list:
+                        if sub.name.startswith("_") or _declines_for_decorators(sub):
                             continue
                         methods[sub.name].append(
                             (_rel(path), node.name, sub.lineno))
@@ -625,7 +673,7 @@ def _multiply_defined_methods() -> dict:
                     for sub in node.body:
                         if not isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             continue
-                        if sub.name.startswith("_") or sub.decorator_list:
+                        if sub.name.startswith("_") or _declines_for_decorators(sub):
                             continue
                         methods[sub.name].append((_rel(path), node.name, sub.lineno))
     return {n: s for n, s in methods.items()
@@ -820,3 +868,66 @@ def test_an_opaque_receiver_makes_the_whole_name_ambiguous(tmp_path, monkeypatch
         "B was accused off a subscript receiver this cannot type — the "
         f"unresolvable site is where its caller would be. dead={sorted(dead)}")
     assert "shared_name" in ambiguous
+
+
+# ---------------------------------------------------------------------------
+# THE BINDING-ONLY RULE, DRIVEN ON A PLANTED TREE.
+#
+# On the real tree every binding-only method is either called or baselined, so
+# a mutation of `_only_binding_decorators` changes no verdict there -- and a
+# rule no input can reach is a claim that there is a check. These plant the
+# decorator shapes directly, which is the argument candle_hygiene_baseline.txt
+# already makes for its own two-way rule.
+# ---------------------------------------------------------------------------
+
+_DECO_CASES = [
+    # (source, declines?)  declines == "the sweep skips it, as it always did"
+    ("@staticmethod\ndef m(): pass", False),
+    ("@classmethod\ndef m(cls): pass", False),
+    ("@property\ndef m(self): pass", False),
+    ("@cached_property\ndef m(self): pass", False),
+    ("@functools.cached_property\ndef m(self): pass", False),
+    # registrations — the reason the exclusion exists, and it still holds
+    ("@router.post('/x')\ndef m(): pass", True),
+    ("@app.get('/x')\ndef m(): pass", True),
+    ("@lru_cache\ndef m(): pass", True),
+    ("@lab_router.post('/y')\ndef m(): pass", True),
+    ("@pytest.fixture\ndef m(): pass", True),
+    # a registration WITH a binding under it: ALL, not ANY
+    ("@field_validator('x')\n@classmethod\ndef m(cls, v): pass", True),
+    ("@classmethod\n@field_validator('x')\ndef m(cls, v): pass", True),
+    # abstractmethod is deliberately outside the allowlist
+    ("@abstractmethod\ndef m(self): pass", True),
+    # undecorated is not a decorator question at all
+    ("def m(): pass", False),
+]
+
+
+@pytest.mark.parametrize("src, declines", _DECO_CASES)
+def test_the_decorator_reading_is_binding_versus_registration(src, declines):
+    node = ast.parse(src).body[0]
+    assert _declines_for_decorators(node) is declines, (
+        f"{src.splitlines()[0]!r}: expected declines={declines}")
+
+
+def test_a_planted_dark_staticmethod_would_now_be_seen():
+    """The whole claim, end to end on a tree where nothing else is in play."""
+    src = (
+        "class Widget:\n"
+        "    @staticmethod\n"
+        "    def dark_static(): pass\n"
+        "    @property\n"
+        "    def dark_prop(self): return 1\n"
+        "    @router.post('/x')\n"
+        "    def registered(self): pass\n"
+        "    def dark_plain(self): pass\n"
+    )
+    cls = ast.parse(src).body[0]
+    seen = [n.name for n in cls.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not n.name.startswith("_")
+            and not _declines_for_decorators(n)]
+    assert seen == ["dark_static", "dark_prop", "dark_plain"], seen
+    assert "registered" not in seen, (
+        "the registration exclusion is the reason this test exists -- five "
+        "FastAPI handlers were falsely accused once already")
