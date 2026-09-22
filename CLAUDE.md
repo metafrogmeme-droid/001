@@ -8141,6 +8141,134 @@ C-07 guard at `analyzer.py:1361` turns it into the same no-trade the null
 contract produces.
 (`tests/test_an_unreadable_confidence_is_not_the_maximum.py`.)
 
+**A STAMPED CONFIDENCE WAS A LICENCE TO SKIP THE HUMAN WHO HAD JUST BEEN
+ASKED.** `_pending_ideas` is not only the autonomous book: every hand-typed
+ticket goes through it too — `register_manual_idea`, from `/trade` and from the
+web's propose route — and `build_manual_idea` writes `confidence=1.0` on each
+one. Nothing measured that; it is the value that clears every bar. Two loops
+swept that dict and executed anything clearing the auto-confirm threshold, with
+no filter on the idea at all: the autonomous tick and `_force_scan_locked`.
+Driven at the dataclass defaults, `_auto_confirm_gate_value` of a manual ticket
+is **1.0**, `auto_confirm_is_disabled(0.85)` is **False**, and
+`AUTO_CONFIRM_LIVE_ENABLED` defaults True so the suppression beneath it cannot
+fire. The card that had just been sent WITH A CONFIRM BUTTON AND A CO-PILOT
+REVIEW — the block that exists so a person decides — was executed without them.
+
+**THE READING ALREADY EXISTED AND THE EXECUTION GATE WAS THE ONE CALLER THAT
+DID NOT ASK IT.** `quality_ladder.quality_reading` answers `measured=False` for
+`source == "manual"` with *"confidence is a stamp, not a measurement"*, and
+three money-facing consumers take it — the sizing ladder, Kelly's half-fraction,
+and `_high_conviction_margin`, whose own comment says a stamp *"cleared every
+floor by construction"*. That is the confidence-clamp slice's shape one gate
+over: the reading is in the tree and the money-facing caller reads the field
+raw. `auto_confirm_refusal` is the consumer answer, beside
+`kelly_confidence_factor` in the same module, so no new import edge was needed.
+
+**IT IS NOT A SOURCE LIST, AND THE ANALYZER IS WHY.** `analyzer.py`'s
+`TradeIdea(` — the one construction behind every autonomous idea — passes no
+`source=` at all, so the engine's own ideas carry the field DEFAULT
+`"unknown"`. An allowlist would have to admit the value a forgotten argument
+produces, which is the one value that must never be what a mistake makes; a
+denylist naming `"manual"` is the `/setllm` ten-of-eleven shape and would be a
+THIRD copy of a judgement production already writes twice. The derived reading
+needs neither.
+
+**AND MY OWN DOCSTRING OVERSTATED ITS COVERAGE IN THE COMMIT THAT ADDED IT.**
+It claimed the reading was driven over "every writer into `_pending_ideas` —
+analyzer, scan_skill, scan_skill_retry, getclaw, swarm, mcp_shield,
+auto_reanalyze, manual". Driven, `getclaw`, `swarm` and `mcp_shield` build a
+`TradeIdea` that never reaches that dict at all — **zero** `_pending_ideas`
+references in any of the three files — so three of the eight were a list of
+`source=` literals presented as a list of writers. *A gate whose coverage is
+overstated is the failure this file exists to prevent*, in the slice whose
+subject is a gate that did not ask. The writer set is FIVE: `unknown`,
+`scan_skill`, `scan_skill_retry`, `auto_reanalyze`, `manual`.
+
+**THE UNREADABLE HALF IS A BACKSTOP AND SAYS SO.** `auto_confirm_is_disabled`'s
+own docstring argues that a threshold nobody could read *"is not a licence to
+place real-money orders without a human"*, and the value side is no different —
+but stated honestly it is not a live path: `TradeIdea.confidence` is
+`Field(ge=0.0, le=1.0)`, and driven, pydantic refuses NaN, an infinity, 2.5,
+-0.5 and None at construction. A bool is the one value that does **not** refuse:
+`confidence=True` coerces to `1.0`, the manual stamp arrived at by coercion.
+
+**"ON THE NEXT TICK" WAS THE TEMPTING MISREADING AND IT DECIDES WHAT A FIXTURE
+HAS TO DO.** `_tick` returns early while anything is pending (C2-26's
+`if self._pending_ideas:` skip) and `_force_scan_locked` CLEARS the dict before
+it scans — so a ticket merely SITTING there blocks the tick or is destroyed by
+the button, and a guard that plants it before the cycle starts never reaches the
+branch and measures nothing. What reaches it is a ticket registered DURING a
+cycle's scan/analyze window: `register_manual_idea` takes no lock, and that
+window is the scan sweep plus a 300s analyze cap — minutes wide, against a user
+action that takes seconds to type. The drive registers the ticket from inside
+that await, which is the race made deterministic.
+
+**A SCAN COULD NOT SEE THE TICK'S HALF, AND THE MUTATION THAT PROVED IT KEPT
+THE CALL.** `_tick` is 434 lines behind a scanner, an analyzer and an exchange,
+so the only instrument over its selection was an AST pin: the call exists, and
+it precedes `confirm_trade`. Appending `or True` to the suppression condition
+survived that pin, the ordering and a green suite — every hand-typed ticket
+auto-executing again. That is this file's recorded `if False:` pair, met from
+the author's side. `_auto_confirm_batch` is the seam extracted for it, and both
+its arms are driven; `_force_scan_locked` was already driven end to end.
+
+**THREE WRITTEN CLAIMS WERE FALSE UNTIL THE FIX, AND THE FIX IS WHAT MAKES THEM
+TRUE.** `.env.example`, beside the very knob: *"a regular user's trade is NEVER
+auto-confirmed."* `chat_runtime`'s door rule, the sentence given to the chat
+MODEL on the surface with the money: *"/trade renders a Confirm/Cancel card and
+`register_manual_idea` places nothing"* — explicitly *"read off the code"*. And
+the RC-AUD-002 comment over the gate itself, which called it *"disabled by
+default (threshold 1.0)"* and said LIVE mode *"refuses to place real-money
+orders unless AUTO_CONFIRM_LIVE_ENABLED is explicitly set"*. Both halves were
+false of the dataclass defaults, in the flattering direction, on the one comment
+a reader consults to decide whether the bypass is safe. The shipped
+`.env.example` really does set 1.0/false, which is what made the sentence read
+true to everyone who checked the file rather than the field.
+
+**AND THE GUARD FOR EXACTLY THAT CLASS DECLINES IT TWICE OVER.**
+`tests/default_comments.py` is at zero with no baseline, and it is neither the
+trigger vocabulary nor the window that misses this one.
+`_CONFIG_REF = r"CONFIG\.(\w+)\.(\w+)"` demands a SECTIONED two-dot reference
+and `auto_confirm_live_enabled` is read FLAT, so the resolver never sees it;
+and `_DECL` collects only `: bool = _env_bool(...)`, so `auto_confirm_threshold`
+— a FLOAT whose "off" is the sentinel 1.0 — is absent from
+`declared_defaults()` altogether and no resolver fix reaches it. Widening the
+first is a slice of its own rather than a line: it puts a body of
+flat-attribute comments under the rule at once, each needing a reading, and
+done alone it ACCUSES the correction, because a retraction has to name the
+sentence it corrects and the false literal is still in the file.
+
+**WHAT THE READING CANNOT SEE IS STATED ON IT.** The drift re-offer
+(`source == "auto_reanalyze"`) copies the ORIGINAL idea's confidence, so it
+reads as measured and passes — while its own call-site comment says *"OFFERED,
+not executed ... executing it spends money on a thesis the user never saw, on
+the strength of a button they pressed for a different one"* and its own
+`reasoning` says the levels are *"flat placeholders, not a fresh analysis"*.
+Same door, one source over, and no reading of a CONFIDENCE can close it: the
+defect there is the GEOMETRY, not the number. Recorded on the function rather
+than answered by widening it into a rule nobody measured.
+
+> **And a hand-written stand-in forgot the next attribute, one commit after
+> this file recorded that shape.** `test_scan_freshness_is_wired.py` runs the
+> real `_tick` against an `_Engine` that binds the real methods it needs — and
+> the extraction made `_auto_confirm_batch` a call the tick makes
+> UNCONDITIONALLY, where the inlined comprehension never ran with an empty
+> pending dict. It went red on a wiring change it was not testing, which is the
+> trap its own comment about the monitor already describes. It binds all three
+> real methods now.
+
+**Fifteen mutations, each killed, none refused — and the two that survived the
+first round were the guard's, never the code's.** The `or True` above, and the
+comment reverted to its false form, which survived because the assertion read a
+bare `"0.85"` — and the corrected block also quotes this config file's admin
+policy, *"set 0.85 AND enable live auto-confirm"*, so the digits alone were
+satisfied by a sentence that says nothing about the DEFAULT. It reads
+`"defaults to 0.85"` now. A third was REFUSED rather than counted: the
+second-copy anchor `reading = quality_reading(idea)` matches three times in
+that module, and a driver that took that for a kill would have reported
+coverage of a function it never edited.
+(`tests/test_a_hand_typed_ticket_is_not_auto_confirmed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -9369,7 +9497,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **414 of 1001** reach for source text through `source_scan`, `code_only`
+Driven, **414 of 1002** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 414 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

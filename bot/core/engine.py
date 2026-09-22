@@ -47,7 +47,7 @@ from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
-from bot.risk.quality_ladder import quality_reading
+from bot.risk.quality_ladder import auto_confirm_refusal, quality_reading
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -5383,18 +5383,26 @@ class RuneClawEngine:
         # If confidence exceeds threshold, bypass human confirmation gate
         # and auto-execute. Notifications still go to Telegram with
         # "[AUTO]" tag so the operator can see what happened.
-        # RC-AUD-002: auto-confirm bypasses the human-decision gate. It is
-        # disabled by default (threshold 1.0) and, in LIVE mode, refuses to place
-        # real-money orders unless AUTO_CONFIRM_LIVE_ENABLED is explicitly set.
+        # RC-AUD-002: auto-confirm bypasses the human-decision gate.
+        # THIS COMMENT USED TO SAY the gate is "disabled by default (threshold
+        # 1.0)" and, in LIVE mode, "refuses to place real-money orders unless
+        # AUTO_CONFIRM_LIVE_ENABLED is explicitly set". Both halves were false
+        # of the DATACLASS defaults, in the flattering direction, on the one
+        # comment a reader consults to decide whether the bypass is safe:
+        # `AUTO_CONFIRM_THRESHOLD` defaults to 0.85 (so the gate is ON) and
+        # `AUTO_CONFIRM_LIVE_ENABLED` defaults to True (so the suppression
+        # below does NOT fire). The shipped `.env.example` does set 1.0/false,
+        # so an install made by copying it is safe -- which is what made the
+        # sentence read true to everyone who checked the file rather than the
+        # field. An operator who writes a minimal `.env`, or who follows this
+        # file's own admin auto-trade policy ("set 0.85 AND enable live
+        # auto-confirm"), gets the other configuration.
         auto_threshold = RUNTIME.auto_confirm_threshold
         # `value >= threshold` makes 1.0 mean "needs a perfect score", not
         # "off" -- and a blend that scored exactly 1.0 would auto-execute
         # through a switch the operator had turned off. The sentinel is
         # checked, not compared against.
-        auto_ideas = [] if auto_confirm_is_disabled(auto_threshold) else [
-            (tid, tidea) for tid, tidea in list(self._pending_ideas.items())
-            if self._auto_confirm_gate_value(tidea) >= auto_threshold
-        ]
+        auto_ideas = self._auto_confirm_batch(auto_threshold)
         if auto_ideas and CONFIG.is_live() and not CONFIG.auto_confirm_live_enabled:
             for tid, tidea in auto_ideas:
                 audit(trade_log,
@@ -7980,6 +7988,13 @@ class RuneClawEngine:
         for tid, tidea in list(self._pending_ideas.items()):
             # Same sentinel as the tick path. Two gates, one meaning.
             if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
+                # ...and the same reading, for the same reason: a stamp is not
+                # a measurement on whichever door swept the ticket up. This
+                # loop is reached by `/forcescan`, so without it the button an
+                # operator presses to LOOK would execute a caller's untapped
+                # ticket on the operator's own account.
+                if self._auto_confirm_suppressed(tid, tidea):
+                    continue
                 _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
                 if not _et_ok:
                     audit(trade_log,
@@ -8207,6 +8222,78 @@ class RuneClawEngine:
                           action="live_smart_exit", result="ERROR")
         except Exception as exc:
             system_log.debug("Live smart-exit evaluation failed: %s", exc)
+
+    def _auto_confirm_batch(self, auto_threshold: float) -> list:
+        """The (trade_id, idea) pairs this tick may auto-confirm.
+
+        EXTRACTED SO IT CAN BE DRIVEN. `_tick` is 434 lines behind a scanner,
+        an analyzer and an exchange, so the only instrument available over
+        this selection was a source scan -- and a scan cannot see
+        reachability, which is the one thing it was being asked about. The
+        mutation that proved it kept the call and appended `or True` to its
+        condition: the literal survives, the ordering survives, and every
+        hand-typed ticket auto-executes again. That is this repo's recorded
+        `if False:` pair, met from the author's side. `force_scan` is driven
+        end to end; this is what gives the tick the same footing.
+
+        A CONFIDENCE THAT IS NOT A MEASUREMENT IS NOT A LICENCE TO SKIP THE
+        HUMAN. `_pending_ideas` is not only the autonomous book: every
+        hand-typed ticket goes through it too (`register_manual_idea`, from
+        `/trade` and the web's propose route), and `build_manual_idea` stamps
+        `confidence=1.0` on each one -- nothing measured that, it is the
+        value that clears every bar. With no reading in the way, a ticket
+        whose card had just been sent with a Confirm button and a co-pilot
+        review was executed under `user_id="auto"` on the OPERATOR account,
+        with the per-user strategy gate skipped (`if user_id and user_id !=
+        "auto"`) and the `is_manual` reduced-checks concession applied -- a
+        concession made BECAUSE a human is looking at the card.
+
+        NOT "on the next tick", which is the tempting misreading and is
+        wrong: `_tick` returns early while anything is pending (C2-26, the
+        `if self._pending_ideas:` skip above), and `_force_scan_locked`
+        CLEARS the dict before it scans. A ticket that is merely sitting
+        there blocks the tick or is destroyed by the button. What reaches
+        this loop is a ticket registered DURING a cycle's scan/analyze
+        window -- `register_manual_idea` takes no lock, and that window is
+        bounded by the scan sweep plus a 300s analyze cap, so it is minutes
+        wide against a user action that takes seconds to type. A guard whose
+        fixture plants the ticket before the cycle starts never reaches this
+        branch, which is why the one in `tests/` registers it from inside
+        the analyze await. `.env.example` says in as many words that "a
+        regular user's trade is NEVER auto-confirmed" and
+        `chat_runtime`'s door rule tells the model that "`register_manual_idea`
+        places nothing"; this is what makes both sentences true.
+        """
+        if auto_confirm_is_disabled(auto_threshold):
+            return []
+        return [(tid, tidea) for tid, tidea in list(self._pending_ideas.items())
+                if self._auto_confirm_gate_value(tidea) >= auto_threshold
+                and not self._auto_confirm_suppressed(tid, tidea)]
+
+    def _auto_confirm_suppressed(self, trade_id: str, idea) -> bool:
+        """True when `idea` may not be auto-confirmed, audited by name.
+
+        ONE SENTENCE, TWO LOOPS. The autonomous tick and `force_scan` both
+        sweep `_pending_ideas` and both used to execute anything clearing the
+        threshold; a second copy of the operator's sentence is two answers the
+        day one of them is reworded, which is what the two gate-value call
+        sites already say about the threshold itself.
+
+        The refusal is AUDITED rather than silent, for the reason
+        `SUPPRESSED_LIVE` beside it is: a ticket that quietly stops being
+        auto-confirmed and a ticket nobody proposed look identical from the
+        trade log, and only one of them is the operator waiting for a tap.
+        """
+        why = auto_confirm_refusal(idea)
+        if why is None:
+            return False
+        audit(trade_log,
+              f"Auto-confirm SUPPRESSED for {getattr(idea, 'asset', '?')} — "
+              f"{why}. The Confirm button on its card is the door.",
+              action="auto_confirm", result="SUPPRESSED_UNMEASURED",
+              data={"trade_id": trade_id, "why": why,
+                    "source": getattr(idea, "source", None)})
+        return True
 
     def _auto_confirm_gate_value(self, idea) -> float:
         """The confidence value the auto-confirm threshold is tested against.

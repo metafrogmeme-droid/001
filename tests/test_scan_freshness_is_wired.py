@@ -117,6 +117,15 @@ class _Engine:
         return None
 
     _record_sweep_complete = RuneClawEngine._record_sweep_complete
+    # The REAL auto-confirm selection, for the reason the monitor above is
+    # real: `_tick` calls `_auto_confirm_batch` unconditionally (it used to
+    # inline the comprehension, which never ran with an empty pending dict),
+    # so a namespace of whatever it happened to call when this was written is
+    # the fixture that breaks on the next wiring change. Binding all three
+    # keeps this file testing the sweep clock rather than the tick's shape.
+    _auto_confirm_batch = RuneClawEngine._auto_confirm_batch
+    _auto_confirm_gate_value = RuneClawEngine._auto_confirm_gate_value
+    _auto_confirm_suppressed = RuneClawEngine._auto_confirm_suppressed
 
 
 def _run_tick(scan_result) -> _Engine:
