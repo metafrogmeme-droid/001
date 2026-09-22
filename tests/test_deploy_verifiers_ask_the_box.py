@@ -306,8 +306,10 @@ def test_a_slow_gateway_is_NOT_reported_as_unreachable():
         stop.set()
         t.join(timeout=3)
         for c in held:
-            try: c.close()
-            except Exception: pass
+            try:
+                c.close()
+            except OSError:
+                pass
         lis.close()
 
 
