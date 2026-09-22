@@ -8361,6 +8361,49 @@ then five (counting `scan_skill_retry`, a string that now has no writer and no
 reader at all) -- and is **four**.
 (`tests/test_a_drift_re_offer_is_not_auto_confirmed.py`.)
 
+
+**"IT MUST BE RE-DRIVEN BEFORE ANYTHING IS SEQUENCED OFF IT" WAS RIGHT TO
+DEMAND THE DRIVE AND WRONG ABOUT WHAT IT WOULD FIND.** The census in
+`docs/INCOME_MAP.md` -- *Fifteen categories, ninety leaves*, shipped 5 /
+partial 33 / 52 with nothing behind them -- is the figure a reader uses to
+decide what to build next, and I had filed it as a number that could not be
+trusted until re-measured. Re-measured, it reproduces **to the digit**: 15
+categories, 90 leaf rows, 5 / 33 / 52, and *"Four of the five shipped leaves
+are in Active Trading"* checks out too. It was right all along, and **no test
+read it** -- the map has derived guards over its doors, its admin-only
+sentences and its `path:line` citations, and the numbers at the very top were
+the part nothing checked. A figure that is correct and unguarded is one edit
+from being a figure that is wrong and trusted.
+
+**AND THE SAME WALK FOUND A SECOND DOCUMENT COUNT THAT REALLY WAS STALE, WITH
+THE PRODUCT'S OWN CARD CONTRADICTING IT.** `docs/ROADMAP.md` claimed **Twelve
+languages** and named twelve codes; driven, `SUPPORTED_LANGS` in
+`bot/utils/i18n.py` carries **fourteen** (`it` and `hi`), and
+`agent_card.json` already published `"interface": 14`. So the machine-readable
+surface and the roadmap disagreed, in the tree, and nothing compared them. A
+count can be right while the LIST is wrong, so the guard checks both -- and the
+mutation that drops one code from the list while leaving the number dies
+separately from the one that changes the number.
+
+**THAT IS THE WHOLE OF WHAT LAYER 0 CAN HONESTLY MEAN HERE.** Not a checklist
+of claims to re-audit by hand -- the four claims I re-drove were two true, one
+FALSE and one whose "no production importer" clause was wrong
+(`live_e2e_test.py` imports `bot.mcp.server`, which is also why the module is
+not on `unreachable_baseline.txt`) -- but the count DERIVED from the thing it
+counts. Most of that family already exists here: the map's doors are
+re-resolved against the command catalogue, its admin-only sentences against
+the real decorators, `test_claude_md_accuracy` reads ~40 numbers out of this
+file. What was missing was two documents' worth of arithmetic at the top of
+each.
+
+**The internal-consistency line is drawn and stated**, because a guard whose
+coverage is overstated is the failure this file is about: the census check
+asks whether the map's numbers describe the map's own tables, which is the
+part that rots when a leaf is added. Whether each leaf's VERDICT is true of
+the code is a different question, and the map states its own three limits for
+it -- code-reading not execution, citations unverified, only doors checked.
+(`tests/test_the_income_map_census_is_the_one_a_walk_returns.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -9589,7 +9632,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **415 of 1004** reach for source text through `source_scan`, `code_only`
+Driven, **415 of 1005** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 415 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
