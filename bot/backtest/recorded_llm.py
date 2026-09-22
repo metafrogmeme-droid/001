@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from bot.compat import UTC
+from bot.risk.quality_ladder import confidence_on_record
 
 
 def _parse_ts(raw: str) -> Optional[datetime]:
@@ -55,11 +56,24 @@ class RecordedLLM:
             direction = e.get("llm_direction")
             conf = e.get("llm_confidence_raw")
             ts = _parse_ts(e.get("ts", ""))
+            conf = confidence_on_record(conf)
+            # The FOURTH copy of `max(0.0, min(1.0, float(conf)))` sat here, on
+            # the READ-BACK of the very file the live path writes
+            # `llm_confidence_raw` into -- so it turned 85, NaN and JSON `true`
+            # into the MAXIMUM confidence exactly as the parser did, and the
+            # string "high" raised straight out of `from_jsonl`. It is not a
+            # backstop for rows written before the parser was fixed: a clamp
+            # that answers 1.0 for an unreadable row is the defect, not the
+            # guard against it. An unreadable confidence drops the row, which
+            # is the per-row refusal this loop already makes for the symbol,
+            # the direction and the timestamp -- and a dropped row simply
+            # returns None at lookup, which the replay already treats as
+            # "fall back to the rule engine".
             if not sym or direction is None or conf is None or ts is None:
                 continue
             thesis = {
                 "direction": str(direction),
-                "confidence": max(0.0, min(1.0, float(conf))),
+                "confidence": conf,
                 "source": "RECORDED_LLM",
             }
             staging.setdefault(sym, []).append((ts.timestamp(), thesis))

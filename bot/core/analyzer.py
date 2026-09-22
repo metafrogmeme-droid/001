@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from bot.compat import UTC
 from bot.llm import failure_cause as _fc
+from bot.risk.quality_ladder import confidence_on_record
 from typing import Optional
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
@@ -4356,9 +4357,14 @@ class Analyzer:
                 raw_text = resp.choices[0].message.content or ""
                 result = self._parse_llm_response(raw_text)
             if not result.pop("_parsed", False):
+                # `parse_fail` names the FIELD that could not be read. "Could
+                # not be parsed" over a reply whose direction and reasoning
+                # were fine sends an operator to look at the wrong thing --
+                # `_leverage_field_phrase`'s lesson one subsystem over.
                 audit(trade_log, "LLM response could not be parsed, blocking trade",
                       action="analyze", result="LLM_PARSE_FAIL",
-                      data={"raw_text": raw_text[:200]})
+                      data={"raw_text": raw_text[:200],
+                            "parse_fail": result.get("_parse_fail", "")})
                 return None  # C-07 FIX: do not default to LONG on parse failure
             result["source"] = f"LLM_{tier_label}"
             result["model_used"] = model
@@ -4723,7 +4729,8 @@ class Analyzer:
                           f"LLM fallback {provider.value} returned unparseable response, blocking trade",
                           action="llm_fallback", result="LLM_PARSE_FAIL",
                           data={"provider": provider.value, "model": default_model,
-                                "raw_text": (raw_text or "")[:200]})
+                                "raw_text": (raw_text or "")[:200],
+                                "parse_fail": result.get("_parse_fail", "")})
                     # ANSWERED, and the reply was unusable. Not the same event
                     # as a provider that could not be reached, and the card
                     # must not report a working host as a dead one.
@@ -4933,16 +4940,40 @@ class Analyzer:
                     result["direction"] = "SHORT"
                 elif "LONG" in d:
                     result["direction"] = "LONG"
-                conf = data.get("confidence", data.get("CONFIDENCE", 0.0))
-                result["confidence"] = max(0.0, min(1.0, float(conf)))
-                result["reasoning"] = str(data.get("reasoning", data.get("REASONING", "")))
+                # The default is None, never 0.0: an ABSENT confidence is not
+                # a measured no-conviction, and the prompt's own no-trade
+                # contract spends a REAL 0.0 to say that. `_parsed=True` over
+                # a fabricated figure is what made the guard below pass on it.
+                conf = confidence_on_record(
+                    data.get("confidence", data.get("CONFIDENCE")))
+                if conf is None:
+                    # Malformed output in the sense `_parsed` already means:
+                    # `max(0.0, min(1.0, float(conf)))` answered 1.0 for 2.5,
+                    # for a percent-as-integer, for JSON `true`, and for a bare
+                    # NaN/Infinity token -- the MAXIMUM confidence, from a
+                    # value nobody could read -- and 0.0 for a negative one.
+                    result["_parse_fail"] = "confidence"
+                    return result
+                result["confidence"] = conf
+                # `str()` turned a JSON `null` into the four-character string
+                # "None", which is TRUTHY -- so it displaced the honest
+                # fallback sentence one caller up and was rendered to a person
+                # as the reason the bot declined to trade. A reasoning that is
+                # not a string is an absence, and "" is what an absence looks
+                # like to every reader of this field.
+                _reason = data.get("reasoning", data.get("REASONING", ""))
+                result["reasoning"] = _reason if isinstance(_reason, str) else ""
                 result["_parsed"] = True
                 return result
             except (ValueError, TypeError, _json.JSONDecodeError):
                 pass  # fall through to line-by-line parsing
 
-        # Line-by-line parsing for plain-text responses
-        parsed_fields = 0
+        # Line-by-line parsing for plain-text responses. This is the branch the
+        # ANTHROPIC path lands in -- `use_json_format` is `sdk_type !=
+        # "anthropic"` -- so it is not the exotic half, and its regex takes a
+        # bare integer: `CONFIDENCE: 85`, `8/10` and `7 out of 10` are ordinary
+        # phrasings that the old clamp turned into the MAXIMUM confidence.
+        conf_read = False
         for line in stripped.splitlines():
             line_clean = line.strip()
             upper = line_clean.upper()
@@ -4952,22 +4983,35 @@ class Analyzer:
                     result["direction"] = "SHORT"
                 elif "LONG" in rest.upper():
                     result["direction"] = "LONG"
-                parsed_fields += 1
             elif upper.startswith("CONFIDENCE"):
                 rest = line_clean.split(":", 1)[-1] if ":" in line_clean else line_clean.split("-", 1)[-1]
-                match = re.search(r'(?:CONFIDENCE[:\s]*)?(\d+\.\d+|\d+)', rest, re.IGNORECASE)
-                if match:
-                    try:
-                        parsed = float(match.group(1))
-                        result["confidence"] = max(0.0, min(1.0, parsed))
-                        parsed_fields += 1
-                    except ValueError:
-                        pass
+                # The reading is asked about the WHOLE remainder, not the first
+                # digit-run in it. `re.search` for `(\d+\.\d+|\d+)` is
+                # unanchored and sign-blind, so it CHOSE the token and the
+                # reading only ever saw what it was handed: driven,
+                # `CONFIDENCE: 1 of 5 confluence signals aligned, 0.2` gave up
+                # the `1` and booked a parsed 1.0 -- the maximum, off the
+                # weakest reading there is -- and `CONFIDENCE: -0.85` gave up
+                # the `0.85` with its sign discarded. A guard one layer too
+                # late is not a guard.
+                match = re.match(r'^\s*(?:CONFIDENCE\b[:\s]*)?(\S+)\s*$',
+                                 rest, re.IGNORECASE)
+                conf = confidence_on_record(match.group(1)) if match else None
+                if conf is not None:
+                    result["confidence"] = conf
+                    conf_read = True
             elif upper.startswith("REASONING"):
                 rest = line_clean.split(":", 1)[-1] if ":" in line_clean else line_clean
                 result["reasoning"] = rest.strip()
-                parsed_fields += 1
-        result["_parsed"] = parsed_fields >= 2 and result["direction"] is not None
+        # `conf_read` rather than a count of fields: a CONFIDENCE line nobody
+        # could read and NO confidence line at all both left the 0.0 the result
+        # was initialised with, and both were reported as parsed. The old
+        # `parsed_fields >= 2` is not restated -- a direction plus a read
+        # confidence is already two fields, so it could not fail on its own,
+        # and a clause no input can reach is a claim that there is a check.
+        result["_parsed"] = result["direction"] is not None and conf_read
+        if not result["_parsed"] and result["direction"] is not None:
+            result["_parse_fail"] = "confidence"
         return result
 
     async def scan_read(self, signal: MarketSignal,

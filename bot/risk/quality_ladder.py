@@ -103,12 +103,65 @@ def _num(v: Any) -> Optional[float]:
     return f
 
 
+def confidence_on_record(v: Any) -> Optional[float]:
+    """The confidence the record holds, or ``None`` when it holds none.
+
+    ``_num`` above already refuses what is not a number -- ``None``, a bool
+    (``True`` is not full conviction, the argument ``pct_on_record`` makes one
+    field over), a string that will not parse, NaN and the infinities. This
+    adds the RANGE refusal, which is the half ``pct_on_record`` deliberately
+    does NOT make: a percent has no declared bounds, so every real value is a
+    reading, whereas a confidence has one and the product states it to the
+    model at all three sites that ask for one --
+    ``analyzer.py`` ("- confidence: float 0.0-1.0" and the json line) and
+    ``token_optimizer.py``. A value outside that range is the model not
+    answering the question it was asked, so it is refused rather than clamped
+    INTO range: reading ``85`` as ``0.85`` would be a guess about what the
+    model meant, which is the trap ``csf.market_is_perp`` records one module
+    over.
+
+    ``0.0`` and ``1.0`` are both KEPT. ``0.0`` is a real, measured
+    no-conviction -- it is the confidence of the prompt's own no-trade
+    contract, ``{"direction": null, "confidence": 0.0, ...}`` -- and
+    ``confidence_floor.clears_confidence_floor`` says the same thing in its
+    own docstring. Collapsing it with an absence is the defect this reading
+    exists to remove, not a simplification of it.
+    """
+    if isinstance(v, str) and v.strip().endswith("%"):
+        # A PERCENT SIGN IS A SPELLING, NOT AN INTERPRETATION, and that is the
+        # same line the paragraph above draws: `"0.85"` reads because it is the
+        # same number written differently, and a bare `85` does not because
+        # choosing a denominator for it would be a guess. `72%` states its own
+        # denominator, so reading it as 0.72 guesses nothing.
+        #
+        # This is not a corner. `ollama/Modelfile`'s SYSTEM prompt specifies
+        # `Confidence: XX%` and the in-house model's ~50k-example corpus
+        # carries 7,342 of them and ZERO instances of the JSON thesis key -- so
+        # for `LLMProvider.RUNECLAW` this IS the format. The old clamp read
+        # every one of the 47 distinct spellings in that corpus as the same
+        # value, 1.0: a fine-tuned model's whole confidence vocabulary,
+        # flattened to the maximum at the parser.
+        pct = _num(v.strip()[:-1].strip())
+        conf = None if pct is None else pct / 100.0
+    else:
+        conf = _num(v)
+    if conf is None or conf < 0.0 or conf > 1.0:
+        return None
+    return conf
+
+
 def quality_reading(idea: Any) -> QualityReading:
     """Three-valued: measured at the idea's confidence, or unmeasured with why.
 
     ``source == "manual"`` is unmeasured whatever the confidence field holds,
     because that field is a stamp on a manual ticket (see the module header).
     Never raises.
+
+    The verdict is ``confidence_on_record``'s -- one reading, so the parser
+    that admits a confidence and the ladder that sizes off one cannot answer
+    differently about what a readable confidence is. ``_num`` is asked again
+    only for the REASON, which is three-valued where the verdict is two:
+    "unread" and "outside [0, 1]" send an operator to different places.
     """
     if idea is None:
         return QualityReading(False, None, "no idea: confidence unread")
@@ -117,11 +170,13 @@ def quality_reading(idea: Any) -> QualityReading:
         return QualityReading(
             False, None,
             "manual ticket: confidence is a stamp, not a measurement")
-    conf = _num(getattr(idea, "confidence", None))
+    raw = getattr(idea, "confidence", None)
+    conf = confidence_on_record(raw)
     if conf is None:
-        return QualityReading(False, None, "confidence unread")
-    if conf < 0.0 or conf > 1.0:
-        return QualityReading(False, None, f"confidence {conf:g} outside [0, 1]")
+        n = _num(raw)
+        why = ("confidence unread" if n is None
+               else f"confidence {n:g} outside [0, 1]")
+        return QualityReading(False, None, why)
     return QualityReading(True, conf, f"confidence {conf:.2f}")
 
 

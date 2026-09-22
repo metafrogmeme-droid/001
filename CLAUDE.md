@@ -764,7 +764,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 728 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 726 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7923,6 +7923,224 @@ by one, because the suite reads `risk_for`'s source to pin the one
 `set_person_identity` call it makes.
 (`tests/test_the_ladder_shadow_is_readable.py`.)
 
+**A CONFIDENCE NOBODY COULD READ WAS THE MAXIMUM CONFIDENCE, AND THE READING
+THAT REFUSES IT WAS ALREADY IN THE TREE.** FOUR parsers turned a
+model-supplied confidence into a number with one expression --
+`max(0.0, min(1.0, float(conf)))` -- and `min(1.0, x)` returns 1.0 for every
+`x` that does not compare less than it, which NaN never does. Driven through
+the shipped body: `2.5`, `100`, `85`, `1e400`, JSON `true`, and the bare
+`NaN` and `Infinity` tokens `json.loads` accepts by default all came back
+**1.0**; `-5`, `false` and `-Infinity` came back **0.0**; and an ABSENT key
+came back 0.0 as well, off `data.get("confidence", data.get("CONFIDENCE",
+0.0))`. Then the JSON branch set `_parsed = True` -- the flag whose own
+docstring says False means *"LLM output was malformed"* -- so every one of
+them sailed past the C-07 guard that blocks a trade on a reply that did not
+parse. **The clamp is what made that guard pass on a fabricated value.**
+
+**THE ORDINARY CASE IS NOT THE EXOTIC ONE, and it is the primary provider's
+branch.** The plain-text regex is `(\d+\.\d+|\d+)`, so it takes a bare
+integer, and `use_json_format = sdk_type != "anthropic"` puts the Anthropic
+path there whenever the reply is not clean JSON. Driven, `CONFIDENCE: 85`,
+`85%`, `8/10` and `7 out of 10` -- ordinary phrasings of MODERATE conviction
+-- each became 1.0, and `CONFIDENCE: high` became a measured 0.0 with
+`_parsed=True`. The transformation is monotonically wrong in the FLATTERING
+direction, and every value in 1..100 collapses onto the same answer.
+
+**`THESIS_JSON_SCHEMA` BOUNDS THE RANGE AND DOES NOT BIND ON A STOCK
+DEPLOY.** It declares `"confidence": {"type": "number", "minimum": 0,
+"maximum": 1}`, which is real enforcement -- on the Claude 5 / Opus 4.6+ path
+`model_supports_structured_output` gates. `LLM_PROVIDER` defaults to
+**openai**, whose branch sends `response_format={"type": "json_object"}`, and
+json_object mode guarantees valid JSON and says nothing about a schema. So the
+one control that would have caught this is off by default, which is the
+reachability question answered rather than assumed.
+
+**WHAT IT COST, driven rather than recalled.** `llm_weight` is 0.6 and the
+uncalibrated cap does not apply (`confidence_calibration_enabled` defaults
+True), so the fabricated figure carries 60% of `blended_confidence` -- the
+quantity the 0.85 auto-confirm threshold is eventually tested against. It is
+CACHED (`_llm_cache.put`), so one bad reply is re-served for the TTL. And it
+is written to `data/learning/llm_calibration.jsonl` as `llm_confidence_raw`.
+**That file does NOT feed the confidence calibrator** -- `confidence_calibration.fit`
+takes `(confidence, win)` pairs from the trade store, and the first draft of
+this paragraph said otherwise. What it feeds is `bot/backtest/recorded_llm.py`,
+which replays recorded theses into backtests, and `scripts/llm_ab.py`, which
+scores models with them: the benchmark and the model-comparison instrument,
+not the calibrator. A consequence you remember is not a consequence you
+measured.
+
+**THE READING ALREADY EXISTED, AND THE CLAMP LAUNDERED THE VALUE SO IT COULD
+NEVER FIRE.** `quality_ladder.quality_reading` refuses a bool, a NaN, an
+infinity and an out-of-range confidence BY NAME -- the exact three-valued
+reading of this exact quantity, written for the sizing ladder -- and by the
+time it was asked, the parser had already turned `85` into a perfectly
+in-range 1.0. So the fix is not a new reading: a second one would be a second
+answer about what a readable confidence is, which is the shape this file
+records for maps, gates and thresholds throughout. `confidence_on_record` is
+the value-level half, promoted out of `_num` plus the range refusal, and
+`quality_reading` now answers FROM it -- proved by planting, because a
+byte-identical copy agrees with every fixture. `quality_ladder` imports only
+`math` and `typing` and `bot/core/engine.py` already imports from it, so the
+edge was there and no cycle is created.
+
+**THE RANGE REFUSAL IS THE HALF `pct_on_record` DELIBERATELY DOES NOT MAKE,
+and the difference is stated rather than inherited.** A percent has no
+declared bounds, so every real value is a reading; a confidence has one, and
+all three prompts that ask for one declare `0.0-1.0` to the model. A value
+outside it is the model not answering the question it was asked. It is
+REFUSED, never rescaled: reading `85` as `0.85` would be a guess about what
+the model meant, which is `csf.market_is_perp`'s recorded trap one module
+over. A numeric STRING still reads, because `"0.85"` is a spelling and `85`
+is an interpretation.
+
+**0.0 IS KEPT, and that is the load-bearing half.** A model saying 0.0 has
+said something -- it is the confidence of the prompt's own no-trade contract,
+`{"direction": null, "confidence": 0.0, "reasoning": ...}`, which
+`THESIS_JSON_SCHEMA` admits a null direction for -- so ABSENT must not
+collapse onto it, and the old `.get(..., 0.0)` default did exactly that. The
+contract is driven both ways: a null direction with a real 0.0 still parses,
+and a fix that refused it would have turned every no-setup reply into a parse
+failure.
+
+**AN UNREADABLE CONFIDENCE IS A GUARD, NOT AN OMIT, and the audit names the
+FIELD.** `_parsed=False` sends the primary path to the rule engine and the
+fallback path to the next provider -- documented, already-exercised
+behaviour -- where handing the blend a `None` would have needed four
+downstream readers changed to buy a reweighting policy nobody has measured.
+The parse result carries `_parse_fail` and both `LLM_PARSE_FAIL` audits print
+it, because *"could not be parsed"* over a reply whose direction and reasoning
+were fine sends an operator to look at the wrong thing -- `_leverage_field_phrase`'s
+lesson one subsystem over. The flag has two readers and arrives with them.
+
+**`parsed_fields >= 2` IS NOT RESTATED.** A direction plus a READ confidence
+is already two fields, so the counter could not fail on its own once
+`conf_read` gates the verdict -- and a clause no input can reach is a claim
+that there is a check.
+
+**THE THIRD SITE IS DARK, AND THE RATCHET STRUCTURALLY CANNOT SEE IT.**
+`SmartBatcher` has zero production callers -- tests are the only caller of the
+whole class, the `market_cap` / `basis` shape exactly -- and it is in neither
+reachability baseline. `token_optimizer` IS imported, for a different class,
+so the module ratchet passes; and `_candidate_methods` skips any method with a
+`decorator_list`, so every `@staticmethod` is declined. **A `@staticmethod` is
+not a registration**: it changes binding, not reachability, which is what that
+exclusion exists for. Measured by admitting binding-only decorators, the
+blind spot is **8** dark public staticmethods, `RiskEngine.check_timeframe_alignment`
+among them. That is recorded with its number rather than fixed here -- each of
+the eight needs a triage reason, which is its own slice. What IS fixed is the
+batcher, because a module nothing calls becomes defective in exactly this way:
+beside the clamp, `item.get("direction", "LONG")` made an ABSENT direction a
+LONG and the `else "LONG"` did the same for a word it cannot place, so a row
+saying nothing became a long at a confidence of zero. Fix before you wire.
+
+**A CORPUS WHERE EVERY CONFIDENCE IS IN RANGE CANNOT TELL A CLAMP FROM A
+READING.** Every fixture in the tree planted 0.0, 0.6, 0.7, 0.71, 0.75, 0.8 or
+0.9 -- not one an out-of-range, boolean, NaN, infinite or absent value -- which
+is the RWA aggregate's lesson one quantity over, and it is why 205 tests passed
+over this for as long as the expression has existed.
+
+**THE FIRST DRAFT REFUSED THE IN-HOUSE MODEL'S ONLY OUTPUT FORMAT, and four
+adversaries driving the shipped diff are what said so.** `ollama/Modelfile`'s
+SYSTEM prompt SPECIFIES `Confidence: XX%`; the fine-tuning corpus under
+`ollama/training_data/` carries **7,342** of them across **47** distinct
+spellings and **zero** instances of the JSON thesis key; and
+`LLMProvider.RUNECLAW` is keyless, zero-cost and `/setllm`-selectable. So a
+blanket refusal of a bare integer is the 2026-07-21 *"trades can not open"*
+shape, against a corpus that is in this repository.
+
+**But the old behaviour was not a baseline worth keeping, which is the half
+the refutation did not weigh.** Driven over those 47 spellings, the clamp
+produced exactly ONE value: `1.0`. A fine-tuned model's entire confidence
+vocabulary -- 60%, 64%, 72%, 80% -- flattened to the maximum at the parser.
+So the answer is neither the clamp nor the refusal: **a percent sign is a
+SPELLING**, and it states its own denominator. That is the line this reading
+already draws -- `"0.85"` reads because it is the same number written
+differently, a bare `85` does not because choosing a denominator for it would
+be a guess -- and `72%` chooses nothing. A word-valued `Confidence: HIGH`
+(3,016 corpus lines) stays refused, because mapping HIGH onto a number would
+invent a scale nobody stated; the old code booked those as a measured 0.0.
+`ollama/Modelfile`'s own examples are fed back through the parser now, the
+`/vault` hint rule pointed at a SYSTEM PROMPT.
+
+**AND THE GUARD WAS ONE LAYER TOO LATE.** `re.search` for `(\d+\.\d+|\d+)`
+is unanchored and sign-blind, so the REGEX chose the token and the reading
+only ever validated what it was handed: driven,
+`CONFIDENCE: 1 of 5 confluence signals aligned, 0.2` gave up the `1` and
+booked a parsed **1.0** -- the maximum, off the weakest reading there is --
+and `CONFIDENCE: -0.85` gave up the `0.85` with its sign discarded. The
+remainder is read as ONE token now, which costs 9 lines in 7,400 and is what
+makes the reading's refusals reachable at all.
+
+**Thirty-eight mutations in the round that shipped, each killed, none
+refused** -- but the number that matters is the THREE that survived the
+guard as first written, and none of them was found by a mutation round of
+mine. A batch row with a good direction and no `confidence` key (no fixture
+omitted it); the audits' `parse_fail` VALUE, pinned only by `'"parse_fail"'
+in body`, which `"parse_fail": ""` satisfies just as well; and the
+plain-text `_parse_fail` losing its direction guard, so a reply whose
+confidence read 0.30 would be audited as a confidence failure. A first round
+of twenty with no survivors was a round reporting coverage it did not have,
+and *my own claim that all twenty-eight were killed was false about the
+guard, not about the code*. The fallback audit is DRIVEN now and the
+primary one's value is pinned as an AST expression rather than a key.
+
+> **And the fix's own comment quotes the expression it removes**, so the
+> assertion that the clamp is gone reads the function with `code_only` and is
+> bounded to its own `ast.FunctionDef`. Unbounded it would accuse the
+> legitimate clamps elsewhere in the module -- those bound values the code
+> itself COMPUTED, which is a different claim from coercing text somebody else
+> sent -- and unstripped it would match my own explanation and pass over a
+> restored defect. *A comment that quotes the string it forbids*, from the
+> author's side, for the third slice running.
+
+> **And the import moved because of where it sat, not what it was.** Placed
+> with the other `bot.core` imports it grew `E402` by one, because every import
+> in that block sits below a module-level `def` and the ratchet only goes
+> down. Above the first `def` it costs nothing. Ruff 1188 and mypy 568/84 held;
+> the honesty ratchet IMPROVED 728 -> 726 -- `get-default-zero` losing the two
+> confidence defaults -- and was re-recorded in the same commit, which is the
+> `known_failures.txt` rule.
+
+**THE FOURTH COPY WAS CALLED A BACKSTOP AND WAS THE DEFECT.** The first
+draft of this chapter said `bot/backtest/recorded_llm.py:62` kept its clamp
+as *"the backstop for rows written BEFORE this fix"* -- a claim nobody drove.
+Driven, it sits on the READ-BACK of the very file the live path writes
+`llm_confidence_raw` into and turns 85, 2.5, NaN and JSON `true` into 1.0
+exactly as the parser did, while the string `"high"` raised straight out of
+`from_jsonl`. **A clamp that answers 1.0 for an unreadable row is the defect,
+not the guard against it.** It asks the shared reading now and DROPS the row,
+which is the per-row refusal that loop already makes for the symbol, the
+direction and the timestamp; a dropped row returns None at lookup, which the
+replay already treats as "fall back to the rule engine". The downstream clamp
+at `analyzer.py:1476` does stay -- `_rule_based_thesis` always answers in
+range, so it binds on nothing this fix can reach -- and `bot/api/lab.py:160`
+clamps a user-supplied threshold, which is the caller's own input and a
+different question.
+
+**Two more in the function this slice was already editing.** `reasoning` did
+`str(data.get(...))`, so a JSON `null` became the four-character string
+`"None"` -- TRUTHY, so it displaced the honest fallback sentence one caller up
+and reached a person as the reason the bot declined to trade. And in the
+batcher a non-dict array element raised `AttributeError`, which is not in the
+caught tuple, so one malformed row took down a function whose docstring
+promises fail-closed PER SYMBOL. Both are the same family and both are fixed
+here rather than filed, because leaving either is *fixing two left the third*
+inside one function.
+
+**Recorded, not changed, with its measurement.** The primary path's parse-fail
+`return None` sits INSIDE the `try` whose only handler calls
+`_try_llm_fallback` AND `_rule_based_thesis` (driven: body 4134-4387, handler
+at 4388), so a reply that ANSWERED and could not be read takes neither -- it
+is answered by silence for that symbol on that tick. That is pre-existing C-07
+behaviour and this slice makes it fire more often; reaching the fallback would
+spend a provider round trip on every unreadable reply, which is a decision
+with a cost and not a wiring line. The JSON branch also still reports
+`_parsed=True` for a body with NO direction key at all, where the plain-text
+branch requires one -- the asymmetry pre-dates this slice, and the downstream
+C-07 guard at `analyzer.py:1361` turns it into the same no-trade the null
+contract produces.
+(`tests/test_an_unreadable_confidence_is_not_the_maximum.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8339,7 +8557,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 212 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 213 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -9151,9 +9369,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **413 of 1000** reach for source text through `source_scan`, `code_only`
+Driven, **414 of 1001** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 413 is a FLOOR and the honest shape is
+source scan that rule does not see, so 414 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
