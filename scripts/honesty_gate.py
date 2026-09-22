@@ -90,6 +90,40 @@ BASELINE = ROOT / "tests" / "honesty_baseline.json"
 #: Directories scanned. `tests/` is deliberately absent -- see the docstring.
 ROOTS = ("bot", "scripts")
 
+# THE MONEY PATH, DERIVED FROM THE ONE PLACE THAT ALREADY OWNS IT.
+#
+# `ci_test_gate.COV_TARGETS` names the modules the coverage floor is enforced
+# on, and `tests/test_coverage_gate_measures_what_it_names.py` already pins
+# that those names really produce coverage rows. Reading it here rather than
+# writing a second list is the rule this repo states about maps and gates
+# throughout: a second copy is a second answer, and the day somebody adds a
+# money module the partition moves with the floor instead of going stale.
+#
+# THIS IS A READING, NOT A SECOND RATCHET, and that distinction is measured.
+# The baseline is keyed shape -> FILE, so `bot/core/live_executor.py` and each
+# `bot/risk/*.py` file ALREADY ratchet independently and in both directions --
+# a new shape there fails whatever happens elsewhere in the tree. A separate
+# money baseline would be a second answer about what the backlog is, with its
+# own re-record discipline and its own way to disagree with `counts`. What was
+# missing was not enforcement, it was VISIBILITY: nothing printed how much of
+# the backlog sits where the money is.
+#
+# Driven when this was written: 136 of 726 hits (18.7%), and the distribution
+# is worth seeing rather than summarising -- 130 in live_executor.py, 6 across
+# bot/risk, and ZERO in bot/compliance. "Split by money path" is, in practice,
+# a sub-total for one file.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from ci_test_gate import COV_TARGETS as _COV_TARGETS
+except Exception:  # pragma: no cover - the gate must not die for a sub-total
+    _COV_TARGETS = ()
+MONEY_PREFIXES = tuple(t.replace(".", "/") for t in _COV_TARGETS)
+
+
+def is_money_path(rel: str) -> bool:
+    """Is `rel` one of the modules the coverage floor is enforced on?"""
+    return any(rel == p + ".py" or rel.startswith(p + "/") for p in MONEY_PREFIXES)
+
 #: THE VOCABULARY LIVES IN ONE FILE, READ BY TWO GATES.
 #:
 #: Words whose ZERO IS A CLAIM. A count, an index, a retry budget or a timeout
@@ -150,6 +184,12 @@ def _rules_fingerprint() -> str:
         ",".join(sorted(COERCIONS)),
         ",".join(SHAPES),
         ",".join(ROOTS),
+        # THE PARTITION IS HASHED TOO. Without this, COV_TARGETS could move
+        # under a recorded money figure and the fingerprint would still say
+        # the rule set is unchanged -- which is the exact trap this function's
+        # own docstring cites from `ruff_gate.check_version`. It costs one
+        # deliberate re-record now and makes the sub-total comparable after.
+        ",".join(MONEY_PREFIXES),
     ))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
@@ -319,6 +359,41 @@ def _load_baseline() -> dict:
     return json.loads(BASELINE.read_text(encoding="utf-8"))
 
 
+def _money_line(hits: list) -> str:
+    """The money path's share, and HITS ARE NOT SITES.
+
+    Both counts are printed because they differ by 25% tree-wide (726 hits
+    over 579 distinct lines; one line is counted four times) and every number
+    this repo quotes about the backlog is a HIT count that prose then reads as
+    "places to look". Not a defect in the ratchet -- comparability is all it
+    needs -- but a reader takes 726 as 726 places.
+
+    Derived on every run rather than recorded: a printed derivation cannot
+    drift from `counts`, where a stored key would need its own re-record
+    discipline and could disagree.
+    """
+    if not MONEY_PREFIXES:
+        return ("  money path: NOT MEASURED -- COV_TARGETS could not be read, "
+                "so no partition was applied. That is not a zero.")
+    money = [h for h in hits if is_money_path(h[1])]
+    lines = len({(h[1], h[2]) for h in money})
+    share = (100.0 * len(money) / len(hits)) if hits else 0.0
+    per = {}
+    for h in money:
+        p = next(p for p in MONEY_PREFIXES
+                 if h[1] == p + ".py" or h[1].startswith(p + "/"))
+        per[p] = per.get(p, 0) + 1
+    where = " · ".join(f"{p} {per[p]}" for p in MONEY_PREFIXES if per.get(p))
+    empty = [p for p in MONEY_PREFIXES if not per.get(p)]
+    out = (f"  money path (COV_TARGETS): {len(money)} hit(s) over {lines} "
+           f"line(s) — {share:.1f}% of the backlog")
+    if where:
+        out += f"\n    {where}"
+    if empty:
+        out += f"\n    no hits: {', '.join(empty)}"
+    return out
+
+
 def main() -> int:
     hits = scan()
     counts = counts_from(hits)
@@ -373,6 +448,7 @@ def main() -> int:
                 shrank.append((shape, rel, was, now))
 
     print(f"honesty shapes: {total} hit(s) across {len(counts)} shape(s)")
+    print(_money_line(hits))
     print(f"baseline:       {baseline.get('total')} hit(s)")
 
     if grew:
