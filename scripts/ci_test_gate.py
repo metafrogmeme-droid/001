@@ -151,28 +151,49 @@ def _rerun_verdict(returncode: int, node: str, node_failed: set[str]) -> str:
     return "unjudged"
 
 
-def _coverage_below_floor() -> bool:
-    """Return True if coverage on COV_TARGETS is below COV_FAIL_UNDER.
+#: Exit 2, the vocabulary `ruff_gate`, `mypy_gate` and `honesty_gate` already
+#: speak and `preflight.CANNOT_CHECK_GATES` already reads: distinct from the 1
+#: that means "something really did grow", so a launcher reading truthiness
+#: still fails closed while a human reading the message learns which happened.
+CANNOT_CHECK_EXIT = 2
 
-    Best-effort: if pytest-cov / coverage isn't installed (e.g. a minimal local
-    run), this is skipped (returns False) rather than failing the gate.
+#: `_coverage_verdict` answers one of these. There is no honest boolean for
+#: "nothing was measured": the old signature was `-> bool` and returned False —
+#: the same value as "coverage is fine" — for a `coverage report` that produced
+#: no data, on a step CI prints as "+ coverage floor".
+COV_OK, COV_BELOW, COV_UNMEASURED = "ok", "below", "unmeasured"
+
+
+def _coverage_verdict() -> str:
+    """Three-valued: COV_OK, COV_BELOW, or COV_UNMEASURED.
+
+    The caller only reaches this once `pytest_cov` has imported, so "coverage
+    is not installed" is already handled and is NOT what COV_UNMEASURED means.
+    It means the report was asked for, in a run equipped to produce one, and
+    came back with nothing to read — which is the absence of a measurement
+    rather than a measurement of adequacy.
     """
     try:
         r = subprocess.run(
             [sys.executable, "-m", "coverage", "report", f"--fail-under={COV_FAIL_UNDER}"],
             cwd=ROOT, capture_output=True, text=True,
         )
-    except Exception:
-        return False
+    except Exception as exc:  # could not even launch the reader
+        print(f"[gate] CANNOT CHECK — coverage report did not run: "
+              f"{type(exc).__name__}.", file=sys.stderr)
+        return COV_UNMEASURED
     print(r.stdout + r.stderr)
     # coverage exits 2 when below --fail-under; 0 when OK; 1 on no-data/other.
     if r.returncode == 0:
-        return False
+        return COV_OK
     if r.returncode == 2:
         print(f"[gate] FAIL — coverage on {COV_TARGETS} is below {COV_FAIL_UNDER}%.")
-        return True
-    # No data / coverage not available — skip, don't block.
-    return False
+        return COV_BELOW
+    print(f"[gate] CANNOT CHECK — `coverage report` exited {r.returncode} with no "
+          f"usable data, so coverage on {COV_TARGETS} was not measured. That is "
+          f"not a pass: the {COV_FAIL_UNDER}% floor this step is named for went "
+          f"unenforced on this run.", file=sys.stderr)
+    return COV_UNMEASURED
 
 
 def _tree_fingerprint() -> str:
@@ -377,15 +398,24 @@ def main() -> int:
         for n in new_failures:
             print(f"         ✗ {n}")
     # Coverage floor is only meaningful when the suite itself is healthy.
-    cov_failed = False
+    cov = COV_OK
     if cov_available and not (new_failures or internal_error):
-        cov_failed = _coverage_below_floor()
+        cov = _coverage_verdict()
+    cov_failed = cov == COV_BELOW
 
     if not new_failures and not internal_error and not now_passing and not cov_failed:
-        print("[gate] PASS — no new failures beyond the known baseline.")
+        if cov == COV_UNMEASURED:
+            # Everything the gate CAN say is good, and it could not say the one
+            # thing the step's own name promises. Neither a pass nor a failure.
+            print("[gate] CANNOT CHECK — no new failures, and the coverage floor "
+                  "was not measured. See the reason above.")
+        else:
+            print("[gate] PASS — no new failures beyond the known baseline.")
     print("=" * 70)
 
-    return 1 if (new_failures or internal_error or now_passing or cov_failed) else 0
+    if new_failures or internal_error or now_passing or cov_failed:
+        return 1
+    return CANNOT_CHECK_EXIT if cov == COV_UNMEASURED else 0
 
 
 if __name__ == "__main__":

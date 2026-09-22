@@ -58,7 +58,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 #: means. `tests/test_preflight_names_what_it_could_not_check.py` pins that
 #: every script named here really does exit 2 for that reason.
 CANNOT_CHECK_EXIT = 2
-CANNOT_CHECK_GATES = ("ruff_gate.py", "mypy_gate.py", "honesty_gate.py")
+CANNOT_CHECK_GATES = ("ruff_gate.py", "mypy_gate.py", "honesty_gate.py",
+                      "ci_test_gate.py")
 
 #: The signals a NON-INTERACTIVE SHELL LAUNCHER rewrites to SIG_IGN before this
 #: process starts -- `&` with job control off sets SIGINT and SIGQUIT, `nohup`
