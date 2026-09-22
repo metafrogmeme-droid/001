@@ -22,6 +22,7 @@ import os
 from dataclasses import dataclass
 
 from bot.config import CONFIG
+from bot.risk.quality_ladder import confidence_on_record
 from bot.utils.logger import audit, system_log
 from bot.utils.models import MarketSignal
 
@@ -180,18 +181,45 @@ class SmartBatcher:
             data = _json.loads(stripped)
             if isinstance(data, list):
                 for item in data:
+                    if not isinstance(item, dict):
+                        # THAT is the per-symbol fail-closed the docstring
+                        # promises. `item.get` on a str/int/list raises
+                        # AttributeError, which is NOT in the caught tuple
+                        # below, so one malformed element took the whole
+                        # call down rather than dropping its own row.
+                        continue
                     sym = item.get("symbol", "")
-                    if sym in symbols:
-                        d = str(item.get("direction", "LONG")).upper()
-                        conf = max(0.0, min(1.0, float(item.get("confidence", 0.0))))
-                        reasoning = str(item.get("reasoning", ""))
-                        results[sym] = {
-                            "direction": "SHORT" if "SHORT" in d else "LONG",
-                            "confidence": conf,
-                            "reasoning": reasoning,
-                            "_parsed": True,
-                            "source": "LLM_BATCH",
-                        }
+                    if sym not in symbols:
+                        continue
+                    # Per-symbol fail-closed -- what the docstring above
+                    # already promises, now true of both fields. Each REFUSES
+                    # rather than defaulting: `item.get("direction", "LONG")`
+                    # made an absent direction a LONG and the old
+                    # `else "LONG"` did the same for a word this parser cannot
+                    # place, so a row saying nothing became a long at a
+                    # confidence of zero -- a fabricated side on a fabricated
+                    # figure. Nothing in the tree calls this function today
+                    # (see the module header), and that is precisely why it
+                    # was free to rot: it is fixed before it is wired, not
+                    # after.
+                    d = str(item.get("direction", "")).upper()
+                    direction = ("SHORT" if "SHORT" in d
+                                 else "LONG" if "LONG" in d else None)
+                    conf = confidence_on_record(item.get("confidence"))
+                    if direction is None or conf is None:
+                        continue
+                    results[sym] = {
+                        "direction": direction,
+                        "confidence": conf,
+                        # Read as a string or left "" -- never `str(None)`,
+                        # which is the truthy four-character "None" that
+                        # displaces an honest absence downstream.
+                        "reasoning": (item["reasoning"]
+                                      if isinstance(item.get("reasoning"), str)
+                                      else ""),
+                        "_parsed": True,
+                        "source": "LLM_BATCH",
+                    }
         except (ValueError, TypeError, _json.JSONDecodeError):
             pass
 
