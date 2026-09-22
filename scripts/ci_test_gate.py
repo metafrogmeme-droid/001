@@ -151,28 +151,83 @@ def _rerun_verdict(returncode: int, node: str, node_failed: set[str]) -> str:
     return "unjudged"
 
 
-def _coverage_below_floor() -> bool:
-    """Return True if coverage on COV_TARGETS is below COV_FAIL_UNDER.
+#: Exit 2, the vocabulary `ruff_gate`, `mypy_gate` and `honesty_gate` already
+#: speak and `preflight.CANNOT_CHECK_GATES` already reads: distinct from the 1
+#: that means "something really did grow", so a launcher reading truthiness
+#: still fails closed while a human reading the message learns which happened.
+CANNOT_CHECK_EXIT = 2
 
-    Best-effort: if pytest-cov / coverage isn't installed (e.g. a minimal local
-    run), this is skipped (returns False) rather than failing the gate.
+#: `_coverage_verdict` answers one of these. There is no honest boolean for
+#: "nothing was measured": the old signature was `-> bool` and returned False —
+#: the same value as "coverage is fine" — for a `coverage report` that produced
+#: no data, on a step CI prints as "+ coverage floor".
+COV_OK, COV_BELOW, COV_UNMEASURED = "ok", "below", "unmeasured"
+
+#: A FOURTH word, which `_coverage_verdict` never returns because it is decided
+#: before that function is asked: this run never instrumented anything, so there
+#: is no coverage OF IT to read back.
+COV_NOT_REQUESTED = "not-requested"
+
+
+def _coverage_was_requested(cmd: list[str]) -> bool:
+    """Did the pytest run we just made actually instrument a target?
+
+    `import pytest_cov` succeeding answers "is the plugin installed", which is a
+    DIFFERENT question, and standing one in for the other is what this function
+    exists to stop. `tests/test_gate_checks_exit_code.py` drives the baseline
+    logic against a fake pytest and replaces COV_FLAGS with `[]` to do it — the
+    plugin is still installed, so a gate keyed on `cov_available` went and
+    reported a floor over whatever `.coverage` happened to be lying in the tree.
+    Driven, that is `No data to report.` -> rc 1 -> CANNOT CHECK, and two tests
+    whose subject is the exit code went red on a coverage question neither asks.
+
+    Reading the command that RAN is the only thing that answers it. A run with
+    no `--cov=<target>` in it produced no coverage, and that is NOT
+    `COV_UNMEASURED`: that word means the report WAS asked for, by a run
+    equipped to answer, and came back with nothing. Here nobody asked, and
+    quoting a floor would quote whatever an earlier run left on disk — a memory
+    presented as a measurement.
+
+    `--cov-report=` alone is not a request: it says how to RENDER a measurement
+    and names no target, so a config whose targets went empty still carries it
+    while measuring nothing. That is the "a rule that measured zero files would
+    pass forever" shape, so the reading is the `--cov=` flags and not truthiness
+    over the list.
+    """
+    return any(a.startswith("--cov=") for a in cmd)
+
+
+def _coverage_verdict() -> str:
+    """Three-valued: COV_OK, COV_BELOW, or COV_UNMEASURED.
+
+    The caller only reaches this once `_coverage_was_requested` has said this
+    run instrumented a target, so "coverage was never asked for" is already
+    handled above and is NOT what COV_UNMEASURED means. It means the report was
+    asked for, in a run equipped to produce one, and came back with nothing to
+    read — which is the absence of a measurement rather than a measurement of
+    adequacy.
     """
     try:
         r = subprocess.run(
             [sys.executable, "-m", "coverage", "report", f"--fail-under={COV_FAIL_UNDER}"],
             cwd=ROOT, capture_output=True, text=True,
         )
-    except Exception:
-        return False
+    except Exception as exc:  # could not even launch the reader
+        print(f"[gate] CANNOT CHECK — coverage report did not run: "
+              f"{type(exc).__name__}.", file=sys.stderr)
+        return COV_UNMEASURED
     print(r.stdout + r.stderr)
     # coverage exits 2 when below --fail-under; 0 when OK; 1 on no-data/other.
     if r.returncode == 0:
-        return False
+        return COV_OK
     if r.returncode == 2:
         print(f"[gate] FAIL — coverage on {COV_TARGETS} is below {COV_FAIL_UNDER}%.")
-        return True
-    # No data / coverage not available — skip, don't block.
-    return False
+        return COV_BELOW
+    print(f"[gate] CANNOT CHECK — `coverage report` exited {r.returncode} with no "
+          f"usable data, so coverage on {COV_TARGETS} was not measured. That is "
+          f"not a pass: the {COV_FAIL_UNDER}% floor this step is named for went "
+          f"unenforced on this run.", file=sys.stderr)
+    return COV_UNMEASURED
 
 
 def _tree_fingerprint() -> str:
@@ -376,16 +431,41 @@ def main() -> int:
         print(f"[gate] FAIL — {len(new_failures)} NEW failure(s) not in the baseline:")
         for n in new_failures:
             print(f"         ✗ {n}")
-    # Coverage floor is only meaningful when the suite itself is healthy.
-    cov_failed = False
-    if cov_available and not (new_failures or internal_error):
-        cov_failed = _coverage_below_floor()
+    # Coverage floor is only meaningful when the suite itself is healthy, and
+    # only exists at all when this run instrumented something. The initial value
+    # is the honest one rather than COV_OK: a red suite lands here too, and no
+    # reader below distinguishes the two because every one of them is gated on a
+    # healthy suite — a fifth word nothing reads would be a claim that there is
+    # a check.
+    cov = COV_NOT_REQUESTED
+    if _coverage_was_requested(first_cmd) and not (new_failures or internal_error):
+        cov = _coverage_verdict()
+    cov_failed = cov == COV_BELOW
 
     if not new_failures and not internal_error and not now_passing and not cov_failed:
-        print("[gate] PASS — no new failures beyond the known baseline.")
+        if cov == COV_UNMEASURED:
+            # Everything the gate CAN say is good, and it could not say the one
+            # thing the step's own name promises. Neither a pass nor a failure.
+            print("[gate] CANNOT CHECK — no new failures, and the coverage floor "
+                  "was not measured. See the reason above.")
+        else:
+            print("[gate] PASS — no new failures beyond the known baseline.")
+            if cov == COV_NOT_REQUESTED:
+                # Omit, with the omission NAMED. CI prints this step as
+                # "+ coverage floor", so a run that carried no coverage leg and
+                # said nothing about it would let the step's own name overstate
+                # what was checked. It is not a failure — a minimal local run
+                # without pytest-cov is a legitimate way to ask the baseline
+                # question — but it is not silence either.
+                print(f"[gate] the {COV_FAIL_UNDER}% coverage floor was NOT part "
+                      f"of this run: no --cov= target reached pytest, so there "
+                      f"is no coverage of this run to report. Nothing above "
+                      f"claims one.")
     print("=" * 70)
 
-    return 1 if (new_failures or internal_error or now_passing or cov_failed) else 0
+    if new_failures or internal_error or now_passing or cov_failed:
+        return 1
+    return CANNOT_CHECK_EXIT if cov == COV_UNMEASURED else 0
 
 
 if __name__ == "__main__":
