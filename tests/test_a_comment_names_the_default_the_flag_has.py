@@ -249,3 +249,161 @@ def test_the_finding_key_survives_a_line_move():
     a = Finding("p.py", 10, "X", "off", True, "CONFIG attr", "t")
     b = Finding("p.py", 900, "X", "off", True, "CONFIG attr", "t")
     assert a.key == b.key
+
+
+# ---------------------------------------------------------------------------
+# THE TWO DECLENSIONS, AND WHY BOTH HALVES LAND TOGETHER.
+#
+# `_CONFIG_REF` demanded a SECTIONED two-dot reference, so every comment about
+# a flag read FLAT (`CONFIG.auto_confirm_live_enabled`) resolved to nothing
+# and its claim was dropped in silence. Widening it is one line — and driven,
+# widening it ALONE produces exactly one new finding, and that finding is the
+# RC-AUD-002 RETRACTION at bot/core/engine.py:5382: a correction naming the
+# false sentence it corrects, accused by the rule the correction motivated.
+#
+# So the quote strip is not a nicety, it is the other half. Both are driven
+# here on PLANTED sources, because the real tree is at zero either way and a
+# rule no input can reach is a claim that there is a check.
+# ---------------------------------------------------------------------------
+
+_FLAT_CLAIM = '''
+# Default OFF: nothing runs unless it is switched on.
+if CONFIG.auto_confirm_live_enabled:
+    pass
+'''
+
+_FLAT_RETRACTION = '''
+# THIS COMMENT USED TO SAY the gate is "disabled by default", which was false.
+if CONFIG.auto_confirm_live_enabled:
+    pass
+'''
+
+_FLAT_RETRACTION_WRAPPED = '''
+# THIS USED TO SAY the gate is "disabled by
+# default", which was false of the dataclass.
+if CONFIG.auto_confirm_live_enabled:
+    pass
+'''
+
+_FLAT_LIVE_CLAIM_BESIDE_A_QUOTE = '''
+# It used to say "something else entirely". It is default OFF.
+if CONFIG.auto_confirm_live_enabled:
+    pass
+'''
+
+# TWO quoted spans with the live claim BETWEEN them. A strip that runs from
+# the first quote to the last -- `".*"` with DOTALL, which is what a reader
+# reaching for "strip the quotes" writes -- swallows the claim and acquits.
+# With only one quoted span, greedy and non-greedy agree, so the fixture
+# above cannot tell them apart.
+_FLAT_CLAIM_BETWEEN_TWO_QUOTES = '''
+# It used to say "one thing". It is default OFF. It never said "the other".
+if CONFIG.auto_confirm_live_enabled:
+    pass
+'''
+
+
+def _findings(src: str):
+    return reader_findings({"planted.py": src})
+
+
+def test_a_flat_config_read_is_now_resolved():
+    """The first declension: no section, so nothing resolved and the claim
+    was dropped. This is the case that was invisible."""
+    found = _findings(_FLAT_CLAIM)
+    assert len(found) == 1, found
+    assert found[0].env == "AUTO_CONFIRM_LIVE_ENABLED"
+    assert found[0].how == "CONFIG flat attr"
+
+
+def test_a_quoted_retraction_is_not_a_claim():
+    """The second declension. Nobody writes a LIVE claim inside quotes."""
+    assert not _findings(_FLAT_RETRACTION)
+
+
+def test_the_strip_works_on_a_quote_that_wraps_across_lines():
+    """POST-JOIN is the mechanism: `"[^"\\n]*"` refuses newlines, and the real
+    retraction wraps. Applied per line, this fixture still claims 'off'."""
+    assert not _findings(_FLAT_RETRACTION_WRAPPED)
+
+
+def test_a_live_claim_between_two_quotes_still_bites():
+    """The strip must be per-span, not first-quote-to-last."""
+    found = _findings(_FLAT_CLAIM_BETWEEN_TWO_QUOTES)
+    assert len(found) == 1, (
+        "a greedy strip swallowed the live claim between the two quoted "
+        f"spans and acquitted the block: {found}")
+
+
+def test_a_live_claim_beside_a_quote_still_bites():
+    """Without this the strip could become a blanket acquittal and nothing
+    would say so — a quoted span nearby must not buy silence for an
+    UNQUOTED claim in the same block."""
+    found = _findings(_FLAT_LIVE_CLAIM_BESIDE_A_QUOTE)
+    assert len(found) == 1, found
+
+
+def test_the_sectioned_resolution_still_wins():
+    """The ORDER. A flat pattern tried first reads `CONFIG.risk.flag` as the
+    section name and loses every sectioned resolution."""
+    from tests.default_comments import _resolve
+    decl = declared_defaults()
+    # A SECTIONED read of a flag that really is in the map -- the first draft
+    # of this fixture used `CONFIG.risk.min_confidence`, which is a FLOAT and
+    # therefore absent from `declared_defaults()`, so the sectioned loop found
+    # nothing and the flat fallback answered. The assertion was right and the
+    # fixture could not produce the state it named.
+    sectioned = next(k for k, v in decl.items() if v)
+    got = _resolve(
+        f"CONFIG.risk.{sectioned} beside CONFIG.auto_confirm_live_enabled", decl)
+    assert got is not None and got[2] == "CONFIG attr", got
+
+
+def test_widening_the_declaration_rule_to_non_bool_is_refused():
+    """RECORDED, NOT DONE, and the reason is measured rather than tidy.
+
+    `_DECL` collects only `: bool = _env_bool(...)`, so a FLOAT flag whose
+    "off" is a sentinel — `auto_confirm_threshold`, off at 1.0 — never enters
+    `declared_defaults()`. That is a real second declension and widening it is
+    actively WRONG: driven, 183 non-bool declarations would enter, ZERO
+    produce a declaration finding (no non-bool block spells the claim
+    vocabulary), and on the reader side they produce three findings, ALL THREE
+    FALSE ACCUSATIONS — because `actual` is compared as a boolean and
+    `not 0.06` is False, so any nearby float makes an honest "default OFF"
+    about some other flag register as a mismatch.
+
+    The two widenings are not the same kind of move. One is cheap and one
+    must not be made, and this asserts the second stays unmade.
+    """
+    decl = declared_defaults()
+    assert decl, "an empty declaration map would pass this vacuously"
+    # AND IT IS THE DEFAULT GROUP, NOT THE TYPE ANNOTATION, THAT KEEPS THEM
+    # OUT -- which the round is what said. Widening only `: bool` to `: \w+`
+    # admits NOTHING, because the second half still demands a literal
+    # `(True|False)` where a float flag has `0.85`. An equivalent mutant, and
+    # the reason it matters is that a future reader loosening the annotation
+    # "to be more general" would change no verdict and conclude the rule is
+    # about the annotation.
+    assert "auto_confirm_threshold" not in decl, (
+        "the float flag is deliberately absent — see this test's docstring")
+
+    # AND THE COST IS DRIVEN, NOT ASSERTED. The first version of this test
+    # checked that every recorded default `isinstance(..., bool)` — and
+    # `m.group(3) == "True"` is a bool whatever `_DECL` matches, so widening
+    # it kept the assertion true and the mutation survived a green round.
+    # What widening really costs is a FALSE ACCUSATION, so that is what is
+    # planted: a float flag in the map, and an honest comment about a
+    # DIFFERENT flag beside it.
+    widened = dict(decl)
+    widened["some_rate_pct"] = ("SOME_RATE_PCT", 0.06)   # a float "off" is a sentinel
+    planted = ('''
+# Default OFF: nothing runs unless it is switched on.
+if CONFIG.some_rate_pct:
+    pass
+''')
+    accused = reader_findings({"planted.py": planted}, decl=widened)
+    assert accused, (
+        "this is the measurement the refusal rests on: with a float in the "
+        "map, `not 0.06` is False, so an honest 'default OFF' registers as a "
+        "mismatch. If this stops accusing, re-read the refusal — the reason "
+        "for it may have gone")
