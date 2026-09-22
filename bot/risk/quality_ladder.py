@@ -301,3 +301,78 @@ def kelly_confidence_factor(idea: Any) -> Tuple[float, str]:
     if reading.measured and reading.confidence is not None:
         return reading.confidence, reading.why
     return 1.0, f"{reading.why}: half-Kelly unscaled"
+
+
+def auto_confirm_refusal(idea: Any) -> Optional[str]:
+    """Why ``idea`` may not be auto-confirmed, or ``None`` when it may.
+
+    Auto-confirm bypasses the human-decision gate, so what it has to ask of a
+    confidence is not *what number is it* but *is it a MEASUREMENT I may act on
+    with nobody looking*. `quality_reading` is that question and three
+    money-facing consumers already take it -- the sizing ladder, Kelly's
+    half-fraction, and `_high_conviction_margin`, whose own comment says a
+    manual ticket's stamp "cleared every floor by construction". The EXECUTION
+    gate never asked, so a hand-typed ticket's 1.0 cleared the bar the moment
+    it was registered and the Confirm button under its card decided nothing.
+
+    NO SOURCE LIST, IN EITHER DIRECTION, and that is measured rather than
+    preferred. The autonomous path's own idea (`analyzer.py`'s ``TradeIdea(``)
+    sets no ``source`` at all and carries the field's default ``"unknown"``, so
+    an allowlist would have to admit the value a forgotten argument produces --
+    the one value that must never be the value a mistake makes. A denylist
+    naming ``"manual"`` is the `/setllm` ten-of-eleven shape, where the source
+    added tomorrow is the one missing from it, and it would be a THIRD copy of
+    a judgement production already writes twice.
+
+    THE WRITER SET IS FIVE SOURCES, and an earlier draft of this docstring said
+    eight. It listed every ``source=`` literal in the tree -- and ``getclaw``,
+    ``swarm`` and ``mcp_shield`` build a `TradeIdea` that never reaches
+    ``_pending_ideas`` at all (zero references in any of the three files), so
+    naming them claimed coverage this reading does not have, which is the
+    failure the repo's own gates exist to prevent. What really writes there is
+    the analyzer (``"unknown"``), `scan_skill` and its retry, the drift
+    re-analysis (``"auto_reanalyze"``, via `callback_handler`), and `manual`.
+    The reading refuses exactly the last one.
+
+    AN UNREADABLE CONFIDENCE IS REFUSED TOO, and it is the same rule rather
+    than a second one -- `auto_confirm_is_disabled`'s own docstring says a
+    threshold nobody could read "is not a licence to place real-money orders
+    without a human, and this is the one direction in which an unreadable value
+    must not fail open". Stated honestly, it is a BACKSTOP and not a live path:
+    ``TradeIdea.confidence`` is ``Field(ge=0.0, le=1.0)``, and driven, pydantic
+    refuses NaN, an infinity, 2.5, -0.5 and None at construction (a bool
+    coerces to 1.0). So no idea in ``_pending_ideas`` can carry one today, and
+    what this half guards is the day that field is loosened or a caller hands
+    the reading something that is not a `TradeIdea`.
+
+    It does NOT refuse a manual ticket's PROPOSAL: `clears_confidence_floor`
+    still admits one, the card is still built, and the Confirm button still
+    executes it under the caller's own id. Proposing and executing are
+    different acts and only the second one is being narrowed here.
+
+    WHAT IT CANNOT SEE, stated because a gate whose coverage is overstated is
+    the failure this repo's gates exist to prevent. This asks about the
+    CONFIDENCE. The drift re-offer (``source == "auto_reanalyze"``, built by
+    `formatters/drift_offer.reanalyzed_idea` and registered by
+    `callback_handler`) copies the ORIGINAL idea's confidence, so it reads as
+    measured and passes here -- while its own call-site comment says "OFFERED,
+    not executed ... executing it spends money on a thesis the user never saw,
+    on the strength of a button they pressed for a different one", and its own
+    `reasoning` says the levels are "flat placeholders, not a fresh analysis".
+    That is the same door one source over, and no reading of a confidence can
+    close it: the defect there is the GEOMETRY, not the number. It needs a
+    decision of its own -- a marker the loop refuses, or not registering the
+    re-offer into the swept dict at all -- and is recorded here rather than
+    answered by widening this one into a rule nobody measured.
+    """
+    reading = quality_reading(idea)
+    # `and reading.confidence is not None` was here and is DELETED: the one
+    # return that answers measured=True is `QualityReading(True, conf, ...)`
+    # below a guard that has already refused a None `conf`, so no input can
+    # make that clause false -- and a line no input can reach is a claim that
+    # there is a check. The property it was claiming is driven in the guard
+    # instead, so the day that return type changes a test fails rather than
+    # this reading quietly starting to admit an unmeasured one.
+    if reading.measured:
+        return None
+    return reading.why
