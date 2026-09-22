@@ -47,6 +47,7 @@ from types import SimpleNamespace
 import pytest
 
 import bot.core.engine as engine_mod
+import bot.core.session_aware as session_aware
 import bot.risk.risk_engine as rem
 from bot.compat import UTC
 from bot.config import CONFIG
@@ -72,44 +73,28 @@ from tests.leverage_drive import drive_ensure_leverage, lev
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+# Tuesday 10:00 UTC is the London session: size multiplier 1.0, and not a
+# Friday. The dollar figures in this file are that session's figures. Asian
+# hours (00:00-08:00 UTC) multiply by 0.75, which is how a $1,000 pre-cap
+# fixture published $750 and a $50 ceiling published $37.50 on the 2026-09-22
+# main run — the ladder was in shadow the whole time.
+_LONDON = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
 
-# ── THE SESSION MULTIPLIER IS THE WALL CLOCK, AND NOTHING HERE PINNED IT ──
-#
-# `risk_engine.evaluate()` multiplies the pre-cap size by
-# `get_current_session(now=as_of).size_multiplier`, and `as_of=None` — which is
-# every call in this file — means NOW. Three of the five sessions are not 1.0
-# (asian 0.75, london_ny_overlap 1.10, late_ny 0.80), so every arithmetic
-# assertion in this file was right for nine hours a day and wrong for fifteen.
-#
-# It was not caught because CI happened to run inside London or New York.
-# Measured on 2026-09-22 at 04:45 UTC — the asian session — two tests failed
-# on their own FIXTURE precondition (`assert off == approx(1_000.0)` read
-# 750.0, which is 1000 x 0.75) while `known_failures.txt` said the suite was
-# clean. A test that fails by time of day is a CI landmine on the sizing path.
-#
-# The containment belongs in the HARNESS, not in a rule each test remembers —
-# the lesson conftest.py already records about the vault-managed keys, for the
-# same reason: the tests were testing exactly what they meant to.
-#
-# Pinned by asking the REAL table at a fixed instant rather than hand-writing a
-# SessionInfo, so a table edit moves this with it; and the multiplier is
-# asserted, so an edit that made London != 1.0 fails loudly here instead of
-# silently restoring the drift.
+
 @pytest.fixture(autouse=True)
-def _pin_the_trading_session(monkeypatch):
-    from datetime import datetime, timezone
+def _measure_at_london(monkeypatch):
+    """A caller that passes no bar time is measured at London.
 
-    from bot.core import session_aware
+    ``as_of`` still wins, so a test can ask for Asian and get the cut.
+    The import of ``get_current_session`` is inside ``evaluate``, so the
+    patch is the module the function imports from.
+    """
+    real = session_aware.get_current_session
 
-    neutral = session_aware.get_current_session(
-        now=datetime(2026, 1, 5, 10, 0, tzinfo=timezone.utc))   # london, 08-13
-    assert neutral.size_multiplier == 1.0, (
-        f"the pinned session is no longer neutral ({neutral.session_name} "
-        f"x{neutral.size_multiplier}) — every size assertion in this file "
-        "reads through it"
-    )
-    monkeypatch.setattr(session_aware, "get_current_session",
-                        lambda now=None: neutral)
+    def _at(now=None):
+        return real(_LONDON if now is None else now)
+
+    monkeypatch.setattr(session_aware, "get_current_session", _at)
 
 
 def _engine(balance=10_000.0):
@@ -302,6 +287,30 @@ class TestKellyReadsTheSameReading:
 # ── the risk gate ───────────────────────────────────────────────────────────
 
 class TestTheSizeHalf:
+    def test_london_is_the_session_these_figures_name_and_asia_still_cuts(self, monkeypatch):
+        """The wall clock is not the fixture. Patching ``datetime.now`` to
+        04:00 UTC must leave an untimed evaluation at $1,000; deleting the
+        London default would publish $750. An explicit Asian ``as_of`` still
+        cuts, so the default is not a sizer that was switched off."""
+        class _Clock:
+            @staticmethod
+            def now(tz=None):
+                return datetime(2026, 9, 22, 4, 0, tzinfo=UTC)
+
+        monkeypatch.setattr(session_aware, "datetime", _Clock)
+        london = session_aware.get_current_session()
+        asian = session_aware.get_current_session(datetime(2026, 9, 22, 4, 0, tzinfo=UTC))
+        assert (london.session_name, london.size_multiplier) == ("london", 1.0)
+        assert asian.size_multiplier == 0.75
+        eng = _engine()
+        idea = dict(stop=80.0, tp=160.0)
+        at_london = eng.evaluate(_idea(**idea), atr=2.0).position_size_usd
+        at_asia = eng.evaluate(
+            _idea(**idea), atr=2.0, as_of=datetime(2026, 9, 22, 4, 0, tzinfo=UTC),
+        ).position_size_usd
+        assert at_london == pytest.approx(1_000.0)
+        assert at_asia == pytest.approx(750.0)
+
     def test_off_is_byte_identical_and_the_shadow_says_what_it_would_have_done(
             self, monkeypatch, risk_audits):
         eng = _engine()

@@ -29,18 +29,21 @@ orphan detection) is implemented** — see `bot/core/live_executor.py`,
   direction). Read-only — it never mutates money state automatically.
 - Covered by `tests/test_order_idempotency.py` (5 tests).
 
-### 2. `Decimal` for money — STAGED PLAN (next)
-Big-bang conversion across 61k LOC risks silently corrupting PnL, so this should
-land in safe stages, each green under CI before the next:
-- **Stage A:** add a `bot/utils/money.py` boundary (`to_money`, `quantize_to_tick`,
-  `fmt`) and use it only at I/O edges (exchange responses → `Decimal`, `Decimal`
-  → JSON/display). No internal math changes yet.
-- **Stage B:** convert `Portfolio.open/close` and PnL/equity/exposure arithmetic
-  to `Decimal`, with golden-value tests asserting identical results to the float
-  path on a fixed trade sequence (catches drift).
-- **Stage C:** convert `LivePosition` / `RiskEngine` sizing math.
-- **Stage D:** delete float money paths; enforce with a lint rule.
-Do **not** attempt A–D in one commit.
+### 2. `Decimal` for money — Stage B done, Stage C next
+Big-bang conversion across the tree risks silently corrupting PnL, so this
+lands in stages, each green under CI before the next:
+- **Stage A (done):** `bot/utils/money.py` (`to_money`, `quantize_to_tick`,
+  `fmt`) at the close card and the venue reference price. Live order prices
+  stay on float.
+- **Stage B (done):** the paper book's open quantity, close settlement, and
+  the equity/exposure/peak leg are `bot/utils/paper_money.py`. The trade
+  record and the state file still store floats. A fixed sequence pins the
+  published cents to the float path, and a book that adds the already-rounded
+  net publishes a different balance.
+- **Stage C (next):** `LivePosition` / `RiskEngine` sizing math.
+- **Stage D:** delete the remaining float money paths; enforce with a lint rule.
+Do **not** land C and D in one commit, and do not change a live order price
+in either.
 
 ### ✅ 3. Tick/lot-size validation + price rounding — DONE
 - Entry orders now validate quantity against the venue's `limits.amount.min` and
