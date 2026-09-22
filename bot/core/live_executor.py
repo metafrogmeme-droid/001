@@ -36,6 +36,7 @@ from bot.utils.leveraged_return import (
     realized_margin_return_pct,
 )
 from bot.utils.logger import audit, trade_log, system_log
+from bot.utils.live_money import price_close
 from bot.utils.money import fmt, to_money
 from bot.utils.models import Direction, TradeIdea
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
@@ -10402,22 +10403,18 @@ class LiveExecutor:
                             "reason": reason, "close_order_id": close_order_id})
                 self._record_warning("close_price_unread")
             else:
-                # Fallback: calculate from entry/exit prices. Held in plain
-                # floats so the arithmetic stays float-to-float; the Optionals
-                # above are the PUBLISHED type, not the working one.
-                if pos.direction == "LONG":
-                    _gross = (fill_price - pos.entry_price) * pos.quantity
-                else:
-                    _gross = (pos.entry_price - fill_price) * pos.quantity
-
-                # Exchange commission: entry + exit notional x fee rate
-                entry_notional = pos.entry_price * pos.quantity
-                exit_notional = fill_price * pos.quantity
+                # Price the close from entry and exit. Decimal in the
+                # reading; the record still stores the rounded floats below.
                 entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
                 exit_fee_pct = exit_rate_pct()
-                _comm = (entry_notional * entry_fee_pct / 100.0) + (exit_notional * exit_fee_pct / 100.0)
-                gross_pnl, commission = _gross, _comm
-                net_pnl = _gross - _comm
+                priced = price_close(
+                    pos.entry_price, fill_price, pos.quantity,
+                    entry_fee_pct, exit_fee_pct,
+                    is_long=pos.direction == "LONG",
+                )
+                gross_pnl = priced.gross
+                commission = priced.commission
+                net_pnl = priced.net
 
             pos.close_reason = reason
             pos.status = "closed"
@@ -11522,12 +11519,6 @@ class LiveExecutor:
             )
 
         # ── Record accurate close ────────────────────────────────────
-        if pos.direction == "LONG":
-            gross_pnl = (est_exit - pos.entry_price) * pos.quantity
-        else:
-            gross_pnl = (pos.entry_price - est_exit) * pos.quantity
-
-        # Commission calculation
         if exchange_reported_pnl is not None:
             # Honor whether the exchange PnL is gross or net (pnl_is_net) rather
             # than assuming net — a gross value (netProfit==0 fallback / fetch_my
@@ -11542,12 +11533,16 @@ class LiveExecutor:
                 entry_fee_pct=entry_fee_pct,
             )
         else:
-            entry_notional = pos.entry_price * pos.quantity
-            exit_notional = est_exit * pos.quantity
             entry_fee = entry_rate_pct(getattr(pos, 'order_type', None))
             exit_fee = exit_rate_pct()
-            commission = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
-            net_pnl = gross_pnl - commission
+            priced = price_close(
+                pos.entry_price, est_exit, pos.quantity,
+                entry_fee, exit_fee,
+                is_long=pos.direction == "LONG",
+            )
+            gross_pnl = priced.gross
+            commission = priced.commission
+            net_pnl = priced.net
 
         pos.close_reason = reason
         pos.status = "closed"
@@ -12611,17 +12606,32 @@ class LiveExecutor:
                                     fill_source = f"ticker_fallback_after_{_retries}_retries"
                                 exchange_reported_pnl = None
 
-                            # Compute PnL — prefer exchange-reported profit (source of truth)
+                            # Compute PnL — prefer exchange-reported profit (source of truth).
+                            # The price path is one reading: gross and the two
+                            # fees come back together, and the branch below
+                            # stores them rather than dividing again.
                             pnl: Optional[float]
+                            price_gross: Optional[float] = None
+                            price_comm: Optional[float] = None
+                            price_net: Optional[float] = None
                             if exchange_reported_pnl is not None:
                                 pnl = exchange_reported_pnl
                                 fill_source = fill_source + "+exchange_pnl"
                             elif est_exit is None:
                                 pnl = None
-                            elif pos.direction == "LONG":
-                                pnl = (est_exit - pos.entry_price) * pos.quantity
                             else:
-                                pnl = (pos.entry_price - est_exit) * pos.quantity
+                                _entry_fee = entry_rate_pct(
+                                    getattr(pos, 'order_type', None))
+                                _exit_fee = exit_rate_pct()
+                                _priced = price_close(
+                                    pos.entry_price, est_exit, pos.quantity,
+                                    _entry_fee, _exit_fee,
+                                    is_long=pos.direction == "LONG",
+                                )
+                                pnl = _priced.gross
+                                price_gross = _priced.gross
+                                price_comm = _priced.commission
+                                price_net = _priced.net
 
                             pos.close_reason = reason
                             pos.status = "closed"
@@ -12659,15 +12669,11 @@ class LiveExecutor:
                                     "exchange history and ticker both unreadable",
                                     pos.symbol)
                             else:
-                                # Deduct commission on reconciled close (same as manual close)
-                                entry_notional = pos.entry_price * pos.quantity
-                                exit_notional = est_exit * pos.quantity
-                                entry_fee = entry_rate_pct(
-                                    getattr(pos, 'order_type', None))
-                                exit_fee = exit_rate_pct()
-                                _comm = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
-                                gross_pnl, commission = pnl, _comm
-                                net_pnl = pnl - _comm
+                                # The price reading above already deducted both
+                                # legs. Storing ``pnl`` here and the fees again
+                                # would be a second close.
+                                gross_pnl, commission, net_pnl = (
+                                    price_gross, price_comm, price_net)
                             pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)
                             pos.commission = None if commission is None else round(commission, 4)
                             pos.pnl_usd = None if net_pnl is None else round(net_pnl, 4)

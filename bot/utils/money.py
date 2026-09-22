@@ -5,9 +5,10 @@ is not a figure. ``quantize_to_tick`` and ``fmt`` are what a display does
 with one. The paper book's open quantity, close settlement and
 mark-to-market leg live in ``bot.utils.paper_money`` and call ``to_money``.
 
-The risk engine and the live order-price snap stay on float. Those are
-later stages, and changing an order price in the same commit as a paper-book
-reading is how a display fix moves live money.
+The risk engine's fixed-fractional base and the price-derived live
+close live in ``bot.utils.live_money`` and call ``to_money``. The live
+order-price snap stays on float. Changing an order price in the same
+commit as a sizing reading is how a display fix moves live money.
 
 ``0`` is a reading. ``None``, a blank, a bool, a percent, NaN and infinity
 are not.

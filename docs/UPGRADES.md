@@ -29,7 +29,7 @@ orphan detection) is implemented** — see `bot/core/live_executor.py`,
   direction). Read-only — it never mutates money state automatically.
 - Covered by `tests/test_order_idempotency.py` (5 tests).
 
-### 2. `Decimal` for money — Stage B done, Stage C next
+### 2. `Decimal` for money — Stage C done, Stage D next
 Big-bang conversion across the tree risks silently corrupting PnL, so this
 lands in stages, each green under CI before the next:
 - **Stage A (done):** `bot/utils/money.py` (`to_money`, `quantize_to_tick`,
@@ -40,10 +40,16 @@ lands in stages, each green under CI before the next:
   record and the state file still store floats. A fixed sequence pins the
   published cents to the float path, and a book that adds the already-rounded
   net publishes a different balance.
-- **Stage C (next):** `LivePosition` / `RiskEngine` sizing math.
-- **Stage D:** delete the remaining float money paths; enforce with a lint rule.
-Do **not** land C and D in one commit, and do not change a live order price
-in either.
+- **Stage C (done):** the risk engine's fixed-fractional base and the three
+  price-derived live closes (the close the bot places, the already-closed
+  path, and reconcile) are `bot/utils/live_money.py`. Later size multipliers
+  stay where they are. A close the venue already priced stays
+  `_reconcile_exchange_close_pnl`. A realistic card matches the float path
+  at the published place; a half-cent boundary is one unit apart, and the
+  suite pins both. Live order prices stay on float.
+- **Stage D (next):** delete the remaining float money paths; enforce with a lint rule.
+Do **not** land Stage D in the Stage C commit, and do not change a live
+order price in either.
 
 ### ✅ 3. Tick/lot-size validation + price rounding — DONE
 - Entry orders now validate quantity against the venue's `limits.amount.min` and

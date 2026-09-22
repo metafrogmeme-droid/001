@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1848-1857
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5885 (…
+bot/core/live_executor.py:5886 (…
 
 **Scalping** — **shipped**
 
@@ -167,9 +167,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4784 creates the entry order idempotently, :6400/:6423 attach
+live_executor.py:4785 creates the entry order idempotently, :6401/:6424 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:1413, :1429, :1517); venues.py:276 selects the swap
+productType USDT-FUTURES (:1414, :1430, :1518); venues.py:276 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1007); signal cards from /analyze, /scan and the pro scans
@@ -345,7 +345,7 @@ execution on a real venue.
 The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (risk/risk_engine.py:113) is the fail-closed pre-
+signal modules; RiskEngine (bot/risk/risk_engine.py:232) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:5382-5440
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2395) with no human in the loop, adaptively moved by

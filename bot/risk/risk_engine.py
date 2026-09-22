@@ -105,6 +105,7 @@ from bot.risk.quality_ladder import (
     rungs_from_config,
 )
 from bot.utils.durable_io import fsync_dir
+from bot.utils.live_money import fixed_fractional_margin
 from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
 
@@ -1170,31 +1171,24 @@ class RiskEngine:
         if live_equity is not None and live_equity > 0:
             sizing_equity = live_equity
 
+        # Flat notional, overwritten by the fixed-fractional base below.
+        # The 0.1% floor inside that reading is what used to make the
+        # branch always taken; the flat figure is what a zero distance
+        # would have kept, and the reading never returns one. The notional
+        # cap is check #2 below, not this division.
         position_usd = sizing_equity * (CONFIG.risk.max_position_pct / 100.0)
-
-        # Fixed-fractional risk sizing: size by stop distance, not flat notional.
-        # risk_budget = equity * max_position_pct (the max we're willing to lose)
-        # position_usd = risk_budget / (stop_distance / entry_price)
-        # The notional cap (20%) is enforced by check #2 below, NOT here.
-        # This separation gives the check real authority: if a tight stop would
-        # produce an oversized position, the check catches it and caps it.
-        stop_distance_pct = abs(idea.entry_price - idea.stop_loss) / idea.entry_price if idea.entry_price > 0 else 0
-        # C2-24 FIX: Floor at 0.1% to prevent near-zero stop distances from
-        # producing astronomically large intermediate position values.
-        stop_distance_pct = max(stop_distance_pct, 0.001)
-        # Fixed-fractional size from the per-strategy risk budget. stop_distance_pct
-        # is floored above so the branch is always taken; if it ever weren't,
-        # position_usd retains the flat-notional value computed above as the
-        # fallback. #54: dropped the redundant pre-assignment of risk_budget and
-        # the uncapped_position_usd mirror — position_usd is the only value read below.
-        if stop_distance_pct > 0:
-            # Per-strategy-type risk budget scaling
-            _st = getattr(idea, 'strategy_type', 'swing')
-            st_risk_pct = CONFIG.strategy_types.get_max_risk_pct(_st)
-            risk_budget = sizing_equity * (st_risk_pct / 100.0)
-            position_usd = risk_budget / stop_distance_pct
-            note_size_step(idea, f"fixed-fractional ({_st} risk {st_risk_pct:g}% / "
-                                 f"stop {stop_distance_pct * 100:.2f}%)", position_usd)
+        _st = getattr(idea, 'strategy_type', 'swing')
+        st_risk_pct = CONFIG.strategy_types.get_max_risk_pct(_st)
+        _sized = fixed_fractional_margin(
+            sizing_equity, st_risk_pct, idea.entry_price, idea.stop_loss,
+        )
+        position_usd = _sized.margin
+        note_size_step(
+            idea,
+            f"fixed-fractional ({_st} risk {st_risk_pct:g}% / "
+            f"stop {_sized.stop_distance_pct * 100:.2f}%)",
+            position_usd,
+        )
 
         # Apply execution cap (e.g., micro-test $10 limit).
         # The risk engine must evaluate the ACTUAL position size that will
