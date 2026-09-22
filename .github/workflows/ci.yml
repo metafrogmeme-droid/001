@@ -10,6 +10,38 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# WITHOUT THIS BLOCK THE TOKEN'S SCOPE IS DECIDED IN A WEB FORM. A workflow that
+# declares no `permissions:` hands every job whatever the repository's *Workflow
+# permissions* setting says — a control outside this repo, changeable by anyone
+# with admin rights, invisible to `git log` and readable by no test here.
+#
+# This is NOT the claim that the token was over-privileged. The `secrets` job
+# below records the opposite from a real run: gitleaks was REFUSED
+# `pull_requests=read` with a 403, so the default in force was already
+# restricted. What the declaration buys is that the grant stops being decided
+# elsewhere — a block here WINS over the repository default, so flipping that
+# setting to "Read and write" can no longer silently widen all eight jobs, and a
+# job added tomorrow inherits a stated floor instead of whatever the setting
+# happens to read that day.
+#
+# `contents: read` is the floor and the ceiling. Nothing in this workflow writes
+# back to GitHub — no artifact upload, no release, no PR comment, no push — and
+# naming any scope sets every scope it does not name to `none`.
+#
+# Stated rather than overstated: this repo is PUBLIC, so `actions/checkout`
+# would very likely still clone under a zero-scope token, and `contents: read`
+# is not load-bearing today. It is declared anyway because that is undocumented
+# behaviour which stops being true the moment the repo goes private or a step
+# needs an authenticated git operation — and the scope costs nothing.
+#
+# Two things that look like they need a scope and do not, both measured rather
+# than assumed: the Actions **cache** (setup-node `cache:`, Swatinem/rust-cache)
+# authenticates with the runner's ACTIONS_RUNTIME_TOKEN and is not governed by
+# `permissions:` at all; and `::error::`/`::warning::` are runner workflow
+# commands, not Checks API writes, so they need no `checks: write`.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Lint + tests (baseline gate)
@@ -441,12 +473,18 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The workflow declares no permissions, so GITHUB_TOKEN arrives with the
-    # repository default — contents only. gitleaks-action calls
+    # The workflow declares `contents: read`; this job is the only one needing
+    # a scope beyond it. gitleaks-action calls
     # GET /repos/{o}/{r}/pulls/{n}/commits to compute the PR's commit range and
     # died on `403 Resource not accessible by integration`, the response naming
-    # `pull_requests=read` as what it wanted. Read-only, and scoped to this job
-    # rather than the workflow, so no other job's token widens.
+    # `pull_requests=read` as what it wanted — which is also the measurement
+    # that the repository default then in force was already restricted, rather
+    # than the write-all a reader might assume of an undeclared token.
+    #
+    # A job-level block REPLACES the workflow's rather than merging with it, so
+    # `contents: read` is RESTATED here rather than inherited: drop it and
+    # checkout loses the scope it clones with. Read-only, and scoped to this job
+    # rather than widened at the workflow, so no other job's token moves.
     #
     # This surfaced on the repo's FIRST pull request. The step is gated on
     # `github.event_name == 'pull_request'`, and every prior run was a push or
