@@ -47,12 +47,17 @@
 #   WEB_URL       default https://humanoid-traders.com
 #   GATEWAY_URL   default http://127.0.0.1:8080
 #   BRIDGE_URL    default http://127.0.0.1:8000
+#   PROBE_TIMEOUT default 120 (seconds) — the units wait this long too
 
 set -uo pipefail
 
 WEB_URL="${WEB_URL:-https://humanoid-traders.com}"
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:8080}"
 BRIDGE_URL="${BRIDGE_URL:-http://127.0.0.1:8000}"
+# Matches scripts/systemd/runeclaw-bot.service's own ExecStartPost wait on
+# this endpoint. A post-deploy check runs when a cold start is EXPECTED, and
+# a refusal still fails instantly (curl exit 7) — only slowness costs the wait.
+PROBE_TIMEOUT="${PROBE_TIMEOUT:-120}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 CHECK_WEB=1
@@ -156,18 +161,59 @@ if [ "$CHECK_BOX" -eq 1 ]; then
   # is up and refusing us, which is exactly what it should do. Treating that as
   # a failure would report a working gateway as broken on every run — and an
   # alert that cries wolf is how a real one gets ignored.
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-          "$GATEWAY_URL/gateway/health" 2>/dev/null)" || code="000"
-  case "$code" in
-    200|401|403) ok  "gateway answering at $GATEWAY_URL (HTTP $code)" ;;
-    000)         fail "gateway unreachable at $GATEWAY_URL — the website cannot reach the bot" ;;
-    *)           fail "gateway returned HTTP $code at $GATEWAY_URL" ;;
+  # A TIMEOUT IS NOT A REFUSAL, AND 10s WAS NEVER THE RIGHT BUDGET.
+  #
+  # `--max-time 10` with `|| code="000"` collapsed two different facts into
+  # one verdict: "nothing is listening" and "it is still waking up" both
+  # printed `fail  gateway unreachable — the website cannot reach the bot`.
+  # Measured on 2026-09-22 a cold gateway answered in 58.7 SECONDS and this
+  # script called a healthy service unreachable — while the repo's OWN systemd
+  # units wait 120s and 150s on these very endpoints
+  # (scripts/systemd/*.service, ExecStartPost=wait_for_port.sh). Two parts of
+  # one repo disagreeing by a factor of twelve about the same probe.
+  #
+  # curl already knows the difference and the old code threw it away: exit 7 is
+  # "could not connect" (nothing there — a VERDICT, and it returns instantly,
+  # so a dead service still fails fast), exit 28 is "timed out" (something is
+  # there and slow, which is NOT a statement that the website cannot reach it —
+  # the website has its own, longer budget). Same rule the header states: an
+  # alert that cries wolf is how a real one gets ignored.
+  probe() {   # $1 label, $2 url -> sets PROBE_CODE, PROBE_RC, PROBE_SECS
+    PROBE_CODE="$(curl -s -o /dev/null -w '%{http_code} %{time_total}' \
+                  --max-time "$PROBE_TIMEOUT" "$2" 2>/dev/null)"
+    PROBE_RC=$?
+    PROBE_SECS="${PROBE_CODE##* }"
+    PROBE_CODE="${PROBE_CODE%% *}"
+    [ -n "$PROBE_CODE" ] || PROBE_CODE="000"
+  }
+
+  probe "gateway" "$GATEWAY_URL/gateway/health"
+  case "$PROBE_CODE" in
+    # The gateway REQUIRES a secret, so 401/403 is a HEALTHY answer.
+    200|401|403)
+      ok "gateway answering at $GATEWAY_URL (HTTP $PROBE_CODE in ${PROBE_SECS}s)"
+      # 58.7s is an answer and also worth knowing about.
+      case "$PROBE_SECS" in [1-9][0-9].*|[1-9][0-9][0-9]*)
+        note "that is slow for a health check — a cold start, or the box is loaded." ;;
+      esac ;;
+    000)
+      case "$PROBE_RC" in
+        28) unk  "gateway did not answer within ${PROBE_TIMEOUT}s at $GATEWAY_URL — \
+slow, which is not the same as absent. Raise PROBE_TIMEOUT or look at the box." ;;
+        *)  fail "gateway unreachable at $GATEWAY_URL (curl $PROBE_RC) — the website cannot reach the bot" ;;
+      esac ;;
+    *) fail "gateway returned HTTP $PROBE_CODE at $GATEWAY_URL" ;;
   esac
 
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-          "$BRIDGE_URL/health" 2>/dev/null)" || code="000"
+  probe "bridge" "$BRIDGE_URL/health"
+  code="$PROBE_CODE"
+  if [ "$code" = "000" ] && [ "$PROBE_RC" = "28" ]; then
+    unk "bridge did not answer within ${PROBE_TIMEOUT}s at $BRIDGE_URL — slow, not absent."
+    code="__slow__"
+  fi
   case "$code" in
-    200)  ok   "bridge answering at $BRIDGE_URL" ;;
+    __slow__) : ;;
+    200)  ok   "bridge answering at $BRIDGE_URL (in ${PROBE_SECS}s)" ;;
     000)  fail "bridge unreachable at $BRIDGE_URL — insight/patterns/lab will 502" ;;
     *)    fail "bridge returned HTTP $code at $BRIDGE_URL" ;;
   esac
@@ -194,7 +240,33 @@ if [ "$CHECK_BOX" -eq 1 ]; then
   box_health="$(curl -fsS --max-time 10 "$GATEWAY_URL/health" 2>/dev/null)"
   live_build="$(printf '%s' "$box_health" \
                 | sed -n 's/.*"build"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-  want_build="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null)"
+  # COMPARED LITERALLY, THESE TWO CAN NEVER MATCH, AND THE MISMATCH IS A
+  # `fail` — so a perfectly landed deploy printed WRONG CODE with instructions
+  # to re-fetch and reset. Observed 2026-09-22: live `7939268 (git)` against
+  # local `7939268e`, the same commit, reported as stale code.
+  #
+  # Two independent differences, and each alone defeats `=`:
+  #
+  #   * bot/utils/build_info.short() appends a SOURCE NOTE by design — the one
+  #     renderer every surface prints, so surfaces cannot disagree about the
+  #     same fact: `7939268 (git)`, `7939268-dirty (git)`,
+  #     `7939268 (build stamp, tree unchecked)`.
+  #   * it abbreviates to a fixed `sha[:7]`, while `git rev-parse --short` is
+  #     ADAPTIVE and returns 8 here and more in a bigger repo.
+  #
+  # So compare the first 7 characters of EACH, which is the part both sides
+  # agree is the commit — of both, not just the live one: `--short` is
+  # adaptive, so a caller (or a test stub) handing back 8 characters must not
+  # read as a different commit either. The note is not discarded: `-dirty` is a
+  # real finding and gets said out loud rather than folded into a hash
+  # mismatch.
+  #
+  # The comment below already insists a field nobody SENT is not a field that
+  # DIFFERED. A field that was sent, is correct, and is merely spelled
+  # differently is the same defect one step further on.
+  want_build="$(cd "$REPO" && git rev-parse --short=7 HEAD 2>/dev/null)"
+  # the box's label, stripped of its source note and cut to the same width
+  live_sha7="$(printf '%s' "${live_build%%[- (]*}" | cut -c1-7)"
 
   # A FIELD NOBODY SENT IS NOT A FIELD THAT DIFFERED — the same rule the web
   # half above states at length. An older bot omits `build`, and "" must never
@@ -205,8 +277,14 @@ if [ "$CHECK_BOX" -eq 1 ]; then
     unk "$GATEWAY_URL/health sent no 'build' — an older bot, or the dashboard is down."
   elif [ "$live_build" = "unknown" ]; then
     unk "the box reports build=unknown — it could not resolve its own commit."
-  elif [ "$live_build" = "$want_build" ]; then
+  elif [ "$live_sha7" = "$want_build" ]; then
     ok "box is running this checkout ($live_build)"
+    case "$live_build" in
+      *-dirty*) fail "the box's tree is MODIFIED — it is not running $want_build as committed" ;;
+      *"tree unchecked"*)
+        unk "the box resolved its commit from a build stamp and did not check its tree, \
+so a local edit there would not show." ;;
+    esac
   else
     fail "box is running $live_build, this checkout is $want_build — WRONG CODE"
     note "The deploy did not land here. Check the remote it reset to:"
