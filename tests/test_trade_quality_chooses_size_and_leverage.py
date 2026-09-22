@@ -47,6 +47,7 @@ from types import SimpleNamespace
 import pytest
 
 import bot.core.engine as engine_mod
+import bot.core.session_aware as session_aware
 import bot.risk.risk_engine as rem
 from bot.compat import UTC
 from bot.config import CONFIG
@@ -71,6 +72,29 @@ from bot.utils.models import Direction, TradeExecution, TradeIdea, TradeStatus
 from tests.leverage_drive import drive_ensure_leverage, lev
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# Tuesday 10:00 UTC is the London session: size multiplier 1.0, and not a
+# Friday. The dollar figures in this file are that session's figures. Asian
+# hours (00:00-08:00 UTC) multiply by 0.75, which is how a $1,000 pre-cap
+# fixture published $750 and a $50 ceiling published $37.50 on the 2026-09-22
+# main run — the ladder was in shadow the whole time.
+_LONDON = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _measure_at_london(monkeypatch):
+    """A caller that passes no bar time is measured at London.
+
+    ``as_of`` still wins, so a test can ask for Asian and get the cut.
+    The import of ``get_current_session`` is inside ``evaluate``, so the
+    patch is the module the function imports from.
+    """
+    real = session_aware.get_current_session
+
+    def _at(now=None):
+        return real(_LONDON if now is None else now)
+
+    monkeypatch.setattr(session_aware, "get_current_session", _at)
 
 
 def _engine(balance=10_000.0):
@@ -263,6 +287,30 @@ class TestKellyReadsTheSameReading:
 # ── the risk gate ───────────────────────────────────────────────────────────
 
 class TestTheSizeHalf:
+    def test_london_is_the_session_these_figures_name_and_asia_still_cuts(self, monkeypatch):
+        """The wall clock is not the fixture. Patching ``datetime.now`` to
+        04:00 UTC must leave an untimed evaluation at $1,000; deleting the
+        London default would publish $750. An explicit Asian ``as_of`` still
+        cuts, so the default is not a sizer that was switched off."""
+        class _Clock:
+            @staticmethod
+            def now(tz=None):
+                return datetime(2026, 9, 22, 4, 0, tzinfo=UTC)
+
+        monkeypatch.setattr(session_aware, "datetime", _Clock)
+        london = session_aware.get_current_session()
+        asian = session_aware.get_current_session(datetime(2026, 9, 22, 4, 0, tzinfo=UTC))
+        assert (london.session_name, london.size_multiplier) == ("london", 1.0)
+        assert asian.size_multiplier == 0.75
+        eng = _engine()
+        idea = dict(stop=80.0, tp=160.0)
+        at_london = eng.evaluate(_idea(**idea), atr=2.0).position_size_usd
+        at_asia = eng.evaluate(
+            _idea(**idea), atr=2.0, as_of=datetime(2026, 9, 22, 4, 0, tzinfo=UTC),
+        ).position_size_usd
+        assert at_london == pytest.approx(1_000.0)
+        assert at_asia == pytest.approx(750.0)
+
     def test_off_is_byte_identical_and_the_shadow_says_what_it_would_have_done(
             self, monkeypatch, risk_audits):
         eng = _engine()
