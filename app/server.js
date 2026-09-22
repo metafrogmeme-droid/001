@@ -1,6 +1,29 @@
 const crypto = require('crypto');
 const path = require('path');
 
+// Read the repo-root .env BEFORE anything reads a config value. Node does not
+// do this on its own and the Python half calls load_dotenv() at import, so for
+// the life of this file the two halves of one deployment disagreed about
+// whether .env is configuration. On 2026-09-22 that took the website down for
+// hours: .env said PORT=3000, nothing read it, PORT fell back to the 8080
+// default below — the BOT's gateway port on the same box — and the listen died
+// on EADDRINUSE before binding anything.
+//
+// A live environment value always wins; this only fills gaps. Together with
+// the vault restore below that makes the precedence
+//     real environment  >  .env  >  the encrypted vault
+// since each step fills only what the one before it left missing.
+try {
+  const { loadEnvFile } = require('./lib/env_file');
+  const filled = loadEnvFile();
+  if (filled.length) {
+    console.log(`.env supplied ${filled.length} setting(s) absent from the `
+      + `environment: ${filled.join(', ')}`);
+  }
+} catch (err) {
+  console.warn('.env read skipped:', err && err.message);
+}
+
 // Self-heal a wiped .env BEFORE any secret is read. The Python bot mirrors the
 // web-pairing secrets (BOT_SYNC_SECRET / WEB_GATEWAY_SECRET / WEB_CREDS_KEY)
 // into an encrypted vault under data/ that persists across redeploys. This
@@ -443,12 +466,23 @@ app.use('/api/web3', require('./routes/web3_execute'));   // admin-only preview 
 app.use('/api/web3', require('./routes/web3'));
 app.use('/api/dapps', require('./routes/dapps'));
 
-// Single-host dev foot-gun: Express and the bot's gateway both default to
-// port 8080. Warn loudly if they would collide.
-if (!process.env.BOT_GATEWAY_URL && String(process.env.PORT || 8080) === '8080') {
-  console.warn('WARNING: BOT_GATEWAY_URL is unset and PORT is 8080 — the bot gateway '
-    + 'default (http://localhost:8080) points at THIS server. Set BOT_GATEWAY_URL '
-    + 'to the bot process (aiohttp dashboard) address.');
+// Single-host foot-gun: Express and the bot's gateway both default to :8080.
+//
+// THIS WARNING USED TO BE GATED ON `!process.env.BOT_GATEWAY_URL`, which
+// disarmed it in exactly the deployment that hits the collision. A box running
+// both halves sets BOT_GATEWAY_URL — that is what correct looks like — so the
+// one configuration wired up enough to talk to the bot was the one told
+// nothing, and on 2026-09-22 it 520'd for hours. The two facts are
+// independent and each gets its own sentence.
+if (String(process.env.PORT || 8080) === '8080') {
+  console.warn('WARNING: this server will bind :8080, which is also the bot gateway\'s '
+    + 'default. If bot.main runs on this host the listen will fail with EADDRINUSE. '
+    + 'Set PORT (3000 is the deployed value) in .env or at the launch site.');
+}
+if (!process.env.BOT_GATEWAY_URL) {
+  console.warn('WARNING: BOT_GATEWAY_URL is unset — the bot gateway default '
+    + '(http://localhost:8080) may point at THIS server. Set it to the bot '
+    + 'process (aiohttp dashboard) address.');
 }
 app.use('/api/stream', streamRouter);
 
@@ -808,12 +842,51 @@ app.use((err, req, res, next) => {
 // nothing else. /healthz says alive, /readyz says why not ready, and the
 // site stays up.
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`RUNECLAW app running on port ${PORT}`);
   // The one line that distinguishes "this build is serving" from "the
   // container never got that far" — the question every incident today began
   // with. Port only; no secrets, no config.
   bootLog.record('listening', `port=${PORT}`);
+});
+
+// A FAILED LISTEN HAD NO HANDLER AT ALL, AND THAT IS THE ONE FAILURE THAT
+// GUARANTEES THE SITE NEVER COMES UP.
+//
+// Everything around this line is built to stay serving through a fault — the
+// listen happens BEFORE migrate precisely so a database outage costs the
+// DB-backed panels and nothing else, the migration retries forever rather than
+// exiting, /readyz explains itself. None of that helps if the bind fails:
+// `app.listen` emits 'error', nothing was listening for it, and an unhandled
+// 'error' event terminates the process on a raw stack trace.
+//
+// On 2026-09-22 that is exactly what happened, repeatedly. PORT was unset (see
+// the .env note at the top of this file), so it defaulted to 8080, which is
+// the bot's aiohttp gateway on the same host. The process died with
+// EADDRINUSE, Cloudflare had no origin, and the site served 520 while an
+// operator read `docker logs` on a box with no Docker.
+//
+// So: name the port, name the likeliest cause, and STILL exit — a web server
+// that cannot bind has nothing to offer and must not linger looking alive.
+// fs.writeSync, not console.error, for the reason the BOT_SYNC_SECRET fatal
+// above gives at length: a console write to a container's stdout pipe can be
+// queued and lost when the process leaves immediately, and a boot fatal whose
+// reason never reaches the log is indistinguishable from a hang.
+server.on('error', (err) => {
+  const code = err && err.code;
+  let why = `FATAL: could not listen on port ${PORT}: ${code || (err && err.message)}\n`;
+  if (code === 'EADDRINUSE') {
+    why += `Port ${PORT} is already in use. `;
+    why += String(PORT) === '8080'
+      ? 'That is also the bot gateway default, so bot.main on this host is the '
+        + 'likeliest holder — set PORT (3000 is the deployed value) in .env or '
+        + 'at the launch site.\n'
+      : 'Another process holds it — check for a second copy of this server.\n';
+  } else if (code === 'EACCES') {
+    why += `Permission denied binding ${PORT}; ports below 1024 need privilege.\n`;
+  }
+  require('fs').writeSync(2, why);
+  process.exit(1);
 });
 
 // Migration runs in the background and RETRIES rather than exiting, so a
