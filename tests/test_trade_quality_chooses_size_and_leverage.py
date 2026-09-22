@@ -73,6 +73,45 @@ from tests.leverage_drive import drive_ensure_leverage, lev
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
+# ── THE SESSION MULTIPLIER IS THE WALL CLOCK, AND NOTHING HERE PINNED IT ──
+#
+# `risk_engine.evaluate()` multiplies the pre-cap size by
+# `get_current_session(now=as_of).size_multiplier`, and `as_of=None` — which is
+# every call in this file — means NOW. Three of the five sessions are not 1.0
+# (asian 0.75, london_ny_overlap 1.10, late_ny 0.80), so every arithmetic
+# assertion in this file was right for nine hours a day and wrong for fifteen.
+#
+# It was not caught because CI happened to run inside London or New York.
+# Measured on 2026-09-22 at 04:45 UTC — the asian session — two tests failed
+# on their own FIXTURE precondition (`assert off == approx(1_000.0)` read
+# 750.0, which is 1000 x 0.75) while `known_failures.txt` said the suite was
+# clean. A test that fails by time of day is a CI landmine on the sizing path.
+#
+# The containment belongs in the HARNESS, not in a rule each test remembers —
+# the lesson conftest.py already records about the vault-managed keys, for the
+# same reason: the tests were testing exactly what they meant to.
+#
+# Pinned by asking the REAL table at a fixed instant rather than hand-writing a
+# SessionInfo, so a table edit moves this with it; and the multiplier is
+# asserted, so an edit that made London != 1.0 fails loudly here instead of
+# silently restoring the drift.
+@pytest.fixture(autouse=True)
+def _pin_the_trading_session(monkeypatch):
+    from datetime import datetime, timezone
+
+    from bot.core import session_aware
+
+    neutral = session_aware.get_current_session(
+        now=datetime(2026, 1, 5, 10, 0, tzinfo=timezone.utc))   # london, 08-13
+    assert neutral.size_multiplier == 1.0, (
+        f"the pinned session is no longer neutral ({neutral.session_name} "
+        f"x{neutral.size_multiplier}) — every size assertion in this file "
+        "reads through it"
+    )
+    monkeypatch.setattr(session_aware, "get_current_session",
+                        lambda now=None: neutral)
+
+
 def _engine(balance=10_000.0):
     state = os.path.join(tempfile.mkdtemp(prefix="rc-ql-"), "risk_state.json")
     return RiskEngine(PortfolioTracker(initial_balance=balance), state_file=state)
