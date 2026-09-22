@@ -32,6 +32,7 @@ from bot.utils.models import (
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.paper_money import close_figures, leg_value, open_quantity
 from bot.utils.paths import state_path
 
 
@@ -163,17 +164,16 @@ class PortfolioTracker:
                   action="open_position", result="REJECTED")
             raise ValueError("Insufficient balance to open position")
 
-        # For futures with leverage: size_usd is the margin (collateral).
-        # Notional = margin * leverage, qty = notional / price.
-        notional = size_usd * leverage
-        qty = notional / idea.entry_price
+        # size_usd is the margin. Quantity is notional (margin * leverage)
+        # over the entry, at 8 decimal places.
+        qty = open_quantity(size_usd, leverage, idea.entry_price)
 
         trade = TradeExecution(
             trade_id=idea.id,
             asset=idea.asset,
             direction=idea.direction,
             entry_price=idea.entry_price,
-            quantity=round(qty, 8),
+            quantity=qty,
             stop_loss=idea.stop_loss,
             take_profit=idea.take_profit,
             status=TradeStatus.EXECUTED,
@@ -199,7 +199,7 @@ class PortfolioTracker:
         audit(trade_log, f"Opened {trade.direction.value} {trade.asset}",
               action="open_position", result="EXECUTED",
               data={"trade_id": trade.trade_id, "size_usd": round(size_usd, 2),
-                    "qty": round(qty, 8), "entry": idea.entry_price})
+                    "qty": qty, "entry": idea.entry_price})
         return trade
 
     def close_position(self, trade_id: str, exit_price: float) -> Optional[TradeExecution]:
@@ -241,22 +241,26 @@ class PortfolioTracker:
         # Clean up trailing state (only after validation passes)
         self._trailing_state.pop(trade_id, None)
 
-        if trade.direction == Direction.LONG:
-            pnl = (exit_price - trade.entry_price) * trade.quantity
-        else:
-            pnl = (trade.entry_price - exit_price) * trade.quantity
-
-        size_usd = trade.entry_price * trade.quantity
-        exit_notional = exit_price * trade.quantity
-        # Margin is the actual collateral locked (notional / leverage)
-        lev = getattr(trade, 'leverage', 1) or 1
-        margin_usd = size_usd / lev
-
-        # Exchange commission: taker fee each side (entry + exit).
+        # Margin is the collateral locked (entry notional / leverage).
+        # Commission is the rate on the entry notional and the exit notional.
         # BT-H1: honor the per-portfolio override when set (backtest), else live config.
-        commission_pct = self._commission_pct if self._commission_pct is not None else CONFIG.risk.commission_pct
-        commission = (size_usd + exit_notional) * (commission_pct / 100.0)
-        net_pnl = pnl - commission
+        lev = getattr(trade, 'leverage', 1) or 1
+        commission_pct = (
+            self._commission_pct if self._commission_pct is not None
+            else CONFIG.risk.commission_pct
+        )
+        settled = close_figures(
+            trade.entry_price,
+            exit_price,
+            trade.quantity,
+            lev,
+            commission_pct,
+            is_long=trade.direction == Direction.LONG,
+        )
+        pnl = settled.gross
+        commission = settled.commission
+        net_pnl = settled.net
+        margin_usd = settled.margin
 
         trade = cast(TradeExecution, trade.model_copy(update={
             "status": TradeStatus.EXECUTED,
@@ -407,6 +411,22 @@ class PortfolioTracker:
                 }
             return status
 
+    def _leg(self, pos: TradeExecution, price: float) -> tuple[float, float]:
+        """``(margin + unrealized, unrealized)`` for one open position.
+
+        One reading for the exposure total, the equity snapshot and the
+        peak. ``price`` is the mark the caller already chose (the last
+        price, or the entry when no mark is on record).
+        """
+        lev = getattr(pos, "leverage", 1) or 1
+        return leg_value(
+            pos.entry_price,
+            pos.quantity,
+            lev,
+            price,
+            is_long=pos.direction == Direction.LONG,
+        )
+
     def get_position_value(self, asset: str | None = None) -> float:
         """Public API for mark-to-market position value.
 
@@ -435,13 +455,7 @@ class PortfolioTracker:
                         )
                 else:
                     self._missing_price_warned.pop(p.asset, None)  # reset on success
-                lev = getattr(p, 'leverage', 1) or 1
-                margin = p.entry_price * p.quantity / lev
-                if p.direction == Direction.LONG:
-                    upnl = (price - p.entry_price) * p.quantity
-                else:
-                    upnl = (p.entry_price - price) * p.quantity
-                total += margin + upnl
+                total += self._leg(p, price)[0]
             return total
 
     def _snapshot_locked(self) -> PortfolioState:
@@ -466,14 +480,9 @@ class PortfolioTracker:
                     )
             else:
                 self._missing_price_warned.pop(p.asset, None)
-            lev = getattr(p, 'leverage', 1) or 1
-            margin = p.entry_price * p.quantity / lev
-            if p.direction == Direction.LONG:
-                upnl = (current_price - p.entry_price) * p.quantity
-            else:
-                upnl = (p.entry_price - current_price) * p.quantity
+            contrib, upnl = self._leg(p, current_price)
             unrealized_pnl += upnl
-            open_value += margin + upnl
+            open_value += contrib
 
         equity = self.balance + open_value
         self._update_peak()
@@ -548,13 +557,7 @@ class PortfolioTracker:
         open_val = 0.0
         for p in self._positions.values():
             price = self._last_prices.get(p.asset, p.entry_price)
-            lev = getattr(p, 'leverage', 1) or 1
-            margin = p.entry_price * p.quantity / lev
-            if p.direction == Direction.LONG:
-                upnl = (price - p.entry_price) * p.quantity
-            else:
-                upnl = (p.entry_price - price) * p.quantity
-            open_val += margin + upnl
+            open_val += self._leg(p, price)[0]
         equity = self.balance + open_val
         if equity > self._peak_equity:
             self._peak_equity = equity
