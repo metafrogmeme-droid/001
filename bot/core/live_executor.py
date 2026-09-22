@@ -36,6 +36,7 @@ from bot.utils.leveraged_return import (
     realized_margin_return_pct,
 )
 from bot.utils.logger import audit, trade_log, system_log
+from bot.utils.money import fmt, to_money
 from bot.utils.models import Direction, TradeIdea
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
 from bot.utils.close_reason import stop_exit_label
@@ -509,8 +510,21 @@ UNREAD = "unread"
 
 
 def money(v) -> str:
-    """A dollar figure, or ``unread`` when there is no figure to print."""
-    return UNREAD if v is None else f"${v:.4f}"
+    """A dollar figure, or ``unread`` when there is no figure to print.
+
+    The sign sits after the dollar (``$-0.2128``), four places, no
+    thousands comma — the spelling the close cards already use. ``fmt``
+    puts the sign in front of the prefix; this swaps that one spelling
+    back. Unreadable (None, NaN, a non-number) is the word, never ``$0``.
+    """
+    if v is None:
+        return UNREAD
+    text = fmt(v, places=4, prefix="$", thousands=False)
+    if text is None:
+        return UNREAD
+    if text.startswith("-$"):
+        return "$-" + text[2:]
+    return text
 
 
 def close_pnl_line(net_pnl, pnl_pct, pnl_pct_margin, leverage, commission):
@@ -2282,13 +2296,25 @@ class LiveExecutor:
                                   symbol: str) -> Optional[float]:
         """Reference price for venues whose market orders need one
         (Hyperliquid: slippage-bounded IOC). Returns None on Bitget so
-        every existing call site stays byte-identical (price=None)."""
+        every existing call site stays byte-identical (price=None).
+
+        The ticker figure is read through ``to_money``. A blank, a
+        non-number and a non-positive price are None: 0 is a reading,
+        and a slippage bound of 0 is not a usable price. A present 0 is
+        not skipped in favour of ``close``. The float handed back is
+        that Decimal, because the ccxt call still wants one.
+        """
         if not self._venue.market_order_needs_price:
             return None
         try:
             ticker = await exchange.fetch_ticker(self._venue.order_symbol(symbol))
-            last = ticker.get("last") or ticker.get("close")
-            return float(last) if last else None
+            last = ticker.get("last")
+            if last is None or last == "":
+                last = ticker.get("close")
+            amount = to_money(last)
+            if amount is None or amount <= 0:
+                return None
+            return float(amount)
         except Exception as exc:
             logger.warning("Reference price fetch failed for %s: %s", symbol, exc)
             return None

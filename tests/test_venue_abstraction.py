@@ -294,17 +294,23 @@ def test_bitget_per_user_missing_passphrase_points_to_connect():
         BG.create_exchange(cfg, credentials={"api_key": "", "api_secret": ""})
 
 
-def test_hl_create_exchange_uses_wallet_credentials():
+def test_hl_create_exchange_uses_wallet_credentials(monkeypatch):
+    # A well-formed scalar. "0xkey" is not a signing key, and construction
+    # now refuses one. The address cannot be derived here, so the role is
+    # unconfirmed and the client is still built.
+    monkeypatch.setattr("bot.web.web3_signer._signing_lib", lambda: None)
+    key = "0x" + "11" * 32
     cfg = SimpleNamespace(hyperliquid_wallet_address="0xabc",
-                          hyperliquid_private_key="0xkey",
+                          hyperliquid_private_key=key,
                           hyperliquid_testnet=False,
                           trade_mode="futures")
     ex = HL.create_exchange(cfg)
     try:
         assert ex.id == "hyperliquid"
         assert ex.walletAddress == "0xabc"
-        assert ex.privateKey == "0xkey"
+        assert ex.privateKey == key
         assert ex.options["defaultType"] == "swap"
+        assert ex.options["runeclaw_key_role"] == "unconfirmed"
     finally:
         _close(ex)
 
@@ -326,8 +332,10 @@ def test_executor_defaults_to_bitget_venue(tmp_path):
 
 
 def test_per_user_executor_is_always_bitget(tmp_path, monkeypatch):
-    """The /connect credential store has no venue field — a per-user
-    executor must stay on Bitget even when the operator runs Hyperliquid."""
+    """A per-user executor whose caller does not name a venue stays
+    Bitget, even when the operator's selector is Hyperliquid. The
+    credential store records the venue; this constructor call does not
+    pass it."""
     import bot.core.live_executor as le
     monkeypatch.setattr(
         le, "get_venue",

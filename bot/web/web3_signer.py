@@ -97,7 +97,7 @@ def signer_address(env: Optional[dict] = None) -> Optional[str]:
     if not key:
         return None
     try:
-        return account.from_key(key).address
+        return str(account.from_key(key).address)
     except Exception:
         return None                     # never surface the key on a parse error
 
@@ -595,6 +595,6 @@ def create_contract_address(sender: str, nonce: int) -> str:
         s = str(sender)
         s = s[2:] if s.startswith("0x") else s
         raw = keccak(rlp.encode([bytes.fromhex(s), int(nonce)]))[12:]
-        return to_checksum_address(raw)
+        return str(to_checksum_address(raw))
     except Exception:
         return ""

@@ -17,14 +17,20 @@ Design rules (in order of importance):
      (ideas, risk engine, blacklists, learning). Venues translate only at
      the exchange boundary. normalize_symbol()/display_symbol() already
      strip any quote/settle suffix, so USDC symbols round-trip cleanly.
-  3. Per-user executors (/connect flow) are Bitget-only — the encrypted
-     credential store has no venue field. VENUE applies to the operator's
-     shared executor.
+  3. Per-user executors take the venue the credential store recorded.
+     `exchange_credentials` is multi-venue (Bitget key/secret/passphrase;
+     Hyperliquid wallet_address + agent_private_key). A per-user executor
+     whose caller does not name a venue stays Bitget.
 
-Selection: VENUE env var ("bitget" default, "hyperliquid"). Hyperliquid is
-USDC-margined perps (one-way only, no hedge mode, no UTA), authenticated
-with HYPERLIQUID_WALLET_ADDRESS + HYPERLIQUID_PRIVATE_KEY. ccxt quirks
-encoded here:
+Selection: VENUE env var ("bitget" default). Hyperliquid is USDC-margined
+perps (one-way only, no hedge mode, no UTA), authenticated with a wallet
+address plus an AGENT private key. A key whose derived address is that
+wallet is the master key and is refused. A well-formed key whose address
+cannot be derived (eth-account not installed) is recorded as unconfirmed
+and still constructs the client. HIP-3 builder perps keep `dex:COIN`
+(`xyz:TSLA`); an unreadable coin falls through to the inherited symbol
+map so a scan does not raise, and the prefix is never stripped onto the
+main dex. ccxt quirks encoded here:
   - market orders (incl. trigger markets) REQUIRE a price (slippage bound)
   - TP triggers must be sent as takeProfitPrice (triggerPrice == SL)
   - clientOrderId must be a 128-bit hex string ("0x" + 32 hex chars)
@@ -37,6 +43,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any, Optional
 
 import ccxt.async_support as ccxt
@@ -44,6 +51,69 @@ import ccxt.async_support as ccxt
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
+
+# HIP-3 builder perps are `dex:COIN` (xyz:TSLA). The dex is a short
+# lowercase slug; the coin is the market name. A colon in the coin, an
+# empty half, or a character the venue does not use is unreadable — None,
+# never a guess that drops the prefix onto the main dex.
+_HL_DEX = re.compile(r"^[a-z0-9]{1,16}$")
+_HL_COIN = re.compile(r"^[A-Z0-9]{1,20}$")
+
+
+def hyperliquid_coin(symbol: str) -> Optional[str]:
+    """The Hyperliquid coin name, or None when the symbol cannot be read.
+
+    ccxt spells a perp ``BASE/QUOTE:SETTLE``. The settle colon lives on the
+    quote side, so a HIP-3 colon lives in the BASE. ``xyz:TSLA/USDT`` and
+    ``XYZ:tsla`` both read ``xyz:TSLA``. A main-dex name is the uppercased
+    coin. ``xyz:``, ``:TSLA`` and ``xyz:TSLA:EXTRA`` are None.
+    """
+    if not isinstance(symbol, str):
+        return None
+    raw = symbol.strip()
+    if not raw:
+        return None
+    base = raw.split("/", 1)[0]
+    if ":" in base:
+        dex, _, coin = base.partition(":")
+        if not dex or not coin or ":" in coin:
+            return None
+        dex_n = dex.lower()
+        coin_n = coin.upper()
+        if _HL_DEX.fullmatch(dex_n) is None or _HL_COIN.fullmatch(coin_n) is None:
+            return None
+        return f"{dex_n}:{coin_n}"
+    coin_n = base.upper()
+    if _HL_COIN.fullmatch(coin_n) is None:
+        return None
+    return coin_n
+
+
+def hyperliquid_key_role(private_key: str, wallet_address: str) -> str:
+    """``agent``, ``master``, ``unconfirmed`` or ``rejected``.
+
+    Reuses ``check_signing_key`` so the curve-order check is not copied.
+    The address is the only thing compared. No key material is returned.
+
+    ``rejected`` — not a signing key.
+    ``unconfirmed`` — well-formed, and no address could be derived (the
+    signing library is absent, which is the CI install) or the wallet
+    address to compare against is blank.
+    ``master`` — the derived address is the wallet. That key can withdraw.
+    ``agent`` — the derived address is a different account.
+    """
+    from bot.web.web3_signer import check_signing_key
+
+    verdict = check_signing_key(private_key)
+    if not verdict.get("ok"):
+        return "rejected"
+    address = verdict.get("address")
+    wallet = str(wallet_address or "").strip()
+    if not address or not wallet:
+        return "unconfirmed"
+    if str(address).lower() == wallet.lower():
+        return "master"
+    return "agent"
 
 # Runtime venue override — set by the admin /venue command, survives
 # restarts, and takes precedence over the VENUE env var so switching
@@ -298,6 +368,21 @@ class HyperliquidVenue(Venue):
         if not wallet or not priv:
             raise RuntimeError(
                 self.missing_credentials_error(per_user=bool(credentials)))
+        # Refuse before the client exists. A rejected key is not a key; a
+        # master key can withdraw. unconfirmed (library absent) and agent
+        # both proceed — refusing unconfirmed would make this venue
+        # unusable wherever eth-account is not installed.
+        role = hyperliquid_key_role(priv, wallet)
+        if role == "master":
+            raise RuntimeError(
+                "Hyperliquid trading uses an agent wallet key. This key "
+                "controls the master wallet itself, so it was refused. "
+                "Nothing was sent.")
+        if role == "rejected":
+            raise RuntimeError(
+                "Hyperliquid refused that private key: it is not a "
+                "well-formed signing key. Nothing about the key is "
+                "repeated here.")
         exchange = ccxt.hyperliquid({
             "aiohttp_trust_env": True,
             "walletAddress": wallet,
@@ -308,6 +393,9 @@ class HyperliquidVenue(Venue):
                 "defaultType": "swap",
             },
         })
+        # The role is a reading a test (and a later log) can ask. A field
+        # written and read by nobody is the thing this check would become.
+        exchange.options["runeclaw_key_role"] = role
         if getattr(cfg, "hyperliquid_testnet", False):
             exchange.set_sandbox_mode(True)
         return exchange
@@ -324,6 +412,16 @@ class HyperliquidVenue(Venue):
     def has_operator_credentials(self, cfg: Any) -> bool:
         return bool(getattr(cfg, "hyperliquid_wallet_address", "")
                     and getattr(cfg, "hyperliquid_private_key", ""))
+
+    def swap_symbol(self, symbol: str) -> str:
+        """USDC perp form. A readable coin (main-dex or ``dex:COIN``) is
+        used; an unreadable one keeps the inherited map so a scan that
+        hands a junk symbol still gets a string instead of a raise.
+        """
+        coin = hyperliquid_coin(symbol)
+        if coin is not None:
+            return f"{coin}/{self.quote}:{self.quote}"
+        return super().swap_symbol(symbol)
 
     def order_symbol(self, symbol: str) -> str:
         # Internal symbols are USDT-quoted; Hyperliquid perps are USDC.

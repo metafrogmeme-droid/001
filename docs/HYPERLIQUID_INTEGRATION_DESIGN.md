@@ -1,8 +1,11 @@
 # Hyperliquid Multi-Exchange Support — Design Doc
 
 **Date:** 2026-07-05
-**Status:** 📋 **PROPOSED — nothing built yet.** This is the "plan before code"
-deliverable; no phase below should start without a green light on this doc.
+**Status:** `Venue` and `HyperliquidVenue` shipped in `bot/core/venues.py`.
+Operator and per-user credentials take `wallet_address` plus an agent
+private key. HIP-3 coins keep their `dex:COIN` prefix, and a key whose
+derived address is the master wallet is refused. The phases below are the
+original plan; a phase not named in this paragraph is not claimed done.
 
 ## What was asked
 
@@ -14,15 +17,12 @@ touching any code.
 
 ## Why this is a real project, not a config swap
 
-The bot is **Bitget-hardcoded today, not exchange-agnostic**. There is no
-`Exchange` interface anywhere in `bot/` — `ccxt.bitget(...)` is instantiated
-independently in ~9 places (`live_executor.py`, `market_scanner.py`,
-`exchange_credentials.py`, `data_loader.py`, `chart_renderer.py`, plus ad-hoc
-scripts), each duplicating its own auth/timeout/`defaultType` options. On top
-of ccxt there's a hand-rolled, HMAC-signed Bitget REST client
-(`bot/core/bitget_v3_client.py`) and a fully custom WebSocket client hardwired
-to `wss://ws.bitget.com` (`bot/core/ws_feed.py`) — neither goes through ccxt at
-all.
+The live order path now goes through `Venue` (`bot/core/venues.py`). Bitget
+behavior is pinned there so a second venue cannot drift it. What this section
+described in July 2026 is the state that made the work a project: `ccxt.bitget`
+was instantiated independently in several places, and a hand-rolled Bitget REST
+client (`bot/core/bitget_v3_client.py`) plus a WebSocket client hardwired to
+`wss://ws.bitget.com` (`bot/core/ws_feed.py`) still sit beside ccxt.
 
 Hyperliquid's account model is **not a different flavor of the same thing**:
 
@@ -32,7 +32,7 @@ Hyperliquid's account model is **not a different flavor of the same thing**:
 | Settlement currency | USDT | USDC |
 | Margin model | isolated/cross toggle, `productType=USDT-FUTURES` | asset-based clearinghouse margin, no Bitget-style product-type/hedge-mode split |
 | Position mode | one-way vs hedge (`holdMode`, detected via a Bitget-proprietary endpoint) | no equivalent concept |
-| Asset universe | crypto perps **+** tokenized stocks/metals/ETFs (own market-hours rules in `order_rules.py`) | crypto perps only |
+| Asset universe | crypto perps **+** tokenized stocks/metals/ETFs (own market-hours rules in `order_rules.py`) | crypto perps, plus HIP-3 builder markets named `dex:COIN` (the prefix is the dex) |
 | ccxt support | `ccxt.bitget` | `ccxt.hyperliquid` — **already present** in the pinned `ccxt==4.5.56` (verified: no ccxt upgrade needed) |
 
 The auth model difference is the crux: the entire per-user encrypted
@@ -42,7 +42,9 @@ wallet private key (or agent-wallet key) is a different secret *shape*, and
 signing every request client-side with EIP-712 is a different code path than
 handing ccxt a key/secret/passphrase and letting it sign HMAC requests
 internally. That store's encryption-at-rest guarantee still applies, but its
-schema and the signing call sites need to generalize.
+schema and the signing call sites need to generalize. The store has since
+grown a per-venue field map; Hyperliquid's row is `wallet_address` plus
+`agent_private_key`, and a master key is refused at exchange construction.
 
 ## Design principle: abstraction first, Hyperliquid second
 

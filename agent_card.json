@@ -24,8 +24,7 @@
     "solana_ecosystem",
     "red_team_stress_test",
     "black_swan_detection",
-    "sentiment_fusion",
-    "multi_agent_swarm"
+    "sentiment_fusion"
   ],
   "mcp_tools": [
     "arena_close",
