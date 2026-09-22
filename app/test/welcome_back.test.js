@@ -132,6 +132,19 @@ test('a row created while a digest is read is the NEXT digest\'s, once', async (
   const b = await req('GET', '/api/since', { token });
   assert.equal(b.data.signals_new, 0, 'and not reported early by the next read either');
   late.created_at = new Date();          // its moment arrives, after read b
+  // ...and read c must OPEN after that moment, which is not free. The window
+  // is half-open [last, now), so within a single millisecond no stamp can
+  // satisfy both bounds: at `last` it fails `< now`, below `last` it fails
+  // `>= last`. On a fast runner the stamp and c's own `now` shared a
+  // millisecond, `created_at < now` was false, and the row was excluded --
+  // `expected 1, actual 0`, which is the shape `routes/since.js`'s own
+  // comment already records ("the fixture's rows and the read shared a
+  // millisecond"). Nothing is lost when that happens: the next digest's
+  // `last` IS that instant, so the row reports there. It is the FIXTURE that
+  // could not produce the state it names. Wait for the condition the window
+  // needs rather than assume the clock moved.
+  const stamped = late.created_at.getTime();
+  while (Date.now() <= stamped) await new Promise((r) => setTimeout(r, 1));
   const c = await req('GET', '/api/since', { token });
   assert.equal(c.data.signals_new, 1, 'reported by the first digest whose window holds it');
   const d = await req('GET', '/api/since', { token });
