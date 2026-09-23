@@ -23,9 +23,9 @@ from bot.risk.multi_portfolio import MultiUserPortfolio
 
 
 # ── Engine harness ──────────────────────────────────────────────────
-# Build only the slice of RuneClawEngine that risk_for()/_route_user_trade_close
-# touch — a real shared RiskEngine + a real MultiUserPortfolio — without the full
-# (heavy, network-touching) constructor.
+# Build only the slice of RuneClawEngine that risk_for() touches — a real
+# shared RiskEngine + a real MultiUserPortfolio — without the full (heavy,
+# network-touching) constructor.
 
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
@@ -57,8 +57,6 @@ def engine(tmp_path, monkeypatch):
     )
     eng._user_risk = {}
     eng.user_portfolios = MultiUserPortfolio(default_balance=10_000.0)
-    eng.user_portfolios._on_trade_close = eng.risk.record_trade_result
-    eng.user_portfolios._on_trade_close_user = eng._route_user_trade_close
     # Default: nobody is an operator, so test users are treated as regular.
     eng._is_operator_user = lambda uid: False
     return eng
@@ -144,11 +142,13 @@ class TestBreakerIsolation:
         finally:
             p.stop()
 
-    def test_route_user_trade_close_isolates_streak(self, engine):
+    def test_a_live_loss_isolates_streak(self, engine):
+        # `_on_live_position_closed` feeds a live close through
+        # `risk_for(user_id).record_live_trade_result`, the call driven here.
         p = _cfg(per_user=True)
         try:
             for _ in range(5):
-                engine._route_user_trade_close("alice", -100.0)
+                engine.risk_for("alice").record_live_trade_result(-100.0)
             assert engine.risk_for("alice").circuit_breaker_active is True
             # Shared + other users untouched.
             assert engine.risk.circuit_breaker_active is False
@@ -156,13 +156,36 @@ class TestBreakerIsolation:
         finally:
             p.stop()
 
-    def test_flag_off_close_feeds_shared(self, engine):
-        p = _cfg(per_user=False)
+    @pytest.mark.parametrize("per_user", [False, True], ids=["flag-off", "flag-on"])
+    def test_a_practice_streak_trips_no_engine(self, engine, per_user):
+        # A per-user paper book is PRACTICE (the sim opt-in fill is its one
+        # writer). This test used to be `test_flag_off_close_feeds_shared`
+        # and pinned the opposite: five practice losses tripping the SHARED
+        # engine -- with per-user live off, the operator's LIVE breaker. The
+        # callbacks are read off a real engine, so the wiring driven here is
+        # the constructor's and not this fixture's
+        # (tests/test_a_loss_cools_only_the_account_that_took_it.py).
+        from bot.core.engine import RuneClawEngine
+        real = RuneClawEngine()
+        engine.user_portfolios._on_trade_close = real.user_portfolios._on_trade_close
+        engine.user_portfolios._on_trade_close_user = (
+            real.user_portfolios._on_trade_close_user)
+        p = _cfg(per_user=per_user)
         try:
-            for _ in range(5):
-                engine._route_user_trade_close("alice", -100.0)
-            # With per-user OFF, every close lands on the shared engine.
-            assert engine.risk.circuit_breaker_active is True
+            from bot.utils.models import Direction, TradeIdea
+            book = engine.user_portfolios.get("alice")
+            for i in range(5):
+                idea = TradeIdea(asset="BTC/USDT", direction=Direction.LONG,
+                                 entry_price=100.0, stop_loss=90.0,
+                                 take_profit=120.0, confidence=0.7,
+                                 reasoning="practice", source="scan")
+                t = book.open_position(idea, 50.0, leverage=1)
+                book.close_position(t.trade_id, 95.0)
+            assert all(t.pnl < 0 for t in book.trade_history[-5:])
+            assert engine.risk.circuit_breaker_active is False
+            assert engine.risk._consecutive_losses == 0
+            assert engine.risk_for("alice").circuit_breaker_active is False
+            assert engine.risk_for("alice")._consecutive_losses == 0
         finally:
             p.stop()
 
