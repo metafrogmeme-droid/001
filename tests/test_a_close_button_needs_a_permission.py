@@ -72,7 +72,7 @@ from bot.nlp.button_actions import (
 )
 from bot.skills.telegram_handler import TelegramHandler
 from bot.utils.user_store import ROLE_PERMISSIONS
-from tests.source_scan import code_only, handler_sources
+from tests.source_scan import code_only, handler_sources, segment_reader
 
 UID = "424242"
 TRADE_ID = "TI-op-1"
@@ -455,6 +455,7 @@ class TestTheCloseDoorMirrorsTheOpenDoor:
     def test_both_branches_read_live_authority(self):
         src = _dispatcher_source()
         tree = ast.parse(src)
+        seg = segment_reader(src)
         found = {}
         for node in ast.walk(tree):
             if not isinstance(node, ast.If):
@@ -464,8 +465,7 @@ class TestTheCloseDoorMirrorsTheOpenDoor:
             for row in ("confirm:", "pos_close_"):
                 if row not in lits:
                     continue
-                body = "\n".join(
-                    ast.get_source_segment(src, s) or "" for s in node.body)
+                body = "\n".join(seg(s) or "" for s in node.body)
                 if "_can_trade_live" in body:
                     found[row] = True
         assert found.get("confirm:"), "the OPEN door lost its H-18 reading"

@@ -96,12 +96,16 @@ def test_only_the_entitled_endpoints_mint_refresh_tokens():
     an existing credential, which is why it rotates and replay-checks."""
     import ast
     import inspect
-    tree = ast.parse(inspect.getsource(ar))
+
+    from tests.source_scan import segment_reader
+    src = inspect.getsource(ar)
+    tree = ast.parse(src)
+    seg = segment_reader(src)
     minters = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body = ast.get_source_segment(inspect.getsource(ar), node) or ""
+        body = seg(node) or ""
         if 'create_jwt' in body and 'token_type="refresh"' in body:
             minters.add(node.name)
     assert minters <= {"login", "register", "refresh"}, (

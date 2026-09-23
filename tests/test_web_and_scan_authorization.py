@@ -44,7 +44,7 @@ import re
 import pytest
 
 from bot.utils.user_store import DEFAULT_AUTO_ROLE, ROLE_PERMISSIONS
-from tests.source_scan import code_only
+from tests.source_scan import code_only, segment_reader
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDLER = REPO / "bot" / "skills" / "telegram_handler.py"
@@ -176,9 +176,10 @@ def test_scan_confirm_checks_live_permission():
     """
     src = code_only((REPO / "bot" / "skills" / "scan_skill.py").read_text())
     fn = None
+    read = segment_reader(src)
     for node in ast.walk(ast.parse(src)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            seg = ast.get_source_segment(src, node) or ""
+            seg = read(node) or ""
             if "engine.confirm_trade(" in seg:
                 fn = seg
                 break
