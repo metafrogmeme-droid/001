@@ -826,6 +826,9 @@ class RuneClawEngine:
         self._sync_notify_callback: Optional[Callable] = None
         self._adopt_notify_callback: Optional[Callable] = None
         self._auto_confirm_notify_callback: Optional[Callable] = None
+        # `(owner, kind, msg, close_slot)` for a PER-USER executor's close,
+        # fill and sync messages -- see `_announce_executor_message`.
+        self._owner_notify_callback: Optional[Callable] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
         # Per-symbol entry lock: serializes confirm_trade for the same symbol so
         # two overlapping auto-confirm cycles can't each pass the (analysis-time)
@@ -3383,6 +3386,54 @@ class RuneClawEngine:
     def set_auto_confirm_notify_callback(self, cb: Callable) -> None:
         """Register a callback to notify when a trade is auto-confirmed."""
         self._auto_confirm_notify_callback = cb
+
+    def set_owner_notify_callback(self, cb: Callable) -> None:
+        """Register `cb(owner, kind, msg, close_slot)` for a per-user book's
+        close, fill and sync messages. See `_announce_executor_message`."""
+        self._owner_notify_callback = cb
+
+    async def _announce_executor_message(self, executor, kind: str, msg: str) -> None:
+        """Hand one executor's message to whoever holds that book.
+
+        The monitoring loops sweep `_all_live_executors()` -- the operator's
+        book AND every per-user one -- and every message they produced went to
+        the same three callbacks, which take a string and nothing else. Those
+        callbacks were written for one account: the close one attaches the
+        OPERATOR executor's last-close card, sends to the operator's chats,
+        records into the operator's transcript, and forwards the close to the
+        PUBLIC marketing channels as the agent's own trade. So under
+        PER_USER_LIVE_ENABLED a user's close was published to the public
+        channels, shown to the operator unlabelled (possibly under the
+        operator's own card, when the symbols matched), written into the
+        operator's history as a trade they had closed -- and never told to the
+        person whose money it was.
+
+        The OPERATOR's book is decided by IDENTITY, never by `user_id is None`:
+        `None` meaning both "nobody in particular" and "the operator" is the
+        two-meanings-under-one-name defect, and a per-user executor built
+        without an id must not quietly become the operator's.
+
+        A per-user book goes to `_owner_notify_callback` with its owner and
+        ITS OWN last-close slot, and to nothing else -- the rule recorded for
+        person-scoped alerts: a position belongs to a person, the person is
+        told, and platform oversight has its own door (`/accounts`).
+        """
+        if kind not in ("close", "fill", "sync"):
+            raise ValueError(f"unknown executor message kind: {kind!r}")
+        if executor is self.live_executor:
+            # Only the callback this kind needs is read: a dict of all three
+            # raised on an engine carrying one, inside every site's `except`,
+            # and the note vanished at DEBUG.
+            cb = getattr(self, f"_{kind}_notify_callback", None)
+            if cb is not None:
+                await cb(msg)
+            return
+        if self._owner_notify_callback is None:
+            return
+        owner = getattr(executor, "user_id", None)
+        slot = getattr(executor, "_last_close_data", None) if kind == "close" else None
+        await self._owner_notify_callback(
+            "" if owner is None else str(owner), kind, msg, slot)
 
     # -- Main loop --
 
@@ -8211,11 +8262,10 @@ class RuneClawEngine:
                                  f"closed by this request (kept open, or already closed "
                                  f"or closing under another path); close_position "
                                  f"answered:\n{_answer}")
-                    if self._close_notify_callback:
-                        try:
-                            await self._close_notify_callback(_note)
-                        except Exception as nexc:
-                            logger.debug("Smart-exit notify failed: %s", nexc)
+                    try:
+                        await self._announce_executor_message(executor, "close", _note)
+                    except Exception as nexc:
+                        logger.debug("Smart-exit notify failed: %s", nexc)
                 except Exception as cexc:
                     audit(system_log,
                           f"Live smart-exit close failed for {pos.symbol}: {cexc}",
@@ -8418,11 +8468,10 @@ class RuneClawEngine:
                         if is_fill:
                             audit(trade_log, f"Limit order filled: {msg}",
                                   action="limit_fill_notify", result="FILLED")
-                            if self._fill_notify_callback:
-                                try:
-                                    await self._fill_notify_callback(msg)
-                                except Exception as exc:
-                                    logger.debug("Fill notify failed: %s", exc)
+                            try:
+                                await self._announce_executor_message(_ex, "fill", msg)
+                            except Exception as exc:
+                                logger.debug("Fill notify failed: %s", exc)
                             continue
 
                         # Periodic-sync adoption notices are informational —
@@ -8432,11 +8481,10 @@ class RuneClawEngine:
                         if self._is_sync_message(msg):
                             audit(trade_log, f"Exchange sync: {msg}",
                                   action="exchange_sync_notify", result="ADOPTED")
-                            if self._sync_notify_callback:
-                                try:
-                                    await self._sync_notify_callback(msg)
-                                except Exception as exc:
-                                    logger.debug("Sync notify failed: %s", exc)
+                            try:
+                                await self._announce_executor_message(_ex, "sync", msg)
+                            except Exception as exc:
+                                logger.debug("Sync notify failed: %s", exc)
                             continue
 
                         if self._is_kept_open_message(msg):
@@ -8448,11 +8496,10 @@ class RuneClawEngine:
                         else:
                             audit(trade_log, f"Live position auto-closed: {msg}",
                                   action="live_auto_close", result="CLOSED")
-                        if self._close_notify_callback:
-                            try:
-                                await self._close_notify_callback(msg)
-                            except Exception as exc:
-                                logger.debug("Close notify failed: %s", exc)
+                        try:
+                            await self._announce_executor_message(_ex, "close", msg)
+                        except Exception as exc:
+                            logger.debug("Close notify failed: %s", exc)
                     # C-08 FIX: trigger cooldown on live losses. Read the losses
                     # from the executor's closed-trade ledger for THIS tick
                     # instead of _last_close_data per message — that shared slot
@@ -8483,11 +8530,10 @@ class RuneClawEngine:
                     for msg in reconciled:
                         audit(trade_log, f"Position reconciled: {msg}",
                               action="reconcile", result="CLOSED")
-                        if self._close_notify_callback:
-                            try:
-                                await self._close_notify_callback(msg)
-                            except Exception as exc:
-                                logger.debug("Close notify (reconcile) failed: %s", exc)
+                        try:
+                            await self._announce_executor_message(_ex, "close", msg)
+                        except Exception as exc:
+                            logger.debug("Close notify (reconcile) failed: %s", exc)
                 except Exception as exc:
                     audit(system_log, f"Reconciliation error: {exc}",
                           action="reconcile", result="ERROR")
