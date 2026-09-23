@@ -792,21 +792,23 @@ class TradingCommands:
 
         await self._send(update, "\n".join(lines))
 
-    async def _render_livepositions_cards(self, update, filled_pos, pending_pos, executor=None) -> bool:
+    async def _render_livepositions_cards(self, update, filled_pos, pending_pos, executor) -> bool:
         """Render /livepositions as PNG cards: one position card per open position
         (composited into a single image) plus the pending-orders card.
 
         Best-effort and display-only: returns True if at least one card was sent;
         False (or on any error) lets the caller fall back to the text readout.
 
-        executor: the CALLER's resolved executor (see _cmd_livepositions) --
-        defaults to the shared operator executor for any other caller that
-        hasn't been updated to resolve one (byte-identical to prior behaviour).
+        executor: the CALLER's resolved executor (see _cmd_livepositions).
+        REQUIRED. It used to default to the shared operator executor "for any
+        other caller that hasn't been updated to resolve one" -- a door that
+        hands a caller the operator's book by forgetting an argument, which is
+        how the Details button's fallback came to show the operator's position
+        to whoever tapped it. The one caller passes its own; a new caller has
+        to decide whose book it is rendering.
         """
         if not filled_pos and not pending_pos:
             return False
-        if executor is None:
-            executor = self.engine.live_executor
         try:
             from datetime import datetime, timezone
 

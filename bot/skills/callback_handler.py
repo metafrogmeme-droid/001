@@ -822,11 +822,19 @@ class CallbackHandler:
                 if _rec is not None:
                     _resolved_sym = getattr(_rec, "symbol", None)
 
-            # Fallback: check exchange directly for untracked positions
+            # Fallback: check exchange directly for untracked positions --
+            # on the CALLER's account. This read `self.engine.live_executor`,
+            # so with per-user live on, the `None` `_caller_executor` answered
+            # above for a caller with no linked account (its whole isolation)
+            # was walked past, and that caller was shown the OPERATOR's
+            # position; a linked trader's stale position was looked up on the
+            # operator's account too. The close branch below says why in its
+            # own comment and was already right. Single-account mode is
+            # unchanged: `_detail_ex` IS the operator's executor there.
             is_untracked = False
-            if pos_match is None and CONFIG.is_live():
+            if pos_match is None and CONFIG.is_live() and _detail_ex is not None:
                 try:
-                    exchange_fallback = await self.engine.live_executor._get_exchange()
+                    exchange_fallback = await _detail_ex._get_exchange()
                     ex_positions = await exchange_fallback.fetch_positions()
                     ident_clean = ident.replace("/", "").replace(":USDT", "")
                     for ep in (ex_positions or []):
