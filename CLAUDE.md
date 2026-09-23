@@ -8365,7 +8365,10 @@ over-reports by construction and the honest answer is a recorded decision per
 site. That row's reason is itself a finding: a token-gated caller may hand the
 sizing ladder a confidence nobody measured, under an unset `source` that reads
 as the analyzer's own `"unknown"`. Recorded, not answered by a slice scoped to
-the drift re-offer.
+the drift re-offer. **Answered later, and not by this rule:** `/confirm`
+became a refusal when the bridge's engine became a reader (it opened a
+position in a stale copy of the operator's book), so it builds no idea, the
+row went stale and the ratchet refused the slice until it was deleted.
 
 **AND #422's OWN TEST HAD PINNED THIS AS THE CONTRACT.** Its writer table
 carried a row labelled *"auto_reanalyze (the drift re-offer)"* asserting it

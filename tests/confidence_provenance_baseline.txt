@@ -24,4 +24,10 @@
 # one module over. So the rule over-reports by construction and the honest
 # answer is a recorded decision per site rather than a cleverer regex.
 
-api_bridge.py::confirm_trade#0  `req` is a ConfirmRequest, not an idea: the confidence is CALLER-SUPPLIED (ConfirmRequest.confidence, default 0.7), so nothing was inherited from another trade and there is no origin id to name. Driven, this construction is not registered into `_pending_ideas`, so it reaches no auto-confirm loop; it is confirmed directly by a token-gated caller. That a caller may hand the sizing ladder a confidence nobody measured — under `source` unset, so it reads as the analyzer's own `"unknown"` — is a real and SEPARATE question about that surface, recorded here rather than answered by a slice scoped to the drift re-offer.
+#
+# EMPTY, and the one row it held left with its site. It was
+# `api_bridge.py::confirm_trade#0`: a request body's CALLER-SUPPLIED confidence,
+# recorded as a separate question about that surface. `/confirm` refuses now
+# (it opened a position in the bridge's stale copy of the operator's book and
+# answered "confirmed"), so it builds no TradeIdea and there is nothing to
+# exempt. The rule stays: the next undeclared carrier fails by name.
