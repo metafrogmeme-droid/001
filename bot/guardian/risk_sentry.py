@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.guardian import book_read
+
 # Alert severities, low→high, so the worst can be picked deterministically.
 _ORDER = {"info": 0, "caution": 1, "warn": 2}
 
@@ -43,6 +45,42 @@ def _side(v: Any) -> str:
     if s in ("short", "sell"):
         return "short"
     return ""
+
+
+def _priced(p: Any) -> bool:
+    """Can this row be assessed? A symbol to name it and a notional to size it.
+
+    LOCAL, and deliberately: `book_read` owns the COUNT and its own docstring
+    refuses to own what "priced" means, because each reader needs something
+    different — the twin needs an entry and a quantity to shock, the escape
+    plan a notional to rank, and this sentry a base symbol to group and a
+    notional to weigh. Folding them would be a second answer about one word.
+    """
+    n = _f(p.get("notional_usd"))
+    return bool(_base(p.get("symbol"))) and n is not None and n > 0
+
+
+def _partial_sentence(cov: "book_read.BookCoverage") -> str:
+    """What a user is told when part of their book could not be assessed.
+
+    Two facts, two sentences. None of it readable means NOTHING below describes
+    this book, so the checks that did run are named as not having run on it;
+    part of it readable means the flags below are real but cover only that
+    part, and the rows they missed are the ones that could have changed them.
+    Written here rather than through `book_read.coverage_note`, because that
+    template is phrased for a figure a card prints and this is a sentence in a
+    list of alerts — the COUNT and the two-state split are what is shared.
+    """
+    names = ", ".join(cov.unpriced[:4])
+    if len(cov.unpriced) > 4:
+        names += f" and {len(cov.unpriced) - 4} more"
+    if cov.nothing_read:
+        return (f"None of your {cov.counted} open position(s) could be priced "
+                f"({names}), so concentration, crowding and leverage were not "
+                "assessed on your book. This is not an all-clear.")
+    return (f"{cov.scored} of your {cov.counted} open position(s) could be "
+            f"priced; {names} could not, so the flags here describe part of your "
+            "book and the rows left out are ones that could change them.")
 
 
 def assess(positions: Optional[list[dict]], *,
@@ -80,16 +118,36 @@ def assess(positions: Optional[list[dict]], *,
                                "your posture was not assessed. This is a "
                                "failed read, not an empty book."}],
             "count": 0, "worst_level": "unknown", "gross_usd": None,
-            "book_read": False,
+            "book_read": False, "book_coverage": None,
         }
     alerts: list[dict] = []
     norm: list[dict] = []
     for p in (positions or []):
-        n = _f(p.get("notional_usd"))
-        base = _base(p.get("symbol"))
-        if not base or n is None or n <= 0:
+        if not _priced(p):
             continue
-        norm.append({"symbol": base, "side": _side(p.get("side")), "notional_usd": n})
+        norm.append({"symbol": _base(p.get("symbol")), "side": _side(p.get("side")),
+                     "notional_usd": _f(p.get("notional_usd"))})
+
+    #: THE BRANCH ABOVE FIXED THE WHOLE-READ CASE AND THIS LOOP IS THE OTHER HALF.
+    #: `positions is None` says the list never arrived; this walk used to drop
+    #: every row it could not price with no trace at all, and then compute
+    #: gross, concentration and book leverage over what was left. Driven, three
+    #: open positions whose notional the book could not state returned
+    #: `worst_level: "clear"`, `gross_usd: 0` and "nothing flagged in your
+    #: current posture" — byte-identical to a FLAT book, while the same three
+    #: rows readable raised a concentration warning. Today's one caller reads
+    #: the paper book, where the reachable row is a dust position whose
+    #: quantity rounds to 0.0; the rest is this function's contract for the
+    #: day a live book (adopted positions and all) is wired to it.
+    #:
+    #: `book_read` stays True — the list WAS read, and the dashboard's own
+    #: `/api/positions` reader keys a different payload's `book_read` on
+    #: `!== true`, so repurposing the word would be a wire change for nobody's
+    #: benefit. The coverage rides beside it, the shape `escape_agent` uses.
+    cov = book_read.coverage_of(positions, _priced)
+    if not cov.complete:
+        alerts.append({"level": "unknown", "category": "book_partial",
+                       "msg": _partial_sentence(cov)})
 
     gross = round(sum(p["notional_usd"] for p in norm), 2)
 
@@ -163,8 +221,14 @@ def assess(positions: Optional[list[dict]], *,
 
     alerts.sort(key=lambda a: _ORDER.get(a["level"], 0), reverse=True)
     worst = alerts[0]["level"] if alerts else "clear"
+    # A gross over a book where NOTHING could be priced is not a measured $0 —
+    # it is no figure at all, and `0` on the wire is the shape this module's
+    # own None branch exists to refuse. The arithmetic above still sees 0,
+    # where both guards that read it (concentration, book leverage) skip; only
+    # the published figure changes.
     return {"alerts": alerts, "count": len(alerts), "worst_level": worst,
-            "gross_usd": gross, "book_read": True}
+            "gross_usd": None if cov.nothing_read else gross, "book_read": True,
+            "book_coverage": cov.as_dict()}
 
 
 def human_readable(report: Optional[dict]) -> str:

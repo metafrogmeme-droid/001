@@ -4518,7 +4518,10 @@
           <p class="small muted" style="margin-top:var(--s2)">Watches for envelope drift, over-cap positions,
             concentration, correlated crowding, and daily-spend. It flags — it never closes or resizes anything.</p>`;
       }
-      const icon = { warn: '🔴', caution: '🟠', info: '🔵' };
+      // Every level the sentry emits, `unknown` included: a check that could
+      // not run on part of the book is not a bullet point. Same map as
+      // `risk_sentry.human_readable`, pinned against the producer.
+      const icon = { warn: '🔴', caution: '🟠', info: '🔵', unknown: '⚪' };
       const rows = d.alerts.map(a =>
         `<div class="kv-row" style="align-items:flex-start"><span>${icon[a.level] || '•'} ${esc(a.msg)}</span></div>`).join('');
       const worst = d.worst_level === 'warn' ? 'mode-badge--live' : (d.worst_level === 'caution' ? '' : 'mode-badge--paper');

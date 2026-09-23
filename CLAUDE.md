@@ -8713,6 +8713,108 @@ for a kill would have reported coverage of a branch it never edited.
 
 (`tests/test_an_unpriceable_book_is_not_a_flat_one.py`.)
 
+**AND THE FOURTH READER WAS THE ONE WHOSE DOCSTRING CALLED ITSELF THE
+SIBLING THAT WAS MISSED.** `risk_sentry.assess` handles `positions is None`
+correctly and says why in so many words — *"Byte-for-byte the
+`escape_agent.plan()` defect CLAUDE.md records as fixed … This is the sibling
+that was missed."* Then its walk dropped every row it could not price with
+`continue` and no trace, and computed gross, concentration, crowding and book
+leverage over what was left. It fixed the WHOLE-read case and left the
+PER-ROW case standing, one granularity down — the escape plan's own shape,
+in the module written from the lesson of the escape plan.
+
+**The warning this module exists to give was suppressed by the data it could
+not read.** Driven:
+
+| book | `worst_level` | `gross_usd` | what the user is told |
+|---|---|---|---|
+| 3 rows, none readable | `clear` | `0` | **🟢 nothing flagged in your current posture** |
+| genuinely flat | `clear` | `0` | 🟢 nothing flagged in your current posture |
+| the **same** book readable | `caution` | `$1,830` | 🟠 PENDLE is 55% of your gross exposure |
+
+Identical to a flat book, while the readable version raised the concentration
+warning. `book_read: True` described the CALL — the list arrived — not the
+ROWS.
+
+**AND THE FIRST DRAFT OF THIS PARAGRAPH CLAIMED A PATH THAT DOES NOT REACH
+IT.** It said an adopted position's unread entry arrives here as exactly the
+`0.0` the walk dropped — carried over from the escape plan, where it is true.
+Driven for this caller, it is not: `/gateway/sentry` reads
+`engine.user_portfolios`, which is the PAPER book (*"per-user isolated paper
+wallets"*), and adoption is a live-executor concept that never reaches it. The
+paper book refuses a non-positive entry at open. What DOES reach it is one
+edge, driven: `open_quantity` rounds to eight decimals and does not refuse a
+zero, so a $0.0001 margin at a BTC price opens a position of quantity `0.0`
+and notional `0.0` — dropped in silence before this fix. Real, and marginal.
+So through today's web surface this is not the live defect the escape plan
+was; it is the FUNCTION's contract, fixed before the day a live book is wired
+to the sentry, where adopted positions would arrive exactly as the escape
+plan's did. *A measurement you remember is not a measurement*, and a
+reachability carried over from a sibling is one.
+
+**`book_read` STAYS A BOOLEAN, and the coverage rides beside it.** Repurposing
+the word into a three-valued reading would be a wire change for nobody's
+benefit: the list WAS read, which is what True says, and the escape plan
+already set the shape — `book_coverage` beside the figure. The sentry panel
+branches on `d.alerts.length` rather than on `book_read`, so once an
+unpriceable book produces an alert the browser's 🟢 all-clear is unreachable
+for it with no JavaScript change.
+
+**The gap is an ALERT, in the module's own vocabulary.** `risk_sentry`
+already spells an unread input as `level: "unknown"` — the daily-spend check
+says *"Today's spend could not be read, so your $X daily cap was not
+checked"* — so the shortfall is a `book_partial` row beside the real flags
+rather than a new field a renderer has to learn. `unknown` sorts below every
+real severity (`_ORDER.get(level, 0)`), so a real flag outranks a gap and
+the note never lifts or lowers the verdict on its own: a partial book keeps
+its MEASURED word, `book_read.verdict_over`'s ruling one reader over, and a
+wholly unreadable one answers `unknown` because the note is then the only
+row. Two sentences, because they are two facts — *"None of your 3 open
+position(s) could be priced … This is not an all-clear"* and *"2 of your 3 …
+could be priced; ARB/USDT could not, so the flags here describe part of your
+book and the rows left out are ones that could change them"*. The partial
+one is load-bearing: over the priced subset PENDLE reads **66%** of gross,
+over the whole book **55%**.
+
+**The predicate stays LOCAL and the count is shared**, the division
+`escape_agent` drew: `_priced` needs a base symbol to group and a notional to
+weigh, which is neither the twin's entry-and-quantity nor the escape plan's
+notional-to-rank, and `book_read`'s own docstring refuses to own what
+"priced" means. The walk ASKS `_priced` rather than spelling the condition
+inline, so the count and the filter are one reading. `gross_usd` answers
+`None` for a book where nothing could be priced — `0` on the wire is the
+shape this module's own `None` branch exists to refuse — while the internal
+arithmetic still sees `0`, where both guards that read it skip.
+
+**A line no input could reach was deleted before the round rather than
+found by it.** `_priced` opened with `isinstance(p, dict)`: the only caller
+builds dicts, and without the check a malformed row raises out of `assess`
+into the gateway's `sentry_unavailable` 500, which is exactly what the old
+loop did.
+
+**Nineteen mutations, each killed — and the two that survived the first
+round were my guard's, never the code's.** A loop keeping its OWN copy of
+the predicate that let a zero row through survived every assertion, because
+a zero row adds nothing to the gross the guard checked. It is not inert: one
+priced BTC long beside a zero-sized ETH long makes the concentration check
+see two symbols and the crowding check two correlated majors, and the mutant
+fires **"BTC is 100% of your gross exposure"** and **"2 correlated majors
+held long"** off a row nobody could size. The test claimed *"the count and
+the filter agree"* and could not see a copy that diverged on a row
+contributing nothing to the one figure it read; it drives the set the other
+checks walk now. The second was the "and N more" clause, which no fixture
+with four or fewer unpriced rows could reach — a bounded list printed without
+its total reads as the total, whatever book the day's caller hands it.
+
+**Recorded, not changed.** The browser's icon map is
+`{ warn: '🔴', caution: '🟠', info: '🔵' }` where `human_readable`'s has
+`unknown: '⚪'` too, so an unknown row renders as a neutral `•` on the web.
+That makes no colour claim, so it is honest, and it predates this slice (the
+daily-spend and unreadable-book rows already reached it); aligning it means
+the dashboard bundle and its cache-buster, which is its own change.
+(`tests/test_a_sentry_says_what_it_could_not_price.py`.)
+
+
 
 **A VIEWER CLOSED THE OPERATOR'S LIVE POSITION BY TAPPING THE BUTTON THE
 PRODUCT HANDED THEM.** `_handle_callback` has permission-gated destructive
@@ -10096,9 +10198,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **419 of 1009** reach for source text through `source_scan`, `code_only`
+Driven, **420 of 1010** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 419 is a FLOOR and the honest shape is
+source scan that rule does not see, so 420 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
