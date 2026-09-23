@@ -779,6 +779,122 @@ structural next step: a regime/correlation stand-down that gates entries *up
 front*, since every lagging close/equity circuit is blind to it by
 construction.**
 
+## Does the signal's DIRECTION predict price? (2026-09-23) — no, except one lead
+
+Every section above measures the whole system: signal, entry, exits, sizing
+and portfolio caps folded into one return. That cannot say where an edge is,
+or is not. `scripts/signal_edge.py` asks the first question alone, before any
+entry or exit exists: for every idea the analyzer emits during the canonical
+honest walk-forward, how far did price move **in the idea's direction** over
+the next h bars, in ATR(14) units, **minus what that direction earned
+unconditionally** over the same window (a market that fell all year pays every
+short, and that is not skill). Intervals are honest: consecutive ideas on one
+symbol share forward windows, so the table uses a cluster bootstrap over
+(snapshot, symbol, ISO week), not a per-idea interval.
+
+```bash
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/signal_edge.py collect \
+    --dataset benchmark/majors_1h_v2 --out majors_v2.json
+python scripts/signal_edge.py report majors_v2.json alts_v2.json
+```
+
+Pooled over the two **disjoint** v2 snapshots (majors + alts, different
+symbols, same Feb 2025 → Jul 2026 span; 8,510 ideas). Cells are mean excess in
+ATR, [95% cluster-bootstrap interval]:
+
+| ideas | n | 1 bar | 24 bars | 48 bars |
+|---|---:|---:|---:|---:|
+| **all** | 8510 | +0.01 [−0.00, +0.02] | **+0.03 [−0.09, +0.14]** | +0.16 [−0.03, +0.35] |
+| `momentum_confluence` | 2960 | −0.01 [−0.03, +0.02] | −0.05 [−0.22, +0.14] | +0.26 [−0.03, +0.54] |
+| `regime_trend` | 4739 | +0.01 [−0.01, +0.03] | +0.06 [−0.10, +0.21] | +0.09 [−0.16, +0.33] |
+| `volume_spike` | 716 | +0.08 [+0.01, +0.16] | −0.02 [−0.29, +0.26] | +0.11 [−0.27, +0.49] |
+| `vwap_reversion` | 95 | +0.13 [−0.05, +0.35] | **+1.05 [+0.20, +1.95]** | +0.86 [−0.50, +2.19] |
+
+**No directional edge overall, at any horizon from 1 to 48 bars.** That is the
+Round 5 finding ("the edge collapses out-of-sample") one level down: it is not
+the exits or the sizing that lose it, there is no edge in the direction to
+begin with. Tuning entries or exits against this signal is fitting noise.
+
+**`momentum_confluence` looked anti-predictive and does not replicate.** On
+`majors_1h` alone it is −0.40 [−0.74, −0.07] at 24 bars; on `majors_1h_v2`
+−0.27 [−0.49, −0.07]; on `alts_1h_v2` **+0.27** [−0.04, +0.55] and **+0.66
+[+0.21, +1.08]** at 48 bars. The sign follows the universe and the months, not
+the signal, and pooled it is −0.05. It is not a strategy either: it is the
+analyzer's DEFAULT bucket (`_classify_signal_type`: anything not a volume
+spike, not near VWAP in a range, not an ADX>30 trend). This agrees with the
+refuted `SKIP_SIGNAL_TYPES` gate above, for a better reason: there is nothing
+consistent to gate.
+
+**The risk gate's approved subset is not a reading either.** On v2 its ideas
+move −0.12 [−0.17, −0.06] in the first bar; on the v1 snapshots, a time subset
+of the same symbols, they are +0.53 [+0.09, +0.92] at 24 bars. Which ideas get
+approved depends on the portfolio's state in that run, so the sign flips
+between overlapping runs.
+
+**`vwap_reversion` is the one lead, and it is recorded as a hypothesis, not
+acted on.** Its 24-bar point estimate is positive on every snapshot
+(`majors_1h` +0.83, `alts_1h` +0.09, `majors_1h_v2` +1.38, `alts_1h_v2` +0.79,
+`corr_dense_1h` +0.40), but each holds 24–95 ideas, the snapshots share months
+and symbols (closer to two independent looks than five), and about forty cells
+were examined, so one or two clearing zero is what chance alone produces.
+Two things make it worth keeping. Its edge builds over **12–48 bars** and is
+flat at 1–4 bars. And live closes these trades at **0.5–2 hours**
+(`smart_exits._SIGNAL_HOLD_LIMITS`), before that window opens; the backtest does
+not model live's smart exits, so it holds them longer than live does.
+**Pre-registered:** on a snapshot fetched after 2026-07-06, the pooled
+`vwap_reversion` excess at 24 bars has a 95% interval above zero. Until that
+holds, the hold limit stays where it is.
+
+### The benchmark fills every idea at a price live never pays
+
+Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the
+analyzer prices each idea 0.1–1.0 ATR better than the market). Under
+`--honest` the queued idea fills at the **next bar's open**, with the stop and
+target still where the limit put them, and sized for the limit's stop
+distance. Measured: the fill sits a median **1.19× the idea's own risk** worse
+than planned, so a target planned at **2.97R** is **0.82R** at the fill, with
+more risk on than the size was computed for. Live instead RESTS the limit at
+its price for up to 4h (`LIMIT_ORDER_EXPIRE_SEC`), cancelling on a 2% drift.
+
+Three entry models, one experiment switch (not committed), `--honest
+--walk-forward 6`, mean OOS return (profitable folds):
+
+| snapshot | A: next open, limit's levels (today) | B: live's resting limit | C: next open, levels moved with the fill |
+|---|---:|---:|---:|
+| `majors_1h` | −0.38% (1/6) | −0.54% (0/6) | +0.02% (1/6) |
+| `alts_1h` | +0.07% (3/6) | −0.34% (3/6) | −0.47% (1/6) |
+| `majors_1h_v2` | −0.18% (1/6) | +0.09% (1/6) | −0.01% (1/6) |
+| `alts_1h_v2` | −1.09% (0/6) | −0.83% (0/6) | −0.78% (0/6) |
+| mean | −0.40% | −0.41% | −0.31% |
+
+No model wins consistently, and all three lose on average. B fills at the
+planned price and still loses: a pullback limit fills on the trades that go
+against the signal first and misses the ones that run away (adverse
+selection). With no directional edge to amplify, the entry model is not the
+lever, so live's order type is not changed on this evidence and the benchmark
+on record is not re-modelled. Recorded as NOT modelled: live's resting limit,
+its `drift_market_fallback`, and live's smart exits (default ON).
+
+### The analyzer's limits were never held to a minimum reward:risk
+
+`RiskEngine.evaluate` skipped the per-strategy minimum reward:risk for every
+limit idea, under the label "OK (limit order, user-confirmed)". Manual tickets
+are handled a branch earlier, so the branch is reached only by the analyzer's
+own ideas: on `majors_1h` 2,712 of 2,712 evaluated ideas were limits, 221 sat
+below their minimum, and 27 of 237 approved went through on that line. The
+label now says the minimum was not applied. Enforcing it (A model) moved the
+four snapshots to −0.55%, +0.39%, −0.20%, −0.96% against −0.38%, +0.07%,
+−0.18%, −1.09%: inside the fold noise, while refusing 8–11% of approved
+trades. Whether to enforce it is the operator's call.
+
+### The portfolio backtest dropped resting limits (default path only)
+
+`PortfolioBacktester._run` skipped `_drain_pending_limits`, so with
+`fill_mode="close"` a limit its signal bar did not reach was never filled,
+expired or counted. Fixed. `--honest` never rests a limit, so the benchmark on
+record is unchanged (`tests/test_the_portfolio_backtest_drains_resting_limits.py`
+drives both).
+
 ## Refreshing the snapshot
 
 Re-run step 1 to fetch a newer window (e.g. quarterly). This changes the
