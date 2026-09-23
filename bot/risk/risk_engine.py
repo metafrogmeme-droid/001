@@ -1812,9 +1812,13 @@ class RiskEngine:
         if is_manual:
             passed.append("RISK_REWARD: skipped (manual trade)")
         elif is_limit:
-            # User explicitly confirmed entry/SL/TP levels — don't re-reject
+            # NOT a user confirmation: `is_manual` is the branch above, so
+            # every idea here is a non-manual limit, and the analyzer makes
+            # every one of its ideas a limit. The minimum is not applied, and
+            # the line says so rather than printing "OK" over a check nobody ran.
             rr = idea.risk_reward_ratio
-            passed.append(f"RISK_REWARD: {rr} OK (limit order, user-confirmed)")
+            passed.append(f"RISK_REWARD: {rr} not checked (limit order; "
+                          f"the minimum is not applied to limits)")
         else:
             try:
                 # 6. Risk-reward ratio (0.01 tolerance for float rounding at boundary)
