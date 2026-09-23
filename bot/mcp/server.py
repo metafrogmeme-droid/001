@@ -362,7 +362,15 @@ class RuneClawMCPServer:
                 "without authentication. Set MCP_AUTH_TOKEN in your .env file."
             )
 
-        self._engine = engine or RuneClawEngine()
+        if engine is None:
+            # An engine this adapter builds for itself is a second process's
+            # copy of the bot's state, so it is a READER: its saves would
+            # stamp a stale breaker over the bot's
+            # (`RuneClawEngine.detach_state_persistence`). A caller that hands
+            # one in decides for its own.
+            engine = RuneClawEngine()
+            engine.detach_state_persistence()
+        self._engine = engine
         self._registry = registry or build_default_registry()
         self._tool_index: dict[str, MCPToolDef] = {
             t.mcp_name: t for t in TOOL_CATALOGUE

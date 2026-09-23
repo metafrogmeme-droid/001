@@ -9303,6 +9303,53 @@ through the bridge's `/analyze` would erase the bot's rows recorded since the
 bridge started.
 (`tests/test_the_bridge_is_a_reader_of_the_bots_state.py`.)
 
+**AND THE BRIDGE WAS NOT THE ONLY ONE.** *Ask which OTHER surface makes the
+same claim*, pointed at a process instead of a card. Outside `tests/`,
+`RuneClawEngine` is built by the bot (`bot/main.py`'s `run_telegram`) and by
+every process below. Each of them opens the bot's data directory, and its
+first save stamps a stale copy of the operator's state over the bot's. (This
+paragraph first said "one of seven" and "eight places", from memory; the
+rule's own walk counts nine constructions, and the count is left to the walk.)
+
+- `live_e2e_test.py` (its docstring: *"Runs against the live bot
+  process"*) resets the breaker it loaded "for a clean test", calls
+  `emergency_halt`, and undoes that in memory only. Driven: the bot's saved
+  state then reads **halted, cause "manual"**, and a restarted bot comes up
+  halted. The script's own reason, *"E2E test trigger"*, is in an audit line
+  nobody reads beside it.
+- Read, not driven: `scripts/e2e_pipeline.py` opens positions in the
+  operator's shared paper book, which saves on every open. `live_test.py`,
+  `scripts/test_all_skills.py` and `bot/main.py`'s `--mode cli` and
+  `--mode scan` build engines too. The CLI runs any registered skill,
+  including the halt skill, against its copy and prints what the skill says.
+- The MCP adapter built one for itself whenever none was handed in.
+
+Each is a reader now, and the CLI's banner says a halt typed there reaches
+no running bot, because a skill's own reply cannot know it is running in a
+copy. **A list of those sites would be the `/setllm` ten-of-eleven shape**,
+where the script added tomorrow is the one missing. So
+`tests/test_only_the_bot_writes_its_state.py` is a RULE over every
+construction outside `tests/`. The engine must be detached in the same scope,
+AFTER it is built, on the same name, or the site must be an owner with its
+reason. The owner list has one row. A row whose site is gone fails, and an
+owner row cannot excuse a construction bound to no name, because nothing can
+detach one. The rule's branches are driven on planted trees (a detach before
+the build, on another name, only inside a nested function, a
+module-qualified build), because the real tree has none of them.
+
+**Sixteen mutations, each killed on the first round.** One died somewhere
+else than aimed: letting the walk descend into nested functions made the
+module scope count the same construction twice, so it died on the plain
+never-detached case. The mutation's real consequence was a double count.
+
+**And writing it found a lint regression in the slice before it.** Re-pointing
+the bridge's parity test removed its only `pytest.mark` use and left
+`import pytest` behind. That slice's ruff gate had been run BEFORE that edit,
+so the regression was in a commit already under preflight, which would have
+failed its strict unused-import gate forty minutes in. *Run the gate after
+the last edit, not after the edit you remember as last.*
+(`tests/test_only_the_bot_writes_its_state.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10531,7 +10578,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1014** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1015** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
