@@ -100,6 +100,34 @@ def render_escape_card(report: Optional[dict], *, sealed: bool = False) -> str:
             "<code>/emergency_stop</code> to halt and flatten.</i>")
 
     steps = report.get("steps") or []
+    cov = report.get("book_coverage") or {}
+    counted = cov.get("counted_positions")
+    scored = cov.get("scored_positions")
+    note = str(report.get("coverage_note") or "")
+
+    # ── read, and not one row could be priced ───────────────────────────────
+    # THIS BRANCH SITS ABOVE THE FLAT ONE BECAUSE IT USED TO BE THE FLAT ONE.
+    # `plan()` dropped every row it could not price and then answered the flat
+    # document, so an adopted book after a restart rendered here as "no open
+    # positions to unwind" — the all-clear, on the emergency-exit screen, to
+    # an operator reading it precisely because something is wrong.
+    #
+    # A document carrying no `book_coverage` at all is an OLDER bot build, not
+    # a book with no rows, so it falls through to the behaviour it has always
+    # had rather than being accused of a shortfall nobody measured.
+    if isinstance(counted, int) and isinstance(scored, int) and counted > 0 and scored == 0:
+        named = ", ".join(str(s) for s in (cov.get("unpriced_symbols") or [])[:6])
+        return (
+            "🪂 <b>Escape plan</b> — ⚪ unwind urgency <b>UNKNOWN</b>\n\n"
+            f"<b>{counted} position(s) are open and none of them could be "
+            "priced, so no exit order could be worked out.</b>\n"
+            f"<i>{html.escape(named)}</i>\n\n"
+            "<i>This is not a flat book and it is not an all-clear. The rows "
+            "are there; what could not be read is what each is worth, which "
+            "is what the plan orders by.</i>\n\n"
+            "<i>Check <code>/open_positions</code> for what is out there. To "
+            "flatten regardless: <code>/closeall</code>, or "
+            "<code>/emergency_stop</code> to halt and flatten.</i>")
 
     # ── genuinely flat ──────────────────────────────────────────────────────
     if not steps:
@@ -115,6 +143,25 @@ def render_escape_card(report: Optional[dict], *, sealed: bool = False) -> str:
         f"<i>{_count(report.get('position_count'))} position(s) · gross "
         f"{_usd(report.get('gross_notional_usd'))} · margin "
         f"{_usd(report.get('total_margin_usd'))}</i>", ""]
+
+    # A PARTIAL PLAN IS NOT A PLAN FOR THIS BOOK. Driven on a two-row book
+    # whose second row is an ordinary adopted position, the card read
+    # "1 position(s) · gross $32 · 🟢 NONE" where the truth was 2 positions,
+    # gross $1,030 and HIGH — and the most fragile position, which this plan
+    # exists to close FIRST, was not in the order at all.
+    #
+    # The headline keeps its MEASURED word — `book_read.verdict_over`'s ruling,
+    # one reader over, and re-deciding it here would be two answers about what
+    # a partial verdict may say. What that ruling costs is worth naming: the
+    # urgency is a `min` over the liquidation distances of the rows that WERE
+    # priced, and a minimum over a subset is an UPPER bound on the true one, so
+    # a partial word is wrong only ever in the flattering direction. That is
+    # why the shortfall goes directly beneath the headline rather than at the
+    # foot of the card — the number a reader acts on is the one at the top, and
+    # this sentence is the whole of what stops it being read as the book's.
+    if note:
+        lines.insert(1, f"⚠️ <i>{html.escape(note)}. Those positions are open "
+                        "and are not in the order below.</i>")
 
     if risk is None:
         lines.insert(1, "<i>No position reported a readable leverage, so how "

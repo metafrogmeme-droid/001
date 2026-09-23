@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.guardian import book_read
 from bot.guardian.digital_twin import liquidation_move_frac
 
 ESCAPE_VERSION = 1
@@ -135,6 +136,39 @@ def _reason(rank: int, group: str, liq_move_pct: Optional[float], share_pct: flo
     return ", ".join(bits)
 
 
+def _unpriceable(cov: book_read.BookCoverage) -> dict:
+    """The document for a book that WAS read and none of whose rows could be
+    priced. Three facts, three documents:
+
+    * `base`  — the book is flat. Nothing to unwind, and that is a reading.
+    * `failed` — the planner raised. Nothing is known, including the count.
+    * this   — N positions are open and not one of them could be priced. The
+      count is a MEASUREMENT and the symbols are named, which is strictly
+      more than `failed` can say and the opposite of what `base` says.
+
+    `risk` is None rather than `book_read.verdict_over`'s "unknown" on purpose:
+    this module already spells unknown urgency as None (`_book_risk`'s own
+    docstring, and `escape_card.risk_icon`'s dedicated `risk is None` arm), and
+    two spellings of one word in one document is the second-copy shape. The two
+    agree — `_book_risk(None)` is None for exactly the book this branch is for
+    — and `TestTheTwoUnknownsAgree` drives that rather than assuming it.
+
+    `ok` stays True because the planner RAN. What it could not do is priced in
+    `book_coverage`, which the card branches on and the sealed payload carries.
+    """
+    return {
+        "version": ESCAPE_VERSION, "ok": True,
+        "position_count": 0,          # priced rows: a counted zero, not an absence
+        "gross_notional_usd": None, "total_margin_usd": None,
+        "risk": None, "steps": [],
+        "book_coverage": cov.as_dict(),
+        "coverage_note": book_read.coverage_note(cov, figure="the plan figures"),
+        "recommended": ("no position could be priced, so no exit order could be "
+                        "worked out — this is not a flat book. Close manually "
+                        "with /closeall, or /emergency_stop to halt and flatten"),
+    }
+
+
 def plan(positions: list[dict]) -> dict:
     """Build a safe, ordered emergency-exit plan. Pure; never raises.
 
@@ -152,10 +186,12 @@ def plan(positions: list[dict]) -> dict:
           "recommended": str,                      # the execution primitive to use
         }
     """
-    base = {"version": ESCAPE_VERSION, "ok": True, "position_count": 0,
-            "gross_notional_usd": 0.0, "total_margin_usd": 0.0,
-            "risk": "none", "steps": [],
-            "recommended": "no open positions — nothing to unwind"}
+    def base(cov: book_read.BookCoverage) -> dict:
+        return {"version": ESCAPE_VERSION, "ok": True, "position_count": 0,
+                "gross_notional_usd": 0.0, "total_margin_usd": 0.0,
+                "risk": "none", "steps": [],
+                "book_coverage": cov.as_dict(), "coverage_note": "",
+                "recommended": "no open positions — nothing to unwind"}
     #: THE SAME DOCUMENT MEANT TWO OPPOSITE THINGS. `base` was returned both
     #: for a genuinely flat book and from the `except` arm below — so a planner
     #: that crashed with positions open answered with a document that asserts
@@ -170,15 +206,36 @@ def plan(positions: list[dict]) -> dict:
     failed = {"version": ESCAPE_VERSION, "ok": False, "position_count": None,
               "gross_notional_usd": None, "total_margin_usd": None,
               "risk": None, "steps": [],
+              "book_coverage": None, "coverage_note": "",
               "recommended": "the escape plan could not be built — this says "
                              "nothing about whether the book is flat"}
     try:
+        #: A ROW THIS PLANNER CANNOT PRICE IS NOT A ROW THAT IS NOT THERE.
+        #: The filter below has always dropped them, and then `if not rows`
+        #: returned the FLAT document — so a book of adopted positions the
+        #: venue priced neither way (`entry_price=0.0` and `cost_usd=0.0`,
+        #: which `live_executor` writes and the restore path reads back)
+        #: rendered byte-for-byte as "🪂 no open positions to unwind", with
+        #: `ok: True`. That is the defect the comment above `base` describes
+        #: as fixed: it was fixed for the `except` arm and left standing one
+        #: arm over, in the same function.
+        #:
+        #: `book_read` is the shared count, and the PREDICATE stays local —
+        #: that module's own docstring refuses to own it, because what
+        #: "priced" means differs per reader and this one needs a notional.
+        cov = book_read.coverage_of(positions, lambda p: _notional(p) > 0)
         rows = [p for p in (positions or []) if _notional(p) > 0]
         if not rows:
-            return base
+            if cov.nothing_read:
+                return _unpriceable(cov)
+            return base(cov)
+        #: `if gross <= 0: return base` used to sit here. `_notional` returns
+        #: `abs()` on both arms and every row is already filtered `> 0`, so no
+        #: input can make the sum non-positive — a line that cannot fire is a
+        #: claim that there is a check. The property is driven in the suite
+        #: instead, so the day either half changes a test fails rather than an
+        #: unreachable branch quietly becoming reachable.
         gross = sum(_notional(p) for p in rows)
-        if gross <= 0:
-            return base
 
         ranked: list[dict[str, Any]] = []
         min_move_pct: Optional[float] = None
@@ -227,6 +284,8 @@ def plan(positions: list[dict]) -> dict:
             "total_margin_usd": round(sum(r["margin"] for r in ranked), 2),
             "risk": _book_risk(min_move_pct),
             "steps": steps,
+            "book_coverage": cov.as_dict(),
+            "coverage_note": book_read.coverage_note(cov, figure="the plan figures"),
             "recommended": ("flatten via reduce-only market closes, most-fragile "
                             "first (engine.flatten_all_positions / "
                             "executor.close_all_positions)"),
@@ -253,6 +312,12 @@ def escape_payload(positions: list[dict]) -> dict:
         # plan, indistinguishable from a record of a whole one.
         "order_total": len(p["steps"]),
         "order_truncated": max(0, len(p["steps"]) - 12),
+        # AND THE SAME ARGUMENT ONE ROW OVER. `order_truncated` exists because
+        # a sealed record of a partial plan must not read as a record of a
+        # whole one — and the rows this planner could not price were dropped
+        # with no trace at all, which is the same omission upstream of the
+        # step list rather than inside it.
+        "book_coverage": p.get("book_coverage"),
         "order": [
             {"order": s["order"], "symbol": s["symbol"], "direction": s["direction"],
              "liq_move_pct": s["liq_move_pct"], "reason": s["reason"]}
