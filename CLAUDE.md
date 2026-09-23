@@ -9134,6 +9134,81 @@ is FOR, not a routing line, so it is stated here rather than answered by a
 slice about who is told.
 (`tests/test_a_close_reaches_whoever_holds_the_position.py`.)
 
+**AND THAT COOLDOWN WAS THE AGENT'S, AND THE PER-ACCOUNT ONE ALREADY EXISTED.**
+The paragraph above filed it: one person's losing close set the engine's one
+`_cooldown_until`, and `_tick` returns before scanning while it is set, for
+every account. Driven, it did. The decision was the operator's (*a loss cools
+down only the account that took it*), and building it found nothing to build:
+each account already has its own `RiskEngine` (`risk_for(uid)`),
+`_on_live_position_closed` records a priced close into it, and its COOLDOWN
+check refuses that account's next confirm for `COOLDOWN_AFTER_LOSS_SEC`. The
+engine-wide pause was a second, wider copy of a wait each account already
+had. It is armed by the operator's book alone now, decided by executor
+IDENTITY (`_ex is self.live_executor`), because a per-user executor with no id
+is not the operator's.
+
+**Narrowing it alone would have left one close cooling nobody.** The pause was
+the only thing an UNPRICED close ever armed. `record_live_trade_result` is
+gated on a P&L that is not `None`, so a per-user close the venue could not
+price reached no account's wait, only the agent-wide one. Cooling down on an
+unpriced close is the cheap side of the asymmetry `loss_cooldown_reason`
+states, so it arms the owning engine now (`note_unpriced_close`). It stamps a
+field of its own rather than `_last_loss_time`: that one also feeds the streak
+probe, and an unpriced close is not a loss. The COOLDOWN line names which of
+the two it is waiting on, because *"after last loss"* over a close nobody
+priced would be a loss nobody measured.
+
+**THE LARGER FINDING WAS IN THE PAPER HALF: PRACTICE WAS SIZING REAL TRADES.**
+A per-user paper book is practice. The bot places no paper trade of its own
+(`_confirm_trade_inner` is live-only), and the one writer into those books is
+the sim opt-in fill. Their closes were routed into `risk_for(user_id)`, which
+with per-user live off is the OPERATOR's live engine. Driven:
+
+- Ten practice wins took the operator's live-performance governor from
+  **PAUSE (x0.00) to OK (x1.00)**.
+- The same wins took the live loss streak from 16 to 6.
+- One practice loss armed the live cooldown.
+- Five practice losses tripped the live circuit breaker.
+
+`test_flag_off_close_feeds_shared` pinned that last one as the CONTRACT (*"With
+per-user OFF, every close lands on the shared engine"*), the arb test's shape
+exactly: a guard pinning the defect as a requirement. A per-user paper close
+feeds no risk engine now. Both callbacks are `None`, not only the user-aware
+one, because `MultiUserPortfolio` falls back to the plain callback whenever
+the user-aware one is unset, and the plain one was
+`self.risk.record_trade_result`. The practice book keeps a post-loss wait of
+its own, read off its own ledger inside `_simulate_paper_fill`
+(`practice_cooldown_reason`), which is the one seam every practice fill
+passes through. Its reach is bounded by `PAPER_SIM_OPT_IN_ENABLED`, off by
+default: armed by one environment variable, like the venue-cap chapter's
+dynamic leverage.
+
+**Twenty-three mutations, each killed on the first round.** The one worth
+naming is the fixture's. The first boundary case stamped its row off one clock
+read and handed the reading another, so the row sat a few microseconds past
+120s and `<` and `<=` agreed on it. Every boundary row is stamped against one
+fixed `NOW` now. *A fixture positioned either side of a boundary measures
+nothing about the comparison that decides it.*
+
+**And the remap for this slice's line shifts found four citations that were
+already wrong.** `docs/INCOME_MAP.md` cited `engine.analyzer` and
+`engine._last_scan_signals` one line short, the per-user strategy gate 450
+lines away, and `get_market_session` 450 lines away. The three basis citations
+were wrong too: the analyzer's construction, its call, and its hand-off to
+`analyze`. None was blank, so the blank-line probe could not see them, and
+difflib's map of unchanged lines carried each one faithfully to the same wrong
+content. That is the remap's own limit, and it is the one stated for the
+probe: **a remap preserves what a citation pointed at, and says nothing about
+whether it pointed at the right thing.** Each is re-derived from what its
+sentence names.
+
+**Recorded, not changed, with what was read and not driven.** The same paper
+loop journals every practice close into the one trade journal that `/journal`,
+the weekly review and the post-mortem read. It also feeds `time_of_day` and
+the hold-time analytics. That is practice reaching the operator's RECORD
+rather than its risk state, and it is a separate slice.
+(`tests/test_a_loss_cools_only_the_account_that_took_it.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10362,7 +10437,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1012** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1013** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

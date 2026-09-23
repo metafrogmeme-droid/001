@@ -514,6 +514,35 @@ def loss_cooldown_reason(trades, now, cooldown_seconds) -> "str | None":
     return None
 
 
+def practice_cooldown_reason(history, now, cooldown_seconds) -> "str | None":
+    """Why a PRACTICE book's next entry waits, or ``None``.
+
+    A practice (sim opt-in) close feeds no risk engine -- those engines gate
+    live entries -- so the post-loss wait a practice book gets is read here,
+    off its own closed trades, where its entries are made. A paper close is
+    always priced (``TradeExecution.pnl`` is a float), so there is no unpriced
+    outcome to name. A close stamped in the future is read as just now: a
+    skewed clock must not shorten a wait.
+    """
+    newest = None
+    for t in history or []:
+        closed_at = getattr(t, "closed_at", None)
+        pnl = getattr(t, "pnl", None)
+        if closed_at is None or pnl is None or not pnl < 0:
+            continue
+        if closed_at.tzinfo is None:
+            closed_at = closed_at.replace(tzinfo=UTC)
+        age = max(0.0, (now - closed_at).total_seconds())
+        if age < cooldown_seconds and (newest is None or age < newest[0]):
+            newest = (age, t)
+    if newest is None:
+        return None
+    age, t = newest
+    return (f"practice loss on {getattr(t, 'asset', '?')} {age:.0f}s ago -- "
+            f"practice entries wait {cooldown_seconds - age:.0f}s more. "
+            "Nothing was opened.")
+
+
 def _journal_exit_price(pos) -> float:
     """The close price to journal: `close_price` (LivePosition), else
     `exit_price` (the paper Trade's name), else the journal's 0.0 — which the
@@ -800,14 +829,20 @@ class RuneClawEngine:
                 # C2-52 FIX: log website sync errors instead of silently swallowing
                 logger.warning("Website sync failed: %s", exc)
         self.portfolio._on_trade_close = _on_trade_close_composite
-        # Route each user's paper close into the RiskEngine that owns THAT user's
-        # streak/breaker state.  In default (per-user OFF) mode risk_for() always
-        # returns the shared engine, so this is equivalent to feeding every close
-        # into self.risk — exactly as before — while also correctly handling
-        # portfolios restored from disk.  When per-user live is on, each user's
-        # losses accrue against their own breaker instead of one global counter.
-        self.user_portfolios._on_trade_close = self.risk.record_trade_result
-        self.user_portfolios._on_trade_close_user = self._route_user_trade_close
+        # A PER-USER PAPER CLOSE FEEDS NO RISK ENGINE. Those books are PRACTICE:
+        # the bot places no paper trade of its own (`_confirm_trade_inner` is
+        # live-only) and the one writer into them is the sim opt-in fill. They
+        # used to route into `risk_for(user_id)` -- which, per-user live off,
+        # is the OPERATOR's live engine, and on, is the engine gating that
+        # user's LIVE confirms. Driven: ten practice wins took the operator's
+        # live-performance governor from PAUSE (x0.00) to OK (x1.00) and the
+        # live loss streak from 16 to 6, and one practice loss armed the live
+        # cooldown. Both callbacks are None, not only the user-aware one:
+        # `MultiUserPortfolio` falls back to the plain callback whenever the
+        # user-aware one is unset, so leaving `self.risk.record_trade_result`
+        # there is the same door one fallback away.
+        self.user_portfolios._on_trade_close = None
+        self.user_portfolios._on_trade_close_user = None
         # C2-34: Wire combined state saver for atomic portfolio+risk persistence.
         # Both components delegate their saves to this function, which writes
         # a single combined_state.json via fsync + os.replace.
@@ -1499,10 +1534,17 @@ class RuneClawEngine:
         # and the user's OWN engine for a per-user live close (audit C1). With
         # PER_USER_LIVE_ENABLED off, risk_for always returns the operator engine
         # — byte-identical to before.
+        #
+        # A close nobody could price is not a loss and feeds none of those,
+        # but it starts the SAME account's post-loss wait: the engine-wide
+        # pause used to cover it for every account at once, and that pause
+        # belongs to the operator's book alone now (`_check_open_positions`).
         try:
             _rpnl = getattr(pos, "pnl_usd", None)
             if _rpnl is not None:
                 self.risk_for(user_id).record_live_trade_result(float(_rpnl))
+            else:
+                self.risk_for(user_id).note_unpriced_close()
         except Exception as _rr_exc:
             logger.debug("Live risk-result record skipped: %s", _rr_exc)
         # ── Guardian Flight Recorder: close the decision→outcome loop ───────
@@ -2731,21 +2773,6 @@ class RuneClawEngine:
             eng._price_history = self.risk._price_history  # shared global series
         except Exception as exc:
             logger.debug("Per-user risk market-context sync skipped: %s", exc)
-
-    def _route_user_trade_close(self, user_id: str, pnl: float) -> None:
-        """Feed a user's closed-trade PnL into the RiskEngine that owns that
-        user's streak/breaker state. In default mode risk_for() returns the
-        shared engine, so this is identical to self.risk.record_trade_result."""
-        try:
-            self.risk_for(user_id).record_trade_result(pnl)
-        except Exception as exc:
-            # Never let streak bookkeeping break a close; fall back to shared.
-            logger.warning("Per-user trade-close routing failed for %s: %s — "
-                           "recording on shared engine", user_id, exc)
-            try:
-                self.risk.record_trade_result(pnl)
-            except Exception:
-                pass
 
     def per_user_live_eligibility(self, user_id) -> tuple:
         """Whether THIS human user's confirmed live trade may execute, and why.
@@ -6907,6 +6934,16 @@ class RuneClawEngine:
         position is then monitored for SL/TP by the existing paper loop
         (``check_stops_all``). Never calls ``live_executor``.
         """
+        portfolio = self.user_portfolios.get(user_id)
+        # The practice book's own post-loss wait, read off ITS ledger rather
+        # than off the risk engine that ran the recheck: that engine gates
+        # live entries, and a practice loss must never arm it. The idea stays
+        # pending, as it does behind every other refusal that is about timing.
+        _wait = practice_cooldown_reason(
+            portfolio.trade_history, datetime.now(UTC),
+            CONFIG.risk.cooldown_after_loss_seconds)
+        if _wait:
+            return f"\u23f8 [PAPER] {_wait}"
         size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
@@ -6921,7 +6958,6 @@ class RuneClawEngine:
         # ladder, so the paper book is byte-identical with the flag off. A
         # card saying "leverage x0.80" beside "@ 5x" would be two answers.
         leverage = apply_margin_risk_cap(leverage, idea)
-        portfolio = self.user_portfolios.get(user_id)
         try:
             trade = portfolio.open_position(idea, size_usd, leverage=leverage)
         except Exception as exc:
@@ -8507,8 +8543,19 @@ class RuneClawEngine:
                     # message saw only the final close (a winning last close
                     # masked an earlier loss, and the cooldown reason named the
                     # wrong symbol). Only scanned when this tick closed something.
-                    if any(not self._is_fill_message(m)
-                           and not self._is_sync_message(m) for m in live_closed):
+                    #
+                    # THE PAUSE IS THE OPERATOR'S BOOK'S. `_tick` stops scanning
+                    # while it is set, for every account, so a per-user loss
+                    # arming it paused the agent for everybody. A per-user
+                    # account's own wait is its own risk engine's COOLDOWN
+                    # check, armed by `_on_live_position_closed` for a loss and
+                    # for a close nobody could price alike, and read at that
+                    # account's next confirm. Decided by IDENTITY: a per-user
+                    # executor with no id is not the operator's.
+                    if (_ex is self.live_executor
+                            and any(not self._is_fill_message(m)
+                                    and not self._is_sync_message(m)
+                                    for m in live_closed)):
                         try:
                             _cd_s = CONFIG.risk.cooldown_after_loss_seconds
                             _reason = loss_cooldown_reason(
@@ -8747,6 +8794,13 @@ class RuneClawEngine:
                 system_log.debug("Signal hold check failed: %s", exc)
 
             closed = self.portfolio.check_stops(prices)
+            # The SHARED book's closes, taken before the practice ones join
+            # the list below. Only these may pause the engine: a per-user
+            # paper book is PRACTICE (its one writer is the sim opt-in fill),
+            # and a practice loss pausing the tick paused LIVE scanning for
+            # every account. A practice book's own wait is read off its own
+            # ledger where its entries are made (`practice_cooldown_reason`).
+            _shared_closed = {id(c) for c in closed}
             # Check stops for per-user portfolios too
             user_closed = self.user_portfolios.check_stops_all(prices)
             # Merge user-closed trades into the main notification flow
@@ -8759,8 +8813,8 @@ class RuneClawEngine:
                     action="auto_close",
                     result="CLOSED",
                 )
-                # Enter cooldown after a loss
-                if c.pnl < 0:
+                # Enter cooldown after a loss on the shared book
+                if c.pnl < 0 and id(c) in _shared_closed:
                     self._cooldown_until = (
                         time.monotonic() + CONFIG.risk.cooldown_after_loss_seconds
                     )

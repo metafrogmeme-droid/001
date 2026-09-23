@@ -254,6 +254,14 @@ class RiskEngine:
         self._circuit_open = False
         self._consecutive_losses = 0
         self._last_loss_time: Optional[float] = None  # epoch seconds
+        # When this account last closed a position NOBODY COULD PRICE. Read by
+        # the post-loss COOLDOWN check beside `_last_loss_time` and by nothing
+        # else: an unpriced close is not a loss, so it must not count toward
+        # the streak, the probe or the governor window -- but it is the close
+        # the bot understood least, and waiting 120s on it is the cheap side of
+        # the asymmetry `engine.loss_cooldown_reason` states. In-memory, as
+        # the engine-wide pause it replaces for a per-user account always was.
+        self._last_unpriced_close_time: Optional[float] = None
         # Re-entry cooldown ledger: last REAL fill time per symbol (epoch/sim
         # seconds), stamped by note_symbol_entry() at the actual open. Read by
         # the REENTRY_COOLDOWN check in _evaluate_locked. In-memory only (a
@@ -624,6 +632,17 @@ class RiskEngine:
             if self._live_daily_day != self._utc_day():
                 return 0.0
             return float(self._live_daily_pnl)
+
+    def note_unpriced_close(self) -> None:
+        """Start this account's post-loss wait for a close whose P&L could
+        not be read. Touches nothing else: not the streak (an unpriced close
+        is not a loss), not the probe, not the governor window, not the daily
+        accumulator. Never raises -- a close path calls it."""
+        try:
+            with self._lock:
+                self._last_unpriced_close_time = self._now()
+        except Exception as exc:
+            risk_log.debug("note_unpriced_close skipped: %s", exc)
 
     def record_trade_result(self, pnl: float) -> None:
         """Track consecutive losses for streak-based circuit breaker."""
@@ -2095,12 +2114,20 @@ class RiskEngine:
             # stamp (via _now/set_sim_time) and this comparison use SIMULATED
             # bar time — wall-clock here would keep the cooldown armed for
             # months of replayed bars after a single loss.
-            if self._last_loss_time is not None:
+            # Two stamps, one wait, and the sentence names which: a loss and
+            # a close nobody could price are different facts, and "after last
+            # loss" over an unpriced close would be a loss nobody measured.
+            _stamps = [(t, why) for t, why in (
+                (self._last_loss_time, "last loss"),
+                (self._last_unpriced_close_time, "a close that could not be priced"),
+            ) if t is not None]
+            if _stamps:
+                _at, _why = max(_stamps, key=lambda s: s[0])
                 _now_epoch = as_of.timestamp() if as_of is not None else self._now()
-                elapsed = _now_epoch - self._last_loss_time
+                elapsed = _now_epoch - _at
                 if elapsed < CONFIG.risk.cooldown_after_loss_seconds:
                     remaining = CONFIG.risk.cooldown_after_loss_seconds - elapsed
-                    failed.append(f"COOLDOWN: {remaining:.0f}s remaining after last loss")
+                    failed.append(f"COOLDOWN: {remaining:.0f}s remaining after {_why}")
                 else:
                     passed.append("COOLDOWN: cooldown period elapsed")
             else:
