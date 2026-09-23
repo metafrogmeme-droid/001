@@ -8602,6 +8602,118 @@ spelling over. Re-aimed at the branch's whole return, it dies on four tests.
 `tests/test_a_guardian_verdict_says_what_it_could_not_price.py`,
 `tests/confirm_trade_gate_baseline.txt`, `bot/guardian/book_read.py`.)
 
+**THE THIRD READER OF THE BOOK WAS THE EMERGENCY EXIT, AND THE COMMENT TWELVE
+LINES ABOVE THE DEFECT DESCRIBED IT AS FIXED.** `book_read` was written for the
+Digital Twin and the Risk Sentinel; `escape_agent.plan()` is the third module
+that takes a position book, and it opened
+`rows = [p for p in positions if _notional(p) > 0]` and then answered the FLAT
+document for an empty result. Directly above that stands a comment of its own:
+
+    #: THE SAME DOCUMENT MEANT TWO OPPOSITE THINGS. `base` was returned both
+    #: for a genuinely flat book and from the `except` arm below ...
+
+Fixed for the `except` arm, left standing for the dropped-rows arm, in the same
+function — *fixing two left the third* at twelve lines' range.
+
+**THE INPUT IS ORDINARY AND SURVIVES RESTARTS.** `live_executor` writes
+`entry_price=0.0` and `cost_usd=0.0` for a position the venue priced neither
+way, and the restore path reads both back the same, so an adopted book after a
+redeploy is the shape. Driven on the two-position book `book_read`'s own
+docstring uses:
+
+| | truth | what `/escape` rendered |
+|---|---|---|
+| neither row priceable | 2 positions to unwind | `🪂 Escape Agent — no open positions to unwind.` · `risk "none"` · `ok: True` |
+| one of two priceable | 2 pos · gross **$1,030** · **HIGH** · close **PENDLE** first | `1 position(s) · gross $32` · **🟢 NONE** · close **BTC** first |
+
+The first is byte-identical to a flat book on every field a reader acts on —
+driven as an equality, not eyeballed — and `ok` is the field whose whole
+purpose is to separate a failed read from an empty one.
+
+**THE PARTIAL CASE IS THE DANGEROUS ONE, BECAUSE IT LOOKS LIKE A WORKING
+CARD.** The plan exists to order the book by liquidation urgency so the most
+fragile position closes FIRST, and the most fragile position was not in the
+order at all. A 33x understatement of gross would at least read as odd; a
+plausible one-line plan does not.
+
+**THREE FACTS, THREE DOCUMENTS.** `base` is a flat book (a reading). `failed`
+is a planner that raised (nothing is known, including the count). `_unpriceable`
+is new and is neither: N rows are open, the count is a MEASUREMENT and the
+symbols are NAMED, which is strictly more than `failed` can say and the opposite
+of what `base` says. `ok` stays True because the planner RAN; what it could not
+do rides in `book_coverage`, which the card branches on.
+
+**TWO SPELLINGS OF UNKNOWN IN ONE DOCUMENT WOULD BE THE SECOND-COPY SHAPE.**
+`book_read.verdict_over` spells it `"unknown"`; this module has always spelled
+it `None` (`_book_risk`'s own docstring, and `escape_card.risk_icon`'s dedicated
+`risk is None` arm). `_unpriceable` keeps the module's spelling and does NOT
+call `verdict_over` — and that is only safe while the two agree, so the
+agreement is DRIVEN rather than assumed: nothing priced means nothing ranked
+means `min_move_pct is None` means `_book_risk` already answers unknown.
+
+**A PARTIAL BOOK KEEPS ITS MEASURED WORD, and what that costs is named rather
+than hidden.** That is `verdict_over`'s ruling one reader over and re-deciding
+it here would be two answers about what a partial verdict may say. The cost:
+the urgency is a `min` over the liquidation distances of the rows that WERE
+priced, and a minimum over a subset is an UPPER bound on the true one — so a
+partial word is wrong only ever in the flattering direction. That is why the
+shortfall is inserted directly BENEATH the headline rather than at the foot of
+the card: the number a reader acts on is the one at the top, and that sentence
+is the whole of what stops it being read as the book's.
+
+**`if gross <= 0: return base` WAS A LINE NO INPUT COULD REACH.** `_notional`
+returns `abs()` on both arms and every row is already filtered `> 0`, so the sum
+is strictly positive — driven down to the smallest representable float. A branch
+that cannot fire is a claim that there is a check, so it is deleted and the
+property is driven in the suite instead.
+
+**THE CARD HAD THE SAME COLLAPSE, KEYED ON `not steps`.** The new branch sits
+ABOVE the flat one because it used to BE the flat one. A document carrying no
+`book_coverage` at all is an OLDER bot build, not a book with no rows, so it
+falls through to the behaviour it has always had — reporting one as "0 of N
+priced" would be a finding manufactured from a key nobody wrote.
+
+**AND THE SEALED RECORD CARRIES IT, by an argument that function already
+makes.** `escape_payload`'s own comment says `order_truncated` exists because
+"THE SEALED RECORD MUST NOT LOOK COMPLETE WHEN IT IS NOT" — and the rows the
+planner could not price were dropped with no trace at all, which is the same
+omission upstream of the step list rather than inside it. `failed` seals
+`book_coverage: None` rather than a counted zero it never measured.
+
+**THE GUARDIAN CONSOLE GOT IT FOR FREE, WHICH IS THE BOUNDARY ARGUMENT DOING
+ITS WORK.** `guardian_status` reads `_ea.plan(positions).get("risk")` and
+nothing else, so an unpriceable book goes from a false `🟢 none` to `⚪ unknown`
+with no edit — and the posture rollup already excludes an unknown rather than
+ranking it the safest input. Both halves are pinned, because that method is 200
+lines behind an engine and driving the ROLLUP is cheaper than standing one up.
+
+**Twenty-two mutations killed, one equivalent, and neither survivor of the
+first round was the code's.** The equivalent is the deleted branch put back:
+it changes no verdict, which is the round CONFIRMING the unreachability rather
+than reporting a gap, so it is recorded instead of counted. The two real
+survivors were my own guard. The sharper one: `"no open positions to unwind"
+not in out` is CASE-SENSITIVE, and the mutant wrote `"No open positions to
+unwind"` — *asserting a short string is ABSENT is the assertion that keeps
+misfiring*, arriving in the test written from that rule. It asserts what the
+card must SAY now, with the absence check folded as the second half. The other
+was a clause nothing checked: `coverage_note` says the figures do not cover
+those rows, and it does not say they are POSITIONS THAT ARE STILL THERE, which
+is the fact an operator reading an exit plan needs. And one mutation was
+REFUSED rather than counted — `"gross_notional_usd": None, ...` is spelled by
+both `failed` and `_unpriceable`, and a driver that took a two-match refusal
+for a kill would have reported coverage of a branch it never edited.
+
+> **And the grammar was wrong in my own line, found by rendering the card.**
+> `coverage_note`'s template reads `f"{figure} cover ..."` — correct for its two
+> existing callers, which pass `"these scenarios"` and `"these figures"` — and
+> `figure="this plan"` printed *"this plan cover 1 of 2"*. The template is right
+> and the caller was wrong; the second draft then put an apostrophe through
+> `html.escape` and published `&#x27;` on a Telegram card. Neither was visible
+> from the diff.
+
+(`tests/test_an_unpriceable_book_is_not_a_flat_one.py`.)
+
+
 **A VIEWER CLOSED THE OPERATOR'S LIVE POSITION BY TAPPING THE BUTTON THE
 PRODUCT HANDED THEM.** `_handle_callback` has permission-gated destructive
 taps since Audit F-11 and its own comment says what for — *"this stops an
@@ -9984,9 +10096,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **418 of 1008** reach for source text through `source_scan`, `code_only`
+Driven, **419 of 1009** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 418 is a FLOOR and the honest shape is
+source scan that rule does not see, so 419 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
