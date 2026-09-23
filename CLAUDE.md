@@ -7305,6 +7305,53 @@ than by an exemption naming it.
 (`tests/test_a_comment_names_the_default_the_flag_has.py`,
 `tests/default_comments.py`.)
 
+**AND THE FILE AN OPERATOR ACTUALLY READS WAS THE THIRD CLAIM SITE, WITH TWELVE
+OF THEM.** Both rules above walk Python. `.env.example` is where somebody
+deciding whether a live control is running looks first, and twelve of its
+prose blocks said OFF directly above a flag that ships ON: the live auto-close,
+the live-performance governor ("opt-in, default OFF"), correlation sizing, live
+risk hardening, the regime hard gates, confidence calibration and six more. The
+runbook's stage table records every one of them as flipped to default ON in
+2026-07, and the prose above each example line never moved. The auto-close
+also carried the claim in Python, in a DOCSTRING — *"Gated (default OFF) ...
+the latter defaults False, so live behaviour is byte-identical until an operator
+opts in"* — on the method that closes live positions at market, beside a
+`getattr(cfg, ..., False)` fallback that cannot fire because the frozen field
+always exists. Docstrings are outside the reader rule by design, so that one is
+pinned by NAME, the `LearningConfig` precedent, and it now points at the
+declaration instead of restating it. **Found by investigating trade signals,
+not by any guard**: the question was which exits live really runs.
+
+**`cp .env.example .env` IS THE DOCUMENTED INSTALL, SO A LIVE EXAMPLE LINE IS
+WHAT THE INSTALL RUNS.** Six lines are not commented examples but live
+assignments that set a flag opposite to its declared default — confidence
+calibration, setup expectancy, external sentiment, funding-cost awareness and
+learning auto-refit all `=false`, under prose that called each of them default
+OFF, so the file read as consistent while the documented install switched off
+five controls the runbook lists as ON. (The sixth, `AUTO_CONFIRM_LIVE_ENABLED`,
+is the deliberate safe pair the auto-confirm chapter records; its prose said
+"Default 1.0 = DISABLED" over a code default of 0.85, which is a claim about
+THIS FILE'S value dressed as one about the code's.) **The values are not
+changed**: which learners a fresh deploy runs is the operator's decision, not a
+wording fix. What changed is that the prose now says what each live line DOES,
+and a second rule, keyed on the LINE, fails when a live override sits under no
+sentence saying so.
+
+**The pairing is certain or it is not made**, which is the reader rule's lesson
+applied from the start rather than learned again. `.env.example`'s examples are
+`#` lines too, so the Python rule's "every contiguous `#` line" would swallow an
+example value into the prose above it; an assignment ENDS a block here. A block
+pairs with the run of assignment lines below it only when that run holds
+exactly one declared flag, and a blank line breaks the pairing — a miss, stated
+rather than guessed at. The override rule's first draft walked only from a `#`
+line, so a live override with no prose above it at all was never visited: the
+quiet direction, in the rule about silence, and a planted test now holds it.
+Sixteen mutations: fourteen killed on the first round, one gap (no fixture
+claimed BOTH defaults over a TRUE flag, where the comparison alone reads the
+block as agreeing) killed once planted, and one EQUIVALENT mutant recorded —
+the `False` fallback put back, which no input can separate from the direct read.
+(`tests/test_a_comment_names_the_default_the_flag_has.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`

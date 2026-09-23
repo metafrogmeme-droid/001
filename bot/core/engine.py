@@ -8183,23 +8183,23 @@ class RuneClawEngine:
         return prices
 
     async def _evaluate_live_smart_exits(self, executor) -> None:
-        """Gated (default OFF): auto-close LIVE positions whose thesis has
-        invalidated, instead of letting them ride to the exchange stop-loss.
+        """Auto-close LIVE positions whose thesis has invalidated, at market,
+        instead of letting them ride to the exchange stop-loss.
 
         Runs the SAME smart-exit checks the paper path already applies in
         ``_check_paper_positions`` — time stop, signal-hold limit, VWAP-reversion
         done/failed, volume-signal decay — against the executor's open positions,
         and closes a fired position at market via ``executor.close_position``.
 
-        Gated behind ``CONFIG.time_stop.enabled`` AND
-        ``CONFIG.time_stop.live_auto_close_enabled`` (both must be true; the
-        latter defaults False), so live behaviour is byte-identical until an
-        operator opts in. Fail-open throughout: any error is swallowed so this
-        can never disrupt the SL/TP monitoring that runs alongside it. Never
-        bypasses the risk engine — it only ever CLOSES an existing position.
+        Runs only while ``CONFIG.time_stop.enabled`` AND
+        ``CONFIG.time_stop.live_auto_close_enabled`` are both true; its default
+        lives in bot/config.py alone (this said OFF over a flag that ships ON).
+        Fail-open throughout: any error is swallowed so this can never disrupt
+        the SL/TP monitoring that runs alongside it. Never bypasses the risk
+        engine — it only ever CLOSES an existing position.
         """
         cfg = CONFIG.time_stop
-        if not (cfg.enabled and getattr(cfg, "live_auto_close_enabled", False)):
+        if not (cfg.enabled and cfg.live_auto_close_enabled):
             return
         try:
             from bot.core.smart_exits import (

@@ -6,7 +6,8 @@ signal-hold limit, VWAP reversion, volume decay) in _check_paper_positions, but
 LIVE positions only got SL/TP — a thesis that invalidated rode all the way to
 the exchange stop. _evaluate_live_smart_exits extends the SAME checks to live
 positions, closing via the executor, gated behind
-CONFIG.time_stop.live_auto_close_enabled (default OFF). These tests exercise the
+CONFIG.time_stop.live_auto_close_enabled (declared in bot/config.py, where it
+ships ON). These tests exercise the
 gate, the trigger logic, and the fail-open posture in isolation.
 """
 
