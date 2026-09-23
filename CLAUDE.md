@@ -9051,6 +9051,89 @@ unlinked caller's tap asks no venue at all.
 (`tests/test_the_details_button_reads_the_callers_account.py`,
 `tests/operator_account_reads_baseline.txt`.)
 
+**AND A PER-USER ACCOUNT'S CLOSE WAS PUBLISHED AS THE AGENT'S OWN TRADE.**
+The monitoring loops sweep `_all_live_executors()` -- the operator's book and,
+under PER_USER_LIVE_ENABLED, every per-user one -- and every close, limit fill
+and sync notice they produced went to the same three engine callbacks, which
+take a string and nothing else. Those callbacks were written when there was
+one account, and the close one did four things with a message it could not
+attribute: it attached the OPERATOR executor's last-close card (so a user's
+close of a symbol the operator had just closed wore the operator's figures),
+sent it to the operator's chats with no account named, recorded it in the
+operator's transcript as a trade they had closed, and **forwarded it to the
+PUBLIC marketing channels** -- `public_close_line` of the operator's slot when
+the symbols matched, the user's private close text through the scrubber when
+they did not. The person whose money it was was told nothing at all.
+
+**The fix is at the boundary the messages cross, not in the hook.**
+`engine._announce_executor_message(executor, kind, msg)` is the one place all
+five monitoring sites hand a message on (the position check's close, fill and
+sync; reconciliation; the smart exit). The operator's book goes to the three
+callbacks exactly as before, so a single-account deploy is unchanged and the
+public channel still carries the agent's own trades. A per-user book goes to
+`_owner_notify_callback` with its owner and ITS OWN last-close slot, and to
+nothing else -- the rule this file already records for person-scoped alerts:
+*a position belongs to a person, the person is told, and platform oversight
+has its own door in `/accounts`*. The owner's card is the same
+`_deliver_close` renderer with `public=False`, because a second copy of a close
+card is a second answer about what a close looks like. An owner with no
+Telegram chat (a web-only `web:<uid>` account) reaches nobody, at WARNING, and
+is NOT redirected to the operator, which would be the leak itself.
+
+**The operator's book is decided by IDENTITY, never by `user_id is None`**, for
+the reason the audience chapter gives: one value meaning both "nobody in
+particular" and "the operator" is the `size_usd` defect. A per-user executor
+built without an id reaches the owner door with an empty owner, which reaches
+no chat and says so, rather than quietly becoming the operator's and being
+published.
+
+**The first draft of the seam deleted the smart exit's note, and a fixture
+that never said whose book it was is what showed it.** It built a dict of all
+three callbacks to pick one, and read attributes an engine built by
+`RuneClawEngine.__new__` does not carry -- an `AttributeError` inside every
+site's `except ...: logger.debug`, so the note that a smart exit FAILED and the
+position is still OPEN vanished at DEBUG. Only the callback a kind needs is
+read now. The smart-exit suite's stand-in engine had also never set
+`live_executor`, which was harmless while nothing asked whose book was being
+evaluated; it says so now, because a stand-in that must remember each
+attribute is one that will forget the next.
+
+**Twenty-three mutations, each killed -- and the two that survived the first
+round were both the corpus.** The smart exit is the fifth site, and its own
+suite drives the OPERATOR's book only, so sending a per-user smart exit's note
+to the operator's hook changed no verdict; a per-user book is driven through
+the real `_evaluate_live_smart_exits` now. And the close renderer has two
+sends -- a card with a photo, a text fallback without -- while the recipient
+was asserted on the text path alone, so the owner's CARD going to the
+operator's chats survived. The card test names who received it now. Every
+other mutation dies where the drives say: every book read as the operator's,
+`None` read as the operator, the owner handed the operator's slot or none,
+each of the four monitoring sites calling the operator's hook again, the
+owner's close published or sent to the operator, an owner with no chat
+redirected to the operator or dropped silently, a `web:` id read as a chat,
+the fill and sync sent to the operator, the operator's own close no longer
+published, and the owner door never installed.
+
+**And moving the close renderer found a map citation that was already
+wrong.** `docs/INCOME_MAP.md` described the share button's call ("only
+close_data and the bot username") at `alerts_monitor.py:338`, which is the
+monitor-stale callback's registration -- a non-blank line, so the blank-line
+probe could never see it, which is that probe's own stated limit. It cites the
+call now. Every other citation into the two files was carried by difflib's
+map of unchanged lines, never by an offset.
+
+**Recorded, not changed, with what was driven and what was only read.**
+DRIVEN: a per-user book's losing close, through the real
+`_check_open_positions`, sets the engine's ONE `_cooldown_until` (120 s left,
+state `COOLING_DOWN`). READ: `_tick` returns before scanning while that is
+set, for every account, and the paper path sets the same field from
+`user_portfolios.check_stops_all`. So one person's losing close pauses the
+agent for everybody for `COOLDOWN_AFTER_LOSS_SEC` (120 s by default). Whether a
+cooldown is an account's or the agent's is a decision about what the cooldown
+is FOR, not a routing line, so it is stated here rather than answered by a
+slice about who is told.
+(`tests/test_a_close_reaches_whoever_holds_the_position.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10279,7 +10362,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1011** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1012** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

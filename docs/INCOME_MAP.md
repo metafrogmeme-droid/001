@@ -176,7 +176,7 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
-Autonomously: engine.py:5382-5440 confirms and executes any idea at or above
+Autonomously: engine.py:5433-5491 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -279,7 +279,7 @@ decision after shadow evidence, not a card.
 **Basis trades** — partial
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
-constructed at engine.py:553 and called on every tick (engine.py:5845) — its
+constructed at engine.py:553 and called on every tick (engine.py:5896) — its
 result is handed to analyzer.analyze at :5956 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
@@ -346,7 +346,7 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (risk/risk_engine.py:113) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5382-5440
+trade gate whose whole enforcing set /enforcing lists. engine.py:5433-5491
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2395) with no human in the loop, adaptively moved by
 realized win rate (:5302) and suppressible in live mode. Operators tune it
@@ -1207,7 +1207,7 @@ attribution of revenue (there is no revenue), and no third-party affiliate
 integration: app/lib/venue_links.js:17 builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:393-395 passes only
+button is constructed with no ref_code (alerts_monitor.py:422-424 passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
@@ -1427,7 +1427,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:6569-6597
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:6620-6648
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1575,7 +1575,7 @@ its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
 there is no Telegram command to see your own invite link (command_catalog's
 `share` is the private-notes command). (3) The close-card share button passes
-only close_data and the bot username (alerts_monitor.py:338), so invite_link()
+only close_data and the bot username (alerts_monitor.py:422-423), so invite_link()
 is called with ref_code=None and the shared link is a bare t.me/<bot> with no
 attribution.
 
@@ -1727,7 +1727,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7111
+bot/core/stock_trading.py, also read by bot/core/engine.py:7162
 (get_market_session) and scan_commands.py:345.
 
 **Price alerts and anomaly-alert scoping**
@@ -2442,7 +2442,7 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:877`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:880`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2584`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:641`). Every handler guards its own read and has an

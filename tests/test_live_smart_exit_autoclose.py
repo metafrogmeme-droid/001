@@ -54,6 +54,10 @@ def _engine(executor, prices, vwap=None):
     )
     eng._last_vwap = vwap or {}
     eng._close_notify_callback = None
+    # The book under evaluation IS the operator's. The engine routes a smart
+    # exit's note by whose book closed (`_announce_executor_message`), so a
+    # stand-in that never says which book it is has its note routed nowhere.
+    eng.live_executor = executor
     return eng
 
 

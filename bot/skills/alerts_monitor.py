@@ -74,6 +74,19 @@ def close_card_for(msg: str, close_data):
     return close_data
 
 
+def owner_chat_id(owner) -> Optional[int]:
+    """The Telegram chat a per-user book's owner is reached at, or None.
+
+    A per-user executor is keyed by the id its owner linked under: a Telegram
+    id (digits) is also that person's private chat -- the same identity
+    `user_portfolios.get(tg_id)` and `monitor.enable_chat(tg_id)` share --
+    while a web-only account (`web:<uid>`) has no chat at all. None is an
+    answer, never a fallback to somebody else's chat.
+    """
+    s = str(owner or "").strip()
+    return int(s) if s.isdigit() else None
+
+
 class AlertsMonitor:
     """The proactive-alert loop and the operator broadcast. Host contract below; methods after."""
 
@@ -347,17 +360,33 @@ class AlertsMonitor:
                 if cid.isdigit():
                     _notify_chat_ids.append(int(cid))
         async def _on_trade_closed(msg: str) -> None:
-            """Send a rich close confirmation to admin when a trade is closed."""
+            """Send a rich close confirmation to admin when the OPERATOR's
+            book closes a trade -- the one book whose closes are the agent's
+            own, and so the one that may reach the public channels."""
             if not _notify_chat_ids:
                 return
+            await _deliver_close(
+                _notify_chat_ids, msg,
+                getattr(self.engine.live_executor, '_last_close_data', None),
+                public=True)
+
+        async def _deliver_close(chat_ids, msg: str, close_slot, *,
+                                 public: bool) -> None:
+            """One close, rendered once, to `chat_ids` -- and to the public
+            channels only when `public`.
+
+            The renderer is shared with the owner's door below: a second copy
+            of this card is a second answer about what a close looks like.
+            `close_slot` is the last-close record of the book that CLOSED the
+            trade, never assumed to be the operator's.
+            """
             try:
                 # Try to render a styled PNG close card. The decision of
                 # WHETHER this message may wear a card is `close_card_for`,
                 # a seam: inline, it was pinned by a source window that a
                 # mutation adding `and False` to the guard walked straight
                 # through.
-                close_data = close_card_for(
-                    msg, getattr(self.engine.live_executor, '_last_close_data', None))
+                close_data = close_card_for(msg, close_slot)
                 close_png = None
                 if close_data:
                     try:
@@ -397,7 +426,7 @@ class AlertsMonitor:
                                 [[InlineKeyboardButton(_btn["text"], url=_btn["url"])]])
                     except Exception as _sx:
                         system_log.debug("share button skipped: %s", _sx)
-                    await _notify_chats(_notify_chat_ids, "TRADE_CLOSED", cap,
+                    await _notify_chats(chat_ids, "TRADE_CLOSED", cap,
                                         photo=close_png,
                                         reply_markup=_share_kb)
                 else:
@@ -420,10 +449,13 @@ class AlertsMonitor:
                         card = f"{emoji} <b>{heading}</b>\n\n"
                     for line in msg.strip().split("\n"):
                         card += f"{html.escape(line)}\n"
-                    await _notify_chats(_notify_chat_ids, "TRADE_CLOSED",
+                    await _notify_chats(chat_ids, "TRADE_CLOSED",
                                         card.strip())
             except Exception as exc:
                 system_log.debug("Close notify send failed: %s", exc)
+
+            if not public:
+                return
 
             # Forward trade close to marketing channels — those groups are
             # PUBLIC, and `msg` is the private close text: "PnL: +$12.3456
@@ -449,6 +481,9 @@ class AlertsMonitor:
             """Send a notification when a limit order is filled (position opened)."""
             if not _notify_chat_ids:
                 return
+            await _deliver_fill(_notify_chat_ids, msg)
+
+        async def _deliver_fill(chat_ids, msg: str) -> None:
             try:
                 from datetime import datetime as _dt, timezone as _tz
                 card = "\U0001f4e5 <b>TRADE OPENED</b>\n"
@@ -458,7 +493,7 @@ class AlertsMonitor:
                 card += "\n" + "\u2500" * 28
                 card += f"\n\U0001f43e RUNECLAW | {_dt.now(_tz.utc).strftime('%H:%M')} UTC"
                 card += "\n<a href='#'>#RUNECLAW #LimitFill</a>"
-                await _notify_chats(_notify_chat_ids, "LIMIT_FILLED",
+                await _notify_chats(chat_ids, "LIMIT_FILLED",
                                     card.strip())
             except Exception as exc:
                 system_log.debug("Fill notify send failed: %s", exc)
@@ -472,6 +507,9 @@ class AlertsMonitor:
         async def _on_exchange_sync(msg: str) -> None:
             if not _notify_chat_ids:
                 return
+            await _deliver_sync(_notify_chat_ids, msg)
+
+        async def _deliver_sync(chat_ids, msg: str) -> None:
             try:
                 card = "\U0001f504 <b>EXCHANGE SYNC</b>\n"
                 card += "─" * 28 + "\n\n"
@@ -479,12 +517,39 @@ class AlertsMonitor:
                     card += f"{html.escape(line)}\n"
                 card += ("\nThe bot found this on the exchange and is now "
                          "tracking it (SL/TP monitoring active).")
-                await _notify_chats(_notify_chat_ids, "EXCHANGE_SYNC",
+                await _notify_chats(chat_ids, "EXCHANGE_SYNC",
                                     card.strip())
             except Exception as exc:
                 system_log.debug("Sync notify send failed: %s", exc)
 
         self.engine.set_sync_notify_callback(_on_exchange_sync)
+
+        # A PER-USER book's close, fill and sync messages. They used to reach
+        # the three hooks above, which are the OPERATOR's: the close was
+        # forwarded to the public channels as the agent's trade and shown to
+        # the operator unlabelled, and the person whose money it was was told
+        # nothing. See `engine._announce_executor_message`.
+        async def _on_owner_event(owner: str, kind: str, msg: str,
+                                  close_slot=None) -> None:
+            chat = owner_chat_id(owner)
+            if chat is None:
+                # Said, never silent -- and NOT redirected to the operator,
+                # which would be the leak this door exists to close. A web-only
+                # account (`web:<uid>`) has no Telegram chat to reach.
+                system_log.warning(
+                    "%s on the account of %r reached no chat: the owner has no "
+                    "Telegram chat on record, so nothing was sent", kind, owner)
+                return
+            if kind == "close":
+                await _deliver_close([chat], msg, close_slot, public=False)
+            elif kind == "fill":
+                await _deliver_fill([chat], msg)
+            elif kind == "sync":
+                await _deliver_sync([chat], msg)
+            else:
+                system_log.warning("unknown owner event kind %r for %r", kind, owner)
+
+        self.engine.set_owner_notify_callback(_on_owner_event)
 
         # ── Adoption notification ─────────────────────────────────
         async def _on_positions_adopted(adopted_symbols: list[str]) -> None:

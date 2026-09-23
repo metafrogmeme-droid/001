@@ -626,9 +626,17 @@ class _HookEngine:
     def set_auto_confirm_notify_callback(self, fn):
         self.cbs["auto"] = fn
 
+    def set_owner_notify_callback(self, fn):
+        self.cbs["owner"] = fn
 
-def _started(store, users, chat_id, *, failing=False):
-    """Run the real `start_monitor` and hand back what it installed."""
+
+def _started(store, users, chat_id, *, failing=False, forwarder=None):
+    """Run the real `start_monitor` and hand back what it installed.
+
+    `forwarder` is the public-channel poster. The hooks capture it when they
+    are installed, so a test that watches the public side hands one in here
+    rather than swapping it afterwards.
+    """
     import dataclasses
 
     import bot.config as bc
@@ -666,7 +674,8 @@ def _started(store, users, chat_id, *, failing=False):
     host = H.__new__(H)
     host.engine, host.monitor, host.users = engine, mon, users
     host.conversations = store
-    host.forwarder = NS(set_bot=lambda b: None, post_signal=AsyncMock())
+    host.forwarder = forwarder or NS(set_bot=lambda b: None,
+                                     post_signal=AsyncMock())
     host._allowlist_ids = lambda: set()
     host._monitor_task = None
     asyncio.run(host.start_monitor(bot_obj))
