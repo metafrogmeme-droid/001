@@ -38,6 +38,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.guardian.book_read import BookCoverage, coverage_note
 from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
@@ -226,7 +227,9 @@ class GuardianCommands:
                 "nothing was stress-tested. Check /status and the exchange "
                 "connection, then try again.</i>")
             return
-        if report.get("flat_book") or not report.get("scenarios"):
+        if (report.get("flat_book")
+                or (not report.get("scenarios")
+                    and not report.get("counted_positions"))):
             await self._send(update,
                 "🔮 <b>Digital Twin</b> — no open positions to stress-test.\n\n"
                 "<i>The twin shocks the live book (flash crash, correlated tail, "
@@ -241,13 +244,29 @@ class GuardianCommands:
         # the live balance cache is empty, which is normal after a restart.
         eq = report.get("equity_usd")
         eq_txt = "unavailable" if eq is None else f"${eq:,.0f}"
+        _cov = BookCoverage(report.get("scored_positions", 0),
+                            report.get("counted_positions", 0),
+                            tuple(report.get("unpriced_symbols", []) or []))
+        _cov_note = coverage_note(_cov, figure="these scenarios")
         lines = [f"🔮 <b>Digital Twin</b> — {icon} worst-case <b>{html.escape(str(report.get('risk','none')).upper())}</b>",
                  f"<i>{report.get('position_count', 0)} position(s) · equity {eq_txt}</i>", ""]
+        if _cov_note:
+            # Printed only when it bites. Without it the card said
+            # "1 position(s) - worst-case LOW" directly above "Most fragile:
+            # PENDLE/USDT", naming a position the scenarios never simulated,
+            # above "sealed to the evidence chain".
+            lines.append(f"<i>\u26a0\ufe0f {html.escape(_cov_note)}.</i>\n")
         if eq is None:
             lines.append("<i>⚪ Equity could not be read, so drawdown "
                          "percentages are unavailable. Liquidation checks do "
                          "not need equity and are still shown.</i>\n")
-        for s in report.get("scenarios", []):
+        # A scenario row over ZERO simulated positions still renders as a
+        # measurement — "🟢 drawdown 0.0% (P&L $0)", four times — and colour is
+        # a claim: four green rows say this book survives a flash crash. They
+        # describe no part of it, so they are OMITTED rather than painted; the
+        # note above has already said why, and `fragile` below is a real
+        # reading (leverage WAS read) and stays.
+        for s in ([] if _cov.nothing_read else report.get("scenarios", [])):
             s_icon = _RISK_ICON.get(s.get("risk", "none"), "⚪")
             liq = s.get("liquidations", [])
             liq_txt = (" · liquidates " + ", ".join(html.escape(x) for x in liq[:4])) if liq else ""
@@ -289,7 +308,12 @@ class GuardianCommands:
                 "no crowding assessment was made. Check /status and the "
                 "exchange connection, then try again.</i>")
             return
-        if not report.get("position_count"):
+        # Ask the BOOK, not the priced subset. `position_count` is now the
+        # number of rows that could be PRICED, so a book whose every row is
+        # unreadable has 0 there while holding real positions — and this
+        # branch would have answered "no open positions" about it, which is
+        # the confident negative the rest of this slice removes.
+        if not report.get("counted_positions"):
             await self._send(update,
                 "🛰 <b>Risk Sentinel</b> — no open positions to assess.\n\n"
                 "<i>The sentinel flags intra-book crowding (one sector, one "
@@ -306,12 +330,24 @@ class GuardianCommands:
             f"{int(report.get('net_bias', 0) * 100)}% net {html.escape(str(report.get('net_direction','')))}"
             + (f" · top {html.escape(str(tg.get('group','')))} {tg.get('share_pct',0)}%" if tg.get('group') else "")
             + "</i>", ""]
+        _cov = BookCoverage(report.get("scored_positions", 0),
+                            report.get("counted_positions", 0),
+                            tuple(report.get("unpriced_symbols", []) or []))
+        _cov_note = coverage_note(_cov, figure="these figures")
+        if _cov_note:
+            lines.append(f"<i>\u26a0\ufe0f {html.escape(_cov_note)}.</i>\n")
         concerns = report.get("concerns", [])
         if concerns:
             for c in concerns:
                 c_icon = _RISK_ICON.get(c.get("severity", "none"), "⚪")
                 lines.append(f"{c_icon} <b>{html.escape(c.get('kind','').replace('_',' '))}</b> — "
                              f"{html.escape(c.get('detail',''))}")
+        elif _cov.nothing_read:
+            lines.append("⚪ Nothing in this book could be priced, so no "
+                         "crowding assessment was made.")
+        elif not _cov.complete:
+            lines.append("🟡 No crowding concern tripped among the positions "
+                         "that could be priced.")
         else:
             lines.append("🟢 Book looks diversified — no crowding concern tripped.")
         sealed = bool(getattr(CONFIG.risk, "guardian_risk_sentinel_enabled", False))

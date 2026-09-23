@@ -8404,6 +8404,204 @@ the code is a different question, and the map states its own three limits for
 it -- code-reading not execution, citations unverified, only doors checked.
 (`tests/test_the_income_map_census_is_the_one_a_walk_returns.py`.)
 
+**THE GUARD OVER THE LIVE-TRADE GATE WAS SATISFIED BY ITS OWN COMMENT, AND IT
+COVERED ONE DOOR OF SEVEN.** `test_scan_confirm_checks_live_permission` is
+named for the claim it makes — the tap-to-trade path carries the H-18 block —
+and it asserted `"_can_trade_live" in fn` over RAW source. The H-18 comment six
+lines above the refusal spells `_can_trade_live`. Driven, `if False and ...`
+left it GREEN, and so did DELETING the refusal outright: the string it looks
+for is in the prose that explains the thing it is looking for.
+
+**Mutated at all three Telegram sites at once, nothing else in the repo
+noticed.** 137 targeted tests passed, `guard_lint` 12/12, `scripts/red_team.py`
+30/30 refused, `scripts/authority_red_team.py` 12/12 denied, the honesty gate
+reported no new shapes and `ruff_gate` no new findings. The ONE gate that
+reacted was `mypy_gate`, as `union-attr: 180 -> 177` — a baseline IMPROVEMENT,
+whose documented remedy is one `mypy_gate.py --update`, so the single signal
+that an authorization gate had gone missing was a line asking to be re-recorded.
+
+Driven end to end with `CONFIG.is_live()` true and a caller who is neither
+admin nor live-permitted, the clean tree answers `🔒 Live trading not enabled`
+and `confirm_trade awaited: 0`; the mutated tree answers **`✅ DYDX/USDT LONG
+EXECUTED`** and `awaited: 1`. On the default configuration (`per_user_live_enabled`
+False, driven) that order lands on the SHARED OPERATOR account, which is the
+condition the site's own comment names: *"'cannot check' must not mean
+'allowed' on the path that spends real money."*
+
+**A LIST OF THE THREE SITES SOMEBODY NAMED IS THE TEN-OF-ELEVEN SHAPE.** An AST
+walk finds SEVEN `confirm_trade` calls. Four are live-facing doors and all four
+are gated; two are the engine's own auto-confirm path, gated one hop out by
+`_auto_confirm_batch` (tick) and `_auto_confirm_suppressed` (force scan); and
+the seventh is `ExecutePaperTradeSkill.execute`, which is gated by NOTHING.
+
+That one is not a live defect and the reason is the only reason: it is DARK.
+`permission_for("execute_paper_trade")` answers `None` — fail-closed, so no
+surface reaches it — and it is already in `unreachable_skills_baseline.txt`.
+But `confirm_trade` is paper-or-live by `CONFIG.is_live()` and never by the
+name of its caller, so a skill called *paper* opens a REAL position on a live
+deployment, with no gate AND no `user_id`, on the shared operator account. That
+is the `market_cap` / `basis` / `quant_analyze` shape exactly — a module nobody
+reaches becomes defective in precisely this way — so it is a baselined row
+whose reason says FIX BEFORE YOU WIRE: the day somebody decides what permission
+it needs, it needs the gate and a caller id in the same commit.
+
+**Two instruments, and the division is the one this repo keeps arriving at.**
+The RULE (`tests/confirm_trade_gate_baseline.txt`, two-way as
+`known_failures.txt` is) says where: every `confirm_trade` call must carry a
+live-permission reading in its enclosing scope CHAIN, read from `code_only()`
+source, or be a row with a reason. The DRIVES say it RUNS — both arms every
+time, because a refusal-only assertion passes just as happily against a handler
+that does nothing at all, plus the fail-closed branch and a paper-mode case
+proving the gate never fires outside live. The rule's own branches are measured
+on PLANTED trees, because on the real tree every door but one is gated and a
+mutation of the RULE changes no verdict there.
+
+The old scan is kept rather than deleted — it is not wrong, it is narrower than
+its name — and it reads `code_only()` now, so the sentence that used to satisfy
+it cannot.
+
+**AND THE GUARDIAN VERDICTS DROPPED WHAT THEY COULD NOT PRICE, THEN SEALED THE
+RESULT AS THE BOOK'S.** Both readers that take a position book silently
+excluded any row they could not read and published the remainder as the
+verdict — onto a card, and through `twin_payload` / `sentinel_payload` into the
+tamper-evident chain. The row that does it is ordinary: `live_executor` writes
+`entry_price=0.0` AND `cost_usd=0.0` for an adopted position the venue priced
+neither way, and the restore path reads both back the same, so it survives
+restarts.
+
+Driven on one two-position book, the same book each time:
+
+    digital_twin.run   -> position_count 1, risk LOW,  drawdown 1.05%, liquidations []
+    the row readable   -> position_count 2, risk HIGH, drawdown 36.04%, liquidates PENDLE
+
+    risk_sentinel      -> gross $30.00, top_group BTC 100%
+    the row readable   -> gross $1,029.60, top_group ALT 97.1%
+
+The flip is LEVERAGE-driven, not size-driven — an ordinary $50 of margin at 20x
+does it — so this is not a fixture built to be alarming.
+
+**THE CARD CONTRADICTED ITSELF IN PLACE, and that is the tell.** `fragile`
+walks every row because it needs only leverage, never a price, so the twin
+printed *"1 position(s) · worst-case LOW"* directly above *"Most fragile:
+PENDLE/USDT"* — naming a position the scenarios never simulated — above *"🟢
+sealed to the evidence chain"*. Two claims, one card, and the reassuring one
+had read less.
+
+**`_notional` RETURNED A LITERAL 0.0 AND `analyze` FILTERED `> 0`**, which is
+the shapes table verbatim with the drop one line later; and `run`'s count read
+`_num(p.get("entry"))` for TRUTHINESS, so an entry of `0.0` was dropped by
+accident rather than by a reading. The honest predicate was already settled
+elsewhere in the tree and neither module asked it: `price_on_record` refuses
+`<= 0` because *a price of zero is a level nobody stated*, and
+`position_size_basis` documents `cost_usd == 0.0` as *"the venue never told
+us"* — the ORPHAN case, which is exactly the row being dropped.
+
+**ONE SHAPE, TWO READINGS, and the difference is stated rather than folded.**
+`bot/guardian/book_read.py` holds the COUNT (`scored` / `counted` /
+`unpriced`), the note, and the `_num` that was byte-identical in both modules.
+It deliberately does NOT hold the per-row predicate: the twin needs an entry
+and a quantity to shock, the sentinel needs either of two notional bases, and
+folding those would be a second answer about what "priced" means. It is also
+not `live_executor.CommittedMargin` — that reading is margin on `LivePosition`
+objects, these are notional and simulability on dicts, and a cross-package
+import for a four-field tuple would buy a shared NAME over two different
+quantities. What travels is the CLAIM, which is what `committed_margin_note`'s
+own docstring already says is the shareable part.
+
+**The note speaks where its precedent goes silent, and the reason is the
+figure beside it.** `committed_margin_note` says nothing when NOTHING was read,
+because the figure there is already an em dash and a caveat would be a hedge
+about a figure that is not there. A Guardian verdict over zero priced rows
+still renders as real numbers — `gross $0.00`, `drawdown 0.0%`, `liquidations
+[]` — so silence there is the all-clear the module exists to remove. And a
+verdict over zero rows is not an all-clear: `risk` answers `unknown`, the word
+every Guardian icon map already carries, while an EMPTY book stays a measured
+`none`, because those are different facts.
+
+**Three defects in the fix, and the CARD found all three.** The sentinel's
+flat-book branch keyed on `position_count`, which is now the PRICED count — so
+a book whose every row is unreadable would have rendered *"no open positions to
+assess"*, the confident negative this slice removes, rebuilt inside the cure
+for it. The twin painted four green *"drawdown 0.0% (P&L $0)"* scenario rows
+over a book nothing was simulated from, and colour is a claim: four green rows
+say this book survives a flash crash. And the concentration sentence said
+*"100.0% of the book is in BTC"* when it is 100% of the PRICED rows. None was
+visible from the diff; rendering the card and reading every line is what showed
+them, which is how every other instance in this file was found.
+
+> **And two of my own fresh assertions were wrong before the code was.** One
+> asserted `"could not be priced"` against a branch whose sentence reads *"none
+> of the 1 open position(s) could be priced"* — the negation moves the words,
+> which is this file's own recurring misfire. The other built a "diversified"
+> fixture from ONE position, which is 100% concentrated and trips a concern, so
+> the all-clear branch it names was unreachable and the test measured something
+> else. *A fixture that cannot produce the state it names measures nothing.*
+
+**Thirty mutations, each killed — and the two survivors were one coverage gap
+and one no-op.** Restoring `position_count`'s old truthiness expression
+(`_num(p.get("qty")) is not None`) changed no verdict, because no fixture held
+a row with a readable entry and a quantity of ZERO — and that row is ordinary:
+`live_executor`'s restore reads `quantity=float(item.get("quantity") or 0)`,
+the same or-zero shape as the `entry_price` line above it, so an unstated
+quantity persists as a measured `0.0` across every restart. Counted as
+simulable it contributes `position_pnl(entry, 0, …)` == 0.0 — a position the
+card counts and the shock cannot move. The fixture is in the corpus now, and
+it closes a second thing the round asked for: this chapter's claim that the
+two modules deliberately keep SEPARATE predicates was written down and driven
+by nothing, so a row with a readable entry, no quantity and a readable margin
+— the one input where that difference is a fact rather than a preference — is
+pinned both ways (the sentinel sizes it, the twin cannot move it).
+
+The other survivor was the driver's. `return "" or (f"…")` evaluates to the
+f-string, so the mutation that was supposed to silence `coverage_note` changed
+nothing — the comment-appended-to-a-return shape this file already records, one
+spelling over. Re-aimed at the branch's whole return, it dies on four tests.
+
+> **And the round ABORTED on its own restore check, over my uncommitted
+> work.** The check ran `git diff --stat HEAD` on each mutated file and called
+> any output a stranded mutation — and `risk_sentinel.py` legitimately carried
+> 93 lines of this slice's own in-progress edits, so the first row of the batch
+> aborted with *"a mutation is stranded in the tree"* over a restore that had
+> taken perfectly. **`HEAD` cannot tell an uncommitted edit from a stranded
+> mutation**, which is the exact confusion that made `git status` useless
+> during the runaway-driver incident this file records. The driver's own
+> backup is the only thing that knows what the file held before the mutation,
+> so the restore reads the file back and compares to THAT. Nothing was
+> stranded: all thirty anchors were verified in their clean state by searching
+> for each mutation's own text, which is the method that worked the last time.
+
+> **And the whole-tree mypy ratchet found TWO READINGS OF ONE ROW.** Pulling
+> the shock loop's inline guard out into `_simulable` left the loop re-reading
+> both fields after it — so `entry` came back `Optional[float]` from a guard in
+> another function and `entry * (1.0 + shock)` became an `operator` finding,
+> `43 -> 44`. The finding is a mypy NARROWING false positive in the sense this
+> file records, and the cure is not a cast: two reads of one row are two
+> answers, and `_shock_inputs` is the one READING that hands back the values it
+> read. The type error goes with it rather than being silenced. A type ratchet
+> naming a second copy is the lint ratchet's `F841` finding `tg_id` one gate
+> over. The ruff ratchet caught this slice too, at one character — a stray `f`
+> on a string with no placeholder, `F541: 0 -> 1`, in the very guard that
+> refuses an ungated door.
+
+> **And the new module's own header quoted a measurement nobody could
+> reproduce.** `book_read`'s docstring gives six driven figures as the REASON
+> for the design, and the draft that shipped them said
+> `$8,430.00 / ALT 99.6% / 281x` from a fixture that had since moved — the
+> drive returns `$1,029.60 / ALT 97.1% / 34x`. *A measurement you remember is
+> not a measurement*, this file's own rule, arriving as the justification in a
+> module header rather than in prose. It is DERIVED now:
+> `test_the_docstrings_figures_are_the_ones_a_drive_returns` reads all six back
+> out of the docstring and compares them to a live call on this suite's own
+> fixtures, so the header and the corpus cannot drift apart either. It is
+> bounded to the bullet block, because the correction underneath has to NAME
+> the figures it corrected and a whole-docstring scan would report the
+> retraction as the defect — *a comment that quotes the string it forbids*,
+> from the author's side, for the fifth slice running.
+
+(`tests/test_every_confirm_trade_door_is_gated.py`,
+`tests/test_a_guardian_verdict_says_what_it_could_not_price.py`,
+`tests/confirm_trade_gate_baseline.txt`, `bot/guardian/book_read.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -8820,7 +9018,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 214 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 216 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -9632,9 +9830,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **415 of 1005** reach for source text through `source_scan`, `code_only`
+Driven, **417 of 1007** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 415 is a FLOOR and the honest shape is
+source scan that rule does not see, so 417 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

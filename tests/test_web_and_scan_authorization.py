@@ -44,6 +44,7 @@ import re
 import pytest
 
 from bot.utils.user_store import DEFAULT_AUTO_ROLE, ROLE_PERMISSIONS
+from tests.source_scan import code_only
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDLER = REPO / "bot" / "skills" / "telegram_handler.py"
@@ -160,8 +161,20 @@ def test_the_web_path_consults_the_tier_gate(gateway):
 
 
 def test_scan_confirm_checks_live_permission():
-    """The tap-to-trade path now carries the H-18 block its siblings have."""
-    src = (REPO / "bot" / "skills" / "scan_skill.py").read_text()
+    """The tap-to-trade path now carries the H-18 block its siblings have.
+
+    SHAPE ONLY, and narrower than its name: it says the gate is PRESENT and
+    runs before `confirm_trade`, not that it is REACHED. The drives that prove
+    the refusal runs — both arms, plus the fail-closed branch — are in
+    `tests/test_every_confirm_trade_door_is_gated.py`, together with the rule
+    that finds a door this file has never heard of.
+
+    It reads `code_only()` because it used to read RAW source, and the H-18
+    comment six lines above the refusal spells `_can_trade_live`: driven,
+    deleting the refusal outright left this test GREEN. A comment that quotes
+    the string it forbids is indistinguishable from the code doing it.
+    """
+    src = code_only((REPO / "bot" / "skills" / "scan_skill.py").read_text())
     fn = None
     for node in ast.walk(ast.parse(src)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -32,6 +32,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.guardian.book_read import (
+    coverage_of,
+    num,
+    verdict_over,
+)
 from bot.guardian.digital_twin import liquidation_move_frac
 
 SENTINEL_VERSION = 1
@@ -49,25 +54,42 @@ _LIQ_ZONE_BAND = 5.0           # adverse-move % band width for "same zone"
 _LIQ_ZONE_HIGH = 3            # same-direction positions clustered in one zone
 
 
-def _num(v: Any) -> Optional[float]:
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return None
-    if f != f or f in (float("inf"), float("-inf")):
-        return None
-    return f
+def _notional(pos: dict) -> Optional[float]:
+    """Position notional in USD, or None when NEITHER basis could be read.
 
+    It used to answer a literal ``0.0`` there — unreadable rendered as a
+    measured zero, the shapes table verbatim — and `analyze` then filtered
+    ``_notional(p) > 0``, so the row left the book silently. Driven on an
+    adopted position (entry and cost_usd both 0.0, which is what adoption
+    writes when the venue stated neither), that understated gross notional by
+    281x and named the WRONG correlation group: 100% BTC on a book that is
+    99.6% ALT.
 
-def _notional(pos: dict) -> float:
-    """Position notional in USD: entry × qty, falling back to margin × leverage."""
-    entry, qty = _num(pos.get("entry")), _num(pos.get("qty"))
-    if entry is not None and qty is not None:
+    A zero ENTRY or a zero COST is an absence rather than a measurement, and
+    that is this repo's settled reading of both fields rather than a choice
+    made here: `price_on_record` refuses ``<= 0`` because *a price of zero is a
+    level nobody stated*, and `position_size_basis` documents ``cost_usd ==
+    0.0`` as *"the venue never told us"* — the ORPHAN case, which is exactly
+    the row this function was dropping. So both bases must be positive to
+    count, and a row that states neither is None.
+    """
+    entry, qty = num(pos.get("entry")), num(pos.get("qty"))
+    if entry is not None and entry > 0 and qty:
         return abs(entry * qty)
-    cost, lev = _num(pos.get("cost_usd")), _num(pos.get("leverage"))
-    if cost is not None:
+    cost, lev = num(pos.get("cost_usd")), num(pos.get("leverage"))
+    if cost is not None and cost > 0:
         return abs(cost * (lev or 1.0))
-    return 0.0
+    return None
+
+
+def _priced(pos: Any) -> bool:
+    """Can this row contribute a notional at all? The sentinel's own question."""
+    return isinstance(pos, dict) and _notional(pos) is not None
+
+
+def _n(pos: dict) -> float:
+    """The notional of a row already established as priced."""
+    return _notional(pos) or 0.0
 
 
 def _direction(pos: dict) -> str:
@@ -101,15 +123,24 @@ def analyze(positions: list[dict]) -> dict:
     base = {"version": SENTINEL_VERSION, "position_count": 0,
             "gross_notional_usd": 0.0, "net_direction": "balanced",
             "net_bias": 0.0, "top_group": {"group": "", "share_pct": 0.0},
-            "concerns": [], "risk": "none"}
+            "concerns": [], "risk": "none",
+            "scored_positions": 0, "counted_positions": 0,
+            "unpriced_symbols": []}
     try:
-        rows = [p for p in (positions or []) if _notional(p) > 0]
+        cov = coverage_of(positions, _priced)
+        rows = [p for p in (positions or []) if _priced(p)]
         if not rows:
-            return base
-        gross = sum(_notional(p) for p in rows)
+            # An empty book and a book nothing could be priced in are DIFFERENT
+            # facts, and `base` said "none" for both. The coverage rides on the
+            # report either way, so the card and the evidence chain can tell.
+            return {**base, **cov.as_dict(),
+                    "risk": verdict_over(cov, "none")}
+        gross = sum(_n(p) for p in rows)
         if gross <= 0:
-            return base
-        long_notional = sum(_notional(p) for p in rows if _direction(p) == "LONG")
+            return {**base, **cov.as_dict(),
+                    "position_count": len(rows),
+                    "risk": verdict_over(cov, "none")}
+        long_notional = sum(_n(p) for p in rows if _direction(p) == "LONG")
         short_notional = gross - long_notional
 
         concerns: list[dict] = []
@@ -117,14 +148,20 @@ def analyze(positions: list[dict]) -> dict:
         # 1) Correlated concentration — largest group's share of gross.
         by_group: dict[str, float] = {}
         for p in rows:
-            by_group[str(p.get("group") or "*")] = by_group.get(str(p.get("group") or "*"), 0.0) + _notional(p)
+            by_group[str(p.get("group") or "*")] = by_group.get(str(p.get("group") or "*"), 0.0) + _n(p)
         top_group, top_notional = max(by_group.items(), key=lambda kv: kv[1])
         top_share = round(top_notional / gross * 100, 1)
         conc_sev = "high" if top_share >= _CONCENTRATION_HIGH else \
             "medium" if top_share >= _CONCENTRATION_MEDIUM else "none"
         if conc_sev != "none" and top_group not in ("", "*"):
             concerns.append({"kind": "correlated_concentration", "severity": conc_sev,
-                             "detail": f"{top_share}% of the book is in {top_group}"})
+                             # "of gross notional", never "of the book": the
+                             # share is over the rows that could be PRICED,
+                             # and on a partial book those are not the same
+                             # set. The card's coverage note scopes the
+                             # figures; this stops the sentence itself from
+                             # making the wider claim.
+                             "detail": f"{top_share}% of gross notional is in {top_group}"})
 
         # 2) Directional crowding — net one-sidedness.
         net_bias = round(abs(long_notional - short_notional) / gross, 3)
@@ -157,6 +194,7 @@ def analyze(positions: list[dict]) -> dict:
 
         risk = _rollup(*[c["severity"] for c in concerns]) if concerns else "none"
         return {
+            **cov.as_dict(),
             "version": SENTINEL_VERSION,
             "position_count": len(rows),
             "gross_notional_usd": round(gross, 2),
@@ -203,4 +241,9 @@ def sentinel_payload(positions: list[dict]) -> dict:
         "net_bias": a["net_bias"],
         "top_group": a["top_group"],
         "concerns": a["concerns"][:8],
+        # The seal carries what the verdict covers, or the chain records a
+        # partial-book verdict as the book's verdict — permanently.
+        "scored_positions": a.get("scored_positions", 0),
+        "counted_positions": a.get("counted_positions", 0),
+        "unpriced_symbols": a.get("unpriced_symbols", []),
     }

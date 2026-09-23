@@ -35,6 +35,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.guardian.book_read import coverage_of, verdict_over
+from bot.guardian.book_read import num as _num
+
 TWIN_VERSION = 1
 
 # Risk ordering for rollups (mirrors the firewall's convention).
@@ -69,14 +72,36 @@ def scenarios() -> list[dict]:
     return [dict(s, shocks=dict(s["shocks"])) for s in _SCENARIOS]
 
 
-def _num(v: Any) -> Optional[float]:
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
+def _shock_inputs(pos: Any) -> Optional[tuple[float, float]]:
+    """The (entry, quantity) this row can be shocked with, or None.
+
+    A READING rather than a predicate, and the shock loop takes the values it
+    hands back: asking `_simulable(pos)` and then re-reading both fields is
+    two answers about one row, and it is also why mypy could not narrow —
+    `entry` came back `Optional[float]` after a guard in another function, so
+    `entry * (1.0 + shock)` was an `operator` finding. One read fixes both.
+
+    An entry of zero is not a price — `price_on_record`'s settled reading, and
+    exactly what adoption writes (`entry_price=0.0`) when the venue stated
+    none — and a quantity of zero is the same absence one field over, which
+    `live_executor`'s restore writes as `float(item.get("quantity") or 0)`.
+    Neither can be shocked: there is no P&L to project. A row failing this was
+    SILENTLY DROPPED from every scenario while still counting toward
+    `fragile`, which is why the card could print "1 position(s) - worst-case
+    LOW" directly above "Most fragile: PENDLE/USDT".
+    """
+    if not isinstance(pos, dict):
         return None
-    if f != f or f in (float("inf"), float("-inf")):   # NaN / inf guard
+    entry, qty = _num(pos.get("entry")), _num(pos.get("qty"))
+    if entry is None or entry <= 0 or qty is None or qty == 0:
         return None
-    return f
+    return entry, qty
+
+
+def _simulable(pos: Any) -> bool:
+    """Can this row be shocked at all? The twin's own per-row question,
+    asked of the one reading above so the two cannot drift."""
+    return _shock_inputs(pos) is not None
 
 
 def liquidation_move_frac(leverage: Any, maintenance: float = DEFAULT_MAINTENANCE) -> Optional[float]:
@@ -164,10 +189,10 @@ def simulate_scenario(positions: list[dict], equity: Any, scenario: dict,
     liquidations: list[str] = []
     rows: list[dict] = []
     for pos in positions or []:
-        entry = _num(pos.get("entry"))
-        qty = _num(pos.get("qty"))
-        if entry is None or entry <= 0 or qty is None:
-            continue
+        got = _shock_inputs(pos)
+        if got is None:
+            continue   # counted by `coverage_of` in run(), never silently
+        entry, qty = got
         direction = str(pos.get("direction", "LONG")).upper()
         group = str(pos.get("group") or "*")
         shock = _shock_for(shocks, group)
@@ -247,15 +272,25 @@ def run(positions: list[dict], equity: Any, scenario_list: Optional[list[dict]] 
                                                 r["drawdown_pct"]
                                                 if r["drawdown_pct"] is not None
                                                 else -1.0))
+        # What the scenarios actually covered. `position_count` keeps its
+        # existing meaning (rows that WERE simulated) so no reader shifts
+        # underneath; `counted_positions` is the book, and the difference is
+        # the thing that used to vanish. The old expression also read
+        # `_num(p.get("entry"))` for TRUTHINESS, so an entry of 0.0 was falsy
+        # and dropped by accident rather than by a reading.
+        cov = coverage_of(positions, _simulable)
         return {
+            **cov.as_dict(),
             "version": TWIN_VERSION,
-            "position_count": len([p for p in (positions or [])
-                                   if _num(p.get("entry")) and _num(p.get("qty")) is not None]),
+            "position_count": cov.scored,
             "equity_usd": None if eq is None else round(eq, 2),
             "equity_known": eq is not None,
             "scenarios": results,
             "worst": worst,
-            "risk": worst["risk"] if worst else "none",
+            # A verdict over ZERO simulated rows is not an all-clear. With a
+            # book present and nothing in it simulable this answered "none" —
+            # low risk, no liquidations — from no data at all.
+            "risk": verdict_over(cov, worst["risk"] if worst else "none"),
             "fragile": fragile[:8],
         }
     except Exception:
@@ -264,7 +299,9 @@ def run(positions: list[dict], equity: Any, scenario_list: Optional[list[dict]] 
         # assembled from a crash, on the foresight screen.
         return {"version": TWIN_VERSION, "position_count": 0, "equity_usd": None,
                 "equity_known": False, "scenarios": [], "worst": None,
-                "risk": "unknown", "fragile": []}
+                "risk": "unknown", "fragile": [],
+                "scored_positions": 0, "counted_positions": 0,
+                "unpriced_symbols": []}
 
 
 def twin_payload(positions: list[dict], equity: Any,
@@ -293,4 +330,12 @@ def twin_payload(positions: list[dict], equity: Any,
             for s in report["scenarios"]
         ],
         "fragile": report["fragile"][:6],
+        # The seal carries what the verdict COVERS. Without it the chain
+        # records a partial-book verdict as the book's verdict, permanently,
+        # in the one record whose whole value is that it cannot be argued with
+        # later — and `fragile` above can name a position no scenario ever
+        # simulated, so the two together are self-contradicting without it.
+        "scored_positions": report.get("scored_positions", 0),
+        "counted_positions": report.get("counted_positions", 0),
+        "unpriced_symbols": report.get("unpriced_symbols", []),
     }
