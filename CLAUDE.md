@@ -315,6 +315,25 @@ the self-test plants one and requires it back.
 > and here the answer was neither: the fixture was wrong, and re-aiming it is
 > what found that the self-test needed a second direction at all.
 
+**AND THREE MORE WERE FORGIVEN FOUR RUNS IN A ROW, AND THE CAUSE WAS A TIMEOUT
+THIS FILE'S OWN HELPER HAD ALREADY CURED.** `test_halt_holds_at_order_submission`
+(twice) and `test_kill_switch_reaches_executor` — the guards that stop an order
+being placed during a halt — failed every full run and passed alone, the same
+set each time, which is this chapter's signature for a state leak. Reading the
+traceback said otherwise: each one TIMED OUT inside `ast.get_source_segment`,
+building a dict of every function in `bot/core/live_executor.py` (12,828 lines,
+166 defs) with one stdlib call per def, and that call re-splits the whole file
+in a pure-Python loop every time. About 19s alone, past the 60s timeout under
+full-suite load — so in every full run the guard died before it asserted
+anything, and the only run that measured it was the flake filter's re-run.
+`segment_reader` in `tests/source_scan.py` exists for exactly this shape, written on
+2026-08-21 when two `telegram_handler.py` guards were forgiven the same way, and
+it reached those two tests and none of the seven that still called the stdlib
+per node. **A helper that fixes a shape does not stop the shape**, so the rule
+is a test now: no file under `tests/` calls `get_source_segment` inside a loop
+or comprehension, driven on planted source because the real tree answers
+nothing (`tests/test_source_segment_reader.py`).
+
 **Two full-suite runs at once are not two measurements.** `_clean_runtime_state`
 deletes `data/` before and after every test, so a second concurrent run is
 deleting the first one's state ~6000 times. Both were killed and one clean run
@@ -9386,7 +9405,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 217 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 221 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10198,9 +10217,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **420 of 1010** reach for source text through `source_scan`, `code_only`
+Driven, **423 of 1010** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 420 is a FLOOR and the honest shape is
+source scan that rule does not see, so 423 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

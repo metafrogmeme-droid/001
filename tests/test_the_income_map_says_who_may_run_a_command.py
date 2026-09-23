@@ -61,6 +61,8 @@ import ast
 import re
 from pathlib import Path
 
+from tests.source_scan import segment_reader
+
 ROOT = Path(__file__).resolve().parent.parent
 MAP = ROOT / "docs" / "INCOME_MAP.md"
 
@@ -98,6 +100,7 @@ def _command_guards() -> dict[str, tuple[bool, list[str]]]:
             tree = ast.parse(src)
         except SyntaxError:                      # pragma: no cover - parse gate covers it
             continue
+        seg = segment_reader(src)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -107,7 +110,7 @@ def _command_guards() -> dict[str, tuple[bool, list[str]]]:
             perms = set(re.findall(r"guard\(['\"]([a-z_]+)['\"]",
                                    " ".join(decorators)))
             admin_perms = _admin_only_permissions()
-            body = ast.get_source_segment(src, node) or ""
+            body = seg(node) or ""
             admin = bool(perms & admin_perms) or (
                 "_is_admin(" in body or "_is_admin_id(" in body)
             out[node.name[len("_cmd_"):]] = (admin, decorators or ["<undecorated>"])

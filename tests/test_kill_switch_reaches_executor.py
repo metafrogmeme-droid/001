@@ -107,7 +107,9 @@ def test_the_opening_path_consults_it_and_the_reducing_paths_do_not():
     import pathlib
     src = (pathlib.Path(__file__).resolve().parent.parent
            / "bot" / "core" / "live_executor.py").read_text()
-    bodies = {n.name: (ast.get_source_segment(src, n) or "")
+    from tests.source_scan import segment_reader
+    seg = segment_reader(src)
+    bodies = {n.name: (seg(n) or "")
               for n in ast.walk(ast.parse(src))
               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 

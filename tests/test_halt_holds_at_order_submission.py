@@ -166,7 +166,9 @@ def test_the_transport_helper_is_not_gated():
     import pathlib
     src = (pathlib.Path(__file__).resolve().parent.parent
            / "bot" / "core" / "live_executor.py").read_text()
-    body = {n.name: (ast.get_source_segment(src, n) or "")
+    from tests.source_scan import segment_reader
+    seg = segment_reader(src)
+    body = {n.name: (seg(n) or "")
             for n in ast.walk(ast.parse(src))
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assert "trading_halted()" not in body["_create_order_idempotent"], (
@@ -197,7 +199,9 @@ def test_every_entry_submission_is_preceded_by_a_check():
     # function submits, so the slice follows the submissions; and execute()
     # must itself contain NO submission, or a third site could appear there
     # without a check and this test would be reading the wrong function.
-    fns = {n.name: (ast.get_source_segment(src, n) or "")
+    from tests.source_scan import segment_reader
+    seg = segment_reader(src)
+    fns = {n.name: (seg(n) or "")
            for n in ast.walk(ast.parse(src))
            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     body = fns["_submit_entry_order"]
