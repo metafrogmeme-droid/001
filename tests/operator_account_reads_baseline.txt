@@ -1,0 +1,30 @@
+# Every function in a caller-serving surface (the Telegram handler's files and
+# bot/web/) that reads the OPERATOR's account through `engine.live_executor`.
+#
+# A caller's account is `_caller_executor(update)` (view/close) or
+# `engine.viewer_executor(uid)` (status cards); both answer the operator's
+# executor in single-account mode on purpose and None for an unlinked caller
+# under PER_USER_LIVE_ENABLED. A direct `engine.live_executor` read skips that
+# None, which is how the Details button came to show the operator's position
+# to whoever tapped it (tests/test_the_details_button_reads_the_callers_account.py).
+#
+# One row per function: `path::function  <reason>`, two spaces before the
+# reason. Two-way, as known_failures.txt is: a read with no row fails, and a
+# row whose read is gone fails as stale.
+#
+#   admin: ...     checked -- the function refuses a non-admin itself
+#                  (`@guard("admin")` or `self._is_admin(...)` in its body).
+#   via <fn>: ...  checked -- the helper's ONLY caller is <fn>, and <fn> is
+#                  admin-gated by the same reading.
+#   anything else  a reason a human reads; say why no caller's account is read.
+#
+# An identity comparison (`ex is self.engine.live_executor`) reads nothing from
+# the account and is not listed.
+
+bot/skills/telegram_handler.py::_cmd_llmab  admin: /llmab scores the operator's shadow model against the operator's own closes
+bot/skills/account_commands.py::_cmd_setexchange  admin: rewrites the operator's own exchange credentials and drops that client so it rebuilds
+bot/skills/engine_ops_commands.py::_cmd_venue  admin: switches the operator's active venue
+bot/skills/engine_ops_commands.py::_venue_status_lines  via _cmd_venue: the operator's venue and open count, printed on /venue
+bot/skills/engine_ops_commands.py::_cmd_parity  admin: /parity compares the operator's live record with the benchmark
+bot/skills/scan_commands.py::_render_scan_signals_card  market data only: the operator's client is used to fetch public 1h candles for the sparklines; no account field is read
+bot/skills/alerts_monitor.py::_on_trade_closed  the close card goes to the operator's own notify chats (TELEGRAM_CHAT_ID), never to a caller

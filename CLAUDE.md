@@ -8989,6 +8989,68 @@ for this branch".
 (`tests/test_a_close_button_needs_a_permission.py`,
 `bot/nlp/button_actions.py`.)
 
+**AND THE DETAILS BUTTON ONE BRANCH UP READ THE OPERATOR'S ACCOUNT FOR
+WHOEVER TAPPED IT.** `pos_details_<ident>` looks the position up in the
+caller's own records -- `_caller_executor(update)` for the live book, the
+paper portfolio for the other -- and when neither holds it, asks the VENUE,
+because local tracking can go stale while the exchange still holds the
+position (`test_pos_details_stale_sync.py` records that incident). The venue
+it asked was `self.engine.live_executor._get_exchange()`. `_caller_executor`'s
+own docstring names the cost -- *"For the VIEW/CLOSE layer that fallback
+would leak the operator's positions to a non-operator user, so here we return
+None in that case"* -- and the branch computed that `None` a screen above the
+fallback and walked past it. **The isolation's whole mechanism is the
+`None`, and `pos_match is None` is exactly what a caller the isolation had
+refused reaches.**
+
+Driven under PER_USER_LIVE_ENABLED with a stale card -- the paper position
+already closed, the ordinary way into the fallback -- an unlinked caller was
+sent the operator's position under a header reading LIVE: `Size $3,150.00 |
+10x`, the P&L and the net in dollars, with a Close button tagged to them. And
+a LINKED trader's own stale position was looked up on the OPERATOR's account,
+so they were shown the operator's figures as theirs and their own untracked
+position was never found. The close branch four hundred lines down already
+read the caller's executor, under a comment saying why, and the tracked
+lookup in the same branch had been converted while the fallback beside it
+had not -- *fixing two left the third*, inside one handler. Single-account
+mode is unchanged by construction (`_detail_ex` IS the operator's executor
+there) and is driven so.
+
+**The second site was a default argument.** `_render_livepositions_cards(...,
+executor=None)` fell back to `self.engine.live_executor` *"for any other
+caller that hasn't been updated to resolve one"*: a door that hands a caller
+the operator's book when somebody forgets an argument. Its one caller passes
+its own, so the parameter is required now.
+
+**The class is a ratchet, and its reasons are checked.** Every read of
+`engine.live_executor` in a caller-serving surface -- the Telegram handler's
+files, taken from its MRO, and `bot/web/` -- is a row in
+`tests/operator_account_reads_baseline.txt` with its reason, two-way. An
+identity comparison is not a read: `ex is self.engine.live_executor` is how
+`_caller_executor` itself tells the two books apart. A row reading `admin:`
+is checked against the function's own body (`@guard("admin")` or
+`self._is_admin(...)`, nested defs not descended), so the reason cannot
+outlive the gate. A helper's `via <fn>:` row is checked for `<fn>` being its
+only caller and for `<fn>` carrying the gate. The first draft of that helper
+rule asked the OWNER for a row of its own. The owner reads nothing, so by the
+rule's own stale-row half that row could never exist. The rule contradicted
+itself on the only real helper it was written for, and its first planted run
+said so.
+
+**Nineteen mutations: eighteen killed, one equivalent, and the one survivor
+of the first round was the corpus.** Every real `admin:` row uses the in-body
+spelling, so a mutation that stopped reading `@guard("admin")` changed no
+verdict. It is planted now, beside a `@guard("portfolio")` function its row
+wrongly calls admin-gated. The equivalent mutant is the new `_detail_ex is
+not None` clause: dropped, `None._get_exchange()` raises inside the branch's
+`except Exception: pass` and nothing is asked or sent. It STAYS, as the same
+clause does in the close branch, because otherwise the refusal would be an
+`AttributeError` nobody wrote, and it would stop holding on the day that
+`except` is narrowed. What the round drives instead is the property: an
+unlinked caller's tap asks no venue at all.
+(`tests/test_the_details_button_reads_the_callers_account.py`,
+`tests/operator_account_reads_baseline.txt`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -9405,7 +9467,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 221 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 222 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10217,9 +10279,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **423 of 1010** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1011** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 423 is a FLOOR and the honest shape is
+source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
