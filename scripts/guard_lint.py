@@ -645,11 +645,10 @@ RULES: list[Rule] = [
             "lab.py:GET /lab/status/{job_id}",
         ],
         why=("A FastAPI route with no `require_dashboard_token` dependency. This app "
-             "reaches the live engine — /confirm places a trade, /portfolio/close "
-             "flattens a position, /risk/halt trips the breaker — and the token "
-             "dependency fails CLOSED (503) when DASHBOARD_TOKEN is unset, which is "
-             "the property to preserve. If the new route is genuinely public, add it "
-             "to exclude_functions with the reason."),
+             "holds an engine over the bot's data and reads its account state, and "
+             "the token dependency fails CLOSED (503) when DASHBOARD_TOKEN is unset, "
+             "which is the property to preserve. If the new route is genuinely "
+             "public, add it to exclude_functions with the reason."),
     ),
     Rule(
         name="dashboard-route-placement",

@@ -43,29 +43,31 @@ os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
 
 
 # ── /risk/halt ────────────────────────────────────────────────────────────
+#
+# SUPERSEDED, and the six tests that stood here are why it took so long to see.
+# The fix above made the halt read the breaker back instead of returning a
+# literal -- and read it back from THIS PROCESS's engine. The bridge is not the
+# bot: its engine is a copy, so a halt here tripped the copy, the copy said
+# "tripped", and the bot kept trading. Every test here planted `_Engine(_Risk)`
+# as `api_bridge.engine`, a stub whose halt DID take -- the one arrangement in
+# which the bridge's own breaker is the bot's -- so "a successful halt reports
+# success" was pinned as the contract over the process boundary it could not
+# see. The endpoint refuses now and says nothing was halted
+# (tests/test_the_bridge_is_a_reader_of_the_bots_state.py). What these still
+# pin is the part that did not depend on the stub: it never reports success,
+# it never calls a halt on the engine it is handed, and it never claims to
+# close a position.
 
 class _Risk:
-    """A risk engine whose halt and read-back can each be made to fail."""
+    """A risk engine that records whether anything tried to halt it."""
 
-    def __init__(self, *, halt_raises=False, read_raises=False,
-                 becomes_active=True):
-        self._halt_raises = halt_raises
-        self._read_raises = read_raises
-        self._becomes_active = becomes_active
-        self._open = False
+    def __init__(self):
         self.calls = 0
+        self.circuit_breaker_active = False
 
     def emergency_halt(self, reason):
         self.calls += 1
-        if self._halt_raises:
-            raise RuntimeError("venue token abc123 rejected")
-        self._open = self._becomes_active
-
-    @property
-    def circuit_breaker_active(self):
-        if self._read_raises:
-            raise RuntimeError("state file unreadable")
-        return self._open
+        self.circuit_breaker_active = True
 
 
 class _Engine:
@@ -82,61 +84,28 @@ def _call_halt(risk):
         res = asyncio.run(api_bridge.risk_halt(_token="t", _rl=None))
     finally:
         api_bridge.engine = prev
-    if hasattr(res, "body"):
-        import json
-        return res.status_code, json.loads(res.body)
-    return 200, res
+    import json
+    return res.status_code, json.loads(res.body)
 
 
-def test_a_successful_halt_reports_success():
+def test_the_halt_never_reports_success():
     status, body = _call_halt(_Risk())
-    assert status == 200
-    assert body["ok"] is True
-    assert body["circuit_breaker_active"] is True
+    assert status == 501
+    assert body["ok"] is False and body["halted"] is False
 
 
-def test_a_halt_that_raises_does_not_report_the_breaker_active():
-    """The defect, exactly: `except Exception: pass` then ok:True."""
-    status, body = _call_halt(_Risk(halt_raises=True))
-    assert body["circuit_breaker_active"] is not True, (
-        "the emergency stop reported the breaker ACTIVE after the halt threw"
-    )
-    assert body["ok"] is False
-    assert status == 500
-
-
-def test_a_halt_that_silently_does_not_take_is_reported():
-    """It returned. The breaker is still closed. That is not a halt."""
-    status, body = _call_halt(_Risk(becomes_active=False))
-    assert body["ok"] is False
-    assert body["circuit_breaker_active"] is False
-    assert "DID NOT TAKE" in body["message"]
-
-
-def test_an_unreadable_breaker_is_not_reported_as_halted():
-    """Unreadable is never "on", least of all here."""
-    status, body = _call_halt(_Risk(read_raises=True))
-    assert body["ok"] is False
-    assert body["circuit_breaker_active"] is None
-    assert "could NOT be read" in body["message"]
-
-
-def test_the_halt_failure_never_echoes_the_driver_message():
-    """`last_error` shapes reach operator surfaces; ccxt strings carry URLs."""
-    _status, body = _call_halt(_Risk(halt_raises=True))
-    blob = repr(body)
-    assert "abc123" not in blob, "the driver's message reached the response"
-    assert "RuntimeError" in blob, "the class name is the useful part"
+def test_the_halt_never_halts_the_engine_it_is_handed():
+    """Halting this process's engine is what produced the false 'tripped'."""
+    risk = _Risk()
+    _call_halt(risk)
+    assert risk.calls == 0 and risk.circuit_breaker_active is False
 
 
 def test_the_endpoint_no_longer_claims_to_close_positions():
-    """It never did. `emergency_halt` trips the breaker and nothing else."""
-    import api_bridge
-    doc = api_bridge.risk_halt.__doc__ or ""
-    assert "DOES NOT CLOSE POSITIONS" in doc.upper().replace("  ", " ")
+    """It never did. It now halts nothing either, and says both."""
     _status, body = _call_halt(_Risk())
     assert body["closed_positions"] is False
-    assert "NOT closed" in body["message"]
+    assert "Nothing was halted" in body["message"]
 
 
 # ── Safe Mode ─────────────────────────────────────────────────────────────

@@ -3325,6 +3325,26 @@ class RuneClawEngine:
         self.portfolio._combined_saver = self._save_combined_state
         self.risk._combined_saver = self._save_combined_state
 
+    def detach_state_persistence(self) -> None:
+        """Make this engine a READER of the operator's state, never a writer.
+
+        For a second process that builds its own engine over the same data
+        directory: `api_bridge.py`'s lifespan does. Every portfolio and risk
+        save funnels through `_save_combined_state` below, which writes the
+        WHOLE file from THIS instance's memory -- so a second instance's save
+        is not a merge, it is its stale copy stamped over the bot's. Driven:
+        the bot's streak breaker tripped, a paper close through the bridge
+        saved, and a restarted bot came up with the breaker closed and the
+        streak at 0. `PortfolioTracker`'s revision guard does not cover it:
+        that guards the portfolio's own file, and production saves through
+        this one. A revision guard HERE would be worse than none -- after one
+        stray write the bot's own copy reads as the stale one and every
+        breaker save it makes is refused -- so the fix is one writer.
+
+        Idempotent. Nothing is lost: the bot remains the writer.
+        """
+        self._state_persistence_detached = True
+
     def _save_combined_state(self) -> None:
         """Atomically write the OPERATOR's portfolio + risk state to a single file.
         Called by either portfolio._auto_save() or risk._save_state() whenever
@@ -3342,6 +3362,11 @@ class RuneClawEngine:
         same account and risk write-skew between the two; keep this file
         operator-only. The test suite guards this intent
         (tests/test_combined_state_per_user_intent.py)."""
+        if getattr(self, "_state_persistence_detached", False):
+            # A reader (`detach_state_persistence`). Returning, not raising:
+            # the risk engine falls back to its OWN file when this raises,
+            # which would be the same stale write through a second door.
+            return
         combined = {
             "version": 1,
             "portfolio": self.portfolio._export_state_dict(),

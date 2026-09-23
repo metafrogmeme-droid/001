@@ -43,8 +43,6 @@ from types import SimpleNamespace as NS
 # gitleaks finding and a bad example to copy, even in a test.
 os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
 
-import pytest
-
 from bot.core.trade_gate import entry_gate
 from tests.source_scan import code_only
 
@@ -100,109 +98,123 @@ class TestTheDetailIsNotPublic:
             assert g["reasons"] == ["daily_loss"]
 
 
-class TestBothEndpointsRouteThroughTheHelper:
-    @pytest.mark.parametrize("fn", ["_health_gate_fields",
-                                    "_risk_status_gate_fields"])
-    def test_it_exists_and_calls_entry_gate(self, fn):
-        i = SRC.index(f"def {fn}(")
-        body = SRC[i:i + 900]
-        assert "entry_gate(" in body, f"{fn} still reads the narrow field"
+# ── the bridge's two endpoints ─────────────────────────────────────────────
+#
+# RE-POINTED. These pinned both endpoints to `entry_gate(engine)` -- the
+# bot-side gate run over THIS PROCESS's engine, which is a copy of the bot's
+# loaded when the bridge started and never refreshed. So with the bot halted
+# the bridge said clear (tests/test_the_bridge_is_a_reader_of_the_bots_state.py).
+# The divergence this file was written to stop "moving to HTTP" had been on
+# HTTP the whole time, one process over. Both endpoints read what the BOT
+# saved now, through one helper; the rest of the rule they guarded holds, and
+# is what is asserted below.
 
-    def test_neither_endpoint_reads_the_property_directly(self):
-        assert "engine.risk.trading_blocked_by" not in SRC, (
-            "the shared engine's field cannot see the kill switch or the "
-            "venue auth halt"
-        )
+def _saved_state(tmp_path, *, circuit_open, cause=""):
+    import json
+    f = tmp_path / "combined_state.json"
+    f.write_text(json.dumps({"risk": {
+        "circuit_open": circuit_open, "consecutive_losses": 0,
+        "last_loss_time": None, "circuit_breaker_trips": 0,
+        "circuit_trip_cause": cause, "circuit_trip_day": ""}}))
+    return NS(_combined_state_file=str(f))
 
-    def test_health_asks_for_the_public_form(self):
-        i = SRC.index("def _health_gate_fields(")
-        assert "include_detail=False" in SRC[i:i + 900]
 
-    def test_risk_status_does_not(self):
-        i = SRC.index("def _risk_status_gate_fields(")
-        body = SRC[i:i + 900]
-        assert "include_detail=False" not in body, (
-            "this endpoint is token-gated; withholding the detail here costs "
-            "the operator the diagnostic and protects nobody"
-        )
+class TestBothEndpointsReadTheBotsSavedBreaker:
+    def test_both_endpoints_use_the_one_reader(self):
+        for fn in ("async def health(", "async def risk_status("):
+            i = SRC.index(fn)
+            body = SRC[i:SRC.index("\n@app.", i)]
+            assert "_bot_breaker_fields()" in body, fn
+
+    def test_neither_endpoint_reads_this_processs_engine(self):
+        assert "engine.risk.trading_blocked_by" not in SRC
+        assert "entry_gate(" not in SRC, (
+            "a gate run over this process's engine describes a copy of the "
+            "bot, not the bot")
+
+    def test_neither_can_carry_venue_text(self, tmp_path):
+        # The public/private split this file drew rested on the venue-auth
+        # reason carrying the venue's own error text. The bridge cannot read
+        # that gate at all now, and what it reads from the saved block goes
+        # through the bot's validator, which keeps its six typed fields and
+        # nothing else -- so free text planted beside them never reaches the
+        # wire, on the endpoint that takes no token.
+        import json
+
+        import api_bridge
+        f = tmp_path / "combined_state.json"
+        f.write_text(json.dumps({"risk": {
+            "circuit_open": True, "circuit_trip_cause": "manual",
+            "reason": VENUE_DETAIL, "last_error": VENUE_DETAIL}}))
+        saved = api_bridge.engine
+        try:
+            api_bridge.engine = NS(_combined_state_file=str(f))
+            out = api_bridge._bot_breaker_fields()
+        finally:
+            api_bridge.engine = saved
+        assert out["trading_blocked_by"] == "manual"
+        assert "bitget" not in repr(out)
 
     def test_risk_status_is_still_token_gated(self):
-        # The whole public/private split rests on this. If the dependency is
-        # ever dropped, the detail becomes public without anything else
-        # changing.
         i = SRC.index("async def risk_status(")
         assert "Depends(require_dashboard_token)" in SRC[i:i + 200]
 
     def test_health_is_still_the_unauthenticated_one(self):
         i = SRC.index("async def health(")
-        assert "Depends(" not in SRC[i:i + 200], (
-            "if /health ever gains a token, revisit include_detail=False — "
-            "it is there because this endpoint has none"
-        )
+        assert "Depends(" not in SRC[i:i + 200]
 
 
 class TestTheStatusFieldCannotBreakTheEndpoint:
     """A health endpoint that 500s on a risk hiccup reports the wrong outage."""
 
+    def _fields(self, engine):
+        import api_bridge
+        saved = api_bridge.engine
+        try:
+            api_bridge.engine = engine
+            return api_bridge._bot_breaker_fields()
+        finally:
+            api_bridge.engine = saved
+
     def test_a_missing_engine_is_unknown_not_clear(self):
         # A fabricated "" would read as "trading is fine".
-        import api_bridge
-        saved = api_bridge.engine
-        try:
-            api_bridge.engine = None
-            out = api_bridge._health_gate_fields()
-            assert out["trading_blocked_by"] == ""
-            assert out["trading_gate_unknown"] is True
-        finally:
-            api_bridge.engine = saved
+        out = self._fields(None)
+        assert out["trading_blocked_by"] == ""
+        assert out["trading_gate_unknown"] is True
+        assert "circuit_breaker_active" not in out
 
     def test_a_hostile_engine_is_unknown_not_an_exception(self):
-        import api_bridge
-        saved = api_bridge.engine
-
         class Hostile:
             @property
-            def risk(self):
+            def _combined_state_file(self):
                 raise RuntimeError("nope")
 
-        try:
-            api_bridge.engine = Hostile()
-            for fn in (api_bridge._health_gate_fields,
-                       api_bridge._risk_status_gate_fields):
-                out = fn()
-                assert out["trading_gate_unknown"] is True
-                assert out["trading_blocked_by"] == ""
-        finally:
-            api_bridge.engine = saved
+        out = self._fields(Hostile())
+        assert out["trading_gate_unknown"] is True
+        assert out["trading_blocked_by"] == ""
+        assert out["circuit_breaker_read"] == "unreadable"
 
-    def test_a_healthy_engine_reports_clear_and_known(self):
-        import api_bridge
-        saved = api_bridge.engine
-        try:
-            api_bridge.engine = _engine()
-            out = api_bridge._health_gate_fields()
-            assert out["trading_blocked_by"] == ""
-            assert out["trading_gate_unknown"] is False, (
-                "a clear engine must not look like an unreadable one, or the "
-                "flag means nothing"
-            )
-        finally:
-            api_bridge.engine = saved
+    def test_a_clear_breaker_is_told_apart_from_an_unreadable_one(self, tmp_path):
+        # The old assertion: "a clear engine must not look like an unreadable
+        # one, or the flag means nothing". Still the rule; the field that
+        # carries it is `circuit_breaker_read`, because from this process the
+        # gate as a whole is never complete.
+        clear = self._fields(_saved_state(tmp_path, circuit_open=False))
+        assert clear["circuit_breaker_read"] == "read"
+        assert clear["circuit_breaker_active"] is False
+        unread = self._fields(NS(_combined_state_file=str(tmp_path / "nope")))
+        assert unread["circuit_breaker_read"] == "absent"
+        assert "circuit_breaker_active" not in unread
 
-    def test_a_blocked_engine_reaches_the_wire(self):
-        import api_bridge
-        saved = api_bridge.engine
-        try:
-            api_bridge.engine = _engine(halted=True)
-            out = api_bridge._health_gate_fields()
-            assert "kill switch engaged" in out["trading_blocked_by"]
-        finally:
-            api_bridge.engine = saved
+    def test_a_blocked_breaker_reaches_the_wire(self, tmp_path):
+        out = self._fields(_saved_state(tmp_path, circuit_open=True,
+                                        cause="manual"))
+        assert out["trading_blocked_by"] == "manual"
+        assert out["circuit_breaker_active"] is True
 
     def test_the_unknown_flag_is_published_by_both(self):
-        # Without it a caller cannot tell "" (clear) from "" (unreadable),
-        # which is the ambiguity the third state exists to remove.
-        assert SRC.count('"trading_gate_unknown"') >= 3
+        # One helper, and both endpoints spread it.
+        assert SRC.count("**_bot_breaker_fields()") >= 2
 
 
 class TestTheCorrectedRationale:

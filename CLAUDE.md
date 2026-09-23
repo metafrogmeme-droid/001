@@ -9209,6 +9209,100 @@ the hold-time analytics. That is practice reaching the operator's RECORD
 rather than its risk state, and it is a separate slice.
 (`tests/test_a_loss_cools_only_the_account_that_took_it.py`.)
 
+**THE API BRIDGE'S EMERGENCY STOP HALTED A COPY, AND THE BOT KEPT TRADING.**
+`api_bridge.py` is the second process this file's deploy chapter insists on
+starting (:8000), and its lifespan builds its own `RuneClawEngine` over the
+bot's data directory. That engine loads the operator's risk state once, at
+startup, and runs no trading loop, so nothing ever refreshes it. It is a copy,
+and three routes treated it as the bot. Driven, with two engines over one
+data directory (which is all two processes share):
+
+- **`POST /risk/halt`** tripped the copy's breaker, read the copy back and
+  answered *"Circuit breaker tripped — no new entries"*. The bot's breaker
+  stayed closed and it kept accepting entries. The bot's next ordinary save
+  then wrote its own `circuit_open: false` over the halt, so a restarted bot
+  came up **not halted**. The audit had already caught this endpoint
+  returning a hardcoded success. The fix made it read the breaker back, which
+  was the right field read from the wrong process.
+- **Any save by the copy erased the bot's breaker.** The bot tripped its
+  streak breaker, a paper close through the bridge's `/portfolio/close`
+  saved, and a restarted bot came up with the breaker closed and the streak
+  at 0. `_save_combined_state` writes the WHOLE file from the caller's
+  memory.
+- **`/health` read the copy's breaker**, so with the bot halted it said
+  `circuit_breaker_active: false` and nothing blocking. Its own comment calls
+  it *"THE surface the operator checked during the 2026-07-29 incident"*.
+  Routing it through `entry_gate` pointed the gate at the wrong process.
+
+**THE GUARD FOR THE SECOND ONE EXISTED AND GUARDED THE PATH PRODUCTION DOES
+NOT TAKE.** `test_portfolio_book_is_not_clobbered.py` drives real subprocesses
+against `PortfolioTracker`'s revision check, and that check covers the
+portfolio's own file. In production the portfolio and the risk engine both
+save through the engine's combined saver, which has no revision check. The
+compose file had already cut the bridge from two workers to one, because
+three engines erased each other; one bridge worker still leaves two. **And
+the obvious cure is worse than the defect.** A revision check on the combined
+saver would, after one stray write, make the BOT's own copy the stale one,
+and every breaker save the bot made would be parked in a sidecar. The fix is
+one writer: `detach_state_persistence()` makes the bridge's engine a reader.
+`_save_combined_state` RETURNS rather than raising for a reader, because the
+risk engine falls back to its own file when the saver raises, and that would
+be the same stale write through a second door.
+
+**The bridge reports what the bot SAVED, and says what it cannot see.**
+`bot/core/persisted_breaker.py` reads the bot's saved block with the bot's
+own validator (`RiskEngine._read_state_dict`), so the two processes cannot
+disagree about what a readable risk state is. It has three outcomes (`read`,
+`absent`, `unreadable`) and the save time rides along. `trading_gate_unknown`
+is True on every answer from the bridge, and that is a measurement rather
+than a hedge. The warning-rate breaker and the venue-authentication halt live
+only in the bot's memory, so "nothing blocking" read from another process is
+never a complete all-clear; `trading_gate_scope` names both.
+`open_positions` is gone from the bridge's `/health`: it counted the copy's
+paper book, which the live-only bot never updates, so `0` read as a flat
+account beside real positions.
+
+**The halt refuses and names the door that works**, because the bot has no
+operator halt the bridge can reach. The website's Emergency stop is per-user
+and queued through the database. `/confirm` and `/portfolio/close` refuse
+too. With the copy unable to save, they would answer "confirmed" for
+positions nothing reads: the `/vault` hint shape, a door that does nothing
+and says it did.
+
+**Six tests pinned the halt's false success as the contract**, over a stub
+that made the bridge's own breaker halt: the one arrangement in which the
+copy's breaker IS the bot's. *A fixture that cannot see the process boundary
+cannot test a claim about it.* `test_http_gate_parity.py` was the same shape
+at file scale. It was written so that *"the divergence just moves to HTTP"*
+could not happen, and it pinned both endpoints to `entry_gate(engine)` over
+the copy. The divergence had been on HTTP the whole time, one process over.
+Its public/private split survives as a drive: free text planted beside the
+six saved fields never reaches the unauthenticated endpoint, because the
+bot's validator keeps only those fields. `SECURITY.md` described the three routes as
+state-changing controls. It had also listed `/risk/status` as
+unauthenticated for as long as it has required the token. `guard_lint`'s rule
+said *"/confirm places a trade"* about a paper position in a copy.
+
+**Running this slice's neighbours found a test that fails ALONE and passes
+in a full run.** `test_the_new_gates_run_locally_too` loads
+`scripts/preflight.py` by file location. `preflight` does `import toolchain`,
+which resolves only when `scripts/` is on the path, as running it as a script
+puts it. So it passed whenever an earlier test had put it there. That is the
+order-dependence the flake filter cannot see from the other side: the filter
+only re-runs a test that failed. The test puts the path there itself now.
+
+**Recorded, not changed.** `/analyze` and `/portfolio` still read the copy:
+`/analyze`'s risk verdict is evaluated against the copy's breaker, and
+`/portfolio` is the copy's paper book. Both are token-gated and nothing in
+the tree calls them. `detach_state_persistence` covers the operator's
+portfolio and risk state and says so. Of the bridge engine's other stores,
+two were checked and hold nothing on disk (the chat facade's conversation
+store, the cost tracker). One does, and was read rather than driven: the
+ladder ledger rewrites its whole file from memory, so a sized evaluation
+through the bridge's `/analyze` would erase the bot's rows recorded since the
+bridge started.
+(`tests/test_the_bridge_is_a_reader_of_the_bots_state.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10437,7 +10531,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1013** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1014** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
