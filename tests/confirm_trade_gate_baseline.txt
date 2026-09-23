@@ -1,0 +1,27 @@
+# Call sites that reach `engine.confirm_trade(...)` with NO live-permission gate
+# anywhere in their enclosing scope chain.
+#
+# `confirm_trade` is paper-or-live by `CONFIG.is_live()`, never by the name of
+# the thing calling it — so a caller whose name says "paper" opens a REAL
+# position on a live deployment. Every door that reaches it therefore has to
+# answer the live-permission question or be written down here WITH its reason.
+#
+# Two-way, same rule as `known_failures.txt`: a new ungated door fails loudly by
+# name, and a row that stops applying (the site gained a gate, or went away) is a
+# HARD FAILURE, so a stale entry cannot hide the next one.
+#
+# A note explaining why something is ungated is itself a claim, and it ages
+# against code that keeps moving. Re-read it before trusting it.
+#
+# Format: <path>::<enclosing function> — <reason>
+
+bot/skills/skill_registry.py::execute — ExecutePaperTradeSkill.execute. DARK, and
+  dark is the only reason this is not a live defect: `permission_for("execute_paper_trade")`
+  answers None (fail-closed, so the skill is unreachable from chat on every
+  surface) and it is baselined in `tests/unreachable_skills_baseline.txt`. It
+  calls `engine.confirm_trade(trade_id)` with no gate AND no `user_id`, so on a
+  live deployment it would confirm on the SHARED OPERATOR account for whoever
+  reached it. This is the `market_cap` / `basis` / `quant_analyze` shape — a
+  module nobody reaches becomes defective in exactly this way — so FIX BEFORE
+  YOU WIRE: the day somebody decides what permission it needs, it needs the
+  H-18 gate and a caller id in the same commit, and this row must go.
