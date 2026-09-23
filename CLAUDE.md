@@ -8602,6 +8602,160 @@ spelling over. Re-aimed at the branch's whole return, it dies on four tests.
 `tests/test_a_guardian_verdict_says_what_it_could_not_price.py`,
 `tests/confirm_trade_gate_baseline.txt`, `bot/guardian/book_read.py`.)
 
+**A VIEWER CLOSED THE OPERATOR'S LIVE POSITION BY TAPPING THE BUTTON THE
+PRODUCT HANDED THEM.** `_handle_callback` has permission-gated destructive
+taps since Audit F-11 and its own comment says what for — *"this stops an
+authorized non-privileged user from pausing, emergency-stopping, or switching
+strategy mode via an inline button"* — and the gate was five literals in a
+dict LOCAL to a 1,400-line method: `risk_safe_mode`, `risk_pause`,
+`risk_emergency_stop`, `emergency_confirm`, `closeall_confirm`, plus prefix
+rules for `mode_` and `policy_`. **`closeall_confirm` is there and
+`pos_close_` is not.** Closing EVERY position needed `halt` and closing ONE
+needed nothing, which is the tell that the door was missed rather than
+weighed.
+
+Driven on the shipped default (`PER_USER_LIVE_ENABLED=False`, LIVE mode):
+`viewer` holds `portfolio`, so `_cmd_open_positions` renders the card and
+builds `pos_close_<tid>:<their own uid>` for them, and does not hold `trade`.
+The tap is ORDINARY — correctly tagged, so the IDOR guard passes by design —
+and `close_position` was awaited on the OPERATOR's live executor. `/liveclose`
+is the same call on the same account and is `@guard("admin")`. The same branch
+also closes UNTRACKED venue positions directly through `create_order`, so it
+reaches positions the bot never opened.
+
+**THE MAP WAS UNREADABLE FROM OUTSIDE THE METHOD, WHICH IS WHY NOTHING
+NOTICED.** That is `vault_fix_hint`'s defect one surface over — *"the map was
+nested in a 150-line method, so nothing could read the instruction an operator
+is given"* — and it sat in the same function as `BUTTON_ACTIONS`, the
+transcript table, which is DERIVED and AST-pinned against the dispatcher and
+whose module docstring says in as many words that *"a map kept in step by hand
+is the `/setllm` ten-of-eleven shape: the branch added tomorrow is the one
+missing from it."* **The lesson reached the TRANSCRIPT table and not the
+PERMISSION table one screen away.**
+
+**IT DOES NOT REOPEN THE OWNER-TAG DECISION, AND THE DISTINCTION IS THE WHOLE
+ARGUMENT.** `test_callback_owner_guard_is_fail_closed.py` records `pos_close_`
+as fail-open on an ABSENT owner tag BY DESIGN, reasoning that it *"resolves
+the position through `user_portfolios.get(user_id)` and
+`_caller_executor(update)`, both keyed by the caller"*. True of the CALL and
+false of the ACCOUNT: that resolver's own docstring says that with per-user
+live off it is *"ALWAYS the shared operator executor"*, so the second layer
+the decision rests on is not there on the shipped default. The tap driven here
+carries its tag and never reaches that predicate. **Routing is one axis and
+ROLE is another, and only the first had ever been asked** — the same file's
+sibling fixed *which executor* a non-operator reaches under per-user live and
+deliberately kept single-account behaviour, which was right and says nothing
+about who may press the button.
+
+**TWO GATES, BECAUSE TWO THINGS WERE MISSING, AND THE WEAKER ONE IS
+DELIBERATE.** The role gate at dispatch is `trade`, **not `admin`**: the same
+button closes the caller's OWN paper book in paper mode and `paper` holds
+`trade`, so gating on admin would take a paper user's own positions away from
+them — the over-strict half of a fix being its own defect, which this file
+records as the 2026-07-21 *"trades can not open"* regression. `viewer` does
+not hold `trade`, which is the driven hole shut. The second gate is H-18 in
+the branch: `confirm:` refuses a live PLACEMENT to a caller without live
+authority and the CLOSE door refused nothing, so a role that may not OPEN a
+live position could still CLOSE one. Driven four ways — viewer refused at
+dispatch, paper refused at H-18, trader and admin still close — and paper mode
+untouched.
+
+**TWO REFUSALS, BECAUSE THEY ARE TWO FACTS WITH TWO REMEDIES.** "Your role
+cannot perform this action" names the role; the live refusal must NOT, because
+a trader without live authority gets the same sentence and telling them their
+ROLE is the problem sends them to ask for a promotion they do not need.
+
+**ONE ROW IS NOT THE CLASS.** `CALLBACK_PERMISSION` and
+`CALLBACK_NO_PERMISSION` are module-level beside `BUTTON_ACTIONS` now, and
+every one of the 35 rows must appear in exactly one of them — gated with a
+permission, or harmless WITH A REASON. A reason rather than a bare set,
+because *"gated somewhere else"* and *"changes nothing"* are different facts
+and only the first can stop applying: `command_gates.py`'s rule, where an
+unrecognised spelling reads as `none` and **a `none` row must say why**. The
+runtime cannot tell "nobody decided" from "decided harmless" — both answer
+None — so the decision is forced where it can be read rather than inferred
+where the quiet answer is an acquittal. The rule's own branches are driven on
+PLANTED tables, because on the real tree every row is declared and a mutation
+of the RULE changes no verdict there.
+
+**AND MOVING THE MAP EXPOSED A ROW THAT HAD BEEN ACQUITTED BY ACCIDENT.** The
+transcript guard walks `_handle_callback` for every literal `data` is compared
+against, and `policy_cancel`'s only real branch is in `_apply_policy_callback`
+(`guardian_commands.py:581`), one hop out. It passed for the life of that
+guard because the permission map happened to spell `data != "policy_cancel"`
+in the same method; when the map moved, the accident went with it and the row
+read as stale although its branch had never moved. **A guard that passes
+because of where it looked is the shape this repo keeps recording**, and the
+honest fix is the walk, not a second copy of the distinction put back to feed
+it: it follows a branch that HANDS `data` to a helper now.
+
+**The widened walk found a real gap on its first run.** Three policy buttons
+exist — `policy_apply_shadow`, `policy_apply_enforce`, `policy_cancel` — and
+the helper distinguishes enforce from shadow (`mode = "enforce" if data ==
+"policy_apply_enforce" else "shadow"`). Only `policy_` and `policy_cancel` had
+rows, so a SHADOW apply and an ENFORCE apply recorded to the model as one
+word: `policy_cancel`'s own argument — *"reading it as the shorter one would
+file a cancellation as a policy change"* — one row over, on the pair where one
+turns enforcement ON. It is a row and it is gated.
+
+**TWO GUARDS PINNED A SPELLING AND BROKE ON THE MOVE WHILE THEIR PROPERTY
+HELD.** `test_audit_v7_fixes` asserted the literal `_DESTRUCTIVE_CB_PERM` — the
+NAME of the dict — and `test_closeall_confirm_tg2b` asserted
+`'"closeall_confirm": "halt"'`, a spelling of one of its rows. Both name the
+claim correctly in their own titles and neither was checking it. They read the
+seam now. That is `test_unread_mark_is_not_break_even`'s recorded shape, for
+the third time in this file, and the rule stands: **a guard written against
+one spelling is not a guard about the claim.**
+
+**Nineteen mutations, each killed — and the one that survived the first round
+was the guard's own coverage, never the code's.** The one-hop walk follows a
+delegate that is HANDED `data` and no other, and widening it to follow EVERY
+delegate changed no verdict: nothing in the tree is a helper called without
+`data` that compares a local of that name. The narrowing is load-bearing all
+the same — `guardian_commands.py:476` compares one against `"0x"`, a contract
+address, and following such a helper would collect a literal that is no
+callback and accuse the table of missing a branch that does not exist — so the
+predicate is hoisted out of the walk and DRIVEN on planted nodes, where the
+rule is the only thing in play. The rest die where the drives say: the close
+row gone or weakened to a permission a viewer holds, the seam answering None,
+the harmless-override loop dropped so a cancellation reads as a change, a
+non-string payload unrefused, the gate dead with its call still spelled, the
+refusal computed and never sent, H-18 never firing, inverted, read-and-ignored,
+refusing-without-returning, firing in PAPER mode, or firing with no live book
+at all — the clause that keeps a paper user's own positions when per-user live
+is ON and `_caller_executor` answers None — and a local map coming back "just
+for this branch".
+
+> **And an existing ratchet caught my new fixture before any reviewer could.**
+> `test_user_admission.py` derives what a `UserStore` double must implement
+> from what the web gateway CALLS on the store, and held my `_Users` to it by
+> name. The double never reaches the gateway; implementing the four methods is
+> cheaper and more honest than an exemption, which is how that ratchet stops
+> being able to see the ninth drifted double.
+
+> **And two of my own fixtures were wrong before the code was.** The paper
+> drive tapped a TRADE ID, and the paper branch matches `pos.asset` against
+> the payload — so it reached the already-closed arm and measured nothing; *a
+> fixture that cannot produce the state it names measures nothing*. And my own
+> "every harmless row carries a reason" threshold rejected `"navigation"`,
+> which is a true reason; the bar stayed and the sentence was written properly
+> rather than the bar lowered to fit it.
+
+> **A survey finding was REFUTED by driving it, and it is recorded because the
+> refutation is the useful half.** The F-15 exception-leak guard really does
+> match a variable NAME (`sub.args[0].id.startswith("exc")`), so the two live
+> `html.escape(str(e)[:200])` sites in this same file are invisible to it —
+> inside the guard whose own docstring says *"a guard that reports clean
+> because of where it looked is worse than no guard"*. The claimed
+> CONSEQUENCE, that pre-escaping defeats six rows of the shared secret
+> vocabulary, does not reproduce: driven over every row's own example in all
+> three orderings — plain, escaped-first, escaped-and-cut — `reply_safe`
+> scrubs all eight every time, and the order changes no verdict. So that is a
+> guard blind spot and **not a live leak**, `_send`'s chokepoint holds, and
+> saying otherwise would be the overstatement this file exists to prevent.
+(`tests/test_a_close_button_needs_a_permission.py`,
+`bot/nlp/button_actions.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -9018,7 +9172,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 216 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 217 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -9830,9 +9984,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **417 of 1007** reach for source text through `source_scan`, `code_only`
+Driven, **418 of 1008** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 417 is a FLOOR and the honest shape is
+source scan that rule does not see, so 418 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -302,12 +302,27 @@ class TestCallbackAndCommandGuards:
         assert 'self._guard(update, "trade")' in src
 
     def test_destructive_callbacks_require_permission(self):
-        # F-11: the callback dispatcher must permission-gate destructive actions.
+        # F-11: the callback dispatcher must permission-gate destructive
+        # actions.
+        #
+        # This asserted the literal `_DESTRUCTIVE_CB_PERM` -- the NAME of a
+        # dict local to the method. The table moved to
+        # `bot/nlp/button_actions.py` so a test could read it (and so a door
+        # missing from it could be noticed: `pos_close_` was, and a viewer
+        # closed the operator's live position with it), and this failed on a
+        # rename while the property it names held throughout. The claim is
+        # that destructive taps are gated, so that is what is read now.
         import inspect
+
+        from bot.nlp.button_actions import required_permission
         from bot.skills.telegram_handler import TelegramHandler
         src = inspect.getsource(TelegramHandler._handle_callback)
-        assert "_DESTRUCTIVE_CB_PERM" in src
+        assert "required_permission(" in src
         assert "callback_denied" in src
+        for destructive in ("closeall_confirm", "risk_emergency_stop",
+                            "emergency_confirm", "pos_close_TI-1:42"):
+            assert required_permission(destructive), (
+                f"{destructive} is no longer gated")
 
     @pytest.mark.asyncio
     async def test_setllm_admin_only(self):

@@ -52,6 +52,7 @@ from bot.formatters.drift_offer import (
     venue_fill_price,
 )
 from bot.formatters.rich_cards import display_symbol, fetch_analysis_data, market_context_line, rsi_label
+from bot.nlp.button_actions import required_permission
 from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM
 from bot.skills.scan_skill import callback_confirm_reject as _scan_callback
 from bot.utils.candles import drop_forming_candle
@@ -360,20 +361,19 @@ class CallbackHandler:
 
         # ── Audit F-11: destructive callbacks require role permission ──
         # _check_auth (allowlist-gated) above stops strangers; this stops an
-        # authorized non-privileged user from pausing, emergency-stopping, or
-        # switching strategy mode via an inline button.
-        _DESTRUCTIVE_CB_PERM = {
-            "risk_safe_mode": "halt", "risk_pause": "halt",
-            "risk_emergency_stop": "halt", "emergency_confirm": "halt",
-            "closeall_confirm": "halt",
-        }
-        _required_perm = _DESTRUCTIVE_CB_PERM.get(data)
-        if _required_perm is None and data.startswith("mode_"):
-            _required_perm = "mode"
-        # Guardian intent-policy apply buttons change enforcement → same gate as
-        # a strategy-mode change. Cancel is harmless (no perm needed).
-        if _required_perm is None and data.startswith("policy_") and data != "policy_cancel":
-            _required_perm = "mode"
+        # authorized non-privileged user from pausing, emergency-stopping,
+        # switching strategy mode or CLOSING A POSITION via an inline button.
+        #
+        # The map moved to `bot/nlp/button_actions.py` beside `BUTTON_ACTIONS`.
+        # It was five literals local to this method, so nothing could read the
+        # rule a caller is gated by and nothing could notice a door missing
+        # from it -- `pos_close_` was, and a `viewer` closed the operator's
+        # live position with it. The module states that history; the guard is
+        # `tests/test_a_close_button_needs_a_permission.py`, which requires
+        # every `BUTTON_ACTIONS` row to be declared gated or declared harmless
+        # WITH A REASON, so the next branch added here cannot be acquitted by
+        # nobody having thought about it.
+        _required_perm = required_permission(data)
         if _required_perm and not self.users.has_permission(self._get_tg_id(update), _required_perm):
             role = (self.users.get(self._get_tg_id(update)) or {}).get("role", "pending")
             await self._send(update,
@@ -1216,6 +1216,7 @@ class CallbackHandler:
                       f"pos_close IDOR blocked: caller={user_id} owner={owner_uid}",
                       action="callback_idor_block", result="DENIED")
                 return
+
             portfolio = self.engine.user_portfolios.get(user_id)
 
             closed_trade = None
@@ -1225,6 +1226,31 @@ class CallbackHandler:
             # close their OWN account's positions (resolves to the shared operator
             # executor when PER_USER_LIVE_ENABLED is off — byte-identical default).
             executor = self._caller_executor(update)
+
+            # H-18, the OPEN door's authority, on the CLOSE door.
+            # `confirm:` refuses a live PLACEMENT to a caller without live
+            # authority and this branch refused nothing, so a role that may
+            # not OPEN a live position could still CLOSE one -- and with
+            # per-user live off, `_caller_executor` hands every caller the
+            # OPERATOR's book, so the position closed was not theirs.
+            #
+            # It asks AFTER the executor is resolved and only when there is
+            # one, which is not tidiness. With per-user live ON a caller with
+            # no live account resolves to None and falls through to their own
+            # PAPER book below; refusing there would take a paper user's own
+            # positions away from them over an authority that book never
+            # needed -- the over-strict half of a fix being its own defect.
+            if (CONFIG.is_live() and executor is not None
+                    and not self._is_admin(update)
+                    and not self._can_trade_live(str(user_id or ""))):
+                await self._send(update,
+                    f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}",
+                    edit=True)
+                audit(system_log,
+                      f"Non-admin live close blocked: caller={user_id}",
+                      action="admin_gate", result="DENIED")
+                return
+
             if CONFIG.is_live() and executor is not None:
                 for lp in list(executor.open_positions):
                     if is_trade_id:
