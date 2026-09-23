@@ -58,14 +58,41 @@ CB = ROOT / "bot" / "skills" / "callback_handler.py"
 TH = ROOT / "bot" / "skills" / "telegram_handler.py"
 
 
+def _carries_data(call: ast.Call) -> bool:
+    """Does this call HAND `data` to a helper?
+
+    The narrowing that keeps the one-hop walk from manufacturing
+    accusations. A helper the dispatcher calls WITHOUT `data` may still have
+    a local of that name meaning something else entirely --
+    `guardian_commands.py:476` compares one against `"0x"`, a contract
+    address -- and following it would collect a literal that is no callback
+    and report it as a branch the table does not name. Nothing in the tree
+    exercises that today, so it is driven on planted nodes below rather than
+    left as a claim no input can reach.
+    """
+    return any(isinstance(a, ast.Name) and a.id == "data"
+               for a in list(call.args) + [k.value for k in call.keywords])
+
+
 def _dispatcher_literals() -> set[str]:
-    """Every string `data` is compared against in `_handle_callback`.
+    """Every string `data` is compared against by the dispatcher, ONE HOP.
 
     DERIVED, never restated: a hand-kept list is the `/setllm`
     ten-of-eleven shape, where the row added tomorrow is the one missing.
     The walk covers `==`, `in (...)` and `.startswith(...)` and reaches
     nested branches, because `reject:` is an `elif` inside the `confirm:`
     block and a top-level-only walk would acquit it.
+
+    It also follows a branch that HANDS `data` to a helper, because a walk
+    bounded by one function reports on a delegation by not seeing it.
+    `policy_cancel` is the case that proved it: its only branch is in
+    `_apply_policy_callback` (`guardian_commands.py:581`), and for the life
+    of this guard the row was acquitted by accident -- the destructive-
+    permission map in `_handle_callback` happened to spell the same literal
+    in a `data != "policy_cancel"` comparison. When that map moved to
+    `bot/nlp/button_actions.py`, the accident went with it and the row read
+    as stale although its branch had never moved. A guard that passes
+    because of where it looked is the shape this repo keeps recording.
     """
     fn = next(n for n in ast.walk(ast.parse(CB.read_text(encoding="utf-8")))
               if isinstance(n, ast.AsyncFunctionDef) and n.name == "_handle_callback")
@@ -90,6 +117,40 @@ def _dispatcher_literals() -> set[str]:
                 and n.func.value.id == "data"):
             for a in n.args:
                 found |= _consts(a)
+
+    def _scan(node) -> set[str]:
+        got: set[str] = set()
+        for m in ast.walk(node):
+            if (isinstance(m, ast.Compare) and isinstance(m.left, ast.Name)
+                    and m.left.id == "data"):
+                for c in m.comparators:
+                    got |= _consts(c)
+            if (isinstance(m, ast.Call) and isinstance(m.func, ast.Attribute)
+                    and m.func.attr == "startswith"
+                    and isinstance(m.func.value, ast.Name)
+                    and m.func.value.id == "data"):
+                for a in m.args:
+                    got |= _consts(a)
+        return got
+
+    # One hop: a branch that hands `data` to a helper delegates its literals
+    # too. Resolved across every file the handler class is made of, so a
+    # helper that moves to another mixin stays visible.
+    from tests.source_scan import handler_sources
+    delegates = {
+        n.func.attr
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and _carries_data(n)
+    }
+    if delegates:
+        for path in handler_sources():
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for d in ast.walk(tree):
+                if (isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and d.name in delegates
+                        and (d.end_lineno - d.lineno) > 3):
+                    found |= _scan(d)
     return found
 
 
@@ -449,3 +510,31 @@ class TestItIsActuallyReached:
         reader to re-scope finished work."""
         src = TH.read_text(encoding="utf-8")
         assert "alerts and callbacks are untouched" not in src
+
+
+class TestTheHopIsNarrowedOnPurpose:
+    """The one-hop walk follows a delegate that is HANDED `data`, and no other.
+
+    On the real tree nothing distinguishes the two -- no helper the dispatcher
+    calls without `data` compares a local of that name -- so the mutation that
+    follows every delegate changed no verdict and the narrowing was a claim
+    nothing checked. Driven on planted nodes, where the rule is the only thing
+    in play.
+    """
+
+    @staticmethod
+    def _call(src: str) -> ast.Call:
+        return next(n for n in ast.walk(ast.parse(src))
+                    if isinstance(n, ast.Call))
+
+    def test_a_delegate_handed_data_is_followed(self):
+        assert _carries_data(self._call("self._apply_policy_callback(update, data)"))
+        assert _carries_data(self._call("self._handle_duel_callback(update, data=data)"))
+
+    def test_a_delegate_not_handed_data_is_not_followed(self):
+        """`guardian_commands.py:476` compares an unrelated local `data`
+        against `"0x"` -- a contract address. Following a helper that never
+        received the payload would collect that as a callback literal and
+        accuse the table of missing a branch that does not exist."""
+        assert not _carries_data(self._call("self._flatten_all_accounts(update)"))
+        assert not _carries_data(self._call("self._send(update, text, edit=True)"))

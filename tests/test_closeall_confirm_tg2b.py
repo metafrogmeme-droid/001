@@ -36,7 +36,13 @@ def test_confirm_callback_is_permission_gated_and_admin_rechecked():
     # the handler's own file. Reading the method follows it.
     src = inspect.getsource(th.TelegramHandler._handle_callback)
     # Registered as a destructive callback requiring the halt permission.
-    assert '"closeall_confirm": "halt"' in src
+    # Read through the seam rather than as a literal of the dispatcher: the
+    # table lives in `bot/nlp/button_actions.py` now, because a map local to
+    # a 1,400-line method is a map nothing can read -- and what nobody could
+    # read was that `pos_close_` had no row at all.
+    from bot.nlp.button_actions import required_permission
+    assert required_permission("closeall_confirm") == "halt"
+    assert "required_permission(" in src
     # The confirm branch re-checks admin before flattening, and cancel is inert.
     assert 'if data == "closeall_confirm":' in src
     assert 'if data == "closeall_cancel":' in src
