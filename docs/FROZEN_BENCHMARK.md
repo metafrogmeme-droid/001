@@ -227,8 +227,11 @@ losses, net, win rate, PF — PF is `null` with no losing trade, never `inf`).
 The parity card prints the commit and the date, so an artefact the code has
 moved past reads as old rather than as current; re-run the command and commit
 the file to re-baseline. **This is the "written file" the note above asks
-for**, and the 2026-09-21 artefact reproduces that note exactly: mean OOS
-−0.38%, 1 of 6 folds profitable, 112 pooled trades, PF 0.63.
+for**, and the 2026-09-21 artefact reproduced that note exactly: mean OOS
+−0.38%, 1 of 6 folds profitable, 112 pooled trades, PF 0.63. It was
+re-recorded on 2026-09-24 at `73740a1a`, the commit that holds the analyzer's
+limits to the minimum reward:risk (below): mean OOS −0.55%, 0 of 6 folds
+profitable, 129 pooled trades, PF 0.58, on the same `dataset_hash`.
 
 ## Is live tracking the benchmark? (`bot.backtest.parity`)
 
@@ -260,8 +263,9 @@ cannot have one) and strategy exits, which every headline figure describes.
 
 A `fee_vs_model > 1.25×` is the signal that execution is the leak. A live PF
 under the benchmark's is NOT that signal by itself: the card used to say so
-against a typed `PF 1.14` while the benchmark on record reproduces at PF 0.63,
-so a week at the benchmark's own PF was being read as an execution problem.
+against a typed `PF 1.14` while the benchmark on record reproduced at PF 0.63
+(0.58 since the reward:risk re-record), so a week at the benchmark's own PF
+was being read as an execution problem.
 Read the two verdicts, and the artefact's date.
 
 ## Integrity guarantees (locked by `tests/test_benchmark_snapshot.py`)
