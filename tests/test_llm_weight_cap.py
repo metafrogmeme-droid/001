@@ -5,19 +5,29 @@ Uncalibrated-LLM weight cap + env-configurable blend weights
 The LLM drives `llm_weight` (0.6) of the blended confidence, but until
 confidence calibration is ON its confidence is unproven against realized
 outcomes — a hallucinated/overconfident thesis flows straight into sizing.
-When the guard is ON *and* calibration is OFF, the LLM weight is capped and the
-freed weight is shifted to the deterministic confluence score (total preserved).
-The cap lifts automatically once calibration is enabled. Tests exercise the pure
-_blend_weights helper.
+When the guard is ON and no fitted calibration curve is being applied, the LLM
+weight is capped and the freed weight is shifted to the deterministic confluence
+score (total preserved). The cap lifts once a fitted curve is applied -- the
+flag being on is not enough, because with no curve fitted calibration is
+identity. Tests exercise the _blend_weights helper.
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bot.core.analyzer import Analyzer
 
+#: A fitted curve, and one that has not reached its minimum yet.
+READY = SimpleNamespace(is_ready=lambda: True)
+UNREADY = SimpleNamespace(is_ready=lambda: False)
 
-def _analyzer():
-    return Analyzer.__new__(Analyzer)
+
+def _analyzer(cal=False):
+    """``cal`` is what `_get_calibrator` hands back: ``False`` is the
+    analyzer's own "no curve on disk" sentinel."""
+    a = Analyzer.__new__(Analyzer)
+    a._calibrator = cal
+    return a
 
 
 def _cfg(llm_w=0.6, conf_w=0.4, cap_enabled=False, cap=0.4, calib=False):
@@ -66,11 +76,12 @@ class TestCapActive:
 
 
 class TestCapInactive:
-    def test_calibration_on_lifts_cap(self):
-        # Once calibration proves the LLM, the cap no longer applies.
+    def test_an_applied_curve_lifts_cap(self):
+        # Once a fitted curve is applied, the LLM's confidence has been checked
+        # against outcomes and the cap no longer applies.
         p = _cfg(cap_enabled=True, cap=0.4, calib=True)
         try:
-            assert _analyzer()._blend_weights() == (0.6, 0.4)
+            assert _analyzer(READY)._blend_weights() == (0.6, 0.4)
         finally:
             p.stop()
 
@@ -78,5 +89,46 @@ class TestCapInactive:
         p = _cfg(llm_w=0.3, conf_w=0.7, cap_enabled=True, cap=0.4, calib=False)
         try:
             assert _analyzer()._blend_weights() == (0.3, 0.7)
+        finally:
+            p.stop()
+
+
+class TestTheFlagIsNotTheCurve:
+    """CONFIDENCE_CALIBRATION_ENABLED is on by default, and until the curve has
+    its minimum of closes calibration is identity. The cap used to lift on the
+    flag, so it never held."""
+
+    def _weights(self, cal):
+        p = _cfg(cap_enabled=True, cap=0.4, calib=True)
+        try:
+            return _analyzer(cal)._blend_weights()
+        finally:
+            p.stop()
+
+    def test_no_curve_on_disk_keeps_the_cap(self):
+        llm_w, conf_w = self._weights(False)
+        assert llm_w == 0.4 and abs(conf_w - 0.6) < 1e-9
+
+    def test_a_curve_below_its_minimum_keeps_the_cap(self):
+        llm_w, conf_w = self._weights(UNREADY)
+        assert llm_w == 0.4 and abs(conf_w - 0.6) < 1e-9
+
+    def test_a_curve_that_cannot_be_read_keeps_the_cap(self):
+        def boom():
+            raise OSError("planted")
+        a = _analyzer()
+        a._get_calibrator = boom
+        p = _cfg(cap_enabled=True, cap=0.4, calib=True)
+        try:
+            assert a._blend_weights()[0] == 0.4
+        finally:
+            p.stop()
+
+    def test_a_fitted_curve_with_the_flag_off_is_not_applied(self):
+        # The analyzer computes the curve in shadow and applies nothing, so the
+        # LLM is as unproven as it was.
+        p = _cfg(cap_enabled=True, cap=0.4, calib=False)
+        try:
+            assert _analyzer(READY)._blend_weights()[0] == 0.4
         finally:
             p.stop()

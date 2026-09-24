@@ -18,9 +18,20 @@ Design / safety:
   - **Fail-safe identity:** below ``min_samples`` total (or when unfitted),
     ``calibrate(x) == x`` exactly. The curve can only refine a confidence once
     there is enough evidence; it never fabricates one.
-  - Pure storage + math. It places no trades and is wired into the decision path
-    only behind a default-OFF flag (CONFIDENCE_CALIBRATION_ENABLED); until then it
-    runs shadow-only (logs the would-be delta, changes nothing).
+  - Pure storage + math. It places no trades. Two flags apply the curve, and
+    both are ON by default: `CONFIDENCE_CALIBRATION_ENABLED` moves every idea's
+    confidence through it before the entry floor, and
+    `AUTO_CONFIRM_USE_CALIBRATED` tests the auto-confirm bar against it. Below
+    ``min_samples`` measured closes it is identity, so neither changes anything
+    until a curve is fitted. With the first flag off the analyzer logs the
+    would-be value and applies nothing (shadow).
+
+    THIS USED TO SAY THE FIRST FLAG WAS DEFAULT OFF AND THE CURVE SHADOW-ONLY,
+    and that is what a reader consults to decide whether a fitted curve can
+    refuse a trade. It can: the entry floors (0.60 by default, 0.65 for a
+    scalp) were tuned on the analyzer's own blend, and once a curve is fitted
+    they read a WIN RATE instead. docs/CONFIDENCE_CALIBRATION.md has the
+    measurement.
 
 This module has no third-party deps (no numpy/sklearn) — PAV is a few lines.
 """
@@ -77,11 +88,16 @@ def _pav(values: list[float], weights: list[float]) -> list[float]:
     return out
 
 
-def _analyzer_figure(raw) -> Optional[float]:
-    """The analyzer's own figure on a decision row, or None when it is not
-    there. The field's unset value is 0.0, so the question is whether the
-    figure is PRESENT, not what number stands in for it; a bool is a flag,
-    not a confidence."""
+def pre_calibration_confidence(record) -> Optional[float]:
+    """The analyzer's own blend before calibration (``blended_confidence_raw``,
+    #35) on a decision row or an idea, or None when it is not there.
+
+    It is the field the curve is FITTED on, so it is also the one the curve is
+    applied to: the auto-confirm bar asks this rather than ``confidence``,
+    which the curve may already have moved. The field's unset value is 0.0,
+    so the question is whether the figure is PRESENT, not what number stands
+    in for it; a bool is a flag, not a confidence."""
+    raw = getattr(record, "blended_confidence_raw", None)
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     return float(raw) if raw > 0.0 else None
@@ -189,7 +205,7 @@ class ConfidenceCalibrator:
         not_measured = unattributed = 0
         for d, won in joined.rows:
             basis = str(getattr(d, "confidence_basis", "") or "")
-            raw = _analyzer_figure(getattr(d, "blended_confidence_raw", None))
+            raw = pre_calibration_confidence(d)
             if basis and basis != MEASURED_BASIS:
                 not_measured += 1
                 continue

@@ -151,6 +151,19 @@ def assess_readiness(store=None) -> dict:
     comp: dict = {"flag": "AUTO_CONFIRM_USE_CALIBRATED"}
     try:
         from bot.config import CONFIG
+        # TWO FLAGS APPLY THIS CURVE and the card named one. The auto-confirm
+        # bar reads it behind AUTO_CONFIRM_USE_CALIBRATED; the analyzer moves
+        # every idea's confidence through it, before the entry floor, behind
+        # CONFIDENCE_CALIBRATION_ENABLED -- ON by default, and the one that
+        # decides what trades at all. A card reporting the curve as not applied
+        # while it moves every entry is the flag read as the state.
+        on = [name for name, v in (
+            ("CONFIDENCE_CALIBRATION_ENABLED",
+             CONFIG.analyzer.confidence_calibration_enabled),
+            ("AUTO_CONFIRM_USE_CALIBRATED", CONFIG.auto_confirm_use_calibrated))
+            if v]
+        if on:
+            comp["flag"] = " + ".join(on)
         from bot.learning.confidence_calibration import ConfidenceCalibrator
         from bot.learning.outcome_join import counted_under_current_rule
         rows = ConfidenceCalibrator.rows_from_decisions(decisions or [])
@@ -168,8 +181,7 @@ def assess_readiness(store=None) -> dict:
         # counted under an older reading rests on samples this rule refuses.
         current = cal is None or counted_under_current_rule(cal)
         counted = max(n, len(samples)) if current else len(samples)
-        comp.update(samples=counted, needed=need,
-                    applied=CONFIG.auto_confirm_use_calibrated)
+        comp.update(samples=counted, needed=need, applied=bool(on))
         if cal is None or not cal.is_ready():
             comp["state"] = "ACCUMULATING"
         elif counted < _CAL_RECOMMEND_SAMPLES:
@@ -360,8 +372,9 @@ def recommendations_for(components: dict) -> list:
         state, applied = c.get("state"), c.get("applied")
         flag = c.get("flag")
         if applied is True and state in _UNVALIDATED:
+            verb = "are" if " + " in str(flag) else "is"
             warnings.append(f"⚠️ {name} is APPLIED but NOT validated ({state}) — "
-                            f"{flag} is ON and the evidence bar is not met")
+                            f"{flag} {verb} ON and the evidence bar is not met")
         elif state == "READY" and applied is False:
             notes.append(f"{name} is validated but not applied — "
                          f"consider {flag}=true")

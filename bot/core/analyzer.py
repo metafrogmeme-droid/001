@@ -2864,22 +2864,45 @@ class Analyzer:
 
     # -- Regime Detection --
 
+    def _calibration_applied(self) -> bool:
+        """Is a fitted calibration curve being applied to this confidence?
+
+        Two facts, and the flag is only one of them. With
+        CONFIDENCE_CALIBRATION_ENABLED on and no curve fitted yet (fewer than
+        its minimum of closes), `calibrate` is exact identity: nothing about the
+        confidence has been checked against an outcome. A curve that cannot be
+        read is not an applied one either.
+        """
+        if not CONFIG.analyzer.confidence_calibration_enabled:
+            return False
+        try:
+            cal = self._get_calibrator()
+            return bool(cal is not None and cal.is_ready())
+        except Exception:
+            return False
+
     def _blend_weights(self) -> tuple[float, float]:
         """Return the (llm_weight, confluence_weight) used to blend confidence.
 
         Normally the configured weights (0.6 / 0.4). When the uncalibrated-LLM
-        guard is ON *and* confidence calibration is OFF, the LLM's confidence is
-        unproven against realized outcomes, so its weight is capped at
-        ``uncalibrated_llm_weight_cap`` and the freed weight is shifted to the
-        deterministic, auditable confluence score (the total is preserved). Once
-        calibration is enabled the cap lifts automatically. Pure / side-effect
-        free so it is unit-testable.
+        guard is ON and no fitted calibration curve is being applied, the LLM's
+        confidence is unproven against realized outcomes, so its weight is capped
+        at ``uncalibrated_llm_weight_cap`` and the freed weight is shifted to the
+        deterministic, auditable confluence score (the total is preserved). The
+        cap lifts once a fitted curve is applied.
+
+        IT LIFTED ON THE FLAG, which is on by default, so it never held: with no
+        curve fitted the calibration is identity and the LLM ran at 0.6 on a
+        confidence nothing had checked -- while the frozen benchmark, which
+        forces calibration off, measured the capped 0.4 / 0.6 blend, and the
+        0.60 confidence floor was tuned there. A config flag is not the state it
+        configures.
         """
         cfg = CONFIG.analyzer
         llm_w = cfg.llm_weight
         conf_w = cfg.confluence_weight
         if (getattr(cfg, "uncalibrated_llm_weight_cap_enabled", False)
-                and not cfg.confidence_calibration_enabled):
+                and not self._calibration_applied()):
             cap = cfg.uncalibrated_llm_weight_cap
             if llm_w > cap:
                 conf_w += (llm_w - cap)  # preserve the total weight

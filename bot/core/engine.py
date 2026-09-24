@@ -8472,7 +8472,15 @@ class RuneClawEngine:
         win-rate to clear the bar. This can only TIGHTEN auto-confirm, never
         loosen it: with no calibration data the calibrator is identity, so it is
         a no-op until evidence shows the raw confidence is over-optimistic.
-        Fail-open: any error returns the raw confidence (gate never breaks)."""
+        Fail-open: any error returns the raw confidence (gate never breaks).
+
+        THE CURVE IS APPLIED TO THE FIELD IT WAS FITTED ON, ONCE. It maps the
+        analyzer's pre-calibration blend (``blended_confidence_raw``, #35) to a
+        win rate, and with CONFIDENCE_CALIBRATION_ENABLED on -- the default --
+        ``idea.confidence`` has already been through it. Calibrating that again
+        answered cal(cal(raw)): driven on a curve fitted to outcomes that won at
+        their own confidence, a raw 0.95 went on the idea as 0.87 and reached
+        this bar as 0.825, refused although the measured win rate cleared it."""
         raw = float(getattr(idea, "confidence", 0.0) or 0.0)
         try:
             if not getattr(CONFIG, "auto_confirm_use_calibrated", False):
@@ -8480,7 +8488,9 @@ class RuneClawEngine:
             cal = self.analyzer._get_calibrator() if getattr(self, "analyzer", None) else None
             if not cal or not cal.is_ready():
                 return raw
-            calibrated = float(cal.calibrate(raw))
+            from bot.learning.confidence_calibration import pre_calibration_confidence
+            fitted_on = pre_calibration_confidence(idea)
+            calibrated = float(cal.calibrate(raw if fitted_on is None else fitted_on))
             return min(raw, calibrated)
         except Exception:
             return raw

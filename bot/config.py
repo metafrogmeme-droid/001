@@ -1241,13 +1241,13 @@ class AnalyzerConfig:
     confluence_weight: float = _env_float_bounded("CONFLUENCE_BLEND_WEIGHT", 0.4, 0.0, 1.0)
     # Uncalibrated-LLM weight cap (default ON; audit fix #2). The LLM drives
     # `llm_weight` (0.6) of the blended confidence, but until confidence
-    # calibration is ON its confidence is unproven against realized outcomes — a
-    # hallucinated or overconfident thesis flows straight into sizing. When this
-    # is ON *and* calibration is OFF, the LLM's weight is capped at
-    # `uncalibrated_llm_weight_cap` and the freed weight is shifted to the
-    # deterministic, auditable confluence score (so the weights still sum to the
-    # same total). Once calibration is enabled the cap lifts automatically, so
-    # with calibration at its default (ON) this is a pure safety net.
+    # calibration is APPLIED its confidence is unproven against realized outcomes
+    # — a hallucinated or overconfident thesis flows straight into sizing. When
+    # this is ON and no fitted curve is being applied, the LLM's weight is capped
+    # at `uncalibrated_llm_weight_cap` and the freed weight goes to the auditable
+    # confluence score (the total is preserved). The cap lifts once a fitted
+    # curve is applied, not on CONFIDENCE_CALIBRATION_ENABLED alone, which is on
+    # by default with no curve fitted (Analyzer._calibration_applied).
     uncalibrated_llm_weight_cap_enabled: bool = _env_bool("UNCALIBRATED_LLM_WEIGHT_CAP_ENABLED", True)
     uncalibrated_llm_weight_cap: float = _env_float_bounded("UNCALIBRATED_LLM_WEIGHT_CAP", 0.4, 0.0, 1.0)
     # LLM direction guard (default ON; audit fix #1). The thesis (LLM) chooses
