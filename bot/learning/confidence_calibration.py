@@ -33,6 +33,7 @@ import os
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from bot.learning.outcome_join import SAMPLE_READING, join_outcomes, reading_of
 from bot.utils.atomic_write import atomic_write_json
 
 log = logging.getLogger("runeclaw.calibration")
@@ -109,6 +110,9 @@ class ConfidenceCalibrator:
         self._x: list[float] = []
         self._y: list[float] = []
         self._n_samples: int = 0
+        # A fit made in this process is counted under the current rule; one
+        # loaded from disk says which rule it was counted under.
+        self.sample_reading: Optional[int] = SAMPLE_READING
 
     # -- fitting ---------------------------------------------------------------
 
@@ -179,7 +183,6 @@ class ConfidenceCalibrator:
         than guessed at. A measured row without it (a producer other than the
         analyzer) keeps #35's fallback to ``confidence``.
         """
-        from bot.learning.outcome_join import join_outcomes
         from bot.risk.quality_ladder import MEASURED_BASIS
         joined = join_outcomes(decisions)
         out: list[tuple[float, bool]] = []
@@ -236,9 +239,11 @@ class ConfidenceCalibrator:
     def to_dict(self) -> dict:
         return {"bins": self.bins, "min_samples": self.min_samples,
                 "shrinkage": self.shrinkage, "x": self._x, "y": self._y,
-                "n_samples": self._n_samples}
+                "n_samples": self._n_samples,
+                "sample_reading": self.sample_reading}
 
     def load_dict(self, d: dict) -> "ConfidenceCalibrator":
+        self.sample_reading = reading_of(d)
         self.bins = int(d.get("bins", self.bins))
         self.min_samples = int(d.get("min_samples", self.min_samples))
         self.shrinkage = float(d.get("shrinkage", self.shrinkage))
@@ -246,6 +251,10 @@ class ConfidenceCalibrator:
         self._y = [float(v) for v in d.get("y", [])]
         self._n_samples = int(d.get("n_samples", 0))
         return self
+
+    def is_current_reading(self) -> bool:
+        """Whether this fit's samples were counted under the current rule."""
+        return self.sample_reading == SAMPLE_READING
 
     def save(self, path: str = _CAL_FILE) -> None:
         atomic_write_json(path, self.to_dict())

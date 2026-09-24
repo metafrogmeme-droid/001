@@ -33,6 +33,22 @@ from typing import Any, Iterable, List, NamedTuple, Optional, Tuple
 #: it is written rather than joining by default.
 NOT_OPENED_DECISIONS = frozenset({"EXECUTION_FAILED", "TRADE_REJECTED_FAIL_CLOSED"})
 
+#: The rule a learned fit's samples were counted under. A fit saved by a build
+#: that counted differently rests on samples the current rule does not count --
+#: before 2 that meant a manual ticket's stamp fitted as a measurement and a
+#: retried trade counted twice -- so it is refit rather than applied (see
+#: `auto_refit.refit_stale`). Raise it in the commit that changes what counts
+#: as a sample for either learner; a fit whose file carries no reading was
+#: saved before this existed.
+SAMPLE_READING = 2
+
+
+def reading_of(d: Any) -> Optional[int]:
+    """The sample reading a saved fit records, or None when it records none."""
+    v = d.get("sample_reading") if isinstance(d, dict) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
 #: The accept path's words start with this; a paper fill and a live one are
 #: the same fact to a learner -- a position existed and closed.
 _OPENED_PREFIX = "TRADE_ACCEPTED"

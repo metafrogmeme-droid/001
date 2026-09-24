@@ -7423,6 +7423,29 @@ mutation that let two opened rows under one id through survived the first
 round, because no product path writes that shape; the join's claim is measured
 on planted rows now. (`tests/test_the_calibrator_trains_on_what_was_measured.py`.)
 
+**And the fix would have reached the applied curve 25 closes late, under a
+docstring saying that could not matter.** A learned curve is saved to disk and
+rests on the samples its fit counted, so a curve saved before that commit still
+held the stamps and the double-counted retries; the auto-refit that replaces it
+counts closes in MEMORY, so it restarts at zero with every deploy. And
+`auto_refit.py` opened *"Safe by construction: … it NEVER changes a trade
+decision on its own — each learner's application is still behind its own
+default-OFF flag"* and *"Gated by LEARNING_AUTO_REFIT_ENABLED (default OFF)"* —
+while calibration and setup expectancy both apply by default and auto-refit is
+ON. That is the sentence a reader consults to decide leaving auto-refit on is
+harmless, and a docstring is outside the flag-comment rule by design, so it is
+pinned by name against the declared defaults. Each saved fit records the
+`SAMPLE_READING` it was counted under now; the bot refits a stale one once as its
+loop starts (`_refit_stale_learned_curves`, behind the auto-refit flag, never in
+a reader engine); and the readiness card stops lending a stale fit's count to the
+record, because `max(n, len(samples))` compared two counts made under two rules.
+Twenty-one mutations, each killed; the one that survived the first round was my
+fixture, not the code. The "a current fit is left alone" test planted a refit
+that RAISED, and `refit_stale` is fail-open per learner, so its own `except`
+caught the planted failure and the test could not tell a refit that never ran
+from one that was swallowed. It records the call now.
+(`tests/test_a_fit_counted_under_an_older_rule_is_refit.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -10720,7 +10743,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **426 of 1023** reach for source text through `source_scan`, `code_only`
+Driven, **426 of 1024** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 426 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

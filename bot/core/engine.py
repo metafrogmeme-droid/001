@@ -3522,6 +3522,31 @@ class RuneClawEngine:
 
     # -- Main loop --
 
+    async def _refit_stale_learned_curves(self) -> list:
+        """Refit, once, the learned curves saved under an older sample reading.
+
+        Such a curve rests on samples the current rule does not count, and the
+        auto-refit's count starts at zero with this process, so without this it
+        stays applied for up to `learning_auto_refit_interval` closes after the
+        deploy that changed the rule. It follows the auto-refit flag, because
+        refitting on its own is what that flag authorises, and a reader engine
+        writes nothing the bot owns. Answers the learners it refit.
+        """
+        if (not CONFIG.analyzer.learning_auto_refit_enabled
+                or getattr(self, "_state_persistence_detached", False)):
+            return []
+        try:
+            from bot.learning.auto_refit import refit_stale
+            refit = await asyncio.to_thread(refit_stale, getattr(self, "analyzer", None))
+        except Exception as exc:
+            system_log.warning("Startup refit of stale learned curves failed: %s", exc)
+            return []
+        if refit:
+            audit(system_log,
+                  f"Refit at startup, counted under an older rule: {', '.join(refit)}",
+                  action="learning_refit_stale", result="REFIT")
+        return refit
+
     async def run(self) -> None:
         """Start the continuous scan-analyze-monitor loop."""
         self._running = True
@@ -3532,6 +3557,7 @@ class RuneClawEngine:
             action="start",
             data={"simulation": CONFIG.simulation_mode},
         )
+        await self._refit_stale_learned_curves()
         # Start WebSocket feed for real-time price monitoring
         try:
             await self.ws_feed.start()

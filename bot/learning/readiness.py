@@ -161,19 +161,30 @@ def assess_readiness(store=None) -> dict:
         cal = ConfidenceCalibrator.load()
         n = getattr(cal, "_n_samples", 0) if cal else 0
         need = getattr(cal, "min_samples", 30) if cal else 30
-        comp.update(samples=max(n, len(samples)), needed=need,
+        # The fit's own count can exceed this read's (it reads a longer
+        # history), which is why the larger is shown -- but only a fit counted
+        # under the CURRENT rule has a count that means the same thing. One
+        # counted under an older reading rests on samples this rule refuses.
+        current = cal is None or cal.is_current_reading()
+        counted = max(n, len(samples)) if current else len(samples)
+        comp.update(samples=counted, needed=need,
                     applied=CONFIG.auto_confirm_use_calibrated)
         if cal is None or not cal.is_ready():
             comp["state"] = "ACCUMULATING"
-        elif max(n, len(samples)) < _CAL_RECOMMEND_SAMPLES:
+        elif counted < _CAL_RECOMMEND_SAMPLES:
             comp["state"] = "VALIDATING"
             comp["note"] = (f"fitted, but curve rests on {n} samples — "
                             f"recommend >= {_CAL_RECOMMEND_SAMPLES} before applying")
         else:
             comp["state"] = "READY"
             comp["note"] = cal.summary()
-        if left_out:
-            comp["note"] = "; ".join(x for x in (comp.get("note"), left_out) if x)
+        stale = "" if current else (
+            f"the fitted curve on disk rests on {n} samples counted under an older "
+            "rule; the bot refits it when it starts (LEARNING_AUTO_REFIT_ENABLED), "
+            "or /calibration refit does it now")
+        extra = [x for x in (comp.get("note"), stale, left_out) if x]
+        if extra:
+            comp["note"] = "; ".join(extra)
     except Exception as exc:
         comp.update(state="ERROR", note=str(exc)[:160])
     out["components"]["calibration"] = comp
