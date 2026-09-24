@@ -7488,6 +7488,23 @@ alone while that bar read the curve, so it says where the curve is applied now
 (`applied_where`). Sixteen mutations, each killed on the first round.
 (`tests/test_a_fitted_curve_is_applied_once_and_only_when_fitted.py`.)
 
+**THE THESIS PROMPT ASKED FOR EIGHT KEYS AND THE BOT READS THREE.** The
+analyzer's system prompt asked for entry, stop, target, signals and order type
+beside direction, confidence and reasoning. `_parse_llm_response` reads three
+of them, and `THESIS_JSON_SCHEMA` forbids the rest on the structured-output
+path. The engine sets levels and size itself, so the model's levels were written
+and thrown away. The prompt's own numbers ("Minimum 1.2:1", "TP at least 1.2x
+the SL distance") also disagreed with the engine's per-strategy minimums. It
+asks for the schema's keys now, and a no-trade names what the setup lacks,
+which reaches `/whynot` as the refusal's reason. The reasoning ends "Against:"
+with the strongest reason the trade fails. The model's own 0.55 skip threshold
+is kept: it filters the model's score, not the blend, and dropping it would
+admit low-confidence directional answers. **A counter-case written last is the
+part a card's cut removes**, because the cards cut the prose at 150–280
+characters. `split_counter_case` gives it its own line on every card that cuts.
+Twelve mutations, each killed on the first round.
+(`tests/test_the_thesis_prompt_asks_for_what_is_read.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -9974,7 +9991,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 225 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 226 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10786,9 +10803,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **427 of 1025** reach for source text through `source_scan`, `code_only`
+Driven, **428 of 1026** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 427 is a FLOOR and the honest shape is
+source scan that rule does not see, so 428 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

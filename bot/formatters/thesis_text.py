@@ -62,6 +62,34 @@ def thesis_prose(reasoning: object) -> Optional[str]:
     return body or None
 
 
+#: The marker the thesis prompt asks the model to end its reasoning with,
+#: before the single strongest reason the trade fails. The LAST one counts:
+#: a model quoting the word earlier in a sentence has not started the section.
+_AGAINST = re.compile(r"\bAgainst:\s*", re.IGNORECASE)
+
+
+def split_counter_case(prose: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """``(body, against)``: the reasoning, and the counter-case after it.
+
+    The prompt asks for 2-3 sentences and then "Against:" with the strongest
+    reason the trade fails, and the cards cut the prose at 200-250 characters
+    -- so the counter-case, written last, is the part a cut removes. Splitting
+    it out lets a card print it on its own line whatever the cut. ``against``
+    is ``None`` when the model wrote none (an older recorded thesis, the rule
+    engine, a model that ignored the instruction); ``body`` is ``None`` when
+    the model wrote only the counter-case.
+    """
+    if prose is None:
+        return None, None
+    marks = list(_AGAINST.finditer(prose))
+    if not marks:
+        return prose, None
+    m = marks[-1]
+    body = prose[:m.start()].strip() or None
+    against = prose[m.end():].strip() or None
+    return body, against
+
+
 def provenance_tag(reasoning: object) -> Optional[str]:
     """The bracketed tag's interior — ``gpt-4o|TREND_UP|swing|…`` — or ``None``.
 

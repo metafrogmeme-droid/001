@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from bot.formatters.thesis_text import thesis_prose
+from bot.formatters.thesis_text import split_counter_case, thesis_prose
 
 
 def _f(v: Any) -> Optional[float]:
@@ -93,9 +93,12 @@ def explain(record: dict) -> dict:
     # reasoning that is only its provenance tag leaves a truthy string — so the
     # narrative asserted a Thesis the record does not contain. The tag stays in
     # the sealed record; it just does not get to be a sentence here.
-    reasoning = thesis_prose(idea.get("reasoning"))
+    reasoning, against = split_counter_case(thesis_prose(idea.get("reasoning")))
     if reasoning is not None:
         why.append("Thesis: " + reasoning[:280])
+    if against is not None:
+        # Written last, so the cut above would take it first.
+        why.append("Against: " + against[:280])
 
     # ── provenance: by whom ──
     prov = idea.get("provenance") or {}

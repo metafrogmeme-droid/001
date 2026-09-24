@@ -33,7 +33,7 @@ from bot.core.position_telemetry import (
     price_on_record,
 )
 from bot.formatters.rich_cards import display_symbol, mode_badge
-from bot.formatters.thesis_text import provenance_tag, thesis_prose
+from bot.formatters.thesis_text import provenance_tag, split_counter_case, thesis_prose
 
 from bot.config import CONFIG, TRADFI_PERPETUALS
 from bot.core.engine import RuneClawEngine
@@ -290,7 +290,13 @@ def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
     prose = thesis_prose(reasoning)
     if prose is None:
         return ""
-    return f"<blockquote>{_esc(prose[:limit])}</blockquote>{tail}"
+    # The counter-case is written LAST, so it is the part `limit` cuts; it gets
+    # a line of its own, under the same bound.
+    body, against = split_counter_case(prose)
+    out = f"<blockquote>{_esc(body[:limit])}</blockquote>" if body else ""
+    if against:
+        out += f"{chr(10) if out else ''}⚖️ <i>Against:</i> {_esc(against[:limit])}"
+    return f"{out}{tail}"
 
 def status_position_row(pos: Any, mark: Optional[float],
                         display_equity: Optional[float],

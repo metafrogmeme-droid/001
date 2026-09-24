@@ -63,7 +63,7 @@ from bot.core.trade_costs import (
     net_reward_risk,
 )
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
-from bot.formatters.thesis_text import thesis_prose
+from bot.formatters.thesis_text import split_counter_case, thesis_prose
 from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
 from bot.utils.candles import drop_forming_candle
@@ -1412,12 +1412,15 @@ class TradingCommands:
                     # the rationale whenever the model returned none. The line
                     # is dropped instead — the card's other four facts stand on
                     # their own.
-                    _why = thesis_prose(idea.reasoning)
+                    # The counter-case is written last, so the 150-character
+                    # cut removes it first: it gets its own line.
+                    _why, _against = split_counter_case(thesis_prose(idea.reasoning))
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
                         f"R:R 1:{rr:.1f} | Conf <b>{idea.confidence:.0%}</b>"
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
+                        + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )
                     await self._send(update, msg, reply_markup=kb)
             except Exception as exc:
