@@ -938,6 +938,158 @@ one clearing zero by chance about twice as likely as one, so a single hold is
 recorded as a hold on one of two looks. Until a cell holds, its hold limit
 stays where it is.
 
+### Does any single voter predict price? (2026-09-24) — no
+
+The direction is the sign of a weighted vote over 37 voters, so a direction
+with no edge has two readings: no voter carries one, or informative voters
+cancel each other out. `signal_edge.py collect` now also records every voter's
+vote on every analyzer call (the breakdown `_score_confluence` already emits; a
+voter that abstained or carried no weight cast no vote), and
+`signal_edge.py voters` scores each voter as though it alone had set the
+direction: the move over h bars the way it voted, in ATR, minus that
+direction's unconditional drift. Every analyzer call counts, not only the ones
+that became ideas. The interval is a bootstrap over (snapshot, ISO week)
+clusters rather than (symbol, week), because one voter votes on eight or ten
+correlated symbols in the same bar. This is a voter's own predictive content, which is a
+different question from its contribution to the blend (the drop-one ablation in
+`docs/VOTER_ABLATION_2026-07-03.md`).
+
+The rule was written down before any per-voter number was printed. A voter is
+a candidate when its pooled 24-bar interval on the two disjoint v2 snapshots
+excludes zero and both snapshots' own means share its sign. With k candidates,
+each holds only if its pooled interval on the fresh v3 calls (after
+2026-07-06T09:00Z, drift measured from then), at level 1 − 0.05/k, lies wholly
+on the side discovery predicted. Two voters qualified (k = 2, level 97.5%):
+
+| voter, h24 excess ATR | discovery, v2 (32,400 calls) | votes | fresh, v3 (8,073 calls) | votes | holds? |
+|---|---:|---:|---:|---:|---|
+| `mtf_choch` (predicted positive) | +0.38 [+0.09, +0.64] | 3,705 | −0.40 [−0.89, +0.21] | 806 | no; the sign reversed on both universes (−0.41, −0.38) |
+| `harmonic` (predicted negative) | −0.72 [−1.36, −0.13] | 416 | +0.05 [−1.72, +1.53] | 81 | no |
+
+**Neither holds.** Two of 37 voters clearing zero at 95% is what chance
+produces (37 × 0.05 ≈ 1.9), and that is what discovery found. (The working note
+says 38 voters; the recorded calls hold 37, which changes neither k nor the
+test level.) The other 35 discovery intervals all include zero, and 34 of the
+37 means sit within ±0.12 ATR. So the finding above is not informative voters
+cancelling each other out: no voter, read alone, has a direction that
+replicates.
+
+**The fresh window, read after the test, is a regime and not a lead.** On the
+v3 calls the trend-following voters lean positive together (`taker` +0.55
+[+0.01, +1.09], `macd` +0.37 [+0.09, +0.66], `keltner` +0.34 [+0.09, +0.63],
+`donchian` +0.57 [−0.02, +1.25]) and the mean-reversion voters lean negative
+together (`bb_pct_b` −0.55 [−1.24, +0.08], `fibonacci` −0.49, `rsi` −0.43,
+`vwap_bands` −0.41). Across the 17 months of v2 every one of them sat within
+±0.12 ATR (`taker` +0.06, `macd` −0.02, `keltner` +0.04, `donchian` −0.12,
+`bb_pct_b` +0.01, `rsi` +0.04). Trend followers winning as a family while
+faders lose as a family is what a trending window looks like; three of 37
+clearing zero is again the chance count.
+
+**Pre-registered for the next snapshot**, by the same discovery rule applied to
+v3: `taker`, `macd` and `keltner` (k = 3; each snapshot's own mean shares the
+pooled sign). On a snapshot fetched after 2026-09-24, with only calls after the
+v3 snapshots' last bar, each holds only if its pooled 24-bar interval at
+98.33% (`voters --level 0.9833`) is wholly above zero. A hold on a window that
+trends as this one did would be the same regime, so it is read beside that
+window's own idea-level excess. Nothing in the analyzer changes on this
+evidence.
+
+```bash
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/signal_edge.py collect \
+    --dataset benchmark/majors_1h_v2 --out v_majors_1h_v2.json
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/signal_edge.py collect \
+    --dataset benchmark/majors_1h_v3 --since 2026-07-06T09:00:00+00:00 \
+    --out v_majors_1h_v3.json
+python scripts/signal_edge.py voters v_majors_1h_v2.json v_alts_1h_v2.json
+python scripts/signal_edge.py voters --level 0.975 --voters mtf_choch,harmonic \
+    v_majors_1h_v3.json v_alts_1h_v3.json
+```
+
+Recording the votes does not change what the analyzer decides: the fresh v3
+run placed the same 2,034 ideas as the run in the section above.
+
+### Does the POC-retest setup pay after fees? (2026-09-24) — no, and its record said it did
+
+`/pocretest` records a confirmed POC-retest setup into a shadow book, and
+`/pocshadow` prints whether the recorded setups pay. The book fills only when
+somebody asks, so `scripts/poc_retest_replay.py` asks the same question of the
+frozen snapshots. It reads every closed 1h bar the way `observe_setup` does:
+the last 120 closed 1h bars and the last 120 closed 4h bars (resampled from the
+1h, closed groups only), through the live `retest_state` and `setup_verdict`.
+It arms a setup only when the read is confirmed, the verdict is ok, and the
+retest candle is the bar being read, which is known at that bar's close and
+never later. It scores the setup with the live `score_setup` over the next 119
+bars. Taker entry, the venue's fee model, and a stop is −1R with the fees
+inside the unit. The interval is the (dataset, ISO week) cluster bootstrap
+`signal_edge.py` uses, beside the shadow verdict's own.
+
+The rule was written down before any v2 or v3 number was computed. Only
+`majors_1h` at the operator's parameters had been seen: −0.56R on 51 setups.
+
+| operator's parameters (0.25 ATR buffer, 5-candle window, 2R net, 2 ATR stop) | scored | target / stop | mean R [95% week clusters] | verdict |
+|---|---:|---:|---:|---|
+| v2, majors + alts pooled (disjoint, Feb 2025 → Jul 2026) | 262 | 63 / 199 | **+0.03 [−0.25, +0.30]** | too thin |
+| v2 majors alone | 134 | 24 / 110 | −0.25 [−0.57, +0.12] | too thin |
+| v2 alts alone | 128 | 39 / 89 | +0.33 [−0.04, +0.73] | too thin |
+| fresh v3, majors + alts (retests after 2026-07-06T09:00Z) | 45 | 8 / 37 | **−0.39 [−0.74, +0.01]** | too thin |
+
+**It does not survive fees.** Over 17 months the mean is zero to two decimals;
+the two universes disagree in sign, and the fresh window leans negative.
+
+**No parameter set does either, and tuning them is fitting noise.** The grid
+reads 81 cells: ATR buffer 0.10, 0.25 and 0.50; retest window 3, 5 and 8
+candles; net-R floor 1.5, 2 and 3; stop cap 1.5, 2 and 3 ATR. The rule was
+that a cell needs 30 scored setups and a v2 week-cluster interval wholly above
+zero. **None qualified**, so the fresh grid is context only. There, 78 of 80
+cells are negative, and the correlation between a cell's v2 mean and its v3
+mean is −0.03: the best v2 cells (+0.04 to +0.08R) sit near −0.35R on v3. The
+one consistent pattern is a buffer of 0.10 ATR, negative on both windows.
+
+**What the record as shipped would have said is the larger finding.** The
+observer arms whatever it reads when somebody asks, and a read can be confirmed
+about a retest candle that closed hours earlier. As shipped it armed that setup
+anyway and scored it from its retest candle, over bars that had already closed.
+A later read also re-estimates the swing leg with the move that has since
+happened, so its target is often a high price already reached. `observer`
+emulates the command asked every N hours on the same v2 reads:
+
+| v2, operator's parameters | armed | resolved before the read that armed it | mean R | verdict |
+|---|---:|---:|---:|---|
+| bar by bar (the truth above) | 278 | 0 | +0.03 | too thin |
+| asked every 24h, as shipped | 228 | 125 | **+2.04 [+1.59, +2.50]** | **survives** |
+| asked every 8h, as shipped | 373 | 184 | +1.89 [+1.55, +2.23] | survives |
+| asked every 24h, current rule | 68 | 0 | −0.51 [−0.89, −0.14] | does not |
+| asked every 8h, current rule | 124 | 0 | −0.24 [−0.59, +0.10] | too thin |
+
+The record exists to gate execution on evidence, so that verdict would have
+put real money on hindsight. **The rule now:** a read whose entry has traded
+since its retest candle is not armed, because it is no longer takeable at its
+levels, and the card says so. An armed setup carries the bar it was armed on
+and is scored from the bar after it. No bar before the arming read can then
+trigger it, so the outcome is a forward measurement. Rows recorded before this
+are left out of `/pocshadow`'s verdict and counted beside it. Under the current
+rule a record asked daily reads worse than the bar-by-bar truth: a setup still
+untriggered hours after its retest is disproportionately one whose breakout
+failed. That is a fair measurement of what the card offers when asked, and a
+different quantity from the strategy's own.
+
+Two things the replay cannot see. The fill is at the entry price, as the shadow
+book assumes, and no scored trigger bar opened past its entry (0 of 262 on v2).
+On a 24/7 market a bar opens at the previous close, so a gap through a stop
+order is rare, but slippage inside the bar is not modelled. A bar that reaches
+the entry and the stop is a stop-out, because OHLC cannot say the entry came
+first.
+
+```bash
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/poc_retest_replay.py collect \
+    --dataset benchmark/majors_1h_v2 --out poc_majors_v2.json --jobs 4
+python scripts/poc_retest_replay.py report poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py grid poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py observer --every 24 poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py report --since 2026-07-06T09:00:00+00:00 \
+    poc_majors_v3.json poc_alts_v3.json
+```
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the

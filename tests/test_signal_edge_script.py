@@ -213,3 +213,254 @@ def test_the_cli_refuses_horizons_it_did_not_record(tmp_path, capsys):
             se.main(["continuation", *bad, f])
     assert se.main(["continuation", f]) == 0
     assert "bar 12 -> 48" in capsys.readouterr().out
+
+
+# ── per voter: which parts of the electorate carry the direction ─────────
+
+
+def _call(votes, moves, week=1, sym="S", ds="d"):
+    return {"dataset": ds, "symbol": sym, "i": 0, "ts": "2026-01-01T00:00:00",
+            "votes": votes, "moves": moves, "week": [ds, 2026, week]}
+
+
+_FLAT = {"LONG": {1: 0.0, 24: 0.0}, "SHORT": {1: 0.0, 24: 0.0}}
+
+
+def test_a_vote_is_measured_in_the_direction_it_voted():
+    # One call moved +2 ATR up. The voter that voted up is right by +2; the
+    # voter that voted down is wrong by -2, whatever the size of its vote.
+    sums = se.voter_sums([_call({"up": 0.3, "down": -1.0}, {24: 2.0})], _FLAT)
+    assert sums["up"][24][("d", 2026, 1)] == [2.0, 1]
+    assert sums["down"][24][("d", 2026, 1)] == [-2.0, 1]
+
+
+def test_the_votes_direction_drift_is_subtracted():
+    unc = {"LONG": {24: 0.5}, "SHORT": {24: -0.5}}
+    sums = se.voter_sums([_call({"up": 1.0, "down": -1.0}, {24: 2.0})], unc)
+    assert sums["up"][24][("d", 2026, 1)] == [1.5, 1]      # +2 - (+0.5)
+    assert sums["down"][24][("d", 2026, 1)] == [-1.5, 1]   # -2 - (-0.5)
+
+
+def test_a_horizon_past_the_data_or_the_baseline_is_absent_not_zero():
+    sums = se.voter_sums([_call({"v": 1.0}, {1: 1.0, 24: 3.0})],
+                         {"LONG": {1: 0.0}, "SHORT": {1: 0.0}})
+    assert 24 not in sums["v"]
+    sums = se.voter_sums([_call({"v": 1.0}, {1: 1.0})], _FLAT)
+    assert 24 not in sums["v"] and sums["v"][1][("d", 2026, 1)] == [1.0, 1]
+
+
+def test_symbols_voted_in_one_week_are_one_cluster():
+    # Ten symbols moving together in one week are one market move, not ten
+    # independent samples: they land in ONE cluster.
+    calls = [_call({"v": 1.0}, {24: 1.0}, sym=f"S{k}") for k in range(10)]
+    sums = se.voter_sums(calls, _FLAT)
+    assert list(sums["v"][24]) == [("d", 2026, 1)]
+    assert sums["v"][24][("d", 2026, 1)] == [10.0, 10]
+
+
+def test_the_sums_bootstrap_is_the_rows_bootstrap():
+    # One interval function, whatever the rows were: the idea table's
+    # cluster_ci and the voter table's sums must agree on the same data.
+    rows = _cl_rows({k: [k * 0.1, k * 0.1 + 0.3] for k in range(12)})
+    sums = {}
+    for r in rows:
+        acc = sums.setdefault(tuple(r["cluster"]), [0.0, 0])
+        acc[0] += r["excess"][24]
+        acc[1] += 1
+    assert se.cluster_ci_sums(sums) == se.cluster_ci(rows, 24)
+
+
+def test_a_wider_level_widens_the_interval():
+    rows = _cl_rows({k: [k * 0.1, k * 0.1 + 0.3] for k in range(12)})
+    _n, _c, m95, lo95, hi95 = se.cluster_ci(rows, 24)
+    _n, _c, m99, lo99, hi99 = se.cluster_ci(rows, 24, level=0.99)
+    assert m95 == m99 and lo99 < lo95 and hi99 > hi95
+
+
+def _voter_file(tmp_path, name, calls, unc=None):
+    unc = unc or {"LONG": {str(h): 0.0 for h in se.HORIZONS},
+                  "SHORT": {str(h): 0.0 for h in se.HORIZONS}}
+    data = {"dataset": name, "ideas": 0, "unplaced": 0, "rows": [],
+            "unconditional": unc, "calls": calls, "calls_unconditional": unc,
+            "calls_unplaced": 0, "calls_repeated": 0, "since": None}
+    p = tmp_path / f"{name}.json"
+    p.write_text(json.dumps(data))
+    return str(p)
+
+
+def _weeks(name, votes, move24, weeks=6):
+    # a spread around move24 whose mean is move24 exactly, so an interval exists
+    return [_call(votes, {"24": move24 + 0.02 * (w - 2.5)}, week=w, ds=name)
+            for w in range(weeks)]
+
+
+def test_the_voter_report_ranks_by_h24_and_shows_each_file(tmp_path):
+    a = _voter_file(tmp_path, "a", _weeks("a", {"good": 1.0, "bad": 1.0}, 1.0)
+                    + _weeks("a", {"bad": -1.0}, 1.0))
+    b = _voter_file(tmp_path, "b", _weeks("b", {"good": -1.0}, -2.0))
+    out = se.voters_report([a, b])
+    lines = [ln for ln in out.splitlines() if ln.startswith(("good", "bad"))]
+    assert [ln.split()[0] for ln in lines] == ["good", "bad"]
+    good, bad = lines
+    # good was right on both files: +1 on a and +2 on b, pooled over 12 weeks
+    assert good.split()[1] == "12" and good.split()[-2:] == ["+1.00", "+2.00"]
+    # bad voted up then down on the same up-moves: the two cancel on file a,
+    # and it never voted on b
+    assert bad.split()[1] == "12" and bad.split()[-2:] == ["+0.00", "-"]
+
+
+def test_a_named_voter_that_never_voted_is_said_not_dropped(tmp_path):
+    a = _voter_file(tmp_path, "a", _weeks("a", {"good": 1.0}, 1.0))
+    out = se.voters_report([a], only=["good", "ghost"])
+    assert "ghost" in out and "never voted" in out
+
+
+def test_a_file_without_calls_is_refused_not_read_as_empty(tmp_path):
+    f = _cont_file(tmp_path, "old", _file_rows("old", "momentum_confluence", 6, 1.0, 3.0))
+    with pytest.raises(SystemExit, match="collect it again"):
+        se.voters_report([f])
+
+
+def test_the_voters_cli_refuses_a_level_that_is_not_a_coverage(tmp_path, capsys):
+    a = _voter_file(tmp_path, "a", _weeks("a", {"good": 1.0}, 1.0))
+    for bad in ("0.3", "1.0", "95"):
+        with pytest.raises(SystemExit):
+            se.main(["voters", "--level", bad, a])
+    assert se.main(["voters", "--level", "0.99", a]) == 0
+    assert "99% week-cluster bootstrap" in capsys.readouterr().out
+
+
+# ── collect's taps, driven with a stand-in analyzer and planted bars ─────
+
+
+def _planted_run(monkeypatch):
+    """A stand-in analyzer over planted bars, run by a stand-in runner.
+
+    Each scoring plants a different `rsi` vote (its own sequence number), so
+    which reading of a twice-analysed bar was kept is visible. The closes rise
+    to bar 50 and fall after it, so the drift measured from one bar differs
+    from the drift measured from another."""
+    import asyncio
+    from datetime import timezone
+
+    from bot.backtest import runner, snapshot
+    from bot.core.analyzer import Analyzer
+
+    t0 = datetime(2026, 1, 5, tzinfo=timezone.utc)   # a Monday
+    closes = [100.0 + k if k <= 50 else 150.0 - 2.0 * (k - 50) for k in range(80)]
+    bars = []
+    prev = closes[0]
+    for k, c in enumerate(closes):
+        bars.append(SimpleNamespace(timestamp=t0 + timedelta(hours=k), close=c,
+                                    high=max(c, prev) + 1.0, low=min(c, prev) - 1.0))
+        prev = c
+    monkeypatch.setattr(snapshot, "load_dataset", lambda _d: {"S": bars})
+
+    scorings = [0]
+
+    def fake_score(*_a, breakdown=None, **_k):
+        scorings[0] += 1
+        if breakdown is not None:
+            breakdown.extend([("rsi", float(scorings[0]), 1.5), ("macd", 0.0, 1.0),
+                              ("vwap", -0.5, 0.0), ("ema", -1.0, 1.0)])
+        return 0.5
+
+    async def fake_analyze(self, signal, candles, *a, **k):
+        # the real analyzer hands its own list in; a second scoring without
+        # one must be captured too, but only the first reading of a bar kept
+        mine: list = [("already", 1.0, 1.0)]
+        Analyzer._score_confluence({}, None, signal, breakdown=mine)
+        Analyzer._score_confluence({}, None, signal)
+        return None
+
+    monkeypatch.setattr(Analyzer, "_score_confluence", staticmethod(fake_score))
+    monkeypatch.setattr(Analyzer, "analyze", fake_analyze)
+
+    def fake_main():
+        async def go():
+            for h in (20, 20, 30):     # bar 20 twice: its first reading is kept
+                await Analyzer.analyze(object(), SimpleNamespace(symbol="S"), [],
+                                       as_of=bars[h].timestamp)
+        asyncio.run(go())
+
+    monkeypatch.setattr(runner, "main", fake_main)
+    return bars, fake_analyze
+
+
+def test_collect_records_every_calls_electorate(monkeypatch):
+    from bot.core.analyzer import Analyzer
+    from bot.risk import risk_engine as rk
+
+    bars, fake_analyze = _planted_run(monkeypatch)
+    real_score = Analyzer._score_confluence
+    data = se.collect("somewhere/planted")
+    assert Analyzer._score_confluence is real_score        # restored
+    assert Analyzer.analyze is fake_analyze
+    assert rk.RiskEngine.evaluate.__name__ != "_tap_eval"
+
+    calls = {c["i"]: c for c in data["calls"]}
+    assert sorted(calls) == [20, 30]
+    # the caller's own earlier entry is not this call's vote, an abstention
+    # (0) and a voter with no weight cast no vote; and a bar analysed twice
+    # keeps its FIRST reading (scoring 1), not a later one
+    assert calls[20]["votes"] == {"rsi": 1.0, "ema": -1.0}
+    assert calls[30]["votes"] == {"rsi": 5.0, "ema": -1.0}
+    # every scoring after a bar's first is a repeat: bar 20 was analysed twice
+    # and scored twice each time (3), bar 30 scored twice once (1)
+    assert data["calls_repeated"] == 4
+    assert calls[20]["moves"][24] == pytest.approx(24 / 3.0)   # +24 over ATR 3
+    assert calls[20]["week"] == ["planted", 2026, 2]
+    # with no `since`, the drift is measured from the first call
+    assert data["calls_unconditional"] == se.unconditional({"S": bars}, bars[20].timestamp)
+
+
+def test_since_drops_earlier_calls_and_measures_the_drift_from_it(monkeypatch):
+    bars, _ = _planted_run(monkeypatch)
+    later = se.collect("somewhere/planted", since=bars[25].timestamp)
+    assert [c["i"] for c in later["calls"]] == [30]
+    # the drift the fresh calls are read against starts where they do; the
+    # fixture's kink makes that a different number from the first call's
+    from_since = se.unconditional({"S": bars}, bars[25].timestamp)
+    assert from_since != se.unconditional({"S": bars}, bars[20].timestamp)
+    assert later["calls_unconditional"] == from_since
+    assert later["since"] == bars[25].timestamp.isoformat()
+
+
+def test_the_cli_reads_a_naive_since_as_utc(monkeypatch, tmp_path, capsys):
+    bars, _ = _planted_run(monkeypatch)
+    out = tmp_path / "planted.json"
+    naive = bars[25].timestamp.replace(tzinfo=None).isoformat()
+    assert se.main(["collect", "--dataset", "somewhere/planted", "--out", str(out),
+                    "--since", naive]) == 0
+    data = json.loads(out.read_text())
+    assert data["since"] == bars[25].timestamp.isoformat()     # +00:00, not naive
+    assert [c["i"] for c in data["calls"]] == [30]
+    assert "1 analyzer calls measured" in capsys.readouterr().out
+
+
+def test_the_votes_column_counts_calls_with_the_24_bar_move(tmp_path):
+    # four weeks carry every horizon, two carry only the first bar: the
+    # column is the h24 count, not a count of every horizon's cells
+    calls = [_call({"v": 1.0}, {str(h): 1.0 + 0.1 * w for h in se.HORIZONS}, week=w, ds="a")
+             for w in range(6)]
+    calls += [_call({"v": 1.0}, {"1": 1.0}, week=w, ds="a") for w in range(2)]
+    a = _voter_file(tmp_path, "a", calls)
+    line = next(ln for ln in se.voters_report([a]).splitlines() if ln.startswith("v "))
+    assert line.split()[1] == "6"
+
+
+def _cell_bounds(report: str, voter: str) -> tuple[float, float]:
+    import re
+    line = next(ln for ln in report.splitlines() if ln.startswith(voter + " "))
+    cells = re.findall(r"([+-]\d\.\d\d) \[([+-]\d\.\d\d),([+-]\d\.\d\d)\]", line)
+    h24 = cells[list(se.HORIZONS).index(24)]
+    return float(h24[1]), float(h24[2])
+
+
+def test_the_voters_level_widens_every_cell_not_only_the_header(tmp_path):
+    calls = [_call({"v": 1.0}, {str(h): 0.3 * w - 1.0 for h in se.HORIZONS}, week=w, ds="a")
+             for w in range(12)]
+    a = _voter_file(tmp_path, "a", calls)
+    lo95, hi95 = _cell_bounds(se.voters_report([a], level=0.95), "v")
+    lo99, hi99 = _cell_bounds(se.voters_report([a], level=0.99), "v")
+    assert lo99 < lo95 and hi99 > hi95

@@ -85,6 +85,11 @@ def _shadow_note(seen: object) -> str:
         bits.append("added to the shadow record")
     elif armed is False:
         bits.append("already on the shadow record")
+    not_armed = getattr(seen, "not_armed", None)
+    if not_armed:
+        # A confirmed setup the card shows and the record did not take must
+        # say why, or the card reads as an arming that never happened.
+        bits.append(f"not recorded: {html.escape(str(not_armed))}")
     # NOT `or 0`: a count that is not a number is a programming error, not a
     # value to coerce to zero, and the or-zero shape here would read as "0
     # re-scored" for a producer that answered nothing at all. The honesty

@@ -1726,7 +1726,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1251, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1266, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7730
 (get_market_session) and scan_commands.py:349.
@@ -1896,7 +1896,7 @@ than manufactured from a multiple.
 setup the strategy would take (`confirmed` AND a verdict of `ok` — recording a
 rejected one would measure a strategy nobody proposed) and scores what is
 pending from the bars it already fetched; `/pocshadow` prints the verdict.
-bot/core/poc_retest_record.py:130 `score_setup` walks the bars after the retest
+bot/core/poc_retest_record.py:161 `score_setup` walks the bars after the retest
 and answers one of six outcomes. R is `net_reward_risk`'s unit, whose
 denominator is the fee-inclusive stopped-out loss, so a stop is exactly -1.0R
 and the target pays the arm-time net R. The verdict is `mean_r_interval` with
@@ -1914,6 +1914,21 @@ per-row re-run of the fee model — a different quantity and its own slice). And
 the scoring window is the entry-TF fetch, so a retest that has slid out of it
 stays `unscored` rather than being dropped: a denominator that quietly excludes
 the rows nobody could reach is a partial total printed as whole.
+
+*Replayed over the frozen snapshots (2026-09-24), it does not pay, and the
+record as first written would have said it did.* `scripts/poc_retest_replay.py`
+reads every closed 1h bar the way `observe_setup` does. At the operator's
+parameters the setup is +0.03R [−0.25, +0.30] over 262 scored setups on the
+two disjoint v2 snapshots, and −0.39R [−0.74, +0.01] over 45 on the fresh
+window. None of the 81 parameter cells clears zero, and a cell's rank on one
+window says nothing about its rank on the other. The record, though, armed any
+confirmed read whenever somebody asked, and scored it from its retest candle.
+Asked once a day, it would have printed "survives, +2.04R", because 125 of the
+228 setups it armed had already resolved before the read that armed them. A
+read whose entry has traded since its retest candle is not armed now, and the
+card says why. An armed setup carries the bar it was armed on. Rows written
+before that are left out of `/pocshadow`'s verdict and counted beside it.
+`docs/FROZEN_BENCHMARK.md` has the tables.
 
 **The PUBLIC Strategy-Agent marketplace**
 
