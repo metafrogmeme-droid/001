@@ -157,7 +157,6 @@ bot/guardian/authority_preflight.py:reconcile_posture
 # The rest, unaudited individually — recorded rather than guessed at, per the
 # rule at the top of this file. warroom_bot's four are one surface and likely
 # stand or fall together.
-bot/backtest/snapshot.py:load_dataset
 bot/core/stock_trading.py:get_stock_risk_params
 # escape_card.py:risk_word left this list when the prose stripper learned to
 # read f-string continuation lines: it is called from escape_card.py's own

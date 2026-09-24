@@ -37,6 +37,9 @@ from tests.default_comments import (
     declaration_findings,
     declared_defaults,
     describe,
+    env_example_blocks,
+    env_example_findings,
+    env_example_silent_overrides,
     reader_findings,
     reader_sources,
 )
@@ -407,3 +410,139 @@ if CONFIG.some_rate_pct:
         "map, `not 0.06` is False, so an honest 'default OFF' registers as a "
         "mismatch. If this stops accusing, re-read the refusal — the reason "
         "for it may have gone")
+
+
+# ── the third claim site: .env.example ───────────────────────────────────
+
+
+def test_no_env_example_block_names_a_default_the_flag_does_not_have():
+    """Twelve did, all saying OFF over a control that ships ON."""
+    found = env_example_findings()
+    assert found == [], (
+        "`.env.example` prose claims a default its flag does not have:\n\n"
+        + "\n\n".join(describe(f) for f in found)
+        + "\n\nFix the prose. There is no baseline: the file is at zero.")
+
+
+def test_every_live_example_line_that_inverts_a_default_says_so():
+    """`cp .env.example .env` is the documented install, so a LIVE line is
+    what that install runs. Six set a flag opposite to its default; five sat
+    under prose calling that flag default OFF, so the file read consistent
+    while the install switched off five controls the runbook lists as ON."""
+    found = env_example_silent_overrides()
+    assert found == [], (
+        "a live `.env.example` line sets a flag opposite to its declared "
+        "default and the prose above it does not say so:\n"
+        + "\n".join(f"  .env.example:{f.line}  {f.env}={'true' if f.claimed == 'on' else 'false'}"
+                     f" (declared {f.actual})" for f in found)
+        + "\nSay what the line does (\"THE LINE BELOW SETS IT OFF\"), or "
+          "change the value -- which is a decision about what a fresh deploy "
+          "runs, not a wording fix.")
+
+
+def test_the_env_example_walk_reaches_the_file():
+    """A walk that pairs nothing passes both assertions above over any file."""
+    blocks = env_example_blocks()
+    assert len(blocks) >= 150, f"only {len(blocks)} prose blocks read"
+    paired = {env for b in blocks for env, _ln, _v in b.run}
+    for must in ("TIME_STOP_LIVE_AUTO_CLOSE", "LIVE_PERFORMANCE_GOVERNOR_ENABLED",
+                 "CONFIDENCE_CALIBRATION_ENABLED", "AUTO_CONFIRM_LIVE_ENABLED"):
+        assert must in paired, f"{must} is not paired with any prose block"
+
+
+class TestTheEnvExampleRules:
+    """Planted: the real file is at zero, so a mutation of a rule changes no
+    verdict against it."""
+
+    def _claims(self, text):
+        return [(f.env, f.claimed) for f in env_example_findings(text, PLANTED_DECL)]
+
+    def _overrides(self, text):
+        return [f.env for f in env_example_silent_overrides(text, PLANTED_DECL)]
+
+    def test_off_over_a_true_flag_is_a_finding(self):
+        assert self._claims("# Does a thing. Default OFF.\n# FLAG_A=false\n") == [("FLAG_A", "off")]
+
+    def test_on_over_a_false_flag_is_a_finding(self):
+        assert self._claims("# Does a thing (default ON).\nFLAG_B=true\n") == [("FLAG_B", "on")]
+
+    def test_a_block_that_agrees_is_not_a_finding(self):
+        assert self._claims("# Does a thing. Default ON.\n# FLAG_A=false\n") == []
+
+    def test_a_claim_wrapped_across_two_lines_is_caught(self):
+        assert self._claims("# Does a thing (opt-in, default\n# OFF).\n# FLAG_A=true\n") == [("FLAG_A", "off")]
+
+    def test_an_example_line_ends_the_block_it_does_not_join_it(self):
+        # Joined, the second block would be read as part of the first and the
+        # first's claim paired with FLAG_B: an accusation about the wrong flag.
+        text = ("# First thing. Default ON.\n# FLAG_A=false\n"
+                "# Second thing. Default OFF.\n# FLAG_B=true\n")
+        assert self._claims(text) == []
+
+    def test_a_block_claiming_both_defaults_is_a_finding(self):
+        # Over a TRUE flag on purpose: there the off/on comparison alone reads
+        # the block as agreeing, so only the "both" clause can refuse it.
+        text = "# A thing. Default ON. Default OFF.\n# FLAG_A=false\n"
+        assert self._claims(text) == [("FLAG_A", "both")]
+
+    def test_a_run_over_two_flags_is_not_paired(self):
+        assert self._claims("# Two things. Default OFF.\n# FLAG_A=x\n# FLAG_B=x\n") == []
+
+    def test_a_knob_before_the_flag_still_pairs(self):
+        text = "# A thing. Default OFF.\n# FLAG_A_WINDOW=20\n# FLAG_A=false\n"
+        assert self._claims(text) == [("FLAG_A", "off")]
+
+    def test_a_blank_line_breaks_the_pairing(self):
+        # Stated as a miss rather than guessed at: prose separated from its
+        # example by a blank line is not certainly about it.
+        assert self._claims("# A thing. Default OFF.\n\n# FLAG_A=false\n") == []
+
+    def test_a_quoted_retraction_is_not_a_claim(self):
+        text = '# A thing. This said "default OFF" once. Default ON.\n# FLAG_A=false\n'
+        assert self._claims(text) == []
+
+    def test_a_silent_live_override_is_a_finding(self):
+        assert self._overrides("# A thing. Default ON.\nFLAG_A=false\n") == ["FLAG_A"]
+
+    def test_a_live_override_that_says_so_is_not(self):
+        text = "# A thing. Default ON. THE LINE BELOW SETS IT OFF.\nFLAG_A=false\n"
+        assert self._overrides(text) == []
+
+    def test_saying_the_wrong_direction_does_not_acquit(self):
+        text = "# A thing. Default OFF. THE LINE BELOW SETS IT ON.\nFLAG_B=false\n"
+        assert self._overrides(text) == []            # agrees with its default
+        text = "# A thing. THE LINE BELOW SETS IT ON.\nFLAG_A=false\n"
+        assert self._overrides(text) == ["FLAG_A"]    # says ON over a line setting OFF
+
+    def test_a_commented_example_is_not_an_override(self):
+        assert self._overrides("# A thing.\n# FLAG_A=false\n") == []
+
+    def test_a_live_line_matching_its_default_is_not_an_override(self):
+        assert self._overrides("# A thing.\nFLAG_A=true\n") == []
+
+    def test_an_override_under_no_prose_is_still_found(self):
+        # Keyed on the LINE: a live override with only an unrelated header
+        # above it is the silent case at its plainest.
+        assert self._overrides("# -- Section --\nOTHER=1\nFLAG_A=0\n") == ["FLAG_A"]
+
+    def test_an_override_with_no_comment_above_it_at_all_is_found(self):
+        # The first draft of the walk started only at a `#` line, so this run
+        # was never visited: the quiet direction, in the rule about silence.
+        assert self._overrides("OTHER=1\n\nFLAG_A=false\n") == ["FLAG_A"]
+
+
+def test_the_live_auto_close_docstring_claims_no_default():
+    """Pinned by NAME, the `LearningConfig` precedent: docstrings are outside
+    the reader rule, and this one said "Gated (default OFF)" and "the latter
+    defaults False ... byte-identical until an operator opts in" over a flag
+    that ships ON -- on the method that closes live positions at market. It
+    now points at the declaration instead of restating it."""
+    import inspect
+
+    from bot.core.engine import RuneClawEngine
+    from tests.default_comments import _claim
+    doc = inspect.getdoc(RuneClawEngine._evaluate_live_smart_exits) or ""
+    assert "live_auto_close_enabled" in doc, "the docstring no longer names its gate"
+    assert _claim(doc) is None, (
+        "the live auto-close docstring states a default again; the default "
+        "lives in bot/config.py alone")

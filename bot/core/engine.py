@@ -3325,6 +3325,26 @@ class RuneClawEngine:
         self.portfolio._combined_saver = self._save_combined_state
         self.risk._combined_saver = self._save_combined_state
 
+    def detach_state_persistence(self) -> None:
+        """Make this engine a READER of the operator's state, never a writer.
+
+        For a second process that builds its own engine over the same data
+        directory: `api_bridge.py`'s lifespan does. Every portfolio and risk
+        save funnels through `_save_combined_state` below, which writes the
+        WHOLE file from THIS instance's memory -- so a second instance's save
+        is not a merge, it is its stale copy stamped over the bot's. Driven:
+        the bot's streak breaker tripped, a paper close through the bridge
+        saved, and a restarted bot came up with the breaker closed and the
+        streak at 0. `PortfolioTracker`'s revision guard does not cover it:
+        that guards the portfolio's own file, and production saves through
+        this one. A revision guard HERE would be worse than none -- after one
+        stray write the bot's own copy reads as the stale one and every
+        breaker save it makes is refused -- so the fix is one writer.
+
+        Idempotent. Nothing is lost: the bot remains the writer.
+        """
+        self._state_persistence_detached = True
+
     def _save_combined_state(self) -> None:
         """Atomically write the OPERATOR's portfolio + risk state to a single file.
         Called by either portfolio._auto_save() or risk._save_state() whenever
@@ -3342,6 +3362,11 @@ class RuneClawEngine:
         same account and risk write-skew between the two; keep this file
         operator-only. The test suite guards this intent
         (tests/test_combined_state_per_user_intent.py)."""
+        if getattr(self, "_state_persistence_detached", False):
+            # A reader (`detach_state_persistence`). Returning, not raising:
+            # the risk engine falls back to its OWN file when this raises,
+            # which would be the same stale write through a second door.
+            return
         combined = {
             "version": 1,
             "portfolio": self.portfolio._export_state_dict(),
@@ -8158,23 +8183,23 @@ class RuneClawEngine:
         return prices
 
     async def _evaluate_live_smart_exits(self, executor) -> None:
-        """Gated (default OFF): auto-close LIVE positions whose thesis has
-        invalidated, instead of letting them ride to the exchange stop-loss.
+        """Auto-close LIVE positions whose thesis has invalidated, at market,
+        instead of letting them ride to the exchange stop-loss.
 
         Runs the SAME smart-exit checks the paper path already applies in
         ``_check_paper_positions`` — time stop, signal-hold limit, VWAP-reversion
         done/failed, volume-signal decay — against the executor's open positions,
         and closes a fired position at market via ``executor.close_position``.
 
-        Gated behind ``CONFIG.time_stop.enabled`` AND
-        ``CONFIG.time_stop.live_auto_close_enabled`` (both must be true; the
-        latter defaults False), so live behaviour is byte-identical until an
-        operator opts in. Fail-open throughout: any error is swallowed so this
-        can never disrupt the SL/TP monitoring that runs alongside it. Never
-        bypasses the risk engine — it only ever CLOSES an existing position.
+        Runs only while ``CONFIG.time_stop.enabled`` AND
+        ``CONFIG.time_stop.live_auto_close_enabled`` are both true; its default
+        lives in bot/config.py alone (this said OFF over a flag that ships ON).
+        Fail-open throughout: any error is swallowed so this can never disrupt
+        the SL/TP monitoring that runs alongside it. Never bypasses the risk
+        engine — it only ever CLOSES an existing position.
         """
         cfg = CONFIG.time_stop
-        if not (cfg.enabled and getattr(cfg, "live_auto_close_enabled", False)):
+        if not (cfg.enabled and cfg.live_auto_close_enabled):
             return
         try:
             from bot.core.smart_exits import (

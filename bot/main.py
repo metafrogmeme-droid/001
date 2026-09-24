@@ -744,12 +744,23 @@ def run_telegram() -> None:
 
 
 async def run_cli() -> None:
-    """Interactive CLI for testing skills without Telegram."""
+    """Interactive CLI for testing skills without Telegram.
+
+    Its engine is a READER. `--mode telegram` is the process that owns the
+    bot's state; this one is started beside it, over the same data directory,
+    and every save it made wrote its own copy of the operator's breaker over
+    the bot's (`RuneClawEngine.detach_state_persistence`). So a halt typed
+    here halts this copy and nothing else -- the banner says so, because a
+    skill's own reply cannot know it is running in a copy.
+    """
     engine = RuneClawEngine()
+    engine.detach_state_persistence()
     registry = build_default_registry()
 
     print(_banner())
     print("  CLI Mode -- type a skill name or 'quit' to exit.")
+    print("  This is a separate engine. Nothing it does is saved, and nothing "
+          "here reaches a running bot: halt that from Telegram.")
     print(f"  Available: {', '.join(s.split(' --')[0] for s in registry.list_skills())}\n")
 
     while True:
@@ -789,8 +800,9 @@ async def run_cli() -> None:
 
 
 async def run_scan() -> None:
-    """One-shot market scan for quick testing."""
+    """One-shot market scan for quick testing. A reader, as `run_cli` is."""
     engine = RuneClawEngine()
+    engine.detach_state_persistence()
     registry = build_default_registry()
     print(_banner())
     result = await registry.dispatch("scan_market", engine)  # type: ignore

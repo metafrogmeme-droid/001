@@ -374,6 +374,7 @@ async def test_multi_asset_scan():
     step(8, "Multi-Asset Pipeline (Top 3 Movers)")
 
     engine = RuneClawEngine()
+    engine.detach_state_persistence()  # a reader: not the bot
     scanner = engine.scanner
     signals = await scanner.scan()
 

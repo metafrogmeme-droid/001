@@ -40,9 +40,7 @@ from bot.api.lab import lab_router
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.core.analyzer import _detect_candlestick_patterns
 from bot.utils.models import (
-    Direction,
     MarketSignal,
-    RiskVerdict,
     TradeIdea,
 )
 
@@ -317,6 +315,10 @@ class ChatRequest(BaseModel):
 async def lifespan(app: FastAPI):
     global engine, _start_time
     engine = RuneClawEngine()
+    # A READER of the bot's state, never a writer: this process shares the
+    # bot's data directory, and its saves stamped a stale copy of the
+    # operator's breaker over the bot's (`detach_state_persistence`).
+    engine.detach_state_persistence()
     _start_time = time.time()
     yield
     # Cleanup: close exchange connection
@@ -394,23 +396,50 @@ async def require_dashboard_token(
 
 # ── Endpoints ────────────────────────────────────────────────────
 
-def _health_gate_fields() -> dict:
-    """`trading_blocked_by` (+ an unknown flag) for the public /health body.
+def _bot_breaker_fields() -> dict:
+    """What this process can say about whether the BOT is halted.
 
-    Kept as a function so /health stays one dict literal and so the "never
-    raises" promise is enforced in one place rather than repeated inline.
+    THIS WAS THE BRIDGE'S OWN ENGINE, NOT THE BOT'S. `entry_gate(engine)` and
+    `engine.risk.circuit_breaker_active` read the copy this process loaded at
+    startup, and the bridge runs no trading loop, so nothing ever changed it.
+    Driven: the bot's streak breaker tripped, and /health -- "THE surface the
+    operator checked during the 2026-07-29 incident", in its own words below
+    -- read `circuit_breaker_active: false` with nothing blocking trading.
+    The fix routed through `entry_gate` was aimed at the wrong process.
+
+    The breaker comes from what the bot SAVED (`persisted_breaker`), with the
+    time it saved it. `trading_gate_unknown` is True on every answer, and
+    that is the measurement, not a hedge: the warning-rate breaker and the
+    venue-authentication halt live in the bot's memory, so "nothing blocking"
+    read from here is never a complete all-clear. `trading_gate_scope` says
+    which half was read. Never raises.
     """
+    from bot.core.persisted_breaker import (
+        UNSAVED_GATES,
+        blocked_by,
+        read_persisted_breaker,
+    )
+    scope = (f"the bot's saved circuit breaker only; {UNSAVED_GATES} are "
+             "held in the bot's memory and cannot be read from this process")
     if engine is None:
-        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+        return {"trading_blocked_by": "", "trading_gate_unknown": True,
+                "trading_gate_scope": scope}
     try:
-        from bot.core.trade_gate import entry_gate
-        g = entry_gate(engine, include_detail=False)
-        return {"trading_blocked_by": "; ".join(g["reasons"]),
-                "trading_gate_unknown": bool(g["unknown"])}
+        r = read_persisted_breaker(getattr(engine, "_combined_state_file", None))
     except Exception:
-        # Never let the status field be the reason /health fails. Absent-ish
-        # rather than a fabricated "", which would read as "trading is fine".
-        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+        r = {"state": "unreadable"}
+    out: dict = {
+        "circuit_breaker_read": r["state"],
+        "trading_blocked_by": blocked_by(r),
+        "trading_gate_unknown": True,
+        "trading_gate_scope": scope,
+    }
+    if r["state"] == "read":
+        out["circuit_breaker_active"] = r["circuit_open"]
+        out["consecutive_losses"] = r["consecutive_losses"]
+        if r["saved_at"]:
+            out["circuit_breaker_saved_at"] = r["saved_at"]
+    return out
 
 
 @app.get("/health")
@@ -419,8 +448,8 @@ async def health():
     #
     # This dict already knew the rule twice over — `engine_universe_size` and
     # `analyze_capacity` below are left OUT rather than guessed, because "a zero
-    # here would read as 'nothing to scan'", and `_health_gate_fields()` three
-    # lines up returns `trading_gate_unknown: True` rather than a fabricated ""
+    # here would read as 'nothing to scan'", and `_bot_breaker_fields()`
+    # above returns `trading_gate_unknown: True` rather than a fabricated ""
     # "which would read as 'trading is fine'". Two fields in between did the
     # opposite:
     #
@@ -448,30 +477,19 @@ async def health():
         **({"uptime_seconds": round(time.time() - _start_time, 1)}
            if _start_time else {}),
         "simulation_mode": CONFIG.simulation_mode,
-        **({"circuit_breaker_active": engine.risk.circuit_breaker_active}
-           if _ready else {}),
         # circuit_breaker_active covers daily_loss/drawdown/streak/manual and
         # NOT the warning-rate breaker, so it read "clear" while that breaker
-        # was rejecting live trades. This field answers the question the
-        # narrow one was being read as: is trading blocked, and by what.
-        #
-        # `engine.risk.trading_blocked_by` was only PART of that answer. The
-        # kill switch and the venue auth halt sit outside it, so /health --
-        # THE surface the operator checked during the 2026-07-29 incident --
-        # would have reported "" while the bot's own cards said Paused. Every
-        # bot surface routes through entry_gate; this one has to as well or
-        # the divergence just moves to HTTP.
-        #
-        # include_detail=False: this endpoint takes no token. That trading is
-        # halted and which class of gate did it is the kind of status /health
-        # already publishes; the venue's raw error text is not.
-        #
-        # entry_gate also never raises, where reading the property directly
-        # could -- a health endpoint that 500s on a risk-engine hiccup reports
-        # the wrong outage.
-        **_health_gate_fields(),
-        **({"open_positions": len(engine.portfolio.open_positions)}
-           if _ready else {}),
+        # was rejecting live trades; `trading_blocked_by` answers the question
+        # the narrow one was being read as. Both used to be computed here --
+        # the second through `entry_gate`, "or the divergence just moves to
+        # HTTP" -- over THIS PROCESS's engine, which is a copy of the bot's
+        # and runs no trading loop, so the divergence was already on HTTP.
+        # They are the bot's SAVED breaker now (`_bot_breaker_fields`), with
+        # `trading_gate_unknown` naming the two gates no other process can
+        # read. `open_positions` is gone for the same reason: it counted this
+        # process's copy of the paper book, which the live-only bot never
+        # updates, so "0" read as a flat account beside real positions.
+        **_bot_breaker_fields(),
         # Named for what it IS. `universe_size` alone read as the engine's
         # trading universe and was used that way in a live diagnosis; it is
         # this bridge's own fixed /scan list and nothing else.
@@ -728,129 +746,48 @@ async def portfolio(_token: str = Depends(require_dashboard_token)):
     }
 
 
+_NOT_THE_BOOK = (
+    "This process's paper book is a copy loaded when the API bridge started; "
+    "the trading bot never reads it, and the bot is live-only. Saving that "
+    "copy also wrote this process's stale risk state over the bot's.")
+
+
 @app.post("/confirm")
 async def confirm_trade(req: ConfirmRequest, _token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
-    """Confirm a trade idea and open a position."""
-    if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
-
-    # SEC-H3 FIX: validate asset symbol before it reaches CCXT
-    if not _SYMBOL_RE.match(req.asset):
-        raise HTTPException(status_code=400, detail="Invalid asset format. Expected e.g. 'BTC/USDT'.")
-
-    direction = Direction.LONG if req.direction.upper() == "LONG" else Direction.SHORT
-    idea = TradeIdea(
-        id=req.trade_id,
-        asset=req.asset,
-        direction=direction,
-        entry_price=req.entry_price,
-        stop_loss=req.stop_loss,
-        take_profit=req.take_profit,
-        confidence=req.confidence,
-        reasoning=req.reasoning,
-    )
-
-    # Fetch ATR for volatility guard (audit fix: /confirm must pass ATR)
-    atr_val = None
-    ohlcv = await _fetch_ohlcv(req.asset, "1h", limit=100)
-    if ohlcv and len(ohlcv) >= 15:
-        candles = np.array(ohlcv)
-        highs = candles[:, 2].astype(float)
-        lows = candles[:, 3].astype(float)
-        closes = candles[:, 4].astype(float)
-        atr_val = _atr(highs, lows, closes)
-
-    # Risk gate with ATR
-    risk_result = engine.risk.evaluate(idea, atr=atr_val)
-    if risk_result.verdict == RiskVerdict.REJECTED:
-        return {
-            "status": "rejected",
-            "reason": risk_result.reason,
-            "checks_failed": risk_result.checks_failed,
-        }
-
-    # Open position
-    try:
-        execution = engine.portfolio.open_position(idea, risk_result.position_size_usd)
-    except Exception as exc:
-        # RC-AUD-013: do not echo raw exception text to the client.
-        import logging
-        logging.getLogger("api_bridge").error("Position open failed: %s", exc)
-        raise HTTPException(status_code=400, detail="Position open failed (logged server-side)")
-
-    return {
-        "status": "confirmed",
-        "execution": execution.model_dump(mode="json"),
-        "position_size_usd": risk_result.position_size_usd,
-    }
+    """REFUSES. It opened a position in this process's copy of the operator's
+    paper book and answered "confirmed". Nothing the bot reads ever saw it,
+    and the save that followed stamped the bridge's stale breaker over the
+    bot's (`RuneClawEngine.detach_state_persistence`). With that save gone it
+    would be a door that does nothing and says it did, so it says what is
+    true instead."""
+    return JSONResponse(status_code=410, content={
+        "ok": False, "status": "refused",
+        "message": "Nothing was opened. " + _NOT_THE_BOOK})
 
 
 @app.post("/portfolio/close/{symbol}")
 async def close_position(symbol: str, _token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
-    """Force-close an open position by symbol (paper trading)."""
-    if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
-
-    # SEC-H3 FIX: validate symbol before it reaches CCXT
-    if not _SYMBOL_RE.match(symbol):
-        raise HTTPException(status_code=400, detail="Invalid symbol format.")
-
-    positions = engine.portfolio.open_positions
-    target = None
-    for pos in positions:
-        if pos.asset == symbol:
-            target = pos
-            break
-
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"No open position for {symbol}")
-
-    # Fetch current price
-    ohlcv = await _fetch_ohlcv(symbol, "1m", limit=1)
-    current_price = float(ohlcv[-1][4]) if ohlcv else target.entry_price
-
-    # Force close using public API
-    execution = engine.portfolio.close_position(target.id, current_price)
-    if execution is None:
-        raise HTTPException(status_code=500, detail="Failed to close position")
-
-    return {
-        "status": "closed",
-        "execution": execution.model_dump(mode="json"),
-    }
-
-
-def _risk_status_gate_fields() -> dict:
-    """As `_health_gate_fields`, but token-gated so the detail is kept."""
-    try:
-        from bot.core.trade_gate import entry_gate
-        g = entry_gate(engine)
-        return {"trading_blocked_by": "; ".join(g["reasons"]),
-                "trading_gate_unknown": bool(g["unknown"])}
-    except Exception:
-        return {"trading_blocked_by": "", "trading_gate_unknown": True}
+    """REFUSES, as `/confirm` does and for the same reason: this closed a
+    position in a copy of the paper book no process reads, and its save is
+    the one that was driven erasing a breaker the bot had tripped."""
+    return JSONResponse(status_code=410, content={
+        "ok": False, "status": "refused",
+        "message": "Nothing was closed. " + _NOT_THE_BOOK})
 
 
 @app.get("/risk/status")
 async def risk_status(_token: str = Depends(require_dashboard_token)):
-    """Return risk engine state."""
+    """The bot's saved breaker, and the configured limits.
+
+    Every figure here used to be this process's own engine: its breaker copy
+    from startup, its warning-rate flag, and `stats` / `rejection_history`
+    counting the evaluations THIS process ran. None described the bot. The
+    breaker is the bot's saved one now (`_bot_breaker_fields`); the
+    warning-rate flag and the bridge's own evaluation counters are gone
+    rather than relabelled, because nothing here can read the bot's."""
     if engine is None: raise HTTPException(status_code=503, detail="Engine not initialized")
     return {
-        "circuit_breaker_active": engine.risk.circuit_breaker_active,
-        "warning_rate_breaker_active": engine.risk.warning_rate_breaker_active,
-        # The single field to read when asking "can we trade right now": ""
-        # when trades are going through, otherwise the reason they are not.
-        #
-        # That sentence was written about `engine.risk.trading_blocked_by` and
-        # was false by the time three more gates were found -- the kill
-        # switch, the CALLER's own breaker and the venue auth halt all sit
-        # outside it, so the field promised a completeness it did not have.
-        # Sourced from entry_gate, the sentence is true again.
-        #
-        # This endpoint IS token-gated, so it keeps the venue detail that
-        # public /health drops.
-        **_risk_status_gate_fields(),
-        "consecutive_losses": engine.risk.consecutive_losses,
-        "stats": engine.risk.stats,
-        "rejection_history": engine.risk.rejection_history[-10:],
+        **_bot_breaker_fields(),
         "config": {
             "min_confidence": CONFIG.risk.min_confidence,
             "max_open_positions": CONFIG.risk.max_open_positions,
@@ -1082,63 +1019,35 @@ async def insight(symbol: str = "", timeframe: str = "1h", limit: int = 200,
 
 @app.post("/risk/halt")
 async def risk_halt(_token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
-    """Trip the circuit breaker so no NEW entry is accepted.
+    """THIS PROCESS CANNOT HALT THE BOT, and it answered that it had.
 
-    IT DOES NOT CLOSE POSITIONS, and this docstring said it did. The call is
-    `RiskEngine.emergency_halt`, which trips the breaker and persists it;
-    flattening every account is `engine.emergency_halt_all`, behind the
-    Telegram emergency_confirm button. "Close all open positions" is a
-    four-word promise this endpoint never kept, and an operator who reads it
-    during a drawdown stops looking for the button that actually flattens.
+    The bridge is a separate process with its own engine. The call was
+    `engine.risk.emergency_halt` on THAT engine, and the answer was read back
+    from the same one -- so it always said "Circuit breaker tripped". Driven:
+    the bot's breaker stayed closed and it kept accepting entries, and the
+    bot's next ordinary save wrote its own `circuit_open: false` over the
+    halt, so a restarted bot came up NOT halted. The emergency stop reporting
+    success on its own failure is the one thing its earlier fix -- reading
+    the breaker back instead of returning a literal -- existed to end; that
+    fix read back the right field from the wrong process.
 
-    THREE OUTCOMES, and the reason they are not one: the halt ran under
-    `except Exception: pass` and the function then returned
-    `ok: True, circuit_breaker_active: True` **unconditionally** — the
-    emergency stop reporting success on its own failure, which is the single
-    worst thing a control on this path can do. The breaker is read BACK from
-    the engine now, so the answer states what is true rather than what was
-    attempted:
-
-      True   -> the breaker is open. Halted.
-      False  -> the call returned and the breaker is still closed. NOT halted.
-      unread -> nobody could ask. That is not "on", and must never render as
-                success on an emergency control.
+    There is no operator-halt door in the bot that this process can reach
+    (the website's Emergency stop is per-user and queued through the
+    database), so it REFUSES, says nothing was halted, names the door that
+    works, and reports the bot's breaker as the bot last saved it.
     """
-    if engine is None:
-        raise HTTPException(503, "Engine not initialized")
-
-    failure = ""
-    try:
-        engine.risk.emergency_halt("Emergency halt from dashboard")
-    except Exception as exc:
-        # The CLASS name only. This body reaches an operator surface, and a
-        # driver message can carry a request URL with credentials in it.
-        failure = type(exc).__name__
-
-    try:
-        active = bool(engine.risk.circuit_breaker_active)
-    except Exception as exc:
-        active = None
-        failure = failure or type(exc).__name__
-
-    if active is True:
-        return {"ok": True, "circuit_breaker_active": True,
-                "closed_positions": False,
-                "message": "Circuit breaker tripped — no new entries. "
-                           "Open positions are NOT closed by this endpoint."}
-    if active is False:
-        return JSONResponse(status_code=500, content={
-            "ok": False, "circuit_breaker_active": False,
-            "closed_positions": False,
-            "message": "HALT DID NOT TAKE — the breaker is still closed and "
-                       "new entries are still being accepted."
-                       + (f" ({failure})" if failure else "")})
-    return JSONResponse(status_code=500, content={
-        "ok": False, "circuit_breaker_active": None,
+    fields = _bot_breaker_fields()
+    return JSONResponse(status_code=501, content={
+        "ok": False,
+        "halted": False,
         "closed_positions": False,
-        "message": "Halt was attempted and its result could NOT be read. Do "
-                   "not assume the bot is halted."
-                   + (f" ({failure})" if failure else "")})
+        **{k: fields[k] for k in ("circuit_breaker_read", "circuit_breaker_active",
+                                  "circuit_breaker_saved_at") if k in fields},
+        "message": ("Nothing was halted. This endpoint runs in the API bridge, "
+                    "a separate process from the trading bot, and cannot reach "
+                    "its breaker. Halt the bot itself from Telegram with /halt "
+                    "or /emergency_stop."),
+    })
 
 
 # ── Static website serving ──────────────────────────────────────

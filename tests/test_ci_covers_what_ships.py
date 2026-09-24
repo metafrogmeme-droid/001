@@ -183,12 +183,19 @@ def test_the_app_baseline_exists_and_is_a_floor_not_an_approval():
 
 # ── the gates reach preflight ────────────────────────────────────────
 
-def test_the_new_gates_run_locally_too():
+def test_the_new_gates_run_locally_too(monkeypatch):
     """The property CLAUDE.md advertises: a new CI step becomes a preflight step
     for free, because preflight PARSES ci.yml rather than restating it. Asserted
     because a step added to a job preflight does not run would be a gate nobody
-    sees until CI."""
+    sees until CI.
+
+    `preflight` does `import toolchain`, which resolves because running it as a
+    script puts `scripts/` first on the path. Loaded by file location it does
+    not, so this passed in a full run only because an EARLIER test had put
+    `scripts/` there, and failed on its own -- order-dependent in the direction
+    the gate never looks at, since it only re-runs a test that FAILED."""
     import importlib.util
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
     spec = importlib.util.spec_from_file_location(
         "_preflight", REPO / "scripts" / "preflight.py")
     mod = importlib.util.module_from_spec(spec)

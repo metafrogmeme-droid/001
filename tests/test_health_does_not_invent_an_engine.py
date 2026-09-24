@@ -122,18 +122,39 @@ class TestWithNoEngine:
 
 
 # ── the other half: a real engine still reports ──────────────────────
+#
+# WHAT IT REPORTS MOVED. These used to plant `engine.risk.circuit_breaker_active`
+# and three paper positions on the bridge's engine and pin both on /health. That
+# engine is the bridge's COPY of the bot's state, loaded once at startup, so
+# both figures described a process that trades nothing: with the bot halted
+# they read clear (tests/test_the_bridge_is_a_reader_of_the_bots_state.py). The
+# breaker comes from what the bot SAVED now, and the paper count is gone.
+
+def _engine_with_saved(tmp_path, circuit_open):
+    import json
+    state = tmp_path / "combined_state.json"
+    state.write_text(json.dumps({"risk": {
+        "circuit_open": circuit_open, "consecutive_losses": 0,
+        "last_loss_time": None, "circuit_breaker_trips": 0,
+        "circuit_trip_cause": "manual" if circuit_open else "",
+        "circuit_trip_day": ""}, "written_at": "2026-09-23T17:00:00+00:00"}))
+    eng = _Engine()
+    eng._combined_state_file = str(state)
+    return eng
+
 
 class TestWithAnEngine:
     @pytest.fixture(autouse=True)
-    def _engine(self, bridge, monkeypatch):
-        monkeypatch.setattr(bridge, "engine", _Engine(), raising=False)
+    def _engine(self, bridge, monkeypatch, tmp_path):
+        monkeypatch.setattr(bridge, "engine", _engine_with_saved(tmp_path, True),
+                            raising=False)
 
     def test_the_numbers_come_back(self, bridge):
         """Otherwise the fix passes every assertion above by emptying the
         endpoint — the failure mode a redaction test has to rule out."""
         body = _health(bridge)
         assert body["circuit_breaker_active"] is True
-        assert body["open_positions"] == 3
+        assert body["circuit_breaker_saved_at"]
 
     def test_and_the_headline_is_ok(self, bridge):
         body = _health(bridge)
@@ -146,24 +167,24 @@ class TestWithAnEngine:
         absence tests and hide the breaker."""
         body = _health(bridge)
         assert body["circuit_breaker_active"] is True
+        assert body["trading_blocked_by"] == "manual"
 
-    def test_a_clear_breaker_is_reported_as_clear_not_omitted(self, bridge, monkeypatch):
+    def test_a_clear_breaker_is_reported_as_clear_not_omitted(
+            self, bridge, monkeypatch, tmp_path):
         """`False` is a MEASUREMENT here, and the whole point is telling it
         apart from absent. Omitting a measured False would be the same defect
         with the sign flipped."""
-        eng = _Engine()
-        eng.risk = type("R", (), {"circuit_breaker_active": False})()
-        monkeypatch.setattr(bridge, "engine", eng, raising=False)
+        monkeypatch.setattr(bridge, "engine", _engine_with_saved(tmp_path, False),
+                            raising=False)
         body = _health(bridge)
         assert body["circuit_breaker_active"] is False
 
-    def test_a_genuinely_empty_book_reports_zero(self, bridge, monkeypatch):
-        """Same argument for the count: measured 0 must still be published."""
-        eng = _Engine()
-        eng.portfolio = type("P", (), {"open_positions": []})()
-        monkeypatch.setattr(bridge, "engine", eng, raising=False)
+    def test_the_copys_paper_book_is_not_counted(self, bridge):
+        """This used to pin a measured 0. The count was of the bridge's copy
+        of the paper book, which the live-only bot never updates, so "0"
+        read as a flat account beside real positions. Not published."""
         body = _health(bridge)
-        assert body["open_positions"] == 0
+        assert "open_positions" not in body
 
 
 # ── uptime ───────────────────────────────────────────────────────────

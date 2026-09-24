@@ -161,6 +161,7 @@ async def run_all():
     try:
         from bot.core.engine import RuneClawEngine
         engine = RuneClawEngine()
+        engine.detach_state_persistence()  # a reader: not the bot
         record("trading", "engine init", True, f"state={engine.state}")
         record("trading", "portfolio wired", engine.portfolio is not None,
                f"portfolio={type(engine.portfolio).__name__}")

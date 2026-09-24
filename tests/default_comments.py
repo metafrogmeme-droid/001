@@ -244,8 +244,133 @@ def reader_findings(files: Optional[dict[str, str]] = None,
     return out
 
 
+ENV_EXAMPLE = ROOT / ".env.example"
+
+#: An assignment line in `.env.example`, commented (`# X=false`) or live
+#: (`X=false`). It ENDS a prose block rather than joining it: the file's
+#: examples are `#` lines too, so the Python rule's "every contiguous `#` line"
+#: would read an example value as prose and pair the block with nothing.
+_ENV_ASSIGN = re.compile(r"^#?\s*([A-Z][A-Z0-9_]*)=(\S*)")
+
+#: What a LIVE example line does, said in the block above it. `cp .env.example
+#: .env` is the documented install, so a live line that sets a flag opposite to
+#: its declared default is the value that install RUNS, and a block that only
+#: names the default describes a different install.
+_EXAMPLE_SAYS = {
+    False: re.compile(r"lines?\s+below\s+(sets?\s+it\s+off|disables?\s+it)", re.I),
+    True: re.compile(r"lines?\s+below\s+(sets?\s+it\s+on|enables?\s+it)", re.I),
+}
+_TRUE_WORDS = {"true", "1", "yes", "on"}
+_FALSE_WORDS = {"false", "0", "no", "off"}
+
+
+class EnvBlock(NamedTuple):
+    line: int                      # 1-indexed first line of the prose block
+    block: str                     # the prose, joined
+    run: list[tuple[str, int, Optional[bool]]]
+    # each assignment below it: (ENV, line, value a LIVE line sets or None)
+
+
+def env_example_blocks(src: Optional[str] = None) -> list[EnvBlock]:
+    """Every prose block in `.env.example` with the assignment run below it."""
+    text = ENV_EXAMPLE.read_text() if src is None else src
+    lines = text.splitlines()
+    out: list[EnvBlock] = []
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        # A run with NO prose above it is still read, with empty prose: an
+        # override there is the silent case at its plainest, and a walk that
+        # starts only at a `#` line never visits it.
+        if not s.startswith("#") and not _ENV_ASSIGN.match(s):
+            i += 1
+            continue
+        start = i
+        while (i < len(lines) and lines[i].strip().startswith("#")
+               and not _ENV_ASSIGN.match(lines[i].strip())):
+            i += 1
+        block = " ".join(ln.strip().lstrip("#").strip() for ln in lines[start:i])
+        run: list[tuple[str, int, Optional[bool]]] = []
+        while i < len(lines):
+            raw = lines[i].strip()
+            m = _ENV_ASSIGN.match(raw)
+            if not m:
+                break
+            val: Optional[bool] = None
+            if not raw.startswith("#"):
+                word = m.group(2).lower()
+                val = True if word in _TRUE_WORDS else False if word in _FALSE_WORDS else None
+            run.append((m.group(1), i + 1, val))
+            i += 1
+        out.append(EnvBlock(start + 1, block, run))
+    return out
+
+
+def env_example_findings(src: Optional[str] = None,
+                         decl: Optional[dict[str, tuple[str, bool]]] = None
+                         ) -> list[Finding]:
+    """Prose in `.env.example` that names a default its flag does not have.
+
+    THE THIRD CLAIM SITE, and the one an operator reads. The two rules above
+    walk Python; this file is where somebody deciding whether a live control
+    is running looks first, and on 2026-09-23 twelve of its blocks said OFF
+    over a flag that ships ON — the live auto-close, the live-performance
+    governor, correlation sizing, live risk hardening and the regime hard
+    gates among them. Each was flipped to default ON in 2026-07 (the runbook's
+    stage table says so) and the prose above its example line never moved.
+
+    The pairing is CERTAIN or it is not made. A prose block pairs with the run
+    of assignment lines directly below it, and only when that run holds
+    exactly ONE declared bool flag: a block over two flags cannot say which
+    one its sentence is about, and guessing is the false-accusation shape the
+    reader rule was corrected for. A blank line between the prose and the
+    example also breaks the pairing -- a miss, stated rather than guessed at.
+    """
+    decl = declared_defaults() if decl is None else decl
+    by_env = {env: default for env, default in decl.values()}
+    out: list[Finding] = []
+    for b in env_example_blocks(src):
+        claim = _claim(b.block)
+        if claim is None:
+            continue
+        flags = [env for env, _ln, _v in b.run if env in by_env]
+        if len(flags) != 1:
+            continue                  # no flag, or two: the pairing is a guess
+        env, actual = flags[0], by_env[flags[0]]
+        if claim == "both" or (claim == "off") is not (not actual):
+            out.append(Finding(".env.example", b.line, env, claim, actual,
+                               "env-example", b.block[:120]))
+    return out
+
+
+def env_example_silent_overrides(src: Optional[str] = None,
+                                 decl: Optional[dict[str, tuple[str, bool]]] = None
+                                 ) -> list[Finding]:
+    """LIVE example lines that set a flag opposite to its default, unsaid.
+
+    Keyed on the LINE, not the pairing: whatever sits above a live override
+    has to say what the line does, including when nothing does. Six lines did
+    this on 2026-09-23, and five had prose calling the flag default OFF, so the
+    file read as consistent while `cp .env.example .env` switched off five
+    controls the runbook lists as default ON.
+    """
+    decl = declared_defaults() if decl is None else decl
+    by_env = {env: default for env, default in decl.values()}
+    out: list[Finding] = []
+    for b in env_example_blocks(src):
+        for env, ln, val in b.run:
+            if val is None or env not in by_env or val == by_env[env]:
+                continue
+            if not _EXAMPLE_SAYS[val].search(b.block):
+                out.append(Finding(".env.example", ln, env,
+                                   "on" if val else "off", by_env[env],
+                                   "env-example-override", b.block[:120]))
+    return out
+
+
 def all_findings() -> list[Finding]:
-    return sorted(declaration_findings() + reader_findings(),
+    return sorted(declaration_findings() + reader_findings()
+                  + env_example_findings(),
                   key=lambda f: (f.path, f.line))
 
 

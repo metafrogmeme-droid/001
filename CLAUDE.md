@@ -7305,6 +7305,53 @@ than by an exemption naming it.
 (`tests/test_a_comment_names_the_default_the_flag_has.py`,
 `tests/default_comments.py`.)
 
+**AND THE FILE AN OPERATOR ACTUALLY READS WAS THE THIRD CLAIM SITE, WITH TWELVE
+OF THEM.** Both rules above walk Python. `.env.example` is where somebody
+deciding whether a live control is running looks first, and twelve of its
+prose blocks said OFF directly above a flag that ships ON: the live auto-close,
+the live-performance governor ("opt-in, default OFF"), correlation sizing, live
+risk hardening, the regime hard gates, confidence calibration and six more. The
+runbook's stage table records every one of them as flipped to default ON in
+2026-07, and the prose above each example line never moved. The auto-close
+also carried the claim in Python, in a DOCSTRING — *"Gated (default OFF) ...
+the latter defaults False, so live behaviour is byte-identical until an operator
+opts in"* — on the method that closes live positions at market, beside a
+`getattr(cfg, ..., False)` fallback that cannot fire because the frozen field
+always exists. Docstrings are outside the reader rule by design, so that one is
+pinned by NAME, the `LearningConfig` precedent, and it now points at the
+declaration instead of restating it. **Found by investigating trade signals,
+not by any guard**: the question was which exits live really runs.
+
+**`cp .env.example .env` IS THE DOCUMENTED INSTALL, SO A LIVE EXAMPLE LINE IS
+WHAT THE INSTALL RUNS.** Six lines are not commented examples but live
+assignments that set a flag opposite to its declared default — confidence
+calibration, setup expectancy, external sentiment, funding-cost awareness and
+learning auto-refit all `=false`, under prose that called each of them default
+OFF, so the file read as consistent while the documented install switched off
+five controls the runbook lists as ON. (The sixth, `AUTO_CONFIRM_LIVE_ENABLED`,
+is the deliberate safe pair the auto-confirm chapter records; its prose said
+"Default 1.0 = DISABLED" over a code default of 0.85, which is a claim about
+THIS FILE'S value dressed as one about the code's.) **The values are not
+changed**: which learners a fresh deploy runs is the operator's decision, not a
+wording fix. What changed is that the prose now says what each live line DOES,
+and a second rule, keyed on the LINE, fails when a live override sits under no
+sentence saying so.
+
+**The pairing is certain or it is not made**, which is the reader rule's lesson
+applied from the start rather than learned again. `.env.example`'s examples are
+`#` lines too, so the Python rule's "every contiguous `#` line" would swallow an
+example value into the prose above it; an assignment ENDS a block here. A block
+pairs with the run of assignment lines below it only when that run holds
+exactly one declared flag, and a blank line breaks the pairing — a miss, stated
+rather than guessed at. The override rule's first draft walked only from a `#`
+line, so a live override with no prose above it at all was never visited: the
+quiet direction, in the rule about silence, and a planted test now holds it.
+Sixteen mutations: fourteen killed on the first round, one gap (no fixture
+claimed BOTH defaults over a TRUE flag, where the comparison alone reads the
+block as agreeing) killed once planted, and one EQUIVALENT mutant recorded —
+the `False` fallback put back, which no input can separate from the direct read.
+(`tests/test_a_comment_names_the_default_the_flag_has.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -8365,7 +8412,10 @@ over-reports by construction and the honest answer is a recorded decision per
 site. That row's reason is itself a finding: a token-gated caller may hand the
 sizing ladder a confidence nobody measured, under an unset `source` that reads
 as the analyzer's own `"unknown"`. Recorded, not answered by a slice scoped to
-the drift re-offer.
+the drift re-offer. **Answered later, and not by this rule:** `/confirm`
+became a refusal when the bridge's engine became a reader (it opened a
+position in a stale copy of the operator's book), so it builds no idea, the
+row went stale and the ratchet refused the slice until it was deleted.
 
 **AND #422's OWN TEST HAD PINNED THIS AS THE CONTRACT.** Its writer table
 carried a row labelled *"auto_reanalyze (the drift re-offer)"* asserting it
@@ -9208,6 +9258,147 @@ the weekly review and the post-mortem read. It also feeds `time_of_day` and
 the hold-time analytics. That is practice reaching the operator's RECORD
 rather than its risk state, and it is a separate slice.
 (`tests/test_a_loss_cools_only_the_account_that_took_it.py`.)
+
+**THE API BRIDGE'S EMERGENCY STOP HALTED A COPY, AND THE BOT KEPT TRADING.**
+`api_bridge.py` is the second process this file's deploy chapter insists on
+starting (:8000), and its lifespan builds its own `RuneClawEngine` over the
+bot's data directory. That engine loads the operator's risk state once, at
+startup, and runs no trading loop, so nothing ever refreshes it. It is a copy,
+and three routes treated it as the bot. Driven, with two engines over one
+data directory (which is all two processes share):
+
+- **`POST /risk/halt`** tripped the copy's breaker, read the copy back and
+  answered *"Circuit breaker tripped — no new entries"*. The bot's breaker
+  stayed closed and it kept accepting entries. The bot's next ordinary save
+  then wrote its own `circuit_open: false` over the halt, so a restarted bot
+  came up **not halted**. The audit had already caught this endpoint
+  returning a hardcoded success. The fix made it read the breaker back, which
+  was the right field read from the wrong process.
+- **Any save by the copy erased the bot's breaker.** The bot tripped its
+  streak breaker, a paper close through the bridge's `/portfolio/close`
+  saved, and a restarted bot came up with the breaker closed and the streak
+  at 0. `_save_combined_state` writes the WHOLE file from the caller's
+  memory.
+- **`/health` read the copy's breaker**, so with the bot halted it said
+  `circuit_breaker_active: false` and nothing blocking. Its own comment calls
+  it *"THE surface the operator checked during the 2026-07-29 incident"*.
+  Routing it through `entry_gate` pointed the gate at the wrong process.
+
+**THE GUARD FOR THE SECOND ONE EXISTED AND GUARDED THE PATH PRODUCTION DOES
+NOT TAKE.** `test_portfolio_book_is_not_clobbered.py` drives real subprocesses
+against `PortfolioTracker`'s revision check, and that check covers the
+portfolio's own file. In production the portfolio and the risk engine both
+save through the engine's combined saver, which has no revision check. The
+compose file had already cut the bridge from two workers to one, because
+three engines erased each other; one bridge worker still leaves two. **And
+the obvious cure is worse than the defect.** A revision check on the combined
+saver would, after one stray write, make the BOT's own copy the stale one,
+and every breaker save the bot made would be parked in a sidecar. The fix is
+one writer: `detach_state_persistence()` makes the bridge's engine a reader.
+`_save_combined_state` RETURNS rather than raising for a reader, because the
+risk engine falls back to its own file when the saver raises, and that would
+be the same stale write through a second door.
+
+**The bridge reports what the bot SAVED, and says what it cannot see.**
+`bot/core/persisted_breaker.py` reads the bot's saved block with the bot's
+own validator (`RiskEngine._read_state_dict`), so the two processes cannot
+disagree about what a readable risk state is. It has three outcomes (`read`,
+`absent`, `unreadable`) and the save time rides along. `trading_gate_unknown`
+is True on every answer from the bridge, and that is a measurement rather
+than a hedge. The warning-rate breaker and the venue-authentication halt live
+only in the bot's memory, so "nothing blocking" read from another process is
+never a complete all-clear; `trading_gate_scope` names both.
+`open_positions` is gone from the bridge's `/health`: it counted the copy's
+paper book, which the live-only bot never updates, so `0` read as a flat
+account beside real positions.
+
+**The halt refuses and names the door that works**, because the bot has no
+operator halt the bridge can reach. The website's Emergency stop is per-user
+and queued through the database. `/confirm` and `/portfolio/close` refuse
+too. With the copy unable to save, they would answer "confirmed" for
+positions nothing reads: the `/vault` hint shape, a door that does nothing
+and says it did.
+
+**Six tests pinned the halt's false success as the contract**, over a stub
+that made the bridge's own breaker halt: the one arrangement in which the
+copy's breaker IS the bot's. *A fixture that cannot see the process boundary
+cannot test a claim about it.* `test_http_gate_parity.py` was the same shape
+at file scale. It was written so that *"the divergence just moves to HTTP"*
+could not happen, and it pinned both endpoints to `entry_gate(engine)` over
+the copy. The divergence had been on HTTP the whole time, one process over.
+Its public/private split survives as a drive: free text planted beside the
+six saved fields never reaches the unauthenticated endpoint, because the
+bot's validator keeps only those fields. `SECURITY.md` described the three routes as
+state-changing controls. It had also listed `/risk/status` as
+unauthenticated for as long as it has required the token. `guard_lint`'s rule
+said *"/confirm places a trade"* about a paper position in a copy.
+
+**Running this slice's neighbours found a test that fails ALONE and passes
+in a full run.** `test_the_new_gates_run_locally_too` loads
+`scripts/preflight.py` by file location. `preflight` does `import toolchain`,
+which resolves only when `scripts/` is on the path, as running it as a script
+puts it. So it passed whenever an earlier test had put it there. That is the
+order-dependence the flake filter cannot see from the other side: the filter
+only re-runs a test that failed. The test puts the path there itself now.
+
+**Recorded, not changed.** `/analyze` and `/portfolio` still read the copy:
+`/analyze`'s risk verdict is evaluated against the copy's breaker, and
+`/portfolio` is the copy's paper book. Both are token-gated and nothing in
+the tree calls them. `detach_state_persistence` covers the operator's
+portfolio and risk state and says so. Of the bridge engine's other stores,
+two were checked and hold nothing on disk (the chat facade's conversation
+store, the cost tracker). One does, and was read rather than driven: the
+ladder ledger rewrites its whole file from memory, so a sized evaluation
+through the bridge's `/analyze` would erase the bot's rows recorded since the
+bridge started.
+(`tests/test_the_bridge_is_a_reader_of_the_bots_state.py`.)
+
+**AND THE BRIDGE WAS NOT THE ONLY ONE.** *Ask which OTHER surface makes the
+same claim*, pointed at a process instead of a card. Outside `tests/`,
+`RuneClawEngine` is built by the bot (`bot/main.py`'s `run_telegram`) and by
+every process below. Each of them opens the bot's data directory, and its
+first save stamps a stale copy of the operator's state over the bot's. (This
+paragraph first said "one of seven" and "eight places", from memory; the
+rule's own walk counts nine constructions, and the count is left to the walk.)
+
+- `live_e2e_test.py` (its docstring: *"Runs against the live bot
+  process"*) resets the breaker it loaded "for a clean test", calls
+  `emergency_halt`, and undoes that in memory only. Driven: the bot's saved
+  state then reads **halted, cause "manual"**, and a restarted bot comes up
+  halted. The script's own reason, *"E2E test trigger"*, is in an audit line
+  nobody reads beside it.
+- Read, not driven: `scripts/e2e_pipeline.py` opens positions in the
+  operator's shared paper book, which saves on every open. `live_test.py`,
+  `scripts/test_all_skills.py` and `bot/main.py`'s `--mode cli` and
+  `--mode scan` build engines too. The CLI runs any registered skill,
+  including the halt skill, against its copy and prints what the skill says.
+- The MCP adapter built one for itself whenever none was handed in.
+
+Each is a reader now, and the CLI's banner says a halt typed there reaches
+no running bot, because a skill's own reply cannot know it is running in a
+copy. **A list of those sites would be the `/setllm` ten-of-eleven shape**,
+where the script added tomorrow is the one missing. So
+`tests/test_only_the_bot_writes_its_state.py` is a RULE over every
+construction outside `tests/`. The engine must be detached in the same scope,
+AFTER it is built, on the same name, or the site must be an owner with its
+reason. The owner list has one row. A row whose site is gone fails, and an
+owner row cannot excuse a construction bound to no name, because nothing can
+detach one. The rule's branches are driven on planted trees (a detach before
+the build, on another name, only inside a nested function, a
+module-qualified build), because the real tree has none of them.
+
+**Sixteen mutations, each killed on the first round.** One died somewhere
+else than aimed: letting the walk descend into nested functions made the
+module scope count the same construction twice, so it died on the plain
+never-detached case. The mutation's real consequence was a double count.
+
+**And writing it found a lint regression in the slice before it.** Re-pointing
+the bridge's parity test removed its only `pytest.mark` use and left
+`import pytest` behind. That slice's ruff gate had been run BEFORE that edit,
+so the regression was in a commit already under preflight, which would have
+failed its strict unused-import gate forty minutes in. *Run the gate after
+the last edit, not after the edit you remember as last.*
+(`tests/test_only_the_bot_writes_its_state.py`.)
 
 ## Public-surface rules
 
@@ -10437,7 +10628,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1013** reach for source text through `source_scan`, `code_only`
+Driven, **424 of 1018** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 424 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

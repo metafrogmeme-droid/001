@@ -48,6 +48,7 @@ async def main():
     print(div())
 
     engine = RuneClawEngine()
+    engine.detach_state_persistence()  # a reader: not the bot
     registry = build_default_registry()
     exchange = await engine.get_exchange()
     order_flow = OrderFlowAnalyzer()

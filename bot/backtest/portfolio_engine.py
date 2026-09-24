@@ -178,6 +178,11 @@ class PortfolioBacktester:
                     eng._pending_entry = None
                     eng._execute_fill(_p_idea, _p_risk, bar.open, bar)
 
+                # Resting limits: fill on touch, expire, or cancel on drift --
+                # before the stop check, as run() does. Missing here, a limit
+                # its signal bar did not reach was never read again.
+                eng._drain_pending_limits(bar)
+
                 eng._check_stops_intrabar(bar)
 
                 if i % scan_interval == 0:

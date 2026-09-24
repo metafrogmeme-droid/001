@@ -160,10 +160,27 @@ class TestItReachesTheOperator:
             "was clear while trades were being rejected"
         )
 
-    def test_risk_status_endpoint_reports_both_breakers(self):
+    def test_risk_status_endpoint_reports_both_breakers(self, monkeypatch):
+        # RE-POINTED, and driven rather than grepped. This asserted the
+        # SPELLING `warning_rate_breaker_active` in api_bridge.py, and the
+        # value under that name was the bridge's own engine's flag -- a copy
+        # in a process that runs no trading loop, so it could never go true
+        # for the bot. The bridge cannot read the bot's warning-rate breaker
+        # at all (it lives in the bot's memory), so the claim that survives
+        # is the honest one: /risk/status NAMES it as a gate it could not
+        # read, beside the breaker it could.
+        import asyncio
+        from types import SimpleNamespace
+        monkeypatch.setenv("JWT_SECRET", "0" * 64)
+        import api_bridge
+        monkeypatch.setattr(api_bridge, "engine",
+                            SimpleNamespace(_combined_state_file=None),
+                            raising=False)
+        body = asyncio.run(api_bridge.risk_status(_token="t"))
+        assert "warning-rate breaker" in body["trading_gate_scope"]
+        assert body["trading_gate_unknown"] is True
         src = code_only(open("api_bridge.py", encoding="utf-8").read())
-        assert "warning_rate_breaker_active" in src
-        assert src.count("trading_blocked_by") >= 2, (
+        assert src.count("_bot_breaker_fields()") >= 2, (
             "both /health and /risk/status should answer 'can we trade'"
         )
 
