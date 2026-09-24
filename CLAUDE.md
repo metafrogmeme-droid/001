@@ -9404,6 +9404,19 @@ through the bridge's `/analyze` would erase the bot's rows recorded since the
 bridge started.
 (`tests/test_the_bridge_is_a_reader_of_the_bots_state.py`.)
 
+**Driven the next day, and it did.** The bot records three ladder rows, a
+second ledger instance on the same file records one, and the file holds the
+one. The first fix reached only the combined saver, and the ledger is written
+by `RiskEngine.evaluate` straight to a module singleton. So is a per-user
+engine's own `risk_state_{user}.json`, which a reader's `risk_for` would
+write from a copy. `RiskEngine.make_reader()` writes neither, and
+`detach_state_persistence` marks its operator engine, the per-user engines it
+already holds, and every one `risk_for` builds after. A reader's evaluation
+is not recorded as one of the bot's either: it was sized off a copy of the
+state. The `set_authority_ledger` write beside it was checked and cannot
+fire, since nothing in the tree binds a ledger.
+(`tests/test_a_reader_records_nothing_the_bot_owns.py`.)
+
 **AND THE BRIDGE WAS NOT THE ONLY ONE.** *Ask which OTHER surface makes the
 same claim*, pointed at a process instead of a card. Outside `tests/`,
 `RuneClawEngine` is built by the bot (`bot/main.py`'s `run_telegram`) and by
@@ -10679,7 +10692,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **426 of 1020** reach for source text through `source_scan`, `code_only`
+Driven, **426 of 1021** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 426 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

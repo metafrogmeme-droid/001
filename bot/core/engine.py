@@ -2723,6 +2723,8 @@ class RuneClawEngine:
             eng.set_person_identity(str(user_id),
                                     lambda reason, _uid=str(user_id):
                                         self._halt_all_venues_for(_uid, reason))
+            if getattr(self, "_state_persistence_detached", False):
+                eng.make_reader()
             self._user_risk[key] = eng
             audit(system_log,
                   f"Per-user risk engine bound for user {user_id}"
@@ -3342,8 +3344,18 @@ class RuneClawEngine:
         breaker save it makes is refused -- so the fix is one writer.
 
         Idempotent. Nothing is lost: the bot remains the writer.
+
+        Its RISK ENGINES are readers too (`RiskEngine.make_reader`), because two
+        of their writes never pass through the combined saver: the ladder
+        ledger, rewritten whole from this process's memory on every sized
+        evaluation (the bridge's `/analyze` is one), and a per-user engine's
+        own state file. `risk_for` marks every engine it builds after this.
         """
         self._state_persistence_detached = True
+        for _eng in [getattr(self, "risk", None),
+                     *getattr(self, "_user_risk", {}).values()]:
+            if _eng is not None:
+                _eng.make_reader()
 
     def _save_combined_state(self) -> None:
         """Atomically write the OPERATOR's portfolio + risk state to a single file.

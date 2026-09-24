@@ -331,6 +331,8 @@ class RiskEngine:
         # person's OTHER venues. Both unset means single-venue.
         self._person_user_id: str = ""
         self._person_halt_fn: Optional[Callable] = None
+        # A READER writes nothing the bot owns (`make_reader`).
+        self._reader: bool = False
         # Initialised BEFORE _load_state(), which may restore a persisted
         # value into it (PERSIST_LIVE_DRAWDOWN_PEAK). The first version set
         # this 20 lines below the load and silently stomped every restored
@@ -1008,6 +1010,20 @@ class RiskEngine:
         except Exception as exc:
             risk_log.warning("person-level daily loss unreadable: %s", exc)
             return None
+
+    def make_reader(self) -> None:
+        """Write nothing the bot owns: no state file, no ladder ledger row.
+
+        For an engine a SECOND process builds over the bot's data directory
+        (`RuneClawEngine.detach_state_persistence`). The combined saver already
+        refuses for a reader, but two writes did not pass through it: the
+        ladder ledger, which rewrites its whole file from THIS process's memory
+        (driven: the bot records three rows, the bridge's `/analyze` records
+        one, and the file holds the bridge's one), and a per-user engine's own
+        state file, which a reader's `risk_for` would write from a copy.
+        Idempotent.
+        """
+        self._reader = True
 
     def set_person_identity(self, user_id: str, halt_fn: Optional[Callable] = None) -> None:
         """Tell this engine whose it is, for the person-level drawdown.
@@ -1920,21 +1936,25 @@ class RiskEngine:
             # changes `position_usd` between the two sites (driven). Its own
             # try, never the enclosing one: a ledger fault must not skip the
             # margin-risk verdict this block computes next.
-            try:
-                ladder_shadow.LADDER_LEDGER.record(ladder_shadow.evaluation_row(
-                    idea=idea, verdict=_ladder, size_usd=position_usd,
-                    standard_leverage=_lev_std,
-                    floor=leverage_floor(CONFIG.exchange),
-                    size_enabled=bool(CONFIG.risk.quality_ladder_size_enabled),
-                    leverage_enabled=bool(CONFIG.risk.quality_ladder_leverage_enabled),
-                    # Whose engine: "" on the shared one, the user's id on a
-                    # per-user one (`risk_for` sets it through
-                    # `set_person_identity`). The reading the drawdown and
-                    # the risk preference already take, one block up.
-                    engine=self._person_user_id))
-            except Exception as _ledger_exc:
-                risk_log.warning("quality ladder: the evaluation could not be recorded (%s)",
-                                 type(_ledger_exc).__name__)
+            # A READER's evaluation is a second process's, sized off a COPY of
+            # the state: not one of the bot's, and the save would stamp this
+            # process's rows over the bot's (`make_reader`).
+            if not self._reader:
+                try:
+                    ladder_shadow.LADDER_LEDGER.record(ladder_shadow.evaluation_row(
+                        idea=idea, verdict=_ladder, size_usd=position_usd,
+                        standard_leverage=_lev_std,
+                        floor=leverage_floor(CONFIG.exchange),
+                        size_enabled=bool(CONFIG.risk.quality_ladder_size_enabled),
+                        leverage_enabled=bool(CONFIG.risk.quality_ladder_leverage_enabled),
+                        # Whose engine: "" on the shared one, the user's id on a
+                        # per-user one (`risk_for` sets it through
+                        # `set_person_identity`). The reading the drawdown and
+                        # the risk preference already take, one block up.
+                        engine=self._person_user_id))
+                except Exception as _ledger_exc:
+                    risk_log.warning("quality ladder: the evaluation could not be recorded (%s)",
+                                     type(_ledger_exc).__name__)
             # The measurement, the reduction and the sentence are ONE reading
             # (`bot/core/leverage.margin_risk_verdict`), because the executor
             # applies the same cap and a second copy of it is a second answer
@@ -3749,6 +3769,8 @@ class RiskEngine:
     def _save_state(self) -> None:
         """Persist safety-critical state to disk. Called on every state change.
         C2-34: delegates to combined saver when wired, for atomic consistency."""
+        if self._reader:
+            return          # `make_reader`: the bot is the only writer
         if self._combined_saver is not None:
             try:
                 self._combined_saver()
