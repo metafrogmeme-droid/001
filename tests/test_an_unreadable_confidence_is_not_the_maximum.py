@@ -22,8 +22,8 @@ phrasings of moderate conviction, and every one of them became the maximum --
 the transformation is monotonically wrong in the FLATTERING direction.
 
 WHAT IT COST. The figure carries 60% of the blended confidence on a stock
-deploy (`llm_weight` 0.6, and the uncalibrated cap does not apply because
-`confidence_calibration_enabled` defaults True), and the blend is what the
+deploy (`llm_weight` 0.6, and the uncalibrated cap did not apply because it
+lifted on `confidence_calibration_enabled`, then default True), and the blend is what the
 0.85 auto-confirm threshold is eventually tested against. It is CACHED, so one
 bad reply is re-served. It is written to `data/learning/llm_calibration.jsonl`
 as `llm_confidence_raw`, which `bot/backtest/recorded_llm.py` replays into

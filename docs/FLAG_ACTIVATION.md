@@ -81,7 +81,7 @@ sample count — so enabling them before history builds is harmless. Set any to
 ```dotenv
 LEARN_FROM_PAPER_CLOSES=1          # feed paper/sim closes to the learners (default ON)
 SETUP_EXPECTANCY_ENABLED=1         # apply the per-setup expectancy nudge (default ON)
-CONFIDENCE_CALIBRATION_ENABLED=1   # apply confidence calibration (default ON)
+CONFIDENCE_CALIBRATION_ENABLED=0   # calibration on the ENTRY path (default OFF; see docs/CONFIDENCE_CALIBRATION.md)
 ADAPTIVE_CONFIDENCE_ENABLED=1      # apply the adaptive-confidence nudge (default ON)
 LEARNING_AUTO_REFIT_ENABLED=1      # auto-refit the learners on closed trades (default ON)
 ```

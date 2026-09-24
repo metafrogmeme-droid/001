@@ -7454,6 +7454,40 @@ it records the call now. And no test asked what the card says on a fresh install
 with no fit at all, where "fitted under an older rule" would describe a file that
 does not exist. (`tests/test_a_fit_counted_under_an_older_rule_is_refit.py`.)
 
+**THREE READERS TOOK THE CURVE'S FLAG FOR THE CURVE.** The uncalibrated-LLM
+cap exists to hold the LLM at 0.4 of the blend "until calibration lands", and
+it lifted on `CONFIDENCE_CALIBRATION_ENABLED`, which is ON by default with no
+curve fitted, when calibration is exact identity. So the live bot has run the
+LLM at 0.6 on a confidence nothing had checked, while the frozen benchmark
+(calibration forced off) measured the capped 0.4 / 0.6 blend, which is where
+the 0.60 floor was tuned. It lifts on `_calibration_applied` now: the flag AND
+a curve past its minimum. The auto-confirm bar calibrated `idea.confidence`,
+which that flag had already moved, so it tested cal(cal(raw)). It calibrates
+`blended_confidence_raw`, the field the curve is fitted on (#35), through one
+reading both readers ask. And the readiness card reported the curve as applied
+off `AUTO_CONFIRM_USE_CALIBRATED` alone and never named the flag that moves
+every entry. The module docstring and `docs/CONFIDENCE_CALIBRATION.md` both
+said that flag was default OFF and the curve shadow-only, while the runbook
+calls turning it on "a separate, later, money decision". The code had already
+made that decision.
+
+**What a fitted curve does on the entry path was measured, not argued.** Its
+output is a win rate and the floors read it in the analyzer's units, and it is
+monotonic, so it acts as a raw threshold whose level the record's base win rate
+sets. On the six frozen snapshots (903 out-of-sample trades, fitted on each
+earlier half) it kept 8% to 99% of later trades, better in four splits and
+worse in three. At the live win rate of about 22% it leaves almost nothing
+above 0.60. So the thirtieth measured close would have silently turned
+the entry floor into a near-total stop, labelled "Score 31% < 55%" as though
+the ideas were weak. The operator's decision: entries stay on the raw blend.
+`CONFIDENCE_CALIBRATION_ENABLED` defaults OFF (shadow), which is what the
+docstring and the page had claimed all along, and the curve tightens only the
+auto-confirm bar, the use the page gave as its reason to exist. The
+`/calibration` card said "SHADOW (logged, not applied)" off the entry flag
+alone while that bar read the curve, so it says where the curve is applied now
+(`applied_where`). Sixteen mutations, each killed on the first round.
+(`tests/test_a_fitted_curve_is_applied_once_and_only_when_fitted.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -8124,8 +8158,9 @@ one control that would have caught this is off by default, which is the
 reachability question answered rather than assumed.
 
 **WHAT IT COST, driven rather than recalled.** `llm_weight` is 0.6 and the
-uncalibrated cap does not apply (`confidence_calibration_enabled` defaults
-True), so the fabricated figure carries 60% of `blended_confidence` -- the
+uncalibrated cap did not apply then (it lifted on `confidence_calibration_enabled`,
+which defaults True; it holds until a fitted curve is applied now, a later
+slice), so the fabricated figure carried 60% of `blended_confidence` -- the
 quantity the 0.85 auto-confirm threshold is eventually tested against. It is
 CACHED (`_llm_cache.put`), so one bad reply is re-served for the TTL. And it
 is written to `data/learning/llm_calibration.jsonl` as `llm_confidence_raw`.
@@ -9939,7 +9974,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 224 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 225 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10751,9 +10786,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **426 of 1024** reach for source text through `source_scan`, `code_only`
+Driven, **427 of 1025** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 426 is a FLOOR and the honest shape is
+source scan that rule does not see, so 427 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

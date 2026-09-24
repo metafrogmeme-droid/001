@@ -78,12 +78,18 @@ def test_a_learner_applied_while_not_ready_is_called_out(monkeypatch, flag_on):
     read what the report says. With the flag ON and the component ACCUMULATING
     there must be a recommendation, and it must not be a compliment."""
     from bot.config import CONFIG
-    before = CONFIG.auto_confirm_use_calibrated
+    # BOTH flags that apply the curve: the entry one is ON by default, so
+    # turning only the auto-confirm one off left the curve applied -- and the
+    # card used to say it was not.
+    before = (CONFIG.auto_confirm_use_calibrated,
+              CONFIG.analyzer.confidence_calibration_enabled)
     object.__setattr__(CONFIG, "auto_confirm_use_calibrated", flag_on)
+    object.__setattr__(CONFIG.analyzer, "confidence_calibration_enabled", flag_on)
     try:
         a = assess_readiness(store=_Store())
     finally:
-        object.__setattr__(CONFIG, "auto_confirm_use_calibrated", before)
+        object.__setattr__(CONFIG, "auto_confirm_use_calibrated", before[0])
+        object.__setattr__(CONFIG.analyzer, "confidence_calibration_enabled", before[1])
 
     cal = a["components"]["calibration"]
     assert cal["state"] == "ACCUMULATING", "the fixture stopped reproducing"
