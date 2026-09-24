@@ -8,15 +8,16 @@ don't. This counts closed outcomes and re-fits all three every N trades, so the
 models track recent reality automatically.
 
 What a refit changes, stated rather than assumed:
-  - A refit rewrites the persisted curves, and two of the three are APPLIED by
-    default: `CONFIDENCE_CALIBRATION_ENABLED` (default ON) and
-    `SETUP_EXPECTANCY_ENABLED` (default ON), so a refit moves the confidence and
-    the nudges the next analysis uses. Voter weights are applied only behind
-    `VOTER_WEIGHT_LEARNING_ENABLED` (default OFF). This paragraph used to say
-    every learner's application sat behind its own off-by-default flag, so a
-    refit could never change a decision; that stopped being true when those two
-    defaults flipped, and the sentence is how a reader would decide leaving
-    auto-refit on was harmless.
+  - A refit rewrites the persisted curves, and they are applied as follows.
+    `SETUP_EXPECTANCY_ENABLED` (default ON) applies the expectancy nudges the
+    next analysis uses. The calibration curve reaches an entry only behind
+    `CONFIDENCE_CALIBRATION_ENABLED` (default OFF), and the auto-confirm bar
+    reads it behind `AUTO_CONFIRM_USE_CALIBRATED`. Voter weights are applied only
+    behind `VOTER_WEIGHT_LEARNING_ENABLED` (default OFF). This paragraph used to
+    say every learner's application sat behind its own off-by-default flag, so a
+    refit could never change a decision. That was false while calibration and
+    expectancy both applied by default, and the sentence is how a reader would
+    decide leaving auto-refit on was harmless.
   - Fail-open per learner: one learner failing to fit never blocks the others or
     the close path.
   - Gated by `LEARNING_AUTO_REFIT_ENABLED` (default ON); the caller checks the

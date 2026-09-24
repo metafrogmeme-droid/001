@@ -148,10 +148,12 @@ class ResearchCommands:
         exp_on = getattr(CONFIG.analyzer, "setup_expectancy_enabled", False)
         vw_on = getattr(CONFIG.analyzer, "voter_weight_learning_enabled", False)
         _mode = lambda on: "APPLIED (live)" if on else "SHADOW (logged, not applied)"
+        from bot.learning.confidence_calibration import applied_where
+        _cal_where = applied_where(bool(cal_on), bool(CONFIG.auto_confirm_use_calibrated))
         await self._send(update,
             "<b>Learning overlays</b>\n\n"
             f"{action}"
-            f"<b>Confidence calibration</b> — <code>{_mode(cal_on)}</code>\n"
+            f"<b>Confidence calibration</b> — <code>{_cal_where}</code>\n"
             f"<code>{html.escape(cal.summary())}</code>\n\n"
             f"<b>Per-setup expectancy</b> — <code>{_mode(exp_on)}</code>\n"
             f"<code>{html.escape(exp.summary())}</code>\n\n"

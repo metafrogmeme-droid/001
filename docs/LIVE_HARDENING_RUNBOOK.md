@@ -85,7 +85,7 @@ too eager; `/whynot SYMBOL` shows `LIVE_PERF_GOVERNOR` when it acts.
 Enable these **one at a time**, watching between each. Order matters.
 
 ```bash
-CONFIDENCE_CALIBRATION_ENABLED=true   # 1) confidence now reflects realized win rate
+CONFIDENCE_CALIBRATION_ENABLED=true   # 1) entry floor reads the WIN RATE: read docs/CONFIDENCE_CALIBRATION.md first
 AUTO_CONFIRM_USE_CALIBRATED=true      # 2) the 0.85 admin auto-trade fires on the MEASURED win rate
 VOTER_WEIGHT_LEARNING_ENABLED=true    # 3) reweight confluence voters by realized edge
 SETUP_EXPECTANCY_ENABLED=true         # 4) nudge confidence by per-(symbol,regime,direction) history
@@ -128,7 +128,7 @@ Raise these **after** Stage 1, not before — the risk tightening should be on f
 |---|---|---|
 | 1 | `LIVE_RISK_HARDENING_ENABLED`, `REGIME_HARD_GATES_ENABLED`, `TIME_STOP_LIVE_AUTO_CLOSE` | **default ON** (2026-07) |
 | 2 | `LEARNING_AUTO_REFIT_ENABLED`, `UNCALIBRATED_LLM_WEIGHT_CAP_ENABLED`, `LIVE_PERFORMANCE_GOVERNOR_ENABLED`, `KELLY_SIZING_ENABLED`, `CORRELATION_SIZING_ENABLED` | **default ON** (2026-07) |
-| 3 | `CONFIDENCE_CALIBRATION_ENABLED` (ON) → `AUTO_CONFIRM_USE_CALIBRATED` → `VOTER_WEIGHT_LEARNING_ENABLED` (run `validate_oos`, enable when hold_rate is good) → `SETUP_EXPECTANCY_ENABLED` (ON) | after ~50–100 closes |
+| 3 | `CONFIDENCE_CALIBRATION_ENABLED` (OFF; entries stay on the raw blend) → `AUTO_CONFIRM_USE_CALIBRATED` → `VOTER_WEIGHT_LEARNING_ENABLED` (run `validate_oos`, enable when hold_rate is good) → `SETUP_EXPECTANCY_ENABLED` (ON) | after ~50–100 closes |
 | 4 | `FUNDING_COST_AWARE_ENABLED`, `EXTERNAL_SENTIMENT_ENABLED`, blend-weight tuning | operator choice |
 
 If anything misbehaves: set the offending flag back to `false`, restart, and report

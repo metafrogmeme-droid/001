@@ -8476,7 +8476,7 @@ class RuneClawEngine:
 
         THE CURVE IS APPLIED TO THE FIELD IT WAS FITTED ON, ONCE. It maps the
         analyzer's pre-calibration blend (``blended_confidence_raw``, #35) to a
-        win rate, and with CONFIDENCE_CALIBRATION_ENABLED on -- the default --
+        win rate, and with CONFIDENCE_CALIBRATION_ENABLED on (it was the default)
         ``idea.confidence`` has already been through it. Calibrating that again
         answered cal(cal(raw)): driven on a curve fitted to outcomes that won at
         their own confidence, a raw 0.95 went on the idea as 0.87 and reached

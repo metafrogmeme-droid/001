@@ -154,9 +154,9 @@ def assess_readiness(store=None) -> dict:
         # TWO FLAGS APPLY THIS CURVE and the card named one. The auto-confirm
         # bar reads it behind AUTO_CONFIRM_USE_CALIBRATED; the analyzer moves
         # every idea's confidence through it, before the entry floor, behind
-        # CONFIDENCE_CALIBRATION_ENABLED -- ON by default, and the one that
-        # decides what trades at all. A card reporting the curve as not applied
-        # while it moves every entry is the flag read as the state.
+        # CONFIDENCE_CALIBRATION_ENABLED -- the one that decides what trades at
+        # all. The card reported the curve as not applied while that flag moved
+        # every entry: the flag read as the state.
         on = [name for name, v in (
             ("CONFIDENCE_CALIBRATION_ENABLED",
              CONFIG.analyzer.confidence_calibration_enabled),

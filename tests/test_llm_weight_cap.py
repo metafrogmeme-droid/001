@@ -94,7 +94,7 @@ class TestCapInactive:
 
 
 class TestTheFlagIsNotTheCurve:
-    """CONFIDENCE_CALIBRATION_ENABLED is on by default, and until the curve has
+    """CONFIDENCE_CALIBRATION_ENABLED was on by default, and until the curve has
     its minimum of closes calibration is identity. The cap used to lift on the
     flag, so it never held."""
 

@@ -2891,7 +2891,7 @@ class Analyzer:
         deterministic, auditable confluence score (the total is preserved). The
         cap lifts once a fitted curve is applied.
 
-        IT LIFTED ON THE FLAG, which is on by default, so it never held: with no
+        IT LIFTED ON THE FLAG, which was on by default, so it never held: with no
         curve fitted the calibration is identity and the LLM ran at 0.6 on a
         confidence nothing had checked -- while the frozen benchmark, which
         forces calibration off, measured the capped 0.4 / 0.6 blend, and the

@@ -3,7 +3,7 @@
 Three readers treated the curve's FLAG as the curve:
 
 * The uncalibrated-LLM weight cap lifted when CONFIDENCE_CALIBRATION_ENABLED was
-  on -- which it is by default, with no curve fitted, when calibration is
+  on -- which it was by default, with no curve fitted, when calibration is
   identity. So the LLM ran at 0.6 of the blend on a confidence nothing had
   checked, while the frozen benchmark (calibration forced off) measured the
   capped 0.4 / 0.6 blend the 0.60 floor was tuned on.
@@ -14,7 +14,10 @@ Three readers treated the curve's FLAG as the curve:
   entry.
 
 And the module docstring and docs/CONFIDENCE_CALIBRATION.md said that flag was
-default OFF and the curve shadow-only.
+default OFF and the curve shadow-only, while it was ON. It is OFF now: on the
+entry path a fitted curve makes the floor read the record's win rate, which at
+the live rate refuses nearly every idea. Entries stay on the raw blend and the
+curve tightens only the auto-confirm bar.
 """
 from __future__ import annotations
 
@@ -181,23 +184,58 @@ def _defaults():
     return {env: default for env, default in declared_defaults().values()}
 
 
+def test_entries_stay_on_the_raw_blend_by_default():
+    d = _defaults()
+    assert d["CONFIDENCE_CALIBRATION_ENABLED"] is False
+    assert d["AUTO_CONFIRM_USE_CALIBRATED"] is True
+
+
+def _claims(text):
+    # A page's status is a blockquote, so each wrapped line carries its "> ".
+    text = " ".join(line.lstrip("> ") for line in text.splitlines())
+    return dict(re.findall(r"`([A-Z][A-Z_]+)`\s*\(default (ON|OFF)\)", " ".join(text.split())))
+
+
 def test_the_module_docstring_states_both_flags_real_defaults():
     doc = ast.get_docstring(ast.parse(pathlib.Path(cc.__file__).read_text()))
-    flat = " ".join(doc.split())
+    claims = _claims(doc)
     d = _defaults()
-    assert d["CONFIDENCE_CALIBRATION_ENABLED"] is True
-    assert "both are ON by default" in flat
-    assert "`CONFIDENCE_CALIBRATION_ENABLED` moves every idea's confidence" in flat
-    # The retraction may name what it corrected, once.
-    assert flat.count("default-OFF flag (CONFIDENCE_CALIBRATION_ENABLED)") == 0
+    assert set(claims) == {"CONFIDENCE_CALIBRATION_ENABLED", "AUTO_CONFIRM_USE_CALIBRATED"}, claims
+    for env, word in claims.items():
+        assert d[env] == (word == "ON"), (env, word)
 
 
 def test_the_page_states_the_real_default_and_the_measurement():
     page = (ROOT / "docs" / "CONFIDENCE_CALIBRATION.md").read_text()
     head = page[:page.index("## Why")]
-    assert "ON BY DEFAULT" in head
-    assert not re.search(r"Default OFF\s*\n?>?\s*\(`CONFIDENCE_CALIBRATION_ENABLED=false`\)", head)
+    claims = _claims(head)
+    d = _defaults()
+    assert set(claims) == {"CONFIDENCE_CALIBRATION_ENABLED", "AUTO_CONFIRM_USE_CALIBRATED"}, claims
+    for env, word in claims.items():
+        assert d[env] == (word == "ON"), (env, word)
     assert "## What a fitted curve does to the entry floor, measured" in page
+
+
+@pytest.mark.parametrize("entry,confirm,words", [
+    (True, True, "APPLIED to entries and the auto-confirm bar"),
+    (True, False, "APPLIED to entries"),
+    (False, True, "APPLIED to the auto-confirm bar; entries SHADOW (logged, not applied)"),
+    (False, False, "SHADOW (logged, not applied)"),
+])
+def test_the_card_says_where_the_curve_is_applied(entry, confirm, words):
+    from bot.learning.confidence_calibration import applied_where
+    assert applied_where(entry, confirm) == words
+
+
+def test_the_calibration_card_prints_that_reading():
+    # The card is a Telegram handler behind the admin guard; that it prints
+    # the reading rather than a mode of its own is asked of its source.
+    from tests.source_scan import code_only
+    src = code_only((ROOT / "bot" / "skills" / "research_commands.py").read_text())
+    body = src[src.index("async def _cmd_calibration"):]
+    body = body[:body.index("async def ", 10)]
+    assert "applied_where(" in body and "{_cal_where}" in body
+    assert "_mode(cal_on)" not in body
 
 
 def test_the_warning_reads_as_two_flags_when_both_apply_it():

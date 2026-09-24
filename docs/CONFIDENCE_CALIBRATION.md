@@ -1,14 +1,15 @@
 # Confidence Calibration (Phase A)
 
-> **Status: ON BY DEFAULT, and identity until a curve is fitted.** Two flags
-> apply the curve and both default ON: `CONFIDENCE_CALIBRATION_ENABLED` moves
-> every idea's confidence through it before the entry floor, and
-> `AUTO_CONFIRM_USE_CALIBRATED` tests the auto-confirm bar against it. Below 30
-> measured closes the curve is exact identity, so neither changes anything yet.
+> **Status: the auto-confirm bar reads it; entries stay on the raw blend.**
+> `AUTO_CONFIRM_USE_CALIBRATED` (default ON) tests the auto-confirm bar against
+> the curve, which can only tighten it. `CONFIDENCE_CALIBRATION_ENABLED`
+> (default OFF) would move every idea's confidence through the curve before the
+> entry floor; off, the analyzer logs the would-be value and applies nothing.
+> Below 30 measured closes the curve is exact identity either way.
 >
-> This page used to say the first flag was default OFF and the curve
-> shadow-only. The config default has been ON since the 2026-07 flag
-> activation, and nothing corrected the page.
+> This page used to say the entry flag was default OFF while the config default
+> was ON. The measurement below is why the default is OFF now: on the entry
+> path a fitted curve refuses ideas by the record's base win rate.
 
 ## Why
 
@@ -35,8 +36,8 @@ mean what it says.
 
 ## Safety
 
-- **Shadow when `CONFIDENCE_CALIBRATION_ENABLED` is off**: the analyzer logs the
-  would-be delta and changes nothing. It is ON by default.
+- **Shadow on the entry path by default**: with `CONFIDENCE_CALIBRATION_ENABLED`
+  off (the default) the analyzer logs the would-be delta and changes nothing.
 - **Fail-open**: any error in the hook leaves confidence untouched.
 - **Monotonic**: a higher raw confidence never maps to a lower calibrated value,
   so trade ordering is preserved and noise can't invert it.
@@ -48,9 +49,11 @@ mean what it says.
 - **Status / refit (admin):** `/calibration` shows the curve and mode;
   `/calibration refit` rebuilds it from closed-trade history and the live
   analyzer picks it up immediately.
-- **Shadow it:** set `CONFIDENCE_CALIBRATION_ENABLED=false` to keep the curve
-  off the entry path while its logs are read. The auto-confirm bar still reads
-  it while `AUTO_CONFIRM_USE_CALIBRATED` is on.
+- **Entry path:** `CONFIDENCE_CALIBRATION_ENABLED=true` puts the curve before
+  the entry floor. Read the measurement below first: the floor then reads a
+  win rate, and the record's win rate decides how many ideas it refuses. The
+  auto-confirm bar reads the curve either way while `AUTO_CONFIRM_USE_CALIBRATED`
+  is on.
 - **Storage:** `data/learning/confidence_calibration.json`.
 
 ## Wiring

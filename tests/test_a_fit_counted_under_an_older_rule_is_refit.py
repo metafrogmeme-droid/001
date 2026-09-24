@@ -6,7 +6,7 @@ stamp being fitted as a measurement, and a retried trade being counted twice,
 changed what counts -- and a curve saved before it still rested on both. The
 auto-refit that would replace it counts closes in memory, so it restarts at zero
 with every deploy: the old curve stayed applied for up to 25 closes after the
-fix shipped, on a flag (`CONFIDENCE_CALIBRATION_ENABLED`) that is ON by default.
+fix shipped, on a flag (`CONFIDENCE_CALIBRATION_ENABLED`) that was ON by default.
 
 Each saved fit records the reading it was counted under now, the bot refits the
 stale ones once when its loop starts, and the readiness card stops lending a

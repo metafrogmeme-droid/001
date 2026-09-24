@@ -7479,9 +7479,13 @@ earlier half) it kept 8% to 99% of later trades, better in four splits and
 worse in three. At the live win rate of about 22% it leaves almost nothing
 above 0.60. So the thirtieth measured close would have silently turned
 the entry floor into a near-total stop, labelled "Score 31% < 55%" as though
-the ideas were weak. Whether a fitted curve should gate entries at all, and
-against what, is filed as a decision rather than answered in this slice.
-Sixteen mutations, each killed on the first round.
+the ideas were weak. The operator's decision: entries stay on the raw blend.
+`CONFIDENCE_CALIBRATION_ENABLED` defaults OFF (shadow), which is what the
+docstring and the page had claimed all along, and the curve tightens only the
+auto-confirm bar, the use the page gave as its reason to exist. The
+`/calibration` card said "SHADOW (logged, not applied)" off the entry flag
+alone while that bar read the curve, so it says where the curve is applied now
+(`applied_where`). Sixteen mutations, each killed on the first round.
 (`tests/test_a_fitted_curve_is_applied_once_and_only_when_fitted.py`.)
 
 
@@ -9970,7 +9974,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 224 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 225 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10782,9 +10786,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **426 of 1025** reach for source text through `source_scan`, `code_only`
+Driven, **427 of 1025** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 426 is a FLOOR and the honest shape is
+source scan that rule does not see, so 427 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

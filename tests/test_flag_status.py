@@ -56,7 +56,9 @@ class TestReportStructure:
         assert flat["REGIME_SIZING_ENABLED"] is True
         assert flat["DROP_UNCLOSED_CANDLE_ENABLED"] is True
         assert flat["DAILY_LOSS_BREAKER_AUTORESET"] is True
-        assert flat["CONFIDENCE_CALIBRATION_ENABLED"] is True
+        # Except calibration on the ENTRY path: default OFF, because a fitted
+        # curve makes the entry floor read a win rate (docs/CONFIDENCE_CALIBRATION.md).
+        assert flat["CONFIDENCE_CALIBRATION_ENABLED"] is False
 
 
 class TestEnvReflection:

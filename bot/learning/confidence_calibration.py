@@ -18,20 +18,19 @@ Design / safety:
   - **Fail-safe identity:** below ``min_samples`` total (or when unfitted),
     ``calibrate(x) == x`` exactly. The curve can only refine a confidence once
     there is enough evidence; it never fabricates one.
-  - Pure storage + math. It places no trades. Two flags apply the curve, and
-    both are ON by default: `CONFIDENCE_CALIBRATION_ENABLED` moves every idea's
-    confidence through it before the entry floor, and
-    `AUTO_CONFIRM_USE_CALIBRATED` tests the auto-confirm bar against it. Below
-    ``min_samples`` measured closes it is identity, so neither changes anything
-    until a curve is fitted. With the first flag off the analyzer logs the
-    would-be value and applies nothing (shadow).
+  - Pure storage + math. It places no trades. Two flags apply the curve:
+    `AUTO_CONFIRM_USE_CALIBRATED` (default ON) tests the auto-confirm bar
+    against it, and `CONFIDENCE_CALIBRATION_ENABLED` (default OFF) would move
+    every idea's confidence through it before the entry floor. With that flag
+    off the analyzer logs the would-be value and applies nothing (shadow).
+    Below ``min_samples`` measured closes the curve is identity either way.
 
-    THIS USED TO SAY THE FIRST FLAG WAS DEFAULT OFF AND THE CURVE SHADOW-ONLY,
-    and that is what a reader consults to decide whether a fitted curve can
-    refuse a trade. It can: the entry floors (0.60 by default, 0.65 for a
-    scalp) were tuned on the analyzer's own blend, and once a curve is fitted
-    they read a WIN RATE instead. docs/CONFIDENCE_CALIBRATION.md has the
-    measurement.
+    THE ENTRY FLAG WAS ON BY DEFAULT while this said it was off, and a fitted
+    curve on the entry path refuses trades by the record's base rate: the
+    entry floors (0.60 by default, 0.65 for a scalp) were tuned on the
+    analyzer's own blend, and once a curve is fitted they read a WIN RATE
+    instead. docs/CONFIDENCE_CALIBRATION.md has the measurement, and the
+    default is OFF now, which is what this sentence always claimed.
 
 This module has no third-party deps (no numpy/sklearn) — PAV is a few lines.
 """
@@ -101,6 +100,22 @@ def pre_calibration_confidence(record) -> Optional[float]:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     return float(raw) if raw > 0.0 else None
+
+
+def applied_where(entry_on: bool, confirm_on: bool) -> str:
+    """Where the curve is applied, in the words the /calibration card prints.
+
+    The card printed one mode for the curve off CONFIDENCE_CALIBRATION_ENABLED
+    alone, so with the entry path off it said "SHADOW (logged, not applied)"
+    while the auto-confirm bar tested every auto-trade against the curve.
+    """
+    if entry_on and confirm_on:
+        return "APPLIED to entries and the auto-confirm bar"
+    if entry_on:
+        return "APPLIED to entries"
+    if confirm_on:
+        return "APPLIED to the auto-confirm bar; entries SHADOW (logged, not applied)"
+    return "SHADOW (logged, not applied)"
 
 
 class CalibrationRows(NamedTuple):

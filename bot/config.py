@@ -1246,8 +1246,8 @@ class AnalyzerConfig:
     # this is ON and no fitted curve is being applied, the LLM's weight is capped
     # at `uncalibrated_llm_weight_cap` and the freed weight goes to the auditable
     # confluence score (the total is preserved). The cap lifts once a fitted
-    # curve is applied, not on CONFIDENCE_CALIBRATION_ENABLED alone, which is on
-    # by default with no curve fitted (Analyzer._calibration_applied).
+    # curve is applied, not on CONFIDENCE_CALIBRATION_ENABLED alone, which says
+    # nothing about whether a curve is fitted (Analyzer._calibration_applied).
     uncalibrated_llm_weight_cap_enabled: bool = _env_bool("UNCALIBRATED_LLM_WEIGHT_CAP_ENABLED", True)
     uncalibrated_llm_weight_cap: float = _env_float_bounded("UNCALIBRATED_LLM_WEIGHT_CAP", 0.4, 0.0, 1.0)
     # LLM direction guard (default ON; audit fix #1). The thesis (LLM) chooses
@@ -1300,12 +1300,12 @@ class AnalyzerConfig:
     # per_user_llm_enabled / per_user_llm_tiers_enabled is ON. Default ON;
     # disable to revert to the legacy single-namespace cache key.
     llm_cache_scoped_key: bool = _env_bool("LLM_CACHE_SCOPED_KEY", True)
-    # Confidence calibration (Phase A): when ON (the default), the final blended
-    # confidence is remapped through a monotonic reliability curve fitted from
-    # the bot's own closed-trade history, so a confidence value reflects
-    # realized win rate. When disabled the curve is computed in shadow-mode
-    # (logged, not applied). See bot/learning/confidence_calibration.py.
-    confidence_calibration_enabled: bool = _env_bool("CONFIDENCE_CALIBRATION_ENABLED", True)
+    # Confidence calibration on the ENTRY path (default OFF: shadow, the curve's
+    # would-be value is logged and nothing is applied). ON remaps each idea's
+    # confidence to the record's win rate before an entry floor tuned on the raw
+    # blend; docs/CONFIDENCE_CALIBRATION.md measures what that does. The
+    # auto-confirm bar reads the curve on its own flag, AUTO_CONFIRM_USE_CALIBRATED.
+    confidence_calibration_enabled: bool = _env_bool("CONFIDENCE_CALIBRATION_ENABLED", False)
     # Per-setup expectancy (Phase C): when ON (the default), a setup's own
     # historical win rate (symbol + regime + direction, from completed trades)
     # applies a small bounded nudge to confidence. When disabled it is computed
