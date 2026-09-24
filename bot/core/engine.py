@@ -3327,6 +3327,27 @@ class RuneClawEngine:
         self.portfolio._combined_saver = self._save_combined_state
         self.risk._combined_saver = self._save_combined_state
 
+    #: How many symbols' last refusals `/whynot` keeps, and how many a prune
+    #: keeps once that is passed.
+    _REJECTIONS_CAP = 100
+    _REJECTIONS_KEEP = 50
+
+    def _remember_rejection(self, symbol_key: str, record: dict) -> None:
+        """Keep `record` as `symbol_key`'s last refusal, NEWEST LAST.
+
+        The dict's order is the only recency this store has, and a plain
+        assignment kept a re-refused symbol at its FIRST position: after BTC,
+        ETH, BTC, `/whynot` with no symbol showed ETH as "the most recent
+        rejection", and the cap pruned the symbols refused most often first.
+        Removing before inserting makes insertion order refusal order, which
+        is what every reader of this store assumes.
+        """
+        self._last_rejections.pop(symbol_key, None)
+        self._last_rejections[symbol_key] = record
+        if len(self._last_rejections) > self._REJECTIONS_CAP:
+            for k in list(self._last_rejections)[:-self._REJECTIONS_KEEP]:
+                self._last_rejections.pop(k, None)
+
     def detach_state_persistence(self) -> None:
         """Make this engine a READER of the operator's state, never a writer.
 
@@ -6835,7 +6856,7 @@ class RuneClawEngine:
             # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
             # of a perpetual was ever found by name.
             symbol_key = normalize_symbol(idea.asset)
-            self._last_rejections[symbol_key] = {
+            self._remember_rejection(symbol_key, {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,
                 "confidence": idea.confidence,
@@ -6846,12 +6867,7 @@ class RuneClawEngine:
                 "checks_failed": risk_check.checks_failed,
                 "reason": risk_check.reason,
                 "timestamp": datetime.now(UTC).isoformat(),
-            }
-            # Cap stored rejections
-            if len(self._last_rejections) > 100:
-                oldest_keys = list(self._last_rejections.keys())[:-50]
-                for k in oldest_keys:
-                    self._last_rejections.pop(k, None)
+            })
             audit(
                 trade_log,
                 f"Trade REJECTED by risk: {risk_check.reason}",

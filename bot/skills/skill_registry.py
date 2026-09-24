@@ -3187,8 +3187,10 @@ class WhyNotSkill(BaseSkill):
         rejections = engine._last_rejections
 
         if not rejections:
+            # The store is this process's memory, so "none" is since the bot
+            # last started, not ever.
             return (f"{_NEU} <b>NO REJECTIONS</b>\n\n"
-                    "<i>No trades rejected yet. "
+                    "<i>No trades rejected since the bot last started. "
                     "Say \"scan\" or \"analyze BTC\" to generate ideas.</i>")
 
         if symbol:
@@ -3199,11 +3201,14 @@ class WhyNotSkill(BaseSkill):
             sym_key = normalize_symbol(symbol)
             rej = rejections.get(sym_key)
             if not rej:
-                available = ", ".join(sorted(rejections.keys())[-10:])
+                # Newest first, in refusal order (`_remember_rejection` keeps
+                # the dict that way). This was `sorted(...)[-10:]`: the last
+                # ten ALPHABETICALLY, under the word "Recent".
+                available = ", ".join(reversed(list(rejections)[-10:]))
                 return (f"{_BAD} No rejection found for <code>{_esc(sym_key)}</code>\n\n"
                         f"Recent rejections: <code>{_esc(available)}</code>")
         else:
-            # Most recent rejection (last inserted key)
+            # Most recent rejection: the dict is kept in refusal order.
             sym_key = list(rejections.keys())[-1]
             rej = rejections[sym_key]
 
