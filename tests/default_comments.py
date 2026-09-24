@@ -36,6 +36,7 @@ out of reach; that needs a reader who knows what the comment MEANT.
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 from typing import NamedTuple, Optional
@@ -365,6 +366,92 @@ def env_example_silent_overrides(src: Optional[str] = None,
                 out.append(Finding(".env.example", ln, env,
                                    "on" if val else "off", by_env[env],
                                    "env-example-override", b.block[:120]))
+    return out
+
+
+#: The value-returning readers `bot/config.py` declares a knob through, whose
+#: second argument is the code's default. `_env_bool` is the flag rule's.
+_VALUE_READERS = {"_env", "_env_float", "_env_int",
+                  "_env_float_bounded", "_env_int_bounded"}
+
+#: What a live line that departs from its code default says above itself:
+#: "this line raises it", "the two lines below disable it", "the line below
+#: picks anthropic", or "departs from the code default".
+_SAYS_DEPARTS = re.compile(
+    r"\b(?:this|the(?:\s+two)?)\s+lines?\b[^.]*?"
+    r"\b(?:raises?|lowers?|sets?|disables?|picks?|pins?)\b"
+    r"|\bdeparts?\s+from\s+the\s+code(?:'s)?\s+default", re.I)
+
+
+def declared_values(src: Optional[str] = None) -> dict[str, tuple[str, object]]:
+    """`ENV -> (reader, default)` for every non-bool knob declared ONCE.
+
+    Read off the AST of `bot/config.py`. A name declared twice with two
+    readers or two defaults has no single default to compare against, so it
+    is left out rather than guessed; so is a default that is not a literal.
+    """
+    tree = ast.parse(CONFIG_PY.read_text() if src is None else src)
+    seen: dict[str, set] = {}
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id in _VALUE_READERS and len(n.args) >= 2):
+            continue
+        name, dflt = n.args[0], n.args[1]
+        if not (isinstance(name, ast.Constant) and isinstance(name.value, str)):
+            continue
+        if isinstance(dflt, ast.UnaryOp) and isinstance(dflt.op, ast.USub) \
+                and isinstance(dflt.operand, ast.Constant):
+            value: object = -dflt.operand.value
+        elif isinstance(dflt, ast.Constant) and not isinstance(dflt.value, bool):
+            value = dflt.value
+        else:
+            continue
+        seen.setdefault(name.value, set()).add((n.func.id, value))
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+class ValueDeparture(NamedTuple):
+    line: int          # 1-indexed, in `.env.example`
+    env: str
+    value: str         # what the live line sets
+    default: object    # what `bot/config.py` declares
+    text: str          # the prose above it, for the message
+
+
+def env_example_value_departures(src: Optional[str] = None,
+                                 decl: Optional[dict[str, tuple[str, object]]] = None
+                                 ) -> list[ValueDeparture]:
+    """LIVE `.env.example` values that differ from their code default, unsaid.
+
+    The flag rule above covers on/off switches; this is the same claim for
+    every other knob, because `cp .env.example .env` runs these values too. On
+    2026-09-24 three did it with nothing said: `COMMISSION_PCT=0.1` over a code
+    default of 0.06 (the Bitget standard taker rate, so the modelled fee was
+    overstated by two thirds), `ENTRY_TIMING_REGIMES=` under the words
+    "Default empty" while the code default is `TREND_DOWN` (a gate switched
+    off in silence), and a pinned `LLM_MODEL` the routing tests forbid. A
+    departure is allowed; an unsaid one is not.
+    """
+    decl = declared_values() if decl is None else decl
+    text = ENV_EXAMPLE.read_text() if src is None else src
+    lines = text.splitlines()
+    out: list[ValueDeparture] = []
+    for b in env_example_blocks(text):
+        for env, ln, _v in b.run:
+            raw = lines[ln - 1].strip()
+            if raw.startswith("#") or env not in decl:
+                continue
+            reader, default = decl[env]
+            value = raw.split("=", 1)[1].strip()
+            if reader == "_env":
+                same = value == str(default)
+            else:
+                try:
+                    same = float(value) == float(default)  # type: ignore[arg-type]
+                except ValueError:
+                    same = False
+            if not same and not _SAYS_DEPARTS.search(b.block):
+                out.append(ValueDeparture(ln, env, value, default, b.block[:120]))
     return out
 
 
