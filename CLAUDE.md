@@ -5864,6 +5864,27 @@ and so is the `/stockscan` registration, which was one line short in
 `telegram_handler.py`.
 (`tests/test_the_poc_retest_card_reads_its_replayed_history.py`.)
 
+**THE WEBSITE'S EMERGENCY STOP FLATTENED THE OPERATOR'S BOOK FOR ANYBODY, ON
+THE SHIPPED DEFAULT.** `POST /api/controls/stop` needs a signed-in website
+account with a linked Telegram id and nothing else (registration is open,
+`/link <token>` is ungated), and queues a flatten `_maybe_flatten_web_requests`
+processes. Its refusal was `if per_user and ex is self.live_executor and not
+operator`, and PER_USER_LIVE_ENABLED ships OFF, where `_executor_for` answers
+the operator's executor for EVERY caller. So the refusal never ran and any
+linked account's stop closed every open and resting position on the operator's
+live account, acked `ok: True, closed: N`, while Telegram's `/emergency_stop`
+is `@guard("halt")`. The docstring above it and the tick-loop comment both said
+a web request "can never close the operator's or another user's positions".
+The guard reads WHICH BOOK the close would run on now, never the flag, and a
+refusal is audited `REFUSED` by name. **The suite could not see it because its
+stand-in replaced `_executor_for` with a lambda and set `per_user=True`**, so
+the shipped default was the one arrangement nothing drove; the new drives call
+the real `_executor_for` and `_is_operator_user` against the shipped config,
+and failed against the unfixed code before the fix went in. Found by a
+read-only survey of the money paths, which also found the two below it in the
+queue. Six mutations, each killed on the first round.
+(`tests/test_a_web_emergency_stop_closes_only_the_callers_book.py`.)
+
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -10994,7 +11015,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **430 of 1031** reach for source text through `source_scan`, `code_only`
+Driven, **430 of 1032** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 430 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
