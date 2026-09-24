@@ -36,10 +36,12 @@ from tests.default_comments import (
     Finding,
     declaration_findings,
     declared_defaults,
+    declared_values,
     describe,
     env_example_blocks,
     env_example_findings,
     env_example_silent_overrides,
+    env_example_value_departures,
     reader_findings,
     reader_sources,
 )
@@ -426,9 +428,11 @@ def test_no_env_example_block_names_a_default_the_flag_does_not_have():
 
 def test_every_live_example_line_that_inverts_a_default_says_so():
     """`cp .env.example .env` is the documented install, so a LIVE line is
-    what that install runs. Six set a flag opposite to its default; five sat
-    under prose calling that flag default OFF, so the file read consistent
-    while the install switched off five controls the runbook lists as ON."""
+    what that install runs. On 2026-09-23 six set a flag opposite to its
+    default and five sat under prose calling that flag default OFF, so the file
+    read consistent while the install switched off five controls the runbook
+    lists as ON. Those five follow the code default now (commented out); the
+    sixth is the next test's subject."""
     found = env_example_silent_overrides()
     assert found == [], (
         "a live `.env.example` line sets a flag opposite to its declared "
@@ -546,3 +550,100 @@ def test_the_live_auto_close_docstring_claims_no_default():
     assert _claim(doc) is None, (
         "the live auto-close docstring states a default again; the default "
         "lives in bot/config.py alone")
+
+
+def test_the_one_live_flag_override_is_the_human_in_the_loop():
+    """A fresh install runs every on/off control at its code default except
+    live auto-confirm, which it keeps OFF on purpose: the frozen benchmark
+    measures no directional edge in the analyzer's signals, so a human stays on
+    every live order. Another live override is a decision about what a fresh
+    deploy runs, and it lands here rather than in silence."""
+    by_env = {env: d for env, d in declared_defaults().values()}
+    live = sorted(env for b in env_example_blocks() for env, _ln, val in b.run
+                  if val is not None and env in by_env and val != by_env[env])
+    assert live == ["AUTO_CONFIRM_LIVE_ENABLED"], live
+
+
+def test_no_live_example_value_departs_from_its_code_default_unsaid():
+    found = env_example_value_departures()
+    assert found == [], (
+        "a live `.env.example` value differs from its code default and the "
+        "prose above it does not say so:\n"
+        + "\n".join(f"  .env.example:{d.line}  {d.env}={d.value!r} "
+                     f"(bot/config.py default {d.default!r})" for d in found)
+        + "\nSay what the line does (\"this line raises it to ...\"), or "
+          "comment it out so the code default applies.")
+
+
+def test_the_value_walk_reaches_the_knobs_it_was_written_for():
+    decl = declared_values()
+    assert len(decl) >= 200, f"only {len(decl)} knobs read"
+    for env, default in (("COMMISSION_PCT", 0.06),
+                         ("ENTRY_TIMING_REGIMES", "TREND_DOWN"),
+                         ("LLM_DAILY_BUDGET_USD", 1.0)):
+        assert env in decl and decl[env][1] == default, (env, decl.get(env))
+
+
+class TestTheValueRule:
+    """Planted, for the reason the class above gives."""
+
+    CONFIG = (
+        'a: float = _env_float("KNOB_F", 0.06)\n'
+        'b: str = _env("KNOB_S", "TREND_DOWN")\n'
+        'c: float = _env_float_bounded("KNOB_NEG", -2.5, -9, 0)\n'
+        'd: float = _env_float("KNOB_TWICE", 1.0)\n'
+        'e: float = _env_float("KNOB_TWICE", 2.0)\n'
+        'f: str = _env("KNOB_COMPUTED", os.getenv("X", "y"))\n'
+        'g: bool = _env_bool("KNOB_BOOL", True)\n'
+        'h: str = _env("KNOB_STR_BOOL", False)\n'
+    )
+
+    def _found(self, env_text):
+        decl = declared_values(self.CONFIG)
+        return [(d.env, d.value) for d in env_example_value_departures(env_text, decl)]
+
+    def test_the_reader_takes_literal_and_negative_defaults_only(self):
+        decl = declared_values(self.CONFIG)
+        assert decl["KNOB_F"] == ("_env_float", 0.06)
+        assert decl["KNOB_S"] == ("_env", "TREND_DOWN")
+        assert decl["KNOB_NEG"] == ("_env_float_bounded", -2.5)
+        # Two defaults is no default; a computed one is not a literal; a bool
+        # is the flag rule's, whichever reader it reaches (a bool handed to
+        # `_env` would compare "False" against a line spelling "false").
+        assert "KNOB_TWICE" not in decl and "KNOB_COMPUTED" not in decl
+        assert "KNOB_BOOL" not in decl and "KNOB_STR_BOOL" not in decl
+
+    def test_an_unsaid_numeric_departure_is_found(self):
+        assert self._found("# The fee.\nKNOB_F=0.1\n") == [("KNOB_F", "0.1")]
+
+    def test_an_unsaid_empty_string_departure_is_found(self):
+        # ENTRY_TIMING_REGIMES= under "Default empty" switched a gate off.
+        assert self._found("# Default empty.\nKNOB_S=\n") == [("KNOB_S", "")]
+
+    def test_the_same_number_spelled_differently_is_not_a_departure(self):
+        assert self._found("# The fee.\nKNOB_F=0.060\n") == []
+        assert self._found("# Neg.\nKNOB_NEG=-2.50\n") == []
+
+    def test_a_departure_the_prose_names_is_allowed(self):
+        assert self._found("# This line raises it to 0.1.\nKNOB_F=0.1\n") == []
+        assert self._found("# The two lines below disable it.\nKNOB_F=9\n") == []
+        assert self._found("# The line below picks X.\nKNOB_S=X\n") == []
+        assert self._found("# It departs from the code default.\nKNOB_S=X\n") == []
+
+    def test_a_retraction_does_not_acquit_the_line_it_retracted(self):
+        # The survivor of the first round: the fix's own "used to set" note
+        # acquitted the value it records removing.
+        assert self._found("# This line used to set 0.1.\nKNOB_F=0.1\n") == [("KNOB_F", "0.1")]
+        assert self._found("# The line below once pinned X.\nKNOB_S=X\n") == [("KNOB_S", "X")]
+
+    def test_a_sentence_about_another_line_does_not_acquit(self):
+        # "line" and the verb in two different sentences is not a statement
+        # about what this line does.
+        assert self._found("# See the line above. It sets nothing.\nKNOB_F=0.1\n") \
+            == [("KNOB_F", "0.1")]
+
+    def test_a_commented_example_is_not_what_the_install_runs(self):
+        assert self._found("# The fee.\n# KNOB_F=0.1\n") == []
+
+    def test_a_junk_value_for_a_number_is_a_departure(self):
+        assert self._found("# The fee.\nKNOB_F=abc\n") == [("KNOB_F", "abc")]

@@ -312,7 +312,10 @@ def test_the_card_reports_applied_from_the_flags_not_from_readiness():
     try:
         object.__setattr__(CONFIG.analyzer, "setup_expectancy_backoff_enabled", False)
         comp = rd.assess_readiness(store=_EmptyStore())["components"]["setup_expectancy"]
-        assert comp["state"] == "READY"
+        # Not READY: this pinned READY over an EMPTY store, which is the count
+        # floor the card called "validated". The record is loaded; whether it
+        # predicts unseen trades is untested here, so it is VALIDATING.
+        assert comp["state"] == "VALIDATING"
         assert comp["applied"] is False, (
             "the coarse tier is ready and its switch is off — the analyzer "
             "shadow-logs this nudge and the card said it was applied")

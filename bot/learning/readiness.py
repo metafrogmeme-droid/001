@@ -55,6 +55,23 @@ _VW_MIN_VOTERS = 3
 _VW_CHANCE = 0.5
 _VW_Z = 1.96          # ~95%
 
+#: SETUP EXPECTANCY'S TEST, and the floor under it. The favoured and the
+#: disfavoured unseen trades are compared; under fifteen in either group the
+#: interval on the difference is wide enough to straddle any real effect, and a
+#: group that is empty (every unseen trade nudged the same way) cannot tell a
+#: learned difference from the base rate at all.
+_SE_MIN_EACH = 15
+
+#: What the learners read, and so what the pool is counted over. The card used
+#: to read the most recent 5000 and print their LENGTH, so a store of any size
+#: past that read "Decisions on record: 5000" -- a read's limit presented as a
+#: count -- under a sentence saying every component judges a subset of it,
+#: while voter weights and setup expectancy each read up to this many.
+_POOL_LIMIT = 100000
+#: What the calibrator is handed, unchanged: its sample count was taken over
+#: the most recent 5000, and moving that is a decision about calibration.
+_CAL_DECISIONS = 5000
+
 
 def wilson_lower_bound(successes: int, n: int, z: float = _VW_Z) -> float:
     """Lower end of the Wilson score interval for `successes / n`.
@@ -116,36 +133,59 @@ def assess_readiness(store=None) -> dict:
     # install. The pool is the number every component's evidence is judged
     # against; a zero nobody measured is the worst value it can carry.
     decisions = None
+    pool = None
     try:
         from bot.learning.store import LearningStore
-        decisions = (store or LearningStore()).get_decisions(limit=5000)
+        pool = (store or LearningStore()).get_decisions(limit=_POOL_LIMIT)
+        decisions = pool[-_CAL_DECISIONS:]
     except Exception as exc:
         log.debug("readiness: store unavailable: %s", exc)
+    # A fact about the STORE, so it is set here and not inside a component's
+    # `try`: it used to sit in calibration's, and a calibration fault blanked
+    # the pool every other component is judged against. True capped = the
+    # read stopped at its limit, so the count is a floor.
+    out["decisions_on_record"] = None if pool is None else len(pool)
+    out["decisions_capped"] = pool is not None and len(pool) >= _POOL_LIMIT
 
     # -- confidence calibration ------------------------------------------------
     comp: dict = {"flag": "AUTO_CONFIRM_USE_CALIBRATED"}
     try:
         from bot.config import CONFIG
         from bot.learning.confidence_calibration import ConfidenceCalibrator
-        samples = ConfidenceCalibrator.samples_from_decisions(decisions or [])
+        from bot.learning.outcome_join import counted_under_current_rule
+        rows = ConfidenceCalibrator.rows_from_decisions(decisions or [])
+        samples = rows.samples
         # Kept for callers that already read it, but it is the CALIBRATOR's
         # extraction and nothing else's.
         out["resolved_samples"] = len(samples)
-        out["decisions_on_record"] = None if decisions is None else len(decisions)
+        left_out = _calibration_left_out(rows)
         cal = ConfidenceCalibrator.load()
         n = getattr(cal, "_n_samples", 0) if cal else 0
         need = getattr(cal, "min_samples", 30) if cal else 30
-        comp.update(samples=max(n, len(samples)), needed=need,
+        # The fit's own count can exceed this read's (it reads a longer
+        # history), which is why the larger is shown -- but only a fit counted
+        # under the CURRENT rule has a count that means the same thing. One
+        # counted under an older reading rests on samples this rule refuses.
+        current = cal is None or counted_under_current_rule(cal)
+        counted = max(n, len(samples)) if current else len(samples)
+        comp.update(samples=counted, needed=need,
                     applied=CONFIG.auto_confirm_use_calibrated)
         if cal is None or not cal.is_ready():
             comp["state"] = "ACCUMULATING"
-        elif max(n, len(samples)) < _CAL_RECOMMEND_SAMPLES:
+        elif counted < _CAL_RECOMMEND_SAMPLES:
             comp["state"] = "VALIDATING"
             comp["note"] = (f"fitted, but curve rests on {n} samples — "
                             f"recommend >= {_CAL_RECOMMEND_SAMPLES} before applying")
         else:
             comp["state"] = "READY"
             comp["note"] = cal.summary()
+        stale = "" if current else (
+            f"the fitted curve on disk rests on {n} samples counted under an older "
+            "rule; the bot refits it when it starts (LEARNING_AUTO_REFIT_ENABLED), "
+            "or /calibration refit does it now")
+        extra = [x for x in (comp.get("note"), stale, left_out) if x]
+        if extra:
+            comp["note"] = "; ".join(extra)
     except Exception as exc:
         comp.update(state="ERROR", note=str(exc)[:160])
     out["components"]["calibration"] = comp
@@ -240,8 +280,15 @@ def assess_readiness(store=None) -> dict:
         comp.update(setups=len(getattr(se, "_table", {}) or {}),
                     tiers=_tiers,
                     applied=_on and (_backoff or not _coarse_only))
-        comp["state"] = "READY" if se.is_ready() else "ACCUMULATING"
-        comp["note"] = se.summary()
+        if not se.is_ready():
+            comp["state"] = "ACCUMULATING"
+            comp["note"] = se.summary()
+        else:
+            # A BUCKET WITH TEN TRADES IS A FLOOR, NOT A TEST: READY used to be
+            # exactly that, and the recommendation below it says "validated".
+            # The record has to tell unseen trades apart first.
+            comp["state"], why = _setup_expectancy_verdict(pool, se.min_samples)
+            comp["note"] = f"{se.summary()}\n   {why}"
     except Exception as exc:
         comp.update(state="ERROR", note=str(exc)[:160])
     out["components"]["setup_expectancy"] = comp
@@ -249,6 +296,34 @@ def assess_readiness(store=None) -> dict:
     # -- recommendations -------------------------------------------------------
     out["recommendations"] = recommendations_for(out["components"])
     return out
+
+
+def _setup_expectancy_verdict(pool, min_samples: int) -> tuple:
+    """``(state, sentence)`` from the out-of-sample test on the decisions read.
+
+    A store that could not be read is VALIDATING with that said: the record
+    loaded, and whether it predicts anything is exactly what went unmeasured.
+    """
+    if pool is None:
+        return ("VALIDATING", "not tested: the learning store could not be read, "
+                              "so nothing checked whether the record predicts "
+                              "unseen trades")
+    from bot.learning.setup_expectancy import SetupExpectancy, validate_oos
+    oos = validate_oos(SetupExpectancy.samples_from_decisions(pool),
+                       min_samples=min_samples)
+    nf, nd = oos["n_favoured"], oos["n_disfavoured"]
+    head = (f"on {oos['n_test']} unseen trade(s), {nf} nudged up and {nd} "
+            "nudged down")
+    if nf < _SE_MIN_EACH or nd < _SE_MIN_EACH:
+        return ("VALIDATING", f"{head} — need >= {_SE_MIN_EACH} of each before "
+                              "comparing them means anything")
+    pf, pd, low = oos["win_favoured"], oos["win_disfavoured"], oos["lower"]
+    evidence = (f"{head}: won {pf:.0%} against {pd:.0%}, a difference whose "
+                f"95% interval starts at {low:+.0%}")
+    if low <= 0:
+        return ("VALIDATING", f"{evidence} — the record does not yet tell "
+                              "winners from losers")
+    return ("READY", evidence)
 
 
 #: The states that mean a component's evidence bar has NOT been cleared.
@@ -295,6 +370,28 @@ def recommendations_for(components: dict) -> list:
     return warnings + notes
 
 
+def _calibration_left_out(rows) -> str:
+    """What the calibrator's reading left out, or "" when it left out nothing.
+
+    Said only when it bites: a permanent "0 left out" under every healthy card
+    is the line that trains a reader to skip the next one.
+    """
+    parts = []
+    if rows.not_measured:
+        parts.append(f"{rows.not_measured} whose confidence was a stamp or "
+                     f"carried from another idea")
+    if rows.unattributed:
+        parts.append(f"{rows.unattributed} recorded before the bot marked "
+                     f"which confidences were measured, with no analyzer "
+                     f"figure to tell")
+    if rows.not_opened:
+        parts.append(f"{rows.not_opened} failed attempt(s) before a retry "
+                     f"that opened")
+    if not parts:
+        return ""
+    return "not counted: " + "; ".join(parts)
+
+
 def render_report(assessment: dict) -> str:
     """Telegram-HTML readiness report."""
     icon = {"READY": "✅", "VALIDATING": "\U0001f7e0",
@@ -310,10 +407,14 @@ def render_report(assessment: dict) -> str:
     # `None` is a store that could not be read, and it says so rather than
     # printing the 0 that a genuinely fresh install also prints.
     pool = assessment.get("decisions_on_record")
+    if pool is None:
+        pool_text = "unknown — the learning store could not be read"
+    elif assessment.get("decisions_capped"):
+        pool_text = f"at least {pool} (the read stops there)"
+    else:
+        pool_text = str(pool)
     lines = ["\U0001f9e0 <b>Learning Readiness</b>", "─" * 28,
-             "Decisions on record: <code>"
-             + ("unknown — the learning store could not be read" if pool is None
-                else str(pool)) + "</code>",
+             "Decisions on record: <code>" + pool_text + "</code>",
              "<i>each component judges its own subset of these; the counts "
              "below are not this one.</i>", ""]
     for name, c in assessment.get("components", {}).items():

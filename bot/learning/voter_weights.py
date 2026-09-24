@@ -32,6 +32,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from bot.learning.outcome_join import SAMPLE_READING, join_outcomes, reading_of
 from bot.utils.atomic_write import atomic_write_json
 
 log = logging.getLogger("runeclaw.voter_weights")
@@ -69,6 +70,7 @@ class VoterWeightLearner:
         self.shrinkage = max(0.0, float(shrinkage))
         self._mult: dict[str, float] = {}
         self._n_samples = 0
+        self.sample_reading: Optional[int] = SAMPLE_READING
 
     # -- fitting ---------------------------------------------------------------
 
@@ -117,20 +119,17 @@ class VoterWeightLearner:
     def samples_from_decisions(decisions):
         """Join decision records (carrying ``confluence_votes`` + direction +
         ``paper_trade_id``) to outcome records (``pnl_result`` by
-        ``paper_trade_id``) into ``(votes, direction, won)`` tuples."""
-        outcome: dict[str, bool] = {}
-        for d in decisions:
-            tid = getattr(d, "paper_trade_id", "") or ""
-            pnl = getattr(d, "pnl_result", None)
-            if tid and pnl is not None:
-                outcome[tid] = float(pnl) > 0.0
+        ``paper_trade_id``) into ``(votes, direction, won)`` tuples.
+
+        The join is `outcome_join.join_outcomes`, shared with the calibrator:
+        one decision row per closed trade, so a failed attempt and the
+        successful retry that opened the position are one sample, not two."""
         samples = []
-        for d in decisions:
+        for d, won in join_outcomes(decisions).rows:
             votes = getattr(d, "confluence_votes", None)
-            tid = getattr(d, "paper_trade_id", "") or ""
-            if not votes or tid not in outcome:
+            if not votes:
                 continue
-            samples.append((votes, getattr(d, "direction", ""), outcome[tid]))
+            samples.append((votes, getattr(d, "direction", ""), won))
         return samples
 
     def load_samples(self, store=None):
@@ -244,9 +243,11 @@ class VoterWeightLearner:
                 # Versioning metadata (audit fix #19): a weights file without a
                 # schema version + fit timestamp cannot be audited or expired.
                 "schema_version": 2,
+                "sample_reading": self.sample_reading,
                 "fitted_at": datetime.now(UTC).isoformat()}
 
     def load_dict(self, d: dict) -> "VoterWeightLearner":
+        self.sample_reading = reading_of(d)
         self.min_samples = int(d.get("min_samples", self.min_samples))
         self.min_voter_samples = int(d.get("min_voter_samples", self.min_voter_samples))
         self.gain = float(d.get("gain", self.gain))

@@ -6129,15 +6129,15 @@ class LiveExecutor:
             is_futures = CONFIG.exchange.trade_mode == "futures"
 
             # Graceful degradation check
-            # User-confirmed limit orders bypass WS degradation — the user
-            # explicitly chose to trade and limit orders don't need real-time
-            # WS data; the REST API is still functional.
+            # A LIMIT order bypasses WS degradation: it rests at its own price
+            # and needs no real-time WS data, and the REST API still works. It
+            # is not "user-confirmed" -- the engine's own ideas are limits too.
             deg_mode = self.check_degradation()
             if deg_mode == "paused":
-                is_user_limit = getattr(idea, 'order_type', '') == 'limit'
-                if is_user_limit:
+                is_limit = getattr(idea, 'order_type', '') == 'limit'
+                if is_limit:
                     audit(trade_log,
-                          "WS degraded but proceeding with user-confirmed limit order",
+                          "WS degraded but proceeding with a limit order (rests at its own price)",
                           action="execute", result="DEGRADE_OVERRIDE")
                     # Reset degraded flag since we're about to hit the REST API
                     self._ws_last_seen = time.time()

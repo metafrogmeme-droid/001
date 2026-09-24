@@ -99,6 +99,11 @@ class DecisionMemory(BaseModel):
     # fits one distribution and remaps another. 0.0 = unset (old records) → the
     # trainer falls back to `confidence`.
     blended_confidence_raw: float = 0.0
+    # Whether `confidence` is a measurement of THIS decision's own trade:
+    # "measured", or why it is not (a manual ticket's stamp, a confidence
+    # carried from another idea) -- `quality_ladder.confidence_basis`. ""
+    # is a row written before this field existed, which is not "measured".
+    confidence_basis: str = ""
     confluence_score: float = 0.0
     entry_price: float = 0.0
     stop_loss: float = 0.0

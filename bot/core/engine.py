@@ -47,7 +47,7 @@ from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
-from bot.risk.quality_ladder import auto_confirm_refusal, quality_reading
+from bot.risk.quality_ladder import auto_confirm_refusal, confidence_basis, quality_reading
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -2723,6 +2723,8 @@ class RuneClawEngine:
             eng.set_person_identity(str(user_id),
                                     lambda reason, _uid=str(user_id):
                                         self._halt_all_venues_for(_uid, reason))
+            if getattr(self, "_state_persistence_detached", False):
+                eng.make_reader()
             self._user_risk[key] = eng
             audit(system_log,
                   f"Per-user risk engine bound for user {user_id}"
@@ -3325,6 +3327,27 @@ class RuneClawEngine:
         self.portfolio._combined_saver = self._save_combined_state
         self.risk._combined_saver = self._save_combined_state
 
+    #: How many symbols' last refusals `/whynot` keeps, and how many a prune
+    #: keeps once that is passed.
+    _REJECTIONS_CAP = 100
+    _REJECTIONS_KEEP = 50
+
+    def _remember_rejection(self, symbol_key: str, record: dict) -> None:
+        """Keep `record` as `symbol_key`'s last refusal, NEWEST LAST.
+
+        The dict's order is the only recency this store has, and a plain
+        assignment kept a re-refused symbol at its FIRST position: after BTC,
+        ETH, BTC, `/whynot` with no symbol showed ETH as "the most recent
+        rejection", and the cap pruned the symbols refused most often first.
+        Removing before inserting makes insertion order refusal order, which
+        is what every reader of this store assumes.
+        """
+        self._last_rejections.pop(symbol_key, None)
+        self._last_rejections[symbol_key] = record
+        if len(self._last_rejections) > self._REJECTIONS_CAP:
+            for k in list(self._last_rejections)[:-self._REJECTIONS_KEEP]:
+                self._last_rejections.pop(k, None)
+
     def detach_state_persistence(self) -> None:
         """Make this engine a READER of the operator's state, never a writer.
 
@@ -3342,8 +3365,18 @@ class RuneClawEngine:
         breaker save it makes is refused -- so the fix is one writer.
 
         Idempotent. Nothing is lost: the bot remains the writer.
+
+        Its RISK ENGINES are readers too (`RiskEngine.make_reader`), because two
+        of their writes never pass through the combined saver: the ladder
+        ledger, rewritten whole from this process's memory on every sized
+        evaluation (the bridge's `/analyze` is one), and a per-user engine's
+        own state file. `risk_for` marks every engine it builds after this.
         """
         self._state_persistence_detached = True
+        for _eng in [getattr(self, "risk", None),
+                     *getattr(self, "_user_risk", {}).values()]:
+            if _eng is not None:
+                _eng.make_reader()
 
     def _save_combined_state(self) -> None:
         """Atomically write the OPERATOR's portfolio + risk state to a single file.
@@ -3489,6 +3522,31 @@ class RuneClawEngine:
 
     # -- Main loop --
 
+    async def _refit_stale_learned_curves(self) -> list:
+        """Refit, once, the learned curves saved under an older sample reading.
+
+        Such a curve rests on samples the current rule does not count, and the
+        auto-refit's count starts at zero with this process, so without this it
+        stays applied for up to `learning_auto_refit_interval` closes after the
+        deploy that changed the rule. It follows the auto-refit flag, because
+        refitting on its own is what that flag authorises, and a reader engine
+        writes nothing the bot owns. Answers the learners it refit.
+        """
+        if (not CONFIG.analyzer.learning_auto_refit_enabled
+                or getattr(self, "_state_persistence_detached", False)):
+            return []
+        try:
+            from bot.learning.auto_refit import refit_stale
+            refit = await asyncio.to_thread(refit_stale, getattr(self, "analyzer", None))
+        except Exception as exc:
+            system_log.warning("Startup refit of stale learned curves failed: %s", exc)
+            return []
+        if refit:
+            audit(system_log,
+                  f"Refit at startup, counted under an older rule: {', '.join(refit)}",
+                  action="learning_refit_stale", result="REFIT")
+        return refit
+
     async def run(self) -> None:
         """Start the continuous scan-analyze-monitor loop."""
         self._running = True
@@ -3499,6 +3557,7 @@ class RuneClawEngine:
             action="start",
             data={"simulation": CONFIG.simulation_mode},
         )
+        await self._refit_stale_learned_curves()
         # Start WebSocket feed for real-time price monitoring
         try:
             await self.ws_feed.start()
@@ -6823,7 +6882,7 @@ class RuneClawEngine:
             # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
             # of a perpetual was ever found by name.
             symbol_key = normalize_symbol(idea.asset)
-            self._last_rejections[symbol_key] = {
+            self._remember_rejection(symbol_key, {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,
                 "confidence": idea.confidence,
@@ -6834,12 +6893,7 @@ class RuneClawEngine:
                 "checks_failed": risk_check.checks_failed,
                 "reason": risk_check.reason,
                 "timestamp": datetime.now(UTC).isoformat(),
-            }
-            # Cap stored rejections
-            if len(self._last_rejections) > 100:
-                oldest_keys = list(self._last_rejections.keys())[:-50]
-                for k in oldest_keys:
-                    self._last_rejections.pop(k, None)
+            })
             audit(
                 trade_log,
                 f"Trade REJECTED by risk: {risk_check.reason}",
@@ -6854,6 +6908,7 @@ class RuneClawEngine:
                 # #35: persist the calibrator's apply-target so it trains on the
                 # same field (falls back to confidence when unset).
                 blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+                confidence_basis=confidence_basis(idea),
                 confluence_score=idea.confidence,
                 entry_price=idea.entry_price,
                 stop_loss=idea.stop_loss,
@@ -7004,6 +7059,7 @@ class RuneClawEngine:
                     direction=idea.direction.value,
                     confidence=idea.confidence,
                     blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+                    confidence_basis=confidence_basis(idea),
                     confluence_score=idea.confidence,
                     entry_price=idea.entry_price,
                     stop_loss=idea.stop_loss,
@@ -7975,6 +8031,7 @@ class RuneClawEngine:
             # #35: persist the calibrator's apply-target so it trains on the same
             # field (falls back to confidence when unset).
             blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+            confidence_basis=confidence_basis(idea),
             confluence_score=idea.confidence,
             entry_price=idea.entry_price,
             stop_loss=idea.stop_loss,

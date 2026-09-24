@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 726 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 725 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7352,6 +7352,108 @@ block as agreeing) killed once planted, and one EQUIVALENT mutant recorded —
 the `False` fallback put back, which no input can separate from the direct read.
 (`tests/test_a_comment_names_the_default_the_flag_has.py`.)
 
+**AND THE OPERATOR SAID "YES TO ALL", AND THE NEXT THREE FINDINGS WERE IN THE
+FIX'S OWN NEIGHBOURHOOD.** The two decisions left open above were the minimum
+reward:risk on the analyzer's limits (enforced: a limit fills at its own entry
+price, so the ratio the gate reads is the ratio the fill gets, and the
+benchmark on record was re-run at that commit rather than left describing
+code that no longer runs) and `.env.example`'s live overrides (they follow the
+code now). Each fix had a neighbour the same shape.
+
+**Enforcing the gate made the analyze card's worst explanation its ordinary
+one.** `_analyze_signal` returns None when the risk gate refuses, and the card
+then read `analyzer._last_rejection_diag` bare: ONE slot for the last
+rejection of ANY symbol, written constantly by the background scan, so
+"analyze BTC" was explained with another symbol's regime and score, and with
+no note at all it printed "regime filter or low confluence", a cause nobody
+measured. `declined_analysis_reason` takes a record only when it names this
+symbol AND was made during this call (every analyzer writer stamps `at` now),
+asks the gate first, and otherwise says nothing was recorded.
+
+**The value rule was acquitted by its own fix's retraction.** "This line used
+to set 0.1" matched "this line … sets" with anything but a full stop between,
+so putting the live `COMMISSION_PCT=0.1` back survived the mutation round
+under the sentence recording its removal: *a comment that quotes the string it
+forbids*, in the rule written to catch unsaid departures. The verb has to
+follow "line(s) (below)" directly now. And the first draft of the auto-confirm
+prose said it was "the ONE place this file departs from a code default";
+measured over every live line, five more did, three of them wrong
+(`COMMISSION_PCT`, `ENTRY_TIMING_REGIMES`, and an `LLM_MODEL` pinned to an
+id the routing tests forbid). A universal claim is a measurement or it is
+not written.
+
+**The pre-registered hypothesis was run, and it does not hold.** On data
+fetched 2026-09-24, every idea after the v2 snapshots' last bar, the pooled
+`vwap_reversion` excess at 24 bars is −0.70 [−1.63, +0.38]; the lead is
+closed. Two fresh cells cleared zero and neither is a lead, because one fresh
+window against a flat five-snapshot history is what forty cells produce.
+Pre-registering is what made that a sentence rather than a strategy change.
+
+**READY was a trade count, and the card called it "validated".**
+`setup_expectancy.is_ready()` is "some bucket at some tier holds ten trades";
+with the backoff, the direction tier is every long, and a live card read
+READY above "0 setup(s) at/above 10-trade threshold" and recommended switching
+on the backoff. `validate_oos` compares the unseen trades the record nudged up
+with the ones it nudged down, and READY needs the whole interval on the
+difference above zero. The first round left four mutations alive and every
+one was a fixture that could not fail: a fit leaking the test block, an
+uncovered trade, a gap inside its interval, a winning base rate. And the
+card's "Decisions on record: 5000" was a read's limit printed as a count.
+(`tests/test_a_limit_idea_meets_the_reward_risk_minimum.py`,
+`tests/test_the_analyze_card_says_why_this_analysis_declined.py`,
+`tests/test_setup_expectancy_is_tested_before_it_is_ready.py`.)
+
+**The calibrator fitted a stamp as a measurement, and counted a retried trade
+twice.** A manual ticket goes through the same confirm path as the engine's own
+ideas, so its decision row carried the 1.0 `build_manual_idea` writes and the
+join fitted it as a measured 100%, in the top bin, the one the auto-confirm
+threshold is read against; a drift re-offer's confidence, measured about
+another trade's levels, joined the same way. The confirm path pops the pending
+idea only on success and logs a decision either way, so a failed attempt and
+the retry that opened share one trade id, and both the calibrator's join and
+the voter learner's paired both rows with the one outcome. Each row records its
+`confidence_basis` now, which is the auto-confirm door's own question asked
+once (`quality_ladder.confidence_basis`); `outcome_join` is the one join both
+learners ask, one row per trade id, never a row whose word says the trade
+never opened. A row written before the field says nothing, so it counts only
+when it carries `blended_confidence_raw`, which the analyzer alone writes; an
+old row without it cannot be told from a stamp, and is left out and counted
+rather than guessed at. The readiness card names all three exclusions. The
+mutation that let two opened rows under one id through survived the first
+round, because no product path writes that shape; the join's claim is measured
+on planted rows now. (`tests/test_the_calibrator_trains_on_what_was_measured.py`.)
+
+**And the fix would have reached the applied curve 25 closes late, under a
+docstring saying that could not matter.** A learned curve is saved to disk and
+rests on the samples its fit counted, so a curve saved before that commit still
+held the stamps and the double-counted retries; the auto-refit that replaces it
+counts closes in MEMORY, so it restarts at zero with every deploy. And
+`auto_refit.py` opened *"Safe by construction: … it NEVER changes a trade
+decision on its own — each learner's application is still behind its own
+default-OFF flag"* and *"Gated by LEARNING_AUTO_REFIT_ENABLED (default OFF)"* —
+while calibration and setup expectancy both apply by default and auto-refit is
+ON. That is the sentence a reader consults to decide leaving auto-refit on is
+harmless, and a docstring is outside the flag-comment rule by design, so it is
+pinned by name against the declared defaults. Each saved fit records the
+`SAMPLE_READING` it was counted under now; the bot refits a stale one once as its
+loop starts (`_refit_stale_learned_curves`, behind the auto-refit flag, never in
+a reader engine); and the readiness card stops lending a stale fit's count to the
+record, because `max(n, len(samples))` compared two counts made under two rules.
+**The full gate refused the first draft, on a second copy I had just
+written.** "Is this fit current?" was a method on BOTH learners, byte-identical,
+and the methods ratchet counts a name two classes define as one it cannot
+resolve (41 → 42). Re-recording 42 would have baselined a second answer to one
+question; it is one function in `outcome_join` now,
+`counted_under_current_rule`, and every reader asks it. No suite the slice had
+run could see it; the full preflight did. Twenty-two mutations, each killed
+against the code that ships, and the two that survived a first round were both
+the corpus. The "a current fit is left alone" test planted a refit that RAISED,
+and `refit_stale` is fail-open per learner, so its own `except` caught the plant
+and the test could not tell a refit that never ran from one that was swallowed;
+it records the call now. And no test asked what the card says on a fresh install
+with no fit at all, where "fitted under an older rule" would describe a file that
+does not exist. (`tests/test_a_fit_counted_under_an_older_rule_is_refit.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -9252,11 +9354,19 @@ probe: **a remap preserves what a citation pointed at, and says nothing about
 whether it pointed at the right thing.** Each is re-derived from what its
 sentence names.
 
-**Recorded, not changed, with what was read and not driven.** The same paper
-loop journals every practice close into the one trade journal that `/journal`,
-the weekly review and the post-mortem read. It also feeds `time_of_day` and
-the hold-time analytics. That is practice reaching the operator's RECORD
-rather than its risk state, and it is a separate slice.
+**Recorded, not changed, and the first attempt to change it was wrong.** The
+same paper loop hands every practice close to the journal, the learning store,
+the refit counter and the two analytics. A slice that cut all five was built,
+driven and mutation-tested, and then dropped, because its two arguments did
+not survive being checked. "One idea is recorded once per user who confirmed
+it" is false: a practice fill pops the pending idea exactly as a live confirm
+does, so an idea fills once. And feeding the learners is DESIGNED:
+`_simulate_paper_fill` logs a `paper_decision` row so they can join it to the
+`paper_outcome` this loop records, each behind its own flag and tagged so a
+consumer can weigh paper apart from live. A practice fill is the engine's idea
+at the engine's levels, which is what a live confirm is too. What stays open
+is narrower and unmeasured: whether the journal's readers should count a
+practice close among the operator's trades.
 (`tests/test_a_loss_cools_only_the_account_that_took_it.py`.)
 
 **THE API BRIDGE'S EMERGENCY STOP HALTED A COPY, AND THE BOT KEPT TRADING.**
@@ -9352,6 +9462,19 @@ ladder ledger rewrites its whole file from memory, so a sized evaluation
 through the bridge's `/analyze` would erase the bot's rows recorded since the
 bridge started.
 (`tests/test_the_bridge_is_a_reader_of_the_bots_state.py`.)
+
+**Driven the next day, and it did.** The bot records three ladder rows, a
+second ledger instance on the same file records one, and the file holds the
+one. The first fix reached only the combined saver, and the ledger is written
+by `RiskEngine.evaluate` straight to a module singleton. So is a per-user
+engine's own `risk_state_{user}.json`, which a reader's `risk_for` would
+write from a copy. `RiskEngine.make_reader()` writes neither, and
+`detach_state_persistence` marks its operator engine, the per-user engines it
+already holds, and every one `risk_for` builds after. A reader's evaluation
+is not recorded as one of the bot's either: it was sized off a copy of the
+state. The `set_authority_ledger` write beside it was checked and cannot
+fire, since nothing in the tree binds a ledger.
+(`tests/test_a_reader_records_nothing_the_bot_owns.py`.)
 
 **AND THE BRIDGE WAS NOT THE ONLY ONE.** *Ask which OTHER surface makes the
 same claim*, pointed at a process instead of a card. Outside `tests/`,
@@ -9816,7 +9939,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 222 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 224 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10628,9 +10751,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **424 of 1018** reach for source text through `source_scan`, `code_only`
+Driven, **426 of 1024** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 424 is a FLOOR and the honest shape is
+source scan that rule does not see, so 426 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

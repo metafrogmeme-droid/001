@@ -127,9 +127,29 @@ def test_free_tier_routes_only_to_free_or_operator_funded_providers():
         assert cfg["provider"] != LLMProvider.ALIBABA
 
 
+# Groq retired llama-3.3/3.1-instant (June 2026) and Gemini 2.5 was superseded
+# by the 3.x line — a deprecated id breaks live calls the moment it's retired.
+DEPRECATED_IDS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemini-2.5")
+
+
 def test_no_deprecated_model_ids_in_routing():
-    # Groq retired llama-3.3/3.1-instant (June 2026) and Gemini 2.5 was superseded
-    # by the 3.x line — a deprecated id breaks live calls the moment it's retired.
     models = " ".join(_all_routing_models())
-    for dead in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemini-2.5"):
+    for dead in DEPRECATED_IDS:
         assert dead not in models, f"deprecated model id still routed: {dead}"
+
+
+def test_a_fresh_install_pins_no_model_the_routing_forbids():
+    """`cp .env.example .env` is the documented install, and a LIVE model line
+    there OVERRIDES the catalog. It pinned claude-sonnet-4-6 and, on three
+    tiers, gemini-2.5-flash -- the ids the two tests above forbid in routing --
+    which is the 2026-07-11 shape (every tier on a dead id, the bot on the rule
+    engine while looking configured) shipped as the example. An empty value is
+    the provider's current default."""
+    import re
+    from pathlib import Path
+    env = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
+    live = re.findall(r"^([A-Z_]*MODEL[A-Z_]*)=(\S*)\s*$", env, re.M)
+    assert live, "no live model line read: the walk reaches nothing"
+    for name, value in live:
+        for dead in DEPRECATED_IDS + ("claude-sonnet-4-6",):
+            assert dead not in value, f".env.example pins {name}={value}"

@@ -18,8 +18,11 @@ from bot.learning.confidence_calibration import ConfidenceCalibrator, _pav
 
 
 def _decision(confidence, tid):
-    """A decision-time record: carries confidence + paper_trade_id; trade still open."""
-    return SimpleNamespace(confidence=confidence, paper_trade_id=tid, pnl_result=None)
+    """A decision-time record: carries confidence + paper_trade_id; trade still
+    open. Recorded as a measurement, which is what the confirm path writes for
+    an idea the engine measured."""
+    return SimpleNamespace(confidence=confidence, paper_trade_id=tid,
+                           pnl_result=None, confidence_basis="measured")
 
 
 def _outcome(pnl, tid):

@@ -294,6 +294,66 @@ class SetupExpectancy:
         return head
 
 
+#: The two-sided 95% z for the interval on a difference of two win rates.
+_Z = 1.96
+
+
+def validate_oos(samples, split: float = 0.7, *,
+                 min_samples: int = _DEFAULT_MIN_SAMPLES) -> dict:
+    """Does a record learned from the EARLIER trades tell the LATER ones apart?
+
+    READY USED TO MEAN "SOME BUCKET HOLDS TEN TRADES", and the readiness card
+    printed that as "validated but not applied — consider enabling". With the
+    backoff, the direction tier is a bucket of every long and one of every
+    short, so a couple of dozen closes cleared it; a live card read READY beside
+    "0 setup(s) at/above 10-trade threshold" and recommended applying a
+    per-direction nudge nothing had tested. A count is a floor, not a test.
+
+    This is the test, in the shape `VoterWeightLearner.validate_oos` already
+    uses: fit on the first ``split`` of the samples (store order is
+    chronological), then read the rest. Every unseen trade the fitted record
+    nudges UP is "favoured" and every one it nudges DOWN is "disfavoured"; the
+    record is doing its job only if the favoured ones win more often. The claim
+    is the DIFFERENCE, not a hit rate: nudging every trade the same way on a
+    record of mostly winners "predicts" the base rate and tells nothing apart.
+
+    Returns counts and win rates per group, the difference, and the lower edge
+    of its 95% interval (a normal interval on a difference of two proportions),
+    or ``None`` for any figure a group too small to measure cannot give.
+    """
+    clean = [s for s in samples if s and len(s) == 4]
+    cut = int(len(clean) * split)
+    train, test = clean[:cut], clean[cut:]
+    fitted = SetupExpectancy(min_samples=min_samples).ingest(train)
+    fav: list[bool] = []
+    dis: list[bool] = []
+    tiers: dict[str, int] = {}
+    for sym, regime, direction, won in test:
+        nudge = fitted.nudge_for(sym, regime, direction)
+        if nudge.value > 0:
+            fav.append(bool(won))
+        elif nudge.value < 0:
+            dis.append(bool(won))
+        else:
+            continue
+        tiers[nudge.tier] = tiers.get(nudge.tier, 0) + 1
+    out: dict = {"n_train": len(train), "n_test": len(test),
+                 "n_favoured": len(fav), "n_disfavoured": len(dis),
+                 "win_favoured": None, "win_disfavoured": None,
+                 "difference": None, "lower": None, "tiers": tiers}
+    if fav:
+        out["win_favoured"] = sum(fav) / len(fav)
+    if dis:
+        out["win_disfavoured"] = sum(dis) / len(dis)
+    if fav and dis:
+        p1, p2 = out["win_favoured"], out["win_disfavoured"]
+        diff = p1 - p2
+        se = (p1 * (1 - p1) / len(fav) + p2 * (1 - p2) / len(dis)) ** 0.5
+        out["difference"] = diff
+        out["lower"] = diff - _Z * se
+    return out
+
+
 def may_apply(nudge: "Nudge", *, enabled: bool, backoff_enabled: bool) -> bool:
     """Whether this nudge may move a confidence, or only be shadow-logged.
 

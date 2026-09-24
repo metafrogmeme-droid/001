@@ -21,6 +21,7 @@ from typing import Any, Optional
 from bot.core.live_executor import (
     committed_margin,
     committed_margin_note,
+    normalize_symbol,
     position_size_basis,
 )
 from bot.core.live_readiness import mode_label
@@ -521,6 +522,49 @@ def _true_range_atr(highs, lows, closes, period: int = 14) -> float:
     return atr if _np.isfinite(atr) and atr > 0 else 0.0
 
 
+def _record_time(rec: dict, iso_key: str, epoch_key: str) -> Optional[float]:
+    """When a record was made, as epoch seconds; None when it does not say."""
+    at = rec.get(epoch_key)
+    if isinstance(at, (int, float)) and not isinstance(at, bool):
+        return float(at)
+    try:
+        return datetime.fromisoformat(str(rec[iso_key])).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def declined_analysis_reason(symbol: str, since: float,
+                             analyzer_diag: Optional[dict],
+                             rejections: dict) -> dict:
+    """Why THIS analysis of `symbol` produced no idea, from records made during it.
+
+    Two stores can say, and neither is about this call by construction. The
+    analyzer keeps ONE diagnostic for the last rejection of ANY symbol, and a
+    background scan writes it constantly, so reading it bare explained "analyze
+    BTC" with another symbol's regime, bias and score. The risk gate keeps its
+    last refusal per symbol, and an old one is not this call's. A record counts
+    only when it names this symbol AND was made at or after `since`.
+
+    The gate is asked first: it refuses an idea the analyzer has already
+    produced, so a refusal made during this call is why this call has no idea.
+    Neither fresh is ``unrecorded``, never a guessed cause: the old fallback
+    read "regime filter or low confluence" whatever had happened.
+    """
+    key = normalize_symbol(symbol)
+    rej = rejections.get(key) if isinstance(rejections, dict) else None
+    if isinstance(rej, dict):
+        at = _record_time(rej, "timestamp", "at")
+        if at is not None and at >= since:
+            return {"source": "risk", "reason": str(rej.get("reason") or ""),
+                    "failed": [str(c) for c in rej.get("checks_failed") or []]}
+    d = analyzer_diag if isinstance(analyzer_diag, dict) else None
+    if d is not None and normalize_symbol(str(d.get("symbol") or "")) == key:
+        at = _record_time(d, "ts", "at")
+        if at is not None and at >= since:
+            return {"source": "analyzer", "diag": d}
+    return {"source": "unrecorded"}
+
+
 class BaseSkill(ABC):
     name: str = "unnamed"
     description: str = ""
@@ -745,14 +789,18 @@ class AnalyzeAssetSkill(BaseSkill):
         if sig.price <= 0:
             return f"{_BAD} <b>ANALYSIS</b>\n\n<i>Invalid price (0 or negative) for</i> <code>{_esc(symbol)}</code>"
 
+        _since = time.time()
         idea = await engine._analyze_signal(sig, is_admin=kwargs.get("is_admin", False),
                                             user_id=kwargs.get("user_id"),
                                             user_tier=kwargs.get("user_tier"))
         if idea is None:
             vol_m = sig.volume_usd_24h / 1_000_000 if sig.volume_usd_24h else 0
             arrow = _spark(sig.change_pct_24h)
-            # Pull diagnostics from analyzer
-            diag = getattr(engine.analyzer, "_last_rejection_diag", None) or {}
+            why = declined_analysis_reason(
+                sig.symbol, _since,
+                getattr(engine.analyzer, "_last_rejection_diag", None),
+                getattr(engine, "_last_rejections", None) or {})
+            diag = why.get("diag") or {}
             diag_lines = []
             if diag.get("regime"):
                 diag_lines.append(f"Regime: <code>{diag['regime']}</code>")
@@ -766,7 +814,16 @@ class AnalyzeAssetSkill(BaseSkill):
                 diag_lines.append(f"Threshold: <code>{diag['threshold']:.0%}</code>")
             if diag.get("regime_penalty") and diag["regime_penalty"] > 0:
                 diag_lines.append(f"Regime penalty: <code>-{diag['regime_penalty']:.0%}</code>")
-            reason_text = diag.get("reason", "regime filter or low confluence")
+            if why["source"] == "risk":
+                reason_text = "Refused by the risk gate"
+                failed = why["failed"] or [why["reason"] or "no check named"]
+                diag_lines = [_esc(c) for c in failed[:6]]
+                if len(failed) > 6:
+                    diag_lines.append(f"and {len(failed) - 6} more")
+            elif why["source"] == "analyzer":
+                reason_text = str(diag.get("reason") or "the analyzer gave no reason")
+            else:
+                reason_text = "nothing recorded why during this analysis"
             diag_detail = "\n".join(f"  {l}" for l in diag_lines)
             msg = (
                 f"{_NEU} <b>{_esc(symbol)}</b>  {arrow}\n{SEP}\n\n"
@@ -3130,8 +3187,10 @@ class WhyNotSkill(BaseSkill):
         rejections = engine._last_rejections
 
         if not rejections:
+            # The store is this process's memory, so "none" is since the bot
+            # last started, not ever.
             return (f"{_NEU} <b>NO REJECTIONS</b>\n\n"
-                    "<i>No trades rejected yet. "
+                    "<i>No trades rejected since the bot last started. "
                     "Say \"scan\" or \"analyze BTC\" to generate ideas.</i>")
 
         if symbol:
@@ -3142,11 +3201,14 @@ class WhyNotSkill(BaseSkill):
             sym_key = normalize_symbol(symbol)
             rej = rejections.get(sym_key)
             if not rej:
-                available = ", ".join(sorted(rejections.keys())[-10:])
+                # Newest first, in refusal order (`_remember_rejection` keeps
+                # the dict that way). This was `sorted(...)[-10:]`: the last
+                # ten ALPHABETICALLY, under the word "Recent".
+                available = ", ".join(reversed(list(rejections)[-10:]))
                 return (f"{_BAD} No rejection found for <code>{_esc(sym_key)}</code>\n\n"
                         f"Recent rejections: <code>{_esc(available)}</code>")
         else:
-            # Most recent rejection (last inserted key)
+            # Most recent rejection: the dict is kept in refusal order.
             sym_key = list(rejections.keys())[-1]
             rej = rejections[sym_key]
 

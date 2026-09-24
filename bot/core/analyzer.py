@@ -644,7 +644,7 @@ class Analyzer:
         self._sentiment = SentimentEngine()
         self._strategy_selector = StrategySelector()
         self._explainability = ExplainabilityEngine()
-        # Diagnostic info for the last rejected analysis
+        # The last rejected analysis of ANY symbol, stamped `at`; readers filter both
         self._last_rejection_diag: Optional[dict] = None
         # Structured no-trade reasons per symbol (audit fix #8): every analyzer
         # skip path records WHY, so callers (/whynot, dashboard, learning) can
@@ -666,7 +666,7 @@ class Analyzer:
                 **data,
             }
             self._no_trade_reasons[symbol] = entry
-            self._last_rejection_diag = entry
+            self._last_rejection_diag = {**entry, "at": time.time()}
         except Exception:
             pass
 
@@ -1347,7 +1347,7 @@ class Analyzer:
         thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
 
         if thesis is None:
-            self._last_rejection_diag = {
+            self._last_rejection_diag = {"at": time.time(),
                 "symbol": signal.symbol, "regime": regime.value,
                 "confluence": round(confluence, 3),
                 "reason": (
@@ -1425,7 +1425,7 @@ class Analyzer:
             _adx = float(indicators.get("adx", 0) or 0)
             _gate_reason = self._regime_hard_gate_reason(regime, direction, _adx)
             if _gate_reason:
-                self._last_rejection_diag = {
+                self._last_rejection_diag = {"at": time.time(),
                     "symbol": signal.symbol,
                     "stage": "regime_hard_gate",
                     "regime": regime.value,
@@ -1577,7 +1577,7 @@ class Analyzer:
                                 "direction": direction.value,
                                 "of_bias": round(of_bias, 3),
                                 "of_confidence": round(of_conf, 3)})
-                    self._last_rejection_diag = {
+                    self._last_rejection_diag = {"at": time.time(),
                         "symbol": signal.symbol, "regime": regime.value,
                         "confluence": round(confluence, 3),
                         "direction": direction.value,
@@ -1801,7 +1801,7 @@ class Analyzer:
             min_conf = max(min_conf, getattr(mode_config, "min_confidence", 0.0))
         if blended_confidence < min_conf:
             thesis_src = thesis.get("source", "unknown")
-            self._last_rejection_diag = {
+            self._last_rejection_diag = {"at": time.time(),
                 "symbol": signal.symbol,
                 "regime": regime.value,
                 "confluence": round(confluence, 3),

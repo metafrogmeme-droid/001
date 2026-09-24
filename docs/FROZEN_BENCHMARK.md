@@ -227,8 +227,11 @@ losses, net, win rate, PF — PF is `null` with no losing trade, never `inf`).
 The parity card prints the commit and the date, so an artefact the code has
 moved past reads as old rather than as current; re-run the command and commit
 the file to re-baseline. **This is the "written file" the note above asks
-for**, and the 2026-09-21 artefact reproduces that note exactly: mean OOS
-−0.38%, 1 of 6 folds profitable, 112 pooled trades, PF 0.63.
+for**, and the 2026-09-21 artefact reproduced that note exactly: mean OOS
+−0.38%, 1 of 6 folds profitable, 112 pooled trades, PF 0.63. It was
+re-recorded on 2026-09-24 at `73740a1a`, the commit that holds the analyzer's
+limits to the minimum reward:risk (below): mean OOS −0.55%, 0 of 6 folds
+profitable, 129 pooled trades, PF 0.58, on the same `dataset_hash`.
 
 ## Is live tracking the benchmark? (`bot.backtest.parity`)
 
@@ -260,8 +263,9 @@ cannot have one) and strategy exits, which every headline figure describes.
 
 A `fee_vs_model > 1.25×` is the signal that execution is the leak. A live PF
 under the benchmark's is NOT that signal by itself: the card used to say so
-against a typed `PF 1.14` while the benchmark on record reproduces at PF 0.63,
-so a week at the benchmark's own PF was being read as an execution problem.
+against a typed `PF 1.14` while the benchmark on record reproduced at PF 0.63
+(0.58 since the reward:risk re-record), so a week at the benchmark's own PF
+was being read as an execution problem.
 Read the two verdicts, and the artefact's date.
 
 ## Integrity guarantees (locked by `tests/test_benchmark_snapshot.py`)
@@ -845,6 +849,32 @@ not model live's smart exits, so it holds them longer than live does.
 `vwap_reversion` excess at 24 bars has a 95% interval above zero. Until that
 holds, the hold limit stays where it is.
 
+**Run on 2026-09-24, and it does not hold.** `benchmark/majors_1h_v3` and
+`benchmark/alts_1h_v3` are the same two universes as the v2 snapshots, fetched
+that day (2026-05-22 to 2026-09-24, `ff2891cdf7b3…` and `914dcc2205b3…`). The
+canonical walk-forward emits its ideas only in the later folds, and every one
+of the 2,034 placed ideas falls after the v2 snapshots' last bar; the drift
+each idea's excess subtracts was measured over that same window. The pooled
+`vwap_reversion` excess at 24 bars is **−0.70 ATR [−1.63, +0.38]** on 29 ideas:
+negative, with an interval reaching well past zero. The hold limit stays where
+it is and the lead is closed.
+
+| fresh, pooled, h24 excess ATR | n | mean [95% cluster interval] |
+|---|---:|---:|
+| every idea | 2,034 | +0.14 [−0.20, +0.47] |
+| `vwap_reversion` (the pre-registered cell) | 29 | −0.70 [−1.63, +0.38] |
+| `volume_spike` | 160 | +1.11 [+0.43, +1.87] |
+| approved by the risk gate | 388 | +0.85 [+0.20, +1.50] |
+
+The direction still has no measurable edge on data none of this work had seen.
+Two cells clear zero, and neither is a lead: `volume_spike` pools to −0.07
+[−0.25, +0.12] across the five older snapshots, with signs that disagree
+snapshot to snapshot, and the approved subset has already flipped sign between
+overlapping runs (above). About forty cells were read again, and two clearing
+zero is what that produces by chance. Reproduce with
+`scripts/signal_edge.py collect` on each snapshot, keeping ideas after
+2026-07-06T09:00Z and measuring the drift from the same time.
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the
@@ -875,17 +905,21 @@ lever, so live's order type is not changed on this evidence and the benchmark
 on record is not re-modelled. Recorded as NOT modelled: live's resting limit,
 its `drift_market_fallback`, and live's smart exits (default ON).
 
-### The analyzer's limits were never held to a minimum reward:risk
+### The analyzer's limits are held to the minimum reward:risk now
 
 `RiskEngine.evaluate` skipped the per-strategy minimum reward:risk for every
 limit idea, under the label "OK (limit order, user-confirmed)". Manual tickets
 are handled a branch earlier, so the branch is reached only by the analyzer's
 own ideas: on `majors_1h` 2,712 of 2,712 evaluated ideas were limits, 221 sat
-below their minimum, and 27 of 237 approved went through on that line. The
-label now says the minimum was not applied. Enforcing it (A model) moved the
-four snapshots to −0.55%, +0.39%, −0.20%, −0.96% against −0.38%, +0.07%,
-−0.18%, −1.09%: inside the fold noise, while refusing 8–11% of approved
-trades. Whether to enforce it is the operator's call.
+below their minimum, and 27 of 237 approved went through on that line. A limit
+fills at its own entry price, so the ratio the gate reads is the ratio the fill
+gets, and the order type is no reason to change the rule. **Enforced**, with
+the operator's go-ahead. It moved the four snapshots to −0.55%, +0.39%,
+−0.20%, −0.96% against −0.38%, +0.07%, −0.18%, −1.09% (the two disjoint v2
+snapshots together: −$694 against −$761): inside the fold noise, while
+refusing 8–11% of approved trades. It is a consistency fix, not an edge. A
+refusal now reaches the shadow book like any other gate's, so whether this
+gate costs edge is measured on live ideas from here on.
 
 ### The portfolio backtest dropped resting limits (default path only)
 
