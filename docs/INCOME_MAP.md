@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2136-2137), trailing ENABLED at 1.5 ATR
 (:2119-2120), a 48h time-close with a 12h warn (:2121-2122), min confidence
 0.50 (:2136), max risk 2% (:2142) — every one distinct from the scalp row
-above it. skill_registry.py:1921 reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (scan_commands.py:962) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2436) —
+above it. skill_registry.py:1958 reads those multipliers when it builds the
+SL/TP ladder. Doors: /swing (scan_commands.py:977) dispatches pro_scan
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2473) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,7 +136,7 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1921 is a blank line
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1958 is a blank line
 between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
@@ -152,10 +152,10 @@ time-close with a 1h warn (:2105-2106), min confidence 0.65 (:2134), max risk
 1% (:2140); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1591 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
-(scan_commands.py:928) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2419); the router's scan_scalp intent
+(scan_commands.py:943) dispatches pro_scan mode=scalp — 5m candles, top-3 by
+volume, tight zones (skill_registry.py:2456); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1885) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1922) as a
 tighten-only veto on that user's own confirms (trading_commands.py:411); /run
 scalp and /fullscan scalp are the other two.
 
@@ -354,7 +354,7 @@ realized win rate (:5302) and suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1869) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:1906) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:30, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -1251,7 +1251,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:151-152), the contract-
+web_data_pull.fetch_research — scan_commands.py:155-156), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → bot/core/token_research.py:74), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -1328,7 +1328,7 @@ way to be paid for that work.
 **Audits/security** — partial
 
 Genuinely wired, human-reachable security-REVIEW tooling, on three surfaces.
-Telegram: /token (scan_commands.py:161, @guard('token') — trader/paper/viewer)
+Telegram: /token (scan_commands.py:165, @guard('token') — trader/paper/viewer)
 runs token_research.investigate() and composes token_safety (what the contract
 can do to holders) with deployer_history/taint/fates into one dossier that
 leads with what it could NOT read; /xray (guardian_commands.py:430) decodes
@@ -1726,10 +1726,10 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1251, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7730
-(get_market_session) and scan_commands.py:345.
+(get_market_session) and scan_commands.py:349.
 
 **Price alerts and anomaly-alert scoping**
 

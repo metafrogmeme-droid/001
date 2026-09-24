@@ -1297,6 +1297,13 @@ class EngineOpsCommands:
                 # recovered afterwards, and inventing them would put
                 # fabricated context under a heading that reads as recorded
                 # fact. Explain the gap, never paper over it.
+                # A journal file that would not load is not an empty week.
+                if getattr(self.engine.journal, "read_failed", False):
+                    await ctx.bot.send_message(
+                        chat_id=chat_id,
+                        text=("\u26a0\ufe0f The trade journal could not be read, "
+                              "so this week's review is unknown \u2014 not empty."))
+                    return
                 _gap = _journal_gap_closes(self.engine, days=7)
                 if _gap > 0:
                     await ctx.bot.send_message(

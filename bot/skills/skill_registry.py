@@ -275,6 +275,40 @@ def _stars(v: float) -> str:
 def _esc(s: str) -> str:
     return _html.escape(str(s))
 
+def _setup_record_line(engine: Any, idea: Any) -> str:
+    """What this kind of setup has returned per trade, for the analyze card.
+
+    Net R per trade with the interval its verdict needs (bot/core/
+    setup_record.py), rather than the win count the expectancy nudge reads --
+    a win count flatters a setup that loses money. The regime is read through
+    the same `_outcome_regime` the journal tags its closes with, so the key and
+    the record speak one vocabulary. A journal that would not load is said to
+    be unreadable, never read as a setup with no trades; a surface with no
+    journal, or a fault here, says nothing, because the card is a composite
+    and one unreadable source must not cost it the rest.
+    """
+    from bot.core.setup_record import setup_record, setup_record_line
+    from bot.core.trade_journal import KEEPS
+    journal = getattr(engine, "journal", None)
+    if journal is None:
+        return ""
+    try:
+        if getattr(journal, "read_failed", False):
+            return ("📒 Record: the trade journal could not be read, so this "
+                    "setup's record is unknown.")
+        entries = journal.closed_entries()
+        rec = setup_record(entries, idea.asset,
+                           engine._outcome_regime(idea.asset), idea.direction)
+        line = setup_record_line(rec)
+        if len(entries) >= KEEPS:
+            line += f" (the journal keeps its newest {len(entries)} closes)"
+        return line
+    except Exception as exc:
+        system_log.debug("setup record unavailable for %s: %s",
+                     getattr(idea, "asset", "?"), exc)
+        return ""
+
+
 def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
     """A blockquote of what the MODEL said, or nothing at all.
 
@@ -883,6 +917,8 @@ class AnalyzeAssetSkill(BaseSkill):
         conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (conf_w - conf_fill)
         conf_ring = _progress_ring(conf * 100)
         thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
+        _record = _setup_record_line(engine, idea)
+        record_line = f"{_esc(_record)}\n\n" if _record else ""
 
         return (
             f"{d_icon} <b>{d}  {_esc(idea.asset)}</b>\n{SEP}\n\n"
@@ -891,6 +927,7 @@ class AnalyzeAssetSkill(BaseSkill):
             f"</pre>\n\n"
             f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(f'{conf:.0%}')}\n"
             f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
+            f"{record_line}"
             f"{thesis_bq}"
             f"\U0001f4ce {_pill(idea.id)}"
         )
