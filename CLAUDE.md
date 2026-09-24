@@ -7352,6 +7352,57 @@ block as agreeing) killed once planted, and one EQUIVALENT mutant recorded —
 the `False` fallback put back, which no input can separate from the direct read.
 (`tests/test_a_comment_names_the_default_the_flag_has.py`.)
 
+**AND THE OPERATOR SAID "YES TO ALL", AND THE NEXT THREE FINDINGS WERE IN THE
+FIX'S OWN NEIGHBOURHOOD.** The two decisions left open above were the minimum
+reward:risk on the analyzer's limits (enforced: a limit fills at its own entry
+price, so the ratio the gate reads is the ratio the fill gets, and the
+benchmark on record was re-run at that commit rather than left describing
+code that no longer runs) and `.env.example`'s live overrides (they follow the
+code now). Each fix had a neighbour the same shape.
+
+**Enforcing the gate made the analyze card's worst explanation its ordinary
+one.** `_analyze_signal` returns None when the risk gate refuses, and the card
+then read `analyzer._last_rejection_diag` bare: ONE slot for the last
+rejection of ANY symbol, written constantly by the background scan, so
+"analyze BTC" was explained with another symbol's regime and score, and with
+no note at all it printed "regime filter or low confluence", a cause nobody
+measured. `declined_analysis_reason` takes a record only when it names this
+symbol AND was made during this call (every analyzer writer stamps `at` now),
+asks the gate first, and otherwise says nothing was recorded.
+
+**The value rule was acquitted by its own fix's retraction.** "This line used
+to set 0.1" matched "this line … sets" with anything but a full stop between,
+so putting the live `COMMISSION_PCT=0.1` back survived the mutation round
+under the sentence recording its removal: *a comment that quotes the string it
+forbids*, in the rule written to catch unsaid departures. The verb has to
+follow "line(s) (below)" directly now. And the first draft of the auto-confirm
+prose said it was "the ONE place this file departs from a code default";
+measured over every live line, five more did, three of them wrong
+(`COMMISSION_PCT`, `ENTRY_TIMING_REGIMES`, and an `LLM_MODEL` pinned to an
+id the routing tests forbid). A universal claim is a measurement or it is
+not written.
+
+**The pre-registered hypothesis was run, and it does not hold.** On data
+fetched 2026-09-24, every idea after the v2 snapshots' last bar, the pooled
+`vwap_reversion` excess at 24 bars is −0.70 [−1.63, +0.38]; the lead is
+closed. Two fresh cells cleared zero and neither is a lead, because one fresh
+window against a flat five-snapshot history is what forty cells produce.
+Pre-registering is what made that a sentence rather than a strategy change.
+
+**READY was a trade count, and the card called it "validated".**
+`setup_expectancy.is_ready()` is "some bucket at some tier holds ten trades";
+with the backoff, the direction tier is every long, and a live card read
+READY above "0 setup(s) at/above 10-trade threshold" and recommended switching
+on the backoff. `validate_oos` compares the unseen trades the record nudged up
+with the ones it nudged down, and READY needs the whole interval on the
+difference above zero. The first round left four mutations alive and every
+one was a fixture that could not fail: a fit leaking the test block, an
+uncovered trade, a gap inside its interval, a winning base rate. And the
+card's "Decisions on record: 5000" was a read's limit printed as a count.
+(`tests/test_a_limit_idea_meets_the_reward_risk_minimum.py`,
+`tests/test_the_analyze_card_says_why_this_analysis_declined.py`,
+`tests/test_setup_expectancy_is_tested_before_it_is_ready.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
