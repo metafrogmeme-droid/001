@@ -875,17 +875,21 @@ lever, so live's order type is not changed on this evidence and the benchmark
 on record is not re-modelled. Recorded as NOT modelled: live's resting limit,
 its `drift_market_fallback`, and live's smart exits (default ON).
 
-### The analyzer's limits were never held to a minimum reward:risk
+### The analyzer's limits are held to the minimum reward:risk now
 
 `RiskEngine.evaluate` skipped the per-strategy minimum reward:risk for every
 limit idea, under the label "OK (limit order, user-confirmed)". Manual tickets
 are handled a branch earlier, so the branch is reached only by the analyzer's
 own ideas: on `majors_1h` 2,712 of 2,712 evaluated ideas were limits, 221 sat
-below their minimum, and 27 of 237 approved went through on that line. The
-label now says the minimum was not applied. Enforcing it (A model) moved the
-four snapshots to −0.55%, +0.39%, −0.20%, −0.96% against −0.38%, +0.07%,
-−0.18%, −1.09%: inside the fold noise, while refusing 8–11% of approved
-trades. Whether to enforce it is the operator's call.
+below their minimum, and 27 of 237 approved went through on that line. A limit
+fills at its own entry price, so the ratio the gate reads is the ratio the fill
+gets, and the order type is no reason to change the rule. **Enforced**, with
+the operator's go-ahead. It moved the four snapshots to −0.55%, +0.39%,
+−0.20%, −0.96% against −0.38%, +0.07%, −0.18%, −1.09% (the two disjoint v2
+snapshots together: −$694 against −$761): inside the fold noise, while
+refusing 8–11% of approved trades. It is a consistency fix, not an edge. A
+refusal now reaches the shadow book like any other gate's, so whether this
+gate costs edge is measured on live ideas from here on.
 
 ### The portfolio backtest dropped resting limits (default path only)
 

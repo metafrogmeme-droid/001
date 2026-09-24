@@ -1808,18 +1808,15 @@ class RiskEngine:
         except Exception as exc:
             failed.append(f"MAX_POSITIONS: evaluation error ({exc})")
 
-        is_limit = getattr(idea, 'order_type', '') == 'limit'
         if is_manual:
             passed.append("RISK_REWARD: skipped (manual trade)")
-        elif is_limit:
-            # NOT a user confirmation: `is_manual` is the branch above, so
-            # every idea here is a non-manual limit, and the analyzer makes
-            # every one of its ideas a limit. The minimum is not applied, and
-            # the line says so rather than printing "OK" over a check nobody ran.
-            rr = idea.risk_reward_ratio
-            passed.append(f"RISK_REWARD: {rr} not checked (limit order; "
-                          f"the minimum is not applied to limits)")
         else:
+            # A limit is NOT exempt. The exemption read "limit order,
+            # user-confirmed", and no idea reaching this line was confirmed by
+            # anybody: `is_manual` is the branch above, and the analyzer makes
+            # every one of its ideas a limit, so the minimum applied to no
+            # analyzer idea at all. A limit fills at its own entry price, so
+            # the ratio read here is exactly the ratio the fill gets.
             try:
                 # 6. Risk-reward ratio (0.01 tolerance for float rounding at boundary)
                 rr = idea.risk_reward_ratio
