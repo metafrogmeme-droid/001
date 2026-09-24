@@ -5885,6 +5885,17 @@ read-only survey of the money paths, which also found the two below it in the
 queue. Six mutations, each killed on the first round.
 (`tests/test_a_web_emergency_stop_closes_only_the_callers_book.py`.)
 
+**The web positions panel read the order-placement executor.**
+`GET /gateway/positions` asked `_executor_for`, which under per-user live falls
+back to the operator's executor for a caller with no linked keys. That fallback
+is right for placing an order and wrong for reading one, so the panel listed
+the operator's live positions as the caller's own. `viewer_executor` is the
+reading every other card uses, and it answers None there. The
+operator-account ratchet looks for `engine.live_executor`, so this spelling
+walked past it. A rule now covers the class: `bot/web/` places no order through
+`_executor_for`, so a call to it there can only be a read, and none is allowed.
+(`tests/test_the_web_positions_panel_reads_the_callers_book.py`.)
+
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -10203,7 +10214,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 228 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 230 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11015,9 +11026,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **430 of 1032** reach for source text through `source_scan`, `code_only`
+Driven, **431 of 1033** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 430 is a FLOOR and the honest shape is
+source scan that rule does not see, so 431 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -89,7 +89,13 @@ def test_positions_route_is_registered():
 def test_positions_handler_is_read_only_and_uses_sl_order_truth():
     src = inspect.getsource(ug.handle_positions)
     assert '"read_only": True' in src
-    assert "_executor_for" in src              # reaches the live executor (SL truth source)
+    # The VIEW reading, never the order-placement one: `_executor_for` falls
+    # back to the operator's executor for a caller with no linked keys, and
+    # this panel then showed that caller the operator's positions. Driven in
+    # tests/test_the_web_positions_panel_reads_the_callers_book.py.
+    from tests.source_scan import code_only
+    code = code_only(src)          # the comment above the read names the old call
+    assert "viewer_executor" in code and "_executor_for" not in code
     assert "unprotected_count" in src
     # No order placement / position-close call in the read path (the docstring
     # says it "closes" nothing; assert on actual method calls, not prose).
@@ -109,8 +115,10 @@ def test_positions_handler_is_read_only_and_uses_sl_order_truth():
 
 def _drive_positions(monkeypatch, *, live: bool, executor, tracker=None):
     app = web.Application()
+    # `viewer_executor` ONLY: a handler that went back to `_executor_for`
+    # raises on this stand-in and every drive below fails.
     app["engine"] = SimpleNamespace(
-        _executor_for=lambda tg_id: executor,
+        viewer_executor=lambda tg_id: executor,
         user_portfolios=SimpleNamespace(get=lambda tg_id: tracker),
     )
     app["tg_handler"] = SimpleNamespace(users=SimpleNamespace(register=lambda *a, **k: None))
