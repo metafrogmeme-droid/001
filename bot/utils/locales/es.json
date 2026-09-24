@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} no respondió</b> — no se escaneó nada. Es una lectura fallida, no un mercado vacío.\n<code>{detail}</code>",
   "welcome_pending": "<b>¡Hola {name}!</b>\n\nSoy RUNECLAW, tu asistente de trading con IA.\nEscaneo el mercado, encuentro oportunidades y gestiono el riesgo por ti.\n\nTu cuenta está pendiente de aprobación.\nID: <code>{tg_id}</code>\n\nUn administrador te dará acceso pronto.\nUna vez aprobado, chatea conmigo con normalidad.",
   "welcome_ready": "Hola {name}, así están las cosas:\n\n{status_icon} <b>{status_label}</b> | {mode}\nCapital: <code>{equity}</code>\nPosiciones abiertas: <code>{filled}</code>{pending_str}\nTasa de acierto: <code>{win_rate}</code>\nNivel: {tier} | Trading: {trade_mode}\n\n<b>Háblame:</b>\n<i>«escanea BTC» - «muestra mis posiciones» - «¿cuál es el riesgo?»</i>\n<i>«analiza SOL» - «¿cómo va mi PnL?» - «pausa el bot»</i>\n\n🌐 <a href=\"{web_url}\">Abre tu panel web →</a>\n\nEscribe lo que necesites, sin comandos.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ El paso del precio límite ha caducado — tenías {minutes} minutos para escribir un precio para {pair}, así que dejé de esperar y no he leído el número que acabas de enviar como precio. <b>No se colocó nada ni se cambió nada.</b> Vuelve a ejecutar el escaneo y pulsa Límite si aún lo quieres."
+  "limit_expired": "⏰ El paso del precio límite ha caducado — tenías {minutes} minutos para escribir un precio para {pair}, así que dejé de esperar y no he leído el número que acabas de enviar como precio. <b>No se colocó nada ni se cambió nada.</b> Vuelve a ejecutar el escaneo y pulsa Límite si aún lo quieres.",
+  "tx_head": "⏱ Salidas por tiempo: {rules}",
+  "tx_after_r": "tras {h} si está por debajo de {r}R",
+  "tx_after_fee": "tras {h} salvo que esté en ganancia neta de comisiones",
+  "tx_after_any": "tras {h} sea cual sea la R",
+  "tx_in": "en {d}",
+  "tx_due": "vence ahora",
+  "tx_armed": "activa",
+  "tx_armed_r": "activa, en {r}R",
+  "tx_armed_fee": "activa, en ganancia neta de comisiones",
+  "tx_r_inert": "Las salidas basadas en R no se ejecutan: no se puede leer el 1R de esta posición.",
+  "tx_no_thesis": "⏱ Sin salidas por tiempo: posición adoptada sin estrategia registrada, así que solo cierra en su stop o su objetivo.",
+  "tx_off": "⏱ Este bot no ejecuta salidas por tiempo: las posiciones cierran en su stop o su objetivo.",
+  "tx_practice": "⏱ No se ejecutan salidas por tiempo en una posición de práctica: cierra en su stop o su objetivo.",
+  "tx_untracked": "⏱ Sin salidas por tiempo: el bot no tiene registro de esta posición, así que no se ejecuta ninguna.",
+  "tx_more": "Salidas por tiempo de {n} más: ábrelas en /positions."
 }

@@ -67,23 +67,35 @@ def should_time_exit(
     if is_in_no_touch_period(strategy_type, candles_held):
         return False, ""
 
+    max_candles, min_r = progress_limit(strategy_type, cfg)
+
+    if candles_held >= max_candles and current_r_multiple < min_r:
+        return True, (
+            f"Time exit: {candles_held} candles held, "
+            f"R={current_r_multiple:.2f} < {min_r} threshold "
+            f"(max {max_candles} for {strategy_type})"
+        )
+
+    return False, ""
+
+
+def progress_limit(strategy_type: str,
+                   config: Optional[TimeExitConfig] = None) -> tuple[int, float]:
+    """``(candles, min_r)`` for the no-progress exit of one strategy type.
+
+    The ONE reading of that table: ``should_time_exit`` closes on it and
+    ``bot/core/time_exits.py`` prints it on the position cards, so the card
+    cannot state a threshold the rule does not use. An unknown type takes the
+    swing row, as the rule always has.
+    """
+    cfg = config or TimeExitConfig()
     thresholds = {
         "scalp": cfg.scalp_candles,
         "intraday": cfg.intraday_candles,
         "swing": cfg.swing_candles,
         "position": cfg.position_candles,
     }
-
-    max_candles = thresholds.get(strategy_type, cfg.swing_candles)
-
-    if candles_held >= max_candles and current_r_multiple < cfg.min_r_progress:
-        return True, (
-            f"Time exit: {candles_held} candles held, "
-            f"R={current_r_multiple:.2f} < {cfg.min_r_progress} threshold "
-            f"(max {max_candles} for {strategy_type})"
-        )
-
-    return False, ""
+    return thresholds.get(strategy_type, cfg.swing_candles), cfg.min_r_progress
 
 
 # Minimum hold periods: don't evaluate exits until enough candles pass
@@ -111,6 +123,14 @@ def is_in_no_touch_period(
     return candles_held < min_candles
 
 
+#: The entries whose signal has a short shelf life, and the two stages at
+#: which one is judged stale: ``(candles held, R it must have reached)``.
+#: Read by ``should_volume_decay_exit`` and by the position cards.
+VOLUME_SIGNALS = frozenset({"volume_spike", "vol_breakout", "capitulation_buy",
+                            "capitulation_sell", "vol_expansion"})
+VOLUME_DECAY_STAGES: tuple[tuple[int, float], ...] = ((2, 0.3), (4, 1.0))
+
+
 def should_volume_decay_exit(
     signal_source: str,
     candles_held: int,
@@ -133,24 +153,24 @@ def should_volume_decay_exit(
         (should_exit, reason)
     """
     # Only applies to volume-spike-driven entries
-    volume_signals = {"volume_spike", "vol_breakout", "capitulation_buy",
-                      "capitulation_sell", "vol_expansion"}
-
-    if signal_source not in volume_signals:
+    if signal_source not in VOLUME_SIGNALS:
         return False, ""
 
+    (decay_c, decay_r), (stale_c, stale_r) = VOLUME_DECAY_STAGES
+
     # Volume signals decay after 2 candles with no follow-through
-    if candles_held >= 2 and current_r_multiple < 0.3:
+    if candles_held >= decay_c and current_r_multiple < decay_r:
         return True, (
             f"Volume signal decay: {signal_source} had {candles_held} candles "
-            f"with only {current_r_multiple:.2f}R progress (need 0.3R by candle 2)"
+            f"with only {current_r_multiple:.2f}R progress "
+            f"(need {decay_r}R by candle {decay_c})"
         )
 
     # By candle 4 with sub-1R, the setup is stale
-    if candles_held >= 4 and current_r_multiple < 1.0:
+    if candles_held >= stale_c and current_r_multiple < stale_r:
         return True, (
             f"Volume signal stale: {candles_held} candles, "
-            f"R={current_r_multiple:.2f} (expected 1R+ by candle 4)"
+            f"R={current_r_multiple:.2f} (expected {stale_r:g}R+ by candle {stale_c})"
         )
 
     return False, ""
@@ -226,6 +246,22 @@ _SIGNAL_HOLD_LIMITS = {
 }
 
 
+#: Past its hold limit a trade closes unless it has reached this R; past this
+#: many times the limit it closes whatever the R.
+HOLD_LIMIT_MIN_R = 1.0
+HOLD_HARD_LIMIT_MULT = 2.0
+
+
+def signal_hold_hours(signal_type: str) -> Optional[float]:
+    """The hold limit in hours for one signal type, or None if it has none.
+
+    The one reading of ``_SIGNAL_HOLD_LIMITS`` that both the rule and the
+    position cards take.
+    """
+    limits = _SIGNAL_HOLD_LIMITS.get(signal_type)
+    return None if not limits else float(limits["max_hours"])
+
+
 def check_signal_hold_limit(
     signal_type: str,
     holding_hours: float,
@@ -240,24 +276,22 @@ def check_signal_hold_limit(
     Returns:
         (should_exit, reason)
     """
-    limits = _SIGNAL_HOLD_LIMITS.get(signal_type)
-    if not limits:
+    max_hours = signal_hold_hours(signal_type)
+    if max_hours is None:
         return False, ""
 
-    max_hours = limits["max_hours"]
-
     # If past max hold time and trade isn't profitable, exit
-    if holding_hours >= max_hours and current_r_multiple < 1.0:
+    if holding_hours >= max_hours and current_r_multiple < HOLD_LIMIT_MIN_R:
         return True, (
             f"Signal hold limit: {signal_type} max {max_hours}h, "
             f"held {holding_hours:.1f}h with R={current_r_multiple:.2f}"
         )
 
     # Extended grace: if > 2x max hold but profitable, still flag it
-    if holding_hours >= max_hours * 2:
+    if holding_hours >= max_hours * HOLD_HARD_LIMIT_MULT:
         return True, (
             f"Signal hold hard limit: {signal_type} held {holding_hours:.1f}h "
-            f"(2x max {max_hours}h), R={current_r_multiple:.2f}"
+            f"({HOLD_HARD_LIMIT_MULT:g}x max {max_hours}h), R={current_r_multiple:.2f}"
         )
 
     return False, ""
@@ -493,11 +527,11 @@ def detect_squeeze(
     bb_ma = bb_ma[-min(len(bb_ma), lookback):]
 
     # Calculate rolling std
-    bb_stds = []
+    stds: list[float] = []
     for i in range(bb_period - 1, len(c)):
         window = c[i - bb_period + 1:i + 1]
-        bb_stds.append(float(np.std(window)))
-    bb_stds = np.array(bb_stds[-len(bb_ma):])
+        stds.append(float(np.std(window)))
+    bb_stds = np.array(stds[-len(bb_ma):])
 
     bb_upper = bb_ma + bb_std * bb_stds
     bb_lower = bb_ma - bb_std * bb_stds

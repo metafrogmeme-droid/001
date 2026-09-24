@@ -127,9 +127,14 @@ def test_an_unknown_r_skips_the_r_based_rules_and_keeps_the_stop_check():
     from bot.core.engine import RuneClawEngine
     code = code_only(inspect.getsource(
         RuneClawEngine._evaluate_live_smart_exits))
-    i = code.index("risk = r_denominator(pos)")
+    # The R is `time_exits.r_multiple_now`, the one reading the position
+    # cards take too -- driven here rather than scanned for its `else None`.
+    from bot.core.time_exits import r_multiple_now
+    assert r_multiple_now(SimpleNamespace(
+        entry_price=100.0, stop_loss=0.0, trailing_state=None,
+        direction="LONG"), 103.0) is None, "an unmeasurable R must be None, not 0.0"
+    i = code.index("r_mult = r_multiple_now(pos, price)")
     block = code[i:i + 2600]
-    assert "else None" in block, "an unmeasurable R must be None, not 0.0"
     assert "if r_mult is None:" in block
     # All three R-based rules sit inside the else.
     guard = block.index("if r_mult is None:")

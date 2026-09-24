@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} hat nicht geantwortet</b> — nichts wurde gescannt. Das ist ein fehlgeschlagenes Lesen, kein leerer Markt.\n<code>{detail}</code>",
   "welcome_pending": "<b>Hallo {name}!</b>\n\nIch bin RUNECLAW, dein KI-Trading-Assistent.\nIch scanne den Markt, finde Setups und manage das Risiko für dich.\n\nDein Konto wartet auf Freigabe.\nID: <code>{tg_id}</code>\n\nEin Admin schaltet dich bald frei.\nSobald du freigegeben bist, chatte einfach ganz normal mit mir.",
   "welcome_ready": "Hallo {name}, so steht es gerade:\n\n{status_icon} <b>{status_label}</b> | {mode}\nKapital: <code>{equity}</code>\nOffene Positionen: <code>{filled}</code>{pending_str}\nTrefferquote: <code>{win_rate}</code>\nStufe: {tier} | Trading: {trade_mode}\n\n<b>Sprich mit mir:</b>\n<i>„scanne BTC“ - „zeig meine Positionen“ - „wie ist das Risiko?“</i>\n<i>„analysiere SOL“ - „wie steht mein PnL?“ - „pausiere den Bot“</i>\n\n🌐 <a href=\"{web_url}\">Web-Dashboard öffnen →</a>\n\nSchreib einfach, was du brauchst, ganz ohne Befehle.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ Der Limitpreis-Schritt ist abgelaufen — du hattest {minutes} Minuten, um einen Preis für {pair} einzugeben, also warte ich nicht mehr und habe die eben gesendete Zahl nicht als Preis gelesen. <b>Es wurde nichts platziert und nichts geändert.</b> Starte den Scan erneut und tippe auf Limit, wenn du es noch willst."
+  "limit_expired": "⏰ Der Limitpreis-Schritt ist abgelaufen — du hattest {minutes} Minuten, um einen Preis für {pair} einzugeben, also warte ich nicht mehr und habe die eben gesendete Zahl nicht als Preis gelesen. <b>Es wurde nichts platziert und nichts geändert.</b> Starte den Scan erneut und tippe auf Limit, wenn du es noch willst.",
+  "tx_head": "⏱ Zeitausstiege: {rules}",
+  "tx_after_r": "nach {h}, falls unter {r}R",
+  "tx_after_fee": "nach {h}, außer im Gewinn nach Gebühren",
+  "tx_after_any": "nach {h}, unabhängig vom R",
+  "tx_in": "in {d}",
+  "tx_due": "jetzt fällig",
+  "tx_armed": "aktiv",
+  "tx_armed_r": "aktiv, bei {r}R",
+  "tx_armed_fee": "aktiv, im Gewinn nach Gebühren",
+  "tx_r_inert": "Die R-basierten Ausstiege laufen nicht: das 1R dieser Position ist nicht lesbar.",
+  "tx_no_thesis": "⏱ Keine Zeitausstiege: übernommene Position ohne erfasste Strategie, sie schließt nur an ihrem Stop oder Ziel.",
+  "tx_off": "⏱ Dieser Bot führt keine Zeitausstiege aus: Positionen schließen an ihrem Stop oder Ziel.",
+  "tx_practice": "⏱ Bei einer Übungsposition laufen keine Zeitausstiege: sie schließt an ihrem Stop oder Ziel.",
+  "tx_untracked": "⏱ Keine Zeitausstiege: der Bot hat keinen Eintrag zu dieser Position, daher läuft keiner.",
+  "tx_more": "Zeitausstiege für {n} weitere: öffne sie in /positions."
 }

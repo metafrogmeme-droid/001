@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} antwoordde niet</b> — er is niets gescand. Dit is een mislukte uitlezing, geen lege markt.\n<code>{detail}</code>",
   "welcome_pending": "<b>Hoi {name}!</b>\n\nIk ben RUNECLAW, je AI-tradingassistent.\nIk scan de markt, vind setups en beheer het risico voor je.\n\nJe account wacht op goedkeuring.\nID: <code>{tg_id}</code>\n\nEen beheerder zet je binnenkort aan.\nZodra je bent goedgekeurd, chat je gewoon met me zoals altijd.",
   "welcome_ready": "Hoi {name}, zo staat het ervoor:\n\n{status_icon} <b>{status_label}</b> | {mode}\nVermogen: <code>{equity}</code>\nOpen posities: <code>{filled}</code>{pending_str}\nWinratio: <code>{win_rate}</code>\nNiveau: {tier} | Trading: {trade_mode}\n\n<b>Praat met me:</b>\n<i>\"scan BTC\" - \"toon mijn posities\" - \"wat is het risico?\"</i>\n<i>\"analyseer SOL\" - \"hoe staat mijn PnL?\" - \"pauzeer de bot\"</i>\n\n🌐 <a href=\"{web_url}\">Open je webdashboard →</a>\n\nTyp gewoon wat je nodig hebt, commando's zijn niet nodig.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ De limietprijs-stap is verlopen — je had {minutes} minuten om een prijs voor {pair} te typen, dus ik ben gestopt met wachten en heb het getal dat je net stuurde niet als prijs gelezen. <b>Er is niets geplaatst en niets gewijzigd.</b> Draai de scan opnieuw en tik op Limiet als je het nog wilt."
+  "limit_expired": "⏰ De limietprijs-stap is verlopen — je had {minutes} minuten om een prijs voor {pair} te typen, dus ik ben gestopt met wachten en heb het getal dat je net stuurde niet als prijs gelezen. <b>Er is niets geplaatst en niets gewijzigd.</b> Draai de scan opnieuw en tik op Limiet als je het nog wilt.",
+  "tx_head": "⏱ Tijdsexits: {rules}",
+  "tx_after_r": "na {h} als onder {r}R",
+  "tx_after_fee": "na {h} tenzij in winst na kosten",
+  "tx_after_any": "na {h} ongeacht de R",
+  "tx_in": "over {d}",
+  "tx_due": "nu aan de beurt",
+  "tx_armed": "actief",
+  "tx_armed_r": "actief, op {r}R",
+  "tx_armed_fee": "actief, in winst na kosten",
+  "tx_r_inert": "De R-gebaseerde exits lopen niet: de 1R van deze positie is niet leesbaar.",
+  "tx_no_thesis": "⏱ Geen tijdsexits: overgenomen positie zonder vastgelegde strategie, dus die sluit alleen op haar stop of doel.",
+  "tx_off": "⏱ Deze bot draait geen tijdsexits: posities sluiten op hun stop of doel.",
+  "tx_practice": "⏱ Op een oefenpositie lopen geen tijdsexits: die sluit op haar stop of doel.",
+  "tx_untracked": "⏱ Geen tijdsexits: de bot heeft geen gegevens van deze positie, dus er loopt er geen.",
+  "tx_more": "Tijdsexits voor nog {n}: open ze in /positions."
 }

@@ -106,13 +106,25 @@ def test_time_stop_profit_gate_is_fee_aware_in_source():
     the POSITION's own round trip (the rate depends on which side of the book
     its entry was, and charging a maker limit entry at the taker rate made the
     buffer half again too wide), so the call is what is pinned.
+
+    AND THE CALL MOVED AGAIN, into ``time_exits.in_profit_after_fees`` -- the
+    one reading the time stop and the position cards' "in profit after fees"
+    both take. The executor is pinned to the call and the seam is DRIVEN: a
+    position up by less than its own round trip is not in profit, for both
+    sides of the book and both directions.
     """
     import inspect
     from bot.core import live_executor
+    from bot.core.time_exits import in_profit_after_fees
+    from bot.core.trade_costs import round_trip_pct
     src = inspect.getsource(live_executor)
-    assert "_rt_fee = round_trip_pct(" in src
-    assert "price > pos.entry_price + _buf" in src
-    assert "price < pos.entry_price - _buf" in src
+    assert "in_profit = in_profit_after_fees(" in src
+    for order_type in (None, "market", "limit"):
+        buf = 100.0 * round_trip_pct(order_type) / 100.0
+        assert not in_profit_after_fees("LONG", 100.0, 100.0 + buf * 0.9, order_type)
+        assert in_profit_after_fees("LONG", 100.0, 100.0 + buf * 1.1, order_type)
+        assert not in_profit_after_fees("SHORT", 100.0, 100.0 - buf * 0.9, order_type)
+        assert in_profit_after_fees("SHORT", 100.0, 100.0 - buf * 1.1, order_type)
 
 
 def test_round_trip_fee_buffer_math():

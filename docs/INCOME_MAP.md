@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:952, :961), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:998, :1007), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:276 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2136-2137), trailing ENABLED at 1.5 ATR
 (:2119-2120), a 48h time-close with a 12h warn (:2121-2122), min confidence
 0.50 (:2136), max risk 2% (:2142) — every one distinct from the scalp row
-above it. skill_registry.py:1921 reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (scan_commands.py:962) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2436) —
+above it. skill_registry.py:1958 reads those multipliers when it builds the
+SL/TP ladder. Doors: /swing (scan_commands.py:977) dispatches pro_scan
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2473) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,13 +136,13 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1921 is a blank line
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1958 is a blank line
 between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
-for it in that file. The real readers are bot/core/analyzer.py:1848-1857
+for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5885 (…
+bot/core/live_executor.py:5891 (…
 
 **Scalping** — **shipped**
 
@@ -152,11 +152,11 @@ time-close with a 1h warn (:2105-2106), min confidence 0.65 (:2134), max risk
 1% (:2140); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1591 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
-(scan_commands.py:928) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2419); the router's scan_scalp intent
+(scan_commands.py:943) dispatches pro_scan mode=scalp — 5m candles, top-3 by
+volume, tight zones (skill_registry.py:2456); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1885) as a
-tighten-only veto on that user's own confirms (trading_commands.py:378); /run
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1922) as a
+tighten-only veto on that user's own confirms (trading_commands.py:411); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -167,12 +167,12 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4784 creates the entry order idempotently, :6400/:6423 attach
+live_executor.py:4790 creates the entry order idempotently, :6400/:6423 attach
 the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:1413, :1429, :1517); venues.py:276 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1009); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1055); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
@@ -329,7 +329,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:378).
+(/mystrategy, trading_commands.py:411).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -354,7 +354,7 @@ realized win rate (:5302) and suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1869) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:1906) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:30, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -397,7 +397,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:952, :961); the engine, live_executor
+futures-only mode' (trading_commands.py:998, :1007); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1251,7 +1251,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:151-152), the contract-
+web_data_pull.fetch_research — scan_commands.py:155-156), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → bot/core/token_research.py:74), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -1328,7 +1328,7 @@ way to be paid for that work.
 **Audits/security** — partial
 
 Genuinely wired, human-reachable security-REVIEW tooling, on three surfaces.
-Telegram: /token (scan_commands.py:161, @guard('token') — trader/paper/viewer)
+Telegram: /token (scan_commands.py:165, @guard('token') — trader/paper/viewer)
 runs token_research.investigate() and composes token_safety (what the contract
 can do to holders) with deployer_history/taint/fates into one dossier that
 leads with what it could NOT read; /xray (guardian_commands.py:430) decodes
@@ -1625,7 +1625,7 @@ callers, and the only execution path named /stake or /unstake is BITGET CEX
 flexible/fixed Earn (bot/skills/yield_commands.py:297 _cmd_stake, @guard("stake")
 — trader and admin, acting on the CALLER's own linked account;
 money moves solely on the confirm callback at
-bot/skills/callback_handler.py:569 execute_stake/execute_unstake against
+bot/skills/callback_handler.py:570 execute_stake/execute_unstake against
 bot/core/yield_radar.py). That is a custodial exchange savings product, not
 validator income. Two naming traps that must not be read as coverage: (1)
 programs/rclaw_staking is NOT validator staking — its own header calls it "a
@@ -1726,10 +1726,10 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1251, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7730
-(get_market_session) and scan_commands.py:345.
+(get_market_session) and scan_commands.py:349.
 
 **Price alerts and anomaly-alert scoping**
 

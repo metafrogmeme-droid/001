@@ -36,7 +36,7 @@ import asyncio
 import html
 import logging
 import time
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -56,6 +56,7 @@ from bot.core.position_telemetry import (
     price_on_record,
 )
 from bot.core.sltp_reason import venue_reason
+from bot.core.time_exits import TimeExitPlan, position_time_exit_line, time_exit_line
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
@@ -162,6 +163,38 @@ def position_fee_estimate(pos: dict) -> dict:
                     else entry_notional * (0.01 / 100.0) * (float(hold_h) / 8.0))
     return {"entry_fee": entry_fee, "exit_fee": exit_fee,
             "total_fees": entry_fee + exit_fee, "funding_paid": funding_paid}
+
+
+#: Telegram refuses a photo caption past 1024 characters and ``_send_photo``
+#: cuts at that bound; the margin keeps an escaped entity off the edge.
+_CAPTION_BUDGET = 1000
+
+
+def _caption_with_time_exits(cap: str, positions: list, now: Any, lang: str,
+                             marks: Optional[dict] = None) -> str:
+    """``cap`` with one time-exit line per position, inside the caption bound.
+
+    A line that does not fit is not cut and the rest are not skipped past it:
+    the positions left out are COUNTED and the reader is told where to open
+    them, because a list truncated in silence reads as the whole list.
+    """
+    marks = marks or {}
+    lines = []
+    for p in positions:
+        sym = str(getattr(p, "symbol", "")).replace("/", "").replace(":USDT", "")
+        text = position_time_exit_line(
+            p, marks.get(getattr(p, "trade_id", None)), now,
+            CONFIG.time_stop, CONFIG.strategy_types, lang=lang)
+        lines.append(f"{html.escape(sym)} {html.escape(text)}")
+    reserve = len(t("tx_more", lang, n=len(lines))) + 1
+    out = cap
+    for i, line in enumerate(lines):
+        rest = len(lines) - i
+        fits_all = len(out) + 1 + len(line) <= _CAPTION_BUDGET and rest == 1
+        if not fits_all and len(out) + 1 + len(line) + reserve > _CAPTION_BUDGET:
+            return out + "\n" + html.escape(t("tx_more", lang, n=rest))
+        out += "\n" + line
+    return out
 
 
 def pending_order_card(po: dict) -> str:
@@ -708,6 +741,14 @@ class TradingCommands:
                         trailing_active=(_ts.get("trailing_active") if _ts else None))
                     trail_block = "\n".join(_pt.format_trail_read(_read)) + "\n"
 
+                # What the clock can do to it, from the reading the exit code
+                # takes (time_exits.py).
+                from datetime import datetime as _dt
+                from datetime import timezone as _tz
+                _tx = position_time_exit_line(
+                    p, cur if cur > 0 else None, _dt.now(_tz.utc),
+                    CONFIG.time_stop, CONFIG.strategy_types, lang=self._lang(update))
+
                 lines.append(
                     f"{dir_icon} <b>{p.direction} {sym_display}</b>{lev_str}\n"
                     f"- Entry: <code>${p.entry_price:,.4f}</code>\n"
@@ -718,6 +759,7 @@ class TradingCommands:
                     f"{liq_line}"
                     f"{upnl_str}"
                     f"{trail_block}"
+                    f"- {html.escape(_tx)}\n"
                     f"- ID: <code>{p.trade_id}</code>\n"
                 )
 
@@ -841,10 +883,12 @@ class TradingCommands:
 
             # ── Position cards (one per open position, composited) ──
             pos_pngs: list = []
+            _marks: dict = {}
             for p in filled_pos:
                 # No exchange client is the same fact as a failed ticker:
                 # we do not know the current price.
                 cur = await _last(p.symbol) if exchange else None
+                _marks[p.trade_id] = cur
                 # `lev` WAS `getattr(p, "leverage", 10) or 1`, which invents a
                 # leverage TWICE from one line: a missing attribute became 10x
                 # and a recorded 0 became 1x. The card prints that number as
@@ -923,6 +967,8 @@ class TradingCommands:
                 _cap = f"\U0001f4c8 <b>ACTIVE POSITIONS ({len(pos_pngs)})</b>"
                 if _why_lines:
                     _cap += "\n" + "\n".join(_why_lines[:4])
+                _cap = _caption_with_time_exits(
+                    _cap, filled_pos, now, self._lang(update), _marks)
                 if combined and await self._send_photo(update, combined, _cap):
                     sent_any = True
 
@@ -1664,6 +1710,15 @@ class TradingCommands:
                         # read to tell a strategy stop from a 3% safety default.
                         "origin": getattr(pos, "origin", ""),
                         "sl_tp_source": getattr(pos, "sl_tp_source", ""),
+                        # What the clock can do to it (time_exits.py), read
+                        # where the exit code reads it. A resting order has
+                        # not filled, so no time exit applies to it yet.
+                        "time_exit_line": (
+                            position_time_exit_line(
+                                pos, _price_read, datetime.now(timezone.utc),
+                                CONFIG.time_stop, CONFIG.strategy_types,
+                                lang=self._lang(update))
+                            if getattr(pos, "status", "open") == "open" else None),
                     })
             elif executor:
                 # No locally-tracked positions — fall back to exchange API
@@ -1724,12 +1779,16 @@ class TradingCommands:
                             # read, which is NOT the answer "this position has
                             # no stop". The row keeps them apart; one failed
                             # fetch used to report every orphan as unprotected.
-                            positions_data.append(orphan_position_row(
+                            _row = orphan_position_row(
                                 p,
                                 mark=prices.get(sym),
                                 sl_price=(sym_orders.get("sl", 0) if _orders_read else None),
                                 tp_price=(sym_orders.get("tp", 0) if _orders_read else None),
-                            ))
+                            )
+                            # No record here, so no time exit runs on it.
+                            _row["time_exit_line"] = time_exit_line(
+                                TimeExitPlan("untracked"), lang=self._lang(update))
+                            positions_data.append(_row)
                 except Exception as exc:
                     logger.warning("Exchange position fallback failed: %s", exc)
         else:
@@ -1800,6 +1859,9 @@ class TradingCommands:
                         "notional_usd": round(pos.quantity * pos.entry_price, 2),
                         "leverage": pos_lev,
                         "hold_hours": round(hold_h, 1),
+                        # A practice book: no time exit reads it.
+                        "time_exit_line": time_exit_line(
+                            TimeExitPlan("practice"), lang=self._lang(update)),
                     })
 
         # ── Split into filled positions vs pending orders ──
@@ -1964,6 +2026,8 @@ class TradingCommands:
                 st_str = f" [{st_tag}]" if st_tag else ""
                 cap = (f"<b>{html.escape(pair)}</b> {mode_tag}\n"
                        f"{d_emoji} {direction}{st_str} | {pnl_emoji} {_pnl_txt}")
+                if pos.get("time_exit_line"):
+                    cap += "\n" + html.escape(pos["time_exit_line"])
                 await self._send_photo(update, card_png, cap, reply_markup=kb)
             else:
                 # Fallback to text if PNG render fails

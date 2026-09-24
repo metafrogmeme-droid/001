@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} yanıt vermedi</b> — hiçbir şey taranmadı. Bu başarısız bir okuma, boş bir piyasa değil.\n<code>{detail}</code>",
   "welcome_pending": "<b>Merhaba {name}!</b>\n\nBen RUNECLAW, yapay zekâ destekli trading asistanınız.\nPiyasayı tarar, kurulumları bulur ve riski sizin için yönetirim.\n\nHesabınız onay bekliyor.\nID: <code>{tg_id}</code>\n\nBir yönetici yakında erişiminizi açacak.\nOnaylandıktan sonra benimle normal şekilde sohbet edin.",
   "welcome_ready": "Merhaba {name}, durum şöyle:\n\n{status_icon} <b>{status_label}</b> | {mode}\nSermaye: <code>{equity}</code>\nAçık pozisyonlar: <code>{filled}</code>{pending_str}\nKazanma oranı: <code>{win_rate}</code>\nSeviye: {tier} | İşlem: {trade_mode}\n\n<b>Benimle konuşun:</b>\n<i>\"BTC tara\" - \"pozisyonlarımı göster\" - \"risk ne durumda?\"</i>\n<i>\"SOL analiz et\" - \"PnL'im nasıl?\" - \"botu duraklat\"</i>\n\n🌐 <a href=\"{web_url}\">Web panelinizi açın →</a>\n\nİhtiyacınızı yazmanız yeterli, komut gerekmez.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ Limit fiyat adımı zaman aşımına uğradı — {pair} için fiyat yazmak üzere {minutes} dakikanız vardı, bu yüzden beklemeyi bıraktım ve az önce gönderdiğiniz sayıyı fiyat olarak okumadım. <b>Hiçbir emir verilmedi ve hiçbir şey değişmedi.</b> Taramayı yeniden çalıştırın ve hâlâ istiyorsanız Limit'e dokunun."
+  "limit_expired": "⏰ Limit fiyat adımı zaman aşımına uğradı — {pair} için fiyat yazmak üzere {minutes} dakikanız vardı, bu yüzden beklemeyi bıraktım ve az önce gönderdiğiniz sayıyı fiyat olarak okumadım. <b>Hiçbir emir verilmedi ve hiçbir şey değişmedi.</b> Taramayı yeniden çalıştırın ve hâlâ istiyorsanız Limit'e dokunun.",
+  "tx_head": "⏱ Zaman çıkışları: {rules}",
+  "tx_after_r": "{h} sonra {r}R altındaysa",
+  "tx_after_fee": "{h} sonra ücretler sonrası kârda değilse",
+  "tx_after_any": "{h} sonra R ne olursa olsun",
+  "tx_in": "{d} içinde",
+  "tx_due": "şimdi",
+  "tx_armed": "etkin",
+  "tx_armed_r": "etkin, şu an {r}R",
+  "tx_armed_fee": "etkin, ücretler sonrası kârda",
+  "tx_r_inert": "R tabanlı çıkışlar çalışmaz: bu pozisyonun 1R değeri okunamıyor.",
+  "tx_no_thesis": "⏱ Zaman çıkışı yok: kayıtlı stratejisi olmayan devralınmış pozisyon, yalnızca stop veya hedefte kapanır.",
+  "tx_off": "⏱ Bu bot zaman çıkışı çalıştırmıyor: pozisyonlar stop veya hedefte kapanır.",
+  "tx_practice": "⏱ Deneme pozisyonunda zaman çıkışı çalışmaz: stop veya hedefte kapanır.",
+  "tx_untracked": "⏱ Zaman çıkışı yok: botun bu pozisyona ait kaydı yok, bu yüzden hiçbiri çalışmaz.",
+  "tx_more": "{n} pozisyonun daha zaman çıkışları: /positions üzerinden açın."
 }

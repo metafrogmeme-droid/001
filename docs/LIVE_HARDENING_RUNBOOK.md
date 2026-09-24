@@ -49,7 +49,9 @@ TIME_STOP_LIVE_AUTO_CLOSE=true       # auto-close dead/invalidated theses instea
 ```
 
 **Effect:** fewer but cleaner trades; correlated stacking is sized down; the lowest-edge
-regimes stop trading; failed setups exit early.
+regimes stop trading; failed setups exit early. Each position card carries a `⏱ Time exits`
+line naming the hour-based exits that apply to that trade; a position adopted from the
+exchange with no recorded strategy gets none of them (its stop and target still apply).
 **Watch (a few days):** `/status` rejection reasons (you'll see `CORRELATION`, regime,
 and time-exit actions), drawdown alerts, and that win rate / R isn't hurt by the regime
 gates. If the regime gates feel too tight, raise `REGIME_STRONG_ADX` (e.g. 35) or revert.

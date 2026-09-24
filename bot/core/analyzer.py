@@ -1778,6 +1778,18 @@ class Analyzer:
                               data={"symbol": signal.symbol, "regime": regime.value,
                                     "direction": direction.value, "nudge": round(_nudge, 4),
                                     "tier": _n.tier, "tier_n": _n.n})
+                elif _n.withheld_net is not None:
+                    # A win count said "up" over a record that lost money per
+                    # trade; the boost is withheld and said so here, where it
+                    # would otherwise simply not appear.
+                    audit(trade_log,
+                          f"Setup expectancy up-nudge WITHHELD: the {_n.tier} record "
+                          f"lost {_n.withheld_net:+.2f} per trade",
+                          action="setup_expectancy", result="WITHHELD",
+                          data={"symbol": signal.symbol, "regime": regime.value,
+                                "direction": direction.value,
+                                "net_per_trade": round(_n.withheld_net, 4),
+                                "tier": _n.tier, "tier_n": _n.n})
         except Exception as _exp_exc:
             logger.debug("Setup expectancy skipped: %s", _exp_exc)
 

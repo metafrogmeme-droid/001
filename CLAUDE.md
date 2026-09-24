@@ -7505,6 +7505,129 @@ characters. `split_counter_case` gives it its own line on every card that cuts.
 Twelve mutations, each killed on the first round.
 (`tests/test_the_thesis_prompt_asks_for_what_is_read.py`.)
 
+**A CARD SHOWED A HOLD TIME AND NOTHING ABOUT THE CLOCK IT RAN AGAINST.**
+Five rules close a live position on time, in two places: the executor's time
+stop (past the strategy's hours, unless in profit after fees) and four smart
+exits in the engine (no progress, the signal's hold limit and twice it, volume
+decay). None of them was on any card. Driven, a swing trade on a momentum
+signal is closed at 16h at +2R by the hard hold limit, whatever the stop and
+target say. `bot/core/time_exits.py` is the one reading: the rules take their
+thresholds from `smart_exits`' own accessors and the executor's strategy
+table, both exit paths ask `thesis_recorded` and `in_profit_after_fees`
+there, and `/positions`, the Details card and `/livepositions` render
+`plan_for`. Each rule is a condition FROM an hour on, not an event at it, and
+a rule another one always beats is dropped: the 48h time stop never reaches a
+momentum trade the 16h limit has closed. The guard DRIVES the check functions
+over a grid of hours, R and fee states for every strategy and signal type and
+requires the pruned plan to close exactly when they do, which is the only way
+to prove a list is the code rather than a copy of it.
+
+**ADOPTION GAVE A POSITION NOBODY ASSIGNED A STRATEGY THE DEFAULTS, AND THE
+DEFAULTS CLOSED IT.** An adopted or reclaimed position is built as
+`swing`/`momentum_confluence` unless adoption finds a local record of the
+bot's own to copy from, and the time exits read those fields. Driven, a
+position somebody opened by hand was closed at market at +2R after 16h, on a
+momentum signal it never had, while two comments in the adoption path say
+adopted positions are never force-closed because they may be intentional.
+The operator decided (2026-09-24): no recorded strategy, no time exits; its
+stop and target still apply. `thesis_source="inherited"` is set where the
+donor's strategy is copied and persisted with the other provenance markers,
+and a record written before it says the same thing through
+`sl_tp_source == "inherited"`, because the donor that supplied the levels
+supplied the strategy.
+
+**AND THE UNTRACKED BRANCH OF THE DETAILS BUTTON SET A FLAG NOTHING READ.**
+`is_untracked` was assigned on every untracked position and read by nothing;
+the ruff ratchet's F841 fell by one when the time-exit line became its reader,
+because an untracked position has no record here and no time exit runs on it.
+The words are fourteen-language `tx_*` keys, since `/positions` is. The
+`/livepositions` photo caption has a 1024-character limit, so its time-exit
+lines are added while they fit and the rest are counted. Thirty-one mutations,
+thirty killed on the first round; the survivor rounded the countdown to the
+hour, and every fixture had been a whole number of hours.
+(`tests/test_a_position_card_states_its_time_exits.py`.)
+
+**A WIN COUNT FLATTERS A SETUP THAT LOSES MONEY, AND THE CARD HAD ONLY THE
+COUNT.** The expectancy nudge stores `[wins, total]` per setup and nothing
+else, so fourteen +0.3R wins beside six full stops read as a 70% setup while
+it lost 0.09R per trade. The analyze card prints the setup's record in NET R
+now (`bot/core/setup_record.py`): the journal's R, which is net P&L over the
+dollar risk the stop defined and `None` where that cannot be read; the mean
+per trade; the 95% interval from `arb_tracker.mean_interval`, the instrument
+the arb and parity verdicts already share; and a verdict only when the whole
+interval sits on one side of zero, past a floor of ten. `no_edge` (the floor
+met, the interval straddling zero) is a reading and says so, where `thin` is
+too few to say. The W/L count is printed beside the R, so the reader sees why
+the count is not the answer. The closes are the parity card's: never-filled
+orders and the executor's post-fill flattens are not the setup's outcomes.
+The key is symbol, regime and direction, and the regime is the one the
+analyzer read when each trade CLOSED, which is when the journal tags it; the
+new idea's key is read through the same `_outcome_regime`, so the two speak
+one vocabulary and the card says "closed in". A thin setup backs off to its
+regime and then its direction and names its own count, and when no tier
+qualifies the setup answers for itself, so "too few" is never said about a
+population it is only part of. The confidence nudge still reads win counts.
+Moving it to net R changes live entries, so it is filed with this record as
+the instrument rather than done here.
+
+**THE JOURNAL'S LOADER SWALLOWED A FAILED READ**, so a file that would not
+parse left the list empty and every reader said "no trades". `read_failed`
+separates an absent file (a fresh journal) from one that raised, the card and
+`/journal` both print it, and `KEEPS` names how many entries survive a
+restart, so a record over a full journal says it is the newest closes only.
+And the analyze card was cut at 1024 raw characters to fit a photo caption,
+mid-tag as readily as mid-word, taking the end first: the counter-case and
+now the record. A card that does not fit is sent whole under its image.
+Twenty-five mutations; the survivor tried the regime tier before the setup's
+own, and no fixture had a setup with enough trades of its own and peers that
+disagreed. (`tests/test_a_setups_record_is_its_net_r_per_trade.py`.)
+
+**AND THE NUDGE RAISED CONFIDENCE ON SETUPS WHOSE RECORD SAID NOT TO.** A
+win-count nudge on a 70%-winning setup that lost money per trade pushed that
+setup's confidence UP, which is the opposite of what "let the bot's own track
+record nudge confidence" means. Each sample carries its net P&L now, and an
+up-nudge is withheld when the tier it came from did not make money per trade
+(`Nudge.withheld_net`, audited as `WITHHELD`); a down-nudge stands, so the
+change can only remove a boost. Measured on the frozen benchmark, fitted on
+each snapshot's earlier half: the withheld boosts averaged -2.50 a trade
+afterwards (86 trades) against -0.82 for the kept ones (214), with
+overlapping intervals and one snapshot the other way, so the case is the
+definition and the direction of the evidence, not its strength. Carrying the
+P&L as a fifth field would have emptied the readiness card's out-of-sample
+test in silence, because `validate_oos` kept only four-field samples; a test
+drives the card's verdict to see its trades. Eleven mutations; the survivor
+was the analyzer's audit, found by NAME by the guard, so
+`False and _n.withheld_net is not None` passed it with the audit dead.
+**The next full run refused it, on the wrapper `confidence_nudge()` had
+already recorded.** The nudge needed the cell's net P&L beside its win rate,
+so `nudge_for` read the walk directly and `lookup_best` kept only test
+callers; the methods ratchet named it. It is deleted, and its four tests ask
+`nudge_for`, whose `Nudge` carries the tier and count they read.
+(`tests/test_the_nudge_needs_a_setup_that_made_money.py`.)
+
+**THE 16-HOUR "WHATEVER THE R" LIMIT WAS MEASURED, NOT CHANGED.** The
+backtest does not model live's smart exits, so `signal_edge.py continuation`
+asks the signal: from bar 12 to bar 48, how far did price keep moving the
+idea's way, net of the direction's drift, among ideas still in favour at bar
+12. On the two v2 snapshots momentum ideas kept going (+0.81 ATR, interval
+above zero); on `corr_dense_1h`, which shares their symbols and months, they
+did not; and the fresh-window cell, written down before it was computed, does
+not hold (+0.71 [-0.31, +1.88]). `docs/FROZEN_BENCHMARK.md` records it, what
+close-to-close moves cannot see, and two cells pre-registered for the next
+snapshot.
+
+**TWO GATES FAILED THE FIRST FULL RUN OF THIS BRANCH, AND NEITHER WAS A
+REGRESSION IN WHAT THEY GUARD.** The strict mypy gate on the money modules
+follows imports, and `live_executor` importing `time_exits` brought
+`smart_exits` into its closure with three old type errors in the squeeze
+detector; they are fixed rather than excluded, and the whole-tree baseline
+fell by three. And `test_source_segment_reader` asserted the sample "reached
+the bottom of the file" by comparing the LAST node in `ast.walk` order, which
+is breadth-first, so it sat on an arbitrary line: adding lines to
+`live_executor.py` moved it to line 5418 of 12835 over a sample that reached
+12816. It compares the deepest line sampled now, and still fails for a sample
+confined to the top.
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -9991,7 +10114,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 226 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 228 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10803,9 +10926,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **428 of 1026** reach for source text through `source_scan`, `code_only`
+Driven, **430 of 1029** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 428 is a FLOOR and the honest shape is
+source scan that rule does not see, so 430 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

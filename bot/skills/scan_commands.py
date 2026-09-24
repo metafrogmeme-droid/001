@@ -59,6 +59,10 @@ if TYPE_CHECKING:
 #: refused before it reaches an exchange call.
 _SYMBOL_RE = re.compile(r'^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15})?$')
 
+#: Telegram's bound on a photo caption; a card longer than this is sent whole
+#: as a message under its image rather than cut.
+_CAPTION_LIMIT = 1024
+
 
 def _shadow_note(seen: object) -> str:
     """One line about what the read did to the shadow record, or nothing.
@@ -863,9 +867,20 @@ class ScanCommands:
                     if chat_id:
                         from bot.formatters.signal_card import signal_card_from_idea
                         png = signal_card_from_idea(new_idea, rank=1)
-                        if png:
-                            cap = result[:1024] if len(result) <= 1024 else result[:1020] + "..."
-                            card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
+                        if png and len(result) <= _CAPTION_LIMIT:
+                            card_sent = await self._send_photo(update, png, result, reply_markup=kb)
+                        elif png:
+                            # TOO LONG FOR A CAPTION IS NOT A REASON TO CUT IT.
+                            # `result[:1020] + "..."` cut the end off, mid-tag
+                            # as readily as mid-word, and the end is where the
+                            # thesis's counter-case and the setup's record sit.
+                            # The image goes with its header, the card follows
+                            # whole, and the buttons ride on the card.
+                            if await self._send_photo(
+                                    update, png,
+                                    f"<b>{html.escape(str(new_idea.asset))}</b>"):
+                                await self._send(update, result, reply_markup=kb)
+                                card_sent = True
                 except Exception as exc:
                     system_log.debug("Analyze signal card failed: %s", exc)
             if not card_sent:

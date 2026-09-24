@@ -1209,6 +1209,71 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "total excludes {n} position(s) with no price",
         "zh": "總計不含 {n} 個無法取得價格的持倉",
     },
+    # What the clock can do to a position: bot/core/time_exits.py renders
+    # these on /positions, the detail card and /livepositions.
+    "tx_head": {
+        "en": "⏱ Time exits: {rules}",
+        "zh": "⏱ 時間出場：{rules}",
+    },
+    "tx_after_r": {
+        "en": "after {h} if under {r}R",
+        "zh": "持有 {h} 後若低於 {r}R",
+    },
+    "tx_after_fee": {
+        "en": "after {h} unless in profit after fees",
+        "zh": "持有 {h} 後除非扣除手續費後獲利",
+    },
+    "tx_after_any": {
+        "en": "after {h} whatever the R",
+        "zh": "持有 {h} 後不論 R 值",
+    },
+    "tx_in": {
+        "en": "in {d}",
+        "zh": "{d} 後",
+    },
+    "tx_due": {
+        "en": "due now",
+        "zh": "即刻執行",
+    },
+    "tx_armed": {
+        "en": "armed",
+        "zh": "已啟動",
+    },
+    "tx_armed_r": {
+        "en": "armed, at {r}R",
+        "zh": "已啟動，目前 {r}R",
+    },
+    "tx_armed_fee": {
+        "en": "armed, in profit after fees",
+        "zh": "已啟動，扣除手續費後獲利中",
+    },
+    "tx_r_inert": {
+        "en": "The R-based exits do not run: this position's 1R cannot be read.",
+        "zh": "以 R 為準的出場不會執行：無法讀取此持倉的 1R。",
+    },
+    "tx_no_thesis": {
+        "en": (
+            "⏱ No time exits: adopted with no recorded strategy, so it closes "
+            "only at its stop or target."
+        ),
+        "zh": "⏱ 無時間出場：此為接管的持倉，沒有記錄策略，只會在止損或止盈時平倉。",
+    },
+    "tx_off": {
+        "en": "⏱ No time exits run on this bot: positions close at their stop or target.",
+        "zh": "⏱ 此機器人不執行時間出場：持倉只在止損或止盈時平倉。",
+    },
+    "tx_practice": {
+        "en": "⏱ No time exits run on a practice position: it closes at its stop or target.",
+        "zh": "⏱ 模擬持倉不執行時間出場：只在止損或止盈時平倉。",
+    },
+    "tx_untracked": {
+        "en": "⏱ No time exits: the bot has no record of this position, so none run on it.",
+        "zh": "⏱ 無時間出場：機器人沒有此持倉的紀錄，因此不會執行任何時間出場。",
+    },
+    "tx_more": {
+        "en": "Time exits for {n} more: open each on /positions.",
+        "zh": "另外 {n} 個持倉的時間出場：請在 /positions 逐一查看。",
+    },
 
     # ── Account commands (/link, /unlink, /me, /sync) ──
     "link_already_linked": {

@@ -52,6 +52,22 @@ off**. Until it is switched on the coarse nudge is computed and SHADOW-logged �
 the same shadow-first path every other learner here was introduced through —
 so the would-be effect can be read from the audit channel before it touches a
 trade.
+
+A WIN COUNT CANNOT RAISE CONFIDENCE ON A SETUP THAT LOST MONEY. The nudge is
+scored by how often a setup won, and fourteen small wins beside six full stops
+read as a 70% setup while losing per trade -- so the nudge pushed UP the
+confidence of exactly the setups whose record said not to. Each sample carries
+its net P&L now, and an up-nudge is WITHHELD when the tier it came from did
+not make money per trade (``Nudge.withheld_net``; the analyzer audits it). It
+only removes a boost; a down-nudge stands as it was. The P&L is dollars, not
+R -- the outcome rows carry no stop -- so trades of different sizes weigh
+differently in the mean, and a record whose samples carry no P&L at all (the
+old four-field form) is judged on its win count as before. Measured on the
+frozen benchmark (six snapshots, fitted on each earlier half, 441 later
+trades): the up-nudges this withholds averaged -2.50 a trade afterwards (86
+trades) against -0.82 for the ones it keeps (214); the intervals overlap and
+one snapshot points the other way, so the case is the definition above and
+the direction of the evidence, not its strength.
 """
 
 from __future__ import annotations
@@ -86,6 +102,9 @@ class Nudge(NamedTuple):
     value: float
     tier: str          # one of TIERS, or "none" when nothing qualified
     n: int             # trades behind it; 0 when nothing qualified
+    #: The tier's net P&L per trade when an UP-nudge was withheld because it
+    #: was not positive; None when nothing was withheld.
+    withheld_net: Optional[float] = None
 
     @property
     def is_coarse(self) -> bool:
@@ -96,6 +115,24 @@ class Nudge(NamedTuple):
 
 def _norm(s) -> str:
     return str(s or "").strip().upper()
+
+
+def _net_of(v) -> Optional[float]:
+    """A sample's net P&L, or None when it carries no number."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return None if f != f or f in (float("inf"), float("-inf")) else f
+
+
+def _net_mean(cell) -> Optional[float]:
+    """Net P&L per trade over the samples that carried one, or None.
+
+    A cell planted with ``[wins, total]`` (the shape the table had before P&L
+    rode on the samples) has none."""
+    if len(cell) < 4 or not cell[3]:
+        return None
+    return float(cell[2]) / float(cell[3])
 
 
 class SetupExpectancy:
@@ -123,18 +160,28 @@ class SetupExpectancy:
     # -- building --------------------------------------------------------------
 
     def ingest(self, samples) -> "SetupExpectancy":
-        """Ingest ``(symbol, regime, direction, won)`` tuples (completed trades)."""
-        table: dict[tuple, list[int]] = {}
-        regimes: dict[tuple, list[int]] = {}
-        dirs: dict[tuple, list[int]] = {}
+        """Ingest ``(symbol, regime, direction, won[, net_pnl])`` tuples.
+
+        A cell is ``[wins, total, net_sum, net_n]``; ``net_n`` counts the
+        samples that carried a readable P&L, so a record without one says so
+        rather than reading as a flat one.
+        """
+        table: dict[tuple, list] = {}
+        regimes: dict[tuple, list] = {}
+        dirs: dict[tuple, list] = {}
         n = 0
-        for sym, regime, direction, won in samples:
+        for sample in samples:
+            sym, regime, direction, won = sample[:4]
+            net = _net_of(sample[4]) if len(sample) > 4 else None
             s, r, d = _norm(sym), _norm(regime), _norm(direction)
             hit = 1 if won else 0
             for tbl, key in ((table, (s, r, d)), (regimes, (r, d)), (dirs, (d,))):
-                cell = tbl.setdefault(key, [0, 0])
+                cell = tbl.setdefault(key, [0, 0, 0.0, 0])
                 cell[0] += hit
                 cell[1] += 1
+                if net is not None:
+                    cell[2] += net
+                    cell[3] += 1
             n += 1
         self._table = table
         self._regime_table = regimes
@@ -144,7 +191,7 @@ class SetupExpectancy:
 
     @staticmethod
     def samples_from_decisions(decisions):
-        """Extract ``(symbol, regime, direction, won)`` from completed
+        """Extract ``(symbol, regime, direction, won, net_pnl)`` from completed
         DecisionMemory-like records (non-null ``pnl_result``)."""
         out = []
         for d in decisions:
@@ -152,7 +199,7 @@ class SetupExpectancy:
             if pnl is None:
                 continue
             out.append((getattr(d, "symbol", ""), getattr(d, "market_regime", ""),
-                        getattr(d, "direction", ""), float(pnl) > 0.0))
+                        getattr(d, "direction", ""), float(pnl) > 0.0, float(pnl)))
         return out
 
     def load(self, store=None) -> "SetupExpectancy":
@@ -171,7 +218,8 @@ class SetupExpectancy:
 
         Deliberately not backed off: this answers "what has this symbol done in
         this regime in this direction", and the honest answer to that is often
-        "nothing". `lookup_best` is the one that falls back.
+        "nothing". `nudge_for` is the one that falls back, and its `Nudge`
+        carries the tier that answered.
 
         The `0.5` is a placeholder, not a measurement, and `n = 0` beside it is
         what says so — every caller here reads the count before the rate.
@@ -181,20 +229,17 @@ class SetupExpectancy:
             return 0.5, 0
         return cell[0] / cell[1], cell[1]
 
-    def lookup_best(self, symbol, regime, direction) -> tuple:
-        """``(win_rate, n, tier)`` — the most specific tier with enough trades.
-
-        Walks `TIERS` in order and stops at the first cell holding at least
-        ``min_samples``. Returns ``(0.5, 0, "none")`` when no tier qualifies,
-        which is the same "nothing measured" the caller already handles.
-        """
+    def _best_cell(self, symbol, regime, direction) -> tuple:
+        """``(tier, cell)`` for the most specific tier with enough trades, or
+        ``("none", None)``. Walks `TIERS` in order and stops at the first cell
+        holding at least ``min_samples``."""
         s, r, d = _norm(symbol), _norm(regime), _norm(direction)
         for tier, cell in (("setup", self._table.get((s, r, d))),
                            ("regime", self._regime_table.get((r, d))),
                            ("direction", self._dir_table.get((d,)))):
             if cell and cell[1] >= self.min_samples:
-                return cell[0] / cell[1], cell[1], tier
-        return 0.5, 0, "none"
+                return tier, cell
+        return "none", None
 
     def nudge_for(self, symbol, regime, direction) -> "Nudge":
         """The bounded nudge, WITH the tier it came from.
@@ -207,9 +252,10 @@ class SetupExpectancy:
         wider claim than this module's name suggests, and `analyzer` gates it
         behind its own flag. A bare float cannot carry that.
         """
-        win_rate, n, tier = self.lookup_best(symbol, regime, direction)
-        if n < self.min_samples:
+        tier, cell = self._best_cell(symbol, regime, direction)
+        if cell is None:
             return Nudge(0.0, "none", 0)
+        win_rate, n = cell[0] / cell[1], cell[1]
         shrink = n / (n + self.shrinkage) if (n + self.shrinkage) else 0.0
         nudge = ((win_rate - 0.5) * 2.0 * self.max_nudge * shrink
                  * _TIER_WEIGHT.get(tier, 0.0))
@@ -220,6 +266,11 @@ class SetupExpectancy:
         # the ±max_nudge promise is the bound on the weights themselves, and
         # that is pinned in test_setup_expectancy_backoff.py rather than left
         # to this line to catch after the fact.
+        # A WIN COUNT CANNOT RAISE CONFIDENCE ON A SETUP THAT LOST MONEY (the
+        # module docstring). Only the boost is withheld; a down-nudge stands.
+        net = _net_mean(cell)
+        if nudge > 0 and net is not None and net <= 0:
+            return Nudge(0.0, tier, n, withheld_net=net)
         return Nudge(max(-self.max_nudge, min(self.max_nudge, nudge)), tier, n)
 
     # `confidence_nudge()` LIVED HERE and is gone. It returned
@@ -230,7 +281,10 @@ class SetupExpectancy:
     # test_no_new_unreachable_functions.py` said so in the same commit, which
     # is the whole point of that ratchet: a wrapper nobody reads is
     # indistinguishable from one that does not work. Call `nudge_for(...)
-    # .value`.
+    # .value`. `lookup_best()` went the same way when the nudge needed the
+    # cell's net P&L beside its win rate: `nudge_for` reads the walk
+    # (`_best_cell`) directly, and its `Nudge` carries the tier and the count
+    # the tests used to read off the wrapper.
 
     def is_ready(self) -> bool:
         """Has anything actually been LEARNED — not merely loaded.
@@ -321,14 +375,14 @@ def validate_oos(samples, split: float = 0.7, *,
     of its 95% interval (a normal interval on a difference of two proportions),
     or ``None`` for any figure a group too small to measure cannot give.
     """
-    clean = [s for s in samples if s and len(s) == 4]
+    clean = [s for s in samples if s and len(s) in (4, 5)]
     cut = int(len(clean) * split)
     train, test = clean[:cut], clean[cut:]
     fitted = SetupExpectancy(min_samples=min_samples).ingest(train)
     fav: list[bool] = []
     dis: list[bool] = []
     tiers: dict[str, int] = {}
-    for sym, regime, direction, won in test:
+    for sym, regime, direction, won in (s[:4] for s in test):
         nudge = fitted.nudge_for(sym, regime, direction)
         if nudge.value > 0:
             fav.append(bool(won))

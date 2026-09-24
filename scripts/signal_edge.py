@@ -29,6 +29,13 @@ files for a pooled row.
 Usage:
     python scripts/signal_edge.py collect --dataset benchmark/majors_1h --out rec.json
     python scripts/signal_edge.py report rec_majors_v2.json rec_alts_v2.json
+    python scripts/signal_edge.py continuation --from 12 --to 48 \
+        --signal momentum_confluence rec_majors_v2.json rec_alts_v2.json
+
+`continuation` asks what a hold limit costs: from bar `--from` to bar `--to`,
+how far did price keep moving the idea's way, net of the direction's drift over
+that same segment -- over every idea, and over the ideas still in the idea's
+favour at `--from`, which are the ones a trade would still be carrying.
 
 `collect` runs the same in-process walk-forward as
 `python -m bot.backtest.runner --dataset <d> --honest --walk-forward 6`, with
@@ -162,6 +169,28 @@ def with_excess(rows: list[dict], unc: dict[str, dict[int, float]]) -> list[dict
     return out
 
 
+def continuation(rows: list[dict], a: int, b: int,
+                 min_move: Optional[float] = None) -> list[dict]:
+    """Each idea's excess from bar `a` to bar `b`, keyed under `b`.
+
+    That is its excess at `b` minus its excess at `a`: the move over the
+    segment, net of the direction's drift over the same segment. With
+    `min_move`, only ideas whose RAW move at `a` was above it -- a trade's
+    profit is the raw move, so that is the filter for "still in profit at
+    `a`", and the drift is subtracted only from what is measured after it.
+    A row missing either horizon is dropped, never read as a zero.
+    """
+    out = []
+    for r in rows:
+        ex = r["excess"]
+        if a not in ex or b not in ex:
+            continue
+        if min_move is not None and not r["moves"][a] > min_move:
+            continue
+        out.append({**r, "excess": {b: ex[b] - ex[a]}})
+    return out
+
+
 # ── collect: one snapshot, in process ─────────────────────────────────────
 
 
@@ -272,6 +301,38 @@ def report(paths: Sequence[str]) -> str:
     return "\n".join(out)
 
 
+def continuation_report(paths: Sequence[str], a: int, b: int,
+                        signal: Optional[str] = None) -> str:
+    """Continuation from bar `a` to bar `b`, per file and pooled.
+
+    Each group is de-overlapped at `b` bars first, so no two kept ideas on
+    one symbol share any part of their forward window, and its interval is
+    the cluster bootstrap every other figure here uses.
+    """
+    rows = [r for p in paths for r in _load(p)]
+    if signal is not None:
+        rows = [r for r in rows if r["signal_type"] == signal]
+    groups: list[tuple[str, list[dict]]] = [
+        (ds, [r for r in rows if r["dataset"] == ds])
+        for ds in sorted({r["dataset"] for r in rows})]
+    if len(paths) > 1:
+        groups.append(("POOLED (all files given)", rows))
+    subsets = (("every idea", None), (f"in favour at bar {a}", 0.0),
+               (f"1+ ATR in favour at bar {a}", 1.0))
+    head = f"{'group':<40}{'n':>6}  {f'excess ATR, bar {a} -> {b}':^24}"
+    out = [f"signal: {signal or 'every signal type'}", head, "-" * len(head)]
+    for label, g in groups:
+        kept = deoverlap(g, b)
+        out.append(label)
+        for sub, floor in subsets:
+            seg = continuation(kept, a, b, floor)
+            out.append(f"  {sub:<38}{len(seg):>6}  {_cell(cluster_ci(seg, b)):^24}")
+    out.append("")
+    out.append(f"cells: mean excess [95% cluster-bootstrap interval]; each group "
+               f"de-overlapped at {b} bars; 'thin' = under five clusters.")
+    return "\n".join(out)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -280,7 +341,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     c.add_argument("--out", required=True)
     r = sub.add_parser("report", help="honest intervals over collected files")
     r.add_argument("files", nargs="+")
+    k = sub.add_parser("continuation", help="what a hold limit between two horizons forgoes")
+    k.add_argument("files", nargs="+")
+    k.add_argument("--from", dest="a", type=int, default=12)
+    k.add_argument("--to", dest="b", type=int, default=48)
+    k.add_argument("--signal", default=None)
     args = ap.parse_args(argv)
+    if args.cmd == "continuation":
+        if args.a not in HORIZONS or args.b not in HORIZONS or not args.a < args.b:
+            ap.error(f"--from and --to must be recorded horizons {HORIZONS}, from before to")
+        print(continuation_report(args.files, args.a, args.b, args.signal))
+        return 0
     if args.cmd == "collect":
         data = collect(args.dataset)
         Path(args.out).write_text(json.dumps(data))

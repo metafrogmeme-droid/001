@@ -8273,8 +8273,18 @@ class RuneClawEngine:
             except Exception:
                 prices = {}
 
+            from bot.core.time_exits import r_multiple_now, thesis_recorded
             for pos in list(getattr(executor, "_positions", {}).values()):
                 if getattr(pos, "status", "") != "open":
+                    continue
+                # A position adopted with no recorded strategy carries the
+                # dataclass defaults, and the rules below are keyed on them:
+                # driven, one somebody opened by hand was closed at +2R at 16h
+                # on a momentum signal nobody assigned it. Adopted positions
+                # are never force-closed (the operator's decision, 2026-09-24);
+                # its stop and target still apply. `time_exits` is the one
+                # reading, and the position cards ask it too.
+                if not thesis_recorded(pos):
                     continue
                 price = prices.get(pos.symbol) or 0
                 if price <= 0 or pos.entry_price <= 0:
@@ -8282,16 +8292,10 @@ class RuneClawEngine:
 
                 hold_h = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600.0
                 candles_held = int(hold_h)  # 1H candles
-                if pos.direction == "LONG":
-                    pnl_raw = price - pos.entry_price
-                else:
-                    pnl_raw = pos.entry_price - price
                 # R-multiple denominator is the INITIAL risk taken at entry, not
                 # the live ratcheted stop: a winner whose stop has trailed to
                 # breakeven has entry-minus-stop ≈ 0, which read as R=0 and made
                 # the time/hold exits below force-close a real runner.
-                from bot.core.position_telemetry import r_denominator
-                risk = r_denominator(pos)
                 # `r_mult = ... if risk > 0 else 0.0` was not a guard: 0.0 is a
                 # MEASURED value to every rule below -- a flat trade -- and
                 # should_time_exit / check_signal_hold_limit /
@@ -8300,7 +8304,7 @@ class RuneClawEngine:
                 # (an adopted orphan with no stop, a record with no trailing
                 # state) was therefore force-closed at market on the strength
                 # of a number nobody measured.
-                r_mult = pnl_raw / risk if risk > 0 else None
+                r_mult = r_multiple_now(pos, price)
 
                 sig = getattr(pos, "signal_type", "momentum_confluence")
                 stype = getattr(pos, "strategy_type", "swing")
@@ -8677,9 +8681,9 @@ class RuneClawEngine:
                     audit(system_log, f"Reconciliation error: {exc}",
                           action="reconcile", result="ERROR")
 
-                # Gated (default OFF): auto-close live positions whose thesis has
-                # invalidated (time stop / signal-hold limit / VWAP reversion /
-                # volume decay) instead of letting them ride to the exchange SL.
+                # Gated by TIME_STOP_ENABLED + TIME_STOP_LIVE_AUTO_CLOSE: close
+                # live positions whose thesis has invalidated (time stop / hold
+                # limit / VWAP reversion / volume decay) before their stop.
                 await self._evaluate_live_smart_exits(_ex)
 
             # Periodic orphan adoption: catch positions opened on exchange

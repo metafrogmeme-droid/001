@@ -211,6 +211,11 @@ def average_r(entries) -> dict:
     }
 
 
+#: How many entries survive a restart: ``_save`` writes the newest this many.
+#: A reader printing a record over the journal says so once it is this full.
+KEEPS = 500
+
+
 class TradeJournal:
     """Manages trade journal entries with persistence."""
 
@@ -218,7 +223,15 @@ class TradeJournal:
         self._entries: list[JournalEntry] = []
         self._journal_file = str(state_path(journal_file))
         self._max_entries = 1000
+        #: True when the file was there and could not be read. An absent file
+        #: is a fresh journal; a file that raised left the list empty or
+        #: partial, and a reader must not print that as "no trades".
+        self.read_failed = False
         self._load()
+
+    def closed_entries(self) -> list[JournalEntry]:
+        """A copy of the entries, oldest first, for a reader that aggregates."""
+        return list(self._entries)
 
     def record_trade(
         self,
@@ -528,7 +541,7 @@ class TradeJournal:
         try:
             os.makedirs(os.path.dirname(self._journal_file) or ".", exist_ok=True)
             data = []
-            for e in self._entries[-500:]:  # save last 500
+            for e in self._entries[-KEEPS:]:
                 data.append({
                     "trade_id": e.trade_id, "symbol": e.symbol,
                     "direction": e.direction, "strategy_type": e.strategy_type,
@@ -586,4 +599,5 @@ class TradeJournal:
                 ))
             logger.info("Loaded %d journal entries", len(self._entries))
         except Exception as exc:
-            logger.debug("Journal load failed: %s", exc)
+            self.read_failed = True
+            logger.warning("Journal load failed: %s", exc)
