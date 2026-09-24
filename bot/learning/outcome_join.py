@@ -49,6 +49,15 @@ def reading_of(d: Any) -> Optional[int]:
     return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
+def counted_under_current_rule(fit: Any) -> bool:
+    """Whether a learned fit's samples were counted under the current rule.
+
+    One function rather than a method on each learner: a copy per class is two
+    answers to one question, and the first edit to either is where they part.
+    """
+    return getattr(fit, "sample_reading", None) == SAMPLE_READING
+
+
 #: The accept path's words start with this; a paper fill and a live one are
 #: the same fact to a learner -- a position existed and closed.
 _OPENED_PREFIX = "TRADE_ACCEPTED"

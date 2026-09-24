@@ -7439,12 +7439,20 @@ pinned by name against the declared defaults. Each saved fit records the
 loop starts (`_refit_stale_learned_curves`, behind the auto-refit flag, never in
 a reader engine); and the readiness card stops lending a stale fit's count to the
 record, because `max(n, len(samples))` compared two counts made under two rules.
-Twenty-one mutations, each killed; the one that survived the first round was my
-fixture, not the code. The "a current fit is left alone" test planted a refit
-that RAISED, and `refit_stale` is fail-open per learner, so its own `except`
-caught the planted failure and the test could not tell a refit that never ran
-from one that was swallowed. It records the call now.
-(`tests/test_a_fit_counted_under_an_older_rule_is_refit.py`.)
+**The full gate refused the first draft, on a second copy I had just
+written.** "Is this fit current?" was a method on BOTH learners, byte-identical,
+and the methods ratchet counts a name two classes define as one it cannot
+resolve (41 → 42). Re-recording 42 would have baselined a second answer to one
+question; it is one function in `outcome_join` now,
+`counted_under_current_rule`, and every reader asks it. No suite the slice had
+run could see it; the full preflight did. Twenty-two mutations, each killed
+against the code that ships, and the two that survived a first round were both
+the corpus. The "a current fit is left alone" test planted a refit that RAISED,
+and `refit_stale` is fail-open per learner, so its own `except` caught the plant
+and the test could not tell a refit that never ran from one that was swallowed;
+it records the call now. And no test asked what the card says on a fresh install
+with no fit at all, where "fitted under an older rule" would describe a file that
+does not exist. (`tests/test_a_fit_counted_under_an_older_rule_is_refit.py`.)
 
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD

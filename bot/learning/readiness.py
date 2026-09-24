@@ -152,6 +152,7 @@ def assess_readiness(store=None) -> dict:
     try:
         from bot.config import CONFIG
         from bot.learning.confidence_calibration import ConfidenceCalibrator
+        from bot.learning.outcome_join import counted_under_current_rule
         rows = ConfidenceCalibrator.rows_from_decisions(decisions or [])
         samples = rows.samples
         # Kept for callers that already read it, but it is the CALIBRATOR's
@@ -165,7 +166,7 @@ def assess_readiness(store=None) -> dict:
         # history), which is why the larger is shown -- but only a fit counted
         # under the CURRENT rule has a count that means the same thing. One
         # counted under an older reading rests on samples this rule refuses.
-        current = cal is None or cal.is_current_reading()
+        current = cal is None or counted_under_current_rule(cal)
         counted = max(n, len(samples)) if current else len(samples)
         comp.update(samples=counted, needed=need,
                     applied=CONFIG.auto_confirm_use_calibrated)

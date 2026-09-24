@@ -25,7 +25,7 @@ import pytest
 from bot.learning import auto_refit
 from bot.learning import confidence_calibration as cc
 from bot.learning import voter_weights as vw
-from bot.learning.outcome_join import SAMPLE_READING, reading_of
+from bot.learning.outcome_join import SAMPLE_READING, counted_under_current_rule, reading_of
 from tests.default_comments import declared_defaults
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -58,7 +58,7 @@ def test_a_fit_saves_the_reading_it_was_counted_under(tmp_path):
         path = str(tmp_path / fname)
         cls().save(path)
         assert json.loads(pathlib.Path(path).read_text())["sample_reading"] == SAMPLE_READING
-        assert cls.load(path).is_current_reading()
+        assert counted_under_current_rule(cls.load(path))
 
 
 @pytest.mark.parametrize("d,expect", [
@@ -74,9 +74,9 @@ def test_the_reading_is_read_only_off_an_integer(d, expect):
 
 def test_an_older_or_absent_reading_is_not_current():
     for cls in (cc.ConfidenceCalibrator, vw.VoterWeightLearner):
-        assert not cls().load_dict({}).is_current_reading()
-        assert not cls().load_dict({"sample_reading": SAMPLE_READING - 1}).is_current_reading()
-        assert cls().load_dict({"sample_reading": SAMPLE_READING}).is_current_reading()
+        assert not counted_under_current_rule(cls().load_dict({}))
+        assert not counted_under_current_rule(cls().load_dict({"sample_reading": SAMPLE_READING - 1}))
+        assert counted_under_current_rule(cls().load_dict({"sample_reading": SAMPLE_READING}))
 
 
 # ── refit_stale ─────────────────────────────────────────────────────────────
@@ -92,8 +92,8 @@ def test_a_stale_fit_is_refit_and_the_analyzer_reloads_it():
     # Refit over an empty record: the curve is identity, under the current rule,
     # and the stale curve's forty samples are gone with it.
     cal = cc.ConfidenceCalibrator.load()
-    assert cal.is_current_reading() and not cal.is_ready() and cal._n_samples == 0
-    assert vw.VoterWeightLearner.load().is_current_reading()
+    assert counted_under_current_rule(cal) and not cal.is_ready() and cal._n_samples == 0
+    assert counted_under_current_rule(vw.VoterWeightLearner.load())
 
 
 def test_a_current_fit_is_left_alone(monkeypatch):
@@ -153,21 +153,21 @@ def test_the_bot_refits_a_stale_fit_at_start(_restore_flag):
     _with_flag(True)
     _plant(cc._CAL_FILE, _stale_cal())
     assert asyncio.run(_engine()._refit_stale_learned_curves()) == ["confidence calibration"]
-    assert cc.ConfidenceCalibrator.load().is_current_reading()
+    assert counted_under_current_rule(cc.ConfidenceCalibrator.load())
 
 
 def test_a_reader_engine_refits_nothing(_restore_flag):
     _with_flag(True)
     _plant(cc._CAL_FILE, _stale_cal())
     assert asyncio.run(_engine(detached=True)._refit_stale_learned_curves()) == []
-    assert not cc.ConfidenceCalibrator.load().is_current_reading()
+    assert not counted_under_current_rule(cc.ConfidenceCalibrator.load())
 
 
 def test_with_auto_refit_off_nothing_is_refit(_restore_flag):
     _with_flag(False)
     _plant(cc._CAL_FILE, _stale_cal())
     assert asyncio.run(_engine()._refit_stale_learned_curves()) == []
-    assert not cc.ConfidenceCalibrator.load().is_current_reading()
+    assert not counted_under_current_rule(cc.ConfidenceCalibrator.load())
 
 
 def test_the_loop_awaits_it_before_anything_else_runs():
@@ -229,3 +229,11 @@ def test_the_module_states_each_flags_real_default():
     for env, word in claims.items():
         assert decl[env] == (word == "ON"), (env, word, decl[env])
     assert "NEVER changes a trade" not in doc
+
+
+def test_no_fit_on_disk_is_not_called_an_old_one():
+    # A fresh install has no curve at all; "fitted under an older rule" would
+    # describe a file that does not exist.
+    assert not pathlib.Path(cc._CAL_FILE).exists()
+    comp = _calibration()
+    assert "older rule" not in (comp.get("note") or "")

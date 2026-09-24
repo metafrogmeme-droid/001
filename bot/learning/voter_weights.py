@@ -256,10 +256,6 @@ class VoterWeightLearner:
         self._n_samples = int(d.get("n_samples", 0))
         return self
 
-    def is_current_reading(self) -> bool:
-        """Whether this fit's samples were counted under the current rule."""
-        return self.sample_reading == SAMPLE_READING
-
     def save(self, path: str = _FILE) -> None:
         atomic_write_json(path, self.to_dict())
 

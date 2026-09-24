@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import logging
 
+from bot.learning.outcome_join import counted_under_current_rule
+
 log = logging.getLogger("runeclaw.auto_refit")
 
 
@@ -93,7 +95,7 @@ def refit_stale(analyzer=None) -> list:
     try:
         from bot.learning import confidence_calibration as _cc
         cal = _cc.ConfidenceCalibrator.load()
-        if cal is not None and not cal.is_current_reading():
+        if cal is not None and not counted_under_current_rule(cal):
             _cc.refit_and_save()
             if analyzer is not None and hasattr(analyzer, "refresh_calibrator"):
                 analyzer.refresh_calibrator()
@@ -103,7 +105,7 @@ def refit_stale(analyzer=None) -> list:
     try:
         from bot.learning import voter_weights as _vw
         vw = _vw.VoterWeightLearner.load()
-        if vw is not None and not vw.is_current_reading():
+        if vw is not None and not counted_under_current_rule(vw):
             _vw.refit_and_save()
             refit.append("voter weights")
     except Exception as exc:
