@@ -849,6 +849,32 @@ not model live's smart exits, so it holds them longer than live does.
 `vwap_reversion` excess at 24 bars has a 95% interval above zero. Until that
 holds, the hold limit stays where it is.
 
+**Run on 2026-09-24, and it does not hold.** `benchmark/majors_1h_v3` and
+`benchmark/alts_1h_v3` are the same two universes as the v2 snapshots, fetched
+that day (2026-05-22 to 2026-09-24, `ff2891cdf7b3…` and `914dcc2205b3…`). The
+canonical walk-forward emits its ideas only in the later folds, and every one
+of the 2,034 placed ideas falls after the v2 snapshots' last bar; the drift
+each idea's excess subtracts was measured over that same window. The pooled
+`vwap_reversion` excess at 24 bars is **−0.70 ATR [−1.63, +0.38]** on 29 ideas:
+negative, with an interval reaching well past zero. The hold limit stays where
+it is and the lead is closed.
+
+| fresh, pooled, h24 excess ATR | n | mean [95% cluster interval] |
+|---|---:|---:|
+| every idea | 2,034 | +0.14 [−0.20, +0.47] |
+| `vwap_reversion` (the pre-registered cell) | 29 | −0.70 [−1.63, +0.38] |
+| `volume_spike` | 160 | +1.11 [+0.43, +1.87] |
+| approved by the risk gate | 388 | +0.85 [+0.20, +1.50] |
+
+The direction still has no measurable edge on data none of this work had seen.
+Two cells clear zero, and neither is a lead: `volume_spike` pools to −0.07
+[−0.25, +0.12] across the five older snapshots, with signs that disagree
+snapshot to snapshot, and the approved subset has already flipped sign between
+overlapping runs (above). About forty cells were read again, and two clearing
+zero is what that produces by chance. Reproduce with
+`scripts/signal_edge.py collect` on each snapshot, keeping ideas after
+2026-07-06T09:00Z and measuring the drift from the same time.
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the

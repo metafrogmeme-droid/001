@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "timeframe": "1h",
+  "limit": 3000,
+  "created_at": "2026-09-24T01:11:55.293707+00:00",
+  "dataset_hash": "914dcc2205b359e706f8ce237e7ca04d37a9d596f103af8aa6bb944b0f9b0c89",
+  "symbols": {
+    "APT/USDT:USDT": {
+      "file": "APT_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "5835d9c90b54d52f670a4864bf69ff3895779d71703831364aa4b6c4d15ec151"
+    },
+    "ARB/USDT:USDT": {
+      "file": "ARB_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "3eb3490b13404e0a86b8e29aef2bc1539ab3438a835174a6e2a0171a62e89b97"
+    },
+    "FLOKI/USDT:USDT": {
+      "file": "FLOKI_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "ee0ecf9ebefd4d6c699b546b6d95e0a045445f950598184fe02f38fecee03877"
+    },
+    "PENGU/USDT:USDT": {
+      "file": "PENGU_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "299d6b0f4cc0db2399b1f5380d42b3989103a6f4760d675ee56a035cecbf466d"
+    },
+    "PEPE/USDT:USDT": {
+      "file": "PEPE_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "845872a057902725683aa9d3c2d43a1f460854d6fe58fe8e0494e5bfa59e3639"
+    },
+    "SEI/USDT:USDT": {
+      "file": "SEI_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "d1c021179db71d3a63224c43403cd4f4497b0b33de3dd7c75273f5165bef4378"
+    },
+    "TRUMP/USDT:USDT": {
+      "file": "TRUMP_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "fe125a7464f15eea13523ef716b195708b44a16ec33e321838fbcbdb4230d96c"
+    },
+    "WIF/USDT:USDT": {
+      "file": "WIF_USDT_USDT.csv.gz",
+      "bars": 2993,
+      "first": "2026-05-22T02:00:00+00:00",
+      "last": "2026-09-24T00:00:00+00:00",
+      "sha256": "228fad8822094dd1bd1c20bc6f4edcb284916ea8fb598d885c261dcf63fbf83b"
+    }
+  }
+}
