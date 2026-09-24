@@ -226,13 +226,13 @@ def test_an_unreadable_store_is_untested_not_ready(monkeypatch):
 
 def test_the_pool_is_every_decision_not_the_calibrators_slice(monkeypatch):
     seen = {}
-    from bot.learning.confidence_calibration import ConfidenceCalibrator
+    from bot.learning.confidence_calibration import CalibrationRows, ConfidenceCalibrator
 
     def _spy(decisions):
         seen["n"] = len(decisions)
-        return []
+        return CalibrationRows([], 0, 0, 0)
 
-    monkeypatch.setattr(ConfidenceCalibrator, "samples_from_decisions", staticmethod(_spy))
+    monkeypatch.setattr(ConfidenceCalibrator, "rows_from_decisions", staticmethod(_spy))
     out = _assess(monkeypatch, _direction_only() * 60)       # 6000 decisions
     assert out["decisions_on_record"] == 6000
     assert out["decisions_capped"] is False
@@ -253,7 +253,7 @@ def test_the_pool_survives_a_calibration_fault(monkeypatch):
     def _boom(decisions):
         raise RuntimeError("calibration broke")
 
-    monkeypatch.setattr(ConfidenceCalibrator, "samples_from_decisions", staticmethod(_boom))
+    monkeypatch.setattr(ConfidenceCalibrator, "rows_from_decisions", staticmethod(_boom))
     out = _assess(monkeypatch, _direction_only())
     assert out["components"]["calibration"]["state"] == "ERROR"
     assert out["decisions_on_record"] == 100

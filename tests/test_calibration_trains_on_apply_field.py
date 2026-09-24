@@ -6,18 +6,27 @@ The confidence calibrator is APPLIED to the analyzer-stage blended confidence
 on the decision record's `confidence` — the post-adjustment value. Fitting one
 distribution and remapping another is a systematic miscalibration. The decision
 record now carries `blended_confidence_raw` (the apply-target), and
-samples_from_decisions trains on it, falling back to `confidence` for older rows
-that predate the field.
+samples_from_decisions trains on it, falling back to `confidence` for a row
+that has no raw figure.
+
+THE FALLBACK IS NARROWER THAN IT WAS, and the argument is a stamp. It used to
+take every row with no raw figure, on the reading that such a row was the
+analyzer's before this field existed -- and a manual ticket's decision row has
+no raw figure either, with a `confidence` of 1.0 that `build_manual_idea`
+stamps. A row records whether its confidence was measured now; one recorded as
+measured keeps the fallback, and an old row that says nothing cannot be told
+from a stamp, so it is left out and counted.
 """
 
 from bot.learning.confidence_calibration import ConfidenceCalibrator
 from bot.learning.models import DecisionMemory
 
 
-def _decision(tid, *, confidence=0.0, blended_raw=0.0, pnl=None):
+def _decision(tid, *, confidence=0.0, blended_raw=0.0, pnl=None, basis=""):
     return DecisionMemory(symbol="BTC/USDT", direction="LONG",
                           confidence=confidence, blended_confidence_raw=blended_raw,
-                          paper_trade_id=tid, pnl_result=pnl)
+                          confidence_basis=basis, paper_trade_id=tid,
+                          pnl_result=pnl)
 
 
 class TestTrainsOnApplyField:
@@ -31,14 +40,24 @@ class TestTrainsOnApplyField:
         # Trains on the blended_raw (0.7), NOT the post-adjustment confidence 0.9.
         assert samples == [(0.7, True)]
 
-    def test_falls_back_to_confidence_for_legacy_rows(self):
-        # Old decision rows have no blended_confidence_raw (0.0) → use confidence.
+    def test_a_measured_row_without_a_raw_figure_falls_back_to_confidence(self):
         decisions = [
-            _decision("t2", confidence=0.8, blended_raw=0.0),
+            _decision("t2", confidence=0.8, blended_raw=0.0, basis="measured"),
             _decision("t2", pnl=-3.0),                              # losing outcome
         ]
         samples = ConfidenceCalibrator.samples_from_decisions(decisions)
         assert samples == [(0.8, False)]
+
+    def test_an_old_row_without_a_raw_figure_is_not_counted(self):
+        # It could be the analyzer's before the field existed, or a manual
+        # ticket's 1.0 stamp; nothing on it says which, so it is left out and
+        # counted rather than fitted as a measurement.
+        decisions = [
+            _decision("t2", confidence=0.8, blended_raw=0.0),
+            _decision("t2", pnl=-3.0),
+        ]
+        rows = ConfidenceCalibrator.rows_from_decisions(decisions)
+        assert rows.samples == [] and rows.unattributed == 1
 
     def test_blended_raw_takes_precedence_over_confidence(self):
         decisions = [

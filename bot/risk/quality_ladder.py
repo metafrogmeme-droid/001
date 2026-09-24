@@ -424,3 +424,25 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
         return (f"confidence carried from {inherited}: measured about that "
                 f"idea's levels, not these")
     return None
+
+
+#: The word a learning record carries when its confidence was measured about
+#: its own trade. Anything else in that field is the reason it was not.
+MEASURED_BASIS = "measured"
+
+
+def confidence_basis(idea: Any) -> str:
+    """``"measured"``, or why this idea's confidence is not a measurement of
+    this trade -- the words a decision row records for the learners.
+
+    It is `auto_confirm_refusal`'s question and answers from it, because the
+    calibrator's question is the same one: may this number be read as what the
+    engine measured about THIS trade? A manual ticket's 1.0 is a stamp, and the
+    calibrator joined it to the ticket's outcome as a measured 100%, in the top
+    bin, the one the auto-confirm threshold is read against. A drift re-offer's
+    confidence was measured about another trade's levels. A second copy of that
+    judgement here would be a second answer, and the day the door learns a
+    third kind of number that is not a measurement, the record learns it too.
+    """
+    why = auto_confirm_refusal(idea)
+    return MEASURED_BASIS if why is None else why

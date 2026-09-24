@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 726 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 725 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7403,6 +7403,26 @@ card's "Decisions on record: 5000" was a read's limit printed as a count.
 `tests/test_the_analyze_card_says_why_this_analysis_declined.py`,
 `tests/test_setup_expectancy_is_tested_before_it_is_ready.py`.)
 
+**The calibrator fitted a stamp as a measurement, and counted a retried trade
+twice.** A manual ticket goes through the same confirm path as the engine's own
+ideas, so its decision row carried the 1.0 `build_manual_idea` writes and the
+join fitted it as a measured 100%, in the top bin, the one the auto-confirm
+threshold is read against; a drift re-offer's confidence, measured about
+another trade's levels, joined the same way. The confirm path pops the pending
+idea only on success and logs a decision either way, so a failed attempt and
+the retry that opened share one trade id, and both the calibrator's join and
+the voter learner's paired both rows with the one outcome. Each row records its
+`confidence_basis` now, which is the auto-confirm door's own question asked
+once (`quality_ladder.confidence_basis`); `outcome_join` is the one join both
+learners ask, one row per trade id, never a row whose word says the trade
+never opened. A row written before the field says nothing, so it counts only
+when it carries `blended_confidence_raw`, which the analyzer alone writes; an
+old row without it cannot be told from a stamp, and is left out and counted
+rather than guessed at. The readiness card names all three exclusions. The
+mutation that let two opened rows under one id through survived the first
+round, because no product path writes that shape; the join's claim is measured
+on planted rows now. (`tests/test_the_calibrator_trains_on_what_was_measured.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -10700,7 +10720,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **426 of 1022** reach for source text through `source_scan`, `code_only`
+Driven, **426 of 1023** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 426 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

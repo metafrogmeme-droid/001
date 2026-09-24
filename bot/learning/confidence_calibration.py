@@ -31,7 +31,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -74,6 +74,27 @@ def _pav(values: list[float], weights: list[float]) -> list[float]:
         mean = s / w if w else 0.0
         out.extend([mean] * int(count))
     return out
+
+
+def _analyzer_figure(raw) -> Optional[float]:
+    """The analyzer's own figure on a decision row, or None when it is not
+    there. The field's unset value is 0.0, so the question is whether the
+    figure is PRESENT, not what number stands in for it; a bool is a flag,
+    not a confidence."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return float(raw) if raw > 0.0 else None
+
+
+class CalibrationRows(NamedTuple):
+    """What `ConfidenceCalibrator.rows_from_decisions` kept and left out."""
+    samples: list
+    #: Decision rows for a closed trade whose word says it never opened.
+    not_opened: int
+    #: Rows whose confidence was not a measurement of their own trade.
+    not_measured: int
+    #: Rows recorded before the basis was, carrying no analyzer figure.
+    unattributed: int
 
 
 class ConfidenceCalibrator:
@@ -132,45 +153,58 @@ class ConfidenceCalibrator:
         return self
 
     @staticmethod
-    def samples_from_decisions(decisions) -> list[tuple[float, bool]]:
-        """Extract ``(confidence, won)`` for completed trades.
+    def rows_from_decisions(decisions) -> "CalibrationRows":
+        """The ``(confidence, won)`` samples, and what was left out and why.
 
-        The confidence-bearing DECISION record (written at decision time, with
-        ``pnl_result`` still None) and the realized OUTCOME record (``pnl_result``
-        set, ``confidence`` left at its 0.0 default) are SEPARATE append-only
-        records linked by ``paper_trade_id``. So confidence and outcome must be
-        JOINED across records by ``paper_trade_id`` — the same join
-        ``voter_weights.samples_from_decisions`` uses. Reading both off a single
-        record (the prior behaviour) only ever matched outcome rows, whose
-        confidence is 0.0, so the calibrator trained entirely on
-        confidence=0.0 → a degenerate single-bin curve.
+        The confidence-bearing DECISION record and the realized OUTCOME record
+        are separate append-only rows linked by ``paper_trade_id``;
+        `outcome_join.join_outcomes` is that join, shared with the voter-weight
+        learner, and it yields ONE decision row per closed trade (a failed
+        attempt before a successful retry is not a second sample).
+
+        A SAMPLE IS A CONFIDENCE MEASURED ABOUT ITS OWN TRADE, and two kinds of
+        row are not. A manual ticket's confidence is the 1.0 stamp
+        `build_manual_idea` writes, and a drift re-offer's was measured about
+        another trade's levels; both reached this join and were fitted as
+        measurements, the stamp in the top bin, the one the auto-confirm
+        threshold is read against. A row records its ``confidence_basis`` now,
+        and one that names a reason is left out.
+
+        A ROW WRITTEN BEFORE THAT FIELD EXISTED SAYS NOTHING, and it is counted
+        only when it carries ``blended_confidence_raw``: only the analyzer
+        writes that field, and it is the field the calibrator is APPLIED to
+        (#35), so its presence marks the analyzer's own measurement of that
+        trade. A manual stamp and a re-offer never carry it. An old row without
+        it cannot be told from a stamp, so it is left out and counted rather
+        than guessed at. A measured row without it (a producer other than the
+        analyzer) keeps #35's fallback to ``confidence``.
         """
-        # First pass: realized outcome (won) keyed by paper_trade_id.
-        outcome: dict[str, bool] = {}
-        for d in decisions:
-            tid = getattr(d, "paper_trade_id", "") or ""
-            pnl = getattr(d, "pnl_result", None)
-            if tid and pnl is not None:
-                outcome[tid] = float(pnl) > 0.0
-        # Second pass: join each decision's confidence to its trade's outcome.
-        # Drop confidence<=0.0 — that is the unset sentinel on outcome/result rows,
-        # never a real model confidence — so only genuine decisions are fit.
+        from bot.learning.outcome_join import join_outcomes
+        from bot.risk.quality_ladder import MEASURED_BASIS
+        joined = join_outcomes(decisions)
         out: list[tuple[float, bool]] = []
-        for d in decisions:
-            tid = getattr(d, "paper_trade_id", "") or ""
-            if not tid or tid not in outcome:
+        not_measured = unattributed = 0
+        for d, won in joined.rows:
+            basis = str(getattr(d, "confidence_basis", "") or "")
+            raw = _analyzer_figure(getattr(d, "blended_confidence_raw", None))
+            if basis and basis != MEASURED_BASIS:
+                not_measured += 1
                 continue
-            # #35: train on the exact field the calibrator is APPLIED to — the
-            # pre-calibration/pre-nudge analyzer blended confidence — so the curve
-            # is fitted in the same space it remaps. Records written before this
-            # field existed (or rejected rows) leave it 0.0; fall back to the
-            # post-adjustment `confidence` so historical data still counts.
-            raw = getattr(d, "blended_confidence_raw", 0.0) or 0.0
-            conf = float(raw) if float(raw) > 0.0 else getattr(d, "confidence", None)
+            if not basis and raw is None:
+                unattributed += 1
+                continue
+            conf = raw if raw is not None else getattr(d, "confidence", None)
             if conf is None or float(conf) <= 0.0:
                 continue
-            out.append((float(conf), outcome[tid]))
-        return out
+            out.append((float(conf), won))
+        return CalibrationRows(out, joined.not_opened, not_measured,
+                               unattributed)
+
+    @staticmethod
+    def samples_from_decisions(decisions) -> list[tuple[float, bool]]:
+        """Extract ``(confidence, won)`` for completed trades -- the samples
+        `rows_from_decisions` keeps."""
+        return ConfidenceCalibrator.rows_from_decisions(decisions).samples
 
     # -- applying --------------------------------------------------------------
 

@@ -47,7 +47,7 @@ from bot.learning.orchestrator import LearningOrchestrator
 from bot.macro.calendar import MacroCalendar, build_2026_calendar
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for  # noqa: F401
-from bot.risk.quality_ladder import auto_confirm_refusal, quality_reading
+from bot.risk.quality_ladder import auto_confirm_refusal, confidence_basis, quality_reading
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.multi_portfolio import MultiUserPortfolio
 from bot.core.dashboard_pusher import (
@@ -6882,6 +6882,7 @@ class RuneClawEngine:
                 # #35: persist the calibrator's apply-target so it trains on the
                 # same field (falls back to confidence when unset).
                 blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+                confidence_basis=confidence_basis(idea),
                 confluence_score=idea.confidence,
                 entry_price=idea.entry_price,
                 stop_loss=idea.stop_loss,
@@ -7032,6 +7033,7 @@ class RuneClawEngine:
                     direction=idea.direction.value,
                     confidence=idea.confidence,
                     blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+                    confidence_basis=confidence_basis(idea),
                     confluence_score=idea.confidence,
                     entry_price=idea.entry_price,
                     stop_loss=idea.stop_loss,
@@ -8003,6 +8005,7 @@ class RuneClawEngine:
             # #35: persist the calibrator's apply-target so it trains on the same
             # field (falls back to confidence when unset).
             blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
+            confidence_basis=confidence_basis(idea),
             confluence_score=idea.confidence,
             entry_price=idea.entry_price,
             stop_loss=idea.stop_loss,

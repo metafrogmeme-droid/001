@@ -152,10 +152,12 @@ def assess_readiness(store=None) -> dict:
     try:
         from bot.config import CONFIG
         from bot.learning.confidence_calibration import ConfidenceCalibrator
-        samples = ConfidenceCalibrator.samples_from_decisions(decisions or [])
+        rows = ConfidenceCalibrator.rows_from_decisions(decisions or [])
+        samples = rows.samples
         # Kept for callers that already read it, but it is the CALIBRATOR's
         # extraction and nothing else's.
         out["resolved_samples"] = len(samples)
+        left_out = _calibration_left_out(rows)
         cal = ConfidenceCalibrator.load()
         n = getattr(cal, "_n_samples", 0) if cal else 0
         need = getattr(cal, "min_samples", 30) if cal else 30
@@ -170,6 +172,8 @@ def assess_readiness(store=None) -> dict:
         else:
             comp["state"] = "READY"
             comp["note"] = cal.summary()
+        if left_out:
+            comp["note"] = "; ".join(x for x in (comp.get("note"), left_out) if x)
     except Exception as exc:
         comp.update(state="ERROR", note=str(exc)[:160])
     out["components"]["calibration"] = comp
@@ -352,6 +356,28 @@ def recommendations_for(components: dict) -> list:
         elif state == "READY" and applied is True:
             notes.append(f"{name}: applied and validated ✓")
     return warnings + notes
+
+
+def _calibration_left_out(rows) -> str:
+    """What the calibrator's reading left out, or "" when it left out nothing.
+
+    Said only when it bites: a permanent "0 left out" under every healthy card
+    is the line that trains a reader to skip the next one.
+    """
+    parts = []
+    if rows.not_measured:
+        parts.append(f"{rows.not_measured} whose confidence was a stamp or "
+                     f"carried from another idea")
+    if rows.unattributed:
+        parts.append(f"{rows.unattributed} recorded before the bot marked "
+                     f"which confidences were measured, with no analyzer "
+                     f"figure to tell")
+    if rows.not_opened:
+        parts.append(f"{rows.not_opened} failed attempt(s) before a retry "
+                     f"that opened")
+    if not parts:
+        return ""
+    return "not counted: " + "; ".join(parts)
 
 
 def render_report(assessment: dict) -> str:

@@ -1428,7 +1428,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7152-7189
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7154-7191
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1728,7 +1728,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1236, registered telegram_handler.py:1224) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7702
+bot/core/stock_trading.py, also read by bot/core/engine.py:7704
 (get_market_session) and scan_commands.py:345.
 
 **Price alerts and anomaly-alert scoping**
