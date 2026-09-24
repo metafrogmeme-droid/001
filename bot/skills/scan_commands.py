@@ -52,6 +52,7 @@ from bot.utils.logger import system_log
 
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
+    from bot.core.poc_retest_history import HistoryReading
     from bot.skills.skill_registry import SkillRegistry
     from bot.utils.user_store import UserStore
 
@@ -101,6 +102,23 @@ def _shadow_note(seen: object) -> str:
         return ""
     joined = " \u00b7 ".join(bits)
     return f"\n\n<i>{joined} \u2014 /pocshadow for the record.</i>"
+
+
+def _history_note(seen: object, reading: HistoryReading) -> str:
+    """What the setup paid when it was replayed on frozen data, under a card
+    that shows one.
+
+    Only under a CONFIRMED read, which is the card that prints an entry, a
+    stop and a target: that is where a reader decides whether to take the
+    setup, and a card offering levels with nothing about what those levels
+    have paid before is the gap this closes. Under a read that found no
+    setup the history answers a question the card did not ask.
+    """
+    read = getattr(getattr(seen, "setup", None), "read", None)
+    if getattr(read, "state", None) != "confirmed":
+        return ""
+    from bot.core.poc_retest_history import history_note
+    return "\n\n" + history_note(reading)
 
 
 class ScanCommands:
@@ -540,8 +558,8 @@ class ScanCommands:
                              context: ContextTypes.DEFAULT_TYPE) -> None:
         """Where a symbol's POC-retest sequence has got to — /pocretest SOL.
 
-        The whole reading and the whole card are in `poc_retest_scan`, and
-        this is four lines on purpose: a card built inline in a handler is a
+        The whole reading and the whole card are in `poc_retest_scan` and the
+        replayed history in `poc_retest_history`, and this is short on purpose: a card built inline in a handler is a
         card no test can run, which is #999's own lesson and the reason every
         sibling in this file is the shape it is.
 
@@ -552,10 +570,13 @@ class ScanCommands:
         raw = (args[0] if args else "BTC").upper()
         symbol = raw if "/" in raw else f"{raw}/USDT"
         try:
+            from bot.core.poc_retest_history import history_on_record
             from bot.core.poc_retest_scan import observe_setup, setup_card
             exchange = await self.engine.get_exchange()
             seen = await observe_setup(exchange, symbol)
-            await self._send(update, setup_card(seen.setup) + _shadow_note(seen))
+            history = await asyncio.to_thread(history_on_record)
+            await self._send(update, setup_card(seen.setup)
+                             + _history_note(seen, history) + _shadow_note(seen))
         except Exception as exc:
             await self._send_error(update, "the POC-retest read", exc)
 
@@ -569,9 +590,14 @@ class ScanCommands:
         to the record, by reading a symbol.
         """
         try:
+            from bot.core.poc_retest_history import history_note, history_on_record
             from bot.core.poc_retest_record import shadow_card, shadow_reading
             _rows, verdict = await asyncio.to_thread(shadow_reading)
-            await self._send(update, shadow_card(verdict))
+            history = await asyncio.to_thread(history_on_record)
+            # The record's own verdict, then what the replay said: the record
+            # fills at the pace of the asking and says "too thin" for months,
+            # and the replay is the measurement it would converge on.
+            await self._send(update, shadow_card(verdict) + "\n\n" + history_note(history))
         except Exception as exc:
             await self._send_error(update, "the POC-retest shadow record", exc)
 

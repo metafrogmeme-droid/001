@@ -1,0 +1,103 @@
+{
+  "kind": "poc_retest_replay",
+  "windows": [
+    {
+      "label": "10 majors + 8 alts",
+      "since": null,
+      "recorded_at": "2026-09-24T17:06:23+00:00",
+      "code_sha": "006a8ec31ecfb59d5f0a2d7db2907e2b78fbda24",
+      "params": {
+        "atr_buffer": 0.25,
+        "retest_window": 5,
+        "min_net_r": 2.0,
+        "max_stop_atr": 2.0,
+        "atr_period": 14,
+        "swing_order": 5,
+        "profile_bins": 50
+      },
+      "fees": {
+        "entry_pct": 0.06,
+        "exit_pct": 0.06
+      },
+      "datasets": [
+        {
+          "dataset": "benchmark/majors_1h_v2",
+          "dataset_hash": "05074080c0a3efa71cee534af27f25811b8d1d5304ced45b41630d72c141049f"
+        },
+        {
+          "dataset": "benchmark/alts_1h_v2",
+          "dataset_hash": "2163470036e89a426d83deff53541d6381d383ce650e385fa02960eae0954ab5"
+        }
+      ],
+      "first_retest": "2025-02-26T22:00:00+00:00",
+      "last_retest": "2026-07-05T19:00:00+00:00",
+      "armed": 278,
+      "scored": 262,
+      "outcomes": {
+        "target": 63,
+        "stop": 199,
+        "ambiguous": 1,
+        "open": 2,
+        "not_triggered": 13,
+        "unscored": 0
+      },
+      "mean_r": 0.030366,
+      "interval": [
+        -0.24738,
+        0.301412
+      ],
+      "clusters": 102,
+      "level": 0.95,
+      "verdict": "no_edge"
+    },
+    {
+      "label": "same 18, later data",
+      "since": "2026-07-06T09:00:00+00:00",
+      "recorded_at": "2026-09-24T17:06:23+00:00",
+      "code_sha": "006a8ec31ecfb59d5f0a2d7db2907e2b78fbda24",
+      "params": {
+        "atr_buffer": 0.25,
+        "retest_window": 5,
+        "min_net_r": 2.0,
+        "max_stop_atr": 2.0,
+        "atr_period": 14,
+        "swing_order": 5,
+        "profile_bins": 50
+      },
+      "fees": {
+        "entry_pct": 0.06,
+        "exit_pct": 0.06
+      },
+      "datasets": [
+        {
+          "dataset": "benchmark/majors_1h_v3",
+          "dataset_hash": "ff2891cdf7b3d3dac1c4f7d208047bfb001c9932de273b743c574eaba5220f84"
+        },
+        {
+          "dataset": "benchmark/alts_1h_v3",
+          "dataset_hash": "914dcc2205b359e706f8ce237e7ca04d37a9d596f103af8aa6bb944b0f9b0c89"
+        }
+      ],
+      "first_retest": "2026-07-10T08:00:00+00:00",
+      "last_retest": "2026-09-23T01:00:00+00:00",
+      "armed": 45,
+      "scored": 45,
+      "outcomes": {
+        "target": 8,
+        "stop": 37,
+        "ambiguous": 0,
+        "open": 0,
+        "not_triggered": 0,
+        "unscored": 0
+      },
+      "mean_r": -0.389315,
+      "interval": [
+        -0.740934,
+        0.008474
+      ],
+      "clusters": 19,
+      "level": 0.95,
+      "verdict": "no_edge"
+    }
+  ]
+}

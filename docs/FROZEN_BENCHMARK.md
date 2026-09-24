@@ -1090,6 +1090,26 @@ python scripts/poc_retest_replay.py report --since 2026-07-06T09:00:00+00:00 \
     poc_majors_v3.json poc_alts_v3.json
 ```
 
+**The two headline rows are a written file, and the cards read it.**
+`record` writes `benchmark/poc_retest/result.json`: each window's counts, mean,
+week-cluster interval and verdict, the commit its reads were collected at, and
+the parameters and fee rates it was measured at. Every snapshot is pinned by its
+manifest hash. `/pocretest` prints the windows under a confirmed setup, and
+`/pocshadow` prints them under the record. The reader
+(`bot/core/poc_retest_history.py`) refuses to print a window as this setup's in
+three cases: the window was read off a snapshot whose manifest has since
+changed, it was measured at other parameters or fees than the live read uses,
+or its verdict word disagrees with its own interval. A test checks that the
+figures above match the file's, so a re-record that moves a number fails until
+this page moves too.
+
+```bash
+python scripts/poc_retest_replay.py record --label "10 majors + 8 alts" \
+    poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py record --label "same 18, later data" \
+    --since 2026-07-06T09:00:00+00:00 poc_majors_v3.json poc_alts_v3.json
+```
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the

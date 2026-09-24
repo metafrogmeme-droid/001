@@ -124,7 +124,7 @@ ATR / TP 3.5 ATR (config.py:2136-2137), trailing ENABLED at 1.5 ATR
 (:2119-2120), a 48h time-close with a 12h warn (:2121-2122), min confidence
 0.50 (:2136), max risk 2% (:2142) — every one distinct from the scalp row
 above it. skill_registry.py:1958 reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (scan_commands.py:977) dispatches pro_scan
+SL/TP ladder. Doors: /swing (scan_commands.py:1045) dispatches pro_scan
 mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2473) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
@@ -152,7 +152,7 @@ time-close with a 1h warn (:2105-2106), min confidence 0.65 (:2134), max risk
 1% (:2140); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1591 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
-(scan_commands.py:943) dispatches pro_scan mode=scalp — 5m candles, top-3 by
+(scan_commands.py:1011) dispatches pro_scan mode=scalp — 5m candles, top-3 by
 volume, tight zones (skill_registry.py:2456); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1922) as a
@@ -1251,7 +1251,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:155-156), the contract-
+web_data_pull.fetch_research — scan_commands.py:181-182), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → bot/core/token_research.py:74), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -1328,7 +1328,7 @@ way to be paid for that work.
 **Audits/security** — partial
 
 Genuinely wired, human-reachable security-REVIEW tooling, on three surfaces.
-Telegram: /token (scan_commands.py:165, @guard('token') — trader/paper/viewer)
+Telegram: /token (scan_commands.py:191, @guard('token') — trader/paper/viewer)
 runs token_research.investigate() and composes token_safety (what the contract
 can do to holders) with deployer_history/taint/fates into one dossier that
 leads with what it could NOT read; /xray (guardian_commands.py:430) decodes
@@ -1726,10 +1726,10 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1266, registered telegram_handler.py:1224) and
+bot/skills/scan_commands.py:1293, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:7730
-(get_market_session) and scan_commands.py:349.
+(get_market_session) and scan_commands.py:375.
 
 **Price alerts and anomaly-alert scoping**
 
@@ -1928,7 +1928,13 @@ Asked once a day, it would have printed "survives, +2.04R", because 125 of the
 read whose entry has traded since its retest candle is not armed now, and the
 card says why. An armed setup carries the bar it was armed on. Rows written
 before that are left out of `/pocshadow`'s verdict and counted beside it.
-`docs/FROZEN_BENCHMARK.md` has the tables.
+`docs/FROZEN_BENCHMARK.md` has the tables. Both headline windows are also a
+committed file (`benchmark/poc_retest/result.json`). `/pocretest` prints them
+under a confirmed setup and `/pocshadow` under the record, through
+`bot/core/poc_retest_history.py`. That reader will not present a window as
+this setup's history if the window's snapshot has changed, if it was measured
+at other parameters or fees than the live read, or if its verdict disagrees
+with its own interval.
 
 **The PUBLIC Strategy-Agent marketplace**
 

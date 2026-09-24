@@ -15,11 +15,11 @@ import argparse
 import asyncio
 import json
 import os
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from bot.backtest.benchmark_record import code_sha as _code_sha
 from bot.backtest.benchmark_record import profit_factor
 from bot.backtest.data_loader import DataLoader
 from bot.backtest.engine import BacktestEngine
@@ -873,19 +873,6 @@ def pooled_stats(trades) -> dict:
         "pf": profit_factor(nets),
         "mean_net_usd": (sum(nets) / n) if n else None,
     }
-
-
-def _code_sha() -> str | None:
-    """The commit the benchmark was measured at, best-effort: None on a box
-    with no git rather than a guess, and the artefact says so."""
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(Path(__file__).resolve().parents[2]),
-            capture_output=True, text=True, timeout=5, check=False)
-        sha = out.stdout.strip()
-        return sha if out.returncode == 0 and len(sha) >= 7 else None
-    except (OSError, subprocess.SubprocessError):
-        return None
 
 
 def _pooled_attribution_report(trades, *, label: str) -> str:

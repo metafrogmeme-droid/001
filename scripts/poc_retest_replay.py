@@ -35,11 +35,19 @@ By default it applies the arming rule as first shipped -- ANY confirmed read,
 scored from its retest candle -- which is how the record was found to read
 "survives" on hindsight; `--forward` applies the rule the observer uses now.
 
+`record` writes one window of `benchmark/poc_retest/result.json`, the file
+`/pocretest` and `/pocshadow` read (`bot/core/poc_retest_history.py`). Each
+window is pinned to the snapshots its reads were collected off, and it records
+the parameters and fee rates it was measured at, so the cards can refuse a
+window that no longer describes the live read.
+
     RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/poc_retest_replay.py collect \
         --dataset benchmark/majors_1h_v2 --out poc_majors_v2.json
     python scripts/poc_retest_replay.py report poc_majors_v2.json poc_alts_v2.json
     python scripts/poc_retest_replay.py grid poc_majors_v2.json poc_alts_v2.json
     python scripts/poc_retest_replay.py observer --every 24 poc_majors_v2.json
+    python scripts/poc_retest_replay.py record --label "10 majors + 8 alts" \
+        poc_majors_v2.json poc_alts_v2.json
 """
 from __future__ import annotations
 
@@ -51,7 +59,7 @@ import itertools
 import json
 import multiprocessing
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -60,8 +68,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from bot.backtest.benchmark_record import code_sha, manifest_hash  # noqa: E402
 from bot.core.poc_retest import PocRetestParams, RetestRead, retest_state, setup_verdict  # noqa: E402
-from bot.core.poc_retest_record import entry_traded, score_setup, shadow_verdict  # noqa: E402
+from bot.core.poc_retest_history import HISTORY_RESULT, KIND, history_on_record, replay_verdict  # noqa: E402
+from bot.core.poc_retest_record import OUTCOMES, entry_traded, score_setup, shadow_verdict  # noqa: E402
 from bot.core.poc_retest_scan import ENTRY_BARS, STRUCTURE_BARS  # noqa: E402
 from bot.core.trade_costs import entry_rate_pct, exit_rate_pct, fee_usd  # noqa: E402
 from bot.utils.candles import resample_ohlcv  # noqa: E402
@@ -161,7 +171,14 @@ def collect(dataset: str, jobs: int = 1) -> dict:
     reads: dict[str, dict[str, dict]] = collections.defaultdict(dict)
     for sym, key, states, confirmed in done:
         reads[key][sym] = {"states": states, "confirmed": confirmed}
-    return {"dataset": Path(dataset).name, "entry_bars": ENTRY_BARS,
+    # The snapshot the reads were computed off, pinned by its own manifest
+    # hash, so a result recorded from them can be checked against the data on
+    # disk later. None when the manifest cannot be read, which `record` refuses.
+    return {"dataset": Path(dataset).name, "dataset_path": str(dataset),
+            "dataset_hash": manifest_hash(Path(dataset) / "manifest.json"),
+            "code_sha": code_sha(),
+            "collected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "entry_bars": ENTRY_BARS,
             "structure_bars": STRUCTURE_BARS,
             "bars": {sym: [[r[0], r[1], r[2], r[3]] for r in rows]
                      for sym, rows in _JOB_ROWS.items()},
@@ -464,6 +481,101 @@ def observer_report(paths: Sequence[str], p: PocRetestParams, every: int,
     return "\n".join(lines)
 
 
+# ── record: the artefact the cards read ────────────────────────────────
+
+
+def _snapshot_name(path: str) -> str:
+    """A collected file's snapshot, as the repository-relative path the card's
+    reader pins against. A snapshot outside the repository cannot be pinned by
+    anybody reading the artefact, so it is refused rather than recorded."""
+    p = Path(path).resolve()
+    try:
+        return str(p.relative_to(_ROOT))
+    except ValueError:
+        raise SystemExit(f"{path}: not a snapshot under the repository, so no reader "
+                         f"of the artefact could pin it") from None
+
+
+def record_window(paths: Sequence[str], p: PocRetestParams, label: str,
+                  since: Optional[str] = None) -> dict:
+    """One replay window as the artefact carries it: the fresh-arm record at
+    one parameter set over the files given, pinned to their snapshots, with
+    the verdict the card's reader will re-derive and refuse if it disagrees."""
+    since_ms = _since_ms(since)
+    files = [_load(x) for x in paths]
+    datasets = []
+    for d in files:
+        if not d.get("dataset_path") or not d.get("dataset_hash"):
+            raise SystemExit(f"{d.get('dataset')}: collected without the snapshot's hash "
+                             f"(an older collect, or a manifest that could not be read); "
+                             f"re-run collect")
+        datasets.append({"dataset": _snapshot_name(d["dataset_path"]),
+                         "dataset_hash": d["dataset_hash"]})
+    shas = {d.get("code_sha") for d in files}
+    if len(shas) != 1:
+        raise SystemExit("the files were collected at different commits; collect them "
+                         "at one, because the read they record is the code's")
+    setups = [x for d in files for x in fresh_setups(d, p, since_ms)]
+    outcomes = collections.Counter(s["outcome"].outcome for s in setups)
+    unknown = set(outcomes) - set(OUTCOMES)
+    if unknown:
+        raise SystemExit(f"outcome word(s) the artefact cannot carry: {sorted(unknown)}")
+    rs = [s["outcome"].r for s in setups if s["outcome"].scored]
+    ci = week_interval(setups)
+    interval = (round(ci[3], 6), round(ci[4], 6)) if ci is not None else None
+    retests = sorted(s["retest_ms"] for s in setups)
+
+    def iso(ms: int) -> str:
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
+
+    return {
+        "label": label,
+        "since": iso(since_ms) if since_ms is not None else None,
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "code_sha": shas.pop(),
+        "params": asdict(p),
+        "fees": {"entry_pct": entry_rate_pct(None), "exit_pct": exit_rate_pct()},
+        "datasets": datasets,
+        "first_retest": iso(retests[0]) if retests else None,
+        "last_retest": iso(retests[-1]) if retests else None,
+        "armed": len(setups),
+        "scored": len(rs),
+        "outcomes": {k: outcomes[k] for k in OUTCOMES},
+        "mean_r": round(sum(rs) / len(rs), 6) if rs else None,
+        "interval": list(interval) if interval is not None else None,
+        "clusters": ci[1] if ci is not None else None,
+        "level": 0.95,
+        "verdict": replay_verdict(len(rs), interval),
+    }
+
+
+def write_record(out: Path, window: dict) -> None:
+    """Put a window into the artefact, replacing one of the same label in
+    place. An artefact that is there and will not read is NEVER overwritten:
+    it may be the only copy of a result, and a writer that cannot open a file
+    has no business deciding it holds nothing."""
+    doc: dict = {"kind": KIND, "windows": []}
+    if out.exists():
+        try:
+            doc = json.loads(out.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise SystemExit(f"{out}: an artefact is there and will not parse; move it "
+                             f"aside rather than have it overwritten") from None
+        if not isinstance(doc, dict) or doc.get("kind") != KIND \
+                or not isinstance(doc.get("windows"), list):
+            raise SystemExit(f"{out}: not a POC-retest replay artefact; refusing to "
+                             f"overwrite it")
+    windows = doc["windows"]
+    for i, w in enumerate(windows):
+        if isinstance(w, dict) and w.get("label") == window["label"]:
+            windows[i] = window
+            break
+    else:
+        windows.append(window)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -473,9 +585,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     c.add_argument("--jobs", type=int, default=1)
     for name, helptext in (("report", "the fresh-arm record at one parameter set"),
                            ("grid", "every parameter cell, pooled"),
-                           ("observer", "the command as it is used, every N hours")):
+                           ("observer", "the command as it is used, every N hours"),
+                           ("record", "write one window of the artefact the cards read")):
         s = sub.add_parser(name, help=helptext)
         s.add_argument("files", nargs="+")
+        if name == "record":
+            s.add_argument("--label", required=True)
+            s.add_argument("--out", default=str(HISTORY_RESULT))
         if name != "observer":
             s.add_argument("--since", default=None,
                            help="arm only retest candles after this ISO time (UTC if no zone)")
@@ -515,6 +631,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             ap.error("--every is a number of hours, at least 1")
         print(observer_report(args.files, p, args.every, args.forward))
         return 0
+    if args.cmd == "record":
+        if not args.label.strip():
+            ap.error("--label names the window, and a blank one names nothing")
+        out = Path(args.out)
+        write_record(out, record_window(args.files, p, args.label.strip(), args.since))
+        back = history_on_record(out, root=_ROOT)
+        print(f"{out}: {back.state}" + (f" ({back.reason})" if back.reason else ""))
+        for w in back.windows:
+            print(f"  {w.label}: armed {w.armed}, scored {w.scored}, mean "
+                  f"{'n/a' if w.mean_r is None else f'{w.mean_r:+.2f}R'}, {w.verdict}")
+        return 0 if back.state == "read" else 1
     print(report(args.files, p, args.since))
     return 0
 

@@ -34,6 +34,7 @@ as this one.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -187,6 +188,21 @@ def benchmark_on_record(path: Optional[Path] = None) -> BenchmarkReading:
         pooled_mean_net_usd=_num(pooled.get("mean_net_usd")),
         universe=tuple(symbol_base(s) for s in measured),
     )
+
+
+def code_sha() -> Optional[str]:
+    """The commit a written result was measured at, best-effort: None on a box
+    with no git rather than a guess, and the artefact says so. One reading for
+    every writer of a result artefact -- the benchmark runner and the POC-retest
+    replay both stamp it."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(ROOT),
+            capture_output=True, text=True, timeout=5, check=False)
+        sha = out.stdout.strip()
+        return sha if out.returncode == 0 and len(sha) >= 7 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def manifest_hash(path: Optional[Path] = None) -> Optional[str]:
