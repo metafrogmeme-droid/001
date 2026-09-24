@@ -204,6 +204,10 @@ class ObservedSetup:
     #: ``True`` armed, ``False`` already on record, ``None`` nothing to arm.
     armed: Optional[bool] = None
     scored: int = 0
+    #: Why a confirmed, ok read was NOT armed, when it was not: its entry had
+    #: already traded since the retest candle (or that could not be told), so
+    #: the setup was no longer takeable at its levels.
+    not_armed: Optional[str] = None
     #: The record could not be written or read. The READ still stands -- a
     #: shadow record that cannot be written must not take the card down with
     #: it, which is why this is a field and not a raise.
@@ -221,11 +225,21 @@ async def observe_setup(exchange: Any, symbol: str, *,
     would measure a strategy nobody proposed, and the verdict read off it
     would be about that other strategy.
 
+    ONLY A SETUP STILL TAKEABLE IS ARMED. A read can be confirmed about a
+    retest candle that closed hours before anybody asked, and if the entry has
+    traded since then the outcome is partly or wholly already known. Armed and
+    scored anyway, that is hindsight: replayed over the frozen snapshots, a
+    record asked once a day read "survives, +2.04R" for a setup whose
+    bar-by-bar record is +0.03R (`poc_retest_record`'s header has the
+    numbers). Such a read is not armed, and `not_armed` says why. An armed
+    setup records the bar it was armed on and is scored from the bar after it.
+
     Scoring rides the bars this call already fetched, so the window is the
-    entry-TF fetch (``ENTRY_BARS``) and a retest that has slid out of it can
-    no longer be scored from here. That row stays ``unscored`` and the reading
-    says so, rather than being dropped -- a denominator that quietly excludes
-    the rows nobody could reach is a partial total printed as whole.
+    entry-TF fetch (``ENTRY_BARS``) and a setup whose arming bar has slid out
+    of it can no longer be scored from here. That row stays ``unscored`` and
+    the reading says so, rather than being dropped -- a denominator that
+    quietly excludes the rows nobody could reach is a partial total printed
+    as whole.
     """
     setup, ltf = await read_setup(exchange, symbol, params=params,
                                   order_type=order_type)
@@ -234,6 +248,8 @@ async def observe_setup(exchange: Any, symbol: str, *,
 
     from bot.core.poc_retest_record import (
         RecordedSetup,
+        armed_bar_ms,
+        entry_traded,
         load_outcomes,
         load_setups,
         record_confirmed,
@@ -247,6 +263,7 @@ async def observe_setup(exchange: Any, symbol: str, *,
         lows = [float(r[3]) for r in ltf]
 
         armed: Optional[bool] = None
+        not_armed: Optional[str] = None
         read, verdict = setup.read, setup.verdict
         if (read is not None and read.state == "confirmed"
                 and verdict is not None and verdict.verdict == "ok"
@@ -255,12 +272,27 @@ async def observe_setup(exchange: Any, symbol: str, *,
                 and read.side and read.entry is not None
                 and read.stop is not None and read.target is not None
                 and verdict.net_r is not None):
-            armed = record_confirmed(RecordedSetup(
-                symbol=symbol, side=read.side, entry=float(read.entry),
-                stop=float(read.stop), target=float(read.target),
-                target_r=float(verdict.net_r),
-                retest_ms=ts[read.retest_index], entry_tf=ENTRY_TF,
-                recorded_at=_utc_stamp()), path)
+            i = read.retest_index
+            key = setup_key(symbol, read.side, ts[i])
+            on_record = any(setup_key(r.get("symbol"), r.get("side"),
+                                      r.get("retest_ms")) == key
+                            for r in load_setups(path))
+            traded = entry_traded(read.side, read.entry, highs[i + 1:], lows[i + 1:])
+            if on_record:
+                armed = False
+            elif traded is True:
+                not_armed = ("its entry has already traded since the retest "
+                             "candle, so it is not takeable at these levels")
+            elif traded is None:
+                not_armed = ("a bar since the retest candle could not be read, so "
+                             "whether its entry already traded is unknown")
+            else:
+                armed = record_confirmed(RecordedSetup(
+                    symbol=symbol, side=read.side, entry=float(read.entry),
+                    stop=float(read.stop), target=float(read.target),
+                    target_r=float(verdict.net_r),
+                    retest_ms=ts[i], entry_tf=ENTRY_TF,
+                    recorded_at=_utc_stamp(), armed_ms=ts[-1]), path)
 
         at = {t: i for i, t in enumerate(ts)}
         done = load_outcomes(path)
@@ -273,27 +305,26 @@ async def observe_setup(exchange: Any, symbol: str, *,
             prev = done.get(key)
             if prev is not None and prev.get("outcome") in _TERMINAL:
                 continue
-            # NOT `int(... or 0)`: that was the first fix for a mypy
-            # arg-type error and the honesty gate caught it in the same
-            # commit. A row whose retest candle cannot be read is not a row
-            # stamped at epoch zero -- it is a row that cannot be matched to
-            # a bar, which is a different fact and is skipped as one.
-            raw_ms = row.get("retest_ms")
-            if not isinstance(raw_ms, (int, float)) or isinstance(raw_ms, bool):
+            # A row with no arming bar was written before a setup had to be
+            # takeable when armed; the reading leaves it out, so it is not
+            # scored again. A row whose arming bar has slid out of the fetch
+            # cannot be scored from here and keeps its last score.
+            armed_ms = armed_bar_ms(row)
+            if armed_ms is None:
                 continue
-            i = at.get(int(raw_ms))
-            if i is None:
+            a = at.get(armed_ms)
+            if a is None:
                 continue
             record_setup_outcome(key, score_setup(
                 row.get("side"), row.get("entry"), row.get("stop"),
                 row.get("target"), row.get("target_r"),
-                highs[i + 1:], lows[i + 1:]), path)
+                highs[a + 1:], lows[a + 1:]), path)
             scored += 1
     except OSError as exc:
         return ObservedSetup(setup,
                              record_error=f"the shadow record could not be "
                                           f"updated ({type(exc).__name__})")
-    return ObservedSetup(setup, armed=armed, scored=scored)
+    return ObservedSetup(setup, armed=armed, scored=scored, not_armed=not_armed)
 
 
 #: What the card says a state MEANS, in the operator's terms rather than the

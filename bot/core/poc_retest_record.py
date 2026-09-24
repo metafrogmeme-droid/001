@@ -15,6 +15,25 @@ recomputed at scoring time: re-running the fee model later would answer a
 different question (today's rates against yesterday's ticket), which is the
 second-copy shape this repo keeps finding in maps, gates and thresholds.
 
+A SETUP IS SCORED ONLY IF IT COULD STILL HAVE BEEN TAKEN WHEN IT WAS ARMED.
+`/pocretest` arms whatever it reads when somebody asks, and a read can be
+confirmed about a retest candle that closed hours ago. As first written that
+setup was armed anyway and scored from its retest candle, so the bars between
+the retest and the read -- bars that had already closed -- counted as the
+outcome. Worse, a later read re-estimates the swing leg with the move that has
+since happened, so its target is often a high that price had already made.
+Replayed over the frozen snapshots (`scripts/poc_retest_replay.py observer`),
+a record asked once a day read "survives, +2.04R [+1.59, +2.50]" for a setup
+whose bar-by-bar record is +0.03R, and 125 of its 228 setups had resolved
+before the read that armed them. The record exists to gate execution, so that
+verdict would have put real money on hindsight. A read whose entry has traded
+since its retest candle is not armed now (`entry_traded`), and an armed setup
+carries the bar it was armed on (`armed_ms`). Once the first rule holds, no bar
+before the arming read can trigger the setup, so scoring from the arming read
+gives the same outcome as scoring from the retest. The first rule is the
+correction; `armed_ms` is what tells a row written under it from one written
+before it, and rows without it are left out of the verdict by name.
+
 WHAT THIS DOES NOT MODEL, STATED RATHER THAN GUESSED AT. A fill is modelled AT
 the entry price. A bar that opens beyond the entry fills worse than that, so
 the recorded R is the OPTIMISTIC bound -- the same disclosure
@@ -27,7 +46,7 @@ row, which is a different quantity and its own slice.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -111,14 +130,42 @@ def _f(value: object) -> Optional[float]:
     return out
 
 
+def _takes(long: bool, entry: float, hi: float, lo: float) -> bool:
+    """Did this bar trade at the entry? A stop order fills when the market
+    trades AT the level, so touching it is enough. The one reading of the
+    trigger: `score_setup` and `entry_traded` both ask it."""
+    return (hi >= entry) if long else (lo <= entry)
+
+
+def entry_traded(side: object, entry: object, highs: Sequence[Any],
+                 lows: Sequence[Any]) -> Optional[bool]:
+    """Did any of these bars trade at the entry? ``None`` when that cannot be
+    said: unreadable levels, or an unreadable bar before any bar that took it.
+
+    Asked about the bars between a retest candle and the read that found it:
+    a setup whose entry already traded in them is not takeable at its levels,
+    and recording it would score an outcome that had already happened.
+    """
+    e = _f(entry)
+    if side not in ("long", "short") or e is None or len(highs) != len(lows):
+        return None
+    for hi_raw, lo_raw in zip(highs, lows):
+        hi, lo = _f(hi_raw), _f(lo_raw)
+        if hi is None or lo is None:
+            return None
+        if _takes(side == "long", e, hi, lo):
+            return True
+    return False
+
+
 def score_setup(side: object, entry: object, stop: object, target: object,
                 target_r: object,
                 highs: Sequence[Any], lows: Sequence[Any]) -> SetupOutcome:
     """Walk the bars AFTER the retest candle and say what the setup did.
 
-    ``highs``/``lows`` are the bars that came after the retest -- the caller
-    slices, because the record stores the retest's own index and this function
-    has no opinion about where a series starts.
+    ``highs``/``lows`` are the bars that came after the bar the setup was
+    armed on -- the caller slices, because the record stores that bar's time
+    and this function has no opinion about where a series starts.
 
     THE ORDER OF TWO TOUCHES INSIDE ONE BAR IS NOT KNOWABLE FROM OHLC, and
     that is the whole reason ``ambiguous`` exists. A bar whose range spans the
@@ -161,8 +208,7 @@ def score_setup(side: object, entry: object, stop: object, target: object,
                                 f"read", trigger_index=trigger)
 
         if trigger is None:
-            took = (hi >= e) if long else (lo <= e)
-            if not took:
+            if not _takes(long, e, hi, lo):
                 continue
             trigger = i
 
@@ -212,6 +258,10 @@ class RecordedSetup:
     retest_ms: int
     entry_tf: str
     recorded_at: str
+    #: The open time of the last closed entry-TF bar when this was armed. The
+    #: setup is scored from the bar after it. Required, so no caller can write
+    #: a row the verdict then has to leave out.
+    armed_ms: int
 
 
 def _record_path(path: Optional[Path] = None) -> Path:
@@ -306,6 +356,8 @@ class ShadowVerdict:
     n_unscored: int = 0
     mean_r: Optional[float] = None
     interval: Optional[tuple] = None
+    #: Rows recorded before the arming rule, left out of every count above.
+    n_legacy: int = 0
 
 
 def _unscored_clause(n_ambiguous: int, n_unscored: int) -> str:
@@ -480,7 +532,15 @@ def shadow_reading(path: Optional[Path] = None
             "unread", f"the shadow record could not be read ({type(exc).__name__})")
 
     outcomes: list[SetupOutcome] = []
+    legacy = 0
     for row in setups:
+        if armed_bar_ms(row) is None:
+            # Written before a setup had to be takeable when it was armed, so
+            # its outcome may count bars that closed before anyone read it.
+            # Not an unscored row either: "could not be read" is a different
+            # fact, and folding the two would hide which one it was.
+            legacy += 1
+            continue
         key = setup_key(row.get("symbol"), row.get("side"),
                         row.get("retest_ms"))
         got = scored.get(key)
@@ -495,7 +555,28 @@ def shadow_reading(path: Optional[Path] = None
             r=_f(got.get("r")),
             trigger_index=got.get("trigger_index"),
             resolve_index=got.get("resolve_index")))
-    return setups, shadow_verdict(outcomes)
+    verdict = shadow_verdict(outcomes)
+    if legacy:
+        # "No setups have been recorded yet" is false of a record holding
+        # only older rows, so an empty current record says what it is.
+        head = (verdict.why if outcomes
+                else "no setup has been recorded under the current arming rule yet")
+        verdict = replace(
+            verdict, n_legacy=legacy,
+            why=(f"{head}. {legacy} setup(s) recorded before a setup had to be "
+                 f"takeable when it was armed are left out: their outcome may "
+                 f"count bars that closed before anyone read them"))
+    return setups, verdict
+
+
+def armed_bar_ms(row: dict) -> Optional[int]:
+    """The bar a recorded setup was armed on, or ``None`` for a row written
+    before arming times were kept. A bool is not a time, whatever Python says
+    about ``True == 1``."""
+    raw = row.get("armed_ms")
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return None
+    return int(raw)
 
 
 # ------------------------------------------------------------------ the card
@@ -545,6 +626,10 @@ def shadow_card(verdict: ShadowVerdict) -> str:
             # reading the list, so only what happened is printed.
             if n:
                 out.append(f"  · {label}: <b>{n}</b> ({_pct(n, verdict.n_total)})")
+    if verdict.n_legacy:
+        out.append("")
+        out.append(f"<b>{verdict.n_legacy}</b> older setup(s) left out: recorded "
+                   f"before a setup had to be takeable when it was armed")
 
     if verdict.mean_r is not None:
         out.append("")

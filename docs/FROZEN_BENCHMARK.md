@@ -1008,6 +1008,88 @@ python scripts/signal_edge.py voters --level 0.975 --voters mtf_choch,harmonic \
 Recording the votes does not change what the analyzer decides: the fresh v3
 run placed the same 2,034 ideas as the run in the section above.
 
+### Does the POC-retest setup pay after fees? (2026-09-24) — no, and its record said it did
+
+`/pocretest` records a confirmed POC-retest setup into a shadow book, and
+`/pocshadow` prints whether the recorded setups pay. The book fills only when
+somebody asks, so `scripts/poc_retest_replay.py` asks the same question of the
+frozen snapshots. It reads every closed 1h bar the way `observe_setup` does:
+the last 120 closed 1h bars and the last 120 closed 4h bars (resampled from the
+1h, closed groups only), through the live `retest_state` and `setup_verdict`.
+It arms a setup only when the read is confirmed, the verdict is ok, and the
+retest candle is the bar being read, which is known at that bar's close and
+never later. It scores the setup with the live `score_setup` over the next 119
+bars. Taker entry, the venue's fee model, and a stop is −1R with the fees
+inside the unit. The interval is the (dataset, ISO week) cluster bootstrap
+`signal_edge.py` uses, beside the shadow verdict's own.
+
+The rule was written down before any v2 or v3 number was computed. Only
+`majors_1h` at the operator's parameters had been seen: −0.56R on 51 setups.
+
+| operator's parameters (0.25 ATR buffer, 5-candle window, 2R net, 2 ATR stop) | scored | target / stop | mean R [95% week clusters] | verdict |
+|---|---:|---:|---:|---|
+| v2, majors + alts pooled (disjoint, Feb 2025 → Jul 2026) | 262 | 63 / 199 | **+0.03 [−0.25, +0.30]** | too thin |
+| v2 majors alone | 134 | 24 / 110 | −0.25 [−0.57, +0.12] | too thin |
+| v2 alts alone | 128 | 39 / 89 | +0.33 [−0.04, +0.73] | too thin |
+| fresh v3, majors + alts (retests after 2026-07-06T09:00Z) | 45 | 8 / 37 | **−0.39 [−0.74, +0.01]** | too thin |
+
+**It does not survive fees.** Over 17 months the mean is zero to two decimals;
+the two universes disagree in sign, and the fresh window leans negative.
+
+**No parameter set does either, and tuning them is fitting noise.** The grid
+reads 81 cells: ATR buffer 0.10, 0.25 and 0.50; retest window 3, 5 and 8
+candles; net-R floor 1.5, 2 and 3; stop cap 1.5, 2 and 3 ATR. The rule was
+that a cell needs 30 scored setups and a v2 week-cluster interval wholly above
+zero. **None qualified**, so the fresh grid is context only. There, 78 of 80
+cells are negative, and the correlation between a cell's v2 mean and its v3
+mean is −0.03: the best v2 cells (+0.04 to +0.08R) sit near −0.35R on v3. The
+one consistent pattern is a buffer of 0.10 ATR, negative on both windows.
+
+**What the record as shipped would have said is the larger finding.** The
+observer arms whatever it reads when somebody asks, and a read can be confirmed
+about a retest candle that closed hours earlier. As shipped it armed that setup
+anyway and scored it from its retest candle, over bars that had already closed.
+A later read also re-estimates the swing leg with the move that has since
+happened, so its target is often a high price already reached. `observer`
+emulates the command asked every N hours on the same v2 reads:
+
+| v2, operator's parameters | armed | resolved before the read that armed it | mean R | verdict |
+|---|---:|---:|---:|---|
+| bar by bar (the truth above) | 278 | 0 | +0.03 | too thin |
+| asked every 24h, as shipped | 228 | 125 | **+2.04 [+1.59, +2.50]** | **survives** |
+| asked every 8h, as shipped | 373 | 184 | +1.89 [+1.55, +2.23] | survives |
+| asked every 24h, current rule | 68 | 0 | −0.51 [−0.89, −0.14] | does not |
+| asked every 8h, current rule | 124 | 0 | −0.24 [−0.59, +0.10] | too thin |
+
+The record exists to gate execution on evidence, so that verdict would have
+put real money on hindsight. **The rule now:** a read whose entry has traded
+since its retest candle is not armed, because it is no longer takeable at its
+levels, and the card says so. An armed setup carries the bar it was armed on
+and is scored from the bar after it. No bar before the arming read can then
+trigger it, so the outcome is a forward measurement. Rows recorded before this
+are left out of `/pocshadow`'s verdict and counted beside it. Under the current
+rule a record asked daily reads worse than the bar-by-bar truth: a setup still
+untriggered hours after its retest is disproportionately one whose breakout
+failed. That is a fair measurement of what the card offers when asked, and a
+different quantity from the strategy's own.
+
+Two things the replay cannot see. The fill is at the entry price, as the shadow
+book assumes, and no scored trigger bar opened past its entry (0 of 262 on v2).
+On a 24/7 market a bar opens at the previous close, so a gap through a stop
+order is rare, but slippage inside the bar is not modelled. A bar that reaches
+the entry and the stop is a stop-out, because OHLC cannot say the entry came
+first.
+
+```bash
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/poc_retest_replay.py collect \
+    --dataset benchmark/majors_1h_v2 --out poc_majors_v2.json --jobs 4
+python scripts/poc_retest_replay.py report poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py grid poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py observer --every 24 poc_majors_v2.json poc_alts_v2.json
+python scripts/poc_retest_replay.py report --since 2026-07-06T09:00:00+00:00 \
+    poc_majors_v3.json poc_alts_v3.json
+```
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the

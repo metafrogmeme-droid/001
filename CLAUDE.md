@@ -5796,6 +5796,38 @@ what their sentences NAME now — the handler's own `def` — which is the
 convention already set for `trading_commands.py`, applied to the file this
 slice happened to grow.
 
+**A SHADOW RECORD FILLED ON DEMAND MEASURES WHEN SOMEBODY ASKED, and this one
+would have printed "survives, +2.04R" for a setup worth +0.03R.** The record
+above armed any confirmed read whenever `/pocretest` ran, and scored it from
+its retest candle. A read can be confirmed about a retest that closed hours
+earlier, and a later read re-estimates the swing leg with the move that has
+since happened, so its target is often a high price already reached.
+`scripts/poc_retest_replay.py` replays the live read over the frozen snapshots
+bar by bar, and drives the observer as it is used. Asked once a day on the
+same bars, the record read +2.04R [+1.59, +2.50], and 125 of the 228 setups it
+armed had resolved before the read that armed them. **No test could see it**:
+every observer fixture read a retest on its own last bar, the one case where
+the two rules agree. A read whose entry has traded since its retest candle is
+not armed now (`entry_traded`, the scorer's own trigger rule), an armed setup
+carries its arming bar, and rows from before are left out of the verdict by
+name. The strategy itself, replayed at the operator's parameters, is +0.03R on
+17 months and −0.39R on the fresh window. None of 81 parameter cells clears
+zero, and a cell's rank does not carry from one window to the other
+(`docs/FROZEN_BENCHMARK.md`). (`tests/test_the_shadow_record_scores_what_it_recorded.py`,
+`tests/test_poc_retest_replay_script.py`.)
+
+**Twenty mutations in the live fix and thirty-one in the replay, each killed.
+The thirteen that survived a first round were all fixtures, and two more were
+mutations of mine that changed nothing.** The replay's retest candle was never
+its entry's high, as a real read's always is. No fixture read one setup twice
+at different times, put a query on the window's last bar, or resolved a setup
+on the bar that armed it. No grid fixture held a positive mean whose interval
+reached below zero. One test planted a terminal outcome where only an open one
+reaches the arming-bar check. The no-ops were `... and False` appended to a
+filter, and `setdefault(...) is None` on a key the call had just set, which
+answered False: a mutation that cannot change behaviour is not evidence about
+the guard.
+
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -10926,7 +10958,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **430 of 1029** reach for source text through `source_scan`, `code_only`
+Driven, **430 of 1030** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 430 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

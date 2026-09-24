@@ -241,7 +241,8 @@ class TestTheRecordRoundTrips:
         """
         rec = tmp_path / "poc.jsonl"
         s = RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0, 2.4,
-                          1_758_000_000_000, "1h", "2026-09-18T09:00:00Z")
+                          1_758_000_000_000, "1h", "2026-09-18T09:00:00Z",
+                          1_758_000_000_000)
         assert record_confirmed(s, rec) is True
         assert len(load_rows(rec)) == 1
         assert len(load_setups(rec)) == 1, "written but invisible to the read"
@@ -249,7 +250,8 @@ class TestTheRecordRoundTrips:
     def test_the_same_retest_candle_is_not_recorded_twice(self, tmp_path):
         rec = tmp_path / "poc.jsonl"
         s = RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0, 2.4,
-                          1_758_000_000_000, "1h", "2026-09-18T09:00:00Z")
+                          1_758_000_000_000, "1h", "2026-09-18T09:00:00Z",
+                          1_758_000_000_000)
         assert record_confirmed(s, rec) is True
         assert record_confirmed(s, rec) is False
         assert len(load_setups(rec)) == 1
@@ -257,7 +259,7 @@ class TestTheRecordRoundTrips:
     def test_a_setup_with_no_outcome_is_unscored_not_dropped(self, tmp_path):
         rec = tmp_path / "poc.jsonl"
         record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
-                                       2.4, 1, "1h", "t"), rec)
+                                       2.4, 1, "1h", "t", 1), rec)
         _rows, v = shadow_reading(rec)
         assert v.n_total == 1 and v.n_unscored == 1
 
@@ -266,7 +268,7 @@ class TestTheRecordRoundTrips:
         setup, not a second setup."""
         rec = tmp_path / "poc.jsonl"
         record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
-                                       2.4, 1, "1h", "t"), rec)
+                                       2.4, 1, "1h", "t", 1), rec)
         key = setup_key("SOL/USDT", "long", 1)
         record_setup_outcome(key, walk(LONG, [101, 105], [99, 103]), rec)
         _r, v = shadow_reading(rec)
@@ -280,7 +282,7 @@ class TestTheRecordRoundTrips:
         `secrets_vault._load_vault` destroyed what it could not read."""
         rec = tmp_path / "poc.jsonl"
         record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
-                                       2.4, 1, "1h", "t"), rec)
+                                       2.4, 1, "1h", "t", 1), rec)
         record_setup_outcome(setup_key("SOL/USDT", "long", 1),
                        walk(LONG, [101, 116], [99, 110]), rec)
         assert len(load_setups(rec)) == 1
@@ -290,7 +292,7 @@ class TestTheRecordRoundTrips:
     def test_a_malformed_line_does_not_take_the_file_down(self, tmp_path):
         rec = tmp_path / "poc.jsonl"
         record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
-                                       2.4, 1, "1h", "t"), rec)
+                                       2.4, 1, "1h", "t", 1), rec)
         with rec.open("a") as fh:
             fh.write("{not json\n")
         assert len(load_setups(rec)) == 1
@@ -625,3 +627,229 @@ class TestTheObserverArmsOnlyWhatTheStrategyWouldTake:
         rec = tmp_path / "poc.jsonl"
         await read_setup(self._confirmed(), "SOL/USDT")
         assert not rec.exists()
+
+    def test_a_setup_not_armed_says_why(self):
+        from bot.skills.scan_commands import _shadow_note
+
+        class Seen:
+            armed, scored, record_error = None, 0, None
+            not_armed = "its entry has already traded since the retest <candle>"
+        note = _shadow_note(Seen())
+        assert "not recorded: its entry has already traded" in note
+        assert "&lt;candle&gt;" in note, "the reason is escaped at the boundary"
+
+
+# --------------------------------------------------------------------------
+class TestOnlyATakeableSetupIsArmed:
+    """A read confirmed about a retest candle that closed hours ago is armed
+    only if its entry has not traded since. Replayed over the frozen
+    snapshots, the rule as first written read "survives, +2.04R" from a
+    once-a-day observer for a setup whose bar-by-bar record is +0.03R, and 125
+    of its 228 setups had resolved before the read that armed them."""
+
+    END = 1_000_000_000_000
+    H1 = 3_600_000
+
+    def _stale(self, *, traded: bool, extra=()):
+        """A confirmed long, then three bars that stay under the POC (so the
+        read stays confirmed) and, when `traded`, one of them reaching the
+        entry. `extra` appends later bars without moving the earlier ones."""
+        from test_the_poc_retest_is_a_sequence_not_a_distance import htf, ltf
+        from test_the_poc_retest_reads_two_timeframes import FakeExchange, _rows
+
+        from bot.core.poc_retest import leg_poc, swing_leg
+        h4, l4, c4, v4 = htf()
+        leg = swing_leg(h4, l4)
+        poc = leg_poc(h4, l4, c4, v4, leg)
+        h1, l1, c1 = ltf(poc, side="long", hold=1)
+        entry = h1[-1]
+        for k in range(3):
+            c = poc - 0.6
+            h1.append(entry + 0.05 if (traded and k == 1) else c + 0.15)
+            l1.append(c - 0.15)
+            c1.append(c)
+        for hi, lo, cl in extra:
+            h1.append(hi)
+            l1.append(lo)
+            c1.append(cl)
+        return FakeExchange({
+            "4h": _rows(h4, l4, c4, v4),
+            "1h": _rows(h1, l1, c1, last_open_ms=self.END + len(extra) * self.H1)}), entry
+
+    async def test_a_stale_read_whose_entry_traded_is_not_armed(self, tmp_path):
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        ex, _entry = self._stale(traded=True)
+        seen = await observe_setup(ex, "SOL/USDT", path=rec)
+        assert seen.setup.read.state == "confirmed", "still a real sequence"
+        assert seen.setup.verdict.verdict == "ok", "and the verdict takes it"
+        assert seen.armed is None
+        assert "already traded since the retest candle" in seen.not_armed
+        assert load_setups(rec) == []
+
+    async def test_a_stale_read_still_takeable_is_armed_on_the_bar_it_was_read(self, tmp_path):
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        ex, _entry = self._stale(traded=False)
+        seen = await observe_setup(ex, "SOL/USDT", path=rec)
+        assert seen.armed is True and seen.not_armed is None
+        row = load_setups(rec)[0]
+        assert row["armed_ms"] == self.END                    # the last closed bar
+        assert row["retest_ms"] == self.END - 3 * self.H1     # three bars earlier
+
+    async def test_it_is_scored_from_the_bar_after_the_one_it_was_armed_on(self, tmp_path):
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        ex, entry = self._stale(traded=False)
+        await observe_setup(ex, "SOL/USDT", path=rec)
+        row = load_setups(rec)[0]
+        # the next bar trades the entry and the one after reaches the target
+        ex2, _ = self._stale(traded=False, extra=[
+            (entry + 0.1, entry - 0.2, entry), (row["target"] + 1.0, entry, row["target"])])
+        seen = await observe_setup(ex2, "SOL/USDT", path=rec)
+        # the rally is a fresh breakout, so this read is no longer confirmed
+        # and arms nothing; the setup already on record is scored all the same
+        assert seen.setup.read.state == "awaiting_retest"
+        assert seen.armed is None and seen.scored == 1
+        got = load_outcomes(rec)[setup_key("SOL/USDT", "long", row["retest_ms"])]
+        assert got["outcome"] == "target"
+        # counted from the arming bar: the trigger is the first bar after it,
+        # not the fourth bar after the retest candle
+        assert got["trigger_index"] == 0
+
+    async def test_a_setup_on_record_whose_entry_since_traded_is_still_on_record(self, tmp_path):
+        """Armed fresh, then read again after its entry traded: the card must
+        say it is on the record (it is, and it is being scored), not that it
+        was refused."""
+        from test_the_poc_retest_reads_two_timeframes import FakeExchange
+
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        later, _entry = self._stale(traded=True)
+        h4 = later.by_tf["4h"]
+        h1 = later.by_tf["1h"][:-3]                 # up to the retest candle
+        fresh = FakeExchange({"4h": h4, "1h": h1})
+        first = await observe_setup(fresh, "SOL/USDT", path=rec)
+        assert first.armed is True
+        again = await observe_setup(later, "SOL/USDT", path=rec)
+        assert again.setup.read.state == "confirmed"
+        assert again.armed is False and again.not_armed is None
+
+    async def test_an_unreadable_bar_never_confirms_in_the_first_place(self, tmp_path):
+        """An unreadable bar makes ATR unreadable, so the read is `atr_unread`
+        and nothing reaches the arming check. That is why the next test has to
+        plant the reading to reach its branch."""
+        from bot.core.poc_retest_scan import observe_setup
+        ex, _entry = self._stale(traded=False)
+        ex.by_tf["1h"][-2][2] = float("nan")
+        seen = await observe_setup(ex, "SOL/USDT", path=tmp_path / "poc.jsonl")
+        assert seen.setup.read.state == "atr_unread"
+        assert seen.armed is None and seen.not_armed is None
+
+    async def test_an_entry_that_cannot_be_told_is_not_armed(self, tmp_path, monkeypatch):
+        import bot.core.poc_retest_record as rr
+        from bot.core.poc_retest_scan import observe_setup
+        monkeypatch.setattr(rr, "entry_traded", lambda *_a: None)
+        ex, _entry = self._stale(traded=False)
+        rec = tmp_path / "poc.jsonl"
+        seen = await observe_setup(ex, "SOL/USDT", path=rec)
+        assert seen.armed is None
+        assert "whether its entry already traded is unknown" in seen.not_armed
+        assert load_setups(rec) == []
+
+    async def test_a_fresh_read_is_armed_on_its_own_retest_candle(self, tmp_path):
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        ex = TestTheObserverArmsOnlyWhatTheStrategyWouldTake()._confirmed()
+        seen = await observe_setup(ex, "SOL/USDT", path=rec)
+        assert seen.armed is True
+        row = load_setups(rec)[0]
+        assert row["armed_ms"] == row["retest_ms"]
+
+
+class TestTheTriggerIsOneReading:
+
+    @pytest.mark.parametrize("side,highs,lows,want", [
+        ("long", [99.0, 100.0], [98.0, 99.0], True),     # exactly at the entry
+        ("long", [99.99], [98.0], False),
+        ("short", [101.0, 100.5], [100.01, 100.0], True),
+        ("short", [101.0], [100.01], False),
+        ("long", [float("nan"), 101.0], [98.0, 99.0], None),   # unknown before a take
+        ("long", [101.0, float("nan")], [99.0, 98.0], True),   # took before it
+        ("sideways", [101.0], [99.0], None),
+    ])
+    def test_entry_traded(self, side, highs, lows, want):
+        from bot.core.poc_retest_record import entry_traded
+        assert entry_traded(side, 100.0, highs, lows) is want
+
+    def test_the_scorer_and_the_arming_check_ask_the_same_rule(self, monkeypatch):
+        """A byte-identical copy agrees on every fixture, so the rule is
+        planted and both readers must follow it."""
+        import bot.core.poc_retest_record as rr
+        monkeypatch.setattr(rr, "_takes", lambda long, e, hi, lo: False)
+        assert rr.entry_traded("long", 100.0, [200.0], [150.0]) is False
+        assert rr.score_setup(*LONG, [200.0], [150.0]).outcome == "not_triggered"
+
+
+class TestOlderRowsAreLeftOutByName:
+
+    def _legacy(self, rec, retest_ms=1, outcome=("target", 2.4)):
+        with rec.open("a") as fh:
+            fh.write(json.dumps({"kind": "setup", "symbol": "SOL/USDT", "side": "long",
+                                 "entry": 100.0, "stop": 95.0, "target": 115.0,
+                                 "target_r": 2.4, "retest_ms": retest_ms,
+                                 "entry_tf": "1h", "recorded_at": "t"}) + "\n")
+            fh.write(json.dumps({"kind": "outcome",
+                                 "key": setup_key("SOL/USDT", "long", retest_ms),
+                                 "outcome": outcome[0], "r": outcome[1]}) + "\n")
+
+    def test_a_row_with_no_arming_bar_is_not_in_the_verdict(self, tmp_path):
+        rec = tmp_path / "poc.jsonl"
+        self._legacy(rec)
+        record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
+                                       2.4, 2, "1h", "t", 2), rec)
+        record_setup_outcome(setup_key("SOL/USDT", "long", 2),
+                             walk(LONG, [101, 96], [99, 94]), rec)
+        _rows, v = shadow_reading(rec)
+        assert (v.n_total, v.n_stop, v.n_target, v.n_legacy) == (1, 1, 0, 1)
+        assert "1 setup(s) recorded before a setup had to be takeable" in v.why
+
+    def test_a_record_of_only_older_rows_does_not_say_nothing_was_recorded(self, tmp_path):
+        rec = tmp_path / "poc.jsonl"
+        self._legacy(rec)
+        _rows, v = shadow_reading(rec)
+        assert v.n_total == 0 and v.n_legacy == 1
+        assert "no setups have been recorded yet" not in v.why
+        assert v.why.startswith("no setup has been recorded under the current arming rule")
+
+    def test_the_card_names_them(self, tmp_path):
+        rec = tmp_path / "poc.jsonl"
+        self._legacy(rec)
+        _rows, v = shadow_reading(rec)
+        assert "1</b> older setup(s) left out" in shadow_card(v)
+
+    def test_a_current_record_carries_no_such_line(self, tmp_path):
+        rec = tmp_path / "poc.jsonl"
+        record_confirmed(RecordedSetup("SOL/USDT", "long", 100.0, 95.0, 115.0,
+                                       2.4, 2, "1h", "t", 2), rec)
+        _rows, v = shadow_reading(rec)
+        assert v.n_legacy == 0 and "left out" not in shadow_card(v)
+
+    async def test_an_older_row_is_not_scored_again(self, tmp_path):
+        from bot.core.poc_retest_scan import observe_setup
+        rec = tmp_path / "poc.jsonl"
+        ex = TestTheObserverArmsOnlyWhatTheStrategyWouldTake()._confirmed()
+        ms = int(ex.by_tf["1h"][-2][0])          # a bar inside the fetch
+        # still open, so only the arming-bar rule keeps it from a re-score
+        self._legacy(rec, retest_ms=ms, outcome=("open", None))
+        before = len(load_rows(rec))
+        seen = await observe_setup(ex, "SOL/USDT", path=rec)
+        # the fresh setup is armed and scored; the older row is not touched
+        assert seen.armed is True and seen.scored == 1
+        assert len(load_rows(rec)) == before + 2
+
+    def test_a_bool_is_not_an_arming_time(self):
+        from bot.core.poc_retest_record import armed_bar_ms
+        assert armed_bar_ms({"armed_ms": True}) is None
+        assert armed_bar_ms({}) is None
+        assert armed_bar_ms({"armed_ms": 5.0}) == 5
