@@ -96,6 +96,7 @@ def test_the_analyzer_stamps_every_rejection_it_records():
     # The reading trusts only a dated diagnostic, so every writer must date it.
     import inspect
     import re
+
     from bot.core.analyzer import Analyzer
     from tests.source_scan import code_only
     src = code_only(inspect.getsource(Analyzer))
