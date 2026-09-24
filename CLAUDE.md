@@ -9303,11 +9303,19 @@ probe: **a remap preserves what a citation pointed at, and says nothing about
 whether it pointed at the right thing.** Each is re-derived from what its
 sentence names.
 
-**Recorded, not changed, with what was read and not driven.** The same paper
-loop journals every practice close into the one trade journal that `/journal`,
-the weekly review and the post-mortem read. It also feeds `time_of_day` and
-the hold-time analytics. That is practice reaching the operator's RECORD
-rather than its risk state, and it is a separate slice.
+**Recorded, not changed, and the first attempt to change it was wrong.** The
+same paper loop hands every practice close to the journal, the learning store,
+the refit counter and the two analytics. A slice that cut all five was built,
+driven and mutation-tested, and then dropped, because its two arguments did
+not survive being checked. "One idea is recorded once per user who confirmed
+it" is false: a practice fill pops the pending idea exactly as a live confirm
+does, so an idea fills once. And feeding the learners is DESIGNED:
+`_simulate_paper_fill` logs a `paper_decision` row so they can join it to the
+`paper_outcome` this loop records, each behind its own flag and tagged so a
+consumer can weigh paper apart from live. A practice fill is the engine's idea
+at the engine's levels, which is what a live confirm is too. What stays open
+is narrower and unmeasured: whether the journal's readers should count a
+practice close among the operator's trades.
 (`tests/test_a_loss_cools_only_the_account_that_took_it.py`.)
 
 **THE API BRIDGE'S EMERGENCY STOP HALTED A COPY, AND THE BOT KEPT TRADING.**
