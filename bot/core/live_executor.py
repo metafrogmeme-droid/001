@@ -20,6 +20,7 @@ import hashlib
 import html
 import json
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -658,6 +659,61 @@ def position_read_needs_another_look(state: Any, attempt: int,
     if state == "found":
         return False
     return attempt < max_attempts - 1
+
+
+#: `partial_tp_state` markers that are not a ladder. UNRECORDED is a
+#: position loaded from a record written before the ladder was saved, so its
+#: stages are read off where its stop sits; OFF is a position whose 1R cannot
+#: be measured, which runs no ladder and keeps its stop and take-profit.
+LADDER_UNRECORDED = "unrecorded"
+LADDER_OFF = "off"
+
+
+def _read_partial_fill(check: dict) -> tuple[float, str]:
+    """What a `_verify_order_fill` result says a partial close filled.
+
+    One reading for the first check and for every later re-read of the same
+    order, so the two cannot disagree about what "filled" means. A CANCELLED
+    order is not nothing when it partly filled first -- a reduceOnly market
+    order on a thin book can fill some and have the rest cancelled -- so its
+    own ``filled`` is read rather than discarded: filing that as "nothing
+    closed" left the book claiming contracts it no longer held, the under-fill
+    `_partial_close`'s docstring exists to refuse.
+    """
+    def _qty(v: Any) -> Optional[float]:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return float(v) if math.isfinite(v) and v >= 0 else None
+
+    confirmed = _qty(check.get("fill_qty")) if check.get("confirmed") else None
+    if confirmed is not None and confirmed > 0:
+        return confirmed, "filled"
+    if check.get("failure_stage") == "order_cancelled":
+        raw = check.get("raw")
+        part = _qty(raw.get("filled")) if isinstance(raw, dict) else None
+        if part is None:
+            # A cancelled order whose filled amount the venue did not state
+            # may have closed some. "Nothing filled" would re-arm the stage
+            # and could close the position twice; unknown holds the ladder
+            # while the stop still protects the position.
+            return 0.0, "unknown"
+        return (part, "filled") if part > 0 else (0.0, "none")
+    return 0.0, "unknown"
+
+
+def restored_ladder(pdata: dict) -> Optional[dict]:
+    """The partial-TP ladder a saved position carried, as the executor reads it.
+
+    A record written before the ladder was saved has no key at all, and that
+    is a different fact from a record whose ladder simply has not started
+    (``None``): the stages that may already have fired are not on record, so
+    the ladder is rebuilt with its stages read off the stop rather than from
+    scratch. Anything that is not a dict is not a ladder either.
+    """
+    if "partial_tp_state" not in pdata:
+        return {"ladder": LADDER_UNRECORDED}
+    raw = pdata.get("partial_tp_state")
+    return raw if isinstance(raw, dict) else None
 
 
 def restore_provenance(pos: Any, pdata: dict) -> None:
@@ -7557,10 +7613,13 @@ class LiveExecutor:
     # ── Position management ──────────────────────────────────────
 
     async def _partial_close(self, exchange, pos, qty: float,
-                             stage: str) -> tuple[float, str]:
+                             stage: str) -> tuple[float, str, str]:
         """Close `qty` of a position with a reduceOnly market order.
 
-        Returns ``(filled_qty, source)`` where source is:
+        Returns ``(filled_qty, source, order_id)``; the id is ``""`` when none
+        was submitted or the venue returned none, and it is what lets an
+        "unknown" fill be RE-READ on a later pass instead of resubmitted.
+        source is:
 
             "filled"   the venue CONFIRMED this quantity filled
             "none"     nothing was submitted (qty rounded to <= 0)
@@ -7583,7 +7642,7 @@ class LiveExecutor:
         except Exception:
             pass
         if qty <= 0:
-            return 0.0, "none"
+            return 0.0, "none", ""
         close_side = "sell" if pos.direction == "LONG" else "buy"
         params = self._venue.close_params(getattr(self, "_is_uta", False))
         order = await exchange.create_order(
@@ -7600,20 +7659,15 @@ class LiveExecutor:
             filled = float((order or {}).get("filled") or 0)
         except (TypeError, ValueError):
             filled = 0.0
-        if filled > 0:
-            return filled, "filled"
         oid = str((order or {}).get("id") or "")
+        if filled > 0:
+            return filled, "filled", oid
         if not oid:
-            return 0.0, "unknown"
+            return 0.0, "unknown", ""
         check = await self._verify_order_fill(
             exchange, oid, pos.symbol, expected_qty=qty,
             max_retries=2, delay=1.0)
-        if check["confirmed"] and check["fill_qty"] > 0:
-            return float(check["fill_qty"]), "filled"
-        if check.get("failure_stage") == "order_cancelled":
-            # The venue rejected or cancelled it outright: nothing closed.
-            return 0.0, "none"
-        return 0.0, "unknown"
+        return (*_read_partial_fill(check), oid)
 
     async def _run_partial_tp(self, exchange, pos, price: float) -> None:
         """Partial take-profit ladder (bot/core/partial_tp.py), applied as an
@@ -7627,19 +7681,45 @@ class LiveExecutor:
         import dataclasses as _dc
         from bot.core.partial_tp import (
             create_partial_tp_state, check_partial_tp, PartialTPState,
+            rebuild_ladder,
         )
 
         is_long = pos.direction == "LONG"
 
-        if not pos.partial_tp_state:
-            st = create_partial_tp_state(
+        raw_state = pos.partial_tp_state
+        if isinstance(raw_state, dict) and raw_state.get("ladder") == LADDER_OFF:
+            return
+        unrecorded = (isinstance(raw_state, dict)
+                      and raw_state.get("ladder") == LADDER_UNRECORDED)
+        if not raw_state or unrecorded:
+            _ts = pos.trailing_state if isinstance(pos.trailing_state, dict) else {}
+            built, why = rebuild_ladder(
                 trade_id=pos.trade_id, direction=pos.direction,
                 entry_price=pos.entry_price, stop_loss=pos.stop_loss,
                 take_profit=pos.take_profit, quantity=pos.quantity,
                 atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
-            )
-            st.current_sl = pos.stop_loss
-            st.remaining_qty = pos.quantity
+                entry_risk=_ts.get("initial_risk"),
+                restored_without_ladder=unrecorded)
+            if built is None:
+                pos.partial_tp_state = {"ladder": LADDER_OFF, "reason": why}
+                audit(trade_log,
+                      f"Partial TP ladder OFF for {pos.symbol}: {why}. Its stop and "
+                      f"take-profit still apply.",
+                      action="partial_tp", result="LADDER_OFF", level=logging.WARNING,
+                      data={"trade_id": pos.trade_id, "symbol": pos.symbol})
+                self._save_positions()
+                return
+            st = built
+            if unrecorded:
+                audit(trade_log,
+                      f"Partial TP ladder rebuilt for {pos.symbol} from a record that "
+                      f"did not carry it: 1R {st.initial_risk:.6g} from the entry-time "
+                      f"record, TP1 {'done' if st.tp1_hit else 'open'}, TP2 "
+                      f"{'done' if st.tp2_hit else 'open'} (read off where the stop sits)",
+                      action="partial_tp", result="LADDER_REBUILT",
+                      data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                            "initial_risk": st.initial_risk, "tp1_hit": st.tp1_hit,
+                            "tp2_hit": st.tp2_hit})
         else:
             try:
                 st = PartialTPState(**pos.partial_tp_state)
@@ -7687,12 +7767,61 @@ class LiveExecutor:
             return False
 
         changed = False
+        if st.pending:
+            # A stage whose close went out and whose fill was not read. It is
+            # RE-READ, never resubmitted: the first order may well have filled,
+            # and a second one closes the position twice. Nothing else in the
+            # ladder acts until it is settled, because every later stage would
+            # be built on a fill nobody confirmed.
+            pend = dict(st.pending)
+            stage = str(pend.get("stage") or "")
+            _sub = pend.get("qty")
+            check = await self._verify_order_fill(
+                exchange, str(pend.get("order_id") or ""), pos.symbol,
+                expected_qty=float(_sub) if isinstance(_sub, (int, float)) else 0.0,
+                max_retries=1, delay=0.0)
+            late_qty, late_source = _read_partial_fill(check)
+            if late_source == "unknown":
+                pos.partial_tp_state = _dc.asdict(st)
+                return
+            st.pending = None
+            changed = True
+            if late_source == "filled":
+                pos.quantity = max(0.0, pos.quantity - late_qty)
+                audit(trade_log,
+                      f"Partial TP {stage} for {pos.symbol}: closed {late_qty}, read on "
+                      f"a later pass",
+                      action="partial_tp", result=stage.upper(),
+                      data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                            "stage": stage, "qty_closed": late_qty,
+                            "remaining": pos.quantity, "late_read": True})
+                _late_sl = pend.get("new_sl")
+                if isinstance(_late_sl, (int, float)) and _late_sl and _would_tighten(_late_sl):
+                    ok = False
+                    try:
+                        ok = await self._update_exchange_sl(exchange, pos, _late_sl)
+                    except Exception as exc:
+                        logger.debug("Partial-TP SL update failed for %s: %s", pos.symbol, exc)
+                    if ok:
+                        _ratchet_sl(_late_sl)
+            else:
+                # The venue says the order closed nothing, so the stage never
+                # happened: it is re-armed, and the ladder may place it again.
+                if stage in ("tp1", "tp2"):
+                    setattr(st, f"{stage}_hit", False)
+                    setattr(st, f"{stage}_qty_closed", 0.0)
+                audit(trade_log,
+                      f"Partial TP {stage} for {pos.symbol}: the order filled nothing, "
+                      f"so the stage is re-armed",
+                      action="partial_tp", result="STAGE_REARMED",
+                      data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                            "stage": stage})
         for act in check_partial_tp(st, price):
             if act.action == "close_partial":
                 qty = min(act.qty_to_close, pos.quantity)
-                closed_qty, fill_source = 0.0, "none"
+                closed_qty, fill_source, order_id = 0.0, "none", ""
                 if qty > 0:
-                    closed_qty, fill_source = await self._partial_close(
+                    closed_qty, fill_source, order_id = await self._partial_close(
                         exchange, pos, qty, act.stage)
                     if fill_source == "filled" and closed_qty > 0:
                         pos.quantity = max(0.0, pos.quantity - closed_qty)
@@ -7708,19 +7837,40 @@ class LiveExecutor:
                         # The order is out and its fill is unread. Leave
                         # pos.quantity alone AND skip the stop re-size below:
                         # the existing full-size stop over-protects whatever is
-                        # left, which is the safe direction to be wrong in. The
-                        # next ladder pass re-reads and acts on a real fill.
+                        # left, which is the safe direction to be wrong in.
+                        #
+                        # "Retrying next pass" used to be this audit's promise
+                        # and nothing kept it: the ladder had already marked
+                        # the stage hit, so the next pass skipped it for good
+                        # and the stop never reached breakeven. The ORDER is
+                        # recorded now and re-read above -- never resubmitted.
+                        # With no order id there is nothing to re-read, and a
+                        # second close order could double-close, so that one
+                        # case says it will not be retried.
+                        if order_id:
+                            st.pending = {"stage": act.stage, "order_id": order_id,
+                                          "qty": qty, "new_sl": act.new_sl or None}
+                            _then = "the order is re-read next pass, never resubmitted"
+                        else:
+                            _then = ("the venue returned no order id, so it cannot be "
+                                     "re-read and the stage is not retried; the "
+                                     "position sync corrects the quantity")
                         audit(trade_log,
                               f"Partial TP {act.stage} for {pos.symbol}: fill UNREAD "
-                              f"— quantity and stop left unchanged, retrying next pass",
+                              f"— quantity and stop left unchanged; {_then}",
                               action="partial_tp", result="FILL_UNREAD",
                               level=logging.WARNING,
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
                                     "stage": act.stage, "qty_submitted": qty,
+                                    "order_id": order_id or None,
                                     "quantity": pos.quantity, "price": price})
                         self._record_warning("partial_tp_fill_unread")
                 if fill_source == "unknown":
-                    continue
+                    # Nothing later in this pass may build on a stage whose
+                    # fill nobody read: TP2 on the same tick would close a
+                    # second slice of a quantity the book cannot state.
+                    changed = True
+                    break
                 if act.new_sl and _would_tighten(act.new_sl):
                     # Advance the local stop ONLY after the exchange confirms the
                     # tighter level — same discipline as the trailing path, so the
@@ -12156,6 +12306,11 @@ class LiveExecutor:
                     "origin": pos.origin,
                     "sl_tp_source": getattr(pos, "sl_tp_source", None),
                     "thesis_source": getattr(pos, "thesis_source", None),
+                    # The ladder's progress. Unsaved, a restart rebuilt it from
+                    # the live stop, which TP1 had already pulled to breakeven:
+                    # 1R became ~0.1% of price and TP1 and TP2 fired again at
+                    # once on the runner.
+                    "partial_tp_state": pos.partial_tp_state,
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
                     # THE STRATEGY THAT SIZED THE EXIT RULES. Neither key was
@@ -12256,6 +12411,7 @@ class LiveExecutor:
                         # rather than left to the constructor.
                         strategy_type=str(pdata.get("strategy_type") or "swing"),
                         signal_type=str(pdata.get("signal_type") or "momentum_confluence"),
+                        partial_tp_state=restored_ladder(pdata),
                     )
                     restore_provenance(self._positions[tid], pdata)
                 source_label = "backup" if source == bak_path else "disk"

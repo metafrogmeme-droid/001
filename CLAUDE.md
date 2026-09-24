@@ -5896,6 +5896,43 @@ walked past it. A rule now covers the class: `bot/web/` places no order through
 `_executor_for`, so a call to it there can only be a read, and none is allowed.
 (`tests/test_the_web_positions_panel_reads_the_callers_book.py`.)
 
+**A RESTART SOLD THE RUNNER TWICE, BECAUSE THE LADDER WAS NEVER WRITTEN DOWN.**
+`pos.partial_tp_state` records which take-profit stages have fired and the
+entry-time 1R they are measured in, and `_save_positions` never wrote it. Every
+restart rebuilt the ladder from the LIVE stop. TP1 moves that stop to
+breakeven +0.1%, so the rebuilt 1R was about 0.1% of price, every tick read as
+many R, and TP1 and TP2 fired again at once on what TP1 had left. The ladder is
+saved and restored now. A ladder is rebuilt from the entry-time 1R the
+trailing state already records, never from a stop that has moved. A record
+written before the ladder was saved reads its stages off where its stop sits,
+since TP1 moves the stop to breakeven and TP2 to 1R. A position whose 1R cannot
+be measured runs no ladder and keeps its stop and take-profit.
+
+**"Retrying next pass" was a promise nothing kept.** When a partial close went
+out and its fill could not be confirmed, the audit said the next pass would
+retry. But the ladder had already marked the stage done, so it was skipped for
+good and the stop never reached breakeven. Retrying by resubmitting would be
+worse, because the first order may have filled. The order id is recorded and
+RE-READ on later passes, and nothing else in the ladder acts until it settles:
+a late fill is applied with its stop move, an order that filled nothing re-arms
+the stage, and a fill still unread holds the ladder. A cancelled order that
+partly filled was read as "nothing closed", which is the under-fill
+`_partial_close`'s own docstring refuses. It is read as the fill it was now.
+The honesty gate caught `or 0.0` on the fill quantity in the first draft: a
+cancel whose filled amount the venue did not state reads as unknown, because
+"nothing" would re-arm the stage and could close twice.
+
+**Twenty mutations, each killed on the first round.** The survey that found
+the unread-fill gap did not see the persistence gap beside it. Reading the
+survey's evidence is what did: the same fields, one function over.
+
+**The map's `live_executor.py` citations had drifted again.** `:4790` sat on
+`else:`, a truncated sentence cited an unrelated `except`, and a BARE
+continuation `:6423` sat on a blank line. The blank-line probe matches only
+`path:line`, so it could not see that last one. They are derived from what each
+sentence names now, including the bare ones.
+(`tests/test_the_partial_tp_ladder_survives_a_restart.py`.)
+
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -11026,7 +11063,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **431 of 1033** reach for source text through `source_scan`, `code_only`
+Driven, **431 of 1034** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 431 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

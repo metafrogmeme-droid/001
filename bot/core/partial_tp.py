@@ -16,7 +16,9 @@ Benefits:
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
+from typing import Optional
 
 from bot.config import CONFIG
 
@@ -43,6 +45,12 @@ class PartialTPState:
     remaining_qty: float = 0.0
     current_sl: float = 0.0
     runner_trail_best: float = 0.0
+    #: A stage whose close order went out and whose fill could not be read:
+    #: ``{"stage", "order_id", "qty", "new_sl"}``. While it is set the ladder
+    #: does nothing but re-read that order, because resubmitting a close whose
+    #: first order may already have filled closes the position twice, and
+    #: acting on the next stage would build on a fill nobody confirmed.
+    pending: Optional[dict] = None
 
     def __post_init__(self):
         self.remaining_qty = self.original_qty
@@ -81,6 +89,54 @@ def create_partial_tp_state(
         original_qty=quantity,
         atr=atr if atr > 0 else entry_price * 0.02,
     )
+
+
+def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
+                   stop_loss: float, take_profit: float, quantity: float,
+                   atr: float, entry_risk: object,
+                   restored_without_ladder: bool) -> tuple[Optional[PartialTPState], str]:
+    """A ladder for a position that has none, or the reason it cannot have one.
+
+    THE 1R IS THE ENTRY-TIME RISK, NEVER THE DISTANCE TO A STOP THAT HAS
+    MOVED. The ladder is denominated in R, and a stop the trailing path or TP1
+    has already pulled toward entry sits a sliver from it: measured from
+    there, 1R is ~0.1% of price, every tick reads as many R, and TP1 and TP2
+    fire at once on whatever is left. That is what a restart did, because the
+    ladder was never written to disk. `entry_risk` is the trailing state's own
+    record of the 1R taken at the fill; without it, the distance to the stop is
+    the 1R only while the stop still sits on the LOSS side of entry, which is
+    the one arrangement where nothing can have moved it yet.
+
+    `restored_without_ladder` is a position loaded from a record written before
+    the ladder was persisted, so whether TP1 or TP2 already fired is not on
+    record. The stop is the evidence: TP1 moves it to breakeven and TP2 to 1R
+    in profit, so a stop already there marks those stages done. Reading a
+    trailed stop the same way can skip a TP1 that never fired, and that is the
+    direction to be wrong in -- a missed partial close keeps a position the
+    stop still protects, and a repeated one sells a runner twice.
+    """
+    is_long = direction == "LONG"
+    risk = (float(entry_risk) if isinstance(entry_risk, (int, float))
+            and not isinstance(entry_risk, bool) and math.isfinite(entry_risk)
+            and entry_risk > 0 else None)
+    if risk is None:
+        on_loss_side = stop_loss > 0 and (stop_loss < entry_price if is_long
+                                          else stop_loss > entry_price)
+        if not on_loss_side:
+            return None, ("its entry-time 1R was not recorded and its stop no longer "
+                          "sits on the loss side of entry, so no R can be measured")
+        risk = abs(entry_price - stop_loss)
+    entry_stop = entry_price - risk if is_long else entry_price + risk
+    st = create_partial_tp_state(
+        trade_id=trade_id, direction=direction, entry_price=entry_price,
+        stop_loss=entry_stop, take_profit=take_profit, quantity=quantity, atr=atr)
+    st.current_sl = stop_loss
+    st.remaining_qty = quantity
+    if restored_without_ladder and stop_loss > 0:
+        st.tp1_hit = stop_loss >= entry_price if is_long else stop_loss <= entry_price
+        st.tp2_hit = (stop_loss >= entry_price + risk if is_long
+                      else stop_loss <= entry_price - risk)
+    return st, ""
 
 
 def check_partial_tp(

@@ -87,8 +87,8 @@ def _exchange(order, verify=None):
 async def test_a_response_that_carries_the_fill_is_taken_at_face_value():
     ex = _executor(_pos())
     x = _exchange({"id": "O1", "filled": 0.2})
-    qty, source = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
-    assert (qty, source) == (0.2, "filled")
+    qty, source, oid = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
+    assert (qty, source, oid) == (0.2, "filled", "O1")
     x.fetch_order.assert_not_awaited()          # no need to ask twice
 
 
@@ -97,8 +97,8 @@ async def test_a_response_without_a_fill_is_verified_against_the_venue():
     ex = _executor(_pos())
     x = _exchange({"id": "O1"},
                   verify={"status": "closed", "filled": 0.2, "average": 105.0})
-    qty, source = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
-    assert (qty, source) == (0.2, "filled")
+    qty, source, oid = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
+    assert (qty, source, oid) == (0.2, "filled", "O1")
     x.fetch_order.assert_awaited()
 
 
@@ -106,30 +106,41 @@ async def test_a_response_without_a_fill_is_verified_against_the_venue():
 async def test_an_unverifiable_fill_is_unknown_not_the_submitted_quantity():
     ex = _executor(_pos())
     x = _exchange({"id": "O1"}, verify={"status": "open", "filled": 0})
-    qty, source = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
+    qty, source, oid = await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1")
     assert source == "unknown"
     assert qty == 0.0, "an unread fill must not report the submitted quantity"
+    assert oid == "O1", "the id is what lets a later pass re-read the fill"
 
 
 @pytest.mark.asyncio
 async def test_a_cancelled_order_closed_nothing():
     ex = _executor(_pos())
     x = _exchange({"id": "O1"}, verify={"status": "canceled", "filled": 0})
-    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "none")
+    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "none", "O1")
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_order_that_partly_filled_closed_that_much():
+    """A reduceOnly market order on a thin book can fill some and have the rest
+    cancelled. Filed as "nothing closed", the book kept claiming contracts it
+    no longer held -- the under-fill this function's docstring refuses."""
+    ex = _executor(_pos())
+    x = _exchange({"id": "O1"}, verify={"status": "canceled", "filled": 0.2})
+    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.2, "filled", "O1")
 
 
 @pytest.mark.asyncio
 async def test_a_response_with_no_order_id_is_unknown():
     ex = _executor(_pos())
     x = _exchange({})
-    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "unknown")
+    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "unknown", "")
 
 
 @pytest.mark.asyncio
 async def test_a_quantity_that_rounds_away_submits_nothing():
     ex = _executor(_pos())
     x = _exchange({"id": "O1", "filled": 1.0})
-    assert await ex._partial_close(x, ex._positions["T1"], 0.0, "tp1") == (0.0, "none")
+    assert await ex._partial_close(x, ex._positions["T1"], 0.0, "tp1") == (0.0, "none", "")
     x.create_order.assert_not_awaited()
 
 

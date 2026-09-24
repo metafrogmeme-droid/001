@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:5891 (…
+bot/core/live_executor.py:6484 (the per-strategy trailing switch read at the fill).
 
 **Scalping** — **shipped**
 
@@ -167,9 +167,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:4790 creates the entry order idempotently, :6400/:6423 attach
+live_executor.py:5392 creates the entry order idempotently, :6886/:7303 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:1413, :1429, :1517); venues.py:276 selects the swap
+productType USDT-FUTURES (:1793, :1809, :1936); venues.py:276 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1055); signal cards from /analyze, /scan and the pro scans
