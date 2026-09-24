@@ -218,7 +218,8 @@ class SetupExpectancy:
 
         Deliberately not backed off: this answers "what has this symbol done in
         this regime in this direction", and the honest answer to that is often
-        "nothing". `lookup_best` is the one that falls back.
+        "nothing". `nudge_for` is the one that falls back, and its `Nudge`
+        carries the tier that answered.
 
         The `0.5` is a placeholder, not a measurement, and `n = 0` beside it is
         what says so — every caller here reads the count before the rate.
@@ -228,21 +229,10 @@ class SetupExpectancy:
             return 0.5, 0
         return cell[0] / cell[1], cell[1]
 
-    def lookup_best(self, symbol, regime, direction) -> tuple:
-        """``(win_rate, n, tier)`` — the most specific tier with enough trades.
-
-        Walks `TIERS` in order and stops at the first cell holding at least
-        ``min_samples``. Returns ``(0.5, 0, "none")`` when no tier qualifies,
-        which is the same "nothing measured" the caller already handles.
-        """
-        tier, cell = self._best_cell(symbol, regime, direction)
-        if cell is None:
-            return 0.5, 0, "none"
-        return cell[0] / cell[1], cell[1], tier
-
     def _best_cell(self, symbol, regime, direction) -> tuple:
         """``(tier, cell)`` for the most specific tier with enough trades, or
-        ``("none", None)``. The one walk `lookup_best` and `nudge_for` share."""
+        ``("none", None)``. Walks `TIERS` in order and stops at the first cell
+        holding at least ``min_samples``."""
         s, r, d = _norm(symbol), _norm(regime), _norm(direction)
         for tier, cell in (("setup", self._table.get((s, r, d))),
                            ("regime", self._regime_table.get((r, d))),
@@ -291,7 +281,10 @@ class SetupExpectancy:
     # test_no_new_unreachable_functions.py` said so in the same commit, which
     # is the whole point of that ratchet: a wrapper nobody reads is
     # indistinguishable from one that does not work. Call `nudge_for(...)
-    # .value`.
+    # .value`. `lookup_best()` went the same way when the nudge needed the
+    # cell's net P&L beside its win rate: `nudge_for` reads the walk
+    # (`_best_cell`) directly, and its `Nudge` carries the tier and the count
+    # the tests used to read off the wrapper.
 
     def is_ready(self) -> bool:
         """Has anything actually been LEARNED — not merely loaded.

@@ -112,31 +112,29 @@ def test_the_symbols_own_record_beats_the_regime_tier():
         _samples("SOL", "RANGE", "LONG", wins=18, losses=2)      # 90% on SOL
         + _samples("BTC", "RANGE", "LONG", wins=2, losses=18)    # 10% on BTC
     )
-    wr, n, tier = exp.lookup_best("SOL", "RANGE", "LONG")
-    assert tier == "setup" and n == 20 and wr == pytest.approx(0.9)
-    assert exp.nudge_for("SOL", "RANGE", "LONG").value > 0
+    got = exp.nudge_for("SOL", "RANGE", "LONG")
+    assert got.tier == "setup" and got.n == 20 and got.value > 0
+    wr, n = exp.lookup("SOL", "RANGE", "LONG")
+    assert n == 20 and wr == pytest.approx(0.9)
     assert exp.nudge_for("BTC", "RANGE", "LONG").value < 0
 
 
 def test_a_symbol_with_no_record_falls_back_to_its_regime():
     exp = SetupExpectancy(min_samples=10).ingest(_production_shaped())
-    wr, n, tier = exp.lookup_best("NEVERSEEN", "RANGE", "LONG")
-    assert tier == "regime" and n >= exp.min_samples
-    assert exp.nudge_for("NEVERSEEN", "RANGE", "LONG").tier == "regime"
+    got = exp.nudge_for("NEVERSEEN", "RANGE", "LONG")
+    assert got.tier == "regime" and got.n >= exp.min_samples
 
 
 def test_an_unseen_regime_falls_all_the_way_to_direction():
     exp = SetupExpectancy(min_samples=10).ingest(_production_shaped())
-    _, n, tier = exp.lookup_best("NEVERSEEN", "TREND_UP", "LONG")
-    assert tier == "direction" and n >= exp.min_samples
+    got = exp.nudge_for("NEVERSEEN", "TREND_UP", "LONG")
+    assert got.tier == "direction" and got.n >= exp.min_samples
 
 
 def test_nothing_at_any_tier_is_none_not_a_coin_flip_applied():
     exp = SetupExpectancy(min_samples=10).ingest(_production_shaped())
-    wr, n, tier = exp.lookup_best("NEVERSEEN", "TREND_UP", "SHORT")
-    assert tier == "none" and n == 0
-    # 0.5 is the placeholder, and n == 0 beside it is what says so — the nudge
-    # reads the count, never the rate alone.
+    # Nothing qualifies at any tier: the nudge reads the count, never a
+    # placeholder rate, and answers zero with the tier "none".
     assert exp.nudge_for("NEVERSEEN", "TREND_UP", "SHORT") == Nudge(0.0, "none", 0)
 
 
@@ -146,7 +144,7 @@ def test_lookup_still_answers_the_per_setup_question_honestly():
     a record from one riding on its regime."""
     exp = SetupExpectancy(min_samples=10).ingest(_production_shaped())
     assert exp.lookup("NEVERSEEN", "RANGE", "LONG") == (0.5, 0)
-    assert exp.lookup_best("NEVERSEEN", "RANGE", "LONG")[2] == "regime"
+    assert exp.nudge_for("NEVERSEEN", "RANGE", "LONG").tier == "regime"
 
 
 # ── how much a coarse tier is allowed to move ─────────────────────────────
@@ -271,16 +269,17 @@ def test_every_tier_has_a_weight_and_none_exceeds_one():
 
 
 def test_a_tier_under_the_floor_is_not_the_tier_that_answered():
-    """`lookup_best` must apply `min_samples` ITSELF, not lean on `nudge_for`
-    zeroing a thin result afterwards. A mutation dropping the floor from the
-    walk survived, because the only caller happened to re-check it — so the
-    function was free to answer "setup, n=2" to "which tier has enough".
+    """The walk must apply `min_samples` ITSELF, not lean on a thin result
+    being zeroed afterwards. A mutation dropping the floor from the walk once
+    survived because its only caller happened to re-check it — so the walk was
+    free to answer "setup, n=2" to "which tier has enough". The nudge carries
+    the tier and count the walk chose, so it is asked here.
     """
     exp = SetupExpectancy(min_samples=10).ingest(
         _samples("SOL", "RANGE", "LONG", wins=2, losses=1))
-    wr, n, tier = exp.lookup_best("SOL", "RANGE", "LONG")
-    assert tier == "none" and n == 0, (
-        f"a 3-trade cell answered as tier {tier!r} with n={n}")
+    got = exp.nudge_for("SOL", "RANGE", "LONG")
+    assert got.tier == "none" and got.n == 0, (
+        f"a 3-trade cell answered as tier {got.tier!r} with n={got.n}")
 
 
 # ── the readiness card: applied is a FLAG, not a readiness ────────────────

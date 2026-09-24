@@ -7598,7 +7598,23 @@ test in silence, because `validate_oos` kept only four-field samples; a test
 drives the card's verdict to see its trades. Eleven mutations; the survivor
 was the analyzer's audit, found by NAME by the guard, so
 `False and _n.withheld_net is not None` passed it with the audit dead.
+**The next full run refused it, on the wrapper `confidence_nudge()` had
+already recorded.** The nudge needed the cell's net P&L beside its win rate,
+so `nudge_for` read the walk directly and `lookup_best` kept only test
+callers; the methods ratchet named it. It is deleted, and its four tests ask
+`nudge_for`, whose `Nudge` carries the tier and count they read.
 (`tests/test_the_nudge_needs_a_setup_that_made_money.py`.)
+
+**THE 16-HOUR "WHATEVER THE R" LIMIT WAS MEASURED, NOT CHANGED.** The
+backtest does not model live's smart exits, so `signal_edge.py continuation`
+asks the signal: from bar 12 to bar 48, how far did price keep moving the
+idea's way, net of the direction's drift, among ideas still in favour at bar
+12. On the two v2 snapshots momentum ideas kept going (+0.81 ATR, interval
+above zero); on `corr_dense_1h`, which shares their symbols and months, they
+did not; and the fresh-window cell, written down before it was computed, does
+not hold (+0.71 [-0.31, +1.88]). `docs/FROZEN_BENCHMARK.md` records it, what
+close-to-close moves cannot see, and two cells pre-registered for the next
+snapshot.
 
 **TWO GATES FAILED THE FIRST FULL RUN OF THIS BRANCH, AND NEITHER WAS A
 REGRESSION IN WHAT THEY GUARD.** The strict mypy gate on the money modules
