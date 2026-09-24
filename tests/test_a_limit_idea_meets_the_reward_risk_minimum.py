@@ -91,3 +91,15 @@ def test_the_fixture_really_sits_below_every_minimum():
     for st in STRATEGY_TYPES:
         assert _idea(rr=CONFIG.strategy_types.get_min_rr(st) - 0.3,
                      strategy_type=st).risk_reward_ratio < CONFIG.strategy_types.get_min_rr(st) - 0.01
+
+
+def test_no_executor_line_calls_the_engines_limits_user_confirmed():
+    # The feed-down bypass let any limit through and audited it as a
+    # "user-confirmed limit order"; the engine's own ideas are limits too.
+    # A log string is what is under test, so a scan of the code (comments and
+    # docstrings stripped, string literals kept) is the instrument.
+    import inspect
+
+    from bot.core import live_executor
+    from tests.source_scan import code_only
+    assert "user-confirmed" not in code_only(inspect.getsource(live_executor))

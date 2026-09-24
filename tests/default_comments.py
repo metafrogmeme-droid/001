@@ -377,9 +377,16 @@ _VALUE_READERS = {"_env", "_env_float", "_env_int",
 #: What a live line that departs from its code default says above itself:
 #: "this line raises it", "the two lines below disable it", "the line below
 #: picks anthropic", or "departs from the code default".
+#:
+#: THE VERB SITS RIGHT AFTER THE LINE. The first draft let anything but a full
+#: stop come between them, and the retraction this file's own fix wrote above
+#: two lines -- "This line USED TO SET 0.1" -- read as a statement of what the
+#: line does now: putting the live `COMMISSION_PCT=0.1` back survived the
+#: mutation round, acquitted by the sentence recording its removal. A comment
+#: that quotes what it corrects, one rule over.
 _SAYS_DEPARTS = re.compile(
-    r"\b(?:this|the(?:\s+two)?)\s+lines?\b[^.]*?"
-    r"\b(?:raises?|lowers?|sets?|disables?|picks?|pins?)\b"
+    r"\b(?:this|the(?:\s+two)?)\s+lines?(?:\s+below)?\s+"
+    r"(?:raises?|lowers?|sets?|disables?|picks?|pins?)\b"
     r"|\bdeparts?\s+from\s+the\s+code(?:'s)?\s+default", re.I)
 
 

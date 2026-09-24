@@ -595,6 +595,7 @@ class TestTheValueRule:
         'e: float = _env_float("KNOB_TWICE", 2.0)\n'
         'f: str = _env("KNOB_COMPUTED", os.getenv("X", "y"))\n'
         'g: bool = _env_bool("KNOB_BOOL", True)\n'
+        'h: str = _env("KNOB_STR_BOOL", False)\n'
     )
 
     def _found(self, env_text):
@@ -607,9 +608,10 @@ class TestTheValueRule:
         assert decl["KNOB_S"] == ("_env", "TREND_DOWN")
         assert decl["KNOB_NEG"] == ("_env_float_bounded", -2.5)
         # Two defaults is no default; a computed one is not a literal; a bool
-        # is the flag rule's.
+        # is the flag rule's, whichever reader it reaches (a bool handed to
+        # `_env` would compare "False" against a line spelling "false").
         assert "KNOB_TWICE" not in decl and "KNOB_COMPUTED" not in decl
-        assert "KNOB_BOOL" not in decl
+        assert "KNOB_BOOL" not in decl and "KNOB_STR_BOOL" not in decl
 
     def test_an_unsaid_numeric_departure_is_found(self):
         assert self._found("# The fee.\nKNOB_F=0.1\n") == [("KNOB_F", "0.1")]
@@ -627,6 +629,12 @@ class TestTheValueRule:
         assert self._found("# The two lines below disable it.\nKNOB_F=9\n") == []
         assert self._found("# The line below picks X.\nKNOB_S=X\n") == []
         assert self._found("# It departs from the code default.\nKNOB_S=X\n") == []
+
+    def test_a_retraction_does_not_acquit_the_line_it_retracted(self):
+        # The survivor of the first round: the fix's own "used to set" note
+        # acquitted the value it records removing.
+        assert self._found("# This line used to set 0.1.\nKNOB_F=0.1\n") == [("KNOB_F", "0.1")]
+        assert self._found("# The line below once pinned X.\nKNOB_S=X\n") == [("KNOB_S", "X")]
 
     def test_a_sentence_about_another_line_does_not_acquit(self):
         # "line" and the verb in two different sentences is not a statement
