@@ -7505,6 +7505,48 @@ characters. `split_counter_case` gives it its own line on every card that cuts.
 Twelve mutations, each killed on the first round.
 (`tests/test_the_thesis_prompt_asks_for_what_is_read.py`.)
 
+**A CARD SHOWED A HOLD TIME AND NOTHING ABOUT THE CLOCK IT RAN AGAINST.**
+Five rules close a live position on time, in two places: the executor's time
+stop (past the strategy's hours, unless in profit after fees) and four smart
+exits in the engine (no progress, the signal's hold limit and twice it, volume
+decay). None of them was on any card. Driven, a swing trade on a momentum
+signal is closed at 16h at +2R by the hard hold limit, whatever the stop and
+target say. `bot/core/time_exits.py` is the one reading: the rules take their
+thresholds from `smart_exits`' own accessors and the executor's strategy
+table, both exit paths ask `thesis_recorded` and `in_profit_after_fees`
+there, and `/positions`, the Details card and `/livepositions` render
+`plan_for`. Each rule is a condition FROM an hour on, not an event at it, and
+a rule another one always beats is dropped: the 48h time stop never reaches a
+momentum trade the 16h limit has closed. The guard DRIVES the check functions
+over a grid of hours, R and fee states for every strategy and signal type and
+requires the pruned plan to close exactly when they do, which is the only way
+to prove a list is the code rather than a copy of it.
+
+**ADOPTION GAVE A POSITION NOBODY ASSIGNED A STRATEGY THE DEFAULTS, AND THE
+DEFAULTS CLOSED IT.** An adopted or reclaimed position is built as
+`swing`/`momentum_confluence` unless adoption finds a local record of the
+bot's own to copy from, and the time exits read those fields. Driven, a
+position somebody opened by hand was closed at market at +2R after 16h, on a
+momentum signal it never had, while two comments in the adoption path say
+adopted positions are never force-closed because they may be intentional.
+The operator decided (2026-09-24): no recorded strategy, no time exits; its
+stop and target still apply. `thesis_source="inherited"` is set where the
+donor's strategy is copied and persisted with the other provenance markers,
+and a record written before it says the same thing through
+`sl_tp_source == "inherited"`, because the donor that supplied the levels
+supplied the strategy.
+
+**AND THE UNTRACKED BRANCH OF THE DETAILS BUTTON SET A FLAG NOTHING READ.**
+`is_untracked` was assigned on every untracked position and read by nothing;
+the ruff ratchet's F841 fell by one when the time-exit line became its reader,
+because an untracked position has no record here and no time exit runs on it.
+The words are fourteen-language `tx_*` keys, since `/positions` is. The
+`/livepositions` photo caption has a 1024-character limit, so its time-exit
+lines are added while they fit and the rest are counted. Thirty-one mutations,
+thirty killed on the first round; the survivor rounded the countdown to the
+hour, and every fixture had been a whole number of hours.
+(`tests/test_a_position_card_states_its_time_exits.py`.)
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -9991,7 +10033,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 226 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 227 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -10803,9 +10845,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **428 of 1026** reach for source text through `source_scan`, `code_only`
+Driven, **429 of 1027** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 428 is a FLOOR and the honest shape is
+source scan that rule does not see, so 429 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

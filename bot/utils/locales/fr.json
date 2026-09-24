@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} n'a pas répondu</b> — rien n'a été scanné. C'est une lecture échouée, pas un marché vide.\n<code>{detail}</code>",
   "welcome_pending": "<b>Salut {name} !</b>\n\nJe suis RUNECLAW, votre assistant de trading IA.\nJe scanne le marché, je repère les configurations et je gère le risque pour vous.\n\nVotre compte est en attente d'approbation.\nID : <code>{tg_id}</code>\n\nUn administrateur vous donnera bientôt accès.\nUne fois approuvé, discutez avec moi normalement.",
   "welcome_ready": "Salut {name}, voici où en sont les choses :\n\n{status_icon} <b>{status_label}</b> | {mode}\nCapital : <code>{equity}</code>\nPositions ouvertes : <code>{filled}</code>{pending_str}\nTaux de réussite : <code>{win_rate}</code>\nNiveau : {tier} | Trading : {trade_mode}\n\n<b>Parlez-moi :</b>\n<i>« scanne BTC » - « montre mes positions » - « quel est le risque ? »</i>\n<i>« analyse SOL » - « où en est mon PnL ? » - « mets le bot en pause »</i>\n\n🌐 <a href=\"{web_url}\">Ouvrir votre tableau de bord web →</a>\n\nÉcrivez ce dont vous avez besoin, sans commande.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ L'étape du prix limite a expiré — tu avais {minutes} minutes pour saisir un prix pour {pair}, j'ai donc cessé d'attendre et je n'ai pas lu le nombre que tu viens d'envoyer comme un prix. <b>Rien n'a été placé et rien n'a été modifié.</b> Relance le scan et appuie sur Limite si tu le veux toujours."
+  "limit_expired": "⏰ L'étape du prix limite a expiré — tu avais {minutes} minutes pour saisir un prix pour {pair}, j'ai donc cessé d'attendre et je n'ai pas lu le nombre que tu viens d'envoyer comme un prix. <b>Rien n'a été placé et rien n'a été modifié.</b> Relance le scan et appuie sur Limite si tu le veux toujours.",
+  "tx_head": "⏱ Sorties temporelles : {rules}",
+  "tx_after_r": "après {h} si sous {r}R",
+  "tx_after_fee": "après {h} sauf si en profit net des frais",
+  "tx_after_any": "après {h} quel que soit le R",
+  "tx_in": "dans {d}",
+  "tx_due": "échue maintenant",
+  "tx_armed": "active",
+  "tx_armed_r": "active, à {r}R",
+  "tx_armed_fee": "active, en profit net des frais",
+  "tx_r_inert": "Les sorties basées sur le R ne s'exécutent pas : le 1R de cette position est illisible.",
+  "tx_no_thesis": "⏱ Aucune sortie temporelle : position adoptée sans stratégie enregistrée, elle ne se ferme qu'à son stop ou à son objectif.",
+  "tx_off": "⏱ Ce bot n'exécute aucune sortie temporelle : les positions se ferment à leur stop ou à leur objectif.",
+  "tx_practice": "⏱ Aucune sortie temporelle sur une position d'entraînement : elle se ferme à son stop ou à son objectif.",
+  "tx_untracked": "⏱ Aucune sortie temporelle : le bot n'a aucun enregistrement de cette position, donc aucune ne s'exécute.",
+  "tx_more": "Sorties temporelles de {n} autres : ouvrez-les dans /positions."
 }

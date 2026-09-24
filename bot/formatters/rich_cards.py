@@ -1200,6 +1200,10 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
             f"  {_fmt_price(entry)} -> {_mark_cell} | {size_str}{lev_str}{rr_str} | {hold_str}",
             f"  {t('lbl_sl', lang)} {sl_str} / {t('lbl_tp', lang)} {tp_str}{sl_tag}",
         ])
+        # What the clock can do to it: the producer renders it from the
+        # reading the exit code takes (bot/core/time_exits.py).
+        if p.get("time_exit_line"):
+            lines.append(f"  {_html_escape(p['time_exit_line'])}")
         if untracked:
             lines.append(f"  \u26a0\ufe0f <i>{t('untracked_outside', lang)}</i>")
         if p.get("origin") == "adopted":

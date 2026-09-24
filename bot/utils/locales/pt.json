@@ -274,5 +274,20 @@
   "venue_scan_unreachable": "🔴 <b>{venue} não respondeu</b> — nada foi analisado. É uma leitura falhada, não um mercado vazio.\n<code>{detail}</code>",
   "welcome_pending": "<b>Olá {name}!</b>\n\nSou o RUNECLAW, o seu assistente de trading com IA.\nAnaliso o mercado, encontro oportunidades e giro o risco por si.\n\nA sua conta está à espera de aprovação.\nID: <code>{tg_id}</code>\n\nUm administrador vai dar-lhe acesso em breve.\nDepois de aprovado, fale comigo normalmente.",
   "welcome_ready": "Olá {name}, eis o ponto da situação:\n\n{status_icon} <b>{status_label}</b> | {mode}\nCapital: <code>{equity}</code>\nPosições abertas: <code>{filled}</code>{pending_str}\nTaxa de acerto: <code>{win_rate}</code>\nNível: {tier} | Trading: {trade_mode}\n\n<b>Fale comigo:</b>\n<i>«analisa BTC» - «mostra as minhas posições» - «qual é o risco?»</i>\n<i>«analisa SOL» - «como está o meu PnL?» - «pausa o bot»</i>\n\n🌐 <a href=\"{web_url}\">Abrir o seu painel web →</a>\n\nEscreva o que precisa, sem comandos.\n\n<i>{time}</i>",
-  "limit_expired": "⏰ A etapa de preço limite expirou — você tinha {minutes} minutos para digitar um preço para {pair}, então parei de esperar e não li o número que acabou de enviar como preço. <b>Nada foi colocado e nada foi alterado.</b> Rode o scan de novo e toque em Limite se ainda quiser."
+  "limit_expired": "⏰ A etapa de preço limite expirou — você tinha {minutes} minutos para digitar um preço para {pair}, então parei de esperar e não li o número que acabou de enviar como preço. <b>Nada foi colocado e nada foi alterado.</b> Rode o scan de novo e toque em Limite se ainda quiser.",
+  "tx_head": "⏱ Saídas por tempo: {rules}",
+  "tx_after_r": "após {h} se abaixo de {r}R",
+  "tx_after_fee": "após {h} salvo se em lucro líquido de taxas",
+  "tx_after_any": "após {h} seja qual for o R",
+  "tx_in": "em {d}",
+  "tx_due": "vence agora",
+  "tx_armed": "ativa",
+  "tx_armed_r": "ativa, em {r}R",
+  "tx_armed_fee": "ativa, em lucro líquido de taxas",
+  "tx_r_inert": "As saídas baseadas em R não rodam: o 1R desta posição não pode ser lido.",
+  "tx_no_thesis": "⏱ Sem saídas por tempo: posição adotada sem estratégia registrada, então só fecha no stop ou no alvo.",
+  "tx_off": "⏱ Este bot não roda saídas por tempo: as posições fecham no stop ou no alvo.",
+  "tx_practice": "⏱ Nenhuma saída por tempo roda numa posição de treino: ela fecha no stop ou no alvo.",
+  "tx_untracked": "⏱ Sem saídas por tempo: o bot não tem registro desta posição, então nenhuma roda nela.",
+  "tx_more": "Saídas por tempo de mais {n}: abra cada uma em /positions."
 }

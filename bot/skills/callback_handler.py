@@ -42,6 +42,7 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.time_exits import TimeExitPlan, position_time_exit_line, time_exit_line
 from bot.core.trade_costs import entry_rate_pct, exit_rate_pct, fee_usd
 from bot.formatters.drift_offer import (
     atr_from_ohlcv,
@@ -1046,6 +1047,19 @@ class CallbackHandler:
                 # the card, not a complaint about annotations.
                 lev_str = f" | {leverage:.0f}x" if leverage and leverage > 1 else ""
 
+                # What the clock can do to it, read where the exit code reads
+                # it (time_exits.py): the hold time alone said nothing about a
+                # swing trade the hard hold limit closes at 16h whatever the R.
+                _tx_lang = self._lang(update)
+                if not is_live_pos:
+                    _time_line = time_exit_line(TimeExitPlan("practice"), lang=_tx_lang)
+                elif is_untracked:
+                    _time_line = time_exit_line(TimeExitPlan("untracked"), lang=_tx_lang)
+                else:
+                    _time_line = position_time_exit_line(
+                        pos_match, last_px, datetime.now(timezone.utc),
+                        CONFIG.time_stop, CONFIG.strategy_types, lang=_tx_lang)
+
                 lines = [
                     f"<b>{html.escape(pair)}</b>{mode_tag}",
                     f"{d_emoji} {_dir} | {pnl_emoji} {_pnl_str}",
@@ -1054,6 +1068,7 @@ class CallbackHandler:
                     f"Size <code>${sz:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {format_rr(rr_live)}",
                     _level_row("SL", _sl_px, sl_dist, sl_tag),
                     _level_row("TP", _tp_px, tp_dist, tp_tag),
+                    html.escape(_time_line),
                     f"Net PnL <code>{_net_str}</code> (fees ${total_fees + funding_paid:.2f})",
                 ]
 

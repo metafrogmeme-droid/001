@@ -59,8 +59,8 @@ from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
-    round_trip_pct,
 )
+from bot.core.time_exits import in_profit_after_fees, thesis_recorded
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, first_reading,
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
@@ -673,6 +673,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     src = pdata.get("sl_tp_source")
     if src:
         setattr(pos, "sl_tp_source", str(src))
+    thesis = pdata.get("thesis_source")
+    if thesis:
+        setattr(pos, "thesis_source", str(thesis))
     unread = pdata.get("adoption_unread")
     if unread:
         setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
@@ -3932,6 +3935,9 @@ class LiveExecutor:
                                 donor, "strategy_type", lp.strategy_type)
                             lp.signal_type = getattr(
                                 donor, "signal_type", lp.signal_type)
+                            # The strategy is the bot's own, so the time exits
+                            # keyed on it apply (time_exits.thesis_recorded).
+                            setattr(lp, "thesis_source", "inherited")
                             audit(trade_log,
                                   f"Adoption inherited levels from local record "
                                   f"{donor.trade_id}: SL={lp.stop_loss} TP={lp.take_profit}",
@@ -8377,8 +8383,11 @@ class LiveExecutor:
                             )
 
                     # ── GETCLAW: Time-stop check (Rules 6/17) ──
-                    # Uses per-strategy-type thresholds from StrategyTypeConfig
-                    if CONFIG.time_stop.enabled:
+                    # Uses per-strategy-type thresholds from StrategyTypeConfig.
+                    # Not on a position adopted with no recorded strategy: its
+                    # strategy_type is the dataclass default, and adopted
+                    # positions are never force-closed (see time_exits.py).
+                    if CONFIG.time_stop.enabled and thesis_recorded(pos):
                         hold_hours = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600
                         # Get strategy-type-aware thresholds
                         pos_strategy = getattr(pos, 'strategy_type', 'intraday')
@@ -8389,15 +8398,12 @@ class LiveExecutor:
                             # gross entry. A position up a sub-fee fraction was
                             # treated as "in profit" and held indefinitely even
                             # though it's a net loser after entry+exit taker fees
-                            # (audit exits, 2026-07-21). Require the mark to clear a
-                            # round-trip fee buffer before the time-stop spares it.
-                            _rt_fee = round_trip_pct(
-                                getattr(pos, 'order_type', None)) / 100.0
-                            _buf = pos.entry_price * _rt_fee
-                            if pos.direction == "LONG":
-                                in_profit = price > pos.entry_price + _buf
-                            else:
-                                in_profit = price < pos.entry_price - _buf
+                            # (audit exits, 2026-07-21). The mark must clear the
+                            # position's own round trip -- one reading, which
+                            # the position cards' "in profit after fees" asks too.
+                            in_profit = in_profit_after_fees(
+                                pos.direction, pos.entry_price, price,
+                                getattr(pos, 'order_type', None))
                             if not in_profit:
                                 # Time-stop: no profit after threshold → close
                                 # :g keeps sub-hour thresholds honest — scalp's
@@ -12149,6 +12155,7 @@ class LiveExecutor:
                     # persisted is a marker for one process lifetime.
                     "origin": pos.origin,
                     "sl_tp_source": getattr(pos, "sl_tp_source", None),
+                    "thesis_source": getattr(pos, "thesis_source", None),
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
                     # THE STRATEGY THAT SIZED THE EXIT RULES. Neither key was
