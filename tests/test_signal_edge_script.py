@@ -9,6 +9,7 @@ windows counted twice, and the direction's unconditional drift left in.
 from __future__ import annotations
 
 import importlib.util
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -120,3 +121,95 @@ def test_normal_ci_refuses_under_three():
     assert se.normal_ci([1.0, 2.0]) is None
     n, mu, lo, hi = se.normal_ci([1.0, 2.0, 3.0])
     assert (n, mu) == (3, 2.0) and lo < mu < hi
+
+
+# ── continuation: what a hold limit between two horizons forgoes ─────────
+
+
+def _cont_row(moves, unc, sym="S", i=0, cluster=0):
+    base = {"dataset": "d", "symbol": sym, "i": i, "direction": "LONG",
+            "moves": moves, "cluster": [cluster]}
+    return se.with_excess([base], {"LONG": unc})[0]
+
+
+def test_continuation_is_the_excess_over_the_segment_alone():
+    # Moved +1 by bar 12 and +4 by bar 48, against a drift of +0.5 and +1.5:
+    # over 12 -> 48 it moved 3 while the market drifted 1.
+    r = _cont_row({12: 1.0, 48: 4.0}, {12: 0.5, 48: 1.5})
+    (got,) = se.continuation([r], 12, 48)
+    assert got["excess"] == {48: pytest.approx(2.0)}
+
+
+def test_the_in_profit_filter_reads_the_raw_move_not_the_excess():
+    # A trade's profit is the raw move. This idea is in profit at bar 12
+    # (+0.5) while lagging a +0.8 drift, and the other is losing (-0.1)
+    # while beating a -0.6 drift: only the first is still being carried.
+    carried = _cont_row({12: 0.5, 48: 1.0}, {12: 0.8, 48: 0.8}, sym="A")
+    losing = _cont_row({12: -0.1, 48: 1.0}, {12: -0.6, 48: -0.6}, sym="B")
+    kept = se.continuation([carried, losing], 12, 48, min_move=0.0)
+    assert [r["symbol"] for r in kept] == ["A"]
+
+
+def test_a_move_exactly_at_the_floor_is_not_above_it():
+    r = _cont_row({12: 0.0, 48: 1.0}, {12: 0.0, 48: 0.0})
+    assert se.continuation([r], 12, 48, min_move=0.0) == []
+    assert len(se.continuation([r], 12, 48)) == 1
+
+
+def test_a_missing_horizon_drops_the_idea_rather_than_reading_zero():
+    short = _cont_row({12: 1.0}, {12: 0.0, 48: 0.0})
+    assert se.continuation([short], 12, 48) == []
+
+
+def _cont_file(tmp_path, name, rows):
+    data = {"dataset": name, "ideas": len(rows), "unplaced": 0,
+            "unconditional": {"LONG": {"12": 0.0, "48": 0.0},
+                              "SHORT": {"12": 0.0, "48": 0.0}},
+            "rows": rows}
+    p = tmp_path / f"{name}.json"
+    p.write_text(json.dumps(data))
+    return str(p)
+
+
+def _file_rows(name, sig, n, m12, m48, prefix="S"):
+    return [{"dataset": name, "symbol": f"{prefix}{k}", "i": 0, "ts": "2026-01-01T00:00:00",
+             "direction": "LONG", "signal_type": sig, "confidence": 0.6,
+             "approved": False, "moves": {"12": m12, "48": m48},
+             "cluster": [name, f"{prefix}{k}", 2026, 1]} for k in range(n)]
+
+
+def test_the_report_filters_by_signal_and_pools_only_across_files(tmp_path):
+    a = _cont_file(tmp_path, "a", _file_rows("a", "momentum_confluence", 6, 1.0, 3.0)
+                   # other symbols, or de-overlapping would drop them before
+                   # the signal filter is ever asked about them
+                   + _file_rows("a", "volume_spike", 6, 1.0, -5.0, prefix="V"))
+    b = _cont_file(tmp_path, "b", _file_rows("b", "momentum_confluence", 6, -1.0, 0.0))
+    one = se.continuation_report([a], 12, 48, "momentum_confluence")
+    assert "POOLED" not in one
+    # every momentum idea on file a moved +2 over the segment; the
+    # volume_spike rows, at -6, are not in it.
+    assert "+2.00 [+2.00,+2.00]" in one and "-6.00" not in one
+    both = se.continuation_report([a, b], 12, 48, "momentum_confluence")
+    pooled = both.split("POOLED (all files given)")[1].splitlines()
+    every, favour = pooled[1], pooled[2]
+    assert every.split()[2] == "12" and "+1.50" in every
+    # file b's ideas were losing at bar 12: the in-favour subset is file a's.
+    assert favour.split()[5] == "6" and "+2.00" in favour
+
+
+def test_the_report_de_overlaps_before_it_measures(tmp_path):
+    rows = _file_rows("a", "momentum_confluence", 6, 1.0, 3.0)
+    for k, r in enumerate(rows):
+        r["symbol"], r["i"], r["cluster"] = "S", k, ["a", "S", 2026, k]
+    out = se.continuation_report([_cont_file(tmp_path, "a", rows)], 12, 48)
+    # six ideas one bar apart share one 48-bar window: one is kept.
+    assert out.splitlines()[4].split()[2] == "1"
+
+
+def test_the_cli_refuses_horizons_it_did_not_record(tmp_path, capsys):
+    f = _cont_file(tmp_path, "a", _file_rows("a", "momentum_confluence", 6, 1.0, 3.0))
+    for bad in (["--from", "16"], ["--from", "48", "--to", "12"], ["--from", "12", "--to", "12"]):
+        with pytest.raises(SystemExit):
+            se.main(["continuation", *bad, f])
+    assert se.main(["continuation", f]) == 0
+    assert "bar 12 -> 48" in capsys.readouterr().out

@@ -875,6 +875,69 @@ zero is what that produces by chance. Reproduce with
 `scripts/signal_edge.py collect` on each snapshot, keeping ideas after
 2026-07-06T09:00Z and measuring the drift from the same time.
 
+### Do the hold limits close trades that were still going? (2026-09-24) — not shown
+
+Live closes a `momentum_confluence` trade at 8 hours unless it is at 1R or
+better, and at 16 hours whatever the R; a `volume_spike` trade at 1.5 and 3
+hours (`smart_exits._SIGNAL_HOLD_LIMITS`, and twice each limit). The backtest
+does not model these exits, so it cannot say what they cost.
+`signal_edge.py continuation` asks the nearest question the recorded horizons
+allow: from bar 12, the last recorded horizon before 16, to bar 48, how far did
+price keep moving the idea's way, net of the direction's drift over that same
+segment? It asks that over the ideas still in the idea's favour at bar 12,
+which are the ones a trade would still be carrying. Each group is
+de-overlapped at 48 bars, and the interval is the cluster bootstrap above.
+
+```bash
+python scripts/signal_edge.py continuation --from 12 --to 48 \
+    --signal momentum_confluence majors_v2.json alts_v2.json
+```
+
+| `momentum_confluence`, excess ATR from bar 12 to 48 | n | in favour at bar 12 | n | 1+ ATR in favour |
+|---|---:|---:|---:|---:|
+| v2, majors + alts pooled (disjoint) | 573 | +0.81 [+0.36, +1.29] | 354 | +0.99 [+0.42, +1.62] |
+| `corr_dense_1h` | 622 | +0.06 [−0.32, +0.45] | 397 | +0.00 [−0.53, +0.55] |
+| **fresh v3, majors + alts pooled** | 144 | **+0.71 [−0.31, +1.88]** | 79 | +1.45 [−0.10, +3.35] |
+
+**The hypothesis came from the v2 row, and the fresh window does not confirm
+it.** The fresh cell (in favour at bar 12, pooled, interval wholly above zero
+to hold) was written down in a working note before it was computed, though the
+fresh window's per-horizon excess had already been printed for the
+`vwap_reversion` test above. It has the same sign and an interval reaching
+below zero. `corr_dense_1h`, which
+shares symbols and months with both v2 snapshots, shows nothing at all. The
+16-hour limit stays.
+
+Two things this cannot see, and both matter. The moves are close to close, with
+no stop, target or trailing stop, so an idea in favour at bar 12 may have hit
+its target or been trailed out before bar 48. And the 16-hour limit reaches
+only a trade that stayed at 1R or better from hour 8, because the 8-hour rule
+closes one under 1R. 1R is the stop distance, one to two ATR or more, so the
+"1+ ATR in favour" column is the nearer proxy; it is thinner, and on the fresh
+window its interval also reaches below zero.
+
+**`volume_spike` looks the same way and is not a lead either.** From bar 4, the
+first recorded horizon past its 3-hour limit, the ideas in favour at bar 4
+continued +2.39 ATR [+0.17, +4.89] to bar 48 on the fresh window (61 ideas),
+and −0.02 [−0.67, +0.63] pooled over the v2 snapshots, −0.18 [−0.79, +0.43] on
+`corr_dense_1h`. That is the shape of its fresh h24 cell above: positive on the
+fresh window, flat across the history.
+
+**Pre-registered for the next snapshot** (fetched after 2026-09-24; only ideas
+after the v3 snapshots' last bar count; majors and alts pooled):
+
+1. `momentum_confluence`, in favour at bar 12, excess from bar 12 to 48:
+   `continuation --from 12 --to 48 --signal momentum_confluence`, the
+   "in favour at bar 12" row.
+2. `volume_spike`, in favour at bar 4, excess from bar 4 to 48:
+   `continuation --from 4 --to 48 --signal volume_spike`, the "in favour at
+   bar 4" row.
+
+Each holds only if its own 95% interval is wholly above zero. Two cells make
+one clearing zero by chance about twice as likely as one, so a single hold is
+recorded as a hold on one of two looks. Until a cell holds, its hold limit
+stays where it is.
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the
