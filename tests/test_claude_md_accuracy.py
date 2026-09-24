@@ -886,6 +886,39 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
     assert f"yield_commands.py:{stake_def}" in income
     assert "yield_commands.py:199" not in income
 
+    # The same derivation for `scan_commands.py`, and the reason is the same
+    # one found twice: a slice added module-level helpers above these
+    # handlers, one citation was re-pointed and five were not, so /swing
+    # cited `return False`, /scalp an unrelated send, /token a line inside
+    # `_cmd_research`, and the /research citation a string literal rather than
+    # the `fetch_research` call. None landed on a blank line, so the probe
+    # below could see none of them; each is derived from what its sentence
+    # names now, and the next insertion above them fails here.
+    scan = _lines("bot/skills/scan_commands.py")
+    swing, = _defs(scan, "_cmd_swing")
+    scalp, = _defs(scan, "_cmd_scalp")
+    token, = _defs(scan, "_cmd_token")
+    stockscan, = _defs(scan, "_cmd_stockscan")
+    assert scan[token - 2].strip() == '@guard("token")', repr(scan[token - 2])
+    fetch = [i + 1 for i, ln in enumerate(scan) if "fetch_research" in ln
+             and "_cmd_" not in ln]
+    session = [i + 1 for i, ln in enumerate(scan)
+               if "from bot.core.stock_trading import get_market_session" in ln]
+    handler = _lines("bot/skills/telegram_handler.py")
+    registered = [i + 1 for i, ln in enumerate(handler)
+                  if '("stockscan", self._cmd_stockscan)' in ln]
+    assert len(fetch) == 2 and fetch[1] == fetch[0] + 1, fetch
+    assert len(registered) == 1, registered
+    flat = re.sub(r"\s+", " ", income)
+    for cited in (f"/swing (scan_commands.py:{swing})",
+                  f"/scalp (scan_commands.py:{scalp})",
+                  f"web_data_pull.fetch_research — scan_commands.py:{fetch[0]}-{fetch[1]}",
+                  f"/token (scan_commands.py:{token}, @guard('token')",
+                  f"scan_commands.py:{stockscan}, registered "
+                  f"telegram_handler.py:{registered[0]})",
+                  f"(get_market_session) and scan_commands.py:{session[-1]}."):
+        assert flat.count(cited) == 1, cited
+
     # And no citation anywhere in the map lands on a blank line -- the one
     # probe that found both of the originals.
     for m in re.finditer(r"([\w/]+\.py):(\d+)", income):

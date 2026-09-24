@@ -5828,6 +5828,42 @@ filter, and `setdefault(...) is None` on a key the call had just set, which
 answered False: a mutation that cannot change behaviour is not evidence about
 the guard.
 
+**THE CARD OFFERED LEVELS AND SAID NOTHING ABOUT WHAT THEY HAD PAID.** A
+confirmed `/pocretest` read prints an entry, a stop, a target and a verdict
+that the levels clear the R floor. The replay above says the same read, at
+every closed bar of seventeen months, averaged +0.03R a setup after fees with
+an interval straddling zero, and −0.39R on the later window. That lived in a
+document. A figure typed into a card is the parity card's retracted benchmark
+again, so `scripts/poc_retest_replay.py record` writes
+`benchmark/poc_retest/result.json` and `bot/core/poc_retest_history.py` reads
+it. `/pocretest` prints it under a confirmed read and `/pocshadow` under the
+record. The reading has four states: `read`, `none`, `unreadable`, and
+`other_params`. The last one is a true measurement of a different setup: the
+file records the parameters and fee rates each window was measured at, and a
+0.10 ATR buffer says nothing about a read at 0.25. Every snapshot is pinned by
+its manifest hash, the verdict word is re-derived from the window's own count
+and interval by the one rule the writer used, and the page's figures are
+checked against the file's.
+
+**Forty-five mutations, each killed; the two that survived a first round were
+one real gap and one corpus gap.** The reader accepted an interval without the
+count of week clusters it was drawn over, so a hand-edited file could print a
+verdict whose interval the card cannot show. Both are now required together.
+The writer deciding the word from the ARMED count instead of the scored one
+survived because every fixture triggered every setup; nine scored setups
+beside nine that never triggered is the input that separates them.
+
+**A remap carries a citation to what it pointed at, right or wrong.** Five
+`scan_commands.py` citations in the map had pointed at the wrong lines since a
+slice added helpers above them and re-pointed one: `/swing` at `return False`,
+`/scalp` at an unrelated send, `/token` at a line inside `_cmd_research`. None
+landed on a blank line, so the probe could not see them, and this slice's
+difflib remap would have carried each one faithfully forward. Each is derived
+from what its sentence names now, in `tests/test_claude_md_accuracy.py`,
+and so is the `/stockscan` registration, which was one line short in
+`telegram_handler.py`.
+(`tests/test_the_poc_retest_card_reads_its_replayed_history.py`.)
+
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -10958,7 +10994,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **430 of 1030** reach for source text through `source_scan`, `code_only`
+Driven, **430 of 1031** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 430 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
