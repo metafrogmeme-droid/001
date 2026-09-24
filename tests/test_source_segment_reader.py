@@ -90,7 +90,13 @@ class TestItAgreesWithTheStdlib:
         # end of the file rather than stopping at the top.
         assert len(sampled) >= self.MIN_COMPARISONS, (
             f"only compared {len(sampled)} nodes in {rel}")
-        assert sampled[-1].lineno > nodes[-1].lineno * 0.8, (
+        # The DEEPEST line sampled, against the deepest line there is.
+        # `ast.walk` is breadth-first, so the last node in walk order sits on
+        # an arbitrary line: comparing `sampled[-1]` with `nodes[-1]` passed
+        # or failed on where the stride happened to land, and adding lines to
+        # live_executor.py moved it to line 5418 of 12835 over a sample that
+        # reached line 12816.
+        assert max(n.lineno for n in sampled) > max(n.lineno for n in nodes) * 0.8, (
             "the sample never reached the bottom of the file"
         )
 
