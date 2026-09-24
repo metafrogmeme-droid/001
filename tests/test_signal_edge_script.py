@@ -333,16 +333,21 @@ def test_the_voters_cli_refuses_a_level_that_is_not_a_coverage(tmp_path, capsys)
 # ── collect's taps, driven with a stand-in analyzer and planted bars ─────
 
 
-def test_collect_records_every_calls_electorate(monkeypatch):
+def _planted_run(monkeypatch):
+    """A stand-in analyzer over planted bars, run by a stand-in runner.
+
+    Each scoring plants a different `rsi` vote (its own sequence number), so
+    which reading of a twice-analysed bar was kept is visible. The closes rise
+    to bar 50 and fall after it, so the drift measured from one bar differs
+    from the drift measured from another."""
     import asyncio
     from datetime import timezone
 
     from bot.backtest import runner, snapshot
     from bot.core.analyzer import Analyzer
-    from bot.risk import risk_engine as rk
 
     t0 = datetime(2026, 1, 5, tzinfo=timezone.utc)   # a Monday
-    closes = [100.0 + k for k in range(80)]
+    closes = [100.0 + k if k <= 50 else 150.0 - 2.0 * (k - 50) for k in range(80)]
     bars = []
     prev = closes[0]
     for k, c in enumerate(closes):
@@ -351,11 +356,13 @@ def test_collect_records_every_calls_electorate(monkeypatch):
         prev = c
     monkeypatch.setattr(snapshot, "load_dataset", lambda _d: {"S": bars})
 
-    planted = [("rsi", 1.0, 1.5), ("macd", 0.0, 1.0), ("vwap", -0.5, 0.0), ("ema", -1.0, 1.0)]
+    scorings = [0]
 
     def fake_score(*_a, breakdown=None, **_k):
+        scorings[0] += 1
         if breakdown is not None:
-            breakdown.extend(planted)
+            breakdown.extend([("rsi", float(scorings[0]), 1.5), ("macd", 0.0, 1.0),
+                              ("vwap", -0.5, 0.0), ("ema", -1.0, 1.0)])
         return 0.5
 
     async def fake_analyze(self, signal, candles, *a, **k):
@@ -368,7 +375,6 @@ def test_collect_records_every_calls_electorate(monkeypatch):
 
     monkeypatch.setattr(Analyzer, "_score_confluence", staticmethod(fake_score))
     monkeypatch.setattr(Analyzer, "analyze", fake_analyze)
-    real_score = Analyzer._score_confluence
 
     def fake_main():
         async def go():
@@ -378,6 +384,15 @@ def test_collect_records_every_calls_electorate(monkeypatch):
         asyncio.run(go())
 
     monkeypatch.setattr(runner, "main", fake_main)
+    return bars, fake_analyze
+
+
+def test_collect_records_every_calls_electorate(monkeypatch):
+    from bot.core.analyzer import Analyzer
+    from bot.risk import risk_engine as rk
+
+    bars, fake_analyze = _planted_run(monkeypatch)
+    real_score = Analyzer._score_confluence
     data = se.collect("somewhere/planted")
     assert Analyzer._score_confluence is real_score        # restored
     assert Analyzer.analyze is fake_analyze
@@ -386,13 +401,66 @@ def test_collect_records_every_calls_electorate(monkeypatch):
     calls = {c["i"]: c for c in data["calls"]}
     assert sorted(calls) == [20, 30]
     # the caller's own earlier entry is not this call's vote, an abstention
-    # (0) and a voter with no weight cast no vote
+    # (0) and a voter with no weight cast no vote; and a bar analysed twice
+    # keeps its FIRST reading (scoring 1), not a later one
     assert calls[20]["votes"] == {"rsi": 1.0, "ema": -1.0}
+    assert calls[30]["votes"] == {"rsi": 5.0, "ema": -1.0}
     # every scoring after a bar's first is a repeat: bar 20 was analysed twice
     # and scored twice each time (3), bar 30 scored twice once (1)
     assert data["calls_repeated"] == 4
     assert calls[20]["moves"][24] == pytest.approx(24 / 3.0)   # +24 over ATR 3
     assert calls[20]["week"] == ["planted", 2026, 2]
+    # with no `since`, the drift is measured from the first call
+    assert data["calls_unconditional"] == se.unconditional({"S": bars}, bars[20].timestamp)
 
+
+def test_since_drops_earlier_calls_and_measures_the_drift_from_it(monkeypatch):
+    bars, _ = _planted_run(monkeypatch)
     later = se.collect("somewhere/planted", since=bars[25].timestamp)
     assert [c["i"] for c in later["calls"]] == [30]
+    # the drift the fresh calls are read against starts where they do; the
+    # fixture's kink makes that a different number from the first call's
+    from_since = se.unconditional({"S": bars}, bars[25].timestamp)
+    assert from_since != se.unconditional({"S": bars}, bars[20].timestamp)
+    assert later["calls_unconditional"] == from_since
+    assert later["since"] == bars[25].timestamp.isoformat()
+
+
+def test_the_cli_reads_a_naive_since_as_utc(monkeypatch, tmp_path, capsys):
+    bars, _ = _planted_run(monkeypatch)
+    out = tmp_path / "planted.json"
+    naive = bars[25].timestamp.replace(tzinfo=None).isoformat()
+    assert se.main(["collect", "--dataset", "somewhere/planted", "--out", str(out),
+                    "--since", naive]) == 0
+    data = json.loads(out.read_text())
+    assert data["since"] == bars[25].timestamp.isoformat()     # +00:00, not naive
+    assert [c["i"] for c in data["calls"]] == [30]
+    assert "1 analyzer calls measured" in capsys.readouterr().out
+
+
+def test_the_votes_column_counts_calls_with_the_24_bar_move(tmp_path):
+    # four weeks carry every horizon, two carry only the first bar: the
+    # column is the h24 count, not a count of every horizon's cells
+    calls = [_call({"v": 1.0}, {str(h): 1.0 + 0.1 * w for h in se.HORIZONS}, week=w, ds="a")
+             for w in range(6)]
+    calls += [_call({"v": 1.0}, {"1": 1.0}, week=w, ds="a") for w in range(2)]
+    a = _voter_file(tmp_path, "a", calls)
+    line = next(ln for ln in se.voters_report([a]).splitlines() if ln.startswith("v "))
+    assert line.split()[1] == "6"
+
+
+def _cell_bounds(report: str, voter: str) -> tuple[float, float]:
+    import re
+    line = next(ln for ln in report.splitlines() if ln.startswith(voter + " "))
+    cells = re.findall(r"([+-]\d\.\d\d) \[([+-]\d\.\d\d),([+-]\d\.\d\d)\]", line)
+    h24 = cells[list(se.HORIZONS).index(24)]
+    return float(h24[1]), float(h24[2])
+
+
+def test_the_voters_level_widens_every_cell_not_only_the_header(tmp_path):
+    calls = [_call({"v": 1.0}, {str(h): 0.3 * w - 1.0 for h in se.HORIZONS}, week=w, ds="a")
+             for w in range(12)]
+    a = _voter_file(tmp_path, "a", calls)
+    lo95, hi95 = _cell_bounds(se.voters_report([a], level=0.95), "v")
+    lo99, hi99 = _cell_bounds(se.voters_report([a], level=0.99), "v")
+    assert lo99 < lo95 and hi99 > hi95

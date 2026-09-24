@@ -938,6 +938,76 @@ one clearing zero by chance about twice as likely as one, so a single hold is
 recorded as a hold on one of two looks. Until a cell holds, its hold limit
 stays where it is.
 
+### Does any single voter predict price? (2026-09-24) — no
+
+The direction is the sign of a weighted vote over 37 voters, so a direction
+with no edge has two readings: no voter carries one, or informative voters
+cancel each other out. `signal_edge.py collect` now also records every voter's
+vote on every analyzer call (the breakdown `_score_confluence` already emits; a
+voter that abstained or carried no weight cast no vote), and
+`signal_edge.py voters` scores each voter as though it alone had set the
+direction: the move over h bars the way it voted, in ATR, minus that
+direction's unconditional drift. Every analyzer call counts, not only the ones
+that became ideas. The interval is a bootstrap over (snapshot, ISO week)
+clusters rather than (symbol, week), because one voter votes on eight or ten
+correlated symbols in the same bar. This is a voter's own predictive content, which is a
+different question from its contribution to the blend (the drop-one ablation in
+`docs/VOTER_ABLATION_2026-07-03.md`).
+
+The rule was written down before any per-voter number was printed. A voter is
+a candidate when its pooled 24-bar interval on the two disjoint v2 snapshots
+excludes zero and both snapshots' own means share its sign. With k candidates,
+each holds only if its pooled interval on the fresh v3 calls (after
+2026-07-06T09:00Z, drift measured from then), at level 1 − 0.05/k, lies wholly
+on the side discovery predicted. Two voters qualified (k = 2, level 97.5%):
+
+| voter, h24 excess ATR | discovery, v2 (32,400 calls) | votes | fresh, v3 (8,073 calls) | votes | holds? |
+|---|---:|---:|---:|---:|---|
+| `mtf_choch` (predicted positive) | +0.38 [+0.09, +0.64] | 3,705 | −0.40 [−0.89, +0.21] | 806 | no; the sign reversed on both universes (−0.41, −0.38) |
+| `harmonic` (predicted negative) | −0.72 [−1.36, −0.13] | 416 | +0.05 [−1.72, +1.53] | 81 | no |
+
+**Neither holds.** Two of 37 voters clearing zero at 95% is what chance
+produces (37 × 0.05 ≈ 1.9), and that is what discovery found. (The working note
+says 38 voters; the recorded calls hold 37, which changes neither k nor the
+test level.) The other 35 discovery intervals all include zero, and 34 of the
+37 means sit within ±0.12 ATR. So the finding above is not informative voters
+cancelling each other out: no voter, read alone, has a direction that
+replicates.
+
+**The fresh window, read after the test, is a regime and not a lead.** On the
+v3 calls the trend-following voters lean positive together (`taker` +0.55
+[+0.01, +1.09], `macd` +0.37 [+0.09, +0.66], `keltner` +0.34 [+0.09, +0.63],
+`donchian` +0.57 [−0.02, +1.25]) and the mean-reversion voters lean negative
+together (`bb_pct_b` −0.55 [−1.24, +0.08], `fibonacci` −0.49, `rsi` −0.43,
+`vwap_bands` −0.41). Across the 17 months of v2 every one of them sat within
+±0.12 ATR (`taker` +0.06, `macd` −0.02, `keltner` +0.04, `donchian` −0.12,
+`bb_pct_b` +0.01, `rsi` +0.04). Trend followers winning as a family while
+faders lose as a family is what a trending window looks like; three of 37
+clearing zero is again the chance count.
+
+**Pre-registered for the next snapshot**, by the same discovery rule applied to
+v3: `taker`, `macd` and `keltner` (k = 3; each snapshot's own mean shares the
+pooled sign). On a snapshot fetched after 2026-09-24, with only calls after the
+v3 snapshots' last bar, each holds only if its pooled 24-bar interval at
+98.33% (`voters --level 0.9833`) is wholly above zero. A hold on a window that
+trends as this one did would be the same regime, so it is read beside that
+window's own idea-level excess. Nothing in the analyzer changes on this
+evidence.
+
+```bash
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/signal_edge.py collect \
+    --dataset benchmark/majors_1h_v2 --out v_majors_1h_v2.json
+RUNECLAW_STATE_DIR=$(mktemp -d) python scripts/signal_edge.py collect \
+    --dataset benchmark/majors_1h_v3 --since 2026-07-06T09:00:00+00:00 \
+    --out v_majors_1h_v3.json
+python scripts/signal_edge.py voters v_majors_1h_v2.json v_alts_1h_v2.json
+python scripts/signal_edge.py voters --level 0.975 --voters mtf_choch,harmonic \
+    v_majors_1h_v3.json v_alts_1h_v3.json
+```
+
+Recording the votes does not change what the analyzer decides: the fresh v3
+run placed the same 2,034 ideas as the run in the section above.
+
 ### The benchmark fills every idea at a price live never pays
 
 Every one of the benchmark's 110 fills on `majors_1h` is a **limit** idea (the
