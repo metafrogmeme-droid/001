@@ -527,11 +527,11 @@ def detect_squeeze(
     bb_ma = bb_ma[-min(len(bb_ma), lookback):]
 
     # Calculate rolling std
-    bb_stds = []
+    stds: list[float] = []
     for i in range(bb_period - 1, len(c)):
         window = c[i - bb_period + 1:i + 1]
-        bb_stds.append(float(np.std(window)))
-    bb_stds = np.array(bb_stds[-len(bb_ma):])
+        stds.append(float(np.std(window)))
+    bb_stds = np.array(stds[-len(bb_ma):])
 
     bb_upper = bb_ma + bb_std * bb_stds
     bb_lower = bb_ma - bb_std * bb_stds

@@ -140,7 +140,7 @@ off by default.
 between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
-for it in that file. The real readers are bot/core/analyzer.py:1848-1857
+for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
 bot/core/live_executor.py:5891 (…
 

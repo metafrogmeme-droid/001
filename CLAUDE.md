@@ -7582,6 +7582,36 @@ Twenty-five mutations; the survivor tried the regime tier before the setup's
 own, and no fixture had a setup with enough trades of its own and peers that
 disagreed. (`tests/test_a_setups_record_is_its_net_r_per_trade.py`.)
 
+**AND THE NUDGE RAISED CONFIDENCE ON SETUPS WHOSE RECORD SAID NOT TO.** A
+win-count nudge on a 70%-winning setup that lost money per trade pushed that
+setup's confidence UP, which is the opposite of what "let the bot's own track
+record nudge confidence" means. Each sample carries its net P&L now, and an
+up-nudge is withheld when the tier it came from did not make money per trade
+(`Nudge.withheld_net`, audited as `WITHHELD`); a down-nudge stands, so the
+change can only remove a boost. Measured on the frozen benchmark, fitted on
+each snapshot's earlier half: the withheld boosts averaged -2.50 a trade
+afterwards (86 trades) against -0.82 for the kept ones (214), with
+overlapping intervals and one snapshot the other way, so the case is the
+definition and the direction of the evidence, not its strength. Carrying the
+P&L as a fifth field would have emptied the readiness card's out-of-sample
+test in silence, because `validate_oos` kept only four-field samples; a test
+drives the card's verdict to see its trades. Eleven mutations; the survivor
+was the analyzer's audit, found by NAME by the guard, so
+`False and _n.withheld_net is not None` passed it with the audit dead.
+(`tests/test_the_nudge_needs_a_setup_that_made_money.py`.)
+
+**TWO GATES FAILED THE FIRST FULL RUN OF THIS BRANCH, AND NEITHER WAS A
+REGRESSION IN WHAT THEY GUARD.** The strict mypy gate on the money modules
+follows imports, and `live_executor` importing `time_exits` brought
+`smart_exits` into its closure with three old type errors in the squeeze
+detector; they are fixed rather than excluded, and the whole-tree baseline
+fell by three. And `test_source_segment_reader` asserted the sample "reached
+the bottom of the file" by comparing the LAST node in `ast.walk` order, which
+is breadth-first, so it sat on an arbitrary line: adding lines to
+`live_executor.py` moved it to line 5418 of 12835 over a sample that reached
+12816. It compares the deepest line sampled now, and still fails for a sample
+confined to the top.
+
 
 **THE PARITY CARD COMPARED LIVE AGAINST A BENCHMARK ITS OWN DOCUMENT HAD
 RETRACTED TWICE, AND ASKED A QUESTION IT HELD THE NUMBERS TO ANSWER.** `/parity`
@@ -10880,7 +10910,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **430 of 1028** reach for source text through `source_scan`, `code_only`
+Driven, **430 of 1029** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 430 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

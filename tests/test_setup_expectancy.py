@@ -75,7 +75,11 @@ def test_samples_from_decisions():
     decisions = [D("SOL", "RANGE", "LONG", 5.0), D("BTC", "TREND_UP", "SHORT", -2.0),
                  D("ETH", "RANGE", "LONG", None)]   # incomplete -> excluded
     samples = SetupExpectancy.samples_from_decisions(decisions)
-    assert samples == [("SOL", "RANGE", "LONG", True), ("BTC", "TREND_UP", "SHORT", False)]
+    # The net P&L rides on each sample, so the nudge can refuse to raise the
+    # confidence of a setup that lost money (test_the_nudge_needs_a_setup_
+    # that_made_money.py).
+    assert samples == [("SOL", "RANGE", "LONG", True, 5.0),
+                       ("BTC", "TREND_UP", "SHORT", False, -2.0)]
 
 
 def test_not_ready_when_empty():
