@@ -87,7 +87,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
 only mode" (trading_commands.py:1013, :1022), and a tree-wide grep finds no spot
-create_order in bot/ at all (venues.py:276 sets defaultType 'spot' only for
+create_order in bot/ at all (venues.py:283 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2195-2196), trailing ENABLED at 1.5 ATR
 (:2197-2198), a 48h time-close with a 12h warn (:2199-2200), min confidence
 0.50 (:2214), max risk 2% (:2220) — every one distinct from the scalp row
-above it. skill_registry.py:1966 reads those multipliers when it builds the
+above it. skill_registry.py:1986 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1045) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2481) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2501) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,13 +136,13 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1966 is a blank line
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1986 is a blank line
 between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:6598 (the per-strategy trailing switch read at the fill).
+bot/core/live_executor.py:6623 (the per-strategy trailing switch read at the fill).
 
 **Scalping** — **shipped**
 
@@ -153,9 +153,9 @@ time-close with a 1h warn (:2183-2184), min confidence 0.65 (:2212), max risk
 of movement; config.py:1601 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1011) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2464); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2484); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1930) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1950) as a
 tighten-only veto on that user's own confirms (trading_commands.py:411); /run
 scalp and /fullscan scalp are the other two.
 
@@ -167,16 +167,16 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5506 creates the entry order idempotently, :7000/:7417 attach
+live_executor.py:5531 creates the entry order idempotently, :7025/:7466 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:1907, :1923, :2050); venues.py:276 selects the swap
+productType USDT-FUTURES (:1935, :1951, :2078); venues.py:283 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1070); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
-Autonomously: engine.py:5724-5782 confirms and executes any idea at or above
+Autonomously: engine.py:5738-5796 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,7 +280,7 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6582) — its
+(engine.py:6596) — its
 result is handed to analyzer.analyze at :6719 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
@@ -347,14 +347,15 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:235) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5724-5782
+trade gate whose whole enforcing set /enforcing lists. engine.py:5738-5796
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2454) with no human in the loop, adaptively moved by
-realized win rate (engine.py:5681) and suppressible in live mode. Operators tune it
+realized win rate (engine.py:5695) of the PAPER book, which no live fill writes,
+so in live mode it never moves; suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1914) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:1934) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:30, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -1428,7 +1429,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7364-7401
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7378-7415
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1728,7 +1729,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1293, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7911
+bot/core/stock_trading.py, also read by bot/core/engine.py:7925
 (get_market_session) and scan_commands.py:375.
 
 **Price alerts and anomaly-alert scoping**
@@ -2464,7 +2465,7 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:926`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:940`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2643`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:674`). Every handler guards its own read and has an

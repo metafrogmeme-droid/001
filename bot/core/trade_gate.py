@@ -101,7 +101,7 @@ class _Unset:
     """Sentinel: the field could not be read."""
 
 
-def _risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
+def risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
     """The shared risk engine and the executing account's, deduped.
 
     The gate checks BOTH — a per-user breaker that trips does not open the
@@ -109,18 +109,45 @@ def _risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
     returns the shared engine itself, so identity-dedup keeps a single
     blockage from being reported twice. Identity, not equality: two distinct
     engines in the same state are two real accounts.
+
+    An engine that could not be read is yielded as ``None``. A ``risk_for``
+    that raised used to END the walk in silence, so the caller's own breaker
+    was simply not asked and the answer read as complete: "clear" about an
+    account nobody looked at.
     """
     seen: list[int] = []
     shared = _read(engine, "risk")
-    if shared is not _Unset and shared is not None:
+    if shared is _Unset:
+        yield None
+    elif shared is not None:
         seen.append(id(shared))
         yield shared
     try:
         own = engine.risk_for(str(user_id or ""))
     except Exception:
+        yield None
         return
     if own is not None and id(own) not in seen:
         yield own
+
+
+def caller_risk(engine: Any, user_id: str) -> Any:
+    """The RiskEngine whose ACCOUNT state (drawdown, streak) is this caller's.
+
+    ``engine.risk`` is the shared operator engine. Under per-user live a
+    linked user has their own (``risk_for``), and a card that reads the
+    shared one prints the operator's drawdown as the caller's. ``None`` when
+    it could not be read, never the shared engine in its place: that
+    fallback is the operator's book, shown to somebody else.
+    """
+    fn = getattr(engine, "risk_for", None)
+    if not callable(fn):
+        shared = _read(engine, "risk")
+        return None if shared is _Unset else shared
+    try:
+        return fn(str(user_id or ""))
+    except Exception:
+        return None
 
 
 def entry_gate(engine: Any, user_id: str = "", *,
@@ -164,7 +191,10 @@ def entry_gate(engine: Any, user_id: str = "", *,
         reasons.append("kill switch engaged")
 
     saw_a_risk_engine = False
-    for risk in _risk_engines(engine, user_id):
+    for risk in risk_engines(engine, user_id):
+        if risk is None:
+            unknown = True
+            continue
         saw_a_risk_engine = True
         blocked_by = _read(risk, "trading_blocked_by")
         if blocked_by is _Unset:

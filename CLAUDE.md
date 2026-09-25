@@ -10251,6 +10251,42 @@ market close, which is its own slice. Thirteen mutations: twelve killed, and a
 reset line no failed read could reach was deleted rather than pinned.
 (`tests/test_the_plan_listing_reaches_the_plan_table.py`.)
 
+**ONE /risk CARD SAID "CLEAR" ABOVE "BLOCKING NEW ENTRIES", AND BOTH WERE
+TRUE OF A DIFFERENT ACCOUNT.** Under per-user live a linked user has their own
+`RiskEngine` (`risk_for`), and `engine.risk` is the operator's. The `/risk`
+card read the caller's engine for its Gate line and the SHARED engine for two
+others. `skill_registry.entry_gate` read `engine.risk.trading_blocked_by`
+alone, and the drawdown gauge read `engine.risk.drawdown_status()`. Driven with
+the operator's book 8.7% below its peak and the caller's own breaker tripped on
+the daily loss, one card read *Circuit Breaker: CLEAR*, *Drawdown 8.7% / 10%*
+and *Gate: blocking new entries*. That contradiction is the tell. The
+pre-execute gate refuses on EITHER engine (`trade_gate.risk_engines`), so the
+breaker line reads both now, and the playbook's does too.
+
+**The same drawdown read was in five places**: /risk twice over, /portfolio,
+/daily_report and the status card. Each reads `trade_gate.caller_risk` now,
+which answers `None` for an engine it could not resolve. It never answers the
+shared engine in its place, because that fallback is the operator's book shown
+to somebody else. A rule walks `bot/skills` for any `engine.risk.drawdown_status()`
+and allows exactly one, `/drawdownlimit`, which is admin-only and sets the
+operator's cap. The scan skill's `cb = engine.risk.circuit_breaker_active` had
+no reader at all and is deleted; the ruff ratchet's unused-variable count fell
+by one.
+
+**Two more fell out of reading the walk.** `risk_engines` ENDED in silence
+when `risk_for` raised, so the gate answered "clear" about an account nobody
+had asked. An engine it could not read is `unknown` now. And `drawdown_status()`
+promises "the number the breaker ACTUALLY gates on". For a per-user engine the
+drawdown gate also halts on the person's drawdown across every venue, off one
+shared peak, when that is the larger. The reporter never read it, so a card
+showed a smaller figure than the one the gate halts on. It reads it now,
+tighten-only as the gate is, and names the source `person`.
+
+**Twenty-four mutations, each killed; the two that survived the first round
+were fixtures.** No test planted an engine whose shared `risk` read raises,
+and none drove the playbook card with the caller's own breaker tripped.
+(`tests/test_a_card_reads_the_callers_own_breaker_and_drawdown.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11542,7 +11578,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **434 of 1040** reach for source text through `source_scan`, `code_only`
+Driven, **434 of 1044** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 434 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

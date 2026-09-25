@@ -91,8 +91,9 @@ _CHART = "\U0001f4ca"     # chart (backtest)
 
 _BLOCKS = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"  # ▁▂▃▄▅▆▇█
 
-def entry_gate(engine) -> "str | None":
-    """Why entries are refused right now, "" if they are not, None if unread.
+def entry_gate(engine, user_id: str = "") -> "str | None":
+    """Why entries are refused for this caller right now, "" if they are not,
+    None if unread.
 
     `circuit_breaker_active` is the NARROW gate — daily loss / drawdown /
     streak / manual — and three cards printed it as "Circuit Breaker: CLEAR"
@@ -101,11 +102,27 @@ def entry_gate(engine) -> "str | None":
     what `trading_blocked_by` was added for; these cards had never been moved
     onto it. None (not "") on a raised read: an unreadable gate is not an
     open one.
+
+    It read `engine.risk` alone, the SHARED engine. Under per-user live a
+    caller's own breaker is a second engine, and the pre-execute gate refuses
+    on either (`trade_gate.risk_engines`), so /risk printed "Circuit Breaker:
+    CLEAR" off the operator's engine above "Gate: blocking new entries" off
+    the caller's. Both engines are read now, in the walk the gate uses.
     """
-    try:
-        return str(engine.risk.trading_blocked_by or "")
-    except Exception:
-        return None
+    from bot.core.trade_gate import risk_engines
+    unread = False
+    for risk in risk_engines(engine, user_id):
+        if risk is None:
+            unread = True
+            continue
+        try:
+            blocked = str(risk.trading_blocked_by or "")
+        except Exception:
+            unread = True
+            continue
+        if blocked:
+            return blocked
+    return None if unread else ""
 
 
 def gate_words(gate: "str | None") -> str:
@@ -962,7 +979,7 @@ class CheckRiskSkill(BaseSkill):
         _risk_for = getattr(engine, "risk_for", None)
         risk = _risk_for(user_id) if (user_id and callable(_risk_for)) else engine.risk
         cb = risk.circuit_breaker_active
-        gate = entry_gate(engine)
+        gate = entry_gate(engine, user_id)
         streak = risk.consecutive_losses
         cost = engine.cost.snapshot()
 
@@ -1039,8 +1056,11 @@ class CheckRiskSkill(BaseSkill):
         # status pane could therefore print "System Health 100%" beside its
         # own correct "TRIPPED (drawdown)".
         from bot.formatters.drawdown_card import resolve_display_drawdown
+        # The CALLER's engine: `engine.risk` is the operator's, and under
+        # per-user live the card printed the operator's drawdown beside this
+        # caller's equity.
         try:
-            _st = engine.risk.drawdown_status()
+            _st = risk.drawdown_status()
         except Exception:
             _st = None
         dd = resolve_display_drawdown(state.max_drawdown_pct, _st,
@@ -2728,7 +2748,6 @@ class ProScanSkill(BaseSkill):
         # ── Account Status ──
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        cb = engine.risk.circuit_breaker_active
         sim = mode_badge(mode_label())
 
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
@@ -3372,7 +3391,7 @@ class PlaybookSkill(BaseSkill):
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        gate = entry_gate(engine)
+        gate = entry_gate(engine, str(kwargs.get("user_id", "") or ""))
         sim = mode_badge(mode_label())
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 

@@ -109,7 +109,10 @@ def test_the_reading_comes_from_the_gate_not_the_paper_worst_ever():
     """
     block = SRC[SRC.index("_dd_now = None"):
                 SRC.index('"leverage_cap": CONFIG.exchange.default_leverage,')]
-    assert "drawdown_status()" in block, \
+    # The gate's reporter, of THIS caller's engine: `_caller_dd_status` is
+    # `caller_risk(engine, uid).drawdown_status()`. It read the shared
+    # engine's, which under per-user live is the operator's drawdown.
+    assert "_caller_dd_status(self.engine, user_id)" in block, \
         "the paper monotonic worst-ever is ~0 forever in live mode"
     assert '_st["drawdown_pct"]' in block
     assert '_st["effective_limit_pct"]' in block

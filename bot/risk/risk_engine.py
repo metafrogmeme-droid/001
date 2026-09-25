@@ -4350,12 +4350,21 @@ class RiskEngine:
                     / self._live_equity_peak
                 live_dd = max(0.0, live_dd)
             enforced = live_dd if live_dd is not None else paper_dd
+            source = "live" if live_dd is not None else "paper"
+            # A per-user engine gates on the PERSON's drawdown too, off one
+            # peak shared by every venue they trade, tighten-only (see the
+            # DRAWDOWN check). Reporting this venue's figure alone put a
+            # smaller number on the card than the one the gate halts on.
+            person_dd, _basis = self._person_drawdown_pct()
+            if person_dd is not None and person_dd > enforced:
+                enforced, source = person_dd, "person"
             return {
                 # The number the breaker ACTUALLY gates on, whichever mode.
                 "drawdown_pct": float(enforced),
-                "drawdown_source": "live" if live_dd is not None else "paper",
+                "drawdown_source": source,
                 "paper_drawdown_pct": paper_dd,
                 "live_drawdown_pct": live_dd,
+                "person_drawdown_pct": person_dd,
                 "live_equity_peak": (float(self._live_equity_peak)
                                      if self._live_equity_peak > 0 else None),
                 "max_drawdown_pct": float(state.max_drawdown_pct),
