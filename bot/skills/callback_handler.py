@@ -1682,6 +1682,11 @@ class CallbackHandler:
                           action="admin_gate", result="DENIED")
                     return
 
+            # The idea this button is for, read BEFORE the confirm pops it.
+            # Both uses below used to read `engine._last_confirmed_idea`, ONE
+            # slot for the whole engine, which any other confirm (the
+            # autonomous loop, another person) could overwrite in between.
+            confirming_idea = self.engine._pending_ideas.get(trade_id)
             try:
                 result = await self.engine.confirm_trade(trade_id, user_id=caller_uid or "")
             except Exception as exc:
@@ -1695,7 +1700,7 @@ class CallbackHandler:
             # ── Auto re-analyze on price drift ──
             # If price moved since analysis, rebuild the idea at current price and retry once
             if "price drifted" in result.lower() and "re-analyze" in result.lower():
-                original_idea = self.engine._last_confirmed_idea
+                original_idea = confirming_idea
                 if original_idea:
                     try:
                         await self._send(update,
@@ -1737,33 +1742,22 @@ class CallbackHandler:
                         audit(system_log, f"Auto re-analyze failed: {retry_exc}",
                               action="auto_reanalyze", result="ERROR")
 
-            # Detect failure. Route through the canonical classifier (the same
-            # one engine.confirm_trade and scan_skill's confirm callback use)
-            # rather than a third local prefix list — a previous drifted copy
-            # in scan_skill.py missed "EXECUTION BLOCKED:" (degraded-mode /
-            # reduce-only), which announced a blocked trade as "EXECUTED". This
-            # local list has the same gap (also missing "EXECUTION ABORTED",
-            # "REFUSED:", "Live execution blocked") and would reproduce that
-            # bug the first time this path hits one of those outcomes.
-            from bot.core.live_executor import execution_indicates_failure
-            _local_fail_markers = (
-                "Trade not found", "not found", "expired", "No pending",
-                "Trade REJECTED", "Trade HALTED", "Execution denied",
-            )
-            # Case-insensitive prefix check: catches both "Trade REJECTED" and
-            # "Trade rejected" (post-critique, manual reject, etc.)
-            result_lower = result.lower()
-            is_failure = (execution_indicates_failure(result)
-                          or any(result_lower.startswith(p.lower()) for p in _local_fail_markers))
-            if not is_failure:
+            # One reading of what the answer placed (`confirm_result`): the
+            # private prefix list here missed every refusal `confirm_trade`
+            # writes without "REJECTED" -- the chosen-strategy refusal, the
+            # duplicate skip, paper-disabled, the practice cooldown -- and
+            # each was announced "✅ executed" and posted publicly.
+            from bot.core.confirm_result import held_on_operator_book, placed_nothing
+            if not placed_nothing(result):
                 msg = f"\u2705 {t('trade_executed_ok', self._lang(update))}\n\n{result}"
-                # Forward trade open to marketing channels
-                idea = self.engine._pending_ideas.get(trade_id) or self.engine._last_confirmed_idea
-                if idea:
-                    can_live = self._can_trade_live(caller_uid or "")
-                    _mode = "LIVE" if can_live and not CONFIG.simulation_mode else "PAPER"
+                # The public channels carry the AGENT's book, so the post is
+                # made when the operator's executor now holds this trade -- a
+                # measurement, which a person's own account, a practice fill
+                # and any refusal all fail whatever the answer's wording. It is
+                # LIVE by construction: nothing else lands on that book.
+                if confirming_idea is not None and held_on_operator_book(self.engine, trade_id):
                     try:
-                        await self.forwarder.post_trade_opened(idea, mode=_mode)
+                        await self.forwarder.post_trade_opened(confirming_idea, mode="LIVE")
                     except Exception:
                         pass
             else:

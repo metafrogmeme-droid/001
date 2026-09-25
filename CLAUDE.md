@@ -10017,6 +10017,50 @@ people's analyses of the same asset still share the analyze dedup: one
 person's "analyze BTC" can replace another's pending BTC card.
 (`tests/test_a_persons_pending_idea_is_not_the_engines.py`.)
 
+**A REFUSAL WAS ANNOUNCED "✅ EXECUTED" AND POSTED PUBLICLY AS A TRADE.**
+`confirm_trade` answers with a sentence, and the Confirm button decided from a
+private prefix list whether to say "✅ Trade executed" and post the idea to the
+marketing channels as a TRADE OPENED under the RUNECLAW name. The list knew
+"Trade REJECTED" and missed every refusal `confirm_trade` writes without it.
+Driven, each of these was announced as a trade and posted:
+
+- the person's chosen strategy refusing the idea (🛡),
+- the duplicate skip (⏭️ "already have an open/pending order"),
+- "⛔ Paper trading is disabled on this bot",
+- the practice fill's cooldown (⏸) and its failure.
+
+The scan card's confirm carried a second copy of the same list with the same
+gaps. `placed_nothing` in `bot/core/confirm_result.py` is the one reading now: the
+executor's own vocabulary (`execution_indicates_failure`) and then
+`confirm_trade`'s refusals. A test walks every literal answer `confirm_trade`,
+`_confirm_trade_inner` and `_simulate_paper_fill` can give, and every literal
+answer `LiveExecutor.execute` can give, and requires each to be read the right
+way, so a refusal added tomorrow fails there rather than in a person's chat.
+
+**The post was not limited to the agent's book either.** A person's trade on
+their OWN account was posted as RUNECLAW's, and so was a practice fill,
+labelled LIVE whenever the person held live authority. The close side stopped
+publishing per-user books in #19; this is the open side. The post is made now
+when the operator's executor holds the trade, which is a MEASUREMENT: the
+executor keys a new position by the idea's id, and a person's own account, a
+practice fill and every refusal leave it without that id, whatever the
+answer's wording. It is labelled LIVE because nothing else lands there. And
+the idea it posts is read before the confirm pops it. It used to be read from
+`_last_confirmed_idea`, one slot for the whole engine that any other confirm
+could overwrite in between; that slot had no other reader and is deleted.
+
+**Fifteen mutations killed, one equivalent.** Widening the practice-failure
+prefix to a bare ⚠️ changes no verdict, because no answer in the tree that
+placed something begins with ⚠️ (the filled card begins with the direction
+icon). The first round's survivor was a gap: no test fed an executor refusal
+through the reading, so dropping the executor's classifier from it changed
+nothing until `execute`'s own literal answers were walked both ways. Two
+invariants in `test_invariants.py` pinned the spelling
+`execution_indicates_failure` in each door and went red when the doors moved
+one hop out while the property held; they pin `placed_nothing` now, and that
+it asks the executor's classifier.
+(`tests/test_a_refusal_is_never_announced_as_a_trade.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11308,9 +11352,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **432 of 1037** reach for source text through `source_scan`, `code_only`
+Driven, **433 of 1038** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 432 is a FLOOR and the honest shape is
+source scan that rule does not see, so 433 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

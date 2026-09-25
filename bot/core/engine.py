@@ -877,7 +877,6 @@ class RuneClawEngine:
         # two overlapping auto-confirm cycles can't each pass the (analysis-time)
         # duplicate guard and place two orders for one setup (TOCTOU).
         self._symbol_entry_locks: dict[str, "asyncio.Lock"] = {}
-        self._last_confirmed_idea: Optional[TradeIdea] = None
         self._pending_atr: dict[str, Optional[float]] = {}  # H1: store ATR for re-check
         # Entry-timing (auto path): per-idea (allowed, reason) verdict from the
         # sub-degree confirmation gate, computed at analyze-time on the idea's own
@@ -7367,9 +7366,6 @@ class RuneClawEngine:
                           action="user_strategy_gate", result="REFUSED",
                           data={"trade_id": trade_id, "strategy": _skey})
                     return f"\U0001f6e1 {_g.get('reason', 'Refused by your chosen strategy.')}"
-
-        # Store for marketing forwarder access
-        self._last_confirmed_idea = idea
 
         # H1 fix: re-check with stored ATR so volatility guard runs
         stored_atr = self._pending_atr.get(trade_id, None)

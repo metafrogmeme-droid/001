@@ -144,11 +144,22 @@ class TestSingleExecutionFailureClassifier:
             src = _read(path)
             assert "_EXECUTION_FAILURE_TOKENS" not in src
 
+    # Both confirm doors read a confirm answer through `confirm_result`, whose
+    # `placed_nothing` asks this function and then `confirm_trade`'s own
+    # refusals. These pinned the literal name in each door, and went red the
+    # day the doors moved one hop out while the property held.
     def test_telegram_handler_uses_the_canonical_function(self):
-        assert "execution_indicates_failure" in _read(TELEGRAM_HANDLER)
+        assert "placed_nothing(" in _read(TELEGRAM_HANDLER)
 
     def test_scan_skill_uses_the_canonical_function(self):
-        assert "execution_indicates_failure" in _read(SCAN_SKILL)
+        assert "placed_nothing(" in _read(SCAN_SKILL)
+
+    def test_the_reading_asks_the_canonical_function(self):
+        import inspect
+
+        from bot.core import confirm_result
+        assert "execution_indicates_failure(result)" in inspect.getsource(
+            confirm_result.placed_nothing)
 
     def test_no_inline_reimplementation_of_the_token_list(self):
         """Regression: telegram_handler.py and scan_skill.py each used to
