@@ -192,7 +192,10 @@ async def test_broadcast_without_rpc_is_signed_only():
 def test_sign_handler_gates_and_never_returns_the_key():
     src = inspect.getsource(user_gateway.handle_web3_sign)
     assert "evaluate_sign(" in src        # testnet-only signing gate
-    assert "authorize(" in src            # envelope transfer gate
+    # The envelope gate is DRIVEN, not grepped: `"authorize(" in src` stood
+    # here while the handler asked the envelope about a client amount_usd and
+    # signed a different value_wei — 1000 ETH past a $1 cap, with the literal
+    # present the whole time. tests/test_a_sign_request_is_authorized_on_what_it_signs.py
     assert "_is_admin_id" in src          # admin re-check
     assert "get_review_queue" in src      # recorded to the review queue
     # the handler delegates signing to web3_signer and never touches the key.
@@ -405,6 +408,10 @@ def test_every_network_row_is_complete():
         assert not exp.endswith("/"), f"{name}: explorer has a trailing slash"
         assert isinstance(n.get("min_tx_gas"), int) and n["min_tx_gas"] > 0, \
             f"{name}: no positive min_tx_gas"
+        # The signer prices a transfer in this coin; an unnamed coin is an
+        # unpriceable transfer, refused rather than read as $0.
+        assert isinstance(n.get("native"), str) and n["native"].isupper(), \
+            f"{name}: no native coin"
 
 
 def test_ui_testnet_dropdown_matches_the_python_table():

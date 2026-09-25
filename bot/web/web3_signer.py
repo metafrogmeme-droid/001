@@ -52,7 +52,10 @@ def signing_enabled(env: Optional[dict] = None) -> bool:
     hard-refused here regardless of any flag. Explicit off wins: set
     WEB3_LIVE_EXEC_SIGN_ENABLED=0 to hard-disable signing."""
     import os
-    raw = str((env or os.environ).get("WEB3_LIVE_EXEC_SIGN_ENABLED", "")).strip().lower()
+    # `env if env is not None`, NOT `env or os.environ`: an empty dict is a
+    # caller saying "nothing is set", and `or` read it as "ask the process".
+    e = env if env is not None else os.environ
+    raw = str(e.get("WEB3_LIVE_EXEC_SIGN_ENABLED", "")).strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
@@ -63,7 +66,11 @@ def _resolve_key(env: Optional[dict] = None) -> str:
     caller. Only the sign/address helpers below may use it, and they never
     surface it."""
     import os
-    return str((env or os.environ).get(_SIGNER_KEY_ENV, "") or "").strip()
+    # An explicit `{}` means NO key. `env or os.environ` read it as the process
+    # environment, so `signer_key_present({})` answered True on any box whose
+    # environment held a key — the one question this module must not guess.
+    e = env if env is not None else os.environ
+    return str(e.get(_SIGNER_KEY_ENV, "") or "").strip()
 
 
 def signer_key_present(env: Optional[dict] = None) -> bool:
@@ -219,8 +226,8 @@ _SIGN_CHECKS = (
      "on-chain execution is not enabled by the operator (WEB3_LIVE_EXEC_ENABLED)"),
     ("is_admin", "on-chain signing is admin-only"),
     ("signing_enabled",
-     "live signing is not enabled — flip WEB3_LIVE_EXEC_SIGN_ENABLED (its own "
-     "default-OFF switch, separate from previews)"),
+     "live signing is switched off — WEB3_LIVE_EXEC_SIGN_ENABLED is set off (its "
+     "own switch, default ON, separate from previews); unset it or set it to 1"),
     ("testnet_only",
      "signing is TESTNET-ONLY in this slice — target a supported testnet "
      "(mainnet signing is a separate, later, separately-gated slice)"),
@@ -328,7 +335,8 @@ def rpc_url_for(network: str, env: Optional[dict] = None) -> str:
     WEB3_RPC_SEPOLIA, WEB3_RPC_BASE_SEPOLIA). Empty when not configured."""
     import os
     key = "WEB3_RPC_" + str(network or "").strip().upper().replace("-", "_")
-    return str((env or os.environ).get(key, "") or "").strip()
+    e = env if env is not None else os.environ
+    return str(e.get(key, "") or "").strip()
 
 
 async def _rpc_call(rpc_url: str, method: str, params: list) -> dict:

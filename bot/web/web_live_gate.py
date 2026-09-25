@@ -75,7 +75,8 @@ class WebLiveDecision:
 
 def feature_enabled(env: Optional[dict] = None) -> bool:
     """Operator master switch. Default OFF. Truthy = 1/true/yes/on."""
-    raw = (env or os.environ).get("WEB_LIVE_TRADING_ENABLED", "")
+    e = env if env is not None else os.environ     # `{}` means nothing set
+    raw = e.get("WEB_LIVE_TRADING_ENABLED", "")
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 

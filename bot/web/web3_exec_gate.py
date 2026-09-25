@@ -1,15 +1,14 @@
 """Web3 live-execution gate — the ONE decision for 'may this action touch chain'.
 
-RUNECLAW has NO on-chain execution infrastructure today (no signer, no on-chain
-key store, no swap/bridge/stake adapters — every web3 lib is read-only). Live
-on-chain execution is being built in careful, gated slices toward the operator's
-goal of full live signing and, eventually, autonomous auto-signing. THIS gate is
-the safety spine every slice runs through, from the very first preview to a
-future auto-signer.
+On-chain execution is built in gated slices. A TESTNET-ONLY signer ships
+(``bot/web/web3_signer``: native-value transfers and contract deploys, signed
+with the operator's key through the audited eth-account library); there are
+still no swap/bridge/stake adapters and no mainnet signing. THIS gate is the
+safety spine every slice runs through, from the preview to the signer.
 
-Slice 1 (current) produces a DRY-RUN PREVIEW ONLY — it never signs or broadcasts.
-But the gate already enforces the full fail-closed precondition set so the
-authorization surface is proven before any real transaction is ever sent:
+This module's own entry point (``evaluate``) decides the DRY-RUN PREVIEW — it
+never signs or broadcasts; the signer runs its own, stricter gate
+(``web3_signer.evaluate_sign``) over the same switches. The preconditions:
 
     1. feature_enabled     — operator master switch (env WEB3_LIVE_EXEC_ENABLED,
                              default ON, testnet-only). Set =0 to hard-disable.
@@ -19,8 +18,8 @@ authorization surface is proven before any real transaction is ever sent:
     3. network_ok          — the target network is known AND, unless the operator
                              explicitly allowed mainnet, it is a TESTNET (real
                              live testing starts on testnet — zero mainnet risk).
-    4. not_broadcast_yet   — this slice is preview-only; a real send is refused
-                             here until the signer slice ships behind this gate.
+    4. not_broadcast_yet   — the preview never sends; a real send is refused
+                             here and goes through the signer's own gate.
     5. envelope_enforcing  — a bound Authority Envelope in ENFORCE mode caps and
                              authorizes the action (notional, asset, destination)
                              and is revocable. No on-chain action — preview or
@@ -51,52 +50,57 @@ from typing import Optional
 # inheriting Ethereum's, because a substituted 21,000 would be a fabricated
 # number on a chain that meters differently.
 #
+# native: the chain's gas/value coin, which is what a native-value transfer
+# moves and so what the signer prices it in (``bot/web/onchain_value``). Every
+# row declares one: a transfer on a chain whose coin is unnamed cannot be
+# priced, and an unpriced transfer is refused rather than treated as $0.
+#
 # explorer: stored WITHOUT a trailing slash. Both link builders below rstrip it,
 # but the convention keeps the table readable and matches chainid.network.
 NETWORKS = {
     "sepolia": {"chain_id": 11155111, "testnet": True, "label": "Ethereum Sepolia",
-                "explorer": "https://sepolia.etherscan.io", "min_tx_gas": 21000},
+                "explorer": "https://sepolia.etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "base-sepolia": {"chain_id": 84532, "testnet": True, "label": "Base Sepolia",
-                     "explorer": "https://sepolia.basescan.org", "min_tx_gas": 21000},
+                     "explorer": "https://sepolia.basescan.org", "min_tx_gas": 21000, "native": "ETH"},
     "arbitrum-sepolia": {"chain_id": 421614, "testnet": True, "label": "Arbitrum Sepolia",
-                         "explorer": "https://sepolia.arbiscan.io", "min_tx_gas": 21000},
+                         "explorer": "https://sepolia.arbiscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "optimism-sepolia": {"chain_id": 11155420, "testnet": True, "label": "Optimism Sepolia",
-                         "explorer": "https://sepolia-optimism.etherscan.io", "min_tx_gas": 21000},
+                         "explorer": "https://sepolia-optimism.etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "polygon-amoy": {"chain_id": 80002, "testnet": True, "label": "Polygon Amoy",
-                     "explorer": "https://amoy.polygonscan.com", "min_tx_gas": 21000},
+                     "explorer": "https://amoy.polygonscan.com", "min_tx_gas": 21000, "native": "POL"},
     "avalanche-fuji": {"chain_id": 43113, "testnet": True, "label": "Avalanche Fuji",
-                       "explorer": "https://testnet.snowtrace.io", "min_tx_gas": 21000},
+                       "explorer": "https://testnet.snowtrace.io", "min_tx_gas": 21000, "native": "AVAX"},
     "scroll-sepolia": {"chain_id": 534351, "testnet": True, "label": "Scroll Sepolia",
-                       "explorer": "https://sepolia.scrollscan.com", "min_tx_gas": 21000},
+                       "explorer": "https://sepolia.scrollscan.com", "min_tx_gas": 21000, "native": "ETH"},
     "linea-sepolia": {"chain_id": 59141, "testnet": True, "label": "Linea Sepolia",
-                      "explorer": "https://sepolia.lineascan.build", "min_tx_gas": 21000},
+                      "explorer": "https://sepolia.lineascan.build", "min_tx_gas": 21000, "native": "ETH"},
     "blast-sepolia": {"chain_id": 168587773, "testnet": True, "label": "Blast Sepolia",
-                      "explorer": "https://sepolia.blastscan.io", "min_tx_gas": 21000},
+                      "explorer": "https://sepolia.blastscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "bsc-testnet": {"chain_id": 97, "testnet": True, "label": "BNB Smart Chain Testnet",
-                    "explorer": "https://testnet.bscscan.com", "min_tx_gas": 21000},
+                    "explorer": "https://testnet.bscscan.com", "min_tx_gas": 21000, "native": "BNB"},
     # MegaETH meters compute gas AND storage gas against the SINGLE gasLimit
     # field: a bare value transfer is 21,000 compute + 39,000 storage = 60,000.
     # The RPC rejects anything under that, so min_tx_gas here is NOT 21,000.
     # Its RPC host is "carrot", not "testnet.megaeth.com" — see .env.example.
     "megaeth-testnet": {"chain_id": 6343, "testnet": True, "label": "MegaETH Testnet",
-                        "explorer": "https://testnet-mega.etherscan.io", "min_tx_gas": 60000},
+                        "explorer": "https://testnet-mega.etherscan.io", "min_tx_gas": 60000, "native": "ETH"},
     "ethereum": {"chain_id": 1, "testnet": False, "label": "Ethereum",
-                 "explorer": "https://etherscan.io", "min_tx_gas": 21000},
+                 "explorer": "https://etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "base": {"chain_id": 8453, "testnet": False, "label": "Base",
-             "explorer": "https://basescan.org", "min_tx_gas": 21000},
+             "explorer": "https://basescan.org", "min_tx_gas": 21000, "native": "ETH"},
     "arbitrum": {"chain_id": 42161, "testnet": False, "label": "Arbitrum",
-                 "explorer": "https://arbiscan.io", "min_tx_gas": 21000},
+                 "explorer": "https://arbiscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "optimism": {"chain_id": 10, "testnet": False, "label": "Optimism",
-                 "explorer": "https://optimistic.etherscan.io", "min_tx_gas": 21000},
+                 "explorer": "https://optimistic.etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "polygon": {"chain_id": 137, "testnet": False, "label": "Polygon",
-                "explorer": "https://polygonscan.com", "min_tx_gas": 21000},
+                "explorer": "https://polygonscan.com", "min_tx_gas": 21000, "native": "POL"},
     # Mainnet — present so it is refused EXPLICITLY (a known chain behind the
     # mainnet flag) rather than incidentally (an unknown name, indistinguishable
     # from a typo). Blockscout over mega.etherscan.io: the Etherscan-branded
     # MegaETH hosts 403 every non-browser client, so a link check there cannot
     # tell "bot-blocked" from "misconfigured".
     "megaeth": {"chain_id": 4326, "testnet": False, "label": "MegaETH",
-                "explorer": "https://megaeth.blockscout.com", "min_tx_gas": 60000},
+                "explorer": "https://megaeth.blockscout.com", "min_tx_gas": 60000, "native": "ETH"},
 }
 
 
@@ -145,14 +149,15 @@ def explorer_address_url(network: str, address: str) -> str:
 
 _CHECKS = (
     ("feature_enabled",
-     "on-chain execution is not enabled by the operator yet (WEB3_LIVE_EXEC_ENABLED)"),
+     "on-chain execution is not enabled — the operator set WEB3_LIVE_EXEC_ENABLED "
+     "off (it defaults ON, testnet-only)"),
     ("is_admin", "on-chain execution is admin-only in this phase"),
     ("network_ok",
      "target a supported testnet (real live testing starts on testnet; mainnet "
      "is off unless the operator explicitly allows it)"),
     ("not_broadcast",
-     "this build is preview-only — signing and broadcast ship in a later, "
-     "separately-gated slice"),
+     "the execution preview never broadcasts — signing and broadcast go through "
+     "the separate, testnet-only signer"),
     ("envelope_enforcing",
      "bind an Authority Envelope in enforce mode — it caps and authorizes every "
      "on-chain action and is revocable at any time"),
@@ -175,7 +180,8 @@ def feature_enabled(env: Optional[dict] = None) -> bool:
     OFF), signing needs its own switch + operator key + eth-account, and every
     action runs through an enforce-mode Authority Envelope. Explicit off wins:
     set WEB3_LIVE_EXEC_ENABLED=0 to hard-disable."""
-    raw = str((env or os.environ).get("WEB3_LIVE_EXEC_ENABLED", "")).strip().lower()
+    e = env if env is not None else os.environ
+    raw = str(e.get("WEB3_LIVE_EXEC_ENABLED", "")).strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
@@ -185,7 +191,11 @@ def mainnet_allowed(env: Optional[dict] = None) -> bool:
     """Separate, explicit opt-in to leave testnet. Default OFF — testnet-first.
     Turning the feature/signing switches ON never changes this: mainnet stays
     refused unless this is deliberately set."""
-    raw = (env or os.environ).get("WEB3_LIVE_EXEC_ALLOW_MAINNET", "")
+    # An explicit `{}` is "nothing set" — `env or os.environ` read it as the
+    # process environment, so a caller asking about a clean slate was answered
+    # with whatever this box exported.
+    e = env if env is not None else os.environ
+    raw = e.get("WEB3_LIVE_EXEC_ALLOW_MAINNET", "")
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 

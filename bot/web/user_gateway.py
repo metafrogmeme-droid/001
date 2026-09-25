@@ -1594,9 +1594,10 @@ async def handle_contract_deploy(request: web.Request) -> web.Response:
     """Contract Studio slice 5 — admin-only, TESTNET-ONLY one-click deploy of a
     compiled contract's init bytecode. This is a contract-CREATION sign+broadcast
     (``to`` omitted, ``data`` = bytecode), run through the SAME fail-closed spine
-    as the value-transfer signer: triple-gated default-OFF (feature + signing +
-    key + eth-account library + an enforcing envelope), authorized through the
-    Authority Envelope as a ``deploy``, mainnet refused regardless of any flag.
+    as the value-transfer signer: the feature and signing switches (both default
+    ON, either set off hard-disables) + the operator's key + the eth-account
+    library + an enforcing envelope, authorized through the Authority Envelope
+    as a ``deploy``, mainnet refused regardless of any flag.
     NEVER returns or logs the signing key (F-15 on every error path)."""
     import time as _time
     tg_handler = request.app["tg_handler"]
@@ -4503,8 +4504,14 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 1 — admin-only, envelope-gated DRY-RUN PREVIEW of an
     on-chain action. It NEVER signs or broadcasts: it proves the full gate +
     Authority-Envelope authorization path and returns a preview (the way the
-    proof-of-PnL anchor dry-run does). Signing and broadcast ship in a later,
-    separately-gated slice — this handler must never call a signer or send a tx.
+    proof-of-PnL anchor dry-run does). Signing and broadcast go through the
+    separate, testnet-only signer (``handle_web3_sign``) — this handler must
+    never call a signer or send a tx.
+
+    Its notional is the CALLER's: a token swap's dollar size cannot be read here
+    without pricing arbitrary tokens, so the preview authorizes the figure it
+    was given and says so (``amount_basis``) rather than presenting it as a
+    reading. The day's spend IS read — from the one authority ledger.
 
     The on-chain action is authorized as a TRANSFER: value leaving the account to
     a destination, so the envelope must have withdraw_allowed AND the destination
@@ -4560,7 +4567,12 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
         auth_action = {"kind": "transfer",
                        "asset": action_in["to_token"] or action_in["from_token"],
                        "notional_usd": notional, "dest": action_in["dest"] or None}
-        result = authorize(env, auth_action, now_ts=_time.time(), spent_today_usd=0.0)
+        _now = _time.time()
+        try:
+            _spent: Optional[float] = _web_live_ledger().spent(tg_id, _now)
+        except Exception:
+            _spent = None           # refused by name under a daily cap, never 0
+        result = authorize(env, auth_action, now_ts=_now, spent_today_usd=_spent)
         if result.get("decision") != "allow":
             return web.json_response({"error": "authority_denied",
                                       "reasons": list(result.get("reasons") or ["not authorized"])},
@@ -4591,11 +4603,13 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
         "testnet": net.get("testnet"),
         "action": action_in,
         "envelope": {"id": env_id, "mode": (_store.mode(tg_id) if _store else "off")},
-        "estimate": {"note": "on-chain route quote + gas estimate arrive with the "
-                             "signer slice; this preview proves the gate + envelope path"},
-        "note": "Preview only — RUNECLAW did not sign or broadcast anything. Real "
-                "signing ships in a later, separately-gated, still admin-only, "
-                "still envelope-enforced slice.",
+        "estimate": {"note": "no on-chain route quote or gas estimate is made for a "
+                             "preview; this proves the gate + envelope path"},
+        "amount_basis": ("supplied by the caller — the preview did not price the "
+                         "tokens it names"),
+        "note": "Preview only — RUNECLAW did not sign or broadcast anything. "
+                "Native-value transfers are signed through the separate, "
+                "testnet-only signer, which prices what it signs itself.",
     })
 
 
@@ -4674,12 +4688,21 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
 
 async def handle_web3_sign(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 2 — admin-only, TESTNET-ONLY live SIGN + broadcast of
-    a native-value transfer to an envelope-allowlisted destination. Triple-gated
-    default-OFF (WEB3_LIVE_EXEC_ENABLED + WEB3_LIVE_EXEC_SIGN_ENABLED + a
-    configured signer key + the eth-account library + an enforcing envelope), and
-    still run through the Authority Envelope authorize() as a transfer. Mainnet is
-    refused here regardless of any flag. NEVER returns or logs the signing key;
-    F-15 on every error path."""
+    a native-value transfer to an envelope-allowlisted destination. Gated by
+    WEB3_LIVE_EXEC_ENABLED and WEB3_LIVE_EXEC_SIGN_ENABLED — both default ON,
+    either set off hard-disables — and, in practice, by what only the operator
+    can supply: a configured signer key, the eth-account library, and an
+    enforcing envelope. Mainnet is refused here regardless of any flag. NEVER
+    returns or logs the signing key; F-15 on every error path.
+
+    THE ENVELOPE IS ASKED ABOUT WHAT IS SIGNED. The notional is computed here
+    from the ``value_wei`` that goes into the transaction and a native-coin mark
+    this process reads (``onchain_value``); the asset is the network's own
+    coin. The wire's ``amount_usd`` and ``asset`` are IGNORED — they used to be
+    what was authorized, while a different ``value_wei`` was signed — and are
+    still accepted so an older client keeps working. The day's spend is read
+    from the one authority ledger and this transfer is recorded into it before
+    the signature is made."""
     import time as _time
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -4689,6 +4712,7 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     if not _is_admin_id(tg_handler, tg_id):
         return web.json_response({"error": "web3 signing is admin-only"}, status=403)
 
+    from bot.web import onchain_value as _value
     from bot.web import web3_signer as _signer
     network = str(body.get("network") or "sepolia")
     dest = str(body.get("to") or body.get("dest") or "").strip()
@@ -4706,17 +4730,50 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
         return web.json_response({"error": "web3_sign_denied", "reason": decision.reason,
                                   "checklist": decision.checklist}, status=403)
 
-    # 2) The Authority Envelope authorizes THIS outflow (transfer to dest).
+    # 2) What is signed, read before anything is authorized. `value_wei` is
+    #    REQUIRED — it used to be `int(body.get("value_wei") or 0)`, parsed only
+    #    AFTER the envelope had been asked about a different number.
     try:
-        notional = float(body.get("amount_usd")) if body.get("amount_usd") is not None else None
-    except (TypeError, ValueError):
-        notional = None
+        value_wei = int(body["value_wei"])
+        nonce = int(body.get("nonce"))
+    except (KeyError, TypeError, ValueError):
+        return web.json_response({"error": "value_wei and nonce are required integers"},
+                                 status=400)
+    if value_wei < 0:
+        return web.json_response({"error": "value_wei cannot be negative"}, status=400)
+    net = decision.network or {}
+    chain_id = net.get("chain_id")
+    native = _value.native_asset(network)
+    mark: Optional[float] = None
+    mark_why = ""
+    if value_wei > 0:
+        mark, mark_why = await _value.read_native_mark(request.app["engine"], native)
+    notional = _value.notional_usd(value_wei, mark)
+    if notional is None:
+        # Unpriced is refused BY NAME. It is never $0: $0 clears every cap.
+        return web.json_response(
+            {"error": "unpriced",
+             "reason": (f"{mark_why or 'this transfer could not be priced'} — its "
+                        "dollar size is unknown, so the authority envelope cannot "
+                        "be asked about it. Nothing was signed.")},
+            status=503)
+
+    # 3) The Authority Envelope authorizes THIS outflow — the value that is
+    #    signed, in the network's own coin, against the day's recorded spend.
+    now = _time.time()
+    try:
+        ledger = _web_live_ledger()
+        spent: Optional[float] = ledger.spent(tg_id, now)
+    except Exception:
+        ledger, spent = None, None
     try:
         from bot.guardian.authority import authorize
         env = _store.get(tg_id) if _store else None
-        result = authorize(env, {"kind": "transfer", "asset": str(body.get("asset") or "ETH"),
-                                 "notional_usd": notional, "dest": dest or None},
-                           now_ts=_time.time(), spent_today_usd=0.0)
+        result = authorize(env, {"kind": "transfer", "asset": native,
+                                 "notional_usd": notional, "dest": dest or None,
+                                 "value_wei": str(value_wei), "chain_id": chain_id,
+                                 "network": network},
+                           now_ts=now, spent_today_usd=spent)
         if result.get("decision") != "allow":
             return web.json_response({"error": "authority_denied",
                                       "reasons": list(result.get("reasons") or ["not authorized"])},
@@ -4725,13 +4782,7 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"error": "authority_check_failed"}, status=403)
 
-    # 3) Sign (audited eth-account) + broadcast to the configured testnet RPC.
-    try:
-        value_wei = int(body.get("value_wei") or 0)
-        nonce = int(body.get("nonce"))
-    except (TypeError, ValueError):
-        return web.json_response({"error": "value_wei and nonce are required integers"},
-                                 status=400)
+    # 4) Sign (audited eth-account) + broadcast to the configured testnet RPC.
     # Prefer the prepared EIP-1559 fees (from /web3/sign/prepare) when present; the
     # signer falls back to its safe defaults otherwise.
     #
@@ -4773,21 +4824,47 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
              "gas_supplied": int(_sign_kw["gas"]), "gas_required": int(_est)},
             status=400)
 
+    # The spend is recorded BEFORE the signature, keyed by what makes this
+    # transaction this transaction — an exact retry dedupes, a different value
+    # on the same nonce counts again. Recording on approval can only over-count
+    # (the ledger's own stated bias); a spend that cannot be recorded is not
+    # signed, because the next request would read a day without it.
+    if notional > 0:
+        try:
+            if ledger is None:
+                raise RuntimeError("authority ledger unavailable")
+            ledger.record(tg_id, notional, now,
+                          ref=f"web3:{chain_id}:{nonce}:{value_wei}:{dest.lower()}")
+        except Exception:
+            return web.json_response(
+                {"error": "spend_unrecorded",
+                 "reason": "this transfer could not be recorded against the "
+                           "day's spend under your authority. Nothing was signed."},
+                status=503)
+
     signed = _signer.build_and_sign(network=network, to=dest, value_wei=value_wei,
                                     nonce=nonce, **_sign_kw)
     if not signed.get("ok"):
         return web.json_response({"error": "sign_failed", "reason": signed.get("error")},
                                  status=400)
-    net = decision.network or {}
-    bcast = await _signer.broadcast(signed["raw"], _signer.rpc_url_for(network),
-                                    net.get("chain_id"))
+    bcast = await _signer.broadcast(signed["raw"], _signer.rpc_url_for(network), chain_id)
 
-    # 4) Record to the Guardian review queue (fail-safe — never blocks the send).
+    # 5) Record to the Guardian review queue (fail-safe — never blocks the send).
+    #    `amount_usd` is the bot's own reading now, beside the wei it came from.
+    if value_wei == 0:
+        amount_basis = "0 wei — no value moves, a measured $0"
+    else:
+        amount_basis = (f"value_wei × the {native} mark read by the bot"
+                        + (f"; {_value.TESTNET_PRICING}" if net.get("testnet") else ""))
     try:
         from bot.guardian.review_queue import get_review_queue
         get_review_queue().record({"user_id": tg_id, "kind": "web3_sign", "network": network,
                                    "action": {"side": "transfer", "to": dest,
-                                              "amount_usd": notional,
+                                              "asset": native, "chain_id": chain_id,
+                                              "value_wei": str(value_wei),
+                                              "amount_usd": round(notional, 2),
+                                              "mark_usd": mark,
+                                              "amount_basis": amount_basis,
                                               "tx_hash": signed.get("tx_hash"),
                                               "broadcast": bool(bcast.get("ok"))},
                                    "envelope_id": env_id, "ts": _time.time()})
@@ -4796,7 +4873,9 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
 
     audit(system_log, f"Web3 SIGN (admin) testnet {network} -> {dest[:10]}",
           action="web3_sign", result="OK" if bcast.get("ok") else "SIGNED",
-          data={"network": network, "broadcast": bool(bcast.get("ok"))})
+          data={"network": network, "chain_id": chain_id, "asset": native,
+                "value_wei": str(value_wei), "notional_usd": round(notional, 2),
+                "broadcast": bool(bcast.get("ok"))})
     _txh = bcast.get("tx_hash") or signed.get("tx_hash")
     from bot.web.web3_exec_gate import explorer_tx_url as _explorer_tx_url
     return web.json_response({
@@ -4812,6 +4891,10 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
         # network/hash can't build a valid link).
         "explorer_url": _explorer_tx_url(network, _txh) if bcast.get("ok") else "",
         "envelope": {"id": env_id},
+        "asset": native,
+        "value_wei": str(value_wei),
+        "notional_usd": round(notional, 2),
+        "amount_basis": amount_basis,
         "note": bcast.get("error") or "Signed and broadcast to testnet. Testnet-only in "
                 "this slice — mainnet signing is a separate, later, separately-gated slice.",
     })
