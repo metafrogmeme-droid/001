@@ -113,6 +113,7 @@ const probed = () => calls.some((c) => c[0] === 'GET' && String(c[1]).startsWith
 const REQUIRES_CODE = [
   ['a 200 saying live_allowed: true', () => ({ status: 200, data: { mode: 'LIVE', live_allowed: true } })],
   ['a 503', () => ({ status: 503, data: { error: 'unavailable' } })],
+  ['a 503 whose body says live_allowed: false', () => ({ status: 503, data: { live_allowed: false } })],
   ['a 500 with a JSON body', () => ({ status: 500, data: { error: 'boom' } })],
   ["the gateway's own 429", () => ({ status: 429, data: { error: 'rate_limited' } })],
   ['a 403', () => ({ status: 403, data: { error: 'not_authorized' } })],

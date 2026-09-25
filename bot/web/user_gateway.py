@@ -2140,9 +2140,9 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
 
 def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
     """None when this web id's live order would run on an account of its own,
-    else why not. FAIL-CLOSED: a resolver that raises, answers nothing, or
-    cannot be compared against the operator's executor is a refusal, because
-    "could not tell whose account" is not "the user's account".
+    else why not. FAIL-CLOSED: a resolver that raises or answers nothing is a
+    refusal, because "could not tell whose account" is not "the user's
+    account".
 
     The web live gate's premise is that the order runs on the user's OWN keys.
     `engine._executor_for` is what decides that, and with per-user live off --
@@ -2150,8 +2150,6 @@ def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
     `engine.live_executor`, the operator's account.
     """
     operator = getattr(engine, "live_executor", None)
-    if operator is None:
-        return "the operator's account could not be identified to rule it out"
     try:
         ex = engine._executor_for(tg_id)
     except Exception as exc:
@@ -2370,11 +2368,13 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # to guess from a status code that only says the request was handled.
     placed = not placed_nothing(result)
     # The proposer entry goes when the idea does. Most refusals leave the idea
-    # pending (a price drift, the strategy gate, the risk re-check), and
-    # dropping the entry anyway left a pending idea its proposer could neither
-    # re-confirm nor CANCEL -- both doors check this map -- until the engine's
-    # TTL swept it.
-    if placed or trade_id not in getattr(engine, "_pending_ideas", {}):
+    # pending (a price drift, the strategy gate, the risk re-check, an order
+    # the venue refused), and dropping the entry anyway left a pending idea its
+    # proposer could neither re-confirm nor CANCEL -- both doors check this
+    # map -- until the engine's TTL swept it. A placement always takes the
+    # idea off the book (C-05 in `_confirm_trade_inner`, and the practice
+    # fill), so asking the book answers both cases with one reading.
+    if trade_id not in getattr(engine, "_pending_ideas", {}):
         request.app["proposers"].pop(trade_id, None)
     if placed:
         audit(system_log, f"Web trade confirm: {trade_id}",

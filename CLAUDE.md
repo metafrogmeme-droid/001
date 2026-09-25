@@ -10585,6 +10585,83 @@ a pre-cap reduction back. A 20% stop sizes under the cap, and there the
 probe's $300 against $600 is the halving measured.
 (`tests/test_a_governor_pause_says_so_and_can_end.py`.)
 
+**THE WEB'S CONFIRM ANSWERED EVERY REFUSAL 200, AUDITED IT OK, AND THE PAGE
+TOASTED IT GREEN.** The Telegram Confirm button was cured of this, with
+`placed_nothing` as the one reading, and the website's door never asked it.
+`handle_trade_confirm` relayed every sentence
+`confirm_trade` can write as `{result_html}` with an audit line reading
+`result="OK"`, and both browser surfaces read the 200 as a trade. Driven over
+six refusals (the risk gate, the duplicate skip, "Paper trading is disabled",
+the chosen strategy, the simulation veto, no linked account): six 200s, six
+`OK` audits, and on the dashboard a closed modal, a green **"Trade
+confirmed."**, a nulled portfolio cache and an `rc:portfolio-changed` event
+over an order that did not exist; the chat card printed the refusal as the
+execution. The handler reads `placed_nothing` now, audits `REFUSED` with the
+refusal's first line (no markup, no dollar figure, secret shapes scrubbed), and
+answers `placed` beside the text; the status stays 200 for an older page.
+
+**The handler also dropped the proposer entry on every answer**, and most
+refusals leave the idea PENDING: a price drift, the strategy gate, the risk
+re-check, an order the venue refused (C-05 pops the idea only after a
+successful execution). Confirm and Cancel both check that map, so a refused
+idea could be neither retried nor cancelled by the person who proposed it until
+the TTL swept it. The entry goes when the idea leaves the book, and nothing
+else decides it.
+
+**ONE READING IN THE BROWSER TOO.** `TradeConfirmModel.outcome` has four
+answers: failed, refused (`placed === false`), placed, and unread (a `placed`
+that is not a boolean, which paints neither colour). An ABSENT `placed` is an
+older bot and keeps the old behaviour, flagged `legacy`: `app/` and `bot/`
+deploy separately, and refusing every confirm until the bot box redeployed would
+take the one-tap paper flow away from everybody. On a refusal
+the modal stays open with the sentence and the Confirm button live, and the chat
+card gives both buttons back. The guard plants the model with a refusal over
+`placed: true` and requires each surface to obey it, because a surface that
+re-reads `placed` itself agrees with every honest fixture.
+
+**THE WEB-LIVE GATE DECIDED WHO MAY TRADE AND NEVER ASKED WHOSE ACCOUNT.**
+`web_live_gate` opens live trading "on THEIR OWN connected exchange keys", from
+five inputs. None of them is whether the bot builds per-user executors. With
+`PER_USER_LIVE_ENABLED` at its shipped default, `_executor_for` answers the
+operator's executor for every caller. Driven with every other input satisfied,
+the gate said "all preconditions met", the confirm was forwarded, and the resolver
+answered `engine.live_executor`. It is latent while `WEB_LIVE_TRADING_ENABLED`
+stays off. `routes_to_own_account` is a sixth precondition, asked third so the
+operator's condition is named first. Both sourcing sites ask one reading of it (`is True`, so a stand-in
+config or a mock fails closed). **The flag says what SHOULD happen, so the
+handler also asks what WOULD.** The resolver still falls back to the operator
+for a user whose keys it cannot use. An executor that is the operator's, or
+none, or a resolver that raises is a 403, asked BEFORE the envelope authorizes,
+because authorizing records the order's notional against the 24h cap.
+
+**AND THE 2FA STEP-UP FAILED OPEN ON EVERY ANSWER IT COULD READ.**
+`webtrade.js` said *"fail SAFE: a gateway hiccup requires the code"* above
+`liveCapable = !!(... status === 200 && ... live_allowed)`. Driven with 2FA
+enrolled and no code sent, a 429, a 503, a 500 and a 200 with no field were
+each forwarded to the confirm. Only a thrown fetch kept the promise. The one
+answer that skips the code is now a 200 saying `live_allowed: false`.
+
+**Recorded, not changed.** `_authorize_web_live_trade` records the notional
+before `confirm_trade` runs, so a refused web-live confirm still spends the 24h
+cap. The ledger is idempotent by trade id, so a retry does not double it, and
+it errs strict; it belongs to the slice that owns the authority code.
+
+**Forty-seven mutations, each killed on the first round, and the three
+findings came from PLANNING the round, before it ran.** The first draft popped
+the proposer entry on `placed` as well as on an idea gone from the book, and
+refused an engine whose operator executor was `None`. Neither could change a
+verdict (every placement already takes the idea off the book; a missing operator
+executor cannot be the one an order resolves to), so both are deleted: a line no
+input can reach is a claim that there is a check.
+And the step-up table had no non-200 answer carrying `live_allowed: false`, so
+dropping the status check would have survived; the row was added before the
+round ran. The identity check moved after the envelope dies only on the
+assertion that nothing reached the spend ledger.
+(`tests/test_a_refused_web_confirm_is_not_a_confirmed_trade.py`,
+`tests/test_the_web_live_gate_needs_the_users_own_account.py`,
+`app/test/trade_confirm_reads_placed.test.js`,
+`app/test/webtrade_stepup_probe_fails_safe.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

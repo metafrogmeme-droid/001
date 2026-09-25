@@ -302,14 +302,6 @@ async def test_a_resolver_that_cannot_say_whose_account_is_a_refusal(resolves_to
     assert engine.confirm_calls == []
 
 
-async def test_an_engine_whose_operator_account_cannot_be_named_is_a_refusal(web_live):
-    engine = _LiveEngine(resolves_to=OWN)
-    engine.live_executor = None
-    status, body = await _web_live_confirm(engine, web_live, per_user=True)
-    assert status == 403 and body["error"] == "not_own_account"
-    assert engine.confirm_calls == []
-
-
 async def test_the_users_own_executor_reaches_the_envelope_and_the_confirm(web_live):
     """The other arm: a refusal-only table passes just as happily against a
     handler that refuses everyone."""
