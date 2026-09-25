@@ -248,14 +248,15 @@ def test_a_successful_probe_still_settles_the_account_as_classic():
 # ── 3. a default leverage is not an approved one ───────────────────────
 
 def test_an_adopted_order_has_no_approved_leverage_to_overshoot():
-    code = code_only(inspect.getsource(LiveExecutor._check_pending_limit))
-    i = code.index('_intended_lev = int(getattr(pos, "leverage", 0) or 0)')
-    block = code[i:i + 1700]
-    assert 'getattr(pos, "origin", "") == "adopted"' in block
-    assert "_intended_lev = 0" in block
-    guard = code.index("_guard_fill_leverage", i)
-    assert code.index("_intended_lev = 0", i) < guard, (
-        "the reset must happen before the guard reads it")
+    """Driven through `_intended_fill_leverage`, the one reading all three
+    fill guards take (it was a scan of one of them, and the other two read
+    `pos.leverage` raw). Whatever leverage an adopted record carries, nothing
+    here approved it."""
+    ex = LiveExecutor.__new__(LiveExecutor)
+    for lev in (0, 5, 20):
+        pos = _pos(origin="adopted")
+        pos.leverage = lev
+        assert ex._intended_fill_leverage(pos) == 0, lev
 
 
 def test_the_verdict_for_a_zero_target_is_unknown_not_close():
@@ -267,10 +268,21 @@ def test_the_verdict_for_a_zero_target_is_unknown_not_close():
     assert leverage_overshoot_verdict(5, 20, 1.5)["decision"] == "close"
 
 
-def test_a_reclaimed_order_keeps_its_leverage_because_the_bot_set_it():
-    code = code_only(inspect.getsource(LiveExecutor._check_pending_limit))
-    i = code.index('_intended_lev = int(getattr(pos, "leverage", 0) or 0)')
-    block = code[i:i + 1700]
-    assert '"reclaimed"' not in block, (
-        "a reclaimed order IS this bot's, so set_leverage really did apply its "
-        "default — only 'adopted' is unmeasured")
+def test_a_reclaimed_order_is_checked_against_the_bots_own_ceiling():
+    """A reclaimed order IS this bot's, but a restart lost its approved
+    leverage and the venue states none for an unfilled order, so adoption now
+    records it UNREAD (0) rather than the config default it used to write.
+    The guard is checked against the standard leverage the executor sets for
+    the symbol -- the ceiling every placement starts from -- and a recorded
+    leverage, where there is one, still wins."""
+    ex = LiveExecutor.__new__(LiveExecutor)
+    ex._standard_leverage = lambda symbol: 7
+    pos = _pos(origin="reclaimed")
+    pos.leverage = 0
+    assert ex._intended_fill_leverage(pos) == 7
+    pos.leverage = 3
+    assert ex._intended_fill_leverage(pos) == 3
+    executed = _pos(origin="executed")
+    executed.leverage = 0
+    assert ex._intended_fill_leverage(executed) == 0, (
+        "an executed record with no leverage has nothing to be checked against")

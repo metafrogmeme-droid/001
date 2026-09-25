@@ -572,6 +572,24 @@ def close_pct(exit_price, entry_price, direction, leverage):
     return pct, pct * int(leverage or 1)
 
 
+def margin_at_fill(raw_cost: float, leverage: Any) -> float:
+    """The margin a fill of ``raw_cost`` notional commits at ``leverage``.
+
+    ``raw_cost / leverage`` above 1x, the notional itself at 1x -- and 0.0,
+    the executor's own spelling of "unread", when the leverage is not on
+    record. The three fill paths wrote ``raw_cost / pos.leverage if
+    pos.leverage > 1 else raw_cost``, so a leverage of 0 -- what an adopted
+    limit order records, because the venue states none for an unfilled order
+    -- put the whole NOTIONAL into `cost_usd`, the two-meanings defect
+    `position_size_basis` exists to refuse, and every margin reader took it
+    as the margin. The post-fill leverage sync reads the venue's and fills it.
+    """
+    lev = _to_float(leverage)
+    if lev is None or lev < 1:
+        return 0.0
+    return raw_cost / lev if lev > 1 else raw_cost
+
+
 #: What a close card adds when the exit was read and the entry was not.
 ENTRY_UNREAD_NOTE = (
     "\nThe exit was read but no entry price is on record for this position "
@@ -3228,6 +3246,39 @@ class LiveExecutor:
         result["failure_stage"] = "post_check_unconfirmed"
         return result
 
+    def _intended_fill_leverage(self, pos: "LivePosition") -> int:
+        """The leverage a fill is checked AGAINST, or 0 when nothing approved one.
+
+        One reading for the three fill paths' leverage guards; two of them
+        read `pos.leverage` raw.
+
+        An ADOPTED order is one this bot did not place: nothing here approved
+        its leverage, and reading one back as approved let the guard flatten
+        an operator's own 20x order for "4.0x the approved leverage" against a
+        target that never existed. 0 makes the verdict "unknown", which keeps
+        the position and logs the gap.
+
+        A RECLAIMED order is this bot's own, re-tracked after a restart that
+        lost the record, and the venue states no leverage for an unfilled
+        order, so its approved leverage is not on record either. Adoption used
+        to write `CONFIG.exchange.default_leverage` into it and this read that
+        back as "genuinely what set_leverage applied" -- untrue whenever the
+        runtime override, a user's preference, the quality ladder or the
+        margin-risk cap had set another. What the executor CAN say is the
+        standard leverage it sets for the symbol, which every placement starts
+        from and every later step only reduces: an overshoot of that is an
+        overshoot of whatever was approved, so the guard keeps its teeth for
+        the bot's own orders without a guess entering the record.
+        """
+        if getattr(pos, "origin", "") == "adopted":
+            return 0
+        recorded = _to_float(getattr(pos, "leverage", None))
+        if recorded is not None and recorded >= 1:
+            return int(recorded)
+        if getattr(pos, "origin", "") == "reclaimed":
+            return self._standard_leverage(pos.symbol)
+        return 0
+
     async def _guard_fill_leverage(self, exchange: "ccxt.Exchange", trade_id: str,
                                    pos, intended_leverage, context: str) -> Optional[str]:
         """Post-fill leverage check for the paths that are NOT `execute`.
@@ -4392,9 +4443,14 @@ class LiveExecutor:
         orphaned limit orders and creates local pending_fill records so
         the status card, /positions, and expiry logic all work correctly.
 
-        Uses real exchange data only — leverage from the exchange's clientOid
-        mapping or the bot's own config (since Bitget UTA has no GET leverage
-        API for unfilled orders). Margin mode comes from the order's own
+        Uses real exchange data only. The venue states no leverage for an
+        unfilled order (Bitget UTA has no GET-leverage for one), so the leverage
+        and the margin it would divide into are recorded UNREAD -- ``leverage=0``,
+        ``cost_usd=0.0`` and both named in ``adoption_unread`` -- the way
+        position adoption records what the venue did not say. This docstring
+        used to promise "real exchange data only" over a config default and a
+        margin derived from it; the fill path's leverage sync reads the venue's
+        once the order fills. Margin mode comes from the order's own
         marginMode field.
 
         Returns list of adopted symbol names.
@@ -4559,19 +4615,19 @@ class LiveExecutor:
                 # marginMode comes from the order itself
                 margin_mode = raw_info.get("marginMode", "crossed")
 
-                # Leverage: Bitget UTA has no GET leverage API for unfilled orders.
-                # The order response doesn't include leverage.
-                # Use the exchange config leverage as the source of truth —
-                # this is what was set via set_leverage before the order was placed.
-                # Audit F-5: ExchangeConfig has no `leverage` attribute (only
-                # `default_leverage`); the old reference raised AttributeError,
-                # which the broad except below swallowed at debug level — so
-                # limit-order adoption silently never ran. Orphaned limit orders
-                # were left untracked on the exchange.
-                leverage = CONFIG.exchange.default_leverage or 10
-
-                notional = price * amount
-                margin = round(notional / leverage, 2)
+                # Leverage: Bitget UTA has no GET leverage API for unfilled
+                # orders, and the order response carries none. It is UNREAD,
+                # and so is the margin it would divide into. This used to be
+                # `CONFIG.exchange.default_leverage` and `notional / leverage`,
+                # written into the record as if read: every margin reader --
+                # the exposure cap, the cards -- then summed a config guess as
+                # the order's committed margin. 0 and 0.0 are the executor's
+                # own unread spelling, named in `adoption_unread` below.
+                # (Audit F-5 was the earlier defect here: a non-existent
+                # `CONFIG.exchange.leverage` raised inside the broad except,
+                # so this adoption silently never ran.)
+                leverage = 0
+                margin = 0.0
 
                 # Parse creation time from exchange data
                 opened_at = datetime.now(UTC)
@@ -4598,6 +4654,7 @@ class LiveExecutor:
                     limit_order_id=oid,
                     origin="reclaimed" if own_order else "adopted",
                 )
+                setattr(pos, "adoption_unread", ("margin", "leverage"))
                 self._positions[trade_id] = pos
                 reclaimed_any = reclaimed_any or own_order
                 # Only EXTERNAL orders drive the "Adopted Exchange Positions —
@@ -4612,13 +4669,15 @@ class LiveExecutor:
                       (f"Reclaimed own limit order: {raw_sym} {direction} "
                        if own_order else
                        f"Adopted orphan limit order: {raw_sym} {direction} ")
-                      + f"@ ${price:.4f} qty={amount} lev={leverage}x "
-                      f"margin=${margin:.2f} marginMode={margin_mode} (order {oid})",
+                      + f"@ ${price:.4f} qty={amount} leverage and margin unread "
+                      f"(the venue states none for an unfilled order) "
+                      f"marginMode={margin_mode} (order {oid})",
                       action=("reclaim_limit_order" if own_order else "adopt_limit_order"),
                       result="OK",
                       data={"trade_id": trade_id, "symbol": raw_sym,
                             "order_id": oid, "price": price, "amount": amount,
-                            "leverage": leverage, "margin": margin,
+                            "leverage": None, "margin": None,
+                            "unread": ["margin", "leverage"],
                             "margin_mode": margin_mode,
                             "client_oid": client_oid, "own_order": own_order})
 
@@ -9183,11 +9242,7 @@ class LiveExecutor:
                 pos.limit_order_id = None
 
                 # Recalculate cost
-                raw_cost = fill_price * filled_qty
-                if pos.leverage > 1:
-                    pos.cost_usd = raw_cost / pos.leverage
-                else:
-                    pos.cost_usd = raw_cost
+                pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
                 # Initialize trailing state now that we have a real fill
                 if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
@@ -9236,20 +9291,7 @@ class LiveExecutor:
                 # job — so reading the target afterwards compares the actual
                 # against itself and the guard below could never fire. Same trap
                 # the market path has at its own detection site.
-                _intended_lev = int(getattr(pos, "leverage", 0) or 0)
-                if getattr(pos, "origin", "") == "adopted":
-                    # An ADOPTED order is one this bot did not place, and
-                    # adopt_exchange_limit_orders had no venue leverage to read
-                    # for it -- it wrote CONFIG.exchange.default_leverage in so
-                    # the margin arithmetic had a divisor. Reading that number
-                    # back as the APPROVED leverage let the guard flatten an
-                    # operator's own 20x order for "4.0x the approved leverage"
-                    # against a target that never existed. 0 makes the verdict
-                    # "unknown", which keeps the position and logs the gap --
-                    # the distinction leverage_overshoot_verdict exists for.
-                    # "reclaimed" orders ARE this bot's, so their default is
-                    # genuinely what set_leverage applied; they keep it.
-                    _intended_lev = 0
+                _intended_lev = self._intended_fill_leverage(pos)
                 try:
                     await self.sync_positions_from_exchange()
                 except Exception as _sync_exc:
@@ -9577,8 +9619,7 @@ class LiveExecutor:
         setattr(pos, "filled_at", datetime.now(UTC))
         pos.order_type = "limit"
         pos.limit_order_id = None
-        raw_cost = fill_price * filled_qty
-        pos.cost_usd = raw_cost / pos.leverage if pos.leverage > 1 else raw_cost
+        pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
         if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
             initial_risk = (abs(fill_price - pos.stop_loss)
@@ -9621,7 +9662,7 @@ class LiveExecutor:
         # partial fill is live margin on the exchange, so it carries exactly the
         # same 20x-on-a-5x-target exposure as any other fill.
         _lev_msg = await self._guard_fill_leverage(
-            exchange, trade_id, pos, int(getattr(pos, "leverage", 0) or 0),
+            exchange, trade_id, pos, self._intended_fill_leverage(pos),
             f"partial-fill adoption ({context})")
         if _lev_msg:
             return _lev_msg
@@ -9738,8 +9779,7 @@ class LiveExecutor:
             pos.limit_order_id = None
 
             # Recalculate cost
-            raw_cost = fill_price * filled_qty
-            pos.cost_usd = raw_cost / pos.leverage if pos.leverage > 1 else raw_cost
+            pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
             # Recalculate SL/TP relative to new entry, maintaining the same distances
             if pos.stop_loss and old_entry > 0:
@@ -9799,7 +9839,7 @@ class LiveExecutor:
             # `execute` verifies its own market fills; this second market-entry
             # path did not exist when that guard was written.
             _lev_msg = await self._guard_fill_leverage(
-                exchange, trade_id, pos, int(getattr(pos, "leverage", 0) or 0),
+                exchange, trade_id, pos, self._intended_fill_leverage(pos),
                 "limit→market fallback")
             if _lev_msg:
                 return _lev_msg
