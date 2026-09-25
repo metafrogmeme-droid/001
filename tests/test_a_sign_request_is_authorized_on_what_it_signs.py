@@ -170,6 +170,51 @@ async def test_the_wires_amount_and_asset_are_not_what_is_authorized(rig):
     assert rig.signed == []
 
 
+async def test_a_small_amount_usd_on_the_wire_does_not_size_a_large_transfer(rig):
+    """The mutation round asked for this one: with no blocklist in play, only a
+    per-trade cap separates the bot's notional from the wire's. 1000 ETH
+    labelled `amount_usd: 0.5` under a $1 cap is $3,000,000, and is refused."""
+    rig.bind(max_notional_per_trade_usd=1.0)
+    app, _engine = rig.app()
+    status, d = await _sign(app, amount_usd=0.5)
+    assert status == 403
+    assert d["reasons"] == ["transfer notional $3,000,000.00 exceeds per-trade cap $1.00"]
+    assert rig.signed == []
+
+
+async def test_the_execution_preview_reads_the_day_and_says_whose_figure_it_is(rig):
+    """The preview (never signs) authorizes the CALLER's notional — a token
+    swap cannot be priced here — and says so; the day's spend is read from the
+    ledger rather than the literal 0.0 it used to be."""
+    rig.bind(max_notional_daily_usd=2.0)
+    rig.ledger.record(TG, 1.9, time.time(), ref="earlier")
+    app, _engine = rig.app()
+    body = {"telegram_id": TG, "network": "sepolia", "side": "transfer",
+            "to_token": "USDC", "amount_usd": 0.5, "dest": DEST}
+    c = TestClient(TestServer(app))
+    await c.start_server()
+    try:
+        r = await c.post("/web3/execute", json=body, headers={"X-Gateway-Secret": "s" * 32})
+        d = await r.json()
+    finally:
+        await c.close()
+    assert r.status == 403 and d["error"] == "authority_denied"
+    assert any("would exceed the daily cap $2.00 (already spent $1.90)" in x for x in d["reasons"])
+
+    rig.ledger._book.clear()
+    rig.ledger._refs.clear()
+    c = TestClient(TestServer(app))
+    await c.start_server()
+    try:
+        r = await c.post("/web3/execute", json=body, headers={"X-Gateway-Secret": "s" * 32})
+        d = await r.json()
+    finally:
+        await c.close()
+    assert r.status == 200 and d["dry_run"] is True, d
+    assert d["amount_basis"].startswith("supplied by the caller")
+    assert rig.signed == [] and rig.broadcast == []
+
+
 # ── the allow path records what it signed ───────────────────────────────
 
 async def test_an_in_cap_transfer_is_signed_recorded_and_reviewed(rig):
