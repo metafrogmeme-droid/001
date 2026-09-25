@@ -16,6 +16,7 @@ envelope authorises nothing).
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from typing import Optional
 
@@ -23,6 +24,8 @@ from bot.guardian.authority import VALID_MODES, revoke as _revoke_env
 
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import env_state_path
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_PATH = str(env_state_path(
     "USER_AUTHORITY_STORE_PATH", "data/user_authority.json"))
@@ -47,12 +50,24 @@ class UserAuthorityStore:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             self._envelopes = {}
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
+        """Write the bindings; True only when the write LANDED.
+
+        It used to swallow the OSError and return nothing, and every writer
+        above it returned True regardless — so the human kill-switch answered
+        ``revoked`` over a write that failed, the running process stayed
+        revoked, and the next restart read the file and came back ENFORCING.
+        A revoke that disappears on restart is the one failure a kill-switch
+        must never report as success."""
         try:
             atomic_write_json(self._path, self._envelopes,
                               separators=(",", ":"))
-        except OSError:
-            pass
+            return True
+        except OSError as exc:
+            logger.warning("authority store write failed (%s): the change is "
+                           "held in memory only and will not survive a restart",
+                           type(exc).__name__)
+            return False
 
     # ── reads ─────────────────────────────────────────────────────────
 
@@ -76,17 +91,25 @@ class UserAuthorityStore:
 
     # ── writes ────────────────────────────────────────────────────────
 
+    # Every writer below returns True only when the change is ON DISK. On a
+    # failed write the change is KEPT in memory — the running process honours
+    # a revoke it could not persist rather than un-revoking itself — and the
+    # writer returns False. A caller that sees False while the change it asked
+    # for is in memory (`get`) is looking at "held in memory only", and must
+    # say so: the change comes back undone on the next restart.
+
     def bind(self, user_id, envelope: dict) -> bool:
-        """Bind (replace) the user's compiled envelope. Returns True."""
+        """Bind (replace) the user's compiled envelope. True when it landed on
+        disk; False for a malformed envelope or a write that did not land."""
         if not isinstance(envelope, dict) or not envelope.get("envelope_id"):
             return False
         with self._lock:
             self._envelopes[str(user_id)] = dict(envelope)
-            self._save()
-            return True
+            return self._save()
 
     def set_mode(self, user_id, mode: str) -> bool:
-        """Flip the bound envelope's mode (off/shadow/enforce). No envelope → False."""
+        """Flip the bound envelope's mode (off/shadow/enforce). No envelope →
+        False; a write that did not land → False (the mode is set in memory)."""
         mode = str(mode).lower()
         if mode not in VALID_MODES:
             return False
@@ -95,26 +118,26 @@ class UserAuthorityStore:
             if not env:
                 return False
             env["mode"] = mode
-            self._save()
-            return True
+            return self._save()
 
     def revoke(self, user_id) -> bool:
-        """Human kill-switch: revoke (keeps the record, authorises nothing)."""
+        """Human kill-switch: revoke (keeps the record, authorises nothing).
+        No envelope → False; a write that did not land → False, with the
+        revoke KEPT in memory so this process stays revoked."""
         with self._lock:
             env = self._envelopes.get(str(user_id))
             if not env:
                 return False
             self._envelopes[str(user_id)] = _revoke_env(env)
-            self._save()
-            return True
+            return self._save()
 
     def clear(self, user_id) -> bool:
-        """Remove the binding entirely."""
+        """Remove the binding entirely. Nothing bound → False; a write that did
+        not land → False, with the binding gone from memory only."""
         with self._lock:
             if str(user_id) in self._envelopes:
                 del self._envelopes[str(user_id)]
-                self._save()
-                return True
+                return self._save()
             return False
 
 

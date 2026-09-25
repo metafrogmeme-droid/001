@@ -3434,6 +3434,30 @@ def _compile_user_envelope(text: str, mode: str = "shadow"):
     return env, parsed
 
 
+def _held_in_memory(store, tg_id: str, *, envelope_id=None, mode=None,
+                    revoked=None) -> bool:
+    """Did a store write that returned False leave its change IN MEMORY?
+
+    `UserAuthorityStore`'s writers return False both for "nothing to change"
+    and for "changed in memory, and the write did not land". Only the second
+    is a change that will be undone on restart, and only the store's current
+    reading can tell them apart. Unreadable reads False — the caller then
+    answers with its ordinary refusal rather than claiming a change."""
+    try:
+        held = store.get(tg_id)
+    except Exception:
+        return False
+    if not held:
+        return False
+    if envelope_id is not None and held.get("envelope_id") != envelope_id:
+        return False
+    if mode is not None and str(held.get("mode", "")).lower() != mode:
+        return False
+    if revoked is not None and bool(held.get("revoked")) != revoked:
+        return False
+    return True
+
+
 async def handle_authority_preview(request: web.Request) -> web.Response:
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -3481,7 +3505,19 @@ async def handle_authority_apply(request: web.Request) -> web.Response:
                  "detail": "I couldn't turn that into any limits. Try phrasings "
                            "like “only majors”, “max $500 per trade”, “$2000 a "
                            "day”, “only on bitget”."}, status=400)
-        bound = get_user_authority_store().bind(tg_id, env)
+        _astore = get_user_authority_store()
+        bound = _astore.bind(tg_id, env)
+        if not bound and _held_in_memory(_astore, tg_id,
+                                         envelope_id=env.get("envelope_id")):
+            audit(system_log, f"User bound authority envelope ({mode}) "
+                  f"{env.get('envelope_id')} IN MEMORY ONLY",
+                  action="web_authority_apply", result="NOT_PERSISTED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "mode": mode, "envelope_id": env.get("envelope_id"),
+                 "detail": "Saved in memory only — not persisted; the previous "
+                           "authority comes back on restart."}, status=500)
         audit(system_log, f"User bound authority envelope ({mode}) {env.get('envelope_id')}",
               action="web_authority_apply", result=mode, data={"user": tg_id})
         return web.json_response({"ok": bound, "mode": mode,
@@ -3503,8 +3539,18 @@ async def handle_authority_mode(request: web.Request) -> web.Response:
     if mode not in ("off", "shadow", "enforce"):
         return web.json_response({"error": "bad_mode"}, status=400)
     from bot.guardian.user_authority_store import get_user_authority_store
-    ok = get_user_authority_store().set_mode(tg_id, mode)
+    _astore = get_user_authority_store()
+    ok = _astore.set_mode(tg_id, mode)
     if not ok:
+        if _held_in_memory(_astore, tg_id, mode=mode):
+            audit(system_log, f"User set authority mode {mode} IN MEMORY ONLY",
+                  action="web_authority_mode", result="NOT_PERSISTED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "mode": mode,
+                 "detail": f"Mode set to {mode} in memory only — not persisted; "
+                           "it reverts on restart."}, status=500)
         return web.json_response({"error": "no_envelope"}, status=404)
     audit(system_log, f"User set authority mode {mode}", action="web_authority_mode",
           result=mode, data={"user": tg_id})
@@ -3541,10 +3587,25 @@ async def handle_authority_revoke(request: web.Request) -> web.Response:
     if err is not None:
         return err
     from bot.guardian.user_authority_store import get_user_authority_store
-    revoked = get_user_authority_store().revoke(tg_id)
+    _astore = get_user_authority_store()
+    revoked = _astore.revoke(tg_id)
+    if not revoked and _held_in_memory(_astore, tg_id, revoked=True):
+        # The kill-switch's one unforgivable answer is "revoked" over a write
+        # that did not land: this process stays revoked, and the next restart
+        # reads the file and comes back ENFORCING. Say that, as a failure.
+        audit(system_log, "User revoked authority envelope IN MEMORY ONLY",
+              action="web_authority_revoke", result="NOT_PERSISTED",
+              data={"user": tg_id})
+        return web.json_response(
+            {"ok": False, "revoked": True, "persisted": False,
+             "error": "not_persisted",
+             "detail": "Revoked in memory only — not persisted; it will come "
+                       "back on restart. Revoke again once the store is "
+                       "writable."}, status=500)
     audit(system_log, "User revoked authority envelope", action="web_authority_revoke",
           result=str(bool(revoked)), data={"user": tg_id})
-    return web.json_response({"ok": True, "revoked": bool(revoked)})
+    return web.json_response({"ok": True, "revoked": bool(revoked),
+                              "persisted": bool(revoked)})
 
 
 # ── Intent Compiler authoring (OPERATOR only) ────────────────────────────────
@@ -4022,8 +4083,19 @@ async def handle_account_purge(request: web.Request) -> web.Response:
     # envelope left behind would be waiting for whoever links that id next.
     try:
         from bot.guardian.user_authority_store import get_user_authority_store
-        result["live_authority"] = (
-            "deleted" if get_user_authority_store().clear(tg_id) else "none")
+        _astore = get_user_authority_store()
+        # "none" is a claim that nothing was bound. A binding cleared in memory
+        # whose write did not land comes back on restart, so it is an error,
+        # never "deleted" and never "none".
+        _had = _astore.get(tg_id) is not None
+        if _astore.clear(tg_id):
+            result["live_authority"] = "deleted"
+        elif _had:
+            system_log.warning("purge: authority cleared in memory only for %s — "
+                               "the write did not land", tg_id)
+            result["live_authority"] = "error"
+        else:
+            result["live_authority"] = "none"
     except Exception as exc:                      # pragma: no cover - defensive
         system_log.warning("purge: authority failed for %s: %s", tg_id, exc)
         result["live_authority"] = "error"
@@ -4571,7 +4643,19 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
             return web.json_response({"error": "no authority envelope bound for that user"},
                                      status=404)
         new_env = tighten_envelope(cur, spec)
-        store.bind(target, new_env)
+        if not store.bind(target, new_env):
+            # Tightened in memory, not on disk: the looser envelope comes back
+            # on restart, so nothing is marked reviewed and the answer is a
+            # failure that says why.
+            audit(system_log, f"Guardian envelope TIGHTENED for {target} by admin "
+                  f"{tg_id} IN MEMORY ONLY", action="guardian_tighten",
+                  result="NOT_PERSISTED",
+                  data={"target": target, "envelope_id": new_env.get("envelope_id")})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "envelope_id": new_env.get("envelope_id"),
+                 "detail": "Tightened in memory only — not persisted; the looser "
+                           "envelope comes back on restart."}, status=500)
         reviewed = get_review_queue().mark_reviewed(target, note="envelope tightened")
         audit(system_log, f"Guardian envelope TIGHTENED for {target} by admin {tg_id}",
               action="guardian_tighten", result="OK",
