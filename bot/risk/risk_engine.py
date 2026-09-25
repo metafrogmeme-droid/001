@@ -1294,6 +1294,11 @@ class RiskEngine:
             position_usd = min(position_usd, max_position_usd)
             note_size_step(idea, "execution ceiling (per-account bound)", position_usd,
                            before=_before)
+        # The size every multiplier below starts from. A flat high-conviction
+        # margin REPLACES this base, and must then pass everything this gate
+        # does to it (the check carries the product and the ceilings), or it
+        # raises a size past limits that had already bound it.
+        _base_usd = position_usd
 
         # C2-11 FIX: Compute macro size multiplier BEFORE the notional cap and
         # check #2, so the capped value reflects the macro-adjusted size.
@@ -1538,9 +1543,14 @@ class RiskEngine:
         # analyzer idea is shrunk by its own. It used to read the stamp
         # itself, which gave the same answer for exactly as long as the stamp
         # stayed 1.0.
+        # Every step between the base and here multiplies (or pauses to 0), so
+        # the ratio is their product.
+        _base_multiplier = (position_usd / _base_usd) if _base_usd > 0 else None
+        _kelly_ceiling: Optional[float] = None
         if CONFIG.risk.kelly_sizing_enabled:
             kelly_usd = self._kelly_size_usd(idea, sizing_equity)
             if kelly_usd > 0:
+                _kelly_ceiling = kelly_usd
                 _before = position_usd
                 position_usd = min(position_usd, kelly_usd)
                 note_size_step(idea, "half-Kelly ceiling", position_usd, before=_before)
@@ -2840,6 +2850,10 @@ class RiskEngine:
             authority=authority_result,
             size_basis=size_basis(idea, position_usd),
             size_path=size_path(idea),
+            base_multiplier=_base_multiplier,
+            base_ceiling_usd=min(
+                (c for c in (_kelly_ceiling, max_notional_usd if max_notional_usd > 0 else None)
+                 if c is not None), default=None),
         )
 
         # Audit V7 follow-up: make the margin/notional/leverage relationship

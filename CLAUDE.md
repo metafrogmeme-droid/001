@@ -10317,6 +10317,25 @@ unrelated to the rule. Both are driven now: correlation on a live book, the
 fallback with a session provider that raises.
 (`tests/test_a_reduction_the_cap_takes_back_is_not_a_reduction.py`.)
 
+**THE FLAT MARGIN'S DOCSTRING PROMISED A BOUND ITS CODE DID NOT CHECK.**
+`HIGH_CONVICTION_ENABLED` (off by default) gives an idea at or above a
+confidence floor a flat margin, and its docstring said the rule "can never
+raise one past a limit that already bound it". The only ceiling it checked was
+the executor's. Driven at $200 of equity, the risk gate sized an idea at $26
+(the 13% notional cap, under a governor REDUCE x0.50) and the flat margin
+turned that into $100, half the account, past both.
+
+**The operator's decision: the flat margin replaces only the stop-distance
+base.** Everything the gate does after the base applies to it. The check
+carries that as two numbers: `base_multiplier`, the product of every reduction
+after the base (read as a ratio, because every step between the execution
+ceiling and half-Kelly multiplies), and `base_ceiling_usd`, the lower of the
+half-Kelly ceiling and the notional cap. A check that carries neither sized
+nothing, so the risk engine's figure is left alone and the audit says
+`UNBOUNDED`. A large account still gets the flat $100; a small one gets what
+its cap allows. Eight mutations, each killed on the first round.
+(`tests/test_the_flat_margin_passes_the_risk_gate.py`.)
+
 **"NO LIVE SIGNAL MATCHES" WAS PRINTED FROM A QUERY THAT FAILED.**
 `/api/copy/picks` read the signal stream under `catch (e) { /* empty stream is
 fine */ }`, so a failed query gave every followed agent zero picks and the
@@ -11633,9 +11652,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **434 of 1045** reach for source text through `source_scan`, `code_only`
+Driven, **435 of 1046** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 434 is a FLOOR and the honest shape is
+source scan that rule does not see, so 435 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

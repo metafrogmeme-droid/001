@@ -176,7 +176,7 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:116).
-Autonomously: engine.py:5738-5796 confirms and executes any idea at or above
+Autonomously: engine.py:5763-5821 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,7 +280,7 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6596) — its
+(engine.py:6621) — its
 result is handed to analyzer.analyze at :6719 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
@@ -347,10 +347,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:235) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5738-5796
+trade gate whose whole enforcing set /enforcing lists. engine.py:5763-5821
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2454) with no human in the loop, adaptively moved by
-realized win rate (engine.py:5695) of the PAPER book, which no live fill writes,
+realized win rate (engine.py:5720) of the PAPER book, which no live fill writes,
 so in live mode it never moves; suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
@@ -1429,7 +1429,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7378-7415
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7404-7441
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1729,7 +1729,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1293, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7925
+bot/core/stock_trading.py, also read by bot/core/engine.py:7951
 (get_market_session) and scan_commands.py:375.
 
 **Price alerts and anomaly-alert scoping**

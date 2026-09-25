@@ -195,6 +195,13 @@ class RiskCheck(BaseModel):
     # a size they did not expect. Empty for a check built without a trace.
     size_basis: str = ""
     size_path: list[str] = Field(default_factory=list)
+    # What a DIFFERENT base size would come to through this gate: the product
+    # of every multiplier applied after the base, and the lowest ceiling after
+    # them (the half-Kelly ceiling and the notional cap). A flat
+    # high-conviction margin replaces the base and must pass both. None when
+    # the gate returned before sizing, and that is a size nothing may raise.
+    base_multiplier: Optional[float] = None
+    base_ceiling_usd: Optional[float] = None
     # Guardian Intent Compiler: the compiled-policy evaluation for this trade
     # (policy_id, hash, mode, verdict, violations, checked/skipped). Optional so
     # every existing construction stays valid; the risk engine sets it when a

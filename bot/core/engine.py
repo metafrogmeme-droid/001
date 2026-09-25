@@ -4654,7 +4654,8 @@ class RuneClawEngine:
 
     def _high_conviction_margin(self, idea, size_usd: float,
                                 user_id: str = "",
-                                available_usd: Optional[float] = None) -> float:
+                                available_usd: Optional[float] = None,
+                                check: Any = None) -> float:
         """Flat margin for an idea at or above the confidence floor.
 
         Normal sizing is fixed-fractional — risk_budget / stop_distance_pct —
@@ -4669,6 +4670,15 @@ class RuneClawEngine:
         MICRO_MAX_POSITION_USD, total-exposure and open-position caps, and the
         drawdown breaker. This can raise a size the risk engine chose; it can
         never raise one past a limit that already bound it.
+
+        That sentence was false for the risk gate's OWN limits: the ceiling
+        below is the executor's, so at $200 of equity a $26 size (the 13%
+        notional cap, under a governor REDUCE) became $100, half the account.
+        The flat margin replaces only the stop-distance BASE, so it passes
+        everything the gate does after the base: `check.base_multiplier` (the
+        product of its reductions) and `check.base_ceiling_usd` (half-Kelly
+        and the notional cap). A check that does not carry them sized
+        nothing, and the risk engine's figure is left alone.
 
         Leverage is NOT decided here. It stays with _compute_target_leverage
         (DEFAULT_LEVERAGE, the /leverage override, and volatility
@@ -4713,6 +4723,21 @@ class RuneClawEngine:
                       data={"target": round(target, 2),
                             "ceiling": round(_ceiling, 2)})
                 target = _ceiling
+            # Through the risk gate, as the base it replaces would have gone.
+            _mult = getattr(check, "base_multiplier", None)
+            if _mult is None:
+                audit(trade_log,
+                      f"High-conviction sizing not applied to "
+                      f"{getattr(idea, 'asset', '?')}: the risk check carries "
+                      f"no sizing to pass it through",
+                      action="high_conviction_size", result="UNBOUNDED",
+                      data={"asset": getattr(idea, "asset", None),
+                            "size_usd": round(size_usd, 2)})
+                return size_usd
+            target *= float(_mult)
+            _gate_ceiling = getattr(check, "base_ceiling_usd", None)
+            if _gate_ceiling is not None and target > _gate_ceiling:
+                target = float(_gate_ceiling)
             if target == size_usd:
                 return size_usd
             audit(trade_log,
@@ -7222,7 +7247,8 @@ class RuneClawEngine:
             CONFIG.risk.cooldown_after_loss_seconds)
         if _wait:
             return f"\u23f8 [PAPER] {_wait}"
-        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
+        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id,
+                                                check=recheck)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
         try:
@@ -7840,7 +7866,7 @@ class RuneClawEngine:
         # reducer below still applies and can only lower it. The available
         # margin is the one read this confirm already took.
         size_usd = self._high_conviction_margin(
-            idea, recheck.position_size_usd, user_id, _rc.available_usd)
+            idea, recheck.position_size_usd, user_id, _rc.available_usd, check=recheck)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
 
