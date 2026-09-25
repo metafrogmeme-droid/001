@@ -189,8 +189,15 @@ class Venue:
         kind: "sl" | "tp"."""
         raise NotImplementedError
 
-    def plan_order_query_params(self) -> dict:
-        """Params for fetch_open_orders when listing pending SL/TP orders."""
+    def plan_order_queries(self) -> tuple[dict, ...]:
+        """One params dict per fetch_open_orders call that lists pending SL/TP
+        orders. A caller runs every one and unions the rows; most venues need
+        only one query, with no params."""
+        return ({},)
+
+    def plan_order_cancel_params(self, order: dict) -> dict:
+        """Params for cancel_order on a row the plan queries listed, so the
+        cancel reaches the table the order lives in."""
         return {}
 
     def is_plan_order(self, order: dict) -> bool:
@@ -328,8 +335,25 @@ class BitgetVenue(Venue):
             "reduceOnly": True,
         }
 
-    def plan_order_query_params(self) -> dict:
-        return {"productType": "USDT-FUTURES", "isPlan": "plan_order"}
+    # ccxt sends Bitget's order listing to the PLAN endpoint only on `trigger`
+    # (or a `planType`). The old `isPlan` key routes nowhere, so it listed the
+    # REGULAR pending orders: no resting stop, and any resting limit order.
+    # Driven against ccxt 4.5.56 with the transport stubbed. Bitget files a
+    # trigger order (the bot's classic stops) under normal_plan and a position
+    # TP/SL under profit_loss, and one query reads one plan type.
+    _PLAN_TYPES = ("normal_plan", "profit_loss")
+
+    def plan_order_queries(self) -> tuple[dict, ...]:
+        return tuple({"productType": "USDT-FUTURES", "trigger": True, "planType": t}
+                     for t in self._PLAN_TYPES)
+
+    def plan_order_cancel_params(self, order: dict) -> dict:
+        # A plain cancel goes to the regular table, which does not hold a
+        # plan order; `trigger` sends it to cancel-plan-order, under the plan
+        # type that listed it.
+        listed = order.get("_plan_query") or {}
+        return {"productType": "USDT-FUTURES", "trigger": True,
+                "planType": listed.get("planType", "normal_plan")}
 
     def balance_fetch_params(self) -> dict:
         return {"type": "swap"}

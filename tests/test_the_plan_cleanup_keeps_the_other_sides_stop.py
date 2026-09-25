@@ -135,10 +135,10 @@ class TestTheExecutor:
         assert (sl, tp) == ("NEW", "NEW"), "the placement itself still happens"
         assert _cancelled(ex) == ["L-SL", "L-TP"], (
             "THE DEFECT: the short's stop and target were cancelled with the long's")
-        # RED HERRING: the plan channel was queried with the venue's own params,
-        # as before — the filter is on what came back, not on the question.
-        ex.fetch_open_orders.assert_awaited_once()
-        assert ex.fetch_open_orders.await_args.kwargs["params"] == e._venue.plan_order_query_params()
+        # RED HERRING: the plan channel was queried with the venue's own params
+        # -- the filter is on what came back, not on the question.
+        asked = [c.kwargs["params"] for c in ex.fetch_open_orders.await_args_list]
+        assert asked == list(e._venue.plan_order_queries())
 
     @pytest.mark.asyncio
     async def test_the_short_side_is_the_mirror(self, tmp_path):
@@ -191,9 +191,11 @@ class TestTheExecutor:
         assert _cancelled(ex) == [] and "plan_order_cleanup" not in seen and "plan_order_kept" not in seen
 
     def test_the_sweep_goes_through_the_rule(self):
-        # The shape, beside the drives: the loop cancels what the rule handed
-        # back, and nothing else reads `existing_plans` as the list to cancel.
+        # The shape, beside the drives: what is cancelled is what the rule
+        # handed back, and nothing else reads `existing_plans` as the list.
         src = code_only(inspect.getsource(LiveExecutor._place_sl_tp))
         i = src.index("plan_rows_to_cancel(")
-        assert "for plan in to_cancel:" in src[i:]
-        assert "for plan in existing_plans:" not in src
+        assert "self._cancel_replaced_plans(exchange, ccxt_sym, symbol, to_cancel," in src[i:]
+        assert "existing_plans," not in src[src.index("_cancel_replaced_plans("):]
+        loop = code_only(inspect.getsource(LiveExecutor._cancel_replaced_plans))
+        assert "for plan in rows:" in loop

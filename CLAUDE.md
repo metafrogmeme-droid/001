@@ -10198,6 +10198,59 @@ accumulator are not replayed: they are persisted already. Nine mutations,
 each killed on the first round.
 (`tests/test_a_restart_does_not_lift_the_governor.py`.)
 
+**A TRAILING MOVE ON A UTA ACCOUNT SPLIT ONE ORDER INTO TWO NAMES.** A v3
+strategy order is one order carrying both legs, and `_place_sl_tp_v3` returns
+its id as the stop and the take-profit alike. `_update_exchange_sl` kept only
+the stop half (`sl_id, _ = ...`), so after a move the record held the new id as
+the stop and the old id as the take-profit. The close path reads a pair as
+combined only when both ids agree, so it then sent both to the regular table.
+The move itself cancelled the old order through ccxt's regular `cancel_order`,
+which `_cancel_stop_leg`'s own docstring says cannot reach a strategy order,
+and logged the failure at debug. The old order stayed resting beside the new
+one. The move now names the new combined id on both legs, cancels the old one
+through `_cancel_stop_leg` in the table that holds it, and says at WARNING when
+the venue refuses. Read, not driven against a venue: whether Bitget accepts a
+second full-mode TP/SL for one position, or replaces the first, is the venue's
+answer, and both are handled (an id replaced in place is not cancelled). Six
+mutations, each killed on the first round.
+(`tests/test_a_uta_stop_move_keeps_one_combined_order.py`.)
+
+**THREE READERS ASKED FOR THE PLAN TABLE AND WERE HANDED THE REGULAR ONE.**
+Adoption, the protective-order check and the cleanup before a re-place listed
+Bitget's resting SL/TP orders with `{"isPlan": "plan_order"}`. The adoption
+reader's own comment says why: *"Query the plan channel with the same params
+the replace path uses."* Driven against the pinned ccxt 4.5.56 with the
+transport stubbed, that listing goes to the REGULAR pending-orders endpoint.
+ccxt routes to the plan endpoint only on `trigger` or a `planType`, and `isPlan`
+routes nowhere. So adoption never saw an adopted position's real stops, the
+protective check never found a resting stop's id, and the cleanup never
+cancelled an old stop. The only thing it could cancel was a resting limit
+order. `test_venue_abstraction` had pinned the `isPlan` dict as "byte-identical
+to history": the defect recorded as the contract.
+
+**Both halves were wrong, and fixing both exposed a third.** The cleanup's
+cancel was a plain `cancel_order`, which also goes to the regular table, so a
+correct listing alone would still have cleared nothing. And the cleanup
+cancelled BEFORE it placed, so a working cancel followed by a failed placement
+would leave the position with no stop. `_update_exchange_sl` was restructured
+to place first for exactly that reason (C2-03). The venue now answers one
+listing per plan type (`plan_order_queries`: the bot's trigger stops are
+`normal_plan`, a position TP/SL is `profit_loss`). `_fetch_plan_orders` unions
+the listings and records which query listed each row. The replace path reads
+the old stops first, places the new ones, then cancels the old ones only once
+a new stop is resting, in the table that holds them
+(`plan_order_cancel_params`), never the new ids, saying at WARNING when the
+venue refuses. The classic trailing move's cancel of its old stop took the
+same wrong table on every move and routes the same way now.
+
+**Recorded, not changed.** `_cancel_stop_leg`'s non-combined branch, which the
+close path uses, still cancels a classic stop through the regular table. Its
+docstring already reads the answer as `unverified` for that reason, so it
+claims nothing false. Routing it changes what the close path sees before a
+market close, which is its own slice. Thirteen mutations: twelve killed, and a
+reset line no failed read could reach was deleted rather than pinned.
+(`tests/test_the_plan_listing_reaches_the_plan_table.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
