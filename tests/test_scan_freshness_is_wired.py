@@ -73,6 +73,7 @@ class _Engine:
         self._last_state_change = time.time()
         self._cooldown_until = None
         self._pending_ideas = {}
+        self._engine_idea_ids = set()
         self._scan_lock = asyncio.Lock()
         self._last_scan_signals = []
         self._last_analysis_timeout = None
@@ -121,11 +122,14 @@ class _Engine:
     # real: `_tick` calls `_auto_confirm_batch` unconditionally (it used to
     # inline the comprehension, which never ran with an empty pending dict),
     # so a namespace of whatever it happened to call when this was written is
-    # the fixture that breaks on the next wiring change. Binding all three
-    # keeps this file testing the sweep clock rather than the tick's shape.
+    # the fixture that breaks on the next wiring change. Binding all of
+    # them keeps this file testing the sweep clock rather than the tick's shape.
     _auto_confirm_batch = RuneClawEngine._auto_confirm_batch
     _auto_confirm_gate_value = RuneClawEngine._auto_confirm_gate_value
     _auto_confirm_suppressed = RuneClawEngine._auto_confirm_suppressed
+    # ...and the ownership reading both of them ask, for the same reason.
+    _engine_pending_ids = RuneClawEngine._engine_pending_ids
+    _register_engine_idea = RuneClawEngine._register_engine_idea
 
 
 def _run_tick(scan_result) -> _Engine:

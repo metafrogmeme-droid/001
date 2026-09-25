@@ -865,6 +865,14 @@ class RuneClawEngine:
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
+        # The ids in `_pending_ideas` the ENGINE's own scan put there. The dict
+        # is shared with every person's ticket, card and analysis, and nothing
+        # said whose an entry was: so one stranger's pending ticket paused the
+        # autonomous scan for every account, the tick's dedup replaced a
+        # person's ticket with the engine's idea for the same asset, and
+        # /forcescan destroyed every person's pending Confirm. See
+        # `_register_engine_idea`.
+        self._engine_idea_ids: set[str] = set()
         # Per-symbol entry lock: serializes confirm_trade for the same symbol so
         # two overlapping auto-confirm cycles can't each pass the (analysis-time)
         # duplicate guard and place two orders for one setup (TOCTOU).
@@ -5443,13 +5451,19 @@ class RuneClawEngine:
                     data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
                 )
 
-        # C2-26 FIX: Skip scanning when ideas are awaiting confirmation.
-        # A concurrent confirm_trade call while mid-scan creates a race on
-        # shared _pending_ideas state.
-        if self._pending_ideas:
+        # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
+        # confirmation. A concurrent confirm_trade call while mid-scan creates
+        # a race on shared _pending_ideas state.
+        #
+        # The engine's own, not any entry: the dict also holds every person's
+        # ticket, card and analysis, and a skip on "anything pending" let one
+        # stranger's /trade or "analyze BTC" pause the autonomous scan and
+        # auto-confirm for every account, for as long as they kept one there.
+        _engine_pending = self._engine_pending_ids()
+        if _engine_pending:
             system_log.debug(
-                "Skipping scan tick — %d ideas awaiting confirmation",
-                len(self._pending_ideas),
+                "Skipping scan tick — %d engine idea(s) awaiting confirmation",
+                len(_engine_pending),
             )
             self._transition(AgentState.MONITORING, "checking positions (scan skipped, pending confirms)")
             await self._phase(self._check_open_positions(), "positions (pending confirms)")
@@ -5603,18 +5617,9 @@ class RuneClawEngine:
                           data={"asset": idea.asset, "confidence": idea.confidence,
                                 "threshold": CONFIG.risk.min_confidence})
                     continue
-                # Dedup: if an idea for the same asset already exists, replace it
-                existing_id = None
-                idea_key = normalize_symbol(idea.asset)
-                for eid, eidea in list(self._pending_ideas.items()):
-                    if normalize_symbol(eidea.asset) == idea_key:
-                        existing_id = eid
-                        break
-                if existing_id:
-                    self._pending_ideas.pop(existing_id)
-                    self._pending_atr.pop(existing_id, None)
-                    self._pending_pyramid.pop(existing_id, None)  # C2-31 FIX: clean stale pyramid flag
-                self._pending_ideas[idea.id] = idea
+                # Replaces the engine's pending idea for the same asset, and
+                # never a person's ticket (`_register_engine_idea`).
+                self._register_engine_idea(idea)
                 _synced_ideas.append(idea)
 
         # Push these real, engine-generated signals to the website's signal
@@ -8254,12 +8259,18 @@ class RuneClawEngine:
         """
         audit(system_log, "Force scan triggered", action="force_scan", result="START")
 
-        # Clear gates that would block a normal tick
-        old_pending = len(self._pending_ideas)
-        self._pending_ideas.clear()
-        self._pending_atr.clear()
-        self._pending_timing.clear()
-        self._pending_pyramid.clear()
+        # Clear gates that would block a normal tick: the ENGINE's pending
+        # ideas. This cleared the whole dict, so an operator pressing
+        # /forcescan destroyed every person's pending ticket and card, and
+        # each of their Confirm buttons then answered "not found".
+        _engine_ids = self._engine_pending_ids()
+        old_pending = len(_engine_ids)
+        for _eid in _engine_ids:
+            self._pending_ideas.pop(_eid, None)
+            self._pending_atr.pop(_eid, None)
+            self._pending_timing.pop(_eid, None)
+            self._pending_pyramid.pop(_eid, None)
+        self._engine_idea_ids.clear()
         self._cooldown_until = 0.0
 
         # Run scan
@@ -8288,13 +8299,7 @@ class RuneClawEngine:
         ideas_found = 0
         for idea in results:
             if idea and clears_confidence_floor(idea):
-                idea_key = normalize_symbol(idea.asset)
-                for eid, eidea in list(self._pending_ideas.items()):
-                    if normalize_symbol(eidea.asset) == idea_key:
-                        self._pending_ideas.pop(eid)
-                        self._pending_atr.pop(eid, None)
-                        break
-                self._pending_ideas[idea.id] = idea
+                self._register_engine_idea(idea)
                 ideas_found += 1
 
         # Auto-confirm high-confidence ideas (same as normal tick)
@@ -8302,7 +8307,11 @@ class RuneClawEngine:
         auto_threshold = RUNTIME.auto_confirm_threshold
         auto_confirmed = 0
         _disabled = auto_confirm_is_disabled(auto_threshold)
+        _force_engine_ids = self._engine_pending_ids()
         for tid, tidea in list(self._pending_ideas.items()):
+            # The engine's own ideas only, as on the tick path.
+            if tid not in _force_engine_ids:
+                continue
             # Same sentinel as the tick path. Two gates, one meaning.
             if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
                 # ...and the same reading, for the same reason: a stamp is not
@@ -8550,6 +8559,36 @@ class RuneClawEngine:
         except Exception as exc:
             system_log.debug("Live smart-exit evaluation failed: %s", exc)
 
+    def _register_engine_idea(self, idea: TradeIdea) -> None:
+        """Put one of the ENGINE's own scan ideas into the pending book.
+
+        It replaces the engine's pending idea for the same asset, and nobody
+        else's: a person's ticket or analysis for that asset is theirs, and
+        the dedup used to pop whatever entry matched, so a trader's Confirm
+        answered "not found" because the engine had scanned the same coin.
+        """
+        key = normalize_symbol(idea.asset)
+        for eid in list(self._engine_pending_ids()):
+            existing = self._pending_ideas.get(eid)
+            if existing is not None and normalize_symbol(existing.asset) == key:
+                self._pending_ideas.pop(eid, None)
+                self._pending_atr.pop(eid, None)
+                self._pending_pyramid.pop(eid, None)  # C2-31: no stale pyramid flag
+                self._engine_idea_ids.discard(eid)
+                break
+        self._pending_ideas[idea.id] = idea
+        self._engine_idea_ids.add(idea.id)
+
+    def _engine_pending_ids(self) -> set:
+        """The engine's own ideas still pending. Pruned here, because an idea
+        leaves the book by many doors (a confirm, a skip, the TTL sweep) and
+        none of them need to know this set exists."""
+        ids = getattr(self, "_engine_idea_ids", None)
+        if ids is None:
+            return set()
+        ids.intersection_update(self._pending_ideas)
+        return set(ids)
+
     def _auto_confirm_batch(self, auto_threshold: float) -> list:
         """The (trade_id, idea) pairs this tick may auto-confirm.
 
@@ -8575,26 +8614,32 @@ class RuneClawEngine:
         "auto"`) and the `is_manual` reduced-checks concession applied -- a
         concession made BECAUSE a human is looking at the card.
 
-        NOT "on the next tick", which is the tempting misreading and is
-        wrong: `_tick` returns early while anything is pending (C2-26, the
-        `if self._pending_ideas:` skip above), and `_force_scan_locked`
-        CLEARS the dict before it scans. A ticket that is merely sitting
-        there blocks the tick or is destroyed by the button. What reaches
-        this loop is a ticket registered DURING a cycle's scan/analyze
-        window -- `register_manual_idea` takes no lock, and that window is
-        bounded by the scan sweep plus a 300s analyze cap, so it is minutes
-        wide against a user action that takes seconds to type. A guard whose
-        fixture plants the ticket before the cycle starts never reaches this
-        branch, which is why the one in `tests/` registers it from inside
-        the analyze await. `.env.example` says in as many words that "a
-        regular user's trade is NEVER auto-confirmed" and
-        `chat_runtime`'s door rule tells the model that "`register_manual_idea`
-        places nothing"; this is what makes both sentences true.
+        IT WAS A RACE AND IS NOW THE ORDINARY CASE. `_tick` used to return
+        early while ANYTHING was pending (C2-26) and `_force_scan_locked`
+        cleared the whole dict, so a ticket merely sitting there blocked the
+        tick for every account or was destroyed by the button, and only one
+        registered DURING a cycle's scan/analyze window reached this loop.
+        Both now read only the engine's own ideas (`_engine_pending_ids`), so
+        a person's ticket, card and analysis sits beside a running tick on
+        every pass -- which is why this selection reads ownership FIRST: a
+        person's /scan idea carries a measured confidence, passes the stamp
+        reading, and would otherwise be executed under `user_id="auto"` on
+        the operator account the first tick after it was shown with a
+        Confirm button. `.env.example` says in as many words that "a regular
+        user's trade is NEVER auto-confirmed" and `chat_runtime`'s door rule
+        tells the model that "`register_manual_idea` places nothing"; this
+        is what makes both sentences true.
         """
         if auto_confirm_is_disabled(auto_threshold):
             return []
+        # The engine's OWN ideas only. A person's ticket, card or analysis is
+        # theirs to confirm, whatever its confidence reads -- and executing it
+        # here would place it under `user_id="auto"` on the operator account.
+        # `_auto_confirm_suppressed` stays as the reading of the idea itself.
+        engine_ids = self._engine_pending_ids()
         return [(tid, tidea) for tid, tidea in list(self._pending_ideas.items())
-                if self._auto_confirm_gate_value(tidea) >= auto_threshold
+                if tid in engine_ids
+                and self._auto_confirm_gate_value(tidea) >= auto_threshold
                 and not self._auto_confirm_suppressed(tid, tidea)]
 
     def _auto_confirm_suppressed(self, trade_id: str, idea) -> bool:

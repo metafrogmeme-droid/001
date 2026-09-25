@@ -877,8 +877,16 @@ class AnalyzeAssetSkill(BaseSkill):
                 msg += f"<i>\u25c7 No actionable signal \u2014 {_esc(reason_text)}</i>"
             return msg
 
-        # Dedup: replace any existing pending idea for the same asset
+        # Dedup: replace an existing pending idea for the same asset -- but
+        # never the ENGINE's own: that one belongs to the autonomous scan and
+        # its card's Confirm, and a person asking about the same coin used to
+        # delete it. (Two people's analyses still share this dedup: ideas
+        # carry no owner, so one person's can replace another's.)
+        _owned = getattr(engine, "_engine_pending_ids", None)
+        _engine_ids = _owned() if callable(_owned) else set()
         for eid in list(engine._pending_ideas):
+            if eid in _engine_ids:
+                continue
             if engine._pending_ideas[eid].asset == idea.asset:
                 engine._pending_ideas.pop(eid)
                 engine._pending_atr.pop(eid, None)

@@ -9972,6 +9972,51 @@ today's figure is 0, which would blame a transfer for yesterday's losses.
 (`tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
 `tests/test_live_account_breakers.py`.)
 
+**ONE PERSON'S UNCONFIRMED TICKET PAUSED THE ENGINE FOR EVERY ACCOUNT.**
+`_pending_ideas` is one dict. The engine's scan writes its ideas there, and so
+does every person: `/trade` and the web's propose route, `/scan`, "analyze
+BTC", the drift re-offer. Nothing recorded whose an entry was, so every loop
+that swept the dict treated all of it as the engine's. Driven:
+
+- `_tick` returned early while ANYTHING was pending (C2-26), so a stranger's
+  `/trade`, left unconfirmed, stopped the autonomous scan and its auto-confirm
+  until the ticket expired.
+- The engine's dedup replaced whatever pending entry named the same asset, so
+  a trader's Confirm answered "not found" because the engine had scanned the
+  same coin. "analyze BTC" did the same to the engine's own pending idea.
+- `/forcescan` cleared the whole dict before scanning, destroying every
+  person's pending Confirm.
+
+`_engine_idea_ids` records the engine's own ideas. `_register_engine_idea` is
+the only place the engine assigns into the dict (pinned by an AST walk), and
+`_engine_pending_ids` prunes the set where it is read, because an idea leaves
+the book by many doors (a confirm, a skip, the TTL sweep) and none of them
+need to know the set exists.
+
+**Fixing the skip alone would have made the auto-confirm leak the ordinary
+case.** While the skip stood, a person's idea reached the auto-confirm batch
+only when it was registered during a scan: the race #422 drove. With the skip
+narrowed, the batch sees every person's idea on every tick. A `/scan` idea's
+confidence is MEASURED, so the stamp reading passes it, and it would have been
+executed under `user_id="auto"` on the operator's account the first tick
+after it was shown with a Confirm button. The batch and `/forcescan`'s loop
+read ownership first now. The stamp reading stays as the backstop, with a
+test that plants a stamp on the engine's side, because no product path does
+that today and a backstop nothing drives is a claim that there is one.
+
+**Fourteen mutations, and the two that survived the first round were
+fixtures.** The stamp backstop registered a stamped BTC ticket and then a
+measured BTC idea, and the engine keeps one idea per asset, so the second
+replaced the first and the batch never saw the stamp. And every force-scan
+drive held only stamped or inherited ideas, which the reading refuses by
+itself, so dropping the ownership check there changed nothing until a
+person's measured `/scan` idea was in the book.
+
+**Recorded, not changed.** Ideas carry no owner beyond this split, so two
+people's analyses of the same asset still share the analyze dedup: one
+person's "analyze BTC" can replace another's pending BTC card.
+(`tests/test_a_persons_pending_idea_is_not_the_engines.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10451,7 +10496,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 230 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 231 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11263,9 +11308,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **431 of 1036** reach for source text through `source_scan`, `code_only`
+Driven, **432 of 1037** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 431 is a FLOOR and the honest shape is
+source scan that rule does not see, so 432 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
