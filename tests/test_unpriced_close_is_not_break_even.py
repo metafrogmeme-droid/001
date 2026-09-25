@@ -117,10 +117,14 @@ class TestTheSubstitutionIsGone:
     def test_the_unread_case_still_books_the_close(self):
         # Not closing is the opposite failure: the position IS gone from the
         # venue, so leaving it open would be its own false claim. Both sites
-        # keep booking it and stop pricing it.
+        # keep booking it and stop pricing it. Four branches book one now: the
+        # bot's own close with no exit, the same close with no ENTRY on record,
+        # the 25227 path with no entry, and reconcile with either end unread
+        # (tests/test_an_unread_entry_is_an_unpriced_close.py drives the three
+        # entry ones).
         code = self._code()
         assert 'gross_pnl = net_pnl = commission = None' in code
-        assert code.count('gross_pnl = net_pnl = commission = None') == 2
+        assert code.count('gross_pnl = net_pnl = commission = None') == 4
 
     def test_persisted_record_carries_none_not_a_rounded_zero(self):
         code = self._code()
