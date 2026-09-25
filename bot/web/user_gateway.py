@@ -1737,9 +1737,19 @@ async def handle_cross_plan(request: web.Request) -> web.Response:
     except Exception:
         envelope = None
 
+    # The day's spend under this authority, from the ONE ledger every envelope
+    # reader shares (the web-live gate records into it, the risk sentry reads
+    # it, the testnet signer records into it). It used to be the literal 0.0,
+    # so both the envelope's daily cap and the policy's were measured against a
+    # day with nothing spent. None on a failed read: both refuse it by name.
+    _now = _time.time()
+    try:
+        spent: Optional[float] = _web_live_ledger().spent(tg_id, _now)
+    except Exception:
+        spent = None
     decision = evaluate_yield_move(
         move=move, to_chain=to_chain, dest=dest, envelope=envelope,
-        now_ts=_time.time(), spent_today_usd=0.0)
+        now_ts=_now, spent_today_usd=spent)
     return web.json_response({
         "verdict": decision["verdict"],
         "gates": decision["gates"],
@@ -1748,10 +1758,12 @@ async def handle_cross_plan(request: web.Request) -> web.Response:
         "stables_only_ok": decision["stables_only_ok"],
         "horizon_days": decision["horizon_days"],
         "policy": [dict(r) for r in DEFAULT_YIELD_POLICY],
+        "supplied_by_caller": decision["supplied_by_caller"],
         "read_only": True,
         "note": ("Preview only — nothing is signed here. When the verdict is "
                  "'execute', sign the first-leg transfer through the admin "
-                 "testnet signer; bridge + deposit legs are a later slice."),
+                 "testnet signer; bridge + deposit legs are a later slice. "
+                 + decision["provenance"]),
         "intent": "cross_yield_plan",
     })
 

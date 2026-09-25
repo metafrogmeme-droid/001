@@ -57,8 +57,14 @@ def test_a1_withdraw_needs_double_optin():
     # a non-allowlisted dest is denied
     env2 = _env(withdraw_allowed=True, withdraw_allowlist=["0xCOLDWALLET"])
     assert env2["withdraw_allowed"] is True
-    ok = auth.authorize(env2, {"kind": "withdraw", "dest": "0xcoldwallet"}, now_ts=1000)
-    assert ok["decision"] == "allow"
+    # The withdrawal names its size. This envelope carries a per-trade and a
+    # daily cap, and those bind a withdrawal as they bind a trade now — so a
+    # withdrawal of UNSTATED size is refused under them (it used to pass: this
+    # case asked for no notional at all and was allowed, because the branch
+    # returned before any ceiling was read).
+    ok = auth.authorize(env2, {"kind": "withdraw", "dest": "0xcoldwallet",
+                               "notional_usd": 100}, now_ts=1000)
+    assert ok["decision"] == "allow", ok["reasons"]
     bad = auth.authorize(env2, {"kind": "withdraw", "dest": "0xATTACKER"}, now_ts=1000)
     assert bad["decision"] == "deny"
     assert any("allowlist" in r for r in bad["reasons"])

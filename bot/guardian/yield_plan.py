@@ -76,7 +76,7 @@ def _flag(v: Any) -> Optional[bool]:
 
 
 def evaluate_yield_policy(rules: Any, move: dict, *,
-                          spent_today_usd: float = 0.0) -> dict:
+                          spent_today_usd: Optional[float] = 0.0) -> dict:
     """Pure, per-rule fail-open evaluation of a yield policy against one move.
 
     A rule that cannot be evaluated (unknown type, non-numeric input) SKIPS —
@@ -135,10 +135,16 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
             v = _num(val)
             if v is not None:
                 checked += 1
-                spent = _num(spent_today_usd) or 0.0
+                # NOT `or 0.0`: a day's moves nobody could read is not a day
+                # with nothing moved, and $0 spent clears every daily cap.
+                spent = _num(spent_today_usd)
                 if amount is None:
                     reasons.append(
                         f"the move's size was not reported, so the ${v:.2f} "
+                        f"daily cap could not be checked")
+                elif spent is None:
+                    reasons.append(
+                        f"today's moves could not be read, so the ${v:.2f} "
                         f"daily cap could not be checked")
                 elif spent + amount > v + 1e-9:
                     reasons.append(
@@ -187,16 +193,34 @@ def evaluate_yield_policy(rules: Any, move: dict, *,
             "reasons": reasons, "checked": checked}
 
 
+#: The move fields the three gates read. EVERY ONE arrives from the caller:
+#: the preview page builds the move from what the operator TYPED, and the
+#: scanner's own `planMoves` output is a browser-side computation over rates
+#: and costs this process never read. Nothing here re-measures a rate, a cost
+#: or a price, so the verdict says so rather than presenting the figures as
+#: this reading's.
+CALLER_SUPPLIED_FIELDS = ("amount_usd", "delta_apy", "breakeven_days",
+                          "net_horizon_usd", "worth", "custodial", "lockup_days")
+
+CALLER_SUPPLIED_NOTE = (
+    "The size, APY gain, breakeven, net-of-cost figure, worth rating and the "
+    "custody and lockup facts were supplied by the caller. This plan checks "
+    "them against the policy and the authority envelope; it did not measure a "
+    "rate, a cost or a price itself.")
+
+
 def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
                         policy_rules: Any = None, envelope: Optional[dict] = None,
-                        now_ts: float, spent_today_usd: float = 0.0) -> dict:
+                        now_ts: float, spent_today_usd: Optional[float] = 0.0) -> dict:
     """Compile + triple-gate a single yield move. Returns a decision:
 
       {verdict: 'execute'|'skip',
        reasons: [...],                       # every failing gate's reason
        gates: {scanner: bool, policy: bool, authority: bool},
        first_leg: {kind, asset, dest, network, notional_usd} | None,
-       stables_only_ok: bool}
+       stables_only_ok: bool,
+       supplied_by_caller: [...],            # the fields above the caller stated
+       provenance: str}                      # and a sentence saying so
 
     'execute' means ALL THREE gates pass AND the locked hard-gates hold
     (stables-only, non-custodial, recallable). Even then, this only proposes —
@@ -229,14 +253,18 @@ def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
     if not policy_ok:
         reasons.extend(pol["reasons"])
 
-    # Gate 3 — the Authority Envelope authorizes the first-leg transfer.
+    # Gate 3 — the Authority Envelope authorizes the first-leg transfer, and
+    # its per-trade cap, daily cap and symbol lists bind that transfer exactly
+    # as they bind a trade (`authority._bounds`). They did not until the
+    # withdraw/transfer branch stopped returning before any ceiling was read:
+    # a $40 move against a $1 envelope came back `execute`.
     authority_ok = False
     if not dest:
         reasons.append("no destination address for the first-leg transfer")
     elif amount is None:
-        # The envelope's own limits are NOTIONAL limits. Passing 0.0 here asked
-        # it to authorise a $0 transfer and took the allow as authority for a
-        # move of unknown size — so the gate is refused with its own reason
+        # `authorize` refuses an unknown notional under any ceiling now, but an
+        # envelope with no ceiling would take it, and this plan is where the
+        # size is decided — so the gate is refused here, with its own reason,
         # rather than answered from a number nobody reported.
         reasons.append(
             "the move's size was not reported, so the authority envelope's "
@@ -278,4 +306,6 @@ def evaluate_yield_move(*, move: dict, to_chain: str, dest: str,
         "stables_only_ok": stables_ok,
         "first_leg": first_leg,
         "horizon_days": DEFAULT_HORIZON_DAYS,
+        "supplied_by_caller": [f for f in CALLER_SUPPLIED_FIELDS if f in move],
+        "provenance": CALLER_SUPPLIED_NOTE,
     }
