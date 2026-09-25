@@ -574,6 +574,11 @@ defaults:
     env_var: MAX_CORRELATED_SAME_DIR_POSITIONS
     description: "Round 7 revised Phase 2: cap on concurrent SAME-DIRECTION positions across all correlated groups (open + pending intents). Restores an aggregate exposure bound when per-group mapping is enabled. 0 = disabled (default); only active with correlation_perp_group_mapping_enabled."
 
+  live_book_risk_gates_enabled:
+    value: true
+    env_var: LIVE_BOOK_RISK_GATES_ENABLED
+    description: "In live mode the correlation caps, the two exposure caps and correlation sizing read the book a new trade joins (the executor's open and resting positions) instead of the paper tracker, which no live fill writes. OFF measures the same gates on the live book and reports their refusals without refusing. Paper and backtest evaluations are the same either way."
+
   fee_aware_entry_gate_enabled:
     value: false
     env_var: FEE_AWARE_ENTRY_GATE_ENABLED

@@ -313,7 +313,7 @@ def test_the_deferral_sits_between_the_read_and_the_default_placement():
     code = code_only(inspect.getsource(LiveExecutor.adopt_exchange_positions))
     cleared = code.index("plans_read_ok = False")
     first_read = code.index("fetch_open_orders(raw_sym)")
-    plan_read = code.index("plan_order_query_params()")
+    plan_read = code.index("self._fetch_plan_orders(")
     set_ok = code.index("plans_read_ok = True")
     gate = code.index("if not plans_read_ok:")
     cont = code.index("continue", gate)

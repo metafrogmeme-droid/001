@@ -621,7 +621,9 @@ class TestTheHighConvictionTargetReadsTheSameReading:
 
     def test_an_analyzer_idea_over_the_floor_still_takes_the_target(self, high_conviction_on, monkeypatch):
         monkeypatch.setattr(engine_mod, "audit", lambda log, msg, **kw: None)
-        assert _HcEng()._high_conviction_margin(_idea(0.9), 37.5, "u") == 100.0
+        open_gate = SimpleNamespace(base_multiplier=1.0, base_ceiling_usd=None)
+        assert _HcEng()._high_conviction_margin(_idea(0.9), 37.5, "u",
+                                                check=open_gate) == 100.0
         assert _HcEng()._high_conviction_margin(_idea(0.6), 37.5, "u") == 37.5
 
     def test_off_is_untouched_and_audits_nothing(self, monkeypatch):

@@ -75,8 +75,12 @@ def test_bitget_params_dicts_are_byte_identical_to_history():
             "tradeSide": "close",
             "reduceOnly": True,
         }
-    assert BG.plan_order_query_params() == {
-        "productType": "USDT-FUTURES", "isPlan": "plan_order"}
+    # NOT byte-identical to history, deliberately: the old `isPlan` key
+    # routed ccxt to the REGULAR pending-orders endpoint (driven in
+    # tests/test_the_plan_listing_reaches_the_plan_table.py).
+    assert BG.plan_order_queries() == (
+        {"productType": "USDT-FUTURES", "trigger": True, "planType": "normal_plan"},
+        {"productType": "USDT-FUTURES", "trigger": True, "planType": "profit_loss"})
     assert BG.post_only_params() == {"timeInForce": "post_only"}
     assert BG.gtc_params() == {"timeInForce": "GTC"}
     assert BG.balance_fetch_params() == {"type": "swap"}
@@ -90,7 +94,7 @@ def test_bitget_client_oid_identity_and_id_params():
 
 
 def test_bitget_is_plan_order_accepts_all():
-    # Server-side isPlan filter — everything returned IS a plan order.
+    # The plan endpoint lists only plan orders, so every row IS one.
     assert BG.is_plan_order({}) is True
 
 
@@ -377,7 +381,11 @@ def test_sl_tp_and_close_paths_are_venue_routed():
     for meth, needles in [
         (LiveExecutor._place_sl_tp,
          ["self._venue.trigger_params(\"sl\"", "self._venue.trigger_params(\"tp\"",
-          "self._venue.plan_order_query_params()", "is_plan_order"]),
+          "self._fetch_plan_orders(", "self._cancel_replaced_plans("]),
+        (LiveExecutor._fetch_plan_orders,
+         ["self._venue.plan_order_queries()", "is_plan_order"]),
+        (LiveExecutor._cancel_replaced_plans,
+         ["self._venue.plan_order_cancel_params("]),
         (LiveExecutor._update_exchange_sl,
          ["self._venue.trigger_params(\"sl\"", "supports_native_triggers"]),
         (LiveExecutor._partial_close,

@@ -39,7 +39,7 @@ from telegram.ext import ContextTypes
 
 from bot.compat import UTC
 from bot.config import CONFIG
-from bot.core.trade_gate import entry_gate, gate_label, gate_sentence
+from bot.core.trade_gate import caller_risk, entry_gate, gate_label, gate_sentence
 from bot.formatters.rich_cards import analyze_budget_line, monitor_checks_line, render_status_card, session_skip_line
 from bot.skills.command_guard import guard
 from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM, _dashboard_url
@@ -876,7 +876,10 @@ class StartCommands:
         # operator override, so the seam prefers it over this default.)
         from bot.formatters.drawdown_card import resolve_display_drawdown
         try:
-            _st = self.engine.risk.drawdown_status()
+            # The caller's engine, never the shared one: under per-user live
+            # `engine.risk` is the operator's, and this card is the caller's.
+            _risk = caller_risk(self.engine, str(user_id or ""))
+            _st = _risk.drawdown_status() if _risk is not None else None
         except Exception:
             _st = None
         drawdown, drawdown_source, drawdown_limit = resolve_display_drawdown(

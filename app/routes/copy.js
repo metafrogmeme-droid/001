@@ -21,7 +21,7 @@ const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { isConfigured } = require('../lib/gateway');
-const { loadCatalogueChecked, loadCatalogue } = require('../lib/agent_catalogue');
+const { loadCatalogueChecked } = require('../lib/agent_catalogue');
 const { picksForAgent, rulesToGates } = require('../lib/agent_match');
 
 const router = express.Router();
@@ -108,23 +108,34 @@ router.get('/picks', async (req, res) => {
     if (!following.length) return res.json({ agents: [], note: '' });
 
     // Live actionable signals (OPEN, newest first) + the agent catalogue.
-    let signals = [];
+    // `null` is a stream that could not be read. It was `[]`, so every
+    // followed agent printed "no live signal matches" off a failed query: a
+    // confident negative about the market assembled from no read at all.
+    let signals = null;
     try {
       const [rows] = await pool.execute(
         `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
                 entry_price, stop_loss, take_profit, rr, thesis, created_at
          FROM signals WHERE status = ? ORDER BY created_at DESC LIMIT 100`, ['OPEN']);
       signals = rows;
-    } catch (e) { /* empty stream is fine */ }
+    } catch (e) {
+      console.error('Copy picks: signals unreadable:', e.message);
+    }
+    // One agent's picks, with `picks: null` when the stream was not read.
+    const picksOf = (agent) => {
+      const g = picksForAgent(agent, signals || []);
+      if (signals === null) g.picks = null;
+      return g;
+    };
 
-    let catalogue = [];
-    try { catalogue = await loadCatalogue(); } catch (e) { catalogue = []; }
-    const byId = new Map(catalogue.map(a => [a.id, a]));
+    let cat = { agents: [], readable: false };
+    try { cat = await loadCatalogueChecked(); } catch (e) { /* unreadable */ }
+    const byId = new Map(cat.agents.map(a => [a.id, a]));
 
     const store = require('../lib/user_strategies');
     const agents = await Promise.all(following.map(async (id) => {
       const a = byId.get(id);
-      if (a) return picksForAgent(a, signals);
+      if (a) return picksOf(a);
       // Not an engine agent — a followed COMMUNITY strategy resolves here:
       // its signal-checkable rules project onto the same gate shape
       // (rulesToGates), so one matcher serves both catalogues. Size caps,
@@ -133,22 +144,28 @@ router.get('/picks', async (req, res) => {
       try {
         const c = await store.getPublicBySlug(id);
         if (c) {
-          const g = picksForAgent(
+          const g = picksOf(
             { id, name: c.name, icon: c.icon,
-              scorecard: { gates: rulesToGates(c.rules, c.regime) } }, signals);
+              scorecard: { gates: rulesToGates(c.rules, c.regime) } });
           g.community = true;
           return g;
         }
       } catch (e) { /* fall through to unavailable */ }
-      return { id, name: id, icon: '🤖', matched_on: [], picks: [], unavailable: true };
+      // Two different facts: a catalogue that answered without this agent,
+      // and a catalogue nobody could read. The panel said "the catalogue
+      // bridge is offline" for both, a guessed cause either way.
+      return { id, name: id, icon: '🤖', matched_on: [], picks: null, unavailable: true,
+               reason: cat.readable ? 'unknown_agent' : 'catalogue_unreadable' };
     }));
     const note = isConfigured()
       ? 'Picks are the live signals each agent’s published gates would act on — the engine applies its finer intraday entry filters live. Community strategies match on their signal-checkable rules only (their size caps and halts are yours to apply when you size the trade). Copying is paper-only and you place every trade yourself.'
       : 'Engine-agent gates need the bot bridge; followed community strategies still match on their own rules.';
-    res.json({ agents, note });
+    res.json({ agents, note, signals_read: signals !== null });
   } catch (err) {
+    // A 200 with `agents: []` read as "you follow nobody" to a user who
+    // follows several: the failed read rendered as an empty result.
     console.error('Copy picks error:', err.stack || err.message);
-    res.json({ agents: [], note: '' });
+    res.status(500).json({ error: 'picks_failed' });
   }
 });
 

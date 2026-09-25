@@ -1033,12 +1033,20 @@ router.get('/season', publicBoardLimit, async (req, res) => {
 // its final podium (top 3). §4: opt-in handles + percent only, same as every
 // arena board. Ended standings are immutable (the window is closed), so this
 // is the permanent record.
+const HALL_MAX = 12;
 router.get('/seasons', publicBoardLimit, async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at FROM arena_seasons');
     const now = new Date();
-    const ended = rows.filter((s) => seasons.seasonStatus(s, now) === 'ended').slice(0, 12);
-    if (!ended.length) return res.json({ seasons: [] });
+    // Most recently ended first, and the cap is said. The read has no ORDER
+    // BY, so `.slice(0, 12)` of it was twelve seasons in whatever order the
+    // database returned: the board's order was the storage engine's, and a
+    // thirteenth season would drop an arbitrary one in silence. That is the
+    // `LIMIT 1` defect `pickCurrentSeason` records, one route over.
+    const allEnded = rows.filter((s) => seasons.seasonStatus(s, now) === 'ended')
+      .sort((a, b) => new Date(b.ends_at) - new Date(a.ends_at));
+    const ended = allEnded.slice(0, HALL_MAX);
+    if (!ended.length) return res.json({ seasons: [], total_ended: 0 });
     const [handles] = await pool.execute(
       'SELECT id, leaderboard_handle FROM users WHERE leaderboard_handle IS NOT NULL');
     const handleOf = new Map(handles.map((h) => [h.id, h.leaderboard_handle]));
@@ -1052,7 +1060,7 @@ router.get('/seasons', publicBoardLimit, async (req, res) => {
         podium: seasons.seasonRanking(trades, handleOf).slice(0, 3),
       });
     }
-    res.json({ seasons: out, virtual: true });
+    res.json({ seasons: out, total_ended: allEnded.length, virtual: true });
   } catch (err) {
     console.error('Arena seasons history error:', err.stack || err.message);
     res.status(500).json({ error: 'Hall unavailable' });

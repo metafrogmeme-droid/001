@@ -655,6 +655,9 @@ class _LiveRecheck(NamedTuple):
     equity: Optional[float]        # the account's total, or None: unread
     open_count: Optional[int]      # positions open on it, or None: not live
     available_usd: Optional[float] # free margin off that same payload, or None
+    # The positions on that account as the risk gates read them
+    # (`live_executor.held_rows`), or None: not live.
+    book: Optional[tuple] = None
 
 
 class RuneClawEngine:
@@ -751,6 +754,20 @@ class RuneClawEngine:
         self.live_executor.on_position_closed = lambda pos: self._on_live_position_closed(pos)
         # Wire risk engine for warning rate circuit breaker
         self.live_executor._risk_engine = self.risk
+        # The live-performance governor's window is memory and the executor's
+        # closed-trade record is on disk, so a restart used to lift a PAUSE.
+        # Live only: in paper mode the window is fed by paper closes.
+        if CONFIG.is_live():
+            try:
+                _seeded = self.risk.seed_realized_window(
+                    _live_executor_mod.realized_close_pnls(
+                        self.live_executor.closed_positions))
+                if _seeded:
+                    system_log.info(
+                        "Live-performance window seeded from %d recorded closes", _seeded)
+            except Exception as _seed_exc:
+                logger.warning("Live-performance window not seeded: %s",
+                               type(_seed_exc).__name__)
 
         # Wire the KILL SWITCH into the executor module (once, not per instance —
         # there are four LiveExecutor() sites and a fifth would miss a
@@ -1347,14 +1364,17 @@ class RuneClawEngine:
             except Exception:
                 live_open = len(self.live_executor.open_positions)
             return _LiveRecheck(live_eq, live_open,
-                                size_bounds.available_from_balance(_bal))
+                                size_bounds.available_from_balance(_bal),
+                                _live_executor_mod.held_rows(
+                                    self.live_executor.open_positions))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
         # open_positions already filters to open + pending_fill for this account.
         live_open = len(ex.open_positions)
         return _LiveRecheck(live_eq, live_open,
-                            size_bounds.available_from_balance(bal or {}))
+                            size_bounds.available_from_balance(bal or {}),
+                            _live_executor_mod.held_rows(ex.open_positions))
 
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
@@ -4634,7 +4654,8 @@ class RuneClawEngine:
 
     def _high_conviction_margin(self, idea, size_usd: float,
                                 user_id: str = "",
-                                available_usd: Optional[float] = None) -> float:
+                                available_usd: Optional[float] = None,
+                                check: Any = None) -> float:
         """Flat margin for an idea at or above the confidence floor.
 
         Normal sizing is fixed-fractional — risk_budget / stop_distance_pct —
@@ -4649,6 +4670,15 @@ class RuneClawEngine:
         MICRO_MAX_POSITION_USD, total-exposure and open-position caps, and the
         drawdown breaker. This can raise a size the risk engine chose; it can
         never raise one past a limit that already bound it.
+
+        That sentence was false for the risk gate's OWN limits: the ceiling
+        below is the executor's, so at $200 of equity a $26 size (the 13%
+        notional cap, under a governor REDUCE) became $100, half the account.
+        The flat margin replaces only the stop-distance BASE, so it passes
+        everything the gate does after the base: `check.base_multiplier` (the
+        product of its reductions) and `check.base_ceiling_usd` (half-Kelly
+        and the notional cap). A check that does not carry them sized
+        nothing, and the risk engine's figure is left alone.
 
         Leverage is NOT decided here. It stays with _compute_target_leverage
         (DEFAULT_LEVERAGE, the /leverage override, and volatility
@@ -4693,6 +4723,21 @@ class RuneClawEngine:
                       data={"target": round(target, 2),
                             "ceiling": round(_ceiling, 2)})
                 target = _ceiling
+            # Through the risk gate, as the base it replaces would have gone.
+            _mult = getattr(check, "base_multiplier", None)
+            if _mult is None:
+                audit(trade_log,
+                      f"High-conviction sizing not applied to "
+                      f"{getattr(idea, 'asset', '?')}: the risk check carries "
+                      f"no sizing to pass it through",
+                      action="high_conviction_size", result="UNBOUNDED",
+                      data={"asset": getattr(idea, "asset", None),
+                            "size_usd": round(size_usd, 2)})
+                return size_usd
+            target *= float(_mult)
+            _gate_ceiling = getattr(check, "base_ceiling_usd", None)
+            if _gate_ceiling is not None and target > _gate_ceiling:
+                target = float(_gate_ceiling)
             if target == size_usd:
                 return size_usd
             audit(trade_log,
@@ -6964,7 +7009,12 @@ class RuneClawEngine:
         # Regime-aware sizing (gated): set the analyzer's regime for this symbol
         # so the per-regime multiplier applies. No-op when REGIME_SIZING_ENABLED off.
         self._apply_regime_to(self.risk, idea.asset)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live())
+        # The live book this idea would join: the correlation caps, the two
+        # exposure caps and correlation sizing read it (the paper tracker
+        # holds nothing a live fill wrote).
+        live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
+                     if CONFIG.is_live() else None)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book)
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -7197,7 +7247,8 @@ class RuneClawEngine:
             CONFIG.risk.cooldown_after_loss_seconds)
         if _wait:
             return f"\u23f8 [PAPER] {_wait}"
-        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id)
+        size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id,
+                                                check=recheck)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
         try:
@@ -7596,7 +7647,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live())
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.
@@ -7815,7 +7866,7 @@ class RuneClawEngine:
         # reducer below still applies and can only lower it. The available
         # margin is the one read this confirm already took.
         size_usd = self._high_conviction_margin(
-            idea, recheck.position_size_usd, user_id, _rc.available_usd)
+            idea, recheck.position_size_usd, user_id, _rc.available_usd, check=recheck)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
 

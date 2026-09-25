@@ -10094,6 +10094,292 @@ branch that refuses it could send that person to the operator's account
 unseen.
 (`tests/test_the_balance_view_is_never_somebody_elses.py`.)
 
+**THE CORRELATION CAPS BOUND EVERY BACKTEST AND NO LIVE ENTRY.** A
+`RiskEngine` is built over a paper `PortfolioTracker`, and no live fill writes
+one. So on the operator engine the tracker is empty in live mode, and every
+gate that read it evaluated the empty book. Driven with three live positions
+open, the check lines read `CORRELATION: no concentrated exposure`,
+`PORTFOLIO_EXPOSURE: 7.5% OK` (the new trade alone) and `CONCENTRATION_PCA:
+fewer than 2 open positions`. The backtest runs these gates over its own book,
+so the benchmark measured a bot with `MAX_UNMAPPED_CORRELATED` at 3. Live ran
+without it, up to five concurrent positions. `_correlation_group`'s own comment
+keeps the pooled bucket "to preserve the tighter live behaviour", and
+`.env.example` said concentration "is enforced by MAX_CORRELATION_PER_GROUP".
+Neither was true in live mode. On a per-user engine the tracker is the person's
+PRACTICE book, so there the error ran the other way: practice positions counted
+toward a live cap.
+
+**The book is handed in, never inferred.** `live_executor.held_rows` builds one
+row per open or resting position: symbol, side, and the margin and notional from
+`position_size_basis`, so an unstated margin is `None` and never `0.0`. Both
+engine call sites pass the rows as `evaluate(live_book=...)`. The confirm-time
+recheck reads them off the same executor it counts, through `_LiveRecheck.book`.
+The count caps, the two exposure caps and correlation sizing read those rows
+through one walk (`_held_pairs`), so the caps and the sizing cannot read two
+books for one idea. A live evaluation with no rows is a book nobody read. It is
+refused by name, gate by gate, the `LIVE_EQUITY` rule, and never passed as flat.
+
+**Exposure is committed margin, and a floor is not checked against a cap.** A
+live row has no mark, so the exposure line says "committed margin", not
+mark-to-market. A row whose margin the venue never stated makes the sum a floor,
+and the cap refuses it by name. The executor's own total cap already does the
+same with the same row. A symbol is matched the way the executor's duplicate
+guard matches one (`normalize_symbol`), because a live row is spelled as the
+venue spells it and an idea as the scanner does.
+
+**Two gates are not moved, and the reason is the benchmark.** CONCENTRATION_PCA
+and the rolling-correlation check (CORRELATION_V2) read the tick price series.
+The backtest never has one, so enforcing them on a held book is a change nobody
+measured. In live mode the PCA line says it was not evaluated, and V2 does not
+run over the rows. Before this, the practice book could still trip V2 on a live
+trade. `MAX_CORRELATION`'s own comment called it unused, while V2 reads it. It
+now says which book it runs on.
+
+**Enforced by default, with a switch that stays honest.** The count and margin
+gates are the configured limits the documentation promised and the benchmark
+measured, and every one of them only tightens. So `LIVE_BOOK_RISK_GATES_ENABLED`
+defaults on. Turned off, the same gates are measured on the live book and each
+refusal is reported as what it would have refused: a check line never says a
+book it did not enforce was within its caps. The first live effect to expect:
+with perp mapping off, every perp shares the pooled bucket, and a fourth
+concurrent position is refused until one closes.
+
+**Thirty mutations, each killed. The two that survived the first round were
+fixtures that could not tell.** Every row's side was already an upper-case
+string, so building rows with `str()` instead of the side reading changed
+nothing until a row carried `long`, an enum and `BUY`. And the unread-book
+sizing test held an empty practice book, so sizing an unread live book on the
+tracker instead changed nothing either, until an AVAX practice long sat beside
+a NEAR idea. Two clauses were deleted before the round rather than pinned.
+`side and side == new_dir` cannot fail on its first half, because an idea's
+side comes from an enum. An equity guard in the exposure reading cannot be
+reached, because a live evaluation refuses a non-positive equity first.
+
+**Recorded, not changed, each read and not driven.** The covariance VaR path,
+which live risk hardening turns on, divides by the paper tracker's equity and
+reads its positions. The adaptive auto-confirm threshold is moved by the win
+rate of `self.portfolio._history`, the paper book, so in live mode it never
+moves. Kelly's half-fraction reads realized history, and that needs checking
+for the same book question.
+
+**And the income map's `config.py` rows had never been checked by anything.**
+The blank-line probe resolves a bare filename under `bot/skills`, `bot/core`,
+`bot/risk` and `bot/web`, and never `bot/`, so every `config.py:` citation was
+skipped. All nine had drifted about fifty lines, onto limit-order and time-stop
+fields, including the swing and scalp geometry rows, `LIVE_TRADING_ENABLED`,
+the auto-confirm threshold and `deepscan_timeout_sec`. A citation on a wrong
+non-blank line is invisible to any probe, so each is derived from the
+declaration it names (`test_the_two_stale_citations_it_names_are_where_it_says`),
+and the probe now resolves `bot/` too. The `RiskEngine` citation, spelled
+`risk/risk_engine.py`, sat on a blank line for the same reason. The adaptive
+threshold's own citation was a bare `:NNNN` after a `config.py` row, so it read
+as `config.py`, and it now names `engine.py`. Seven mutations of the map, each
+killed.
+
+**The full gate refused the branch at 08:00 UTC on figures that had passed
+an hour earlier.** The suite's exposure figures (19.5%, 87.5%, 25.5%) were
+written during the Asian session, when the trading session scales a new
+order by x0.75, and nothing in the fixture fixed the session. At 08:00 the
+session turned to London (x1.0) and the same three tests failed, on code
+that had not changed, in the full run and when re-run alone. A figure that
+depends on the hour is a fixture reading the wall clock. The session is fixed
+at x1.0 in the suite now and the figures are the held margin plus a plain
+$100; setting it back to x0.75 turns the same three red, which is what shows
+the fixed session decides them.
+(`tests/test_the_live_risk_gates_read_the_live_book.py`, `bot/risk/held_book.py`.)
+
+**A RESTART LIFTED THE GOVERNOR'S PAUSE.** The live-performance governor scores
+a rolling window of realized live closes, and it reduces or pauses a losing
+book. The window lived in memory only, under a comment saying it "rebuilds
+after restart from live closes". That meant the next five NEW closes: an empty
+window fails open until `live_perf_min_samples` accrue. So a governor that had
+paused a losing live book resumed full size on the next boot. This deployment
+redeploys often, which is the reason the daily-loss accumulator is already
+restored. The executor's closed-trade record is on disk, and the engine now
+seeds the window from it at boot, in live mode only (`seed_realized_window`).
+
+**The filter is the live feed's, read off the code that fires it.** A
+never-filled order is appended to the record without firing the close
+callback, so `realized_close_pnls` drops it with `is_filled_close`. An
+unpriced close is fed to no window, so a `None` or a NaN is dropped. An
+execution abort does fire, so it stays. Only an EMPTY window is seeded,
+because a window that already holds closes was fed live and seeding it again
+would count each close twice. The streak, the cooldown and the daily
+accumulator are not replayed: they are persisted already. Nine mutations,
+each killed on the first round.
+(`tests/test_a_restart_does_not_lift_the_governor.py`.)
+
+**A TRAILING MOVE ON A UTA ACCOUNT SPLIT ONE ORDER INTO TWO NAMES.** A v3
+strategy order is one order carrying both legs, and `_place_sl_tp_v3` returns
+its id as the stop and the take-profit alike. `_update_exchange_sl` kept only
+the stop half (`sl_id, _ = ...`), so after a move the record held the new id as
+the stop and the old id as the take-profit. The close path reads a pair as
+combined only when both ids agree, so it then sent both to the regular table.
+The move itself cancelled the old order through ccxt's regular `cancel_order`,
+which `_cancel_stop_leg`'s own docstring says cannot reach a strategy order,
+and logged the failure at debug. The old order stayed resting beside the new
+one. The move now names the new combined id on both legs, cancels the old one
+through `_cancel_stop_leg` in the table that holds it, and says at WARNING when
+the venue refuses. Read, not driven against a venue: whether Bitget accepts a
+second full-mode TP/SL for one position, or replaces the first, is the venue's
+answer, and both are handled (an id replaced in place is not cancelled). Six
+mutations, each killed on the first round.
+(`tests/test_a_uta_stop_move_keeps_one_combined_order.py`.)
+
+**THREE READERS ASKED FOR THE PLAN TABLE AND WERE HANDED THE REGULAR ONE.**
+Adoption, the protective-order check and the cleanup before a re-place listed
+Bitget's resting SL/TP orders with `{"isPlan": "plan_order"}`. The adoption
+reader's own comment says why: *"Query the plan channel with the same params
+the replace path uses."* Driven against the pinned ccxt 4.5.56 with the
+transport stubbed, that listing goes to the REGULAR pending-orders endpoint.
+ccxt routes to the plan endpoint only on `trigger` or a `planType`, and `isPlan`
+routes nowhere. So adoption never saw an adopted position's real stops, the
+protective check never found a resting stop's id, and the cleanup never
+cancelled an old stop. The only thing it could cancel was a resting limit
+order. `test_venue_abstraction` had pinned the `isPlan` dict as "byte-identical
+to history": the defect recorded as the contract.
+
+**Both halves were wrong, and fixing both exposed a third.** The cleanup's
+cancel was a plain `cancel_order`, which also goes to the regular table, so a
+correct listing alone would still have cleared nothing. And the cleanup
+cancelled BEFORE it placed, so a working cancel followed by a failed placement
+would leave the position with no stop. `_update_exchange_sl` was restructured
+to place first for exactly that reason (C2-03). The venue now answers one
+listing per plan type (`plan_order_queries`: the bot's trigger stops are
+`normal_plan`, a position TP/SL is `profit_loss`). `_fetch_plan_orders` unions
+the listings and records which query listed each row. The replace path reads
+the old stops first, places the new ones, then cancels the old ones only once
+a new stop is resting, in the table that holds them
+(`plan_order_cancel_params`), never the new ids, saying at WARNING when the
+venue refuses. The classic trailing move's cancel of its old stop took the
+same wrong table on every move and routes the same way now.
+
+**Recorded, not changed.** `_cancel_stop_leg`'s non-combined branch, which the
+close path uses, still cancels a classic stop through the regular table. Its
+docstring already reads the answer as `unverified` for that reason, so it
+claims nothing false. Routing it changes what the close path sees before a
+market close, which is its own slice. Thirteen mutations: twelve killed, and a
+reset line no failed read could reach was deleted rather than pinned.
+(`tests/test_the_plan_listing_reaches_the_plan_table.py`.)
+
+**ONE /risk CARD SAID "CLEAR" ABOVE "BLOCKING NEW ENTRIES", AND BOTH WERE
+TRUE OF A DIFFERENT ACCOUNT.** Under per-user live a linked user has their own
+`RiskEngine` (`risk_for`), and `engine.risk` is the operator's. The `/risk`
+card read the caller's engine for its Gate line and the SHARED engine for two
+others. `skill_registry.entry_gate` read `engine.risk.trading_blocked_by`
+alone, and the drawdown gauge read `engine.risk.drawdown_status()`. Driven with
+the operator's book 8.7% below its peak and the caller's own breaker tripped on
+the daily loss, one card read *Circuit Breaker: CLEAR*, *Drawdown 8.7% / 10%*
+and *Gate: blocking new entries*. That contradiction is the tell. The
+pre-execute gate refuses on EITHER engine (`trade_gate.risk_engines`), so the
+breaker line reads both now, and the playbook's does too.
+
+**The same drawdown read was in five places**: /risk twice over, /portfolio,
+/daily_report and the status card. Each reads `trade_gate.caller_risk` now,
+which answers `None` for an engine it could not resolve. It never answers the
+shared engine in its place, because that fallback is the operator's book shown
+to somebody else. A rule walks `bot/skills` for any `engine.risk.drawdown_status()`
+and allows exactly one, `/drawdownlimit`, which is admin-only and sets the
+operator's cap. The scan skill's `cb = engine.risk.circuit_breaker_active` had
+no reader at all and is deleted; the ruff ratchet's unused-variable count fell
+by one.
+
+**Two more fell out of reading the walk.** `risk_engines` ENDED in silence
+when `risk_for` raised, so the gate answered "clear" about an account nobody
+had asked. An engine it could not read is `unknown` now. And `drawdown_status()`
+promises "the number the breaker ACTUALLY gates on". For a per-user engine the
+drawdown gate also halts on the person's drawdown across every venue, off one
+shared peak, when that is the larger. The reporter never read it, so a card
+showed a smaller figure than the one the gate halts on. It reads it now,
+tighten-only as the gate is, and names the source `person`.
+
+**Twenty-five mutations, each killed; the two that survived the first round
+were fixtures.** No test planted an engine whose shared `risk` read raises,
+and none drove the playbook card with the caller's own breaker tripped.
+
+> **And the full gate refused the fix for the walk.** Making an unreadable
+> engine `unknown` treated an engine with NO `risk_for` at all as a failed read
+> of the caller's, so a clear gate on a single-account engine read UNREAD.
+> That engine has one account and it was read. `test_an_open_gate_is_clear`,
+> in a file none of the slice's suites ran, is what said so: the ninth time
+> the full gate has refused a slice on a test outside it. Only a `risk_for`
+> that raises is a failed read now.
+(`tests/test_a_card_reads_the_callers_own_breaker_and_drawdown.py`.)
+
+**A REDUCTION THE CAP TOOK BACK WAS PRINTED AS A REDUCTION.** Seven
+tighten-only multipliers scale the size before the notional cap and nothing
+else: session, the session provider fallback, the equity-curve breaker, the
+live-performance governor, drawdown recovery, macro and correlation sizing.
+The cap binds on nearly every trade, and on every trade of a small live
+account, so each is clamped straight back. Driven at $128 of equity, the
+governor's REDUCE x0.50 left the order at $16.64 either way, under a size
+trace reading `live-performance governor x0.50` one step above the cap that
+undid it. The nightly audit told the operator a change to
+`LIVE_PERF_REDUCE_MULT` "moves size ×0.50 → ×0.25" about the same order.
+
+**Making them reach the order was the obvious fix, and the benchmark refused
+it.** Three arms on the frozen snapshots (none reach it, all seven, all but
+session): it helped `majors_1h`, cost `alts_1h`, and on `corr_dense_1h` took
+22 fewer trades down a different breaker path to a worse profit factor
+(`docs/FROZEN_BENCHMARK.md`). A change that is not harmless on all three is a
+sizing decision, not a correctness fix. So the kinds that tighten the cap are
+one named policy, `PRE_CAP_TIGHTENS_CAP`, shipped empty, and the decision is a
+single line. What is not a decision is the claim: whenever the cap binds, the
+check line, the size trace and the audit card name the reductions it took
+back. A PAUSE is a refusal, which no cap can take back, so the audit card
+leaves the caveat off a change to x0.
+
+**Eighteen mutations, each killed; two were first killed by the wrong test.**
+Dropping the correlation or the fallback recording died on the test that reads
+the declared kinds off the append calls, not on any drive: a kill for a reason
+unrelated to the rule. Both are driven now: correlation on a live book, the
+fallback with a session provider that raises.
+(`tests/test_a_reduction_the_cap_takes_back_is_not_a_reduction.py`.)
+
+**THE FLAT MARGIN'S DOCSTRING PROMISED A BOUND ITS CODE DID NOT CHECK.**
+`HIGH_CONVICTION_ENABLED` (off by default) gives an idea at or above a
+confidence floor a flat margin, and its docstring said the rule "can never
+raise one past a limit that already bound it". The only ceiling it checked was
+the executor's. Driven at $200 of equity, the risk gate sized an idea at $26
+(the 13% notional cap, under a governor REDUCE x0.50) and the flat margin
+turned that into $100, half the account, past both.
+
+**The operator's decision: the flat margin replaces only the stop-distance
+base.** Everything the gate does after the base applies to it. The check
+carries that as two numbers: `base_multiplier`, the product of every reduction
+after the base (read as a ratio, because every step between the execution
+ceiling and half-Kelly multiplies), and `base_ceiling_usd`, the lower of the
+half-Kelly ceiling and the notional cap. A check that carries neither sized
+nothing, so the risk engine's figure is left alone and the audit says
+`UNBOUNDED`. A large account still gets the flat $100; a small one gets what
+its cap allows. Eight mutations, each killed on the first round.
+(`tests/test_the_flat_margin_passes_the_risk_gate.py`.)
+
+**"NO LIVE SIGNAL MATCHES" WAS PRINTED FROM A QUERY THAT FAILED.**
+`/api/copy/picks` read the signal stream under `catch (e) { /* empty stream is
+fine */ }`, so a failed query gave every followed agent zero picks and the
+panel said *No live signal matches this agent's gates right now*: a claim
+about the market from no read. Its outer catch answered 200 with `agents: []`,
+which the panel read as a user who follows nobody, and hid itself from a user
+who follows several. And a followed engine agent missing from the catalogue
+printed *the catalogue bridge is offline* whether the catalogue could not be
+read or had answered without that agent: one guessed cause for two facts. The
+picks are `null` for a stream nobody read, the payload carries `signals_read`,
+the unavailable row carries its `reason`, a failure is a 500, and the panel
+says each in its own words. Thirteen mutations, each killed; the two that
+survived the first round were fixtures (a catalogue the follow had just cached
+is readable, and no test followed a community strategy while the stream was
+down). (`app/test/copy_picks_say_what_they_could_not_read.test.js`.)
+
+**The Hall of Champions was the `LIMIT 1` defect one route over.**
+`pickCurrentSeason`'s docstring records that `SELECT ... FROM arena_seasons
+LIMIT 1` with no `ORDER BY` names whichever season the database returns
+first. The public hall, which lists every ended season, read the same table
+with no `ORDER BY` and took `.slice(0, 12)`, so its order was the storage
+engine's and a thirteenth season would drop an arbitrary one in silence. It
+lists the most recently ended first now, and says when it is showing twelve of
+more. (`app/test/arena_seasons.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10573,7 +10859,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 231 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 232 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11385,9 +11671,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **433 of 1039** reach for source text through `source_scan`, `code_only`
+Driven, **435 of 1046** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 433 is a FLOOR and the honest shape is
+source scan that rule does not see, so 435 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

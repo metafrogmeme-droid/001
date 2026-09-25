@@ -114,6 +114,10 @@ GATES: dict[str, tuple[str, str, str]] = {
         "Prompt-injection firewall", KIND_REFUSE,
         "inbound chat text is not scanned for manipulation before it can "
         "steer an agent that acts"),
+    "live_book_risk_gates_enabled": (
+        "Live-book risk gates", KIND_REFUSE,
+        "in live mode the correlation and exposure caps are measured on the "
+        "live book and their refusals reported without refusing"),
 
     # ── size only ─────────────────────────────────────────────────────────
     "vol_target_sizing_enabled": (

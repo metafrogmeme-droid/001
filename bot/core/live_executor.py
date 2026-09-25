@@ -68,6 +68,7 @@ from bot.core.order_state import (
     read_amount, rows_for_side, stop_attached,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
+from bot.risk.held_book import HeldRow, direction_word
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -881,6 +882,48 @@ def committed_margin(positions: Any) -> CommittedMargin:
         total = round(sum(scored), 2) if scored else None
     return CommittedMargin(total=total, scored=len(scored),
                            counted=len(rows), unread=unread)
+
+
+def held_rows(positions: Any) -> tuple[HeldRow, ...]:
+    """The book as the risk gates read it: one row per open or resting
+    position, the margin and the notional from `position_size_basis`, so an
+    unstated margin is None here too and never 0.0. A resting limit order is
+    a row, as it is in the open-position count: it fills without asking."""
+    rows = []
+    for p in list(positions or []):
+        margin, notional = position_size_basis(p)
+        rows.append(HeldRow(symbol=str(getattr(p, "symbol", "") or ""),
+                            direction=direction_word(getattr(p, "direction", "")),
+                            margin_usd=margin, notional_usd=notional))
+    return tuple(rows)
+
+
+def realized_close_pnls(positions: Any) -> list[float]:
+    """The realized P&L of every close the engine's risk feed counts, oldest
+    first: the closes `_fire_position_closed` reports with a priced P&L.
+
+    That feed lives in memory (the live-performance governor's window), and
+    this is the record it was fed from, on disk. So the two must agree about
+    which closes count: a never-filled order is appended to the record
+    without firing (`is_filled_close` says so), and an unpriced close is fed
+    to no window (`pnl_usd` None, or a NaN the loader could not refuse).
+    A record with no close time sorts as the oldest, because the window is
+    read from its newest end and an undated close cannot be placed there.
+    """
+    from bot.utils.close_reason import is_filled_close
+
+    rows = []
+    for i, p in enumerate(list(positions or [])):
+        pnl = _to_float(getattr(p, "pnl_usd", None))
+        if pnl is None:
+            continue
+        if not is_filled_close(getattr(p, "close_reason", None), pnl):
+            continue
+        closed = getattr(p, "closed_at", None)
+        stamp = closed.timestamp() if isinstance(closed, datetime) else float("-inf")
+        rows.append((stamp, i, pnl))
+    rows.sort()
+    return [pnl for _stamp, _i, pnl in rows]
 
 
 def _money_or_dash(v: Optional[float]) -> str:
@@ -4014,11 +4057,8 @@ class LiveExecutor:
                         # defaults. Query the plan channel with the same params
                         # the replace path uses.
                         try:
-                            _plans = await exchange.fetch_open_orders(
-                                self._venue.swap_symbol(raw_sym),
-                                params=self._venue.plan_order_query_params())
-                            open_orders += [p for p in (_plans or [])
-                                            if self._venue.is_plan_order(p)]
+                            open_orders += await self._fetch_plan_orders(
+                                exchange, self._venue.swap_symbol(raw_sym))
                             plans_read_ok = True
                         except Exception as _plan_exc:
                             logger.warning("Plan-order read during adoption of %s failed: %s "
@@ -7021,17 +7061,21 @@ class LiveExecutor:
             self._note_sltp_error(symbol, f"side-sanity: {_side_err}")
             return None, None
 
-        # GETCLAW: Check and cancel existing plan orders before placing new ones.
-        # Prevents duplicate SL/TP orders that can cause double-closes.
+        # GETCLAW: the resting plan orders this call REPLACES, read now and
+        # cancelled after the new stop is placed (below the placement). The
+        # listing used the regular-orders table on Bitget and saw no stop at
+        # all, so this cleanup never ran against one. Read from the plan table
+        # it now cancels before placing, a failed placement would leave the
+        # position with no stop; `_update_exchange_sl` was restructured to
+        # place first for exactly that (C2-03), and this is the same order.
         ccxt_sym = self._venue.swap_symbol(symbol)
+        to_cancel: list[dict] = []
+        _protects = "long" if direction == Direction.LONG else "short"
         try:
-            existing_plans = await exchange.fetch_open_orders(
-                ccxt_sym, params=self._venue.plan_order_query_params())
             # Venues without a server-side plan filter return ALL open orders;
-            # keep only SL/TP triggers so a resting entry limit never gets
-            # cancelled by this cleanup.
-            existing_plans = [p for p in (existing_plans or [])
-                              if self._venue.is_plan_order(p)]
+            # `_fetch_plan_orders` keeps only SL/TP triggers so a resting entry
+            # limit never gets cancelled by this cleanup.
+            existing_plans = await self._fetch_plan_orders(exchange, ccxt_sym)
             # THIS side's stops only. The sweep used to cancel every plan
             # order on the symbol, both sides, so on a hedge-mode account
             # re-placing the long's protection stripped a manual or adopted
@@ -7041,7 +7085,6 @@ class LiveExecutor:
             # protect this side and KEEP a row whose side could not be read
             # — a same-side survivor is reduce-only and cannot double-close,
             # a stripped other-side stop leaves real money naked.
-            _protects = "long" if direction == Direction.LONG else "short"
             to_cancel, kept_unread = plan_rows_to_cancel(
                 existing_plans, hedge_mode=self._hedge_mode, protects=_protects)
             if kept_unread:
@@ -7052,22 +7095,9 @@ class LiveExecutor:
                       data={"symbol": symbol, "kept": len(kept_unread),
                             "hedge_mode": self._hedge_mode,
                             "ids": [str(k.get("id")) for k in kept_unread][:10]})
-            if to_cancel:
-                cancelled = 0
-                for plan in to_cancel:
-                    try:
-                        await exchange.cancel_order(plan["id"], ccxt_sym)
-                        cancelled += 1
-                    except Exception:
-                        pass
-                if cancelled > 0:
-                    audit(trade_log,
-                          f"Cleared {cancelled} existing plan order(s) for {symbol} before placing new SL/TP",
-                          action="plan_order_cleanup", result="OK",
-                          data={"symbol": symbol, "cancelled": cancelled,
-                                "side": _protects, "hedge_mode": self._hedge_mode})
         except Exception as plan_exc:
-            # Non-critical: some exchanges don't support isPlan filter
+            # Non-critical: the stops are placed either way, and a listing that
+            # raised left `to_cancel` empty, so nothing unread is cancelled.
             logger.debug("Plan order check failed for %s: %s", symbol, plan_exc)
 
         # Futures-only mode: spot SL/TP path removed
@@ -7206,7 +7236,41 @@ class LiveExecutor:
                       action="tp_order", result="SKIP",
                       data={"symbol": symbol, "reason": str(exc)[:200]})
 
+        # The old stops go only once a new stop is resting: with no new stop
+        # the old ones are the position's only protection.
+        if sl_id and to_cancel:
+            await self._cancel_replaced_plans(exchange, ccxt_sym, symbol, to_cancel,
+                                              keep={sl_id, tp_id}, side=_protects)
         return sl_id, tp_id
+
+    async def _cancel_replaced_plans(self, exchange, ccxt_sym: str, symbol: str,
+                                     rows: list[dict], *, keep: set,
+                                     side: str) -> int:
+        """Cancel the plan orders a new SL/TP replaced, in their own table.
+        Returns how many the venue accepted; a refusal leaves a duplicate stop,
+        which is reduce-only and cannot open a position, so it is said at
+        WARNING and not retried here."""
+        cancelled, refused = 0, []
+        for plan in rows:
+            oid = plan.get("id")
+            if not oid or oid in keep:
+                continue
+            try:
+                await exchange.cancel_order(
+                    oid, ccxt_sym, params=self._venue.plan_order_cancel_params(plan))
+                cancelled += 1
+            except Exception as exc:
+                refused.append(f"{oid}: {type(exc).__name__}")
+        if cancelled:
+            audit(trade_log,
+                  f"Cleared {cancelled} replaced plan order(s) for {symbol} after placing new SL/TP",
+                  action="plan_order_cleanup", result="OK",
+                  data={"symbol": symbol, "cancelled": cancelled,
+                        "side": side, "hedge_mode": self._hedge_mode})
+        if refused:
+            logger.warning("Replaced plan order(s) on %s still resting beside the new "
+                           "SL/TP: %s", symbol, ", ".join(refused[:5]))
+        return cancelled
 
     @staticmethod
     def _fetch_v3_positions_raw(
@@ -9733,6 +9797,7 @@ class LiveExecutor:
 
         # Step 1: Place new SL at tightened level FIRST
         new_sl_id = None
+        new_combined = False
         if use_v3:
             # Round to tick grid
             swap_symbol = self._venue.swap_symbol(pos.symbol)
@@ -9740,13 +9805,19 @@ class LiveExecutor:
             if sl_rounded is None:
                 sl_rounded = self._round_price_to_market(exchange, pos.symbol, new_sl)
 
-            sl_id, _ = await self._place_sl_tp_v3(
+            sl_id, tp_id = await self._place_sl_tp_v3(
                 pos.symbol, direction, pos.quantity,
                 new_sl, pos.take_profit,
                 sl_str=sl_rounded,
             )
             if sl_id:
                 new_sl_id = sl_id
+                # The v3 strategy order is ONE order carrying both legs, and
+                # it carries the take-profit this call passed. Recording it as
+                # the stop only left the take-profit naming the OLD order, so
+                # the pair stopped reading as combined and the close path sent
+                # both ids to the regular table.
+                new_combined = tp_id == sl_id
         else:
             # Classic mode: place trigger order
             close_side = "sell" if direction == Direction.LONG else "buy"
@@ -9772,13 +9843,33 @@ class LiveExecutor:
 
         # Step 2: Only cancel old SL AFTER new one is confirmed placed
         if new_sl_id:
+            old_tp_id = pos.tp_order_id
             pos.sl_order_id = new_sl_id
+            if new_combined:
+                pos.tp_order_id = new_sl_id
             self._save_positions()
-            if old_sl_id:
-                try:
-                    await exchange.cancel_order(old_sl_id, self._venue.order_symbol(pos.symbol))
-                except Exception as exc:
-                    logger.debug("Cancel old SL order %s failed (new SL active): %s", old_sl_id, exc)
+            if old_sl_id and old_sl_id != new_sl_id:
+                if use_v3:
+                    # A combined v3 order lives in the STRATEGY table, and a
+                    # regular cancel cannot reach it (`_cancel_stop_leg` says
+                    # so): the old order stayed resting beside the new one.
+                    verdict, detail = await self._cancel_stop_leg(
+                        exchange, pos, old_sl_id, combined=old_sl_id == old_tp_id)
+                    if verdict == "live":
+                        logger.warning(
+                            "Old stop order %s on %s is still resting beside the "
+                            "new one: %s", old_sl_id, pos.symbol, detail)
+                else:
+                    # The old classic stop is a trigger order: a plain cancel
+                    # goes to the regular table, which does not hold it, and
+                    # it stayed resting beside the new one on every move.
+                    try:
+                        await exchange.cancel_order(
+                            old_sl_id, self._venue.order_symbol(pos.symbol),
+                            params=self._venue.plan_order_cancel_params({}))
+                    except Exception as exc:
+                        logger.warning("Old stop order %s on %s is still resting beside the "
+                                       "new one: %s", old_sl_id, pos.symbol, type(exc).__name__)
             return True
         # New placement failed — old SL remains active, no gap
         logger.warning("Trailing SL update skipped for %s — new placement failed, old SL preserved", pos.symbol)
@@ -9922,6 +10013,28 @@ class LiveExecutor:
             if isinstance(row, dict) and str(row.get("orderId", "")) == str(oid):
                 return order_status(row) not in ("cancelled", "canceled", "success", "failed")
         return False
+
+    async def _fetch_plan_orders(self, exchange, ccxt_sym: str) -> list[dict]:
+        """Every resting SL/TP plan order on ``ccxt_sym``, from every query the
+        venue needs (Bitget reads one plan type per query), deduplicated by id.
+
+        Each row carries the query that listed it (``_plan_query``), so a
+        cancel can be sent to the table that holds it
+        (`Venue.plan_order_cancel_params`). A query that raises raises here:
+        a partial listing is not the listing, and every caller already treats
+        a raise as "could not read".
+        """
+        rows: dict[str, dict] = {}
+        for params in self._venue.plan_order_queries():
+            for o in (await exchange.fetch_open_orders(ccxt_sym, params=dict(params)) or []):
+                if not self._venue.is_plan_order(o):
+                    continue
+                oid = o.get("id") or (o.get("info") or {}).get("orderId")
+                key = str(oid) if oid else f"#{len(rows)}"
+                if key not in rows:
+                    o["_plan_query"] = dict(params)
+                    rows[key] = o
+        return list(rows.values())
 
     async def _cancel_stop_leg(self, exchange, pos: LivePosition, oid: str,
                                *, combined: bool) -> tuple[str, str]:
@@ -12231,11 +12344,8 @@ class LiveExecutor:
         pos_ok = False
         # Open plan/trigger orders (classic two-order SL/TP).
         try:
-            plans = await exchange.fetch_open_orders(
-                ccxt_sym, params=self._venue.plan_order_query_params())
-            for o in (plans or []):
-                if not self._venue.is_plan_order(o):
-                    continue
+            plans = await self._fetch_plan_orders(exchange, ccxt_sym)
+            for o in plans:
                 oid = o.get("id") or (o.get("info", {}) or {}).get("orderId")
                 if oid:
                     ids.add(str(oid))

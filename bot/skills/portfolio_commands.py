@@ -35,7 +35,7 @@ from telegram.ext import ContextTypes
 from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.live_executor import committed_margin, committed_margin_note
-from bot.core.trade_gate import entry_gate
+from bot.core.trade_gate import caller_risk, entry_gate
 from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
@@ -53,6 +53,18 @@ if TYPE_CHECKING:
     from bot.core.signal_tracker import SignalTracker
     from bot.marketing.channel_forwarder import ChannelForwarder
     from bot.skills.skill_registry import SkillRegistry
+
+
+def _caller_dd_status(engine, user_id) -> dict:
+    """``drawdown_status()`` of THIS caller's risk engine; ``{}`` if unread.
+
+    Three cards here read `engine.risk`, the shared operator engine, so under
+    per-user live /portfolio, /risk and /daily_report printed the operator's
+    drawdown beside the caller's own equity and positions. ``{}`` is that
+    reader's own word for unreadable, never the shared engine in its place.
+    """
+    risk = caller_risk(engine, str(user_id or ""))
+    return (risk.drawdown_status() or {}) if risk is not None else {}
 
 
 def _unpriced_tag(stats: dict) -> str:
@@ -616,7 +628,7 @@ class PortfolioCommands:
                               else None)
             from bot.formatters.drawdown_card import enforced_drawdown as _ed
             try:
-                _card_dd, _card_dd_src, _ = _ed(self.engine.risk.drawdown_status())
+                _card_dd, _card_dd_src, _ = _ed(_caller_dd_status(self.engine, user_id))
             except Exception:
                 _card_dd, _card_dd_src = None, None
 
@@ -788,7 +800,7 @@ class PortfolioCommands:
         _dd_now = None
         _dd_limit = CONFIG.risk.max_drawdown_pct
         try:
-            _st = self.engine.risk.drawdown_status() or {}
+            _st = _caller_dd_status(self.engine, user_id)
             if _st.get("drawdown_pct") is not None:
                 _dd_now = round(float(_st["drawdown_pct"]), 2)
             if _st.get("effective_limit_pct"):
@@ -1257,7 +1269,7 @@ class PortfolioCommands:
             # the two constants the paper branch carries.
             from bot.formatters.drawdown_card import live_risk_status
             try:
-                _dd_st = self.engine.risk.drawdown_status()
+                _dd_st = _caller_dd_status(self.engine, user_id)
             except Exception:
                 _dd_st = {}
             dd, risk_status = live_risk_status(_dd_st)

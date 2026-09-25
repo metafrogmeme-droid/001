@@ -396,9 +396,11 @@ class RiskLimits:
     # cannot load. Bounds are generous enough to never reject a legitimate value.
     max_drawdown_pct: float = _env_float_bounded("MAX_DRAWDOWN_PCT", 10.0, 0.1, 100.0)
     max_open_positions: int = int(_env_float_bounded("MAX_OPEN_POSITIONS", 5, 1, 100))
-    # Note: max_correlation coefficient is reserved for a future pairwise correlation
-    # matrix check. Currently, concentration is enforced by max_correlation_per_group
-    # (a group-count limit), not by this coefficient value.
+    # The rolling-correlation threshold (CORRELATION_V2 in the risk engine) over
+    # the tick price series. It runs on the paper book only: in live mode it is
+    # not evaluated, because the backtest these caps were measured on never has
+    # that series. Concentration in both modes is the group-count caps
+    # (max_correlation_per_group, max_unmapped_correlated).
     max_correlation: float = _env_float("MAX_CORRELATION", 0.85)
     # Extended risk checks (checks 6-16)
     min_risk_reward: float = _env_float_bounded("MIN_RISK_REWARD", 1.2, 0.0, 100.0)
@@ -494,6 +496,14 @@ class RiskLimits:
     # restoring the aggregate bound while keeping correct per-group attribution.
     # Only active when the perp mapping is enabled. 0 = disabled (default).
     max_correlated_same_dir_positions: int = int(_env_float_bounded("MAX_CORRELATED_SAME_DIR_POSITIONS", 0, 0, 100))
+    # Live-book risk gates (default ON). In live mode the correlation caps
+    # above, the two exposure caps and correlation sizing read the book a new
+    # trade JOINS -- the executor's open and resting positions -- instead of
+    # the paper tracker, which no live fill writes, so none of them bound a
+    # live entry before this. Turned off, the same gates are measured on the
+    # live book and their refusals are reported without refusing. Paper and
+    # backtest evaluations are the same either way.
+    live_book_risk_gates_enabled: bool = _env_bool("LIVE_BOOK_RISK_GATES_ENABLED", True)
     # Fee-aware entry gate (opt-in, default OFF). The min-RR gate is a RATIO — it
     # can pass a tight-stop scalp whose absolute take-profit distance barely
     # exceeds round-trip cost. This rejects an entry unless the reward to the TP

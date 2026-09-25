@@ -30,7 +30,7 @@ So the operator loosens the backstop, reads the confirmation, and the backstop
 section is silently blank. Nothing tells them whether the override took.
 
 WHY THE SOURCE LABEL IS NOW PRINTED. `drawdown_status()` computes
-`drawdown_source` — "live" or "paper" — and carries a comment explaining that
+`drawdown_source` — "live", "paper" or "person" — and carries a comment explaining that
 this reporter "used to return the paper number while its own docstring promised
 'the drawdown the breaker actually gates on', so an operator could read ~0%
 from a gate that was refusing trades at 9%". The engine went to the trouble of
@@ -49,7 +49,13 @@ HEADING = "📉 <b>Live drawdown backstop</b>"
 _SOURCE_TEXT = {
     "live": "live equity high-water mark",
     "paper": "paper snapshot",
+    "person": "your peak across every venue",
 }
+
+#: Sources that are the gate's own enforced reading, which a card prints in
+#: place of the paper figure. "person" is enforced as well: the drawdown gate
+#: halts on it (tighten-only) when it is the larger.
+_ENFORCED_SOURCES = ("live", "person")
 
 
 def _pct(v: Optional[float]) -> str:
@@ -214,7 +220,7 @@ def enforced_drawdown(st: Optional[dict]) -> tuple:
     else:
         limit = float(limit)
 
-    # An unrecognised source is not "live". Only the two vocabulary words
+    # An unrecognised source is not "live". Only the vocabulary words
     # licence a claim about where the number came from.
     src = st.get("drawdown_source")
     if src not in _SOURCE_TEXT:
@@ -265,6 +271,6 @@ def resolve_display_drawdown(paper_pct: object, status: Optional[dict],
         pct, src = None, None
 
     live_pct, live_src, limit = enforced_drawdown(status)
-    if live_src == "live" and live_pct is not None:
-        pct, src = round(live_pct, 2), "live"
+    if live_src in _ENFORCED_SOURCES and live_pct is not None:
+        pct, src = round(live_pct, 2), live_src
     return pct, src, (limit if limit is not None else default_limit)

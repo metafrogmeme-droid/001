@@ -1685,7 +1685,10 @@ window.addEventListener('unhandledrejection', rcReportPageError);
           + '<span class="' + pnlCls(p.return_pct) + '">' + (p.return_pct > 0 ? '+' : '') + fmt2(p.return_pct) + '%</span></div>';
       }).join('') : '<div class="empty" style="padding:4px 0">No ranked finishers — the crown went unclaimed.</div>';
       return '<div class="hall-season"><div class="hn">' + esc(s.name) + '<span class="dates">' + esc(dates) + '</span></div>' + podium + '</div>';
-    }).join('');
+    }).join('') + (Number(d.total_ended) > d.seasons.length
+      ? '<div class="empty" style="padding:4px 0">Showing the ' + d.seasons.length + ' most recent of '
+        + Number(d.total_ended) + ' ended seasons.</div>'
+      : '');
   }
 
   // The battlefield radar — real top-volume markets rendered as a 3D sweep:

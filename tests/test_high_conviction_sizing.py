@@ -76,6 +76,12 @@ def _idea(conf):
     return SimpleNamespace(asset="BTC/USDT", confidence=conf)
 
 
+#: A risk check whose gate reduced nothing and capped nothing, so these tests
+#: keep measuring the flat margin itself. What the gate does to it is
+#: `test_the_flat_margin_passes_the_risk_gate.py`.
+_OPEN = SimpleNamespace(base_multiplier=1.0, base_ceiling_usd=None)
+
+
 # ── it ships inert ────────────────────────────────────────────────────────
 
 def test_it_is_off_by_default():
@@ -86,21 +92,21 @@ def test_it_is_off_by_default():
 
 def test_disabled_changes_nothing(eng):
     _set(high_conviction_enabled=False)
-    assert eng._high_conviction_margin(_idea(0.95), 37.5) == 37.5
+    assert eng._high_conviction_margin(_idea(0.95), 37.5, check=_OPEN) == 37.5
 
 
 # ── the rule ──────────────────────────────────────────────────────────────
 
 def test_at_or_above_the_floor_gets_the_flat_margin(eng):
     _on()
-    assert eng._high_conviction_margin(_idea(0.70), 37.5) == 100.0
-    assert eng._high_conviction_margin(_idea(0.93), 12.0) == 100.0
+    assert eng._high_conviction_margin(_idea(0.70), 37.5, check=_OPEN) == 100.0
+    assert eng._high_conviction_margin(_idea(0.93), 12.0, check=_OPEN) == 100.0
 
 
 def test_below_the_floor_keeps_the_risk_engine_number(eng):
     _on()
-    assert eng._high_conviction_margin(_idea(0.699), 37.5) == 37.5
-    assert eng._high_conviction_margin(_idea(0.40), 37.5) == 37.5
+    assert eng._high_conviction_margin(_idea(0.699), 37.5, check=_OPEN) == 37.5
+    assert eng._high_conviction_margin(_idea(0.40), 37.5, check=_OPEN) == 37.5
 
 
 def test_the_floor_is_inclusive(eng):
@@ -108,7 +114,7 @@ def test_the_floor_is_inclusive(eng):
     A strict > would make 0.70 behave differently from 0.7000001 for no
     reason a reader could predict."""
     _on(floor=0.70)
-    assert eng._high_conviction_margin(_idea(0.70), 5.0) == 100.0
+    assert eng._high_conviction_margin(_idea(0.70), 5.0, check=_OPEN) == 100.0
 
 
 def test_it_can_reduce_as_well_as_raise(eng):
@@ -116,13 +122,13 @@ def test_it_can_reduce_as_well_as_raise(eng):
     target still wins — otherwise it is a floor, and a floor on live size is
     a different and more dangerous thing."""
     _on()
-    assert eng._high_conviction_margin(_idea(0.90), 400.0) == 100.0
+    assert eng._high_conviction_margin(_idea(0.90), 400.0, check=_OPEN) == 100.0
 
 
 def test_the_floor_and_margin_are_configurable(eng):
     _on(floor=0.85, margin=250.0)
-    assert eng._high_conviction_margin(_idea(0.80), 20.0) == 20.0
-    assert eng._high_conviction_margin(_idea(0.85), 20.0) == 250.0
+    assert eng._high_conviction_margin(_idea(0.80), 20.0, check=_OPEN) == 20.0
+    assert eng._high_conviction_margin(_idea(0.85), 20.0, check=_OPEN) == 250.0
 
 
 # ── it never breaks a trade ───────────────────────────────────────────────
@@ -135,7 +141,7 @@ def test_the_floor_and_margin_are_configurable(eng):
 ])
 def test_a_malformed_idea_leaves_sizing_alone(eng, idea):
     _on()
-    assert eng._high_conviction_margin(idea, 42.0) == 42.0
+    assert eng._high_conviction_margin(idea, 42.0, check=_OPEN) == 42.0
 
 
 # ── it is a target, not a bypass ──────────────────────────────────────────
@@ -161,13 +167,13 @@ def test_it_cannot_exceed_a_ceiling_that_already_bound(eng):
     """
     _on(margin=100.0)
     capped = _Eng(per_user_cap=40.0)
-    assert capped._high_conviction_margin(_idea(0.90), 25.0) == 40.0
+    assert capped._high_conviction_margin(_idea(0.90), 25.0, check=_OPEN) == 40.0
 
 
 def test_a_ceiling_above_the_target_does_not_raise_it(eng):
     _on(margin=100.0)
     roomy = _Eng(per_user_cap=500.0)
-    assert roomy._high_conviction_margin(_idea(0.90), 25.0) == 100.0
+    assert roomy._high_conviction_margin(_idea(0.90), 25.0, check=_OPEN) == 100.0
 
 
 def test_an_unresolvable_ceiling_does_not_silently_lift_the_cap(eng):
@@ -177,7 +183,7 @@ def test_an_unresolvable_ceiling_does_not_silently_lift_the_cap(eng):
         def _per_user_margin_cap(self, user_id):
             raise RuntimeError("store down")
     _on(margin=100.0)
-    assert _Broken()._high_conviction_margin(_idea(0.90), 25.0) in (100.0, 25.0)
+    assert _Broken()._high_conviction_margin(_idea(0.90), 25.0, check=_OPEN) in (100.0, 25.0)
 
 
 def test_the_ceiling_is_derived_from_the_same_caps_confirm_trade_uses():

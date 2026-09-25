@@ -32,11 +32,12 @@ from bot.core.live_executor import LiveExecutor
 
 def test_adoption_fallback_queries_plan_orders():
     src = inspect.getsource(LiveExecutor.adopt_exchange_positions)
-    assert "plan_order_query_params" in src
-    assert "is_plan_order" in src
+    assert "self._fetch_plan_orders(" in src
+    # The helper keeps only SL/TP triggers, whatever the venue returned.
+    assert "is_plan_order" in inspect.getsource(LiveExecutor._fetch_plan_orders)
     # The plan read must happen BEFORE the safety-default block, so real
     # venue stops are adopted instead of replaced with 3%/6% defaults.
-    assert src.index("plan_order_query_params") < src.index("default_sl_pct")
+    assert src.index("self._fetch_plan_orders(") < src.index("default_sl_pct")
 
 
 def test_adoption_fallback_classifies_by_plan_type():
@@ -52,8 +53,8 @@ def test_replace_path_and_read_path_use_same_channel():
     cancel), the adoption read must also be able to find (and inherit)."""
     place_src = inspect.getsource(LiveExecutor._place_sl_tp)
     adopt_src = inspect.getsource(LiveExecutor.adopt_exchange_positions)
-    assert "plan_order_query_params" in place_src
-    assert "plan_order_query_params" in adopt_src
+    assert "self._fetch_plan_orders(" in place_src
+    assert "self._fetch_plan_orders(" in adopt_src
 
 
 def test_plan_type_classification_logic():
