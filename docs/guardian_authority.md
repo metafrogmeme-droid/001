@@ -27,6 +27,14 @@ bounds what a linked exchange key or wallet session may do:
 - `revoked` — a human kill-switch; once set, every action is denied.
 - `symbol_allowlist` / `symbol_blocklist` — optional per-asset scoping.
 
+The two notional ceilings and the symbol lists bind a `withdraw`/`transfer`
+exactly as they bind a `trade` (one check, `authority._bounds`). They used to be
+read for trades only, so every on-chain producer — the testnet signer, the
+execution preview, the yield plan's first leg — was bounded by nothing but the
+destination allowlist. Unknown is never zero: a notional nobody stated is
+refused under **either** ceiling, a day's spend nobody could read under the
+daily one, and an unnamed asset under a symbol list.
+
 ### The two invariants (mechanical)
 
 1. **Tighten-only.** `compile_envelope` clamps every ceiling against the engine's
