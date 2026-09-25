@@ -104,7 +104,12 @@ class TestBalanceViewExecutor:
             eng.invalidate_user_executor("bob")
             assert "bob" not in eng._balance_view_executors
 
-    def test_lookup_error_falls_back_to_operator(self):
+    def test_lookup_error_is_not_the_operators_account(self):
+        """This pinned the operator's executor for a store that raised -- the
+        defect this file's header describes, a linked user shown the operator
+        account as their own. A store nobody could ask says nothing about
+        whether "bob" linked, so he is shown nothing
+        (`test_the_balance_view_is_never_somebody_elses.py`)."""
         eng = _engine()
 
         class _BoomStore:
@@ -112,4 +117,4 @@ class TestBalanceViewExecutor:
                 raise RuntimeError("decrypt boom")
 
         with _patch_store(_BoomStore()):
-            assert eng.balance_view_executor("bob") is eng.live_executor
+            assert eng.balance_view_executor("bob") is None

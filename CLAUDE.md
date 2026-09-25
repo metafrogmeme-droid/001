@@ -10061,6 +10061,39 @@ one hop out while the property held; they pin `placed_nothing` now, and that
 it asks the executor's classifier.
 (`tests/test_a_refusal_is_never_announced_as_a_trade.py`.)
 
+**/livebalance showed somebody else's account as the caller's.**
+`balance_view_executor` routes a linked caller to their own account whatever
+the per-user flag says, which is right. For everyone else it answered the
+operator's executor, and two cases made that wrong:
+
+- **Per-user live.** Every other card refuses a non-operator the operator's
+  book there (`viewer_executor`). `/livebalance` is `@guard("portfolio")`,
+  which a viewer holds, and it printed the operator's balance, open positions
+  and realized P&L in dollars as the viewer's own.
+- **A link that could not be read, in either mode.** Keys that will not
+  decrypt, a store that could not be asked, and a stored venue this build
+  cannot build all fell back to the operator's account. That person has an
+  account of their own, and was shown somebody else's under "your balance".
+
+Single-account mode is unchanged on purpose. With per-user live off there is
+one shared account and every card shows it, so a caller who never linked sees
+it here too. The fallback is taken by the operator and, in single-account
+mode, by a caller the store reads as never linked (`credential_state` answers
+`absent`). Everyone else gets `None`, and the card prints the shared absence
+sentence (`no_live_account_line(live_account_absence(uid))`).
+
+**The file that pinned the old behaviour describes the defect in its own
+header.** `test_livebalance_own_account.py` opens with a linked user being
+shown the operator's account instead of their own, and one of its tests
+asserted exactly that for a store that raised "decrypt boom". Its contract is
+the new one now.
+
+**Ten mutations, each killed.** The one that survived the first round was a
+corpus gap: nothing planted a link on a venue this build cannot build, so the
+branch that refuses it could send that person to the operator's account
+unseen.
+(`tests/test_the_balance_view_is_never_somebody_elses.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11352,7 +11385,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **433 of 1038** reach for source text through `source_scan`, `code_only`
+Driven, **433 of 1039** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 433 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -2463,8 +2463,18 @@ class RuneClawEngine:
 
           - caller has decryptable linked (/connect) credentials -> a per-user
             executor bound to THEIR account (their explicit choice to link it);
-          - otherwise -> the shared operator executor (unchanged behaviour for
-            the operator/admin, who view the global CONFIG.exchange account).
+          - the OPERATOR otherwise -> the shared operator executor (the global
+            CONFIG.exchange account, which is theirs);
+          - with per-user live OFF, a caller who never linked -> the shared
+            operator executor too: one shared account is what single-account
+            mode is, and `viewer_executor` shows every card that book;
+          - anybody else -> None. This was the operator's executor for every
+            caller without readable keys, so under per-user live a viewer's
+            /livebalance printed the operator's balance, positions and realized
+            P&L in dollars as their own, and in either mode a linked user whose
+            keys stopped decrypting (or whose store could not be asked) was
+            shown the operator's account under "your balance". The card reads
+            `live_account_absence` for None.
 
         These view-only executors are cached in a dedicated dict, NOT in
         _user_executors, so they are never picked up by all_executors() (the
@@ -2473,18 +2483,29 @@ class RuneClawEngine:
         """
         if not user_id or user_id in ("auto", ""):
             return self.live_executor
+        operator = self._is_operator_user(user_id)
+        shared = not getattr(CONFIG, "per_user_live_enabled", False)
         try:
             from bot.core.exchange_credentials import get_credential_store
             _store = get_credential_store()
             creds = _store.get(str(user_id))
             venue = getattr(_store, "get_venue", lambda _u: "bitget")(str(user_id))
+            _state = getattr(_store, "credential_state", None)
+            state = (_state(str(user_id)) if callable(_state)
+                     else ("readable" if creds else "absent"))
         except Exception as exc:
             logger.warning("balance_view_executor: credential lookup failed for "
-                           "%s: %s — using operator executor", user_id, exc)
-            creds = None
-            venue = "bitget"
+                           "%s: %s", user_id, type(exc).__name__)
+            creds, venue, state = None, "bitget", "unresolved"
+        # The shared account is the operator's, and in single-account mode the
+        # book of anybody who never linked. Keys that will not decrypt, and a
+        # store nobody could ask, are neither: that person may have an account
+        # of their own, and showing them somebody else's as theirs is the one
+        # answer that cannot be right.
+        fallback = (self.live_executor
+                    if operator or (shared and state == "absent") else None)
         if not creds:
-            return self.live_executor
+            return fallback
         key = str(user_id)
         ex = self._balance_view_executors.get(key)
         # Rebuild if absent or the user's credentials changed (venue-agnostic
@@ -2496,7 +2517,7 @@ class RuneClawEngine:
             try:
                 _state_dir = executor_state_dir(venue)
             except ValueError:
-                return self.live_executor
+                return fallback
             ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
                               state_dir=_state_dir)
             # Share the operator WS feed (market data is not per-user). No
