@@ -36,8 +36,10 @@ from typing import Any, Optional
 from bot.core.position_telemetry import price_on_record
 from bot.web import web3_exec_gate as gate
 
-#: Every native coin in ``web3_exec_gate.NETWORKS`` has 18 decimals.
-NATIVE_DECIMALS = 18
+#: Every native coin in ``web3_exec_gate.NETWORKS`` has 18 decimals. Written
+#: out as the integer rather than ``10 ** 18``, which a type checker reads as
+#: Any and would carry into every figure divided by it.
+WEI_PER_COIN: int = 1_000_000_000_000_000_000
 
 #: How long to wait on the venue before calling the mark unreadable.
 MARK_TIMEOUT_S = 8.0
@@ -67,7 +69,7 @@ def notional_usd(value_wei: int, mark: Optional[float]) -> Optional[float]:
         return 0.0
     if mark is None:
         return None
-    return v / (10 ** NATIVE_DECIMALS) * float(mark)
+    return v / WEI_PER_COIN * float(mark)
 
 
 async def read_native_mark(engine: Any, native: Optional[str]) -> tuple[Optional[float], str]:
