@@ -145,3 +145,24 @@ class AuthoritySpendLedger:
         if cap is None:
             return None
         return max(0.0, round(cap - self.spent(key, now_ts), 6))
+
+
+_USER_LEDGER: Optional[AuthoritySpendLedger] = None
+_USER_LEDGER_LOCK = threading.Lock()
+
+
+def user_spend_ledger() -> AuthoritySpendLedger:
+    """The ONE per-user ledger every authority reader shares.
+
+    Keyed by the user id the envelope is bound under. The web-live gate records
+    into it, the testnet signer records into it, the risk sentry, the yield
+    preview and the meme preflight read it. Two ledgers for one envelope would
+    be two answers about how much of its daily cap is used, and the second
+    would always read a quieter day than the first."""
+    global _USER_LEDGER
+    with _USER_LEDGER_LOCK:
+        if _USER_LEDGER is None:
+            from bot.utils.paths import env_state_path
+            _USER_LEDGER = AuthoritySpendLedger(state_file=str(env_state_path(
+                "WEB_LIVE_LEDGER_PATH", "data/web_live_ledger.json")))
+        return _USER_LEDGER

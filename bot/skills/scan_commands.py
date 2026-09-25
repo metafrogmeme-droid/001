@@ -242,8 +242,9 @@ class ScanCommands:
         and if not, which one stopped it" — diligence, not execution.
 
         Three preconditions, all fail-closed: the MEME_TRADING_ENABLED flag
-        (default OFF), a human-set Authority Envelope in enforce mode, and the
-        rug/liquidity/exit safety gate.
+        (default OFF), a human-set Authority Envelope that authorizes THIS buy
+        (its venue, size and the day's spend — not merely one in enforce mode),
+        and the rug/liquidity/exit safety gate.
 
         The gathering itself lives in `meme_preflight` because the web gateway
         needs the identical sequence, and a fail-closed gate maintained in two

@@ -18,9 +18,29 @@ WHAT FAIL-CLOSED MEANS AT EACH STEP, since every one of them can be unreadable:
   the pool's age   Derived from the pair's creation stamp, and left as None
                    when the venue did not report one. An undateable pool is the
                    textbook rug shape, so unknown must not become "old enough".
-  the envelope     An envelope that cannot be read is not an authorizing one.
-                   The `except` below returns False rather than propagating,
-                   and that is the whole of the decision.
+  the envelope     The user's Authority Envelope is ASKED ABOUT THIS BUY —
+                   `authorize()` with the venue, the market type and the size,
+                   against the day's recorded spend — and the precondition
+                   carries its decision and its reasons. It used to ask only
+                   whether an envelope was in enforce mode, so an enforcing
+                   envelope capped at $1, with the token blocklisted and the
+                   venue not in its list, "authorized" a $250 buy. An envelope
+                   or a ledger that cannot be read is not an authorizing one.
+
+THREE THINGS THIS PREFLIGHT CANNOT DO TODAY, stated because a fail-closed check
+that can never pass is a door that always refuses and should say so:
+
+  * `meme_gate`'s `risk_tier` check reads `radar_risk`, and NOTHING SUPPLIES
+    IT — no caller passes one to `plan_swap`, so that check fails closed on
+    every buy and no buy plan can pass until a producer exists.
+  * The envelope's symbol lists are written in TICKERS and this preflight holds
+    only a MINT. A mint is not a ticker, so an envelope with a symbol list is
+    answered "asset is not named" and refuses every meme buy rather than
+    checking a blocklist against a name that is not there.
+  * An envelope authored on the web is compiled against the CEX venue list
+    (`venues.valid_venue_ids`), which does not hold `solana:jupiter` — so such
+    an envelope cannot name the venue a meme buy routes through, and the venue
+    check refuses it.
 
 `allowed` is never invented here: this module gathers inputs and hands them to
 `meme_executor.plan_swap`, which owns the verdict. It also never executes —
@@ -61,18 +81,51 @@ def age_hours(features: Optional[dict], now: Optional[Callable[[], float]] = Non
     return max(0.0, ((now or time.time)() - created) / 3600.0)
 
 
-def envelope_authorized(tg_id: Any) -> bool:
-    """Is this user's Authority Envelope set to enforce? Unreadable is False.
+#: The venue a meme buy routes through — `plan_swap`'s own `venue` word, so the
+#: envelope is asked about the venue the plan names.
+MEME_VENUE = "solana:jupiter"
 
-    Isolated into a function so the "unreadable is not authorization" decision
-    has one home and one test, rather than an `except: pass` in each caller.
+
+def envelope_decision(tg_id: Any, size_usd: Any,
+                      now: Optional[Callable[[], float]] = None) -> dict:
+    """Ask the user's Authority Envelope about THIS buy. ``{authorized, reasons}``.
+
+    Not "is an envelope enforcing" — that was the whole of the old check, and an
+    enforcing envelope that would DENY the trade authorized it. `authorize()` is
+    asked with the plan's venue and market type, the buy's size, and the day's
+    spend from the one authority ledger. Unreadable at any step is not
+    authorization, and the reason says which step.
     """
     try:
         from bot.guardian.user_authority_store import get_user_authority_store
-        return bool(get_user_authority_store().is_enforcing(tg_id))
+        store = get_user_authority_store()
+        if not store.is_enforcing(tg_id):
+            return {"authorized": False,
+                    "reasons": ["no authority envelope in enforce mode"]}
+        env = store.get(tg_id)
     except Exception as exc:                                      # noqa: BLE001
         logger.debug("authority envelope unreadable for %s: %s", tg_id, exc)
-        return False
+        return {"authorized": False,
+                "reasons": ["the authority envelope could not be read"]}
+    now_ts = (now or time.time)()
+    try:
+        from bot.guardian.authority_ledger import user_spend_ledger
+        spent: Optional[float] = user_spend_ledger().spent(str(tg_id), now_ts)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.debug("authority ledger unreadable for %s: %s", tg_id, exc)
+        spent = None          # refused by name under a daily cap, never 0
+    try:
+        from bot.guardian.authority import authorize
+        # `asset: None` — see the module docstring: a mint is not a ticker.
+        result = authorize(env, {"kind": "trade", "venue": MEME_VENUE,
+                                 "market_type": "swap", "asset": None,
+                                 "notional_usd": size_usd},
+                           now_ts=now_ts, spent_today_usd=spent)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.debug("authority check failed for %s: %s", tg_id, exc)
+        return {"authorized": False, "reasons": ["the authority check failed"]}
+    return {"authorized": result.get("decision") == "allow",
+            "reasons": list(result.get("reasons") or [])}
 
 
 async def preflight(mint: str, size_usd: float = DEFAULT_SIZE_USD, *,
@@ -107,13 +160,18 @@ async def preflight(mint: str, size_usd: float = DEFAULT_SIZE_USD, *,
         "buys_24h": feats.get("buys_24h"),
         "sells_24h": feats.get("sells_24h"),
     }
-    auth = envelope_authorized(tg_id) if authorized is None else bool(authorized)
+    if authorized is None:
+        decision = envelope_decision(tg_id, size_usd, now=clock)
+    else:
+        decision = {"authorized": bool(authorized), "reasons": []}
 
     plan = meme_executor.plan_swap(
         intent={"side": side, "token_mint": mint, "size_usd": size_usd},
         safety_report=assess_token(feats),
         market=market,
-        envelope_authorized=auth)
+        envelope_authorized=decision["authorized"],
+        envelope_reasons=decision["reasons"])
     plan["market"] = market
+    plan["envelope"] = decision
     plan["created_at"] = clock()
     return plan

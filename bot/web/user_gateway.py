@@ -67,7 +67,6 @@ from bot.skills.skill_permissions import (
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
 from bot.utils.outbound import reply_safe
-from bot.utils.paths import env_state_path
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
 # strong shared secret on both sides (bot + Express).
@@ -2087,13 +2086,13 @@ _WEB_LIVE_LEDGER = None
 
 
 def _web_live_ledger():
-    """Process-wide 24h notional spend ledger for web-live authority checks."""
+    """Process-wide 24h notional spend ledger for authority checks — the one
+    `authority_ledger.user_spend_ledger()`, so the meme preflight (which does
+    not import the gateway) reads the same day this module records."""
     global _WEB_LIVE_LEDGER
     if _WEB_LIVE_LEDGER is None:
-        from bot.guardian.authority_ledger import AuthoritySpendLedger
-        _WEB_LIVE_LEDGER = AuthoritySpendLedger(
-            state_file=str(env_state_path("WEB_LIVE_LEDGER_PATH",
-                                          "data/web_live_ledger.json")))
+        from bot.guardian.authority_ledger import user_spend_ledger
+        _WEB_LIVE_LEDGER = user_spend_ledger()
     return _WEB_LIVE_LEDGER
 
 

@@ -8,10 +8,12 @@ number somewhere in the middle.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from bot.core import meme_preflight as mp
+from bot.guardian import authority as _auth
 
 MINT = "So11111111111111111111111111111111111111112"
 NOW = 1_700_000_000.0
@@ -99,7 +101,34 @@ def test_zero_liquidity_is_kept_as_zero_and_not_confused_with_absent():
     assert plan["market"]["liquidity_usd"] is not None
 
 
-# ── an unreadable envelope is not an authorizing one ──────────────────────
+# ── the envelope is asked about THIS buy ──────────────────────────────────
+#
+# `envelope_authorized` used to be `is_enforcing()` alone, and a pin here
+# asserted that "an enforcing envelope authorizes". Driven, an ENFORCING
+# envelope capped at $1 a trade, with BONK blocklisted and bitget as its only
+# venue, "authorized" a $250 buy that `authorize()` on the same envelope denied
+# for three reasons. The decision is `authorize()`'s now, reasons and all.
+
+
+@pytest.fixture
+def bound(monkeypatch, tmp_path):
+    """A real store and a real ledger, so the decision is authorize()'s own."""
+    import bot.guardian.authority_ledger as al
+    import bot.guardian.user_authority_store as store
+
+    s = store.UserAuthorityStore(str(tmp_path / "ua.json"))
+    monkeypatch.setattr(store, "get_user_authority_store", lambda: s)
+    ledger = al.AuthoritySpendLedger(state_file=str(tmp_path / "ledger.json"))
+    monkeypatch.setattr(al, "_USER_LEDGER", ledger)
+
+    def bind(**spec):
+        base = {"mode": "enforce", "allowed_venues": [mp.MEME_VENUE],
+                "allowed_market_types": ["swap"]}
+        base.update(spec)
+        s.bind("42", _auth.compile_envelope(base))
+
+    return SimpleNamespace(store=s, ledger=ledger, bind=bind)
+
 
 def test_an_unreadable_envelope_does_not_authorize(monkeypatch):
     import bot.guardian.user_authority_store as store
@@ -108,38 +137,83 @@ def test_an_unreadable_envelope_does_not_authorize(monkeypatch):
         raise RuntimeError("store unavailable")
 
     monkeypatch.setattr(store, "get_user_authority_store", boom)
-    assert mp.envelope_authorized("123") is False
+    d = mp.envelope_decision("123", 25.0)
+    assert d == {"authorized": False,
+                 "reasons": ["the authority envelope could not be read"]}
 
 
-def test_an_enforcing_envelope_authorizes(monkeypatch):
-    import bot.guardian.user_authority_store as store
+def test_an_enforcing_envelope_that_denies_the_buy_does_not_authorize_it(bound):
+    """The pin that used to read "an enforcing envelope authorizes"."""
+    bound.bind(allowed_venues=["bitget"], max_notional_per_trade_usd=1.0)
+    assert bound.store.is_enforcing("42") is True
+    d = mp.envelope_decision("42", 250.0)
+    assert d["authorized"] is False
+    assert "venue 'solana:jupiter' is not authorized (bitget)" in d["reasons"]
+    assert "trade notional $250.00 exceeds per-trade cap $1.00" in d["reasons"]
 
-    class _S:
-        def is_enforcing(self, _tg_id):
-            return True
 
-    monkeypatch.setattr(store, "get_user_authority_store", lambda: _S())
-    assert mp.envelope_authorized("123") is True
+def test_an_enforcing_envelope_that_allows_the_buy_authorizes_it(bound):
+    bound.bind(max_notional_per_trade_usd=500.0)
+    assert mp.envelope_decision("42", 250.0) == {"authorized": True, "reasons": []}
 
 
-def test_a_non_enforcing_envelope_does_not(monkeypatch):
-    import bot.guardian.user_authority_store as store
+def test_a_non_enforcing_envelope_does_not(bound):
+    bound.bind(mode="shadow")
+    d = mp.envelope_decision("42", 25.0)
+    assert d == {"authorized": False, "reasons": ["no authority envelope in enforce mode"]}
 
-    class _S:
-        def is_enforcing(self, _tg_id):
-            return False
 
-    monkeypatch.setattr(store, "get_user_authority_store", lambda: _S())
-    assert mp.envelope_authorized("123") is False
+def test_the_days_spend_is_read_and_binds(bound):
+    bound.bind(max_notional_daily_usd=100.0)
+    bound.ledger.record("42", 90.0, NOW, ref="earlier")
+    d = mp.envelope_decision("42", 25.0, now=lambda: NOW)
+    assert d["authorized"] is False
+    assert any("daily cap $100.00 (already spent $90.00)" in r for r in d["reasons"])
+
+
+def test_an_unreadable_ledger_is_refused_under_a_daily_cap(bound, monkeypatch):
+    bound.bind(max_notional_daily_usd=100.0)
+
+    def boom(*_a, **_k):
+        raise OSError("ledger unreadable")
+
+    monkeypatch.setattr(bound.ledger, "spent", boom)
+    d = mp.envelope_decision("42", 25.0)
+    assert d["authorized"] is False
+    assert any("could not be read" in r for r in d["reasons"])
+
+
+def test_a_mint_is_not_a_ticker_so_a_symbol_list_refuses_by_name(bound):
+    """The envelope's lists are tickers; the preflight holds a mint. A blocklist
+    checked against a name that is not there would pass — so it refuses."""
+    bound.bind(symbol_blocklist=["BONK"])
+    d = mp.envelope_decision("42", 25.0)
+    assert d["authorized"] is False
+    assert d["reasons"] == ["trade asset is not named — cannot check it against "
+                            "the authority's symbol list"]
+
+
+def test_the_precondition_carries_the_decision_and_its_reasons(bound):
+    bound.bind(allowed_venues=["bitget"], max_notional_per_trade_usd=1.0,
+               symbol_blocklist=["BONK"])
+    plan = run(features={"liquidity_usd": 999_999.0}, authorized=None, tg_id="42",
+               size_usd=250.0)
+    pre = next(c for c in plan["preconditions"] if c["name"] == "envelope_authorized")
+    assert pre["ok"] is False
+    assert "exceeds per-trade cap $1.00" in pre["detail"]
+    assert plan["envelope"]["authorized"] is False
+    assert plan["envelope"]["reasons"] and "envelope_authorized" in plan["reason"]
 
 
 def test_preflight_defaults_to_asking_the_envelope(monkeypatch):
-    """`authorized=None` must consult the store, not fall through to True."""
+    """`authorized=None` must consult the envelope, not fall through to True."""
     seen = []
-    monkeypatch.setattr(mp, "envelope_authorized",
-                        lambda tg: (seen.append(tg), False)[1])
+    monkeypatch.setattr(mp, "envelope_decision",
+                        lambda tg, size, now=None: (seen.append((tg, size)),
+                                                    {"authorized": False,
+                                                     "reasons": ["planted"]})[1])
     plan = run(features={"liquidity_usd": 999_999.0}, authorized=None, tg_id="42")
-    assert seen == ["42"]
+    assert seen == [("42", 25.0)]
     assert plan["allowed"] is False, "no envelope, no plan"
 
 

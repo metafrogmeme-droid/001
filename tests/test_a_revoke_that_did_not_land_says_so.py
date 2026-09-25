@@ -192,8 +192,7 @@ def test_the_purge_reports_an_unlanded_clear_as_an_error(tmp_path, monkeypatch):
     """"none" says nothing was bound; "deleted" says it is gone. A binding
     cleared in memory whose write failed is neither — it comes back."""
     from bot.web import user_gateway as ug
-    from tests.test_chat_guards_say_what_ran import (_conversations, _gateway_handler,
-                                                     _purge, _stub_the_other_stores)
+    from tests.test_chat_guards_say_what_ran import _conversations, _gateway_handler, _purge, _stub_the_other_stores
     # That suite's own autouse fixture waves the caller through; this one
     # borrows its helpers, so it does the same, explicitly.
     monkeypatch.setattr(ug, "_guard_user", lambda *a, **k: None)
