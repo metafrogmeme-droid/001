@@ -10746,6 +10746,93 @@ name.
 `tests/test_a_revoke_that_did_not_land_says_so.py`,
 `tests/test_an_empty_env_is_not_the_process_env.py`.)
 
+**AN ENTRY PRICE THAT IS NOT ON RECORD WAS PRICED AS ZERO, ON ALL THREE CLOSE
+PATHS.** Adoption writes `entry_price = 0.0` for an entry the venue did not
+state, and every close path did `(exit - pos.entry_price) * pos.quantity`
+on it. Driven: an adopted SOL position of 10 contracts closed at 150 booked
+**+1,500.00 for a LONG and -1,500.00 for a SHORT on every path**, the whole
+exit notional as the result, under `Entry: $0.0000`, and the 25227 card
+printed a measured `(+0.00%)`. `entry_on_record` is one reading
+(`price_on_record` asked of the entry; the value decides, not the marker).
+With no venue P&L, a read exit over an unread entry is UNPRICED on every path,
+with `+entry_unread` after the exit's own source word (so a ticker exit still
+counts as one), `Entry: unread` and a `close_entry_unread` warning-rate event.
+A venue P&L still prices it; a GROSS one takes its entry fee from the notional
+its own gross and exit imply, and with no basis the fee and net are unknown. Beside it, the history stage read an ABSENT profit
+field as a gross of 0.0, so a -$50 stop-out went on the record at `$0.00`. It
+answers `pnl: None` with a `*_local_pnl` source; a present "0" is a
+measurement.
+
+**A DUPLICATE-CLOSE SIGNATURE IS NOT A VENUE READ, and the sweep acted on it
+alone.** `check_positions` suppressed any record matching a booked close
+(symbol, direction, entry within 0.05%, closed within two hours) without asking
+the venue, under a docstring saying "a real re-entry fills at a different
+price". Driven: a SOL long re-entered
+at 150 thirty minutes after one was booked, with the venue holding it, came out
+`duplicate_suppressed` and untracked. A record opened AFTER the booked close
+is not its duplicate now, and a match defers the row to reconcile through the
+set `awaiting_reconcile` reads. Reconcile suppresses it when the venue is
+flat, keeps it while the book is unreadable, and marks it venue-held when the
+venue holds it. **A deferral alone would have been its own defect**: the sweep
+runs first every tick and would re-defer the released row forever. **The old suite's fixture could not produce the state it
+named**: every twin took the default open time (now), which is the shape of a
+real re-entry.
+
+**THE LIVE EXCHANGE SYNC CLOSED THE PAPER BOOK AGAINST THE LIVE VENUE.** Both
+callers of `sync_portfolio_with_exchange` sit under `CONFIG.is_live()`. Its
+Phase 1 ghost-closed each paper position the venue did not list, at a venue
+price, through a callback feeding the live operator engine's
+`record_trade_result`. Driven: a stale paper ETH long at 2,000 and a 2,500
+ticker handed **621.62** to the live streak feed. Phase 2 read the same book as
+tracked, so that long hid a real untracked ETH long from adoption. In live mode
+the sync reads no paper book, and says so once per process.
+
+**A ROW WITH NO READABLE SIZE VANISHED, AND ONE SPELLED "n/a" TOOK THE LIST
+WITH IT.** `abs(float(p.get("contracts", 0) or 0)) > 0` dropped a null size as
+flat and raised on text. A venue listing three rows gave the slot cap **0**,
+from the local book it fell back to. `_fetch_exchange_positions` answers an
+`ExchangeBook`: the count holds an unreadable row as a position and audits it,
+and the orphan pass names it. And `invalidate_position_count_cache` wrote
+`0.0` against `time.monotonic()`, the trap this module's header records. At
+monotonic 5.0 an invalidated count of 1 was served while the venue held 3. It
+writes None.
+
+**AN ADOPTED LIMIT ORDER CARRIED A GUESSED LEVERAGE UNDER "REAL EXCHANGE DATA
+ONLY".** The venue states none for an unfilled order, and adoption wrote the
+config default and a derived margin (`5x / $280.00`, scored 1 of 1 by
+`committed_margin`). Both are recorded unread now, and **making it honest broke
+two readers.** The fill paths' `raw_cost / pos.leverage if pos.leverage > 1
+else raw_cost` would have written the 1,400 notional as the margin
+(`margin_at_fill` now). And a reclaimed order's guard read that default back
+as "genuinely what set_leverage applied", which was false whenever an override,
+a preference, the ladder or the margin-risk cap set another.
+`_intended_fill_leverage` is one reading for all three fill guards, two of
+which read the raw field. It checks a reclaimed fill against the standard
+leverage, the ceiling every placement starts from.
+
+**Forty-seven mutations, each killed, and all five fixtures they asked for were
+the corpus's.** Two came from reading the plan first. A naive-to-aware
+comparison RAISES, and the signature's own `except` answers False, which is
+right for a re-entry and wrong for a duplicate. So only a naive twin opened
+BEFORE the close can test the UTC reading. The drift fallback's guard had no
+drive. Three survived round one. Reconcile's audit row printed `pnl`,
+the working figure, as the exit notional. The gross-P&L entry fee was driven
+on reconcile only. And the raw-field guard agrees with the one reading for
+every adopted order, so only a reclaimed fill separates them.
+
+**Filed, not changed.** An undetected hold mode (`_hedge_mode is None`, until
+the first order after a restart) is read three ways: reconcile as one-way,
+`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. The exposure cap refuses
+new orders while an adopted resting limit's margin is unread (its recorded
+rule). The post-fill sync does not clear `adoption_unread`. The `*_local_pnl`
+closes estimate fees the history row stated. The paper ghost sweep has no
+production caller; in paper mode it would close every paper position.
+(`tests/test_an_unread_entry_is_an_unpriced_close.py`,
+`tests/test_a_signature_match_asks_the_venue_before_suppressing.py`,
+`tests/test_the_live_sync_leaves_the_paper_book_alone.py`,
+`tests/test_an_unreadable_position_row_is_counted_not_dropped.py`,
+`tests/test_an_adopted_limit_order_records_no_guessed_leverage.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
