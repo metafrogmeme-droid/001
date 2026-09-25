@@ -118,6 +118,24 @@ def hyperliquid_key_role(private_key: str, wallet_address: str) -> str:
         return "master"
     return "agent"
 
+def hyperliquid_key_refusal(role: str) -> Optional[str]:
+    """The sentence a ``master`` or ``rejected`` key role is refused with, or None.
+
+    One sentence per role, read by the client constructor and by the /connect
+    probe, so the key that is refused at the first order is refused in the
+    same words at the door. Neither quotes any part of the key.
+    """
+    if role == "master":
+        return ("Hyperliquid trading uses an agent wallet key. This key "
+                "controls the master wallet itself, so it was refused. "
+                "Nothing was sent.")
+    if role == "rejected":
+        return ("Hyperliquid refused that private key: it is not a "
+                "well-formed signing key. Nothing about the key is "
+                "repeated here.")
+    return None
+
+
 # Runtime venue override — set by the admin /venue command, survives
 # restarts, and takes precedence over the VENUE env var so switching
 # venues never requires editing .env. Removing the file (or /venue clear)
@@ -406,16 +424,9 @@ class HyperliquidVenue(Venue):
         # both proceed — refusing unconfirmed would make this venue
         # unusable wherever eth-account is not installed.
         role = hyperliquid_key_role(priv, wallet)
-        if role == "master":
-            raise RuntimeError(
-                "Hyperliquid trading uses an agent wallet key. This key "
-                "controls the master wallet itself, so it was refused. "
-                "Nothing was sent.")
-        if role == "rejected":
-            raise RuntimeError(
-                "Hyperliquid refused that private key: it is not a "
-                "well-formed signing key. Nothing about the key is "
-                "repeated here.")
+        refusal = hyperliquid_key_refusal(role)
+        if refusal:
+            raise RuntimeError(refusal)
         exchange = ccxt.hyperliquid({
             "aiohttp_trust_env": True,
             "walletAddress": wallet,
