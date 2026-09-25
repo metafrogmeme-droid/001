@@ -19,6 +19,9 @@ from bot.core.engine import RuneClawEngine
 
 
 def _pos(pnl, symbol="BTC/USDT", direction="LONG", close_reason="take_profit"):
+    # No entry or quantity: the close's notional is never stated, so the
+    # callback records the P&L with `notional=None` (never a 0), which is
+    # what the routing assertions below name.
     return SimpleNamespace(
         pnl_usd=pnl, symbol=symbol, direction=direction,
         close_reason=close_reason, trade_id="T1",
@@ -57,14 +60,14 @@ class TestCloseRouting:
     def test_operator_close_hits_operator_engine(self):
         eng, operator, users = _engine()
         eng._on_live_position_closed(_pos(-5.0))          # no user_id → operator
-        operator.record_live_trade_result.assert_called_once_with(-5.0)
+        operator.record_live_trade_result.assert_called_once_with(-5.0, notional=None)
         assert users == {}                                # no per-user engine built
 
     def test_per_user_close_hits_that_users_engine(self):
         eng, operator, users = _engine()
         eng._on_live_position_closed(_pos(-3.0), "alice")
         assert "alice" in users
-        users["alice"].record_live_trade_result.assert_called_once_with(-3.0)
+        users["alice"].record_live_trade_result.assert_called_once_with(-3.0, notional=None)
         # The operator engine must NOT absorb the user's loss.
         operator.record_live_trade_result.assert_not_called()
 
@@ -72,8 +75,8 @@ class TestCloseRouting:
         eng, operator, users = _engine()
         eng._on_live_position_closed(_pos(-2.0), "alice")
         eng._on_live_position_closed(_pos(-7.0), "bob")
-        users["alice"].record_live_trade_result.assert_called_once_with(-2.0)
-        users["bob"].record_live_trade_result.assert_called_once_with(-7.0)
+        users["alice"].record_live_trade_result.assert_called_once_with(-2.0, notional=None)
+        users["bob"].record_live_trade_result.assert_called_once_with(-7.0, notional=None)
         operator.record_live_trade_result.assert_not_called()
 
     def test_missing_pnl_records_nothing(self):
@@ -114,7 +117,7 @@ class TestExecutorCallbackBinding:
             # Fire the executor's own close callback → must hit bob's engine.
             ex.on_position_closed(_pos(-4.0))
             assert "bob" in users
-            users["bob"].record_live_trade_result.assert_called_once_with(-4.0)
+            users["bob"].record_live_trade_result.assert_called_once_with(-4.0, notional=None)
             operator.record_live_trade_result.assert_not_called()
         finally:
             store.stop()

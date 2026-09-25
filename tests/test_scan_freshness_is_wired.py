@@ -130,6 +130,10 @@ class _Engine:
     # ...and the ownership reading both of them ask, for the same reason.
     _engine_pending_ids = RuneClawEngine._engine_pending_ids
     _register_engine_idea = RuneClawEngine._register_engine_idea
+    # ...and the adaptive auto-confirm bar, which `_tick` calls the same way
+    # (its block used to be inline; it is a seam now, with a live-mode branch).
+    _adapt_auto_confirm_threshold = RuneClawEngine._adapt_auto_confirm_threshold
+    _adaptive_live_noted = False
 
 
 def _run_tick(scan_result) -> _Engine:

@@ -10155,12 +10155,11 @@ a NEAR idea. Two clauses were deleted before the round rather than pinned.
 side comes from an enum. An equity guard in the exposure reading cannot be
 reached, because a live evaluation refuses a non-positive equity first.
 
-**Recorded, not changed, each read and not driven.** The covariance VaR path,
-which live risk hardening turns on, divides by the paper tracker's equity and
-reads its positions. The adaptive auto-confirm threshold is moved by the win
-rate of `self.portfolio._history`, the paper book, so in live mode it never
-moves. Kelly's half-fraction reads realized history, and that needs checking
-for the same book question.
+**Recorded here, driven and changed below.** This paragraph used to file
+three reads as recorded and not driven: the covariance VaR path, the adaptive
+auto-confirm threshold and Kelly's half-fraction. Each was driven the next day
+and each read the paper tracker in live mode; the chapter on the VaR gate's
+$200 account records what they did and what changed.
 
 **And the income map's `config.py` rows had never been checked by anything.**
 The blank-line probe resolves a bare filename under `bot/skills`, `bot/core`,
@@ -10254,12 +10253,13 @@ a new stop is resting, in the table that holds them
 venue refuses. The classic trailing move's cancel of its old stop took the
 same wrong table on every move and routes the same way now.
 
-**Recorded, not changed.** `_cancel_stop_leg`'s non-combined branch, which the
-close path uses, still cancels a classic stop through the regular table. Its
-docstring already reads the answer as `unverified` for that reason, so it
-claims nothing false. Routing it changes what the close path sees before a
-market close, which is its own slice. Thirteen mutations: twelve killed, and a
-reset line no failed read could reach was deleted rather than pinned.
+**Recorded here, changed below.** `_cancel_stop_leg`'s non-combined branch,
+which the close path uses, was filed here as still cancelling a classic stop
+through the regular table, its docstring reading the answer as `unverified`
+for that reason. It is routed in the chapter on the VaR gate's $200 account,
+which is the slice this paragraph said it would be. Thirteen mutations: twelve
+killed, and a reset line no failed read could reach was deleted rather than
+pinned.
 (`tests/test_the_plan_listing_reaches_the_plan_table.py`.)
 
 **ONE /risk CARD SAID "CLEAR" ABOVE "BLOCKING NEW ENTRIES", AND BOTH WERE
@@ -10379,6 +10379,106 @@ with no `ORDER BY` and took `.slice(0, 12)`, so its order was the storage
 engine's and a thirteenth season would drop an arbitrary one in silence. It
 lists the most recently ended first now, and says when it is showing twelve of
 more. (`app/test/arena_seasons.test.js`.)
+
+**THE VAR GATE PRICED A $200 LIVE ACCOUNT AS A $10,000 ONE HOLDING NOTHING,
+AND THE THREE READS FILED BESIDE IT WERE EACH WHAT THE RECORD SAID.** The
+live-book chapter ended with four things recorded and not driven: the
+covariance VaR path, the adaptive auto-confirm bar, Kelly's half-fraction,
+and the close path's cancel of a classic stop. Driven the next day, all four
+held, and one was worse than filed.
+
+- **PORTFOLIO_VAR.** Both VaR paths read the paper tracker: the covariance
+  path (live risk hardening turns it on) took its equity and open positions,
+  the per-trade proxy its trade history. On the operator engine in live mode,
+  $200 of equity and two live positions of $500 notional on the book, the
+  line read `PORTFOLIO_VAR: 0.04% <= 15.0% limit`; the same formula handed
+  the live equity and the live rows answers **12.50%** against the 15% cap.
+  On a per-user engine two practice shorts were the portfolio a live long
+  joined, and with no price history the fall-through proxy said "skipped
+  (insufficient trade history)" about the paper record. The evaluation hands
+  the live rows and the live equity in now (`_compute_live_var`). A row whose
+  notional or side was never stated is UNREAD and refused by name: an
+  exposure floor can clear a cap, but a VaR over part of a book is not a
+  floor, because a hedge lowers it. The covariance path models the live book
+  when every asset has enough aligned price history; otherwise the proxy
+  reads the live record's per-close returns, a window fed beside the P&L on
+  every priced live close and seeded at boot from the closed-trade record
+  the way the governor's is, and a record shorter than five closes is a skip
+  that says so with its count. A row's spelling is matched to the price
+  history the way the duplicate guard matches symbols, because the tick
+  keys prices as the scanner spells them and a live row is spelled as the
+  venue does.
+- **Kelly.** The half-Kelly ceiling read the same tracker's history: a live
+  record of 20 closes at 75% gave a $0 ceiling (a no-op) on the operator
+  engine, and 20 PRACTICE closes gave a $130 ceiling on a live $1,000 on a
+  per-user engine. It reads the realized window in live mode. The arithmetic
+  is one, and the drive asserts that the two records give one answer.
+- **The close path's stop cancel.** `_cancel_stop_leg`'s non-combined branch
+  sent a plain cancel, which on Bitget goes to the regular table, and that
+  table answers "does not exist" for every plan order. Driven against ccxt
+  4.5.56 with the transport stubbed: one regular cancel, no plan cancel,
+  verdict `unverified`. That verdict clears the id, so the record forgot a
+  stop still RESTING through the market close that followed, on every close
+  of every classic-account position. It is cancelled in the plan table under
+  the type that listed it now, and what became of it is read off the listing
+  afterwards, because ccxt parses a plan cancel from its `successList` and a
+  refused one raises without saying why. The regular table is asked only
+  when the plan tables were read and none lists the id, and then its "does
+  not exist" is the second table's answer: `gone`. The post-close sweep was
+  the third reader and takes the same route, listing this side's plan rows
+  through the cleanup rule so the other side's stop stays in hedge mode.
+- **The adaptive auto-confirm bar.** It read `self.portfolio._history`, the
+  paper book. In live mode nothing writes that book, so a fresh live deploy
+  never moved the bar; and what the book HOLDS is whatever paper trading
+  left there before the account went live. Driven with ten paper closes at
+  80% and a live bar of 0.85: five ticks walked it to the 0.60 floor, one
+  step each, on a record no live trade was in. That is RC-2026-021 one book
+  over. Whether a LIVE record should move a live bar is the operator's
+  decision (the winning direction lowers it, the losing one raises it, and
+  both change what executes without a human), so in live mode the bar stays
+  where it was set and the engine says so once; paper is unchanged. The
+  block is a seam now, because a block inline in a 434-line tick is a block
+  nothing can drive.
+
+**Two corpus gaps were found by reading the mutations before the round ran.**
+The proxy's skip floor at five would have survived a corpus holding zero
+returns and six, and its gross exposure would have survived a book of two
+longs: a fixture positioned either side of a boundary measures nothing about
+the comparison that decides it, and a book whose rows all point one way
+cannot tell a signed sum from a gross one. Both are planted, and the
+thirty-six mutations then died on the first round. One is recorded rather
+than run: the return window's `notional > 0` guard is equivalent under the
+recorder's own `except`, because a zero divides into an exception that is
+swallowed before the append, so the guard is what a reader sees and the
+`except` is what the code does.
+
+> **And the extraction took an import with it.** The block's
+> `from bot.config import RUNTIME` moved into the seam, and `_tick` reads
+> `RUNTIME` twenty lines below the call. The strict lint gate, the whole-tree
+> mypy ratchet and the scan-freshness suite each said so, and no suite the
+> slice had been running could have.
+
+> **And the full gate refused the slice on six tests none of its suites ran,
+> the tenth time.** Five were stand-ins: the per-user routing suite asserted
+> the close recorder's CALL SHAPE (`assert_called_once_with(-5.0)`) and the
+> journal suite stubbed it as `lambda self, p`, so the `notional=` the
+> callback now passes was an extra argument to one and a `TypeError` inside
+> the callback's own `try` for the other, where the swallow read as "the
+> breaker feed was not fed". A hand-written stand-in that must remember each
+> argument is one that will forget the next, and the routing assertions name
+> the notional now (the fixture states none, so `None`, never a 0). The sixth
+> was the generated safety-flags block in `.env.example`, whose `config.py`
+> citations moved three lines under the adaptive flag's new comment; it is
+> regenerated, which is the one honest way to move a generated block. The
+> same run's whole-tree ruff ratchet had grown by one unused import in a new
+> suite, and I had read past it three times by tailing ONE line of the
+> script's output, which is its re-record hint and not its verdict: the
+> preflight chapter's "read the per-gate list and never the headline", at
+> the scale of a single command.
+
+(`tests/test_the_var_gate_and_kelly_read_the_live_record.py`,
+`tests/test_a_classic_stop_is_cancelled_in_the_plan_table.py`,
+`tests/test_the_adaptive_threshold_reads_the_record_of_its_mode.py`.)
 
 ## Public-surface rules
 
@@ -10859,7 +10959,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 232 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 233 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11671,9 +11771,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **435 of 1046** reach for source text through `source_scan`, `code_only`
+Driven, **438 of 1049** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 435 is a FLOOR and the honest shape is
+source scan that rule does not see, so 438 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
