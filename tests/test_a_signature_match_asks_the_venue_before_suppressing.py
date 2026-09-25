@@ -106,12 +106,17 @@ class TestTheSignature:
         ex, _x = _executor(pos, closed=booked)
         assert ex._is_duplicate_close_booking(pos) is True
 
-    def test_a_naive_open_time_is_read_as_utc(self):
+    @pytest.mark.parametrize("opened_ago,expected", [(timedelta(minutes=10), False),
+                                                     (timedelta(minutes=50), True)])
+    def test_a_naive_open_time_is_read_as_utc(self, opened_ago, expected):
+        # Both sides of the close: an aware-vs-naive comparison RAISES, and the
+        # guard's own except answers False -- which is right for the re-entry
+        # and wrong for the duplicate, so only the second case can tell.
         now = datetime.now(UTC)
-        pos = _record(now, timedelta(minutes=10))
+        pos = _record(now, opened_ago)
         pos.opened_at = pos.opened_at.replace(tzinfo=None)
         ex, _x = _executor(pos)
-        assert ex._is_duplicate_close_booking(pos) is False
+        assert ex._is_duplicate_close_booking(pos) is expected
 
 
 # ── the sweep defers; reconcile asks the venue ───────────────────────────────

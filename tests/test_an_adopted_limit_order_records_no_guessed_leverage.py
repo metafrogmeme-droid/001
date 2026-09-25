@@ -136,6 +136,22 @@ class TestTheMarginAtAFill:
         # ...and the guard was handed no approved leverage for it.
         assert ex._guard_fill_leverage.await_args.args[3] == 0
 
+    def test_a_reclaimed_fill_is_checked_against_the_bots_ceiling(self, live):
+        """The limit-fill path's own guard, for the bot's OWN order: an
+        adopted order and a raw read of the record both answer 0 here, so only
+        a reclaimed fill tells the one reading from the field."""
+        ex, x, _out = _adopt([_order(client_oid="rcTIf6798581")])
+        (pos,) = ex._positions.values()
+        ex._standard_leverage = lambda symbol: 7
+        x.fetch_order = AsyncMock(return_value={"id": "9981234567", "status": "closed",
+                                                "filled": 10.0, "average": 140.0})
+        ex._place_sl_tp = AsyncMock(return_value=("sl", "tp"))
+        ex._reattempt_post_fill_sl = AsyncMock(return_value=("sl", "tp", None))
+        ex.sync_positions_from_exchange = AsyncMock(side_effect=RuntimeError("unread"))
+        ex._guard_fill_leverage = AsyncMock(return_value=None)
+        asyncio.run(ex._check_pending_limit(x, pos.trade_id, pos))
+        assert ex._guard_fill_leverage.await_args.args[3] == 7
+
 
 class TestTheIntendedLeverage:
     def _ex(self, standard=7):
@@ -173,5 +189,28 @@ class TestTheIntendedLeverage:
         ex._guard_fill_leverage = AsyncMock(return_value="stop here")
         pos = self._pos(origin, 0)
         asyncio.run(ex._adopt_partial_fill(AsyncMock(), "T", pos, 4.0, 140.0, "cancel"))
+        assert ex._guard_fill_leverage.await_args.args[3] == expected
+        assert pos.cost_usd == 0.0
+
+    @pytest.mark.parametrize("origin,expected", [("adopted", 0), ("reclaimed", 7)])
+    def test_the_drift_fallback_guard_reads_it(self, origin, expected):
+        """The third fill guard, driven the way the partial-fill suite drives
+        the fallback: a market order for the remainder, then the guard."""
+        from types import SimpleNamespace
+        ex = LiveExecutor.__new__(LiveExecutor)
+        ex._standard_leverage = lambda symbol: 7
+        pos = self._pos(origin, 0)
+        pos.limit_order_id = "OID1"
+        ex._positions = {"T": pos}
+        ex._venue = SimpleNamespace(order_symbol=lambda s: s, futures_params=lambda: {})
+        ex._save_positions = lambda: None
+        ex._place_sl_tp = AsyncMock(return_value=("SL1", "TP1"))
+        ex._reattempt_post_fill_sl = AsyncMock(return_value=("SL1", "TP1", None))
+        ex._guard_fill_leverage = AsyncMock(return_value="stop here")
+        exchange = MagicMock()
+        exchange.cancel_order = AsyncMock()
+        exchange.fetch_order = AsyncMock(return_value={"status": "canceled", "filled": 0.0})
+        exchange.create_order = AsyncMock(return_value={"average": 141.0, "filled": 10.0})
+        asyncio.run(ex._execute_drift_market_fallback(exchange, "T", pos, 141.0))
         assert ex._guard_fill_leverage.await_args.args[3] == expected
         assert pos.cost_usd == 0.0

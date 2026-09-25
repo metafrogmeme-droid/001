@@ -189,7 +189,11 @@ class TestEveryPathBooksItUnpriced:
         assert "+0.00%" not in msg
         assert any("entry price is not on record" in r.getMessage() for r in caplog.records)
 
-    def test_the_reconcile_path(self, direction):
+    def test_the_reconcile_path(self, direction, monkeypatch):
+        said = []
+        real = le.audit
+        monkeypatch.setattr(le, "audit",
+                            lambda log, msg, **kw: (said.append((msg, kw)), real(log, msg, **kw)))
         ex, _x = _executor(fills=[_close_fill(direction)])
         p = _adopted(direction)
         ex._positions = {p.trade_id: p}
@@ -197,6 +201,12 @@ class TestEveryPathBooksItUnpriced:
         assert len(msgs) == 1
         _assert_unpriced(ex, p, msgs[0], "reconcile_close")
         assert p.fill_source == "exchange_fill_recent_local_pnl" + ENTRY_UNREAD
+        # The audit row says what the record says -- it printed `pnl`, the
+        # working figure, which an entry of 0.0 turned into the exit notional.
+        (row,) = [(m, kw) for m, kw in said if kw.get("action") == "reconcile_close"
+                  and kw.get("result") != "UNPRICED"]
+        assert row[1]["result"] == "CLOSED_UNPRICED"
+        assert row[1]["data"]["pnl_usd"] is None and "1500" not in row[0]
 
     def test_the_bots_own_close(self, direction):
         ex, _x = _executor()
@@ -255,6 +265,26 @@ class TestAVenuePnlStillPricesIt:
         assert p.commission == pytest.approx(0.9 + 1400.0 * rate / 100.0)
         assert p.pnl_usd == pytest.approx(100.0 - p.commission)
         assert p.fill_source == "exchange_fill_recent+exchange_pnl"
+
+
+    def test_the_bots_own_close_takes_its_entry_fee_from_the_venues_figures(self):
+        """The same gross-P&L case through `_close_position_inner`: its
+        fetch_my_trades fallback matches the close order's own fill."""
+        ex, x = _executor()
+        x.fetch_my_trades = AsyncMock(return_value=[{
+            "order": "CL-1", "price": 150.0, "side": "sell",
+            "info": {"profit": "100", "feeDetail": {"totalFee": "-0.9"}}}])
+        p = _adopted("LONG")
+        ex._positions = {p.trade_id: p}
+        ex._verify_position_closed = AsyncMock(return_value={
+            "confirmed": True, "fill_price": 150.0, "fill_qty": 10.0, "fees": 0.0,
+            "remaining_qty": 0.0, "failure_stage": ""})
+        ex._fetch_bitget_close_data = AsyncMock(return_value=None)
+        asyncio.run(ex.close_position(p.trade_id, reason="manual"))
+        rate = le.entry_rate_pct(p.order_type)
+        assert p.gross_pnl == pytest.approx(100.0)
+        assert p.commission == pytest.approx(0.9 + 1400.0 * rate / 100.0)
+        assert not p.fill_source.endswith(ENTRY_UNREAD)
 
 
 class TestARecordedEntryIsPricedAsBefore:
