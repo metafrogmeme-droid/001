@@ -3572,8 +3572,27 @@
     });
     document.getElementById('c-authority').addEventListener('click', async (e) => {
       const mb = e.target.closest('[data-authmode]');
-      if (mb) { await authPost('/mode', { mode: mb.dataset.authmode }); drawAuthority(); toast(`Authority mode: ${mb.dataset.authmode}`); return; }
-      if (e.target.closest('#authRevoke')) { await authPost('/revoke', {}); drawAuthority(); toast(T('dd.t_authority_revoked', 'Authority revoked.')); }
+      // A toast is a claim. Both used to fire whatever the bot answered, so a
+      // revoke whose write did not land — which the bot now answers as a 500
+      // saying it will come back on restart — still read "Authority revoked."
+      if (mb) {
+        const r = await authPost('/mode', { mode: mb.dataset.authmode });
+        drawAuthority();
+        toast(r.ok && r.data && r.data.ok === true
+          ? `Authority mode: ${mb.dataset.authmode}`
+          : ((r.data && r.data.detail) || 'Mode change failed — nothing was saved.'));
+        return;
+      }
+      if (e.target.closest('#authRevoke')) {
+        const r = await authPost('/revoke', {});
+        drawAuthority();
+        const d = r.data || {};
+        toast(r.ok && d.revoked === true && d.persisted !== false
+          ? T('dd.t_authority_revoked', 'Authority revoked.')
+          : (d.detail || (r.ok && d.revoked === false
+            ? 'No authority envelope was bound — nothing to revoke.'
+            : 'Revoke failed — the envelope may still be active.')));
+      }
     });
     drawAuthority();
 
@@ -9802,9 +9821,10 @@
 
   // ── Admin testnet live signer console (WEB3-LIVE-EXEC slice 2) ──────────
   // Drives the bot's testnet-only signer from the web. Every real gate lives
-  // bot-side (triple default-OFF flags, admin re-check, testnet-only, enforcing
-  // envelope, authorize()); this panel only shows status and forwards the resolved
-  // transfer. No private key ever reaches the browser — the panel shows the
+  // bot-side (the feature + signing switches, both default ON; the operator's
+  // key + library; admin re-check, testnet-only, enforcing envelope, and
+  // authorize() on the value the bot prices itself); this panel only shows
+  // status and forwards the resolved transfer. No private key ever reaches the browser — the panel shows the
   // PUBLIC signer address and presence booleans only.
   // CROSS-2 guided yield-execution PREVIEW (admin-only, read-only). Enter a
   // stables move + a recallable destination; the bot runs the triple-gate
@@ -10013,9 +10033,10 @@
         if (!prepared || prepared.network !== network) { msg('Run Prepare first (fetches the nonce).'); return; }
         if (!confirm(`Sign & broadcast on ${network} (TESTNET):\n\n${amt} ETH → ${to}\nnonce ${prepared.nonce}\n\nThis sends a real testnet transaction.`)) return;
         const btn = e.target.closest('#sgn-send'); btn.disabled = true; msg('Signing…');
+        // No amount_usd and no asset: the bot prices value_wei in the network's
+        // own coin at a mark it reads, and asks the envelope about THAT.
         const body = { network, to, value_wei: valueWei, nonce: prepared.nonce, gas: prepared.gas,
-                       max_fee_wei: prepared.max_fee_wei, max_priority_wei: prepared.max_priority_wei,
-                       amount_usd: null, asset: 'ETH' };
+                       max_fee_wei: prepared.max_fee_wei, max_priority_wei: prepared.max_priority_wei };
         const r = await fetchJSON('/api/web3/sign', { method: 'POST', body, timeoutMs: 30000 }).catch(() => null);
         btn.disabled = false;
         const out = panel.querySelector('#sgn-out');
@@ -10030,13 +10051,20 @@
         const txCell = (d.explorer_url && /^https:\/\//.test(d.explorer_url))
           ? `<a href="${esc(d.explorer_url)}" target="_blank" rel="noopener">${esc(d.tx_hash || 'view on explorer')} ↗</a>`
           : (d.tx_hash ? esc(d.tx_hash) : '—');
-        out.innerHTML = `<div class="small" style="border:1px solid var(--up,#31c48d);border-radius:10px;padding:10px">
-          <div><strong>${d.broadcast ? 'Broadcast' : 'Signed'}</strong> on ${esc(d.network || network)} ${d.testnet ? '(testnet)' : ''}</div>
+        // Colour is a claim. Green says the transaction reached the chain; a
+        // signed transaction whose broadcast failed has NOT, so it is muted and
+        // says so, with the RPC's own note beneath.
+        const box = d.broadcast ? 'var(--up,#31c48d)' : 'var(--line-2,#313950)';
+        const size = (d.notional_usd != null && isFinite(+d.notional_usd))
+          ? ` · ≈ $${(+d.notional_usd).toFixed(2)}${d.asset ? ' in ' + esc(d.asset) : ''}` : '';
+        out.innerHTML = `<div class="small" style="border:1px solid ${box};border-radius:10px;padding:10px">
+          <div><strong>${d.broadcast ? 'Broadcast' : 'Signed — NOT broadcast'}</strong> on ${esc(d.network || network)} ${d.testnet ? '(testnet)' : ''}${size}</div>
           <div class="muted" style="margin-top:4px;word-break:break-all">tx ${txCell}</div>
-          ${d.note ? `<div class="muted" style="margin-top:4px">${esc(d.note)}</div>` : ''}</div>`;
+          ${d.note ? `<div class="muted" style="margin-top:4px">${esc(d.note)}</div>` : ''}
+          ${d.amount_basis ? `<div class="muted" style="margin-top:4px">${esc(d.amount_basis)}</div>` : ''}</div>`;
         prepared = null;                      // consumed — force a fresh nonce next time
-        msg(d.broadcast ? 'Broadcast to testnet.' : 'Signed.');
-        toast(d.broadcast ? 'Testnet transaction broadcast.' : 'Transaction signed.');
+        msg(d.broadcast ? 'Broadcast to testnet.' : 'Signed, not broadcast — nothing reached the chain.');
+        toast(d.broadcast ? 'Testnet transaction broadcast.' : 'Signed, not broadcast.');
         return;
       }
     });
