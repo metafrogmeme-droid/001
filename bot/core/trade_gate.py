@@ -122,8 +122,13 @@ def risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
     elif shared is not None:
         seen.append(id(shared))
         yield shared
+    # No per-user seam is not a failed read: that engine has one account, and
+    # the shared engine above is it. Only a `risk_for` that RAISED is.
+    fn = getattr(engine, "risk_for", None)
+    if not callable(fn):
+        return
     try:
-        own = engine.risk_for(str(user_id or ""))
+        own = fn(str(user_id or ""))
     except Exception:
         yield None
         return

@@ -324,3 +324,13 @@ def test_an_equal_person_drawdown_is_attributed_to_the_venue(tmp_path):
     """The gate names the person only when theirs is strictly the larger."""
     st = _engine_with_person(tmp_path, 2.0).drawdown_status()
     assert st["drawdown_source"] == "live"
+
+
+def test_an_engine_with_no_per_user_seam_is_read_not_unread():
+    """No `risk_for` means one account, the shared engine, which was read.
+    The first draft of the walk called that a failed read and turned every
+    such engine's clear gate into UNREAD; the full suite said so."""
+    op = _Risk(1.0)
+    assert SR.entry_gate(NS(risk=op), CALLER) == ""
+    g = trade_gate.entry_gate(NS(risk=op, _halted=False), CALLER, live=False)
+    assert g["unknown"] is False and g["blocked"] is False

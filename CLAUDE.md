@@ -10282,9 +10282,17 @@ shared peak, when that is the larger. The reporter never read it, so a card
 showed a smaller figure than the one the gate halts on. It reads it now,
 tighten-only as the gate is, and names the source `person`.
 
-**Twenty-four mutations, each killed; the two that survived the first round
+**Twenty-five mutations, each killed; the two that survived the first round
 were fixtures.** No test planted an engine whose shared `risk` read raises,
 and none drove the playbook card with the caller's own breaker tripped.
+
+> **And the full gate refused the fix for the walk.** Making an unreadable
+> engine `unknown` treated an engine with NO `risk_for` at all as a failed read
+> of the caller's, so a clear gate on a single-account engine read UNREAD.
+> That engine has one account and it was read. `test_an_open_gate_is_clear`,
+> in a file none of the slice's suites ran, is what said so: the ninth time
+> the full gate has refused a slice on a test outside it. Only a `risk_for`
+> that raises is a failed read now.
 (`tests/test_a_card_reads_the_callers_own_breaker_and_drawdown.py`.)
 
 **A REDUCTION THE CAP TOOK BACK WAS PRINTED AS A REDUCTION.** Seven
