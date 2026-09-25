@@ -8623,68 +8623,72 @@ class RuneClawEngine:
         ids.intersection_update(self._pending_ideas)
         return set(ids)
 
-    #: Said once per process: the adaptive threshold reads the paper record.
-    _adaptive_live_noted: bool = False
-
     def _adapt_auto_confirm_threshold(self) -> None:
-        """Move the auto-confirm bar on the PAPER book's recent win rate.
+        """Move the auto-confirm bar on the recent win rate of the record of
+        the mode the engine runs in.
 
-        The record it reads is `self.portfolio._history`, the paper book. In
-        LIVE mode nothing writes that book, and what it HOLDS is whatever
-        paper trading left there before the account went live: driven, ten
-        paper closes at 80% walked a live bar from 0.85 to the 0.60 floor in
-        five ticks, and a fresh live deploy never moved it at all. A live
-        record moving a live auto-confirm bar is a decision (both directions
-        change which real-money orders execute without a human), so in live
-        mode the bar is left where the operator set it, and this says so once.
+        PAPER: `self.portfolio._history`, the paper book, in both directions,
+        as it always was. LIVE: the operator engine's realized window of
+        priced live closes (`RiskEngine.recent_live_closes`, fed on every live
+        close and seeded from the closed-trade record at boot), and TIGHTEN
+        ONLY: a losing streak raises the bar one step per tick toward the cap,
+        and a winning streak never lowers it. The operator's decision
+        (2026-09-25): the loosening direction changes which real-money orders
+        execute without a human, and the raising one is the direction every
+        other live control takes.
+
+        The block used to read the paper book in BOTH modes. In live mode
+        nothing writes that book, so a fresh live deploy never moved the bar,
+        and what the book HOLDS is whatever paper trading left there before
+        the account went live: driven, ten paper closes at 80% walked a live
+        bar from 0.85 to the 0.60 floor in five ticks, on a record no live
+        trade was in. That is RC-2026-021 one book over.
         """
         # ── Adaptive Confidence Threshold ──
         from bot.config import RUNTIME
         if not CONFIG.adaptive.adaptive_threshold_enabled:
             return
-        if CONFIG.is_live():
-            if not self._adaptive_live_noted:
-                self._adaptive_live_noted = True
-                system_log.info(
-                    "Adaptive threshold: reads the paper record, so it does not "
-                    "move a live bar (%.2f stays where it was set)",
-                    RUNTIME.auto_confirm_threshold)
-            return
         try:
-            recent_trades = self.portfolio._history[-CONFIG.adaptive.adaptive_threshold_lookback:]
-            if len(recent_trades) >= 5:
-                recent_closed = [t for t in recent_trades if t.closed_at is not None]
-                if len(recent_closed) >= 5:
-                    recent_wins = sum(1 for t in recent_closed if t.pnl > 0)
-                    recent_wr = recent_wins / len(recent_closed)
+            live = bool(CONFIG.is_live())
+            lookback = CONFIG.adaptive.adaptive_threshold_lookback
+            if live:
+                outcomes = [p > 0 for p in self.risk.recent_live_closes(lookback)]
+            else:
+                recent_trades = self.portfolio._history[-lookback:]
+                outcomes = [t.pnl > 0 for t in recent_trades if t.closed_at is not None]
+            if len(outcomes) < 5:
+                return
+            recent_wr = sum(outcomes) / len(outcomes)
 
-                    # RC-2026-021. This was three inline branches, and
-                    # two of them could move the threshold the WRONG WAY:
-                    # `min(cap, cur + 0.05)` LOWERS a threshold above the
-                    # cap, so the "losing streak, be more selective" branch
-                    # walked a disabled 1.00 down to 0.90 in a single tick
-                    # and switched auto-confirm back on for the operator
-                    # who had just lost five trades. The winning branch
-                    # walked it to 0.60 more slowly. `.env.example` ships
-                    # 1.0, `/autoconfirm off` writes 1.0, and config.py
-                    # documents 1.0 as DISABLE -- all three were undone on
-                    # a timer by a feature with no knob in .env.example.
-                    new_thresh = next_auto_confirm_threshold(
-                        RUNTIME.auto_confirm_threshold, recent_wr,
-                        high_wr=CONFIG.adaptive.adaptive_threshold_high_wr,
-                        low_wr=CONFIG.adaptive.adaptive_threshold_low_wr,
-                        floor=CONFIG.adaptive.adaptive_threshold_min,
-                        cap=CONFIG.adaptive.adaptive_threshold_max,
-                    )
-                    # None means DISABLED: not a value to write back.
-                    # Writing anything at all is what undid the switch.
-                    if new_thresh is not None and \
-                            new_thresh != RUNTIME.auto_confirm_threshold:
-                        audit(system_log,
-                              f"Adaptive threshold: {RUNTIME.auto_confirm_threshold:.2f} → {new_thresh:.2f} "
-                              f"(WR={recent_wr:.0%} over last {len(recent_closed)} trades)",
-                              action="adaptive_threshold", result="ADJUSTED")
-                        RUNTIME.auto_confirm_threshold = new_thresh
+            # RC-2026-021. This was three inline branches, and
+            # two of them could move the threshold the WRONG WAY:
+            # `min(cap, cur + 0.05)` LOWERS a threshold above the
+            # cap, so the "losing streak, be more selective" branch
+            # walked a disabled 1.00 down to 0.90 in a single tick
+            # and switched auto-confirm back on for the operator
+            # who had just lost five trades. The winning branch
+            # walked it to 0.60 more slowly. `.env.example` ships
+            # 1.0, `/autoconfirm off` writes 1.0, and config.py
+            # documents 1.0 as DISABLE -- all three were undone on
+            # a timer by a feature with no knob in .env.example.
+            new_thresh = next_auto_confirm_threshold(
+                RUNTIME.auto_confirm_threshold, recent_wr,
+                high_wr=CONFIG.adaptive.adaptive_threshold_high_wr,
+                low_wr=CONFIG.adaptive.adaptive_threshold_low_wr,
+                floor=CONFIG.adaptive.adaptive_threshold_min,
+                cap=CONFIG.adaptive.adaptive_threshold_max,
+                tighten_only=live,
+            )
+            # None means DISABLED, or nothing to move: not a value to write
+            # back. Writing anything at all is what undid the switch.
+            if new_thresh is not None and \
+                    new_thresh != RUNTIME.auto_confirm_threshold:
+                audit(system_log,
+                      f"Adaptive threshold: {RUNTIME.auto_confirm_threshold:.2f} → {new_thresh:.2f} "
+                      f"(WR={recent_wr:.0%} over last {len(outcomes)} "
+                      f"{'live' if live else 'paper'} closes)",
+                      action="adaptive_threshold", result="ADJUSTED")
+                RUNTIME.auto_confirm_threshold = new_thresh
         except Exception:
             pass  # fail-open
 

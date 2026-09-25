@@ -120,9 +120,9 @@ adding /swap without a landing link fails on the sa…
 Swing is a first-class hold-duration class in the engine, not a label.
 analyzer.py:1154 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2198-2199), trailing ENABLED at 1.5 ATR
-(:2200-2201), a 48h time-close with a 12h warn (:2202-2203), min confidence
-0.50 (:2217), max risk 2% (:2223) — every one distinct from the scalp row
+ATR / TP 3.5 ATR (config.py:2199-2200), trailing ENABLED at 1.5 ATR
+(:2201-2202), a 48h time-close with a 12h warn (:2203-2204), min confidence
+0.50 (:2218), max risk 2% (:2224) — every one distinct from the scalp row
 above it. skill_registry.py:1986 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1045) dispatches pro_scan
 mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2501) —
@@ -147,9 +147,9 @@ bot/core/live_executor.py:6639 (the per-strategy trailing switch read at the fil
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
-TP 2.0 ATR (config.py:2182-2183), trailing deliberately OFF (:2184), a 2h
-time-close with a 1h warn (:2186-2187), min confidence 0.65 (:2215), max risk
-1% (:2221); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
+TP 2.0 ATR (config.py:2183-2184), trailing deliberately OFF (:2185), a 2h
+time-close with a 1h warn (:2187-2188), min confidence 0.65 (:2216), max risk
+1% (:2222); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1601 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1011) dispatches pro_scan mode=scalp — 5m candles, top-3 by
@@ -180,7 +180,7 @@ Autonomously: engine.py:5729-5787 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2397-2398), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (config.py:2398-2399), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
 additionally needs _can_trade_live (telegram_handler.py:3930), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
@@ -349,10 +349,11 @@ analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:241) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:5729-5787
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2457) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8641) of the PAPER book, which no live fill writes,
-so in live mode the bar is left where it was set (a live record moving a live
-bar is the operator's decision, not a wiring line); suppressible in live mode. Operators tune it
+(default 0.85, config.py:2458) with no human in the loop, adaptively moved by
+realized win rate (engine.py:8647): the paper book's in paper mode, both
+directions, and the live record's in live mode, upward only (a losing streak
+raises the bar, a winning one never lowers it: the operator's decision);
+suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
@@ -363,7 +364,7 @@ rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2397) — so "the bot trades for you" is live only after the operator
+(config.py:2398) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -2467,7 +2468,7 @@ half of the measurement that says where the measurement stops.
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
   attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:941`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2646`, and three sibling call
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2647`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:674`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the

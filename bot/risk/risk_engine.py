@@ -705,6 +705,14 @@ class RiskEngine:
         except Exception as exc:  # never let accounting break the close path
             risk_log.debug("record_live_trade_result skipped: %s", exc)
 
+    def recent_live_closes(self, n: int) -> list[float]:
+        """The newest ``n`` realized closes in the live-performance window,
+        oldest first: the record the adaptive auto-confirm bar reads in live
+        mode (`RuneClawEngine._adapt_auto_confirm_threshold`). Every entry is
+        a PRICED close, because an unpriced one feeds no window."""
+        with self._lock:
+            return list(self._realized_pnl_window)[-int(n):] if n > 0 else []
+
     def seed_realized_window(self, pnls: Sequence[float],
                              returns: Sequence[float] = ()) -> int:
         """Rebuild the live-performance window from the closed-trade record.

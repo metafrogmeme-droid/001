@@ -211,6 +211,7 @@ def survey_trees(trees, root: pathlib.Path):
     """
     findings: list[tuple[str, str]] = []
     hops: dict[str, str] = {}
+    defs = _def_index(trees)
     # `check_user`'s feature is positional index 2, keyword `feature`.
     # A target is `(param-name, the def's parameter list)`; the positional
     # index is computed AT THE CALL, because whether `self` is implicit is a
@@ -247,7 +248,7 @@ def survey_trees(trees, root: pathlib.Path):
                     idx -= 1
                 arg = _arg_at(node, idx, kw)
                 if arg is None and name in hops:
-                    fn = _hop_def(trees, name)
+                    fn = _hop_def(defs, name)
                     if fn is not None:
                         _names, defaults = _params_and_defaults(fn)
                         arg = defaults.get(hops[name])
@@ -257,7 +258,7 @@ def survey_trees(trees, root: pathlib.Path):
                     if encl.name not in hops:
                         grew = True
                     hops[encl.name] = arg.id
-                    fn = _hop_def(trees, encl.name)
+                    fn = _hop_def(defs, encl.name)
                     if fn is None:
                         # An ambiguous hop NAME cannot be followed, so every
                         # call to it is unresolved rather than resolved to a
@@ -278,7 +279,7 @@ def survey_trees(trees, root: pathlib.Path):
     # is reported rather than silently accepted.
     seen2: dict[str, int] = {}
     for hop in sorted(hops):
-        if _hop_def(trees, hop) is not None:
+        if _hop_def(defs, hop) is not None:
             continue
         for path, tree in trees.items():
             for node, chain in _chain(tree):
@@ -313,19 +314,35 @@ def _is_typing_stub(fn) -> bool:
         and isinstance(body[0].value, ast.Constant) and body[0].value.value is Ellipsis
 
 
-def _hop_def(trees, name):
-    """The single real FunctionDef called `name`, or None if it is ambiguous.
+def _def_index(trees):
+    """`{name: [every real FunctionDef of that name]}`, built ONCE per survey.
 
-    Ambiguity is NOT resolved to a guess: the methods ratchet records what one
-    costs, and answering None here makes every caller UNRESOLVED, which
-    demands a baseline row rather than quietly passing.
+    `_hop_def` used to walk EVERY tree in full on each call -- twelve calls a
+    survey over the production set, 11.7 million `ast.walk` steps -- so the
+    two whole-tree tests in this file took 24s and 20s ALONE against pytest's
+    60s timeout, and the first full run under load pushed both past it, where
+    the flake filter forgave them as order-dependent. That is the
+    `get_source_segment` chapter one helper over: a test that passes alone at
+    24s is a test the filter will forgive under load. One walk, then lookups.
     """
-    found = []
+    index: dict[str, list] = {}
     for tree in trees.values():
         for node in ast.walk(tree):
             if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and node.name == name and not _is_typing_stub(node)):
-                found.append(node)
+                    and not _is_typing_stub(node)):
+                index.setdefault(node.name, []).append(node)
+    return index
+
+
+def _hop_def(defs, name):
+    """The single real FunctionDef called `name`, or None if it is ambiguous.
+
+    `defs` is `_def_index(trees)`. Ambiguity is NOT resolved to a guess: the
+    methods ratchet records what one costs, and answering None here makes
+    every caller UNRESOLVED, which demands a baseline row rather than quietly
+    passing.
+    """
+    found = defs.get(name, ())
     return found[0] if len(found) == 1 else None
 
 

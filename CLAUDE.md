@@ -10433,12 +10433,18 @@ held, and one was worse than filed.
   left there before the account went live. Driven with ten paper closes at
   80% and a live bar of 0.85: five ticks walked it to the 0.60 floor, one
   step each, on a record no live trade was in. That is RC-2026-021 one book
-  over. Whether a LIVE record should move a live bar is the operator's
-  decision (the winning direction lowers it, the losing one raises it, and
-  both change what executes without a human), so in live mode the bar stays
-  where it was set and the engine says so once; paper is unchanged. The
-  block is a seam now, because a block inline in a 434-line tick is a block
-  nothing can drive.
+  over. Whether a LIVE record should move a live bar was put to the
+  operator, because the winning direction lowers it, the losing one raises
+  it, and both change what executes without a human. **The decision
+  (2026-09-25): tighten only.** In live mode the bar reads the operator
+  engine's realized window of priced live closes and may only RISE: a losing
+  streak raises it one step per tick toward the cap, a winning one leaves it
+  where it is, and a bar at 1.0 stays disabled as the rule already required.
+  Paper is unchanged, the rule is one function with a `tighten_only` mode
+  rather than a second copy, and the block is a seam now, because a block
+  inline in a 434-line tick is a block nothing can drive. The first draft
+  shipped with the bar left where it was set in live mode and the engine
+  saying so once; that sentence went with the decision.
 
 **Two corpus gaps were found by reading the mutations before the round ran.**
 The proxy's skip floor at five would have survived a corpus holding zero
@@ -10450,7 +10456,13 @@ thirty-six mutations then died on the first round. One is recorded rather
 than run: the return window's `notional > 0` guard is equivalent under the
 recorder's own `except`, because a zero divides into an exception that is
 swallowed before the append, so the guard is what a reader sees and the
-`except` is what the code does.
+`except` is what the code does. **The decision's nine mutations died too,
+and the one that survived a round was the corpus.** The live branch reading
+the whole realized window instead of its newest ten survived a fixture of
+ten losses under twelve wins: the whole record sits at 55%, between the two
+bars, where a reader of the whole record moves nothing either. Twenty losses
+under ten wins is the input that separates them (the whole record would
+raise the bar, the newest ten are wins), and it is planted.
 
 > **And the extraction took an import with it.** The block's
 > `from bot.config import RUNTIME` moved into the seam, and `_tick` reads
@@ -10470,11 +10482,33 @@ swallowed before the append, so the guard is what a reader sees and the
 > was the generated safety-flags block in `.env.example`, whose `config.py`
 > citations moved three lines under the adaptive flag's new comment; it is
 > regenerated, which is the one honest way to move a generated block. The
+> decision's own comment over that flag moved the same block again, by one
+> line, in the commit that followed: found before the run reached the gate,
+> by diffing the generator's output against the committed block, which is
+> a cheap check that belongs beside any edit above a cited line in
+> `bot/config.py`. The
 > same run's whole-tree ruff ratchet had grown by one unused import in a new
 > suite, and I had read past it three times by tailing ONE line of the
 > script's output, which is its re-record hint and not its verdict: the
 > preflight chapter's "read the per-gate list and never the headline", at
 > the scale of a single command.
+
+> **And the amended slice was refused a third time, on a scan and two
+> forgiven timeouts.** `test_paper_pnl_default_is_safe.py` pinned main's
+> spelling of the adaptive block, `recent_wins = sum(...)`, and the seam's
+> rewrite moved the words while the property it guards (only CLOSED paper
+> trades are scored) held throughout: `test_unread_mark_is_not_break_even`'s
+> recorded shape, on the guard whose own comment calls its subject "the
+> highest-stakes consumer". It drives the seam now, with seven open trades
+> carrying the 0.0 placeholder beside three closed wins: read as closed only
+> the bar stays, read raw the placeholders are seven losses and it rises. The
+> same run forgave two tests in `test_the_tier_gate_is_asked_about_a_feature.py`
+> as flaky, for the first time in thirty-three runs: each took 24s and 20s
+> ALONE against the 60s timeout, because `_hop_def` re-walked every tree in
+> the production set on each of its twelve calls, and the full run's load
+> pushed both past it. The defs are indexed once per survey now. A forgiven
+> timeout is the `get_source_segment` chapter's own signature, and the filter
+> reports it as a count of "flaky" nobody reads.
 
 (`tests/test_the_var_gate_and_kelly_read_the_live_record.py`,
 `tests/test_a_classic_stop_is_cancelled_in_the_plan_table.py`,
