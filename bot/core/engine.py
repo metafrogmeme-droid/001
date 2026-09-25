@@ -8422,8 +8422,15 @@ class RuneClawEngine:
                 prices = {}
 
             from bot.core.time_exits import r_multiple_now, thesis_recorded
+            _awaiting = getattr(executor, "awaiting_reconcile", None)
             for pos in list(getattr(executor, "_positions", {}).values()):
                 if getattr(pos, "status", "") != "open":
+                    continue
+                # A row whose true state waits on reconcile (reset from
+                # "closing", or read from the backup) is not closed on local
+                # evidence here either: the executor's own stop/target check
+                # already defers it, and a smart exit is the same close order.
+                if callable(_awaiting) and _awaiting(pos.trade_id):
                     continue
                 # A position adopted with no recorded strategy carries the
                 # dataclass defaults, and the rules below are keyed on them:

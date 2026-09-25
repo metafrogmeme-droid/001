@@ -51,8 +51,13 @@ def _pos(**over) -> LivePosition:
 def _executor(pos, path=None) -> LiveExecutor:
     ex = LiveExecutor.__new__(LiveExecutor)
     ex._positions = {pos.trade_id: pos} if pos is not None else {}
-    ex._venue = SimpleNamespace(order_symbol=lambda s: s, close_params=lambda uta: {"reduceOnly": True})
+    # `id` because every saved row names its venue, and a save that raises
+    # inside its own `except` writes nothing: this stand-in once had no `id`,
+    # so every drive below saved no file at all.
+    ex._venue = SimpleNamespace(id="bitget", order_symbol=lambda s: s,
+                                close_params=lambda uta: {"reduceOnly": True})
     ex._is_uta = False
+    ex._foreign_position_rows = {}
     ex._record_warning = lambda k: None
     ex._venue_market_price = AsyncMock(return_value=None)
     ex._update_exchange_sl = AsyncMock(return_value=True)

@@ -64,6 +64,32 @@ class TestLiveDailyAccumulator:
         chk = eng.evaluate(_idea(), live_equity=1000.0)
         assert not any("DAILY_LOSS:" in f for f in chk.checks_failed)
 
+    def test_yesterdays_loss_does_not_re_trip_the_breaker_today(self):
+        """The day rolled over with the breaker tripped on daily loss and the
+        book flat, so no close has come to roll the accumulator. The day's
+        auto-reset clears the breaker, and the gate must read TODAY, which has
+        lost nothing -- not yesterday's -6% under today's name."""
+        import time as _t
+        eng = _engine()
+        eng.record_live_trade_result(-60.0)             # 6% of $1000
+        yesterday = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() - 86400))
+        eng._live_daily_day = yesterday
+        eng._circuit_open = True
+        eng._circuit_trip_cause = "daily_loss"
+        eng._circuit_trip_day = yesterday
+        eng._consecutive_losses = 0
+        chk = eng.evaluate(_idea(), live_equity=1000.0)
+        assert not any("DAILY_LOSS" in f for f in chk.checks_failed), chk.checks_failed
+        assert eng._circuit_open is False
+        assert eng._circuit_trip_day != _t.strftime("%Y-%m-%d", _t.gmtime())
+
+    def test_todays_loss_still_trips_it(self):
+        """The control: the same figure recorded TODAY still refuses."""
+        eng = _engine()
+        eng.record_live_trade_result(-60.0)
+        chk = eng.evaluate(_idea(), live_equity=1000.0)
+        assert any("DAILY_LOSS" in f for f in chk.checks_failed)
+
     def test_paper_mode_unchanged_when_no_live_equity(self):
         # Without live_equity the gate still reads the paper snapshot — a live
         # accumulator must never leak into paper/backtest evaluations.

@@ -268,19 +268,21 @@ class TestAnUnstampedBookIsClaimedByTheExecutorThatOwnsIt:
             "replace it with whatever part of it was read")
 
 
-    def test_a_closed_record_read_only_in_part_is_not_rewritten(
+    def test_a_closed_record_with_an_unreadable_row_keeps_it_through_the_claim(
             self, state, per_user, monkeypatch):
-        """The claim flag is set only after a read that reached the END. A row
-        that raises halfway leaves the first rows in memory, and a save of
-        those is the partial book replacing the whole one."""
+        """The claim saves the record. A row this build cannot read is kept
+        verbatim by that save (the closed-trade loader reads row by row and
+        writes what it could not read back as it was), so the claim stamps
+        what it read and loses nothing it did not."""
         closed = state / f"closed_trades_{UID}.json"
         good = {**_legacy_row("T-1", "BTC/USDT:USDT"), "status": "closed",
                 "closed_at": "2026-09-21T00:00:00+00:00"}
         bad = {**good, "trade_id": "T-2", "opened_at": "not a time"}
         closed.write_text(json.dumps([good, bad]))
-        before = closed.read_bytes()
         _engine(monkeypatch, _Store(active="bitget"))._executor_for(UID)
-        assert closed.read_bytes() == before
+        rows = json.loads(closed.read_text())
+        assert bad in rows, "the claim erased a row it could not read"
+        assert [r for r in rows if r.get("trade_id") == "T-1"][0]["venue"] == "bitget"
 
     def test_a_positions_file_read_only_in_part_is_not_rewritten(
             self, state, per_user, monkeypatch):

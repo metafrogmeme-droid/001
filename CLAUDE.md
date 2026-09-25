@@ -9870,9 +9870,11 @@ positions. The move refuses what it cannot be sure of: an existing split book,
 a file that will not parse, an empty main beside a `.bak` holding rows, and a
 file whose rows are already stamped. Unstamped rows are CLAIMED (saved with a
 stamp) by the engine after it builds the executor, never from `__init__`,
-because a reader process must not write the bot's files. Each file is claimed
-only after a read that reached its end, because a claim-save after a partial
-read replaces the record with the part that was read.
+because a reader process must not write the bot's files. The positions file is
+claimed only after a read that reached its end, because a claim-save after a
+partial read replaces the record with the part that was read; the closed-trade
+record keeps every row it could not read (the chapter below), so its claim
+loses nothing.
 
 **Two more fell out, one of them the operator-book shape again.** `/venues`
 refused a person's deselect over the OPERATOR's positions whenever per-user live
@@ -9888,9 +9890,9 @@ count is of people now, not executors, because one person can hold two.
 that survived was a clause of mine that no input could reach.** The claim checked
 `not _closed_trades_read_failed` beside its own flag, and the flag is only set
 after a read that reached the end, so the clause could never decide anything.
-It is deleted. The property it stood for is driven instead: a record that
-raises halfway through is not rewritten, for positions and closed trades alike,
-and the two mutations that set the flag per row die on those drives.
+It is deleted. The property it stood for is driven instead: a positions file
+that raises halfway through is not rewritten, and the mutation that sets the
+flag per row dies on that drive.
 
 The remap for this slice's line shifts also found two map citations into
 `bot/core/engine.py` that were already wrong. The auto-confirm threshold's
@@ -9898,6 +9900,77 @@ move by realized win rate cited an expiry loop, and the basis hand-off to
 `analyzer.analyze` cited an audit call. Neither line was blank, so the probe
 could not see them; both are re-derived from what their sentences name.
 (`tests/test_one_user_one_venue_one_book.py`.)
+
+**A FLAT BOOK CAME BACK FROM THE BACKUP ON EVERY RESTART.** `_save_positions`
+keeps a `.bak` of the last NON-EMPTY file, and the loader fell back to it
+whenever the main file read `{}`. So once the book went flat the main file
+said "nothing open", the backup still held the last position that closed, and
+the next restart loaded that position as "open". Driven: open A, close A,
+restart, and A is back. The next tick's stop/target check and the engine's
+smart exits then act on a position the venue no longer holds; the best case is
+a close order the venue rejects, and the worst is a reduce-only order against
+a different position on the same symbol. Reconcile's `ALREADY_CLOSED` skip,
+added for "a previous bot instance that closed it", is what had been quietly
+cleaning up after it one tick later.
+
+**And "closing" was never written, so the recovery built for it never ran.**
+`close_position` sets the status and saves, and the save kept only "open" and
+"pending_fill". A restart anywhere inside the close (leg cancels, the market
+close, the fill polls) lost the row from disk when other positions were open,
+and brought it back from the backup unflagged when none were. The loader's
+stuck-in-"closing" recovery, and the incident fix that defers such a row to
+reconcile (`tests/test_recovered_from_closing_dedup.py`), could not be
+reached. The incident that fix was written for is the backup path above: its
+docstring says the position "came back as open via the stuck-closing
+recovery", and no row had ever been written as closing.
+
+**A row whose true state is unknown waits for reconcile, which asks the
+venue.** "closing" is written. A row read from the backup is deferred the same
+way, because the backup is a memory of the book, not the book. The deferral is
+written on the row, so a restart before reconcile ran cannot turn it back into
+an ordinary open position; reconcile clears it once the venue has answered.
+`awaiting_reconcile` is the one question, and both paths that send a close on
+local evidence ask it: the executor's stop/target/time checks and the engine's
+smart exits, which had never asked.
+
+**One unreadable closed-trade row cost every row below it.** The loader
+stopped at the first row it could not read and kept the rows above it, and
+the next close wrote that partial list over the file, which has no backup.
+Driven by the survey: 50 rows, row 2 unreadable, and after one close the file
+held 2. The loader reads row by row now, keeps an unreadable row verbatim and
+writes it back on every save (the vault's rule), and marks the record partial.
+A file that will not parse at all is copied aside once before the first write
+over it, and if the copy fails nothing is written: a close missing from the
+record is a smaller loss than the record the close would erase.
+
+**The earlier commit on this branch broke a guard it never ran.** The partial
+take-profit suite builds its executor with `LiveExecutor.__new__` and a
+hand-written venue stand-in with no `id`. The per-venue stamp made
+`_save_positions` read `self._venue.id`, and the save raises inside its own
+`except`, so every drive in that suite saved nothing and four assertions about
+the file failed. No suite the previous slice ran reached it: *a hand-written
+stand-in that must remember each attribute is one that will forget the next*.
+
+**Sixteen mutations, each killed. The one that survived the first round was
+two fixtures that could not tell.** The copy made only once is named by the
+second it was made, so two closes in one second land on one name and a repeat
+was invisible. And the second close was suppressed as a duplicate booking
+(same symbol and entry within two hours) and never saved at all. The drive
+runs the two closes on two clocks and two symbols now.
+
+**The daily-loss gate read yesterday's loss after midnight.** The live
+accumulator rolls only on the next close, so after the UTC day turned it
+still held yesterday's total. The day's auto-reset cleared a daily-loss trip,
+and the gate three statements later re-tripped it off yesterday's figure,
+dated today. On a halted, flat book no close comes to roll it, so this
+repeated every day until somebody ran /reset. `live_daily_pnl_today()` already
+existed for exactly this and says so in its docstring; the gate was the one
+reader that did not ask it. The survey also named the drawdown transfer hint's
+raw read, and that one is right as it is: the hint asks whether recorded
+losses explain a drop from a peak that may be days old, and after midnight
+today's figure is 0, which would blame a transfer for yesterday's losses.
+(`tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
+`tests/test_live_account_breakers.py`.)
 
 ## Public-surface rules
 
@@ -11127,7 +11200,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **431 of 1035** reach for source text through `source_scan`, `code_only`
+Driven, **431 of 1036** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 431 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
