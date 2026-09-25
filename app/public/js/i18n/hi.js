@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Solana watch हटा दी गई।"],
   ["dd.t_lock_rolled", "लॉक की अंतिम तिथि बदल गई (midnight rollover) — live शर्तें फिर से दिखाई जा रही हैं।"],
   ["dd.t_trade_confirmed", "ट्रेड कन्फर्म हो गया।"],
+  ["dd.t_trade_refused", "कुछ भी प्लेस नहीं हुआ।"],
+  ["dd.t_trade_unread", "बॉट ने जवाब दिया, पर यह नहीं बताया कि कुछ प्लेस हुआ या नहीं — अपनी पोज़िशन जाँचें।"],
   ["dd.t_trade_update", "engine से ट्रेड अपडेट।"],
   ["dd.t_need_coin", "पहले कोई coin टाइप करें।"],
   ["dd.t_need_symbol", "पहले कोई symbol टाइप करें।"],

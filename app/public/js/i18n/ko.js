@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Solana 관찰을 해제했습니다."],
   ["dd.t_lock_rolled", "잠금 종료일이 변경되었습니다(자정 경과) — 실시간 조건을 다시 표시합니다."],
   ["dd.t_trade_confirmed", "거래가 확정되었습니다."],
+  ["dd.t_trade_refused", "아무것도 접수되지 않았습니다."],
+  ["dd.t_trade_unread", "봇이 응답했지만 무엇이 접수되었는지는 알리지 않았습니다 — 포지션을 확인하세요."],
   ["dd.t_trade_update", "엔진에서 온 거래 업데이트입니다."],
   ["dd.t_need_coin", "먼저 코인을 입력하세요."],
   ["dd.t_need_symbol", "먼저 심볼을 입력하세요."],

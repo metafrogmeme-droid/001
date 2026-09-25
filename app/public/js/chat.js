@@ -223,7 +223,12 @@
     okBtn.onclick = async () => {
       okBtn.disabled = noBtn.disabled = true;
       const r = await postWithStepUp('/api/trade/confirm', { trade_id: pt.trade_id }, { timeoutMs: 35000 });
-      if (!r.ok) {
+      // The same reading the dashboard modal takes (TradeConfirmModel): the
+      // bot's own `placed`, never the status code. This printed the answer as
+      // the execution -- "Executed." when it was empty -- for a refusal too.
+      const TC = window.TradeConfirmModel;
+      const out = TC ? TC.outcome(r) : { kind: r.ok ? 'unread' : 'failed', text: (r.data && r.data.result_html) || '' };
+      if (out.kind === 'failed') {
         const reason = r.data?.error === 'live_not_enabled'
           ? 'Live trading is not enabled for your account.'
           : (r.data?.detail || r.data?.error || 'Confirm failed.');
@@ -231,7 +236,19 @@
         okBtn.disabled = noBtn.disabled = false;
         return;
       }
-      appendMsg('bot', sanitizeBotHtml(r.data.result_html || 'Executed.'));
+      if (out.kind === 'refused') {
+        // Nothing was placed and the idea is usually still pending, so both
+        // buttons come back: Confirm again once the refusal is fixed, or Cancel.
+        appendMsg('bot', `<b>${esc(T('dd.t_trade_refused', 'Nothing was placed.'))}</b> ${sanitizeBotHtml(out.text)}`);
+        okBtn.disabled = noBtn.disabled = false;
+        return;
+      }
+      if (out.kind === 'unread') {
+        appendMsg('bot', `${esc(T('dd.t_trade_unread', 'The bot answered without saying whether anything was placed — check your positions.'))} ${sanitizeBotHtml(out.text)}`);
+        document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
+        return;
+      }
+      appendMsg('bot', sanitizeBotHtml(out.text || 'Executed.'));
       document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
     };
     noBtn.onclick = async () => {

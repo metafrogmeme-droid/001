@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Seguimiento de Solana eliminado."],
   ["dd.t_lock_rolled", "La fecha de fin del bloqueo cambió (cambio de medianoche): se muestran de nuevo los términos en vivo."],
   ["dd.t_trade_confirmed", "Operación confirmada."],
+  ["dd.t_trade_refused", "No se colocó nada."],
+  ["dd.t_trade_unread", "El bot respondió sin indicar si se colocó algo; revisa tus posiciones."],
   ["dd.t_trade_update", "Actualización de operación desde el motor."],
   ["dd.t_need_coin", "Primero escribe una moneda."],
   ["dd.t_need_symbol", "Primero escribe un símbolo."],

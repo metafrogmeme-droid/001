@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Monitoraggio Solana rimosso."],
   ["dd.t_lock_rolled", "La data di fine del vincolo è cambiata (passaggio di mezzanotte) — vengono rimostrate le condizioni aggiornate."],
   ["dd.t_trade_confirmed", "Operazione confermata."],
+  ["dd.t_trade_refused", "Non è stato inviato nulla."],
+  ["dd.t_trade_unread", "Il bot ha risposto senza dire se è stato inviato qualcosa — controlla le tue posizioni."],
   ["dd.t_trade_update", "Aggiornamento dell’operazione dal motore."],
   ["dd.t_need_coin", "Scrivi prima una moneta."],
   ["dd.t_need_symbol", "Scrivi prima uno strumento."],

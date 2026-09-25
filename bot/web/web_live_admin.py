@@ -1,6 +1,6 @@
 """Operator-facing readiness + enablement for web live trading.
 
-The web live gate (``web_live_gate.evaluate``) is pure — it decides from five
+The web live gate (``web_live_gate.evaluate``) is pure — it decides from six
 booleans. This module SOURCES those booleans for a given user from the live
 stores (credential store, per-user Authority Envelope store, user store) and
 the operator feature switch, so an operator can see exactly what stands between
@@ -43,7 +43,7 @@ def _envelope_enforcing(tg_id: str) -> bool:
 
 
 def user_readiness(users: Any, tg_id: str) -> dict:
-    """Source the five gate inputs for ``tg_id`` and evaluate. Returns
+    """Source the six gate inputs for ``tg_id`` and evaluate. Returns
     ``{allowed, reason, checklist}`` — the operator's readiness view."""
     opt_in = False
     fn = getattr(users, "web_live_enabled", None)
@@ -55,6 +55,7 @@ def user_readiness(users: Any, tg_id: str) -> dict:
     dec = web_live_gate.evaluate(
         feature_enabled=web_live_gate.feature_enabled(),
         bot_is_live=CONFIG.is_live(),
+        routes_to_own_account=web_live_gate.routes_to_own_account(CONFIG),
         user_opted_in=opt_in,
         has_own_keys=_has_own_keys(tg_id),
         envelope_enforcing=_envelope_enforcing(tg_id),
@@ -76,6 +77,7 @@ def set_user_enabled(users: Any, tg_id: str, enabled: bool) -> bool:
 _CHECK_LABELS = {
     "feature_enabled": "Operator feature switch (WEB_LIVE_TRADING_ENABLED)",
     "bot_is_live": "Bot in live mode",
+    "routes_to_own_account": "Per-user live accounts on (PER_USER_LIVE_ENABLED)",
     "user_opted_in": "User's web_live_enabled opt-in",
     "has_own_keys": "User's own exchange keys connected",
     "envelope_enforcing": "Authority Envelope bound in enforce mode",

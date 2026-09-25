@@ -3518,6 +3518,7 @@
         };
         const checks = d.live_checklist || {};
         const labels = { feature_enabled: 'Operator enabled live web trading', bot_is_live: 'Bot in live mode',
+          routes_to_own_account: 'Operator enabled per-user live accounts',
           user_opted_in: 'You enabled live for your account', has_own_keys: 'Your own exchange keys connected',
           envelope_enforcing: 'Authority Envelope in enforce mode' };
         const list = Object.keys(labels).map(k =>
@@ -3848,18 +3849,39 @@
     document.getElementById('tradeModalConfirm').onclick = async () => {
       msg.textContent = 'Executing…';
       const r = await RC.postWithStepUp('/api/trade/confirm', { trade_id: pt.trade_id }, { timeoutMs: 35000 });
-      if (!r.ok) {
+      // A 200 SAYS THE REQUEST WAS HANDLED, NOT THAT A TRADE WAS PLACED. This
+      // closed on a green "Trade confirmed." for every answer the bot can give,
+      // the risk gate's refusal included. TradeConfirmModel reads the bot's own
+      // `placed`; with the model absent the answer is shown and nothing is
+      // claimed either way.
+      const TC = window.TradeConfirmModel;
+      const out = TC ? TC.outcome(r) : { kind: r.ok ? 'unread' : 'failed', text: (r.data && r.data.result_html) || '' };
+      if (out.kind === 'failed') {
         const reason = r.data?.error === 'live_not_enabled'
           ? `Live trading not enabled: ${r.data?.detail || 'your toggle + operator approval needed'}.`
           : (r.data?.detail || r.data?.error || 'Confirm failed.');
         msg.innerHTML = `<span class="neg">${esc(reason)}</span>`;
         return;
       }
+      if (out.kind === 'refused') {
+        // The modal stays open and the Confirm button stays usable: most
+        // refusals leave the idea pending, and the person may fix what was
+        // refused (or Cancel it) from here. No portfolio refresh -- nothing
+        // on the book moved.
+        msg.innerHTML = `<span class="neg"><b>${esc(T('dd.t_trade_refused', 'Nothing was placed.'))}</b> ${sanitizeBotHtml(out.text)}</span>`;
+        return;
+      }
+      if (out.kind === 'unread') {
+        msg.innerHTML = `<span class="muted">${esc(T('dd.t_trade_unread', 'The bot answered without saying whether anything was placed — check your positions.'))}</span> ${sanitizeBotHtml(out.text)}`;
+        cache.portfolio = null;
+        document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
+        return;
+      }
       close();
       toast(T('dd.t_trade_confirmed', 'Trade confirmed.'), 'up');
       cache.portfolio = null;
       document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
-      if (onDone) onDone(r.data.result_html);
+      if (onDone) onDone(out.text);
     };
     document.getElementById('tradeModalCancel').onclick = async () => {
       await fetchJSON('/api/trade/cancel', { method: 'POST', body: { trade_id: pt.trade_id } }).catch(() => {});

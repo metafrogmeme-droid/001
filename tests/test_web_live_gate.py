@@ -1,6 +1,6 @@
 """Web live-trading gate — pre-registered predictions G1–G5.
 
-G1 default is paper (feature off); G2 all-five-hold → allowed; G3 fail-closed
+G1 default is paper (feature off); G2 all-six-hold → allowed; G3 fail-closed
 first-unmet-reason; G4 ordered checklist; G5 the dedicated user-store flag is
 separate from can_trade_live and web-only. The gate is pure; the store flag is
 covered directly.
@@ -12,7 +12,8 @@ from bot.web import web_live_gate as g
 
 def _all_on():
     return dict(feature_enabled=True, bot_is_live=True, user_opted_in=True,
-                has_own_keys=True, envelope_enforcing=True)
+                has_own_keys=True, envelope_enforcing=True,
+                routes_to_own_account=True)
 
 
 # ── G1 — default is paper ─────────────────────────────────────────────
@@ -32,7 +33,7 @@ def test_g1_feature_flag_env_default_off(monkeypatch):
         assert g.feature_enabled(env={"WEB_LIVE_TRADING_ENABLED": v}) is False
 
 
-# ── G2 — all five preconditions → allowed ─────────────────────────────
+# ── G2 — all six preconditions → allowed ──────────────────────────────
 
 def test_g2_all_hold_allows():
     d = g.evaluate(**_all_on())
@@ -47,6 +48,7 @@ def test_g2_all_hold_allows():
     ("user_opted_in", "enabled live trading"),
     ("has_own_keys", "connect your own exchange keys"),
     ("envelope_enforcing", "Authority Envelope in enforce mode"),
+    ("routes_to_own_account", "PER_USER_LIVE_ENABLED"),
 ])
 def test_g3_each_missing_precondition_denies(missing, needle):
     d = g.evaluate(**{**_all_on(), missing: False})
@@ -58,7 +60,8 @@ def test_g3_each_missing_precondition_denies(missing, needle):
 def test_g3_first_unmet_wins_precedence():
     # feature off AND keys missing → the feature reason surfaces first (order).
     d = g.evaluate(feature_enabled=False, bot_is_live=True, user_opted_in=True,
-                   has_own_keys=False, envelope_enforcing=False)
+                   has_own_keys=False, envelope_enforcing=False,
+                   routes_to_own_account=False)
     assert "not enabled by the operator" in d.reason
 
 
@@ -66,8 +69,10 @@ def test_g3_first_unmet_wins_precedence():
 
 def test_g4_checklist_shape():
     d = g.evaluate(feature_enabled=True, bot_is_live=False, user_opted_in=True,
-                   has_own_keys=False, envelope_enforcing=True)
+                   has_own_keys=False, envelope_enforcing=True,
+                   routes_to_own_account=False)
     assert d.checklist == {"feature_enabled": True, "bot_is_live": False,
+                           "routes_to_own_account": False,
                            "user_opted_in": True, "has_own_keys": False,
                            "envelope_enforcing": True}
 

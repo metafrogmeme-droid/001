@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "已移除 Solana 監看。"],
   ["dd.t_lock_rolled", "鎖定結束日期已變更（跨午夜）— 重新顯示即時條款。"],
   ["dd.t_trade_confirmed", "交易已確認。"],
+  ["dd.t_trade_refused", "未送出任何委託。"],
+  ["dd.t_trade_unread", "機器人已回應，但未說明是否送出任何委託 — 請檢查你的持倉。"],
   ["dd.t_trade_update", "來自引擎的交易更新。"],
   ["dd.t_need_coin", "請先輸入幣種。"],
   ["dd.t_need_symbol", "請先輸入標的代號。"],

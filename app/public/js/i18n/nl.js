@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Solana-observatie verwijderd."],
   ["dd.t_lock_rolled", "De einddatum van de lock is gewijzigd (middernachtwissel) — live voorwaarden opnieuw getoond."],
   ["dd.t_trade_confirmed", "Trade bevestigd."],
+  ["dd.t_trade_refused", "Er is niets geplaatst."],
+  ["dd.t_trade_unread", "De bot antwoordde zonder te zeggen of er iets is geplaatst — controleer je posities."],
   ["dd.t_trade_update", "Trade-update van de engine."],
   ["dd.t_need_coin", "Typ eerst een coin."],
   ["dd.t_need_symbol", "Typ eerst een symbool."],

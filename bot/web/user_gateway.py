@@ -46,6 +46,7 @@ from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from bot.skills.telegram_handler import TelegramHandler
 
+from bot.core.confirm_result import placed_nothing
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -2062,6 +2063,7 @@ def _web_live_decision(app, tg_handler, tg_id: str):
     return web_live_gate.evaluate(
         feature_enabled=web_live_gate.feature_enabled(),
         bot_is_live=CONFIG.is_live(),
+        routes_to_own_account=web_live_gate.routes_to_own_account(CONFIG),
         user_opted_in=user_opted_in,
         has_own_keys=has_keys,
         envelope_enforcing=_web_envelope_enforcing(app, tg_id),
@@ -2134,6 +2136,33 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
     except Exception as exc:
         system_log.warning("Web-live authorization error for %s: %s", tg_id, exc)
         return False, ["authorization check failed"]
+
+
+def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
+    """None when this web id's live order would run on an account of its own,
+    else why not. FAIL-CLOSED: a resolver that raises, answers nothing, or
+    cannot be compared against the operator's executor is a refusal, because
+    "could not tell whose account" is not "the user's account".
+
+    The web live gate's premise is that the order runs on the user's OWN keys.
+    `engine._executor_for` is what decides that, and with per-user live off --
+    or on, for a user whose keys it cannot use -- it answers
+    `engine.live_executor`, the operator's account.
+    """
+    operator = getattr(engine, "live_executor", None)
+    if operator is None:
+        return "the operator's account could not be identified to rule it out"
+    try:
+        ex = engine._executor_for(tg_id)
+    except Exception as exc:
+        system_log.warning("Web-live executor resolution failed for %s: %s",
+                           tg_id, type(exc).__name__)
+        return "the account this order would run on could not be resolved"
+    if ex is None:
+        return "no account of your own could be resolved for this order"
+    if ex is operator:
+        return "this order would run on the operator's account, not yours"
+    return None
 
 
 def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
@@ -2300,6 +2329,20 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
             return web.json_response(
                 {"error": "live_not_enabled", "detail": dec.reason,
                  "checklist": dec.checklist}, status=403)
+        # The gate says the order SHOULD route to the user's own account; this
+        # asks the resolver where it WOULD route. Per-user live on is not a
+        # measurement of the resolver, which still answers the operator's
+        # executor for a user whose keys it cannot use. Asked BEFORE the
+        # envelope authorizes, because authorizing records this order's
+        # notional against the 24h cap, and an order refused here places
+        # nothing.
+        why = _operator_account_refusal(engine, tg_id)
+        if why is not None:
+            audit(system_log, f"Web-live trade REFUSED: {trade_id} ({why})",
+                  action="web_live_own_account", result="REFUSED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"error": "not_own_account", "detail": why}, status=403)
         # Gate passed → this trade will route LIVE on the user's own keys. The
         # enforce-mode Authority Envelope must now authorize THIS specific order
         # (venue, symbol, notional, 24h spend). Fail-closed: any deny blocks it.
@@ -2315,10 +2358,43 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         if not tg_handler._can_trade_live(tg_id):
             return web.json_response({"error": "live_not_enabled"}, status=403)
     result = await engine.confirm_trade(trade_id, user_id=tg_id)
-    request.app["proposers"].pop(trade_id, None)
-    audit(system_log, f"Web trade confirm: {trade_id}",
-          action="web_trade_confirm", result="OK", data={"user": tg_id})
-    return web.json_response({"result_html": result})
+    # A REFUSAL IS NOT A CONFIRMED TRADE, and this handler used to answer
+    # every sentence `confirm_trade` can write with a 200 `{result_html}` and
+    # an audit line reading OK -- the risk gate's refusal, the duplicate skip,
+    # "Paper trading is disabled", the chosen-strategy refusal, the practice
+    # cooldown -- and both browser surfaces read a 200 as a trade: the modal
+    # closed on a green "Trade confirmed." and the chat card printed the
+    # refusal under nothing saying that nothing was placed. `placed_nothing`
+    # is the one reading of that sentence (the Telegram Confirm button asks
+    # it too), and `placed` rides beside the text so the browser never has
+    # to guess from a status code that only says the request was handled.
+    placed = not placed_nothing(result)
+    # The proposer entry goes when the idea does. Most refusals leave the idea
+    # pending (a price drift, the strategy gate, the risk re-check), and
+    # dropping the entry anyway left a pending idea its proposer could neither
+    # re-confirm nor CANCEL -- both doors check this map -- until the engine's
+    # TTL swept it.
+    if placed or trade_id not in getattr(engine, "_pending_ideas", {}):
+        request.app["proposers"].pop(trade_id, None)
+    if placed:
+        audit(system_log, f"Web trade confirm: {trade_id}",
+              action="web_trade_confirm", result="OK", data={"user": tg_id})
+    else:
+        audit(system_log, f"Web trade confirm REFUSED: {trade_id}",
+              action="web_trade_confirm", result="REFUSED",
+              data={"user": tg_id, "reason": _refusal_line(result)})
+    return web.json_response({"result_html": result, "placed": placed})
+
+
+def _refusal_line(result) -> str:
+    """The refusal's first line for the audit record: no markup, no dollar
+    figure, no secret shape, bounded. A refusal can quote a price, a drift in
+    dollars or an exception's text, and the record needs the WHY, not those."""
+    from bot.marketing.public_text import scrub_money
+    first = str(result or "").strip().split("\n", 1)[0]
+    first = re.sub(r"<[^>]+>", "", first)
+    first, _removed = scrub_money(first)
+    return reply_safe(first)[:160]
 
 
 async def handle_trade_live_mode(request: web.Request) -> web.Response:
