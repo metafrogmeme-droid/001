@@ -39,6 +39,18 @@ for a checked reason rather than an assumed one.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
+import pytest
+
+import bot.config as bot_config
+from bot.compat import UTC
+from bot.config import RUNTIME
+from bot.core import engine as engine_mod
+from bot.core.engine import RuneClawEngine
+from bot.risk.portfolio import PortfolioTracker
+from bot.risk.risk_engine import RiskEngine
+from bot.utils.models import Direction, TradeExecution, TradeStatus
 from tests.source_scan import code_only
 
 
@@ -88,16 +100,78 @@ class TestClosingAlwaysRecordsAPnl:
 class TestTheConsumersOnlyReadClosedTrades:
     """The 0.0 default is harmless precisely because of this filtering."""
 
-    def test_the_adaptive_threshold_filters_to_closed(self):
+    @pytest.fixture
+    def paper_adaptive(self, monkeypatch):
+        """The adaptive block on, in PAPER mode, at a bar of 0.85, with the
+        window and both bars pinned so the arithmetic below is this test's and
+        not the environment's. Everything is restored."""
+        adaptive = bot_config.CONFIG.adaptive
+        pinned = {"adaptive_threshold_enabled": True, "adaptive_threshold_lookback": 10,
+                  "adaptive_threshold_high_wr": 0.70, "adaptive_threshold_low_wr": 0.40,
+                  "adaptive_threshold_min": 0.60, "adaptive_threshold_max": 0.90}
+        prev = {k: getattr(adaptive, k) for k in pinned}
+        for k, v in pinned.items():
+            object.__setattr__(adaptive, k, v)      # frozen config
+        monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: False)
+        monkeypatch.setattr(engine_mod, "audit", lambda log, msg, **kw: None)
+        prev_bar = RUNTIME.auto_confirm_threshold
+        RUNTIME.auto_confirm_threshold = 0.85
+        try:
+            yield RUNTIME
+        finally:
+            RUNTIME.auto_confirm_threshold = prev_bar
+            for k, v in prev.items():
+                object.__setattr__(adaptive, k, v)
+
+    @staticmethod
+    def _trade(i: int, *, closed: bool) -> TradeExecution:
+        """A closed paper WIN, or an OPEN trade left exactly as the model
+        builds it: `closed_at` None and `pnl` at its 0.0 default -- the
+        placeholder this file is about."""
+        extra = ({"status": TradeStatus.EXECUTED, "exit_price": 105.0, "pnl": 5.0,
+                  "closed_at": datetime(2026, 9, 1, tzinfo=UTC)} if closed else {})
+        return TradeExecution(trade_id=f"T{i}", asset="BTC/USDT", direction=Direction.LONG,
+                              entry_price=100.0, stop_loss=98.0, take_profit=106.0,
+                              quantity=1.0, **extra)
+
+    @staticmethod
+    def _engine(tmp_path, book, tag: str) -> RuneClawEngine:
+        eng = RuneClawEngine.__new__(RuneClawEngine)
+        eng.portfolio = PortfolioTracker(initial_balance=10_000.0)
+        eng.portfolio._history.extend(book)
+        eng.risk = RiskEngine(PortfolioTracker(), state_file=str(tmp_path / f"r{tag}.json"))
+        return eng
+
+    def test_the_adaptive_threshold_filters_to_closed(self, tmp_path, paper_adaptive):
         # The highest-stakes consumer: this feeds auto_confirm_threshold, so
         # an open trade's placeholder 0.0 entering it would move a TRADING
-        # decision, not just a display.
-        src = _src("bot/core/engine.py")
-        i = src.index("recent_wins = sum(1 for t in recent_closed if t.pnl > 0)")
-        window = src[i - 400:i]
-        assert "if t.closed_at is not None" in window, (
-            "the adaptive threshold must score only closed trades; an open "
-            "one carries the 0.0 placeholder"
+        # decision, not just a display. DRIVEN: the block is the seam
+        # `_adapt_auto_confirm_threshold` now, and the scan that stood here
+        # pinned the spelling `recent_wins = sum(...)`, which went red on the
+        # seam's rewrite while the property it guards held throughout.
+        #
+        # Three closed wins beside seven OPEN trades fill the ten-trade
+        # window. Read as closed only, three is under the five-close floor and
+        # the bar stays. Read raw, the seven placeholders are seven losses --
+        # a 30% "record" under the 40% losing bar -- and the bar RISES: a
+        # trading decision moved by zeros nobody measured.
+        book = ([self._trade(i, closed=True) for i in range(3)]
+                + [self._trade(10 + i, closed=False) for i in range(7)])
+        self._engine(tmp_path, book, "a")._adapt_auto_confirm_threshold()
+        assert paper_adaptive.auto_confirm_threshold == pytest.approx(0.85), (
+            "three closed wins are under the five-close floor; the seven open "
+            "placeholders must not be counted as seven losses"
+        )
+        # And the other direction, so a filter that is merely ABSENT cannot
+        # pass by the floor alone: six closed wins beside four open ones is a
+        # 100% record over six and LOWERS the bar one step, where the raw read
+        # is 6 of 10 and moves nothing.
+        book = ([self._trade(i, closed=True) for i in range(6)]
+                + [self._trade(10 + i, closed=False) for i in range(4)])
+        self._engine(tmp_path, book, "b")._adapt_auto_confirm_threshold()
+        assert paper_adaptive.auto_confirm_threshold == pytest.approx(0.80), (
+            "six closed wins are a 100% record; four open placeholders must "
+            "not dilute it to a 60% one that moves nothing"
         )
 
     def test_the_risk_engine_scores_only_closed_trades(self):

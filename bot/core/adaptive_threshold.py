@@ -30,7 +30,8 @@ than a patch over the 1.0 case:
 
   * a threshold at or above DISABLED is not a number to tune — leave it;
   * a winning streak may only LOWER the bar;
-  * a losing streak may only RAISE it.
+  * a losing streak may only RAISE it;
+  * in LIVE mode (``tighten_only``) a winning streak moves nothing at all.
 
 A cap or floor on the wrong side of the current value inverted both directions,
 and would still do so from any hand-set value outside [floor, cap] — 0.95 with
@@ -63,17 +64,26 @@ def auto_confirm_is_disabled(threshold: float | None) -> bool:
 def next_auto_confirm_threshold(
     current: float, recent_wr: float, *,
     high_wr: float, low_wr: float, floor: float, cap: float,
-    step: float = 0.05,
+    step: float = 0.05, tighten_only: bool = False,
 ) -> float | None:
     """The adaptive block's next threshold, or None to leave it untouched.
 
     None is returned for a DISABLED threshold and is a real answer: the caller
     must not write it back, because writing anything at all is what undid the
     operator's switch.
+
+    ``tighten_only`` is the LIVE rule, the operator's decision of 2026-09-25:
+    a winning streak leaves the bar where it is and only the losing branch
+    runs, because the loosening direction changes which real-money orders
+    execute without a human, and the raising one is the direction every other
+    live control takes. None then also means "nothing to move", and the caller
+    treats both answers the same way.
     """
     if auto_confirm_is_disabled(current):
         return None
     if recent_wr >= high_wr:
+        if tighten_only:
+            return None
         # Only downward. `max(floor, ...)` alone RAISES a threshold that
         # already sits below the floor.
         return min(current, max(floor, current - step))
