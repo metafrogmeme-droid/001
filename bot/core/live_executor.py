@@ -8404,12 +8404,23 @@ class LiveExecutor:
                     # ── Duplicate-record guard (live incident 2026-07-07) ──
                     # A second internal record for an already-booked close (adoption
                     # sweeps mint different trade_ids for one exchange position) must
-                    # be suppressed BEFORE local SL/TP monitoring: otherwise its SL
+                    # be kept away from local SL/TP monitoring: otherwise its SL
                     # breach fires a close against a flat book → 25227 → a second
                     # booking with a second notification, double-counted PnL, and a
-                    # double-fed learning store. Silent by design (audit-logged).
-                    if self._is_duplicate_close_booking(pos):
-                        self._suppress_duplicate_record(pos)
+                    # double-fed learning store.
+                    #
+                    # BUT A SIGNATURE IS NOT A VENUE READ. This used to SUPPRESS on
+                    # the match alone -- mark the record closed and prune it, with
+                    # no venue asked -- and a limit re-entry at the same level
+                    # within two hours matches it exactly: the venue held a real
+                    # position that nothing monitored any more. A match DEFERS the
+                    # row to reconcile_positions (the deferral a row recovered from
+                    # "closing" already takes), which asks the venue: flat, and it
+                    # suppresses there as it always did; holding it, and the row is
+                    # real and monitored from the next tick.
+                    if (getattr(pos, "_duplicate_signature", None) != "held"
+                            and self._is_duplicate_close_booking(pos)):
+                        self._defer_duplicate_signature(pos)
                         continue
 
                     # ── Defer startup-recovered "closing" positions to reconcile ──
@@ -11931,13 +11942,19 @@ class LiveExecutor:
         Window: 2 hours (was 10 min). Live incident (UNI, 2026-07-11): the
         duplicate record's close was booked by a reconcile sweep 30 MINUTES
         after the first booking — outside the old window — so the operator got
-        an identical second close card. Two genuinely distinct fills at the
-        same entry to 0.05% within 2h remain near-impossible (the re-entry
-        cooldown spaces same-symbol entries, and a real re-entry fills at a
-        different price); partial closes of the SAME position share the
-        trade_id and are exempted above. A false positive costs one suppressed
-        stat row, a false negative double-counts money. Fail-safe: errors
-        return False (never blocks a legitimate booking).
+        an identical second close card. Partial closes of the SAME position
+        share the trade_id and are exempted above.
+
+        A REAL RE-ENTRY CAN FILL AT THE SAME PRICE, and this docstring used to
+        say it could not: a limit re-entry rests at a fixed level, and a
+        position re-opened by hand at that level matches too. So a record
+        OPENED AFTER the booked close is not its duplicate -- a duplicate is
+        minted while the one exchange position is still open, before its
+        close is booked -- and the per-tick sweep no longer acts on a match
+        alone: it defers the row to reconcile, which asks the venue
+        (`_defer_duplicate_signature`). A false positive there costs one
+        tick of deferral; a false negative double-counts money. Fail-safe:
+        errors return False (never blocks a legitimate booking).
         """
         try:
             def _norm(sym: str) -> str:
@@ -11948,6 +11965,9 @@ class LiveExecutor:
             if not sym or entry <= 0:
                 return False
             now = datetime.now(UTC)
+            opened = pos.opened_at
+            if opened is not None and opened.tzinfo is None:
+                opened = opened.replace(tzinfo=UTC)
             for ct in self._closed_trades:
                 if ct.trade_id == pos.trade_id:
                     continue  # same-id replacement is handled (and allowed)
@@ -11961,11 +11981,34 @@ class LiveExecutor:
                 ct_closed = ct.closed_at
                 if ct_closed.tzinfo is None:
                     ct_closed = ct_closed.replace(tzinfo=UTC)
+                if opened is not None and opened > ct_closed:
+                    continue  # opened after that close: a new position
                 if abs((now - ct_closed).total_seconds()) <= 7200:
                     return True
         except Exception:
             return False
         return False
+
+    def _defer_duplicate_signature(self, pos: "LivePosition") -> None:
+        """Hold a row that matches an already-booked close until the venue is asked.
+
+        The row joins the set `awaiting_reconcile` reads, so no path sends a
+        close for it on local evidence, and reconcile_positions -- which runs
+        right after check_positions every tick -- answers it: flat on the
+        venue, suppressed without a booking as before; held, a real position.
+        Audited once per deferral rather than once per tick.
+        """
+        if getattr(pos, "_duplicate_signature", None) == "deferred":
+            return
+        setattr(pos, "_duplicate_signature", "deferred")
+        self._recovered_from_closing.add(pos.trade_id)
+        audit(trade_log,
+              f"Duplicate signature: {pos.symbol} {pos.direction} (trade {pos.trade_id}) "
+              f"matches a close already booked under another id — held for reconcile "
+              f"to ask the venue before anything is suppressed",
+              action="duplicate_close", result="DEFERRED",
+              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                    "entry": pos.entry_price})
 
     def _suppress_duplicate_record(self, pos: "LivePosition") -> None:
         """Mark a duplicate record closed WITHOUT booking it: no _closed_trades
@@ -11974,6 +12017,7 @@ class LiveExecutor:
         pos.status = "closed"
         pos.close_reason = "duplicate_suppressed"
         pos.closed_at = datetime.now(UTC)
+        self._recovered_from_closing.discard(pos.trade_id)
         self._save_positions()
         audit(trade_log,
               f"Duplicate close suppressed: {pos.symbol} {pos.direction} "
@@ -13644,11 +13688,30 @@ class LiveExecutor:
                                       "notification_suppressed": was_recovered,
                                   })
 
+                    elif (getattr(pos, "_duplicate_signature", None) == "deferred"
+                          and _presence["state"] != "present"):
+                        # A duplicate-signature row stays held while the venue's
+                        # book cannot be read: releasing it on a reading nobody
+                        # made would hand a possible duplicate back to local
+                        # monitoring, whose stop closes against a flat book.
+                        pass
                     else:
                         # Position still on exchange — confirmed genuinely
                         # open, so a startup-recovered "closing" position is
                         # no longer ambiguous; resume normal local monitoring.
                         self._recovered_from_closing.discard(pos.trade_id)
+                        if getattr(pos, "_duplicate_signature", None) == "deferred":
+                            # The venue holds it: a real position that happened
+                            # to match a booked close, not a second record of
+                            # it. The signature is not asked of it again.
+                            setattr(pos, "_duplicate_signature", "held")
+                            audit(trade_log,
+                                  f"Duplicate signature cleared: the venue holds "
+                                  f"{pos.symbol} {pos.direction} (trade {pos.trade_id}) "
+                                  f"— a real position, monitoring resumes",
+                                  action="duplicate_close", result="VENUE_HOLDS",
+                                  data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                        "venue": _presence["detail"]})
                         # Position still on exchange — sync SL/TP from exchange data
                         #
                         # SCOPED TO OUR SIDE, WHICH IT WAS NOT. This took the
