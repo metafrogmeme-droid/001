@@ -10662,6 +10662,90 @@ assertion that nothing reached the spend ledger.
 `app/test/trade_confirm_reads_placed.test.js`,
 `app/test/webtrade_stepup_probe_fails_safe.test.js`.)
 
+**THE ENVELOPE'S CEILINGS BOUND EVERY TRADE AND NO TRANSFER, AND EVERY ON-CHAIN
+PRODUCER ASKS AS A TRANSFER.** `authorize` returned from its withdraw/transfer
+branch right after the destination check, so the per-trade cap, the daily cap
+and the symbol lists were read for a `trade` and for nothing else. Driven under
+an envelope capped at $1 a trade and $2 a day, ETH blocklisted and the
+destination allowlisted: a transfer of $1,000,000 of ETH, on a day already
+$1,000,000 in, came back `allow` with one check made. The testnet signer, the
+execution preview and the yield plan's first leg all ask as a `transfer`, so
+the envelope capped none of them. `_bounds` is the one copy both branches read,
+proved by planting it and reading every kind, because a byte-identical second
+copy agrees with every fixture.
+
+**The trade branch held the other half: an unknown notional was $0 under a
+daily cap.** `n = notional if notional is not None else 0.0`, so $99 spent
+against $100 let an auto-sized web order of any size through, and
+`_authorize_web_live_trade` then recorded nothing, because the ledger records
+only a notional it has. `_bounds` refuses an unknown or negative notional under
+EITHER ceiling, a day's spend nobody could read under the daily one, and an
+unnamed asset under a symbol list. A measured $0 still passes. Six red-team
+rows, five of which the old code let through.
+
+**`/web3/sign` authorized one number and signed another.** The envelope was
+asked about a client `amount_usd`, which the shipped dashboard always sends as
+`null`, and a client `asset`; whatever `value_wei` the client sent was signed;
+the day's spend was the literal 0.0 and nothing was recorded. Driven with the
+key planted through the signer's resolver, **1000 test ETH were signed and
+broadcast against a $1/$2 envelope, twice**. The second request said
+`asset: USDC, amount_usd: 0.5`, which walked past an ETH blocklist.
+`onchain_value` prices the signed `value_wei` at a mark the bot reads, in the
+network's own coin: a new `native` column on every network row, which is
+required, like `min_tx_gas`. 0 wei is a measured $0 and asks no venue. An
+unpriced mark is refused by name, never $0. The day comes from the ONE ledger
+(`authority_ledger.user_spend_ledger`) that the web-live gate, the sentry, the
+yield preview and the meme preflight read. The transfer is recorded before the
+signature, and a spend that cannot be recorded is not signed. **A testnet coin
+has no market price, so it is priced at the mainnet mark of the same coin**:
+the caps describe exposure habits, and refusing every capped testnet transfer
+would make the caps untestable exactly where they are rehearsed. The review row
+says so.
+
+**The meme preflight's "authorized by envelope" was `is_enforcing()`.** An
+enforcing envelope capped at $1, BONK blocklisted and bitget its only venue,
+"authorized" a $250 buy that `authorize()` denied for three reasons, while the
+doc said it was wired to `authorize` at the call site. It is, now. Three things
+it still cannot do are stated in the module rather than papered over. No
+producer supplies `radar_risk`, so `risk_tier` fails closed on every buy. A mint
+is not a ticker, so an envelope with a symbol list refuses by name rather than
+checking a blocklist against a name it does not have. A web-authored envelope
+cannot name `solana:jupiter`. A meme buy plan cannot pass today.
+
+**The kill-switch answered `revoked` over a write that did not land.**
+`_save` swallowed the OSError. `revoke()` returned True, the web said
+`{"ok": true, "revoked": true}`, and a restart came back ENFORCING. The writers
+return False now and keep the change in memory, because this process stays
+revoked. `_held_in_memory` is the one reading that tells "nothing to change"
+from "changed, not persisted". The revoke, mode, apply and tighten routes say
+*in memory only — not persisted*, the purge says `error`, and the dashboard's
+toasts read the answer.
+
+**An explicit `{}` was the process environment.** `(env or os.environ)` in six
+readers made `signer_key_present({})` True on any box whose env held a key, so
+two guards that pass `{}` to mean "no key" were measuring the box. The refusal
+text and two handler docstrings called the default-ON switches default-OFF,
+and the gate still opened "NO on-chain execution infrastructure (no signer)"
+beside a module that signs. Each sentence is pinned against its reader, called
+with `env={}`. The panel painted a signed-not-broadcast result green; colour is
+a claim, and it is muted now.
+
+**Forty-six mutations, each killed, none refused. The two survivors of the first round were
+the corpus.** Every wire-field fixture carried an ETH blocklist, so taking the
+notional from the body again changed no verdict until a $1 cap met `amount_usd:
+0.5` over 1000 ETH. Nothing drove the execution preview, so its spend could go
+back to 0.0 unseen.
+
+Filed: `risk_engine`'s authority bridge reads a failed ledger as `_spent = 0.0`;
+the ledger's own `_load` reads a corrupt file as empty; TOTP step-up on
+`/web3/sign`; `envelope_guard.js`'s loss/drawdown; and the INCOME_MAP
+contract-studio paragraph, whose citations sit about 200 lines from what they
+name.
+(`tests/test_the_envelope_caps_bind_an_on_chain_transfer.py`,
+`tests/test_a_sign_request_is_authorized_on_what_it_signs.py`,
+`tests/test_a_revoke_that_did_not_land_says_so.py`,
+`tests/test_an_empty_env_is_not_the_process_env.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
