@@ -194,9 +194,7 @@ def test_the_positions_read_asks_for_the_named_account(monkeypatch):
                         staticmethod(lambda c: _Spy(
                             (c or {}).get("api_key", "OP"),
                             (c or {}).get("api_secret", "OPSEC"), "")))
-    with patch("bot.core.live_executor.get_venue") as gv:
-        gv.return_value.id = "bitget"
-        LiveExecutor._fetch_v3_positions_raw(USER)
+    LiveExecutor._fetch_v3_positions_raw(USER, "bitget")
     assert seen.get("key") == "USER-KEY", (
         "the positions read used the operator's book for a per-user executor")
 
@@ -208,7 +206,7 @@ def test_the_margin_mode_lookup_threads_credentials_through(monkeypatch):
     from bot.core.live_executor import LiveExecutor
     got = {}
 
-    def _fake(credentials=None):
+    def _fake(credentials=None, venue_id=None):
         got["creds"] = credentials
         return []
 

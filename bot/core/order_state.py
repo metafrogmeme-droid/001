@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from bot.core.symbol_form import normalize_symbol
+
 # Terminal: the order is done and quantity changed hands.
 FILLED_STATUSES = frozenset({"closed", "filled"})
 
@@ -287,6 +289,14 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
     the same absent-reads-as-a-measurement move one field over. Non-dict rows
     are kept for the same reason: `position_presence` is the thing that gets to
     call them unreadable.
+
+    A SPELLING IS NOT A DIFFERENT MARKET. The bot records ``BTC/USDT`` and a
+    venue answers with its perp, ``BTC/USDT:USDT`` or ``BTC/USDC:USDC``; an
+    exact string compare dropped the venue's own row, and a close verification
+    that drops the row books a held position as closed. A row is somebody
+    else's only when neither the spelling nor the market it names
+    (`normalize_symbol`) agrees — so the second reading can only KEEP a row the
+    first would have dropped, never drop one it kept.
     """
     # The same type guard `position_presence` opens with, and for a sharper
     # reason here: `for row in "not a list"` iterates CHARACTERS, so a string
@@ -300,7 +310,8 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
             kept.append(row)
             continue
         row_symbol = row.get("symbol")
-        if row_symbol is not None and row_symbol != symbol:
+        if (row_symbol is not None and row_symbol != symbol
+                and normalize_symbol(str(row_symbol)) != normalize_symbol(str(symbol))):
             continue
         row_side = row.get("side")
         if row_side is not None and str(row_side).lower() != str(side).lower():

@@ -170,6 +170,12 @@ class Venue:
         """Product-scoping params merged into fetch/order calls."""
         return dict(extra)
 
+    def order_read_params(self) -> dict:
+        """Params every ``fetch_order`` on this venue needs before ccxt will
+        send it. Empty on most venues; the executor merges it into every
+        order read through one seam (``LiveExecutor._fetch_order``)."""
+        return {}
+
     def entry_params(self, margin_mode: str, leverage: int) -> dict:
         """Params for the entry create_order call."""
         return {}
@@ -628,6 +634,16 @@ class BybitVenue(Venue):
     def order_symbol(self, symbol: str) -> str:
         # Bybit resolves "BTC/USDT" to the SPOT market — always perp form.
         return self.swap_symbol(symbol)
+
+    def order_read_params(self) -> dict:
+        # ccxt 4.5.56 refuses EVERY fetch_order on a unified account (every
+        # Bybit account is one now) with ArgumentsRequired, before sending
+        # anything, unless the caller says it knows the endpoint answers only
+        # the last 500 orders. Driven: without this key, zero requests and a
+        # raise; with it, one request to /v5/order/realtime. The bot reads
+        # back its own orders seconds to hours after placing them, well inside
+        # that window.
+        return {"acknowledged": True}
 
     def leverage_params(self, margin_mode: str) -> dict:
         # v5 set-leverage takes buyLeverage/sellLeverage (ccxt fills them

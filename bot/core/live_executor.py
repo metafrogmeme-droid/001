@@ -68,34 +68,13 @@ from bot.core.order_state import (
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
     read_amount, rows_for_side, stop_attached,
 )
+from bot.core.symbol_form import normalize_symbol
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 from bot.risk.held_book import HeldRow, direction_word
 
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
-
-
-def normalize_symbol(s: str) -> str:
-    """Canonical symbol normalizer — strips ccxt suffixes to a bare base.
-
-    Examples:
-        MEGA/USDT:USDT  →  MEGA
-        MEGA/USDT       →  MEGA
-        MEGAUSDT        →  MEGAUSDT  (no destructive mid-string strip)
-        XAU/USDT:USDT   →  XAU
-        BTC/USDC:USDC   →  BTC
-    """
-    result = s.upper()
-    # L-01 FIX: Strip any :XXX settle suffix (not just :USDT)
-    colon_idx = result.rfind(":")
-    if colon_idx > 0:
-        result = result[:colon_idx]
-    if result.endswith("/USDT"):
-        result = result[:-5]
-    elif result.endswith("/USDC"):
-        result = result[:-5]
-    return result
 
 
 def display_symbol(s: str) -> str:
@@ -2105,7 +2084,7 @@ class LiveExecutor:
                 # UTA account — v2 account endpoint not available
                 # Try fetching position info to check margin mode
                 try:
-                    ccxt_sym = symbol if ":USDT" in symbol else f"{symbol}:USDT"
+                    ccxt_sym = self._venue.swap_symbol(symbol)
                     positions = await exchange.fetch_positions(
                         [ccxt_sym], params=self._venue.futures_params())
                     for p in positions:
@@ -3189,6 +3168,34 @@ class LiveExecutor:
             # Confirmed absent — safe to surface the failure to the caller.
             raise
 
+    # ── Reading an order back, in the venue's own spelling ────────────
+    async def _fetch_order(self, exchange: "ccxt.Exchange", order_id: Optional[str],
+                           symbol: str, params: Optional[dict] = None) -> dict:
+        """ONE read of one order: the venue's spelling and the venue's read params.
+
+        THE MAPPING REACHED THE ORDERS AND NOT THE READ-BACKS. Every order and
+        cancel went out on ``self._venue.order_symbol(pos.symbol)`` while the
+        reads that decide what those orders DID asked about ``pos.symbol``,
+        which is the bot's spot spelling: on Bybit that is the SPOT market
+        (``category=spot``), on Hyperliquid no market at all (BadSymbol). And on
+        Bybit ccxt 4.5.56 refuses every ``fetch_order`` on a unified account
+        before sending anything unless the call carries ``acknowledged`` — so a
+        filled limit entry was never seen filling, and a close's fill was never
+        read. Both halves are decided here, once: the symbol is mapped (the
+        mapping is idempotent, so a caller holding the perp spelling already is
+        unaffected, and on Bitget it is the identity), and the venue's read
+        params are merged under the caller's. Params are passed only when there
+        are some, so a Bitget read is the call it always was.
+        """
+        read_params = dict(self._venue.order_read_params())
+        if params:
+            read_params.update(params)
+        venue_sym = self._venue.order_symbol(symbol)
+        if read_params:
+            return cast(dict, await exchange.fetch_order(order_id, venue_sym,
+                                                         params=read_params))
+        return cast(dict, await exchange.fetch_order(order_id, venue_sym))
+
     # ── Post-trade verification (GetClaw-style) ─────────────────────
     async def _verify_order_fill(
         self,
@@ -3221,7 +3228,7 @@ class LiveExecutor:
         }
         for attempt in range(max_retries):
             try:
-                fetched = await exchange.fetch_order(order_id, symbol)
+                fetched = await self._fetch_order(exchange, order_id, symbol)
                 result["raw"] = fetched
                 status = str(fetched.get("status", "")).lower()
                 result["status"] = status
@@ -3580,6 +3587,10 @@ class LiveExecutor:
             gap = 0.0 if delay is None else max(0.0, float(delay))
         except (TypeError, ValueError):
             gap = 0.0
+        # The venue's spelling, for the read AND for matching its rows: the
+        # post-fill guard hands the recorded (spot-form) symbol, and on Bybit
+        # that read the SPOT book. Idempotent, and the identity on Bitget.
+        venue_sym = self._venue.order_symbol(symbol)
         for attempt in range(attempts):
             # THE LAST ATTEMPT'S ANSWER IS THE ANSWER, so the answer fields
             # reset rather than accumulating. A read that raised and then
@@ -3604,7 +3615,7 @@ class LiveExecutor:
             result.update(_UNANSWERED_POSITION_READ)
             result["attempts"] = attempt + 1
             try:
-                positions = await exchange.fetch_positions([symbol])
+                positions = await exchange.fetch_positions([venue_sym])
                 expected_side = "long" if expected_direction == "LONG" else "short"
                 # A ROW WE COULD NOT SIZE IS NOT AN ABSENCE, AND THIS METHOD
                 # ALREADY HAD THE WORD FOR IT. `contracts` was read with
@@ -3621,7 +3632,7 @@ class LiveExecutor:
                 # so the entry read and the close read now answer the same
                 # question the same way.
                 _unreadable_rows = 0
-                for p in rows_for_side(positions, symbol, expected_side):
+                for p in rows_for_side(positions, venue_sym, expected_side):
                     if not isinstance(p, dict):
                         _unreadable_rows += 1
                         continue
@@ -3635,7 +3646,7 @@ class LiveExecutor:
                     # symbol and its side may be adopted as ours — its numbers
                     # become the position record, and "there is exposure here"
                     # is a weaker claim than "these are its figures".
-                    if p.get("symbol") != symbol or str(p.get("side", "")).lower() != expected_side:
+                    if p.get("symbol") != venue_sym or str(p.get("side", "")).lower() != expected_side:
                         _unreadable_rows += 1
                         continue
                     contracts = abs(qty)
@@ -3761,10 +3772,17 @@ class LiveExecutor:
         #     get 25227 and an empty book for its OWN unsettled position".
         #     Two answers to one question, in one file, about one venue.
         expected_side = "long" if direction == "LONG" else "short"
+        # THE BOOK IS READ IN THE VENUE'S SPELLING. The close path hands the
+        # recorded symbol, which is the bot's spot form: on Bybit that asked the
+        # SPOT book (`category=spot`), which holds no perp, so every close read
+        # flat and booked CONFIRMED while the venue still held the position; on
+        # Hyperliquid it is no market at all and every close read unreadable.
+        # The order this reads back was sent on this same mapping.
+        venue_sym = self._venue.order_symbol(symbol)
 
         def _residual(rows) -> float:
             """Contracts still open on this symbol and side; 0.0 if none."""
-            for p in rows_for_side(rows, symbol, expected_side):
+            for p in rows_for_side(rows, venue_sym, expected_side):
                 qty = read_amount(p, "contracts") if isinstance(p, dict) else None
                 if qty is not None and abs(qty) > 0:
                     return abs(qty)
@@ -3772,8 +3790,8 @@ class LiveExecutor:
 
         try:
             await asyncio.sleep(_VENUE_SETTLE_SECONDS)
-            positions = await exchange.fetch_positions([symbol])
-            presence = position_presence(rows_for_side(positions, symbol, expected_side))
+            positions = await exchange.fetch_positions([venue_sym])
+            presence = position_presence(rows_for_side(positions, venue_sym, expected_side))
 
             if presence["state"] == "unreadable":
                 # A row we could not size is not an absence of exposure. This
@@ -3806,9 +3824,9 @@ class LiveExecutor:
             # necessarily reached the book yet. Re-read before believing it.
             if _fill_unconfirmed:
                 await asyncio.sleep(_VENUE_SETTLE_SECONDS)
-                positions = await exchange.fetch_positions([symbol])
+                positions = await exchange.fetch_positions([venue_sym])
                 second = position_presence(
-                    rows_for_side(positions, symbol, expected_side))
+                    rows_for_side(positions, venue_sym, expected_side))
                 if second["state"] != "flat":
                     result["remaining_qty"] = _residual(positions)
                     result["confirmed"] = False
@@ -6730,7 +6748,7 @@ class LiveExecutor:
                     # 2. Fallback: fetch_order
                     if not filled_qty or filled_qty <= 0:
                         try:
-                            confirmed = await active_exchange.fetch_order(order_id, symbol)
+                            confirmed = await self._fetch_order(active_exchange, order_id, symbol)
                             filled_qty = float(confirmed.get("filled", 0) or 0)
                             if confirmed.get("average"):
                                 fill_price = float(confirmed["average"])
@@ -7340,9 +7358,13 @@ class LiveExecutor:
 
             # Audit fix #21: round trigger prices onto the symbol's tick grid —
             # previously only the v3 path applied precision and the classic path
-            # sent raw floats (venue may reject or silently round them).
-            _sl_r = self._round_price_to_market(exchange, symbol, stop_loss)
-            _tp_r = self._round_price_to_market(exchange, symbol, take_profit)
+            # sent raw floats (venue may reject or silently round them). The
+            # grid is the market the stop is placed ON: the recorded symbol is
+            # the spot form, whose tick is Bybit's spot tick and on Hyperliquid
+            # no market at all (the rounding then silently did nothing).
+            _order_sym = self._venue.order_symbol(symbol)
+            _sl_r = self._round_price_to_market(exchange, _order_sym, stop_loss)
+            _tp_r = self._round_price_to_market(exchange, _order_sym, take_profit)
             if _sl_r is not None:
                 try:
                     stop_loss = float(_sl_r)
@@ -7358,7 +7380,6 @@ class LiveExecutor:
             # trigger-market orders to bound slippage; the trigger level
             # itself is the natural bound.
             _needs_px = self._venue.market_order_needs_price
-            _order_sym = self._venue.order_symbol(symbol)
 
             # Stop-loss
             try:
@@ -7441,15 +7462,26 @@ class LiveExecutor:
 
     @staticmethod
     def _fetch_v3_positions_raw(
-            credentials: Optional[dict] = None) -> Optional[list[dict]]:
+            credentials: Optional[dict], venue_id: str) -> Optional[list[dict]]:
         """Fetch all open positions from Bitget v3 API.
 
         `credentials` names WHOSE positions. This is a @staticmethod, so it
         cannot reach `self._credentials` and the caller must hand them over —
         without that it read the OPERATOR's book, so a per-user executor
         reconciled its user against positions that were never theirs.
-        Defaults to None, which falls back to the operator's keys and keeps
-        the operator path unchanged.
+        None falls back to the operator's keys and keeps the operator path
+        unchanged.
+
+        `venue_id` names WHICH VENUE, and it is the executor's own, for the
+        same reason: this used to ask `get_venue()` — the MODULE's venue, the
+        operator's selector — about an executor whose venue it cannot see.
+        Driven both ways: with the operator on Hyperliquid, a per-user BITGET
+        executor got ``[]`` and audited "exchange reports NO positions" at
+        WARNING on every sync; with the operator on Bitget, a per-user
+        HYPERLIQUID executor (no api_key, so `for_account` falls back to the
+        OPERATOR's keys) read the operator's Bitget book and rewrote its own
+        position's leverage and margin from it. Required, so no caller can
+        fall back to the module's answer by forgetting it.
 
         Returns a list of raw position dicts, ``[]`` when the channel is
         NOT APPLICABLE (non-Bitget venue, no v3 credentials — permanent
@@ -7463,7 +7495,7 @@ class LiveExecutor:
         ``{"data": {"list": [...]}}``. Synchronous — callers must wrap in
         ``asyncio.to_thread``.
         """
-        if get_venue().id != "bitget":
+        if venue_id != "bitget":
             return []
         from bot.core.bitget_v3_client import BitgetV3Client
         client = BitgetV3Client.for_account(credentials)
@@ -7488,14 +7520,18 @@ class LiveExecutor:
     @staticmethod
     def _fetch_position_margin_mode_v3(
             bitget_symbol: str,
-            credentials: Optional[dict] = None) -> Optional[str]:
+            credentials: Optional[dict] = None,
+            venue_id: str = "bitget") -> Optional[str]:
         """Query v3 position API to get the actual marginMode for a specific symbol.
 
         Returns 'crossed' or 'isolated', or None if lookup fails.
-        Synchronous — callers must wrap in asyncio.to_thread.
+        Synchronous — callers must wrap in asyncio.to_thread. `venue_id` is
+        the asking executor's venue, handed on to the positions read; the
+        default is Bitget because this is Bitget's v3 channel by name and its
+        one caller is the v3 stop placement.
         """
         # None = channel failed → lookup failed, same as symbol-not-found.
-        positions = LiveExecutor._fetch_v3_positions_raw(credentials) or []
+        positions = LiveExecutor._fetch_v3_positions_raw(credentials, venue_id) or []
         for item in positions:
             if item.get("symbol") == bitget_symbol:
                 mm = (item.get("marginMode") or "").lower()
@@ -7521,10 +7557,17 @@ class LiveExecutor:
         open_pos = [p for p in self._positions.values() if p.status == "open"]
         if not open_pos:
             return
+        # The v3 position channel is Bitget's. On any other venue it answers
+        # "not applicable", and reading that as "the exchange reports NO
+        # positions" audited a false WARNING on every sync. Leverage there is
+        # read back at the fill by the venue's own ccxt path.
+        if self._venue.id != "bitget":
+            return
 
         try:
             v3_positions = await _aio_sync.get_event_loop().run_in_executor(
-                None, LiveExecutor._fetch_v3_positions_raw, self._credentials
+                None, LiveExecutor._fetch_v3_positions_raw, self._credentials,
+                self._venue.id,
             )
         except Exception as exc:
             audit(trade_log,
@@ -7751,7 +7794,7 @@ class LiveExecutor:
             import asyncio as _aio_mm
             v3_pos_data = await _aio_mm.to_thread(
                 LiveExecutor._fetch_position_margin_mode_v3, bitget_symbol,
-                self._credentials)
+                self._credentials, self._venue.id)
             if v3_pos_data:
                 position_margin_mode = v3_pos_data
         except Exception:
@@ -7967,7 +8010,7 @@ class LiveExecutor:
         "unknown" is not zero and not filled: the caller must change nothing.
         """
         try:
-            _q = exchange.amount_to_precision(pos.symbol, qty)
+            _q = exchange.amount_to_precision(self._venue.order_symbol(pos.symbol), qty)
             qty = float(_q) if _q is not None else qty
         except Exception:
             pass
@@ -8319,7 +8362,7 @@ class LiveExecutor:
             # 2. Still no exchange stop — close locally if price has breached it.
             price = 0.0
             try:
-                t = await exchange.fetch_ticker(pos.symbol)
+                t = await exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                 price = float(t.get("last", 0) or 0)
             except Exception as exc:
                 logger.debug("Grace sub-loop ticker fetch failed for %s: %s",
@@ -8435,7 +8478,9 @@ class LiveExecutor:
             tickers: dict = {}
             for sym in open_symbols:
                 try:
-                    t = await exchange.fetch_ticker(sym)
+                    # The venue's market, filed under the recorded symbol the
+                    # loop below looks positions up by.
+                    t = await exchange.fetch_ticker(self._venue.order_symbol(sym))
                     tickers[sym] = t
                 except Exception as e:
                     # Track consecutive failures per symbol
@@ -9187,7 +9232,7 @@ class LiveExecutor:
             return None
 
         try:
-            order = await exchange.fetch_order(pos.limit_order_id, pos.symbol)
+            order = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
             order_status = order.get("status", "unknown")
 
             if order_status in ("closed", "filled", "partially_filled"):
@@ -9389,7 +9434,7 @@ class LiveExecutor:
                 drift_pct = CONFIG.limit_orders.price_drift_cancel_pct
                 if drift_pct > 0 and pos.entry_price > 0:
                     try:
-                        ticker = await exchange.fetch_ticker(pos.symbol)
+                        ticker = await exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                         cur_price = float(ticker.get("last", 0) or 0)
                         if cur_price > 0:
                             pct_away = abs(cur_price - pos.entry_price) / pos.entry_price * 100
@@ -9447,7 +9492,7 @@ class LiveExecutor:
                     # failed, the order may have filled in the meantime.
                     if not cancel_confirmed:
                         try:
-                            order_info = await exchange.fetch_order(pos.limit_order_id, pos.symbol)
+                            order_info = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
                             actual_status = order_info.get("status", "")
                             if actual_status in ("filled", "closed"):
                                 logger.warning("Limit order %s filled during cancel attempt", pos.limit_order_id)
@@ -9474,7 +9519,7 @@ class LiveExecutor:
                     # so the fill branch above never caught them).
                     _d_filled, _d_avg = 0.0, 0.0
                     try:
-                        _final = await exchange.fetch_order(pos.limit_order_id, pos.symbol)
+                        _final = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
                         _d_filled = float(_final.get("filled", 0) or 0)
                         _d_avg = float(_final.get("average", 0) or 0)
                     except Exception as _pf_exc:
@@ -9706,7 +9751,7 @@ class LiveExecutor:
             except Exception as cancel_exc:
                 # Check if it filled during cancellation
                 try:
-                    check = await exchange.fetch_order(pos.limit_order_id, pos.symbol)
+                    check = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
                     if check.get("status") in ("filled", "closed"):
                         return None  # filled — next cycle will handle
                 except Exception as _check_exc:
@@ -9722,7 +9767,7 @@ class LiveExecutor:
             # remainder and blend the entries below.
             pre_filled, pre_avg = 0.0, 0.0
             try:
-                _final = await exchange.fetch_order(pos.limit_order_id, pos.symbol)
+                _final = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
                 pre_filled = float(_final.get("filled", 0) or 0)
                 pre_avg = float(_final.get("average", 0) or 0)
             except Exception as _pf_exc:
@@ -9763,9 +9808,16 @@ class LiveExecutor:
                         "market fallback was REFUSED — the engine is halted or a "
                         "circuit breaker is open. No position was opened.")
 
+            # THE VENUE'S MARKET, and its price bound where it needs one. This
+            # was the one ORDER in the file on the recorded (spot-form) symbol:
+            # on Bybit it is a SPOT market buy, on Hyperliquid no market at all.
+            _fb_kwargs: dict = {"params": self._venue.futures_params()}
+            _fb_px = await self._venue_market_price(exchange, pos.symbol)
+            if _fb_px is not None:
+                _fb_kwargs["price"] = _fb_px
             order = await exchange.create_order(
-                pos.symbol, "market", side, qty,
-                params=self._venue.futures_params())
+                self._venue.order_symbol(pos.symbol), "market", side, qty,
+                **_fb_kwargs)
 
             fill_price = float(order.get("average", 0) or order.get("price", 0) or cur_price)
             filled_qty = float(order.get("filled", 0) or qty)
@@ -9984,7 +10036,8 @@ class LiveExecutor:
             # is rejected by Bitget (45115) and the SL update silently fails,
             # leaving the LOOSER old stop in place (audit: classic path missed the
             # rounding the v3 path already does).
-            _sl_r = self._round_price_to_market(exchange, pos.symbol, new_sl)
+            _sl_r = self._round_price_to_market(
+                exchange, self._venue.order_symbol(pos.symbol), new_sl)
             sl_trigger = float(_sl_r) if _sl_r else new_sl
             # Venue trigger dialect (Bitget classic: tradeSide=close +
             # reduceOnly + productType; Hyperliquid: reduceOnly + price bound)
@@ -10377,7 +10430,7 @@ class LiveExecutor:
         # confirmation (the pending-fill path says the same), so read the
         # order back before the record may forget it.
         try:
-            order_info = await exchange.fetch_order(oid, pos.symbol)
+            order_info = await self._fetch_order(exchange, oid, pos.symbol)
         except Exception:
             return "unverified", (f"cancel answered {cancel_status or 'no status'}; "
                                   f"the follow-up read failed")
@@ -10427,8 +10480,8 @@ class LiveExecutor:
                 cancelled: Optional[bool] = None
                 _cancel_detail = "verification did not run"
                 try:
-                    order_info = await exchange.fetch_order(
-                        pos.limit_order_id, pos.symbol,
+                    order_info = await self._fetch_order(
+                        exchange, pos.limit_order_id, pos.symbol,
                         params=self._venue.futures_params())
                     _verdict = pending_cancel_verdict(order_info)
                     _state = _verdict["state"]
@@ -10918,7 +10971,7 @@ class LiveExecutor:
                 # Last resort: fetch ticker for current price
                 try:
                     main_exchange = await self._get_exchange()
-                    ticker = await main_exchange.fetch_ticker(pos.symbol)
+                    ticker = await main_exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                     fill_price = float(ticker.get("last", 0) or 0)
                     if fill_price > 0:
                         # Its own word: this is the bot's close order, filled,
@@ -10975,7 +11028,7 @@ class LiveExecutor:
             if exchange_pnl is None:
                 try:
                     close_trades = await exchange.fetch_my_trades(
-                        pos.symbol, limit=10)
+                        self._venue.order_symbol(pos.symbol), limit=10)
                     close_fills = [
                         t for t in close_trades
                         if t.get("order") == close_order_id
@@ -11109,7 +11162,7 @@ class LiveExecutor:
                         pass  # Best-effort cleanup
                 try:
                     _ccxt_sym = self._venue.order_symbol(pos.symbol)
-                    open_orders = list(await exchange.fetch_open_orders(pos.symbol) or [])
+                    open_orders = list(await exchange.fetch_open_orders(_ccxt_sym) or [])
                     # A venue with a plan table of its own lists none of its
                     # trigger orders here. Those the cleanup rule says are THIS
                     # side's go too, in their own table; the other side's stop

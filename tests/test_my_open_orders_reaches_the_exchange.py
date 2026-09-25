@@ -99,6 +99,10 @@ class _Exchange:
 class _Venue:
     display_name = "Bitget"
 
+    def order_symbol(self, symbol):
+        # Bitget's mapping is the identity; the per-symbol retry reads through it.
+        return symbol
+
     def futures_params(self, **extra):
         p = {"productType": "USDT-FUTURES"}
         p.update(extra)

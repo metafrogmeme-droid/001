@@ -166,7 +166,9 @@ def _pending_limit(qty=1.0, entry=100.0):
 def _bare_executor(pos):
     ex = LiveExecutor.__new__(LiveExecutor)
     ex._positions = {"T1": pos}
-    ex._venue = SimpleNamespace(order_symbol=lambda s: s, futures_params=lambda: {})
+    ex._venue = SimpleNamespace(order_symbol=lambda s: s, futures_params=lambda: {},
+                                order_read_params=lambda: {},  # every order read asks the venue for its read params
+                                market_order_needs_price=False)
     ex._save_positions = lambda: None
     ex._append_closed_trade = lambda p: None
     ex._is_duplicate_fill = lambda p, price: False

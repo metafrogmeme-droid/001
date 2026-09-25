@@ -58,6 +58,7 @@ def _executor(pos):
     ex._positions = {pos.trade_id: pos}
     ex._venue = SimpleNamespace(
         order_symbol=lambda s: s,
+        order_read_params=lambda: {},
         futures_params=lambda: {},
         close_params=lambda uta: {"reduceOnly": True},
         market_order_needs_price=False,

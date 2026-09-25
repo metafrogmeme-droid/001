@@ -55,7 +55,8 @@ def _executor(pos, path=None) -> LiveExecutor:
     # inside its own `except` writes nothing: this stand-in once had no `id`,
     # so every drive below saved no file at all.
     ex._venue = SimpleNamespace(id="bitget", order_symbol=lambda s: s,
-                                close_params=lambda uta: {"reduceOnly": True})
+                                close_params=lambda uta: {"reduceOnly": True},
+                                order_read_params=lambda: {})  # every order read asks the venue for its read params
     ex._is_uta = False
     ex._foreign_position_rows = {}
     ex._record_warning = lambda k: None
