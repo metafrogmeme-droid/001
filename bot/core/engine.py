@@ -762,7 +762,8 @@ class RuneClawEngine:
                 _closed_record = self.live_executor.closed_positions
                 _seeded = self.risk.seed_realized_window(
                     _live_executor_mod.realized_close_pnls(_closed_record),
-                    returns=_live_executor_mod.realized_close_returns(_closed_record))
+                    returns=_live_executor_mod.realized_close_returns(_closed_record),
+                    last_close_at=_live_executor_mod.realized_close_last_at(_closed_record))
                 if _seeded:
                     system_log.info(
                         "Live-performance window seeded from %d recorded closes", _seeded)

@@ -918,6 +918,31 @@ def _realized_close_rows(positions: Any) -> list[tuple[float, int, float, Option
     return rows
 
 
+def realized_close_last_at(positions: Any) -> Optional[float]:
+    """When the newest FILLED close in the record happened (epoch seconds),
+    priced or not, or None when no filled close carries a readable time.
+
+    The governor's probe clock (`RiskEngine.governor_probe_in_seconds`) runs
+    from the last close, and in memory a restart empties it; this is the same
+    record the window is seeded from, so a restart does not restart the wait.
+    An unpriced close counts here although it feeds no window: it is still a
+    close, and a probe that closed unpriced must not be followed at once by
+    another. A never-filled order is not a close (`is_filled_close`)."""
+    from bot.utils.close_reason import is_filled_close
+
+    newest: Optional[float] = None
+    for p in list(positions or []):
+        if not is_filled_close(getattr(p, "close_reason", None),
+                               _to_float(getattr(p, "pnl_usd", None))):
+            continue
+        closed = getattr(p, "closed_at", None)
+        if isinstance(closed, datetime):
+            stamp = closed.timestamp()
+            if newest is None or stamp > newest:
+                newest = stamp
+    return newest
+
+
 def realized_close_returns(positions: Any) -> list[float]:
     """The per-close RETURN (net P&L over the stated notional) of every close
     `realized_close_pnls` counts whose notional the venue stated, oldest

@@ -1056,6 +1056,37 @@ def _scan_verify_links(payload: dict) -> dict:
     return out
 
 
+def scan_action_rows(top_setups: list[dict], gate: dict) -> tuple[str, list]:
+    """The scan card's actions: ``(header, rows)``, each row a list of
+    ``(label, callback_data)``.
+
+    On 2026-09-25 this card offered "Actions — tap to execute" with a ✅ per
+    setup while the live-performance governor was refusing every entry, so the
+    tap was answered "Risk: REJECTED" and nothing else could have happened.
+    The buttons are offered only when the caller's entry gate (`entry_gate`,
+    the one reading every status surface asks) is not BLOCKED; when it is,
+    the header is the gate's own sentence and there are no buttons. An
+    UNREAD gate still offers them: the risk gate decides at the tap, and a
+    status that could not be read is not a refusal.
+    """
+    import html as _html
+
+    from bot.core.trade_gate import gate_sentence
+
+    if gate.get("blocked"):
+        return ("\u26d4 <b>No actions</b> — " + _html.escape(gate_sentence(gate))
+                + " Nothing on this card can be placed until that changes.", [])
+    rows = []
+    for r in top_setups:
+        sym_short = r["sym"].replace("/USDT", "")
+        rows.append([
+            (f"\u2705 {sym_short}", f"scan_confirm:{r['sym']}:{r['dir']}:{r['price']}"),
+            ("Limit", f"scan_limit:{r['sym']}:{r['dir']}:{r['price']}"),
+            ("Skip", f"scan_reject:{r['sym']}"),
+        ])
+    return "\u2694\ufe0f <b>Actions</b> — tap to execute", rows
+
+
 def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | None = None) -> None:
     """Push the scan payload to the website (scan + signal stream).
 
@@ -1439,17 +1470,13 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             f"\U0001f916 <b>AI Summary:</b>\n{summary}")
 
     # ── Build per-setup action buttons (max 6 rows) ──
-    buttons = []
-    for r in top_setups:
-        sym_short = r["sym"].replace("/USDT", "")
-        buttons.append([
-            InlineKeyboardButton(f"\u2705 {sym_short}",
-                                 callback_data=f"scan_confirm:{r['sym']}:{r['dir']}:{r['price']}"),
-            InlineKeyboardButton("Limit",
-                                 callback_data=f"scan_limit:{r['sym']}:{r['dir']}:{r['price']}"),
-            InlineKeyboardButton("Skip",
-                                 callback_data=f"scan_reject:{r['sym']}"),
-        ])
+    # Asked of the caller's own entry gate first: a button whose only possible
+    # answer is a refusal is a door painted on a wall (scan_action_rows).
+    from bot.core.trade_gate import entry_gate
+    _caller = str(update.effective_user.id) if update.effective_user else ""
+    btn_text, rows = scan_action_rows(top_setups, entry_gate(engine, _caller))
+    buttons = [[InlineKeyboardButton(label, callback_data=data) for label, data in row]
+               for row in rows]
 
     kb = InlineKeyboardMarkup(buttons) if buttons else None
 
@@ -1460,17 +1487,20 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await msg.delete()
         except Exception:
             pass
-        btn_text = "\u2694\ufe0f <b>Actions</b> — tap to execute"
         if ai and results:
             summary = await _ai_summary(results[:15])
             btn_text += f"\n\n\U0001f916 <b>AI:</b> {summary}"
         chat_id = update.effective_chat.id if update.effective_chat else None
-        if chat_id and kb:
+        # A refusal is sent although it carries no buttons: it is the reason
+        # there are none, and without it the card simply has no actions.
+        if chat_id and (kb or top_setups):
             await context.bot.send_message(
                 chat_id=chat_id, text=btn_text,
                 parse_mode="HTML", reply_markup=kb)
     else:
         # Fallback: plain text with buttons (no Pillow or card failed)
+        if top_setups and not buttons:
+            text += "\n\n" + btn_text
         await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
     # Push scan data to website dashboard

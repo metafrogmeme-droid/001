@@ -10514,6 +10514,77 @@ raise the bar, the newest ten are wins), and it is planted.
 `tests/test_a_classic_stop_is_cancelled_in_the_plan_table.py`,
 `tests/test_the_adaptive_threshold_reads_the_record_of_its_mode.py`.)
 
+**THE GOVERNOR PAUSED LIVE TRADING, EVERY CARD SAID "ACTIVE", AND NOTHING
+COULD EVER LIFT IT.** Reported from the live bot on 2026-09-25 with a
+screenshot. At 18:54 UTC a scan card rejected NEAR/USDT LONG with
+*"LIVE_PERF_GOVERNOR: trading paused"*, under a header reading *"Actions — tap
+to execute"*. Six minutes later `/start` answered *"🟢 Active | LIVE"*.
+Two defects, one under the other.
+
+**The pause refused every idea and was not in the list of things that refuse
+every idea.** `RiskEngine.trading_blocked_by` exists for exactly this. Its own
+docstring says it covers the gates in `evaluate()` that reject regardless of
+the idea, and `trade_gate.entry_gate` builds every status surface on it:
+`/start`, `/status`, `/risk`, `/resume`, the chat prompt and the website chip.
+It named the circuit breaker, the warning-rate breaker and the loss-streak
+latch. The governor's PAUSE and the equity-curve pause were missing, so all
+of those surfaces said entries were open while every entry was refused. That
+is the `trade_gate` header's own sentence, *"a gate with five conditions and
+six renderings of it will disagree with itself"*, with a sixth condition
+nobody added. The reason carries counts and no dollar figure
+(`live_perf_pause: 4 of the last 20 closes won, net negative; …`), because it
+reaches the unauthenticated `/health` payload.
+
+**And the pause was a permanent latch, which the loss-streak gate's own
+comment had already named.** The governor scores the last 20 live closes. A
+pause opens nothing, so on a flat book the window never changes. Since the
+window is seeded from the closed-trade record at boot (the restart chapter),
+a restart does not lift it either, and the only reset had one caller, the red
+team. Twelve hundred lines down the same method, the loss-streak latch
+carries the comment *"without a probe path this gate is a permanent latch"*
+and a 24-hour probe. The governor never got one.
+
+**The operator decided the exit (2026-09-25): a probe after 24 hours.**
+After `LIVE_PERF_PROBE_HOURS` (default 24) since the last close, with no
+position open, ONE entry goes through at the reduce size. Its close enters
+the window. A window that recovers leaves PAUSE on its own; one that does not
+re-arms the wait from that close. The two probes share one reading,
+`_probe_cooled` (cooled off and flat), each with its own clock. The
+governor's clock is the newest close, priced or not, because a probe that
+closed unpriced taught the window nothing and must not be followed at once.
+It is seeded at boot from the same record as the window
+(`realized_close_last_at`), so a restart does not restart the wait. No close
+on record means no probe, and the refusal says so. Every refusal names what
+ends it: the time left, the open position it waits for, or that probing is
+switched off.
+
+**The scan card offered a door the gate would refuse.** It built a ✅ per
+setup without asking anything. It now asks the caller's `entry_gate` and,
+when the gate is blocked, sends the gate's sentence with no buttons.
+`scan_action_rows` is the pure seam. Both send paths (image card and text
+fallback) are driven through the real `_scan_batch`, because the refusal's
+send condition is new code in that handler and a scan of the helper could not
+see it.
+
+**What the probe does NOT do, stated.** It is sized like a REDUCE entry, so
+under the shipped cap policy (`PRE_CAP_TIGHTENS_CAP` empty) the notional cap
+takes the x0.50 back wherever the cap binds. On a small account that is most
+trades, and the size trace says so. A property cannot count the book, so
+while a probe is due but a position is still open, `trading_blocked_by` names
+no pause and the card reads Active. The gate still refuses those entries
+until the book is flat. This is the loss-streak probe's documented edge,
+inherited. The frozen benchmark was re-run on the change: `majors_1h`'s
+walk-forward is identical line for line, because in those folds the streak
+circuit breaker holds alongside the governor, so the probe never changes a
+trade there.
+
+**Thirty-two mutations, each killed; two survived the first round and both
+were the corpus.** No fixture set the equity-curve pause. The probe's x0.50
+changed nothing on a fixture whose size sat on the notional cap, which takes
+a pre-cap reduction back. A 20% stop sizes under the cap, and there the
+probe's $300 against $600 is the halving measured.
+(`tests/test_a_governor_pause_says_so_and_can_end.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11805,9 +11876,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **438 of 1049** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1050** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 438 is a FLOOR and the honest shape is
+source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

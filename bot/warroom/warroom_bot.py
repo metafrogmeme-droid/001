@@ -8,6 +8,7 @@ No external dependencies beyond the Python standard library are required.
 
 from __future__ import annotations
 
+import html
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -699,6 +700,15 @@ def resume_gate_line(gate: Optional[str]) -> str:
     if gate.startswith("loss_streak:"):
         return ("  \u26d4 New entries are still <b>refused</b>: loss-streak gate \u2014 "
                 "/status says when a probe trade is allowed.")
+    if gate.startswith("live_perf_pause:"):
+        # The governor's own sentence says what ends the pause (the probe's
+        # time, or why there is none); /resume does not touch its window.
+        why = html.escape(gate.split(":", 1)[1].strip())
+        return (f"  \u26d4 New entries are still <b>refused</b>: live-performance "
+                f"governor paused ({why}). /resume does not clear it.")
+    if gate == "equity_curve_pause":
+        return ("  \u26d4 New entries are still <b>refused</b>: equity-curve breaker "
+                "(equity below its moving band). /resume does not clear it.")
     return (f"  \u26d4 New entries are still <b>refused</b>: circuit breaker "
             f"(<code>{gate}</code>).")
 

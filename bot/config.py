@@ -775,6 +775,15 @@ class RiskLimits:
     live_perf_pause_winrate: float = _env_float_bounded("LIVE_PERF_PAUSE_WINRATE", 0.25, 0.0, 1.0)
     # Size multiplier applied while in the reduce zone.
     live_perf_reduce_mult: float = _env_float_bounded("LIVE_PERF_REDUCE_MULT", 0.5, 0.05, 1.0)
+    # Hours after the last close before a PAUSED governor lets ONE probe entry
+    # through, with no position open, at the reduce size (default 24; the
+    # loss-streak probe's period). A pause opens nothing, so its window cannot
+    # change on a flat book and, with the window seeded at boot, a restart does
+    # not lift it either: without this the pause is permanent. The probe's
+    # close enters the window, which leaves PAUSE on its own if it recovers and
+    # re-arms the wait if not. 0 turns probing off (the pause then lifts only
+    # when these settings change). Operator decision, 2026-09-25.
+    live_perf_probe_hours: float = _env_float_bounded("LIVE_PERF_PROBE_HOURS", 24.0, 0.0, 720.0)
     # Fable-5 round 2 — CONTINUOUS equity-curve throttle. Scales size off the
     # rolling profit factor of the most recent closed trades: PF >= pf_full →
     # full size, PF <= pf_floor → floor_mult, linear ramp between. Unlike the

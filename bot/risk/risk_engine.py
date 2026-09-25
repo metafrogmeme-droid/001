@@ -98,7 +98,8 @@ from bot.core.leverage import (
 from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
 from bot.risk import ladder_shadow
 from bot.risk.held_book import HeldRow, direction_word, margin_read
-from bot.risk.live_perf_gate import governor_verdict
+from bot.risk.live_perf_gate import PAUSE as GOVERNOR_PAUSE
+from bot.risk.live_perf_gate import governor_verdict, pause_reason, probe_clause
 from bot.risk.quality_ladder import (
     kelly_confidence_factor,
     ladder_leverage,
@@ -268,6 +269,11 @@ class RiskEngine:
     If RUNECLAW is ever made multi-threaded, the lock ordering must be resolved first.
     """
 
+    #: The governor probe's clock (see `__init__`). A class default as well, so
+    #: an engine a test builds with `__new__` reads "no close on record"
+    #: rather than raising inside a status property.
+    _last_close_time: Optional[float] = None
+
     def __init__(self, portfolio: "PortfolioTracker", state_file: Optional[str] = None,  # noqa: F821
                  macro_calendar: Optional["MacroCalendar"] = None,  # noqa: F821
                  macro_provider: Optional[Any] = None,
@@ -384,6 +390,15 @@ class RiskEngine:
         # fails OPEN until min_samples accrue, which lifted a PAUSE on every
         # restart.
         self._realized_pnl_window: deque[float] = deque(maxlen=100_000)
+        # WHEN the newest close happened, priced or not: the governor's probe
+        # clock (`governor_probe_in_seconds`). A PAUSE opens nothing, so with a
+        # flat book the window above can never change and the pause is a
+        # permanent latch; the probe is its way out, timed from the last close
+        # as the loss-streak probe is timed from the last loss. Seeded at boot
+        # from the same closed-trade record the window is, so a restart does
+        # not restart the wait. None is "no close on record", and a probe
+        # timed from nothing is refused rather than allowed.
+        self._last_close_time: Optional[float] = None
         # The per-close RETURN (net P&L over the notional) of the same closes,
         # for those whose notional the venue stated: the live per-trade VaR
         # proxy's record (`_compute_live_var`). Seeded beside the window.
@@ -503,6 +518,27 @@ class RiskEngine:
                 return f"loss_streak:{_ss.get('consecutive_losses')}"
         except Exception:
             pass
+        # The two PAUSES in evaluate() that refuse every idea whatever it is.
+        # Neither was named here, so on 2026-09-25 a scan card rejected NEAR
+        # with "LIVE_PERF_GOVERNOR: trading paused" and /start answered
+        # "Active | LIVE" six minutes later: every surface that asks this
+        # property was told entries were open. The governor's reading is the
+        # one evaluate() applies (`governor_verdict`); a read that raises
+        # leaves it out, which is also what evaluate() does, because its
+        # multiplier fails open to 1.0 on the same error. A probe that is due
+        # is left out for the loss-streak's reason: whether it may run also
+        # needs a flat book, which a property cannot count.
+        try:
+            _gov = self.live_perf_inputs()
+            if governor_verdict(**_gov)[1] == GOVERNOR_PAUSE:
+                _probe_in = self.governor_probe_in_seconds()
+                if _probe_in != 0:
+                    return pause_reason(_gov["samples"], _gov["win_rate"],
+                                        _probe_in, CONFIG.risk.live_perf_probe_hours)
+        except Exception:
+            pass
+        if self._equity_curve_paused:
+            return "equity_curve_pause"
         return ""
 
     def record_warning(self, key: str) -> None:
@@ -618,6 +654,43 @@ class RiskEngine:
             "circuit_breaker_open": self._circuit_open,
         }
 
+    def governor_probe_in_seconds(self) -> Optional[float]:
+        """Seconds until a PAUSED governor lets one probe entry through: 0 when
+        it is due now, None when there is nothing to wait for (probing is off,
+        or no close is on record to time it from).
+
+        Says nothing about whether the governor IS paused -- `live_perf_inputs`
+        and `governor_verdict` answer that -- and nothing about the book: the
+        probe also needs no position open, which `evaluate` counts."""
+        probe_s = CONFIG.risk.live_perf_probe_hours * 3600.0
+        if probe_s <= 0 or self._last_close_time is None:
+            return None
+        return max(0.0, probe_s - (self._now() - self._last_close_time))
+
+    def _probe_in_or_none(self) -> Optional[float]:
+        try:
+            return self.governor_probe_in_seconds()
+        except Exception:
+            return None
+
+    def _probe_cooled(self, since: Optional[float], hours: float,
+                      open_count: int) -> Optional[float]:
+        """Hours since ``since`` when a half-open probe may run now, else None.
+
+        ONE reading for the two latches that need a way out: the loss-streak
+        gate (timed from the last loss) and the live-performance governor
+        (timed from the last close). Both refuse every entry, and a refusal
+        opens nothing, so without a probe neither can ever clear. A probe runs
+        only with no position open, one at a time; an unknown start time, or a
+        probe period of 0, is no probe at all."""
+        probe_s = hours * 3600.0
+        if probe_s <= 0 or since is None or open_count != 0:
+            return None
+        elapsed = self._now() - since
+        if elapsed < probe_s:
+            return None
+        return elapsed / 3600.0
+
     @property
     def stats(self) -> dict:
         return {
@@ -664,12 +737,16 @@ class RiskEngine:
 
     def note_unpriced_close(self) -> None:
         """Start this account's post-loss wait for a close whose P&L could
-        not be read. Touches nothing else: not the streak (an unpriced close
-        is not a loss), not the probe, not the governor window, not the daily
-        accumulator. Never raises -- a close path calls it."""
+        not be read. Not the streak (an unpriced close is not a loss), not the
+        loss-streak probe, not the governor window, not the daily accumulator.
+        It DOES restart the governor's probe clock: a close happened, and a
+        probe that closed unpriced taught the window nothing, so the next one
+        waits its full period rather than following it at once. Never raises
+        -- a close path calls it."""
         try:
             with self._lock:
                 self._last_unpriced_close_time = self._now()
+                self._last_close_time = self._now()
         except Exception as exc:
             risk_log.debug("note_unpriced_close skipped: %s", exc)
 
@@ -714,7 +791,8 @@ class RiskEngine:
             return list(self._realized_pnl_window)[-int(n):] if n > 0 else []
 
     def seed_realized_window(self, pnls: Sequence[float],
-                             returns: Sequence[float] = ()) -> int:
+                             returns: Sequence[float] = (),
+                             last_close_at: Optional[float] = None) -> int:
         """Rebuild the live-performance window from the closed-trade record.
 
         The window is memory and a restart empties it, so a governor that had
@@ -732,9 +810,15 @@ class RiskEngine:
         ``returns`` seeds the per-close return window the same way (only when
         it is empty) from `live_executor.realized_close_returns`: the live VaR
         proxy's record, which a restart emptied for the same reason.
+        ``last_close_at`` (`live_executor.realized_close_last_at`) is when the
+        newest close happened: the governor's probe clock, set only when no
+        close has been stamped in this process, so a restart does not restart
+        the probe's wait and a close already seen is never moved back.
         Returns how many closes were seeded into the P&L window.
         """
         with self._lock:
+            if self._last_close_time is None and last_close_at is not None:
+                self._last_close_time = float(last_close_at)
             if not self._realized_return_window and returns:
                 self._realized_return_window.extend(float(r) for r in returns)
             if self._realized_pnl_window:
@@ -747,6 +831,7 @@ class RiskEngine:
         # Live-performance governor: record EVERY realized close (win/loss/flat)
         # so the rolling window reflects the true recent win rate + net PnL.
         self._realized_pnl_window.append(float(pnl))
+        self._last_close_time = self._now()
         if pnl < 0:
             self._consecutive_losses += 1
             self._last_loss_time = self._now()
@@ -957,6 +1042,12 @@ class RiskEngine:
                 "win_rate": 0.0 if wr is None else round(wr, 3),
                 "net_pnl": 0.0 if net is None else round(net, 2),
                 "multiplier": mult, "status": status,
+                # Seconds until the pause's probe entry (0 = due, None = no
+                # probe to wait for); None unless the status is PAUSE. Read on
+                # its own, so a probe that cannot be timed costs the snapshot
+                # that one field and not its status.
+                "probe_in_seconds": (self._probe_in_or_none()
+                                     if status == GOVERNOR_PAUSE else None),
                 # THE WINDOW THESE FIGURES ARE OVER, travelling with them.
                 # Every other surface that prints the bot's recent record
                 # chooses its own span — the nightly audit reads the last 40
@@ -969,7 +1060,7 @@ class RiskEngine:
         except Exception:
             return {"enabled": False, "samples": 0, "win_rate": 0.0,
                     "net_pnl": 0.0, "multiplier": 1.0, "status": "OFF",
-                    "window": None}
+                    "probe_in_seconds": None, "window": None}
 
     @property
     def in_drawdown_recovery(self) -> bool:
@@ -1432,11 +1523,37 @@ class RiskEngine:
         # ever tightens; no-op until live_perf_min_samples closed trades accrue.
         if CONFIG.risk.live_performance_governor_enabled:
             _gov_mult = self.live_performance_size_multiplier
-            if _gov_mult < 1.0:
+            _gov_open = (live_open_count if live_open_count is not None
+                         else state.open_positions)
+            _gov_cooled = (self._probe_cooled(self._last_close_time,
+                                              CONFIG.risk.live_perf_probe_hours, _gov_open)
+                           if _gov_mult <= 0 else None)
+            if _gov_cooled is not None:
+                # THE WAY OUT OF A PAUSE (operator decision, 2026-09-25). A
+                # pause opens nothing, so the window it scores can never change
+                # on a flat book and the pause never lifts; since the window is
+                # seeded at boot, a restart does not lift it either. After
+                # `live_perf_probe_hours` with no position open, ONE entry goes
+                # through at the reduce size. Its close enters the window: a
+                # window that recovers leaves PAUSE on its own, and one that
+                # does not re-arms the wait from that close.
+                _probe_mult = CONFIG.risk.live_perf_reduce_mult
+                position_usd *= _probe_mult
+                passed.append(
+                    f"LIVE_PERF_GOVERNOR: paused — probe entry allowed "
+                    f"{_gov_cooled:.1f}h after the last close, sized x{_probe_mult:.2f}")
+                note_size_step(idea, f"live-performance governor probe x{_probe_mult:.2f}",
+                               position_usd)
+                _pre_cap_only.append(("governor",
+                                      f"live-performance governor probe x{_probe_mult:.2f}",
+                                      _probe_mult))
+            elif _gov_mult < 1.0:
                 if _gov_mult <= 0:
                     failed.append(
                         "LIVE_PERF_GOVERNOR: trading paused — realized win rate "
-                        "and net PnL below floor over recent window")
+                        "and net PnL below floor over recent window"
+                        + probe_clause(self.governor_probe_in_seconds(),
+                                       CONFIG.risk.live_perf_probe_hours, _gov_open))
                     position_usd = 0.0  # #50: paused → report size 0, not a phantom notional
                     note_size_step(idea, "live-performance governor paused", position_usd)
                 else:
@@ -2204,16 +2321,15 @@ class RiskEngine:
             # decays the streak. Unknown last-loss time fails closed.
             soft_limit = self._soft_loss_streak_limit(CONFIG.risk.max_consecutive_losses)
             if self._consecutive_losses >= soft_limit:
-                probe_s = CONFIG.risk.loss_streak_probe_hours * 3600.0
                 _open_ct = (live_open_count if live_open_count is not None
                             else state.open_positions)
-                if (probe_s > 0 and self._last_loss_time is not None
-                        and self._now() - self._last_loss_time >= probe_s
-                        and _open_ct == 0):
-                    _cool_h = (self._now() - self._last_loss_time) / 3600.0
+                _streak_cooled = self._probe_cooled(self._last_loss_time,
+                                                    CONFIG.risk.loss_streak_probe_hours,
+                                                    _open_ct)
+                if _streak_cooled is not None:
                     passed.append(
                         f"LOSS_STREAK: {self._consecutive_losses} losses, "
-                        f"probe allowed after {_cool_h:.1f}h cool-off")
+                        f"probe allowed after {_streak_cooled:.1f}h cool-off")
                 else:
                     failed.append(f"LOSS_STREAK: {self._consecutive_losses} consecutive losses (>= {soft_limit})")
             else:
