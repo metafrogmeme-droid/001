@@ -10177,6 +10177,27 @@ as `config.py`, and it now names `engine.py`. Seven mutations of the map, each
 killed.
 (`tests/test_the_live_risk_gates_read_the_live_book.py`, `bot/risk/held_book.py`.)
 
+**A RESTART LIFTED THE GOVERNOR'S PAUSE.** The live-performance governor scores
+a rolling window of realized live closes, and it reduces or pauses a losing
+book. The window lived in memory only, under a comment saying it "rebuilds
+after restart from live closes". That meant the next five NEW closes: an empty
+window fails open until `live_perf_min_samples` accrue. So a governor that had
+paused a losing live book resumed full size on the next boot. This deployment
+redeploys often, which is the reason the daily-loss accumulator is already
+restored. The executor's closed-trade record is on disk, and the engine now
+seeds the window from it at boot, in live mode only (`seed_realized_window`).
+
+**The filter is the live feed's, read off the code that fires it.** A
+never-filled order is appended to the record without firing the close
+callback, so `realized_close_pnls` drops it with `is_filled_close`. An
+unpriced close is fed to no window, so a `None` or a NaN is dropped. An
+execution abort does fire, so it stays. Only an EMPTY window is seeded,
+because a window that already holds closes was fed live and seeding it again
+would count each close twice. The streak, the cooldown and the daily
+accumulator are not replayed: they are persisted already. Nine mutations,
+each killed on the first round.
+(`tests/test_a_restart_does_not_lift_the_governor.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

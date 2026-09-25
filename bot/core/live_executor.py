@@ -898,6 +898,34 @@ def held_rows(positions: Any) -> tuple[HeldRow, ...]:
     return tuple(rows)
 
 
+def realized_close_pnls(positions: Any) -> list[float]:
+    """The realized P&L of every close the engine's risk feed counts, oldest
+    first: the closes `_fire_position_closed` reports with a priced P&L.
+
+    That feed lives in memory (the live-performance governor's window), and
+    this is the record it was fed from, on disk. So the two must agree about
+    which closes count: a never-filled order is appended to the record
+    without firing (`is_filled_close` says so), and an unpriced close is fed
+    to no window (`pnl_usd` None, or a NaN the loader could not refuse).
+    A record with no close time sorts as the oldest, because the window is
+    read from its newest end and an undated close cannot be placed there.
+    """
+    from bot.utils.close_reason import is_filled_close
+
+    rows = []
+    for i, p in enumerate(list(positions or [])):
+        pnl = _to_float(getattr(p, "pnl_usd", None))
+        if pnl is None:
+            continue
+        if not is_filled_close(getattr(p, "close_reason", None), pnl):
+            continue
+        closed = getattr(p, "closed_at", None)
+        stamp = closed.timestamp() if isinstance(closed, datetime) else float("-inf")
+        rows.append((stamp, i, pnl))
+    rows.sort()
+    return [pnl for _stamp, _i, pnl in rows]
+
+
 def _money_or_dash(v: Optional[float]) -> str:
     """`$1,234.56`, or an em dash - never a number standing in for none."""
     return "\u2014" if v is None else f"${v:,.2f}"

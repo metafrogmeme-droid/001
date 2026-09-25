@@ -361,9 +361,10 @@ class RiskEngine:
         self._in_drawdown_recovery: bool = False
         self._recovery_start_dd: float = 0.0
         # Feature: Live-performance governor — rolling window of realized closed
-        # trade PnLs. In-memory only (rebuilds after restart from live closes),
-        # like _equity_history; the governor fails OPEN until min_samples accrue,
-        # which is safe because it only ever REDUCES size, never grows it.
+        # trade PnLs. In memory; the engine seeds it at boot from the executor's
+        # closed-trade record (`seed_realized_window`), because an empty window
+        # fails OPEN until min_samples accrue, which lifted a PAUSE on every
+        # restart.
         self._realized_pnl_window: deque[float] = deque(maxlen=100_000)
         # LIVE account-level loss tracking. In pure-live mode the paper
         # portfolio is never updated (the exchange is the source of truth),
@@ -674,6 +675,30 @@ class RiskEngine:
                 self._live_daily_pnl += float(pnl)
         except Exception as exc:  # never let accounting break the close path
             risk_log.debug("record_live_trade_result skipped: %s", exc)
+
+    def seed_realized_window(self, pnls: Sequence[float]) -> int:
+        """Rebuild the live-performance window from the closed-trade record.
+
+        The window is memory and a restart empties it, so a governor that had
+        PAUSED a losing live book resumed full size on the next boot, and fails
+        open until `live_perf_min_samples` new closes arrive. This deployment
+        redeploys often (the daily-loss accumulator is restored for the same
+        reason). The executor's closed-trade record is on disk, and
+        `live_executor.realized_close_pnls` reads the closes this window is fed.
+
+        Only an EMPTY window is seeded: a window that already holds closes was
+        fed live, and appending the record again would count each close twice.
+        The streak, the cooldown and the daily accumulator are NOT touched:
+        they are persisted in the risk state already, and replaying closes
+        through `_record_trade_result_locked` would count them twice.
+        Returns how many closes were seeded.
+        """
+        with self._lock:
+            if self._realized_pnl_window:
+                return 0
+            values = [float(p) for p in pnls]
+            self._realized_pnl_window.extend(values)
+            return len(values)
 
     def _record_trade_result_locked(self, pnl: float) -> None:
         # Live-performance governor: record EVERY realized close (win/loss/flat)
