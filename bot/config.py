@@ -1791,7 +1791,10 @@ class PartialTPConfig:
 @dataclass(frozen=True)
 class AdaptiveConfig:
     """Adaptive threshold and smart scan settings."""
-    # Adaptive confidence threshold
+    # Adaptive confidence threshold: moves the auto-confirm bar on the PAPER
+    # book's recent win rate (default ON). In live mode the bar is left where
+    # it was set, because the record it reads is the paper book's; see
+    # RuneClawEngine._adapt_auto_confirm_threshold.
     adaptive_threshold_enabled: bool = _env_bool("ADAPTIVE_THRESHOLD_ENABLED", True)
     adaptive_threshold_lookback: int = int(_env_float("ADAPTIVE_THRESHOLD_LOOKBACK", 10))
     adaptive_threshold_high_wr: float = _env_float("ADAPTIVE_THRESHOLD_HIGH_WR", 0.70)

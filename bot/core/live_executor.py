@@ -898,6 +898,35 @@ def held_rows(positions: Any) -> tuple[HeldRow, ...]:
     return tuple(rows)
 
 
+def _realized_close_rows(positions: Any) -> list[tuple[float, int, float, Optional[float]]]:
+    """``(stamp, index, pnl, notional)`` per close the risk feed counts, oldest
+    first: ONE walk for the two readers below, so they cannot disagree about
+    which closes count."""
+    from bot.utils.close_reason import is_filled_close
+
+    rows = []
+    for i, p in enumerate(list(positions or [])):
+        pnl = _to_float(getattr(p, "pnl_usd", None))
+        if pnl is None:
+            continue
+        if not is_filled_close(getattr(p, "close_reason", None), pnl):
+            continue
+        closed = getattr(p, "closed_at", None)
+        stamp = closed.timestamp() if isinstance(closed, datetime) else float("-inf")
+        rows.append((stamp, i, pnl, position_size_basis(p)[1]))
+    rows.sort()
+    return rows
+
+
+def realized_close_returns(positions: Any) -> list[float]:
+    """The per-close RETURN (net P&L over the stated notional) of every close
+    `realized_close_pnls` counts whose notional the venue stated, oldest
+    first: the live per-trade VaR proxy's record. A close with no stated
+    notional has no return and is left out, never read as 0."""
+    return [pnl / notional for _s, _i, pnl, notional in _realized_close_rows(positions)
+            if notional is not None and notional > 0]
+
+
 def realized_close_pnls(positions: Any) -> list[float]:
     """The realized P&L of every close the engine's risk feed counts, oldest
     first: the closes `_fire_position_closed` reports with a priced P&L.
@@ -910,20 +939,7 @@ def realized_close_pnls(positions: Any) -> list[float]:
     A record with no close time sorts as the oldest, because the window is
     read from its newest end and an undated close cannot be placed there.
     """
-    from bot.utils.close_reason import is_filled_close
-
-    rows = []
-    for i, p in enumerate(list(positions or [])):
-        pnl = _to_float(getattr(p, "pnl_usd", None))
-        if pnl is None:
-            continue
-        if not is_filled_close(getattr(p, "close_reason", None), pnl):
-            continue
-        closed = getattr(p, "closed_at", None)
-        stamp = closed.timestamp() if isinstance(closed, datetime) else float("-inf")
-        rows.append((stamp, i, pnl))
-    rows.sort()
-    return [pnl for _stamp, _i, pnl in rows]
+    return [pnl for _stamp, _i, pnl, _notional in _realized_close_rows(positions)]
 
 
 def _money_or_dash(v: Optional[float]) -> str:
@@ -10036,6 +10052,61 @@ class LiveExecutor:
                     rows[key] = o
         return list(rows.values())
 
+    async def _plan_row(self, exchange, ccxt_sym: str, oid: str) -> tuple[str, Optional[dict]]:
+        """Is ``oid`` in the plan tables? ``("listed", row)``, ``("absent",
+        None)`` when every table was read and none lists it, ``("unread",
+        None)`` when the listing could not be read -- and unread is never
+        absent, because a table nobody could read has not answered."""
+        try:
+            rows = await self._fetch_plan_orders(exchange, ccxt_sym)
+        except Exception as exc:
+            logger.warning("Plan-order listing for %s raised: %s", ccxt_sym, type(exc).__name__)
+            return "unread", None
+        for row in rows:
+            rid = row.get("id") or (row.get("info") or {}).get("orderId")
+            if rid is not None and str(rid) == str(oid):
+                return "listed", row
+        return "absent", None
+
+    async def _cancel_plan_leg(self, exchange, ccxt_sym: str,
+                               oid: str) -> Optional[tuple[str, str]]:
+        """Cancel a trigger stop in the plan table that lists it, and read it
+        back from that table's listing. The verdicts are `_cancel_stop_leg`'s.
+
+        None means the plan tables were read and none lists ``oid``, so the
+        caller asks the regular table. The venue's cancel answer is not the
+        reading: ccxt parses a plan cancel from its ``successList`` and a
+        refused one raises without saying why, so what became of the order is
+        read off the listing after the cancel, whatever the cancel answered.
+        A listing that could not be read after an ACCEPTED cancel is
+        ``unverified``; after a refused one it keeps the id (``live``) unless
+        the refusal was the transport's, which nobody has read either way.
+        """
+        state, row = await self._plan_row(exchange, ccxt_sym, oid)
+        if state == "absent":
+            return None
+        params = self._venue.plan_order_cancel_params(row or {})
+        err: Optional[BaseException] = None
+        try:
+            await exchange.cancel_order(oid, ccxt_sym, params=params)
+        except Exception as exc:
+            err = exc
+        after, _row = await self._plan_row(exchange, ccxt_sym, oid)
+        kind = type(err).__name__ if err is not None else ""
+        if after == "absent":
+            if err is None:
+                return "removed", "cancel accepted; the plan table no longer lists it"
+            return "gone", f"the plan table does not list it after a refused cancel ({kind})"
+        if after == "listed":
+            if err is None:
+                return "live", "cancel accepted, but the plan table still lists it"
+            return "live", f"cancel refused and the plan table still lists it ({kind})"
+        if err is None:
+            return "unverified", "cancel accepted; the plan table could not be read"
+        if isinstance(err, ccxt.NetworkError):
+            return "unverified", f"the cancel request did not complete ({kind})"
+        return "live", f"cancel refused ({kind}); the plan table could not be read"
+
     async def _cancel_stop_leg(self, exchange, pos: LivePosition, oid: str,
                                *, combined: bool) -> tuple[str, str]:
         """Cancel one protective order and say what became of it.
@@ -10067,9 +10138,13 @@ class LiveExecutor:
 
         A COMBINED id — one ``orderId`` naming both legs — is the v3
         strategy order and is cancelled in the strategy table, then read back
-        from it. A distinct id is a ccxt trigger order and goes through ccxt;
-        there "does not exist" cannot be told from the wrong-table answer the
-        regular endpoint gives a trigger order, so it is ``unverified``.
+        from it. A distinct id is a ccxt trigger order: on a venue with a plan
+        table of its own it is cancelled there and read back from its listing
+        (`_cancel_plan_leg`); elsewhere it goes through the regular cancel,
+        where "does not exist" cannot be told from the wrong-table answer the
+        regular endpoint gives a trigger order, so it is ``unverified`` —
+        unless the plan tables were read first and did not list it either,
+        which is both tables answering: ``gone``.
         """
         if combined and self._venue.id == "bitget":
             resp = await asyncio.to_thread(self._v3_strategy_cancel_sync, oid)
@@ -10091,11 +10166,35 @@ class LiveExecutor:
                 return "gone", f"the strategy table does not know it ({code} {msg[:80]})"
             return "live", f"cancel refused ({code} {msg[:120]})"
 
+        ccxt_sym = self._venue.order_symbol(pos.symbol)
+        # A classic stop is a TRIGGER order. On a venue that keeps those in a
+        # table of their own (`plan_order_cancel_params` answers the params
+        # that reach it; Bitget's plan table), a plain cancel goes to the
+        # REGULAR table, which answers "does not exist" for every plan order.
+        # So this branch read every classic stop on the close path as
+        # `unverified`, cleared the id, and left the stop RESTING through the
+        # market close that followed. Driven against ccxt 4.5.56 with the
+        # transport stubbed: one regular cancel, no plan cancel.
+        plan_tables_read = False
+        if self._venue.plan_order_cancel_params({}):
+            plan_verdict = await self._cancel_plan_leg(exchange, ccxt_sym, oid)
+            if plan_verdict is not None:
+                return plan_verdict
+            # The plan tables were read and none lists it. A record written
+            # before adoption listed the plan table may name a REGULAR order
+            # as its stop, so that table is asked next, and its "does not
+            # exist" is then the second table's answer, not the wrong-table
+            # one.
+            plan_tables_read = True
         try:
-            cancel_resp = await exchange.cancel_order(oid, self._venue.order_symbol(pos.symbol))
+            cancel_resp = await exchange.cancel_order(oid, ccxt_sym)
         except Exception as cancel_exc:
             exc_str = str(cancel_exc)
             if "25204" in exc_str or "Order does not exist" in exc_str:
+                if plan_tables_read:
+                    return "gone", ("neither the plan tables nor the regular-order "
+                                    "table knows it: it fired, or had already been "
+                                    "cancelled")
                 return "unverified", ("the regular-order table does not know it — a stop "
                                       "that fired, or a trigger order this cancel cannot see")
             return "live", f"cancel raised: {exc_str[:160]}"
@@ -10817,14 +10916,36 @@ class LiveExecutor:
                             # the regular cancel does not know it.
                             await asyncio.to_thread(self._v3_strategy_cancel_sync, stale_oid)
                         else:
-                            await exchange.cancel_order(stale_oid, self._venue.order_symbol(pos.symbol))
+                            # The first pass's routing: a classic stop is
+                            # cancelled in the plan table that lists it.
+                            await self._cancel_stop_leg(exchange, pos, stale_oid, combined=False)
                     except Exception:
                         pass  # Best-effort cleanup
                 try:
-                    open_orders = await exchange.fetch_open_orders(pos.symbol)
+                    _ccxt_sym = self._venue.order_symbol(pos.symbol)
+                    open_orders = list(await exchange.fetch_open_orders(pos.symbol) or [])
+                    # A venue with a plan table of its own lists none of its
+                    # trigger orders here. Those the cleanup rule says are THIS
+                    # side's go too, in their own table; the other side's stop
+                    # in hedge mode is somebody's protection and stays.
+                    if self._venue.plan_order_cancel_params({}):
+                        try:
+                            _plans = await self._fetch_plan_orders(exchange, _ccxt_sym)
+                            _ours, _kept = plan_rows_to_cancel(
+                                _plans, hedge_mode=self._hedge_mode,
+                                protects="long" if pos.direction == "LONG" else "short")
+                            open_orders += _ours
+                        except Exception as plan_exc:
+                            logger.debug("Post-close plan listing failed for %s: %s",
+                                         pos.symbol, type(plan_exc).__name__)
                     for oo in open_orders:
                         try:
-                            await exchange.cancel_order(oo["id"], self._venue.order_symbol(pos.symbol))
+                            if oo.get("_plan_query"):
+                                await exchange.cancel_order(
+                                    oo["id"], _ccxt_sym,
+                                    params=self._venue.plan_order_cancel_params(oo))
+                            else:
+                                await exchange.cancel_order(oo["id"], _ccxt_sym)
                             logger.info("Post-close cleanup: cancelled orphan order %s on %s", oo["id"], pos.symbol)
                         except Exception:
                             pass

@@ -65,7 +65,7 @@ def _engine_stub():
     eng.learning = type("L", (), {"record_closed_outcome": lambda *a, **k: None})()
     eng._outcome_regime = lambda sym: "trending"
     eng.risk_for = lambda uid: type(
-        "R", (), {"record_live_trade_result": lambda self, p: None})()
+        "R", (), {"record_live_trade_result": lambda self, p, **kw: None})()
     return eng
 
 
@@ -105,7 +105,7 @@ class TestItStaysFailOpen:
         eng.learning = type("L", (), {"record_closed_outcome": lambda *a, **k: None})()
         eng._outcome_regime = lambda sym: ""
         eng.risk_for = lambda uid: type(
-            "R", (), {"record_live_trade_result": lambda self, p: fed.append(p)})()
+            "R", (), {"record_live_trade_result": lambda self, p, **kw: fed.append(p)})()
         RuneClawEngine._on_live_position_closed(eng, _Pos())
         assert fed == [5.0], "the loss breakers must still be fed"
 

@@ -142,7 +142,7 @@ def test_the_gates_half_kelly_ceiling_travels_on_the_check(tmp_path):
                      state_file=os.path.join(str(tmp_path), "k.json"))
     with patch.object(RiskEngine, "live_performance_size_multiplier",
                       new_callable=PropertyMock, return_value=1.0), \
-         patch.object(RiskEngine, "_kelly_size_usd", lambda self, idea, eq: 40.0), \
+         patch.object(RiskEngine, "_kelly_size_usd", lambda self, idea, eq, live_mode=False: 40.0), \
          patch("bot.core.session_aware.get_current_session",
                lambda now=None: _Session(1.0)):
         check = eng.evaluate(_idea(), atr=1.0, live_equity=10_000.0, max_position_usd=None,

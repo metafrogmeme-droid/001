@@ -122,6 +122,9 @@ class VarStatus:
     """Explicit VaR evaluation status."""
     SKIP = "SKIP"   # insufficient data (<5 closed trades) — caller passes the check
     OK = "OK"       # VaR computed — caller compares proposed_var_pct against the limit
+    # A held position's notional or side was never stated, so the LIVE book
+    # cannot be modelled. Not a skip: the gate refuses it by name.
+    UNREAD = "UNREAD"
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,9 @@ class VarResult:
     status: str
     current_var_pct: float
     proposed_var_pct: float
+    #: What a SKIP or UNREAD is about, and which path an OK came from, in the
+    #: words the check line prints. "" is the paper proxy's own wording.
+    note: str = ""
 
 
 # RC-AUD-011: conservative default size-reduction multiplier applied when a
@@ -378,6 +384,10 @@ class RiskEngine:
         # fails OPEN until min_samples accrue, which lifted a PAUSE on every
         # restart.
         self._realized_pnl_window: deque[float] = deque(maxlen=100_000)
+        # The per-close RETURN (net P&L over the notional) of the same closes,
+        # for those whose notional the venue stated: the live per-trade VaR
+        # proxy's record (`_compute_live_var`). Seeded beside the window.
+        self._realized_return_window: deque[float] = deque(maxlen=100_000)
         # LIVE account-level loss tracking. In pure-live mode the paper
         # portfolio is never updated (the exchange is the source of truth),
         # so the daily-loss and drawdown breakers — which read the paper
@@ -668,8 +678,13 @@ class RiskEngine:
         with self._lock:
             self._record_trade_result_locked(pnl)
 
-    def record_live_trade_result(self, pnl: float) -> None:
+    def record_live_trade_result(self, pnl: float, *,
+                                 notional: Optional[float] = None) -> None:
         """Record a LIVE realized close into every account-level protection.
+
+        ``notional`` is the close's stated notional (`position_size_basis`),
+        which turns the P&L into the per-close return the live VaR proxy
+        reads; None (never stated) records no return, never a 0.
 
         The live close callback calls this instead of record_trade_result so
         that, in pure-live mode (paper portfolio never updated), the
@@ -685,10 +700,13 @@ class RiskEngine:
                     self._live_daily_day = day
                     self._live_daily_pnl = 0.0
                 self._live_daily_pnl += float(pnl)
+                if notional is not None and float(notional) > 0:
+                    self._realized_return_window.append(float(pnl) / float(notional))
         except Exception as exc:  # never let accounting break the close path
             risk_log.debug("record_live_trade_result skipped: %s", exc)
 
-    def seed_realized_window(self, pnls: Sequence[float]) -> int:
+    def seed_realized_window(self, pnls: Sequence[float],
+                             returns: Sequence[float] = ()) -> int:
         """Rebuild the live-performance window from the closed-trade record.
 
         The window is memory and a restart empties it, so a governor that had
@@ -703,9 +721,14 @@ class RiskEngine:
         The streak, the cooldown and the daily accumulator are NOT touched:
         they are persisted in the risk state already, and replaying closes
         through `_record_trade_result_locked` would count them twice.
-        Returns how many closes were seeded.
+        ``returns`` seeds the per-close return window the same way (only when
+        it is empty) from `live_executor.realized_close_returns`: the live VaR
+        proxy's record, which a restart emptied for the same reason.
+        Returns how many closes were seeded into the P&L window.
         """
         with self._lock:
+            if not self._realized_return_window and returns:
+                self._realized_return_window.extend(float(r) for r in returns)
             if self._realized_pnl_window:
                 return 0
             values = [float(p) for p in pnls]
@@ -1548,7 +1571,7 @@ class RiskEngine:
         _base_multiplier = (position_usd / _base_usd) if _base_usd > 0 else None
         _kelly_ceiling: Optional[float] = None
         if CONFIG.risk.kelly_sizing_enabled:
-            kelly_usd = self._kelly_size_usd(idea, sizing_equity)
+            kelly_usd = self._kelly_size_usd(idea, sizing_equity, live_mode)
             if kelly_usd > 0:
                 _kelly_ceiling = kelly_usd
                 _before = position_usd
@@ -2481,19 +2504,41 @@ class RiskEngine:
         # RC-AUD-007: branch on the explicit VarResult.status instead of a magic
         # negative-value sentinel, so a future change can't silently turn a
         # reject (zero-equity → 100%) into a skip.
+        # Live: the book the trade joins and the account it runs on
+        # (`_compute_live_var`), because both VaR paths read the paper tracker
+        # and it holds nothing a live fill wrote.
         try:
-            var_result = self._compute_portfolio_var(position_usd, idea=idea)
             max_var = CONFIG.risk.max_portfolio_var_pct
-            if var_result.status == VarStatus.SKIP:
-                # Not enough data — skip (fewer than 5 closed trades)
-                passed.append("PORTFOLIO_VAR: skipped (insufficient trade history)")
-            elif var_result.proposed_var_pct > max_var:
-                failed.append(
-                    f"PORTFOLIO_VAR: proposed {var_result.proposed_var_pct:.2f}% > {max_var}% limit "
-                    f"(current {var_result.current_var_pct:.2f}%)"
-                )
+            if _book_unread:
+                self._live_book_verdict(
+                    "PORTFOLIO_VAR: not measured - the live book was not read",
+                    "", passed, failed)
             else:
-                passed.append(f"PORTFOLIO_VAR: {var_result.proposed_var_pct:.2f}% <= {max_var}% limit")
+                var_result = self._compute_portfolio_var(
+                    position_usd, idea=idea,
+                    live_equity=sizing_equity if _live_rows is not None else None,
+                    live_rows=_live_rows)
+                _book_word = (f" on the live book ({len(_live_rows)} held)"
+                              if _live_rows is not None else "")
+                if var_result.status == VarStatus.UNREAD:
+                    self._live_book_verdict(
+                        f"PORTFOLIO_VAR: {var_result.note}, so the {max_var}% cap "
+                        f"cannot be checked", "", passed, failed)
+                elif var_result.status == VarStatus.SKIP:
+                    # Not enough data — skip (fewer than 5 closed trades)
+                    passed.append("PORTFOLIO_VAR: skipped "
+                                  f"({var_result.note or 'insufficient trade history'})")
+                elif var_result.proposed_var_pct > max_var:
+                    _over = (f"PORTFOLIO_VAR: proposed {var_result.proposed_var_pct:.2f}% > "
+                             f"{max_var}% limit (current {var_result.current_var_pct:.2f}%)"
+                             f"{_book_word}")
+                    if _live_rows is not None:
+                        self._live_book_verdict(_over, "", passed, failed)
+                    else:
+                        failed.append(_over)
+                else:
+                    passed.append(f"PORTFOLIO_VAR: {var_result.proposed_var_pct:.2f}% <= "
+                                  f"{max_var}% limit{_book_word}")
         except Exception as exc:
             failed.append(f"PORTFOLIO_VAR: evaluation error ({exc})")
 
@@ -2946,27 +2991,41 @@ class RiskEngine:
         fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
         return round(equity * fraction, 2)
 
-    def _kelly_size_usd(self, idea: TradeIdea, sizing_equity: float) -> float:
+    def _kelly_size_usd(self, idea: TradeIdea, sizing_equity: float,
+                        live_mode: bool = False) -> float:
         """Half-Kelly size in USD from realized history for the opt-in tighten-only
         path in evaluate(). Returns 0.0 (a NO-OP signal — caller leaves size as-is)
         when there is not yet enough history to estimate an edge, or when the
         estimate has no positive edge. Never used to GROW size: the caller takes
         ``min(fixed_fractional, this)`` only when this is > 0.
+
+        The record is the one of the mode the evaluation runs in. Paper and
+        backtest: this engine's tracker. LIVE: the realized window (every
+        priced live close, seeded from the closed-trade record at boot), never
+        the tracker -- its history is empty on the operator engine, so this
+        ceiling never bound a live order there, and it is a person's PRACTICE
+        closes on a per-user engine, so it bound a live order off practice
+        trades there. Driven: a live record of 20 closes at 75% gave $0 and
+        20 practice closes gave $130 on a live $1,000.
         """
         if sizing_equity <= 0:
             return 0.0
         try:
-            closed = [t for t in self._portfolio.trade_history if t.exit_price is not None]
+            if live_mode:
+                pnls = [float(p) for p in self._realized_pnl_window]
+            else:
+                pnls = [float(t.pnl) for t in self._portfolio.trade_history
+                        if t.exit_price is not None]
         except Exception as exc:
             risk_log.debug("Kelly history unavailable: %s", exc)
             return 0.0
-        if len(closed) < CONFIG.risk.kelly_min_trades:
+        if len(pnls) < CONFIG.risk.kelly_min_trades:
             return 0.0  # no edge estimate yet → leave fixed-fractional size intact
-        wins = [t for t in closed if t.pnl > 0]
-        losses = [t for t in closed if t.pnl < 0]
-        win_rate = len(wins) / len(closed)
-        avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0.0
-        avg_loss = (abs(sum(t.pnl for t in losses)) / len(losses)) if losses else 0.0
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+        win_rate = len(wins) / len(pnls)
+        avg_win = (sum(wins) / len(wins)) if wins else 0.0
+        avg_loss = (abs(sum(losses)) / len(losses)) if losses else 0.0
         # The MEASURED confidence, or 1.0 for an unmeasured one (a manual
         # ticket's stamp): `bot/risk/quality_ladder.kelly_confidence_factor`.
         _conf, _conf_why = kelly_confidence_factor(idea)
@@ -3279,8 +3338,20 @@ class RiskEngine:
         return (None if ok else f"CONCENTRATION_PCA: {detail}"), detail
 
     def _compute_portfolio_var(self, position_usd: float, confidence_level: float = 0.95,
-                               idea: Optional[TradeIdea] = None) -> VarResult:
+                               idea: Optional[TradeIdea] = None, *,
+                               live_equity: Optional[float] = None,
+                               live_rows: Optional[Sequence[HeldRow]] = None) -> VarResult:
         """Compute parametric VaR for portfolio including proposed position.
+
+        LIVE. ``live_rows`` is the book a live trade joins (`bot/risk/held_book.py`)
+        and ``live_equity`` the account it runs on; with rows handed in the
+        answer is `_compute_live_var`'s. Both paths below read the PAPER
+        tracker's equity, positions and trade history, which no live fill
+        writes: driven, the covariance path priced a $200 live account holding
+        two $500 positions as a $10,000 one holding nothing (0.04% where the
+        same formula answers 12.5% over the live figures), a per-user engine
+        read the person's PRACTICE positions, and the proxy read the paper
+        record.
 
         Returns a VarResult (RC-AUD-007) carrying current/proposed VaR as a
         percentage of equity, plus an explicit status:
@@ -3307,6 +3378,10 @@ class RiskEngine:
         per-trade proxy unchanged — the check is never silently downgraded.
         """
         import math
+
+        if live_rows is not None:
+            return self._compute_live_var(position_usd, confidence_level, idea,
+                                          live_equity, live_rows)
 
         # Opt-in covariance VaR (roadmap H-05). Default OFF → this is a no-op and
         # the per-trade proxy below runs byte-for-byte as before. Returns None
@@ -3372,6 +3447,82 @@ class RiskEngine:
         return VarResult(VarStatus.OK, round(current_var_pct, 4), round(proposed_var_pct, 4))
 
     @staticmethod
+    def _add_signed_notional(acc: dict[str, float], asset: str, direction_val: Any,
+                             notional: float) -> None:
+        """Add ``notional`` to ``acc[asset]``, signed by the side (short = -)."""
+        sign = -1.0 if str(direction_val).upper() == "SHORT" else 1.0
+        acc[asset] = acc.get(asset, 0.0) + sign * notional
+
+    def _price_history_key(self, symbol: str) -> str:
+        """The key `_price_history` holds ``symbol`` under. The tick records
+        prices as the scanner spells a symbol (`BTC/USDT`) and a live row is
+        spelled as the venue does (`BTC/USDT:USDT`), so the two are matched the
+        way the executor's duplicate guard matches them (`normalize_symbol`);
+        a symbol with no history keeps its own spelling."""
+        if symbol in self._price_history:
+            return symbol
+        from bot.core.live_executor import normalize_symbol
+        want = normalize_symbol(symbol)
+        for key in self._price_history:
+            if normalize_symbol(key) == want:
+                return key
+        return symbol
+
+    def _compute_live_var(self, position_usd: float, confidence_level: float,
+                          idea: Optional[TradeIdea], live_equity: Optional[float],
+                          live_rows: Sequence[HeldRow]) -> VarResult:
+        """VaR over the LIVE book a trade joins (see `_compute_portfolio_var`).
+
+        A row whose notional or side the venue never stated cannot be placed
+        in the book, so the answer is UNREAD, which the gate refuses by name:
+        an exposure floor can clear a cap, but a VaR over part of a book is
+        not a floor, because a hedge lowers it. The covariance path runs when
+        every asset has enough aligned price history; otherwise the per-trade
+        proxy runs over the live record's per-close returns
+        (`_realized_return_window`), and a record shorter than five closes is
+        a SKIP that says so with its count. The tracker is read by neither.
+        """
+        import math
+
+        rows = list(live_rows)
+        priced = [(r.symbol, r.direction, float(r.notional_usd))
+                  for r in rows if r.notional_usd is not None and r.direction]
+        if len(priced) != len(rows):
+            return VarResult(VarStatus.UNREAD, -1.0, -1.0,
+                             note=(f"notional or side unread on {len(rows) - len(priced)} "
+                                   f"of {len(rows)} held position(s)"))
+        equity = float(live_equity) if live_equity is not None else 0.0
+        if equity <= 0:
+            return VarResult(VarStatus.OK, 0.0, 100.0)
+        book: dict[str, float] = {}
+        for symbol, direction, notional in priced:
+            self._add_signed_notional(book, self._price_history_key(symbol), direction, notional)
+        if idea is not None:
+            cov_result = self._compute_portfolio_var_covariance(
+                position_usd, confidence_level, idea, equity=equity, book=book)
+            if cov_result is not None:
+                return VarResult(cov_result.status, cov_result.current_var_pct,
+                                 cov_result.proposed_var_pct,
+                                 note="covariance over the live book")
+        returns = [float(x) for x in self._realized_return_window]
+        if len(returns) < 5:
+            return VarResult(VarStatus.SKIP, -1.0, -1.0,
+                             note=(f"{len(returns)} priced live close(s) on the record, "
+                                   f"5 needed, and too little price history to model "
+                                   f"the live book"))
+        mean_ret = sum(returns) / len(returns)
+        variance = sum((x - mean_ret) ** 2 for x in returns) / (len(returns) - 1)
+        vol = math.sqrt(variance)
+        z_score = self._var_z_score(confidence_level)
+        _lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        current_exposure = sum(abs(n) for n in book.values())
+        proposed_exposure = current_exposure + position_usd * _lev
+        current_var_pct = z_score * vol * current_exposure / equity * 100
+        proposed_var_pct = z_score * vol * proposed_exposure / equity * 100
+        return VarResult(VarStatus.OK, round(current_var_pct, 4), round(proposed_var_pct, 4),
+                         note="per-trade proxy over the live record")
+
+    @staticmethod
     def _returns_from_prices(prices: list[float]) -> list[float]:
         """Simple per-step returns from a price series (skips non-positive prices)."""
         out: list[float] = []
@@ -3418,7 +3569,8 @@ class RiskEngine:
         return out
 
     def _compute_portfolio_var_covariance(
-        self, position_usd: float, confidence_level: float, idea: TradeIdea
+        self, position_usd: float, confidence_level: float, idea: TradeIdea, *,
+        equity: Optional[float] = None, book: Optional[dict[str, float]] = None,
     ) -> Optional[VarResult]:
         """Covariance-matrix portfolio VaR (roadmap H-05).
 
@@ -3436,24 +3588,28 @@ class RiskEngine:
         """
         import math
 
-        state = self._portfolio.snapshot()
-        equity = state.equity_usd
-        if equity <= 0:
+        # ``equity`` and ``book`` (the live book as a signed-notional dict,
+        # from `_compute_live_var`) come together or not at all; without them
+        # the paper tracker is the book, as it always was.
+        if book is None:
+            state = self._portfolio.snapshot()
+            equity = state.equity_usd
+        if equity is None or equity <= 0:
             return None
 
         min_points = CONFIG.risk.var_covariance_min_points
 
         def _signed_notional(asset: str, direction_val: str, notional: float,
                              acc: dict[str, float]) -> None:
-            sign = -1.0 if str(direction_val).upper() == "SHORT" else 1.0
-            acc[asset] = acc.get(asset, 0.0) + sign * notional
+            self._add_signed_notional(acc, asset, direction_val, notional)
 
         # Current portfolio weights (open positions only).
-        current_notional: dict[str, float] = {}
-        for pos in self._portfolio.open_positions:
-            notional = pos.entry_price * pos.quantity
-            dir_val = pos.direction.value if hasattr(pos.direction, "value") else str(pos.direction)
-            _signed_notional(pos.asset, dir_val, notional, current_notional)
+        current_notional: dict[str, float] = dict(book) if book is not None else {}
+        if book is None:
+            for pos in self._portfolio.open_positions:
+                notional = pos.entry_price * pos.quantity
+                dir_val = pos.direction.value if hasattr(pos.direction, "value") else str(pos.direction)
+                _signed_notional(pos.asset, dir_val, notional, current_notional)
 
         # Proposed adds margin→notional (margin × leverage, matching the F-3 unit
         # fix in the per-trade path) to the proposed asset, signed by its side.
@@ -4398,6 +4554,7 @@ class RiskEngine:
         breaker or consecutive-loss counter."""
         with self._lock:
             self._realized_pnl_window.clear()
+            self._realized_return_window.clear()
 
     def drawdown_status(self) -> dict:
         """Read-only snapshot for operator control: current drawdown %, the
