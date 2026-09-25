@@ -655,6 +655,9 @@ class _LiveRecheck(NamedTuple):
     equity: Optional[float]        # the account's total, or None: unread
     open_count: Optional[int]      # positions open on it, or None: not live
     available_usd: Optional[float] # free margin off that same payload, or None
+    # The positions on that account as the risk gates read them
+    # (`live_executor.held_rows`), or None: not live.
+    book: Optional[tuple] = None
 
 
 class RuneClawEngine:
@@ -1347,14 +1350,17 @@ class RuneClawEngine:
             except Exception:
                 live_open = len(self.live_executor.open_positions)
             return _LiveRecheck(live_eq, live_open,
-                                size_bounds.available_from_balance(_bal))
+                                size_bounds.available_from_balance(_bal),
+                                _live_executor_mod.held_rows(
+                                    self.live_executor.open_positions))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
         # open_positions already filters to open + pending_fill for this account.
         live_open = len(ex.open_positions)
         return _LiveRecheck(live_eq, live_open,
-                            size_bounds.available_from_balance(bal or {}))
+                            size_bounds.available_from_balance(bal or {}),
+                            _live_executor_mod.held_rows(ex.open_positions))
 
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
@@ -6964,7 +6970,12 @@ class RuneClawEngine:
         # Regime-aware sizing (gated): set the analyzer's regime for this symbol
         # so the per-regime multiplier applies. No-op when REGIME_SIZING_ENABLED off.
         self._apply_regime_to(self.risk, idea.asset)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live())
+        # The live book this idea would join: the correlation caps, the two
+        # exposure caps and correlation sizing read it (the paper tracker
+        # holds nothing a live fill wrote).
+        live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
+                     if CONFIG.is_live() else None)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book)
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -7596,7 +7607,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live())
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.

@@ -77,7 +77,7 @@ import time
 from collections import deque
 from datetime import datetime
 from bot.compat import UTC
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 if TYPE_CHECKING:
     # Import only for type-checking so the forward-ref annotations on __init__
@@ -97,6 +97,7 @@ from bot.core.leverage import (
 )
 from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
 from bot.risk import ladder_shadow
+from bot.risk.held_book import HeldRow, direction_word, margin_read
 from bot.risk.live_perf_gate import governor_verdict
 from bot.risk.quality_ladder import (
     kelly_confidence_factor,
@@ -226,6 +227,9 @@ _CORRELATION_GROUPS: dict[str, str] = {
 # symbols here (instead of treating each as its own group) stops a basket of
 # alts from collectively dodging the per-group correlation cap.
 _UNMAPPED_GROUP = "UNMAPPED_ALT"
+
+# How a live-book gate's refusal reads when it is measured and not enforced.
+_NOT_ENFORCED = "live book; not enforced: LIVE_BOOK_RISK_GATES_ENABLED is off"
 
 
 class RiskEngine:
@@ -1093,7 +1097,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -1105,11 +1109,15 @@ class RiskEngine:
         unreadable `live_equity` is refused instead of silently falling back
         to the paper book. Defaults False: only the caller knows whether a
         `live_equity=None` means "paper" or "live, read failed".
+        Pass live_book= (`live_executor.held_rows`) on a LIVE evaluation: the
+        correlation caps, the two exposure caps and correlation sizing read
+        the book the trade joins, and the paper tracker holds nothing a live
+        fill wrote. None there is a book nobody handed in, never a flat one.
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -1126,6 +1134,14 @@ class RiskEngine:
         # a test that plants one drives it.
         _rungs, _rungs_note = rungs_from_config(CONFIG.risk)
         _ladder = ladder_verdict(idea, _rungs, _rungs_note)
+        # The book a new trade JOINS (bot/risk/held_book.py). Paper and
+        # backtest: this engine's tracker, as always (`None` below). Live: the
+        # executor's rows, which the caller hands in, because the tracker holds
+        # nothing a live fill wrote. A live evaluation with no rows is a book
+        # nobody read, which is not a flat one.
+        _live_rows: Optional[tuple[HeldRow, ...]] = (
+            tuple(live_book) if (live_mode and live_book is not None) else None)
+        _book_unread = bool(live_mode) and live_book is None
 
         try:
             state = self._portfolio.snapshot()
@@ -1422,11 +1438,19 @@ class RiskEngine:
         # correlation group AND direction — the marginal portfolio risk of each
         # additional correlated, same-side bet is larger. Only reduces (mult in
         # [floor, 1.0]); the notional cap and check #2 below stay authoritative.
+        # In live mode it reads the LIVE book (`_live_rows`); a book nobody
+        # read sizes nothing down, and the refusal below says why.
         if CONFIG.risk.correlation_sizing_enabled or self._live_hardening():
-            _corr_mult = self._correlation_size_factor(idea)
+            _corr_mult = (1.0 if _book_unread
+                          else self._correlation_size_factor(idea, _live_rows))
             if _corr_mult < 1.0:
-                position_usd *= _corr_mult
-                note_size_step(idea, f"correlation x{_corr_mult:.2f}", position_usd)
+                if _live_rows is None or CONFIG.risk.live_book_risk_gates_enabled:
+                    position_usd *= _corr_mult
+                    note_size_step(idea, f"correlation x{_corr_mult:.2f}", position_usd)
+                else:
+                    passed.append(
+                        f"CORRELATION_SIZING: would size x{_corr_mult:.2f} "
+                        f"({_NOT_ENFORCED})")
 
         # C-03 FIX: Cap position_usd at max_notional BEFORE check #2 runs.
         # The fixed-fractional formula (risk_budget / stop_distance) routinely
@@ -2019,12 +2043,25 @@ class RiskEngine:
         # check — it binds for manual trades too (a manual entry can still
         # over-concentrate a correlation group).
         try:
-            # 8. Correlation / concentration check
-            corr_result = self._check_correlation(idea)
-            if corr_result:
-                failed.append(corr_result)
+            # 8. Correlation / concentration check. Live: the count caps read
+            # the book the trade joins (`_live_rows`), because the paper
+            # tracker is empty there and said "no concentrated exposure" over
+            # whatever the account held.
+            if _book_unread:
+                self._live_book_verdict(
+                    "CORRELATION: not measured - the live book was not read",
+                    "", passed, failed)
+            elif _live_rows is not None:
+                self._live_book_verdict(
+                    self._check_correlation(idea, _live_rows),
+                    f"CORRELATION: within the group caps on the live book "
+                    f"({len(_live_rows)} held)", passed, failed)
             else:
-                passed.append("CORRELATION: no concentrated exposure")
+                corr_result = self._check_correlation(idea)
+                if corr_result:
+                    failed.append(corr_result)
+                else:
+                    passed.append("CORRELATION: no concentrated exposure")
         except Exception as exc:
             failed.append(f"CORRELATION: evaluation error ({exc})")
 
@@ -2203,28 +2240,48 @@ class RiskEngine:
             # factor (e.g. a $100 micro margin counted as only $20), making the
             # portfolio/symbol exposure guards ~5x too lenient.
             margin_equiv_position_usd = position_usd
-            open_value = self._portfolio.get_position_value()
-            exposure_pct = (open_value / sizing_equity * 100) if sizing_equity > 0 else 0
-            new_exposure = exposure_pct + (margin_equiv_position_usd / sizing_equity * 100 if sizing_equity > 0 else 0)
-            if new_exposure > CONFIG.risk.max_portfolio_exposure_pct:
-                failed.append(f"PORTFOLIO_EXPOSURE: {new_exposure:.1f}% > {CONFIG.risk.max_portfolio_exposure_pct}%")
+            if live_mode:
+                # The committed margin of the book the trade joins, not the
+                # paper tracker's (empty in live mode).
+                self._live_book_verdict(
+                    *self._live_exposure_reading(
+                        "PORTFOLIO_EXPOSURE", _live_rows, margin_equiv_position_usd,
+                        sizing_equity, CONFIG.risk.max_portfolio_exposure_pct),
+                    passed, failed)
             else:
-                passed.append(f"PORTFOLIO_EXPOSURE: {new_exposure:.1f}% OK")
+                open_value = self._portfolio.get_position_value()
+                exposure_pct = (open_value / sizing_equity * 100) if sizing_equity > 0 else 0
+                new_exposure = exposure_pct + (
+                    margin_equiv_position_usd / sizing_equity * 100 if sizing_equity > 0 else 0)
+                if new_exposure > CONFIG.risk.max_portfolio_exposure_pct:
+                    failed.append(f"PORTFOLIO_EXPOSURE: {new_exposure:.1f}% > "
+                                  f"{CONFIG.risk.max_portfolio_exposure_pct}%")
+                else:
+                    passed.append(f"PORTFOLIO_EXPOSURE: {new_exposure:.1f}% OK")
         except Exception as exc:
             failed.append(f"PORTFOLIO_EXPOSURE: evaluation error ({exc})")
 
         try:
             # 15. Per-symbol exposure limit (mark-to-market)
-            symbol_value = self._portfolio.get_position_value(asset=idea.asset)
-            new_symbol_value = symbol_value + margin_equiv_position_usd
-            symbol_exposure_pct = (new_symbol_value / sizing_equity * 100) if sizing_equity > 0 else 0
-            if symbol_exposure_pct > CONFIG.risk.max_symbol_exposure_pct:
-                failed.append(
-                    f"SYMBOL_EXPOSURE: {idea.asset} at {symbol_exposure_pct:.1f}% > "
-                    f"{CONFIG.risk.max_symbol_exposure_pct}% max"
-                )
+            if live_mode:
+                self._live_book_verdict(
+                    *self._live_exposure_reading(
+                        f"SYMBOL_EXPOSURE: {idea.asset}",
+                        self._same_symbol_rows(_live_rows, idea.asset),
+                        margin_equiv_position_usd, sizing_equity,
+                        CONFIG.risk.max_symbol_exposure_pct),
+                    passed, failed)
             else:
-                passed.append(f"SYMBOL_EXPOSURE: {idea.asset} {symbol_exposure_pct:.1f}% OK")
+                symbol_value = self._portfolio.get_position_value(asset=idea.asset)
+                new_symbol_value = symbol_value + margin_equiv_position_usd
+                symbol_exposure_pct = (new_symbol_value / sizing_equity * 100) if sizing_equity > 0 else 0
+                if symbol_exposure_pct > CONFIG.risk.max_symbol_exposure_pct:
+                    failed.append(
+                        f"SYMBOL_EXPOSURE: {idea.asset} at {symbol_exposure_pct:.1f}% > "
+                        f"{CONFIG.risk.max_symbol_exposure_pct}% max"
+                    )
+                else:
+                    passed.append(f"SYMBOL_EXPOSURE: {idea.asset} {symbol_exposure_pct:.1f}% OK")
         except Exception as exc:
             failed.append(f"SYMBOL_EXPOSURE: evaluation error ({exc})")
 
@@ -2311,11 +2368,19 @@ class RiskEngine:
         # names most often — absent rendered as a measurement. _check_concentration
         # now returns its own detail and the three outcomes stay distinct.
         try:
-            conc_result, conc_detail = self._check_concentration()
-            if conc_result is not None:
-                failed.append(conc_result)
+            if live_mode:
+                # Not the paper tracker's verdict, which is empty in live mode
+                # (or, on a per-user engine, the PRACTICE book). Enforcing it
+                # on the live book is unmeasured: it reads the tick price
+                # series, which the backtest never has.
+                passed.append("CONCENTRATION_PCA: not evaluated in live mode "
+                              "(the benchmark never measured it on a held book)")
             else:
-                passed.append(f"CONCENTRATION_PCA: {conc_detail}")
+                conc_result, conc_detail = self._check_concentration()
+                if conc_result is not None:
+                    failed.append(conc_result)
+                else:
+                    passed.append(f"CONCENTRATION_PCA: {conc_detail}")
         except Exception as exc:
             failed.append(f"CONCENTRATION_PCA: evaluation error ({exc})")
 
@@ -3470,13 +3535,88 @@ class RiskEngine:
         return sum(1 for iid, (g, _d, _ts) in self._pending_intents.items()
                    if g == group and iid != exclude_id)
 
-    def _check_correlation(self, idea: TradeIdea) -> Optional[str]:
-        """Prevent concentrated bets in the same correlation group."""
+    @staticmethod
+    def _live_book_verdict(failure: Optional[str], ok_line: str,
+                           passed: list[str], failed: list[str]) -> None:
+        """Route a gate's reading of the LIVE book.
+
+        Enforced (LIVE_BOOK_RISK_GATES_ENABLED, the default): a failure
+        refuses. Not enforced: the same reading is reported as what it would
+        have refused, so a check line never says a book it did not enforce
+        was within its caps.
+        """
+        if failure is None:
+            passed.append(ok_line)
+        elif CONFIG.risk.live_book_risk_gates_enabled:
+            failed.append(failure)
+        else:
+            passed.append(f"{failure} ({_NOT_ENFORCED})")
+
+    @staticmethod
+    def _same_symbol_rows(rows: Optional[Sequence[HeldRow]],
+                          asset: str) -> Optional[list[HeldRow]]:
+        """The rows on ``asset``, matched the way the executor's duplicate
+        guard matches a symbol (`normalize_symbol`), because a live row is
+        spelled as the venue spells it and an idea as the scanner does."""
+        if rows is None:
+            return None
+        from bot.core.live_executor import normalize_symbol
+        key = normalize_symbol(asset)
+        return [r for r in rows if normalize_symbol(r.symbol) == key]
+
+    @staticmethod
+    def _live_exposure_reading(name: str, rows: Optional[Sequence[HeldRow]],
+                               new_margin: float, equity: float,
+                               cap_pct: float) -> tuple[Optional[str], str]:
+        """(failure, ok line) for an exposure cap over live rows.
+
+        The figure is COMMITTED MARGIN, the unit this cap's own F-3 note
+        settles on; a live row carries no mark, so unlike the paper reading
+        it holds no unrealized P&L, and the line says margin. A row whose
+        margin the venue never stated makes the sum a FLOOR, and a cap is
+        not checked over a floor: it refuses by name, which is what the
+        executor's own total cap already does with the same row.
+        """
+        if rows is None:
+            return f"{name}: not measured - the live book was not read", ""
+        # `equity` is positive here: a live evaluation refuses a non-positive
+        # or unread equity (LIVE_EQUITY) before any gate runs.
+        held = margin_read(rows)
+        pct = (held.total + new_margin) / equity * 100
+        if pct > cap_pct:
+            floor = ("" if held.complete else
+                     f", a floor: margin read on {held.scored} of {held.counted} held")
+            return (f"{name}: {pct:.1f}% > {cap_pct}% of equity in committed "
+                    f"margin on the live book{floor}"), ""
+        if not held.complete:
+            return (f"{name}: margin unread on {held.counted - held.scored} of "
+                    f"{held.counted} held position(s), so the {cap_pct}% cap "
+                    f"cannot be checked"), ""
+        return None, (f"{name}: {pct:.1f}% OK (committed margin on the live "
+                      f"book, {held.counted} held)")
+
+    def _held_pairs(self, rows: Optional[Sequence[HeldRow]] = None) -> list[tuple[str, str]]:
+        """(symbol, side) for every position on the book a trade joins: the
+        live rows when a caller handed them in, else this engine's paper
+        tracker. One walk, so the count caps and correlation sizing cannot
+        read two different books for one idea."""
+        if rows is not None:
+            return [(r.symbol, r.direction) for r in rows]
+        return [(pos.asset, direction_word(pos.direction))
+                for pos in self._portfolio.open_positions]
+
+    def _check_correlation(self, idea: TradeIdea,
+                           rows: Optional[Sequence[HeldRow]] = None) -> Optional[str]:
+        """Prevent concentrated bets in the same correlation group.
+
+        ``rows`` is the live book (see ``_evaluate_locked``). The count caps
+        read it; the rolling-correlation check below does not run on it,
+        because it reads the tick price series and the benchmark this cap was
+        measured on never had one, so enforcing it live is unmeasured.
+        """
         new_group = self._correlation_group(idea.asset)
-        open_groups: list[str] = [
-            self._correlation_group(pos.asset)
-            for pos in self._portfolio.open_positions
-        ]
+        held = self._held_pairs(rows)
+        open_groups: list[str] = [self._correlation_group(asset) for asset, _side in held]
 
         group_count = open_groups.count(new_group)
         # Round 7 Phase 1: make the cap FORWARD-LOOKING. Also count approved-but-
@@ -3519,10 +3659,8 @@ class RiskEngine:
             # `is True` (not truthiness) so a wholesale-mocked CONFIG — whose
             # attrs are truthy Mocks — can't spuriously activate this gate.
             if CONFIG.risk.correlation_perp_group_mapping_enabled is True and cap_total > 0:
-                new_dir = getattr(idea.direction, "value", str(idea.direction))
-                same_dir = sum(
-                    1 for pos in self._portfolio.open_positions
-                    if getattr(pos.direction, "value", str(pos.direction)) == new_dir)
+                new_dir = direction_word(idea.direction)
+                same_dir = sum(1 for _asset, side in held if side == new_dir)
                 if CONFIG.risk.correlation_forward_intents_enabled and getattr(self, "_pending_intents", None):
                     same_dir += sum(
                         1 for iid, (_g, d, _ts) in self._pending_intents.items()
@@ -3538,6 +3676,8 @@ class RiskEngine:
         # V2: Rolling return correlation check
         # If we have price history, compute actual pairwise correlation
         # with existing open positions
+        if rows is not None:
+            return None
         try:
             if hasattr(self, '_price_history') and idea.asset in self._price_history:
                 for tid, pos in self._portfolio._positions.items():
@@ -3602,7 +3742,8 @@ class RiskEngine:
             return CONFIG.risk.live_max_drawdown_pct
         return CONFIG.risk.max_drawdown_pct
 
-    def _correlation_size_factor(self, idea: TradeIdea) -> float:
+    def _correlation_size_factor(self, idea: TradeIdea,
+                                 rows: Optional[Sequence[HeldRow]] = None) -> float:
         """Graduated size reduction for correlated, same-direction stacking.
 
         Returns a multiplier in ``[correlation_sizing_floor, 1.0]``. The new
@@ -3621,14 +3762,10 @@ class RiskEngine:
             new_group = self._correlation_group(idea.asset)
             if new_group == _UNMAPPED_GROUP:
                 return 1.0
-            new_dir = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
-            same = 0
-            for pos in self._portfolio.open_positions:
-                if self._correlation_group(pos.asset) != new_group:
-                    continue
-                pos_dir = pos.direction.value if hasattr(pos.direction, "value") else str(pos.direction)
-                if pos_dir == new_dir:
-                    same += 1
+            new_dir = direction_word(idea.direction)
+            same = sum(1 for asset, side in self._held_pairs(rows)
+                       if self._correlation_group(asset) == new_group
+                       and side == new_dir)
             if same <= 0:
                 return 1.0
             step = CONFIG.risk.correlation_sizing_step

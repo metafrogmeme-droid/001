@@ -68,6 +68,7 @@ from bot.core.order_state import (
     read_amount, rows_for_side, stop_attached,
 )
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
+from bot.risk.held_book import HeldRow, direction_word
 
 from bot.utils.atomic_write import atomic_write_json
 
@@ -881,6 +882,20 @@ def committed_margin(positions: Any) -> CommittedMargin:
         total = round(sum(scored), 2) if scored else None
     return CommittedMargin(total=total, scored=len(scored),
                            counted=len(rows), unread=unread)
+
+
+def held_rows(positions: Any) -> tuple[HeldRow, ...]:
+    """The book as the risk gates read it: one row per open or resting
+    position, the margin and the notional from `position_size_basis`, so an
+    unstated margin is None here too and never 0.0. A resting limit order is
+    a row, as it is in the open-position count: it fills without asking."""
+    rows = []
+    for p in list(positions or []):
+        margin, notional = position_size_basis(p)
+        rows.append(HeldRow(symbol=str(getattr(p, "symbol", "") or ""),
+                            direction=direction_word(getattr(p, "direction", "")),
+                            margin_usd=margin, notional_usd=notional))
+    return tuple(rows)
 
 
 def _money_or_dash(v: Optional[float]) -> str:

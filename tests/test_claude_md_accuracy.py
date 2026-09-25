@@ -943,13 +943,51 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
             "productType USDT-FUTURES (" + ", ".join(f":{n}" for n in product) + ")"):
         assert flat.count(cited) == 1, cited
 
+    # And `config.py`, whose rows the probe below could not even resolve: it
+    # tried bot/skills, bot/core, bot/risk and bot/web and never bot/, so every
+    # `config.py:` citation was skipped, and all nine had drifted ~50 lines
+    # onto limit-order and time-stop fields. The strategy-type rows land on a
+    # wrong NON-blank line, which no probe can see, so each is derived from
+    # the declaration its sentence names.
+    cfg_lines = (ROOT / "bot" / "config.py").read_text(encoding="utf-8").splitlines()
+
+    def decl(name: str) -> int:
+        hits = [i + 1 for i, ln in enumerate(cfg_lines)
+                if re.match(rf"\s+{name}:\s", ln)]
+        assert len(hits) == 1, (name, hits)
+        return hits[0]
+
+    eng_lines = (ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8").splitlines()
+    adaptive = next(i + 1 for i, ln in enumerate(eng_lines)
+                    if "Adaptive Confidence Threshold" in ln)
+    for row in ("swing", "scalp"):
+        trail = ("ENABLED at 1.5 ATR" if row == "swing" else "deliberately OFF")
+        trail_ref = (f"{decl(row + '_trailing_enabled')}-{decl(row + '_trailing_atr_mult')}"
+                     if row == "swing" else f"{decl(row + '_trailing_enabled')}")
+        cited = (f"(config.py:{decl(row + '_sl_atr_mult')}-{decl(row + '_tp_atr_mult')}), "
+                 f"trailing {trail} (:{trail_ref}), a ")
+        assert flat.count(cited) == 1, cited
+        tail = (f"(:{decl(row + '_time_close_hours')}-{decl(row + '_time_warn_hours')}), "
+                f"min confidence")
+        assert flat.count(tail) == 1, tail
+        for field in ("_min_confidence", "_max_risk_pct"):
+            assert f"(:{decl(row + field)})" in flat, (row, field)
+    for cited in (
+            f"LIVE_TRADING_ENABLED defaults False (config.py:"
+            f"{decl('simulation_mode')}-{decl('live_trading_enabled')})",
+            f"(default 0.85, config.py:{decl('auto_confirm_threshold')})",
+            f"realized win rate (engine.py:{adaptive})",
+            f"SIMULATION_MODE defaults True (config.py:{decl('simulation_mode')})",
+            f"`CONFIG.deepscan_timeout_sec` (`bot/config.py:{decl('deepscan_timeout_sec')}`"):
+        assert flat.count(cited) == 1, cited
+
     # And no citation anywhere in the map lands on a blank line -- the one
     # probe that found both of the originals.
     for m in re.finditer(r"([\w/]+\.py):(\d+)", income):
         rel, n = m.group(1), int(m.group(2))
         path = ROOT / rel if (ROOT / rel).exists() else None
         if path is None:
-            for base in ("bot/skills", "bot/core", "bot/risk", "bot/web"):
+            for base in ("bot/skills", "bot/core", "bot/risk", "bot/web", "bot"):
                 if (ROOT / base / rel).exists():
                     path = ROOT / base / rel
                     break

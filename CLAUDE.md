@@ -10094,6 +10094,89 @@ branch that refuses it could send that person to the operator's account
 unseen.
 (`tests/test_the_balance_view_is_never_somebody_elses.py`.)
 
+**THE CORRELATION CAPS BOUND EVERY BACKTEST AND NO LIVE ENTRY.** A
+`RiskEngine` is built over a paper `PortfolioTracker`, and no live fill writes
+one. So on the operator engine the tracker is empty in live mode, and every
+gate that read it evaluated the empty book. Driven with three live positions
+open, the check lines read `CORRELATION: no concentrated exposure`,
+`PORTFOLIO_EXPOSURE: 7.5% OK` (the new trade alone) and `CONCENTRATION_PCA:
+fewer than 2 open positions`. The backtest runs these gates over its own book,
+so the benchmark measured a bot with `MAX_UNMAPPED_CORRELATED` at 3. Live ran
+without it, up to five concurrent positions. `_correlation_group`'s own comment
+keeps the pooled bucket "to preserve the tighter live behaviour", and
+`.env.example` said concentration "is enforced by MAX_CORRELATION_PER_GROUP".
+Neither was true in live mode. On a per-user engine the tracker is the person's
+PRACTICE book, so there the error ran the other way: practice positions counted
+toward a live cap.
+
+**The book is handed in, never inferred.** `live_executor.held_rows` builds one
+row per open or resting position: symbol, side, and the margin and notional from
+`position_size_basis`, so an unstated margin is `None` and never `0.0`. Both
+engine call sites pass the rows as `evaluate(live_book=...)`. The confirm-time
+recheck reads them off the same executor it counts, through `_LiveRecheck.book`.
+The count caps, the two exposure caps and correlation sizing read those rows
+through one walk (`_held_pairs`), so the caps and the sizing cannot read two
+books for one idea. A live evaluation with no rows is a book nobody read. It is
+refused by name, gate by gate, the `LIVE_EQUITY` rule, and never passed as flat.
+
+**Exposure is committed margin, and a floor is not checked against a cap.** A
+live row has no mark, so the exposure line says "committed margin", not
+mark-to-market. A row whose margin the venue never stated makes the sum a floor,
+and the cap refuses it by name. The executor's own total cap already does the
+same with the same row. A symbol is matched the way the executor's duplicate
+guard matches one (`normalize_symbol`), because a live row is spelled as the
+venue spells it and an idea as the scanner does.
+
+**Two gates are not moved, and the reason is the benchmark.** CONCENTRATION_PCA
+and the rolling-correlation check (CORRELATION_V2) read the tick price series.
+The backtest never has one, so enforcing them on a held book is a change nobody
+measured. In live mode the PCA line says it was not evaluated, and V2 does not
+run over the rows. Before this, the practice book could still trip V2 on a live
+trade. `MAX_CORRELATION`'s own comment called it unused, while V2 reads it. It
+now says which book it runs on.
+
+**Enforced by default, with a switch that stays honest.** The count and margin
+gates are the configured limits the documentation promised and the benchmark
+measured, and every one of them only tightens. So `LIVE_BOOK_RISK_GATES_ENABLED`
+defaults on. Turned off, the same gates are measured on the live book and each
+refusal is reported as what it would have refused: a check line never says a
+book it did not enforce was within its caps. The first live effect to expect:
+with perp mapping off, every perp shares the pooled bucket, and a fourth
+concurrent position is refused until one closes.
+
+**Thirty mutations, each killed. The two that survived the first round were
+fixtures that could not tell.** Every row's side was already an upper-case
+string, so building rows with `str()` instead of the side reading changed
+nothing until a row carried `long`, an enum and `BUY`. And the unread-book
+sizing test held an empty practice book, so sizing an unread live book on the
+tracker instead changed nothing either, until an AVAX practice long sat beside
+a NEAR idea. Two clauses were deleted before the round rather than pinned.
+`side and side == new_dir` cannot fail on its first half, because an idea's
+side comes from an enum. An equity guard in the exposure reading cannot be
+reached, because a live evaluation refuses a non-positive equity first.
+
+**Recorded, not changed, each read and not driven.** The covariance VaR path,
+which live risk hardening turns on, divides by the paper tracker's equity and
+reads its positions. The adaptive auto-confirm threshold is moved by the win
+rate of `self.portfolio._history`, the paper book, so in live mode it never
+moves. Kelly's half-fraction reads realized history, and that needs checking
+for the same book question.
+
+**And the income map's `config.py` rows had never been checked by anything.**
+The blank-line probe resolves a bare filename under `bot/skills`, `bot/core`,
+`bot/risk` and `bot/web`, and never `bot/`, so every `config.py:` citation was
+skipped. All nine had drifted about fifty lines, onto limit-order and time-stop
+fields, including the swing and scalp geometry rows, `LIVE_TRADING_ENABLED`,
+the auto-confirm threshold and `deepscan_timeout_sec`. A citation on a wrong
+non-blank line is invisible to any probe, so each is derived from the
+declaration it names (`test_the_two_stale_citations_it_names_are_where_it_says`),
+and the probe now resolves `bot/` too. The `RiskEngine` citation, spelled
+`risk/risk_engine.py`, sat on a blank line for the same reason. The adaptive
+threshold's own citation was a bare `:NNNN` after a `config.py` row, so it read
+as `config.py`, and it now names `engine.py`. Seven mutations of the map, each
+killed.
+(`tests/test_the_live_risk_gates_read_the_live_book.py`, `bot/risk/held_book.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10573,7 +10656,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 231 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 232 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11385,9 +11468,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **433 of 1039** reach for source text through `source_scan`, `code_only`
+Driven, **434 of 1040** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 433 is a FLOOR and the honest shape is
+source scan that rule does not see, so 434 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
