@@ -2629,7 +2629,14 @@ async def handle_positions(request: web.Request) -> web.Response:
     book_read = True
     try:
         if CONFIG.is_live() and not _is_web_id(tg_id):
-            executor = engine._executor_for(tg_id)
+            # The executor this caller may VIEW, never the one an order would
+            # be PLACED on. `_executor_for` falls back to the operator's
+            # executor for a caller with no linked keys under per-user live,
+            # which is right for nothing on a read path: this panel showed
+            # such a caller the operator's live positions as "your open
+            # positions". `viewer_executor` answers None there, which is the
+            # "no executor attached to this account" state below.
+            executor = engine.viewer_executor(tg_id)
             book = getattr(executor, "open_positions", None) if executor is not None else None
             if book is None:
                 book_read = False

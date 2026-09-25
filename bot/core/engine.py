@@ -5144,6 +5144,16 @@ class RuneClawEngine:
         back to the shared operator executor for a non-operator user, we do NOT
         flatten (there is nothing of theirs to close) — a web request can never
         close the operator's or another user's positions. Throttled, fail-open.
+
+        The guard reads WHICH BOOK the close would run on, never whether
+        per-user live is switched on. It used to be ``per_user and ...``, and
+        PER_USER_LIVE_ENABLED ships OFF, where ``_executor_for`` answers the
+        operator's executor for EVERY caller: the refusal never ran, and any
+        signed-in website account with a linked Telegram id could flatten the
+        operator's whole live book from ``POST /api/controls/stop``, a door
+        with no role check, while Telegram's ``/emergency_stop`` is
+        ``@guard("halt")``. The flag says whether per-user books exist; it is
+        not an answer to whose book this is.
         """
         try:
             import time as _time
@@ -5159,7 +5169,6 @@ class RuneClawEngine:
             rows = await asyncio.to_thread(fetch_flatten_pending)
             if not rows:
                 return
-            per_user = getattr(CONFIG, "per_user_live_enabled", False)
             acks = []
             for r in rows:
                 uid = r.get("user_id")
@@ -5168,8 +5177,16 @@ class RuneClawEngine:
                     continue
                 try:
                     ex = self._executor_for(tg)
-                    # Never flatten the shared operator account for a non-operator.
-                    if per_user and ex is self.live_executor and not self._is_operator_user(tg):
+                    # Never flatten the shared operator account for a
+                    # non-operator, whether or not per-user live is on.
+                    if ex is self.live_executor and not self._is_operator_user(tg):
+                        audit(system_log,
+                              f"Web emergency-stop from user {tg}: they have no live "
+                              f"account of their own on this bot, so nothing was "
+                              f"closed. The operator's account is never flattened "
+                              f"from another user's request.",
+                              action="web_flatten", result="REFUSED",
+                              data={"user": tg})
                         acks.append({"user_id": uid, "ok": True, "closed": 0})
                         continue
                     from bot.formatters.drift_offer import flatten_failed_messages

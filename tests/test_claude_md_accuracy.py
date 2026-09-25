@@ -919,6 +919,30 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
                   f"(get_market_session) and scan_commands.py:{session[-1]}."):
         assert flat.count(cited) == 1, cited
 
+    # And `live_executor.py`, the file every slice grows: its citations had
+    # drifted to `else:`, an unrelated `except`, and -- as BARE continuations
+    # (`:6423`) the blank-line probe's `path:line` pattern cannot see -- a
+    # blank line. Each is derived from what its sentence names.
+    import ast
+    ex_src = (ROOT / "bot" / "core" / "live_executor.py").read_text(encoding="utf-8")
+    ex_lines = ex_src.splitlines()
+    fns = {n.name: n for n in ast.walk(ast.parse(ex_src))
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    submit = fns["_submit_entry_order"]
+    entry_call = next(i + 1 for i in range(submit.lineno - 1, submit.end_lineno)
+                      if "await self._create_order_idempotent(" in ex_lines[i])
+    trailing_read = next(i + 1 for i, ln in enumerate(ex_lines)
+                         if "CONFIG.strategy_types." in ln)
+    product = [i + 1 for i, ln in enumerate(ex_lines)
+               if '"productType": "USDT-FUTURES"' in ln][:3]
+    for cited in (
+            f"bot/core/live_executor.py:{trailing_read} (the per-strategy trailing "
+            f"switch read at the fill)",
+            f"live_executor.py:{entry_call} creates the entry order idempotently, "
+            f":{fns['_place_sl_tp'].lineno}/:{fns['_place_sl_tp_v3'].lineno} attach",
+            "productType USDT-FUTURES (" + ", ".join(f":{n}" for n in product) + ")"):
+        assert flat.count(cited) == 1, cited
+
     # And no citation anywhere in the map lands on a blank line -- the one
     # probe that found both of the originals.
     for m in re.finditer(r"([\w/]+\.py):(\d+)", income):
