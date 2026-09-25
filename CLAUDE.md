@@ -10317,6 +10317,22 @@ unrelated to the rule. Both are driven now: correlation on a live book, the
 fallback with a session provider that raises.
 (`tests/test_a_reduction_the_cap_takes_back_is_not_a_reduction.py`.)
 
+**"NO LIVE SIGNAL MATCHES" WAS PRINTED FROM A QUERY THAT FAILED.**
+`/api/copy/picks` read the signal stream under `catch (e) { /* empty stream is
+fine */ }`, so a failed query gave every followed agent zero picks and the
+panel said *No live signal matches this agent's gates right now*: a claim
+about the market from no read. Its outer catch answered 200 with `agents: []`,
+which the panel read as a user who follows nobody, and hid itself from a user
+who follows several. And a followed engine agent missing from the catalogue
+printed *the catalogue bridge is offline* whether the catalogue could not be
+read or had answered without that agent: one guessed cause for two facts. The
+picks are `null` for a stream nobody read, the payload carries `signals_read`,
+the unavailable row carries its `reason`, a failure is a 500, and the panel
+says each in its own words. Thirteen mutations, each killed; the two that
+survived the first round were fixtures (a catalogue the follow had just cached
+is readable, and no test followed a community strategy while the stream was
+down). (`app/test/copy_picks_say_what_they_could_not_read.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

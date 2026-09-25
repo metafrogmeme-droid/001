@@ -7395,15 +7395,31 @@
       host.innerHTML = '<div class="skel"></div>';
       let d = null;
       try { const r = await fetchJSON('/api/copy/picks', { timeoutMs: 16000 }); d = r.ok ? r.data : null; } catch (_) {}
-      const groups = (d && d.agents) || [];
+      // This panel is shown only to a user who follows agents, so hiding it
+      // on a failed read says they follow nobody.
+      if (!d || !Array.isArray(d.agents)) {
+        host.innerHTML = `<p class="small muted">Could not read your agents' picks right now. This is a failed read, not "no picks".</p>`;
+        return;
+      }
+      const groups = d.agents;
       if (!groups.length) { panel.hidden = true; return; }
       const blocks = groups.map(g => {
         const head = `<div class="row" style="gap:8px;align-items:center;margin:var(--s2) 0 6px">
             <span style="font-size:18px">${esc(g.icon || '🤖')}</span><b>${esc(g.name)}</b>
             ${g.community ? `<span class="chip" style="font-size:10px;color:var(--accent,#3fb6ff)">${esc(T('cp.comm', 'Community'))}</span>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentunfollow="${esc(g.id)}" type="button" style="margin-left:auto">Unfollow</button></div>`;
-        if (g.unavailable) return head + `<p class="small muted">Gates unavailable — the catalogue bridge is offline.</p>`;
-        if (!g.picks || !g.picks.length) {
+        if (g.unavailable) {
+          const why = g.reason === 'unknown_agent' ? 'this agent is no longer in the catalogue.'
+            : g.reason === 'catalogue_unreadable' ? 'the agent catalogue could not be read.'
+            : 'its gates could not be resolved.';
+          return head + `<p class="small muted">Gates unavailable — ${why}</p>`;
+        }
+        // `picks: null` is a signal stream nobody could read; "no live signal
+        // matches" would be a claim about the market made from no read.
+        if (g.picks == null) {
+          return head + `<p class="small muted">Could not read the live signals, so this agent's picks are unknown — not "no match".</p>`;
+        }
+        if (!g.picks.length) {
           return head + `<p class="small muted">No live signal matches this agent's gates right now${g.matched_on && g.matched_on.length ? ` (matched on ${g.matched_on.map(esc).join(', ')})` : ''}.</p>`;
         }
         const rows = g.picks.map(s => {
