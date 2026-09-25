@@ -9835,6 +9835,70 @@ failed its strict unused-import gate forty minutes in. *Run the gate after
 the last edit, not after the edit you remember as last.*
 (`tests/test_only_the_bot_writes_its_state.py`.)
 
+**A PERSON WHO TRADED TWO VENUES HAD ONE BOOK, AND THE SECOND VENUE ERASED THE
+FIRST.** The venue has been a directory for the risk engine and the paper
+portfolio since multi-venue began (`bot/core/venue_key.py` says "the venue is a
+DIRECTORY, not a filename fragment"), and the executor's book never heard: its
+two files were `live_positions_{user}.json` and `closed_trades_{user}.json`,
+named by person and not by venue. So under PER_USER_LIVE_ENABLED a person's
+bitget executor and bybit executor wrote one file. Driven: connecting bybit
+built its executor, which LOADED the open bitget position as its own, and its
+first save of its own book erased it. The bitget position, with its stop
+resting on bitget, stopped being monitored by anything. Reconciliation on bybit
+would then have found nothing and booked a close that never happened.
+
+**And the resolver ignored the venue it was asked for.** `_executor_for(uid,
+venue)` overwrote its own `venue` argument with the person's stored active
+venue on its first line, so every caller that named one got the active
+venue's executor whatever it named: the multi-venue router's per-venue margin
+read, the executor it then routed the order to, and `/venues`' open-position
+count. When the active venue's keys were unusable, a request NAMING another
+venue answered the OPERATOR's executor, which is an order routed to the
+operator's account. A named venue is that venue's executor or None now; only
+the unnamed ask keeps its fallback.
+
+**Every row says whose it is, and nothing is guessed.** A split venue keeps its
+book under `data/venue/{venue}/`, and every row it saves carries its venue. An
+executor refuses a row stamped for another venue and writes it back verbatim
+on its next save, because a refusal that deleted it would be the erasure again.
+A file written before rows were stamped is attributed the way the old code
+already attributed it: the only executor it ever built without a venue named
+was the ACTIVE one. So the pre-split file moves to the active venue before ANY
+executor for that person is built, whichever venue is asked first; otherwise
+the default venue's executor would load it first and manage another exchange's
+positions. The move refuses what it cannot be sure of: an existing split book,
+a file that will not parse, an empty main beside a `.bak` holding rows, and a
+file whose rows are already stamped. Unstamped rows are CLAIMED (saved with a
+stamp) by the engine after it builds the executor, never from `__init__`,
+because a reader process must not write the bot's files. Each file is claimed
+only after a read that reached its end, because a claim-save after a partial
+read replaces the record with the part that was read.
+
+**Two more fell out, one of them the operator-book shape again.** `/venues`
+refused a person's deselect over the OPERATOR's positions whenever per-user live
+was off, because `_executor_for` answers the operator's executor in that state.
+The bot places nothing on a person's own account then, so there is nothing to
+strand; the count is 0. And a restart rebuilt only the active venue's executor,
+so a book on another venue waited for the next order routed there before
+anything monitored it. `_rehydrate_other_venue_books` builds every venue whose
+saved book holds a position and names each one it could not build. The startup
+count is of people now, not executors, because one person can hold two.
+
+**Thirty-nine mutations across the four files, thirty-eight killed. The one
+that survived was a clause of mine that no input could reach.** The claim checked
+`not _closed_trades_read_failed` beside its own flag, and the flag is only set
+after a read that reached the end, so the clause could never decide anything.
+It is deleted. The property it stood for is driven instead: a record that
+raises halfway through is not rewritten, for positions and closed trades alike,
+and the two mutations that set the flag per row die on those drives.
+
+The remap for this slice's line shifts also found two map citations into
+`bot/core/engine.py` that were already wrong. The auto-confirm threshold's
+move by realized win rate cited an expiry loop, and the basis hand-off to
+`analyzer.analyze` cited an audit call. Neither line was blank, so the probe
+could not see them; both are re-derived from what their sentences name.
+(`tests/test_one_user_one_venue_one_book.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11063,7 +11127,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **431 of 1034** reach for source text through `source_scan`, `code_only`
+Driven, **431 of 1035** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 431 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

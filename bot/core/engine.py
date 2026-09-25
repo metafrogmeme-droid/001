@@ -2270,6 +2270,17 @@ class RuneClawEngine:
         credentials, falls back to the operator executor so behaviour never
         silently breaks — eligibility enforcement is a Phase 5 access-policy
         concern layered on top, not here.
+
+        A NAMED ``venue`` IS THE VENUE, and it never falls back. This used to
+        overwrite its own ``venue`` argument with the user's stored active
+        venue before reading it, so every caller that asked for a particular
+        venue — the multi-venue router's per-venue margin read and the
+        executor it then routes the order to, and ``/venues``' open-position
+        check — got the active venue's executor whatever it named. And when
+        the user's ACTIVE keys were unusable it returned the OPERATOR's
+        executor for a request naming another venue, which is an order routed
+        to the operator's account. With a venue named, this answers that
+        venue's executor or None; only the unnamed ask keeps the fallback.
         """
         if not getattr(CONFIG, "per_user_live_enabled", False):
             return self.live_executor
@@ -2277,17 +2288,36 @@ class RuneClawEngine:
         # account, not an individual user's.
         if not user_id or user_id in ("auto", ""):
             return self.live_executor
+        from bot.core.venue_key import is_split, normalize_venue
+        requested = str(venue or "").strip()
+        active = "bitget"
         try:
             from bot.core.exchange_credentials import get_credential_store
             _store = get_credential_store()
-            creds = _store.get(user_id)
-            venue = getattr(_store, "get_venue", lambda _u: "bitget")(user_id)
+            active = getattr(_store, "get_venue", lambda _u: "bitget")(user_id)
+            if requested:
+                venue = normalize_venue(requested)
+                if not venue:
+                    logger.warning("Per-user executor: %r is not a venue this bot "
+                                   "trades — no executor for %s", requested, user_id)
+                    return None
+                creds = _store.get_for_venue(user_id, venue)
+            else:
+                creds = _store.get(user_id)
+                venue = active
         except Exception as exc:
+            if requested:
+                logger.warning("Per-user executor: %s credentials for %s could not "
+                               "be read (%s) — no executor, and never the operator's",
+                               requested, user_id, exc)
+                return None
             logger.warning("Per-user executor: credential lookup failed for %s: %s "
                            "— using operator executor", user_id, exc)
             creds = None
             venue = "bitget"
         if not creds:
+            if requested:
+                return None
             return self.live_executor
         # MULTI-VENUE, Phase 4 (SHADOW). Record where this order WOULD go if
         # the user's venue selection were being routed on, without changing
@@ -2328,7 +2358,7 @@ class RuneClawEngine:
             _rv = str(venue).strip().lower() if is_split(venue) else ""
         except Exception:
             _rv = ""
-        if _rv:
+        if _rv and not requested:
             creds_v = None
             try:
                 creds_v = _store.get_for_venue(user_id, _rv)
@@ -2348,7 +2378,23 @@ class RuneClawEngine:
         # or switched venue). Full-dict compare is venue-agnostic — Hyperliquid
         # records have no api_key.
         if ex is None or (ex._credentials or {}) != creds:
-            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue)
+            from bot.core.venue_key import executor_state_dir
+            _reader = bool(getattr(self, "_state_persistence_detached", False))
+            # ONE USER, ONE VENUE, ONE BOOK. A split venue's executor keeps its
+            # positions and closed trades under data/venue/{venue}/; before
+            # this, every venue's executor for a user wrote the SAME two files
+            # and the second venue's first save erased the first venue's book.
+            # The pre-split file is the ACTIVE venue's (the only executor that
+            # ever built without a venue named), so it moves there — before
+            # ANY executor for this user is built, whichever venue is asked
+            # for, or the default venue's executor would load it first and
+            # manage another exchange's positions. A reader moves nothing.
+            if not _reader and is_split(active):
+                self._move_legacy_executor_book(user_id, normalize_venue(active))
+            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
+                              state_dir=executor_state_dir(venue))
+            if not _reader:
+                ex.claim_loaded_rows()
             # Capture this user's id in the callback (default-arg avoids the
             # late-binding closure trap) so a per-user live close feeds THAT
             # user's risk engine, not the operator's (audit C1).
@@ -2375,6 +2421,28 @@ class RuneClawEngine:
             audit(system_log, f"Per-user live executor bound for user {user_id}",
                   action="per_user_executor", result="BOUND", data={"user": key})
         return ex
+
+    def _move_legacy_executor_book(self, user_id: str, venue: str) -> None:
+        """Move ``user_id``'s pre-split executor book to ``venue``'s directory.
+
+        Best-effort and audited: a move that fails leaves the files where they
+        were, which is the state every build before this one ran on.
+        """
+        from bot.core.live_executor import move_legacy_user_book
+        from bot.core.venue_key import executor_state_dir
+        try:
+            moved = move_legacy_user_book(user_id, executor_state_dir(venue))
+        except Exception as exc:
+            logger.warning("Legacy executor book for %s not moved to %s: %s",
+                           user_id, venue, exc)
+            return
+        if moved:
+            audit(system_log,
+                  f"Moved user {user_id}'s pre-split live book to {venue}: it was "
+                  f"written before the venue was part of the path, by the "
+                  f"executor for their active venue",
+                  action="per_user_executor", result="BOOK_MOVED",
+                  data={"user": str(user_id), "venue": venue, "files": moved})
 
     def balance_view_executor(self, user_id: str = ""):
         """Return the LiveExecutor for a READ-ONLY balance view of the caller's
@@ -2415,7 +2483,15 @@ class RuneClawEngine:
         # Rebuild if absent or the user's credentials changed (venue-agnostic
         # full-dict compare — Hyperliquid records have no api_key).
         if ex is None or (ex._credentials or {}) != creds:
-            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue)
+            # The venue's own book, as the trading executor keeps it. A view
+            # moves and claims nothing: it is a reader of that book.
+            from bot.core.venue_key import executor_state_dir
+            try:
+                _state_dir = executor_state_dir(venue)
+            except ValueError:
+                return self.live_executor
+            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
+                              state_dir=_state_dir)
             # Share the operator WS feed (market data is not per-user). No
             # on_position_closed / risk wiring: this executor never trades.
             ex._ws_feed = self.ws_feed
@@ -3127,6 +3203,7 @@ class RuneClawEngine:
             except Exception as exc:
                 failed += 1
                 logger.warning("Rehydrate executor for %s failed: %s", uid, exc)
+        unmonitored = self._rehydrate_other_venue_books(ids)
         # A NUMERATOR WITH NO DENOMINATOR, AND SILENCE ON THE WORST OUTCOME.
         #
         # This reported "Rehydrated N executor(s)" and nothing else — so N of
@@ -3137,7 +3214,19 @@ class RuneClawEngine:
         # looks exactly like a bot with no linked users, while their persisted
         # LIVE positions sit unmonitored — nothing re-arms their stops and
         # nothing closes them.
-        built = len(self._user_executors)
+        # USERS, not executors: one user can hold a book on two venues now, and
+        # "3 of 2" is a numerator over the wrong denominator.
+        built = sum(1 for uid in ids
+                    if any(k == str(uid) or k.endswith(f"/{uid}")
+                           for k in self._user_executors))
+        if unmonitored:
+            audit(system_log,
+                  f"{len(unmonitored)} saved live book(s) on a venue that is not "
+                  f"the user's active one could not be rebuilt at startup — those "
+                  f"positions are NOT being monitored: "
+                  f"{', '.join(unmonitored)}",
+                  action="per_user_rehydrate", result="WARNING",
+                  level=logging.WARNING)
         if failed:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup — "
@@ -3149,6 +3238,48 @@ class RuneClawEngine:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
+
+    def _rehydrate_other_venue_books(self, ids) -> list:
+        """Build the executor for every NON-active venue that holds a saved book.
+
+        ``_executor_for(uid)`` rebuilds the active venue's executor, and before
+        the venue was part of the executor's path that was the only book there
+        was. A user trading two venues keeps two books now, and the one that
+        is not active would otherwise wait for the next order routed there
+        before anything monitored its open positions. Returns ``venue/user``
+        for each saved book whose executor could not be built.
+        """
+        from bot.core.live_executor import saved_book_holds_positions
+        from bot.core.venue_key import executor_state_dir, normalize_venue
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            store = get_credential_store()
+            list_venues = store.list_venues
+            get_venue = store.get_venue
+        except Exception:
+            return []
+        unmonitored: list = []
+        for uid in ids:
+            try:
+                active = normalize_venue(get_venue(uid))
+                venues = [normalize_venue(v) for v in list_venues(uid)]
+            except Exception as exc:
+                logger.warning("Rehydrate: venues for %s could not be listed: %s",
+                               uid, exc)
+                continue
+            for v in venues:
+                if not v or v == active:
+                    continue
+                try:
+                    if not saved_book_holds_positions(uid, executor_state_dir(v)):
+                        continue
+                    if self._executor_for(uid, v) is None:
+                        unmonitored.append(f"{v}/{uid}")
+                except Exception as exc:
+                    logger.warning("Rehydrate executor for %s on %s failed: %s",
+                                   uid, v, exc)
+                    unmonitored.append(f"{v}/{uid}")
+        return unmonitored
 
     def get_effective_equity(self, user_id: str = "") -> Optional[float]:
         """The equity figure to display, or None when it could not be read.

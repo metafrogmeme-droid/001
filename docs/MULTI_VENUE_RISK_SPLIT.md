@@ -24,8 +24,16 @@ per-venue is the same shape one dimension over.**
 | a `PortfolioTracker` per key | `bot/risk/multi_portfolio.py` — `MultiUserPortfolio` |
 | per-key state files | `data/risk_state_{user}.json` |
 | a resolver with a safe default | `risk_for(user_id)` — returns the shared operator engine when the flag is off |
-| a per-key executor | `_executor_for(user_id)` → `LiveExecutor(user_id, credentials, venue)` |
+| a per-key executor | `_executor_for(user_id, venue)` → `LiveExecutor(user_id, credentials, venue, state_dir)` |
+| a per-(user, venue) executor book | `data/live_positions_{user}.json` for the default venue, `data/venue/{venue}/live_positions_{user}.json` otherwise (`venue_key.executor_state_dir`) |
 | per-venue credentials | `set_venue` / `list_venues` / `delete_venue`, and the web API |
+
+The executor's book was the one row of that table that did NOT split: its two
+files were named by user and not by venue, so a person's bitget and bybit
+executors wrote one file, and the second venue's executor loaded the first
+venue's positions as its own and erased them on its first save. Every row now
+carries the venue it is a position on, and the pre-split file moves once to the
+person's active venue (`tests/test_one_user_one_venue_one_book.py`).
 
 So the pattern, the persistence, the lazy-create-and-cache, and the
 "default is byte-identical to before" discipline are all proven code. This is
