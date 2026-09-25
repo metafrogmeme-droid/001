@@ -10175,6 +10175,17 @@ and the probe now resolves `bot/` too. The `RiskEngine` citation, spelled
 threshold's own citation was a bare `:NNNN` after a `config.py` row, so it read
 as `config.py`, and it now names `engine.py`. Seven mutations of the map, each
 killed.
+
+**The full gate refused the branch at 08:00 UTC on figures that had passed
+an hour earlier.** The suite's exposure figures (19.5%, 87.5%, 25.5%) were
+written during the Asian session, when the trading session scales a new
+order by x0.75, and nothing in the fixture fixed the session. At 08:00 the
+session turned to London (x1.0) and the same three tests failed, on code
+that had not changed, in the full run and when re-run alone. A figure that
+depends on the hour is a fixture reading the wall clock. The session is fixed
+at x1.0 in the suite now and the figures are the held margin plus a plain
+$100; setting it back to x0.75 turns the same three red, which is what shows
+the fixed session decides them.
 (`tests/test_the_live_risk_gates_read_the_live_book.py`, `bot/risk/held_book.py`.)
 
 **A RESTART LIFTED THE GOVERNOR'S PAUSE.** The live-performance governor scores

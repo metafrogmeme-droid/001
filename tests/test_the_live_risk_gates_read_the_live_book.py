@@ -40,6 +40,22 @@ from bot.utils.models import Direction, TradeIdea
 from tests.source_scan import code_only
 
 
+class _Session:
+    size_multiplier = 1.0
+
+
+@pytest.fixture(autouse=True)
+def _one_session(monkeypatch):
+    """The trading session scales the size by the wall clock (x0.75 Asian,
+    x1.0 London, x1.1 the overlap, x0.6 New York), so an exposure figure
+    written at one hour fails at another. The first draft of this suite did
+    exactly that: every figure was written in the Asian session and three
+    tests went red at 08:00 UTC on code that had not changed. The session is
+    fixed at x1.0 here, so each line is the held margin plus a plain $100."""
+    monkeypatch.setattr("bot.core.session_aware.get_current_session",
+                        lambda now=None: _Session())
+
+
 @pytest.fixture
 def enforce():
     """Set LIVE_BOOK_RISK_GATES_ENABLED on the frozen config, restored after."""
@@ -153,16 +169,16 @@ def test_an_unread_book_sizes_nothing_down(tmp_path, enforce):
 
 def test_portfolio_exposure_is_the_committed_margin_of_the_live_book(tmp_path, enforce):
     check = _live(tmp_path, THREE_ALTS[:2])
-    # 2 x $60 held + the new $75 on $1,000 of equity
+    # 2 x $60 held + the new $100 on $1,000 of equity
     assert _line(check, "PORTFOLIO_EXPOSURE") == (
-        "PORTFOLIO_EXPOSURE: 19.5% OK (committed margin on the live book, 2 held)")
+        "PORTFOLIO_EXPOSURE: 22.0% OK (committed margin on the live book, 2 held)")
 
 
 def test_over_the_portfolio_cap_refuses(tmp_path, enforce):
     heavy = tuple(_row(s, 400.0) for s in ("BTC/USDT:USDT", "ETH/USDT:USDT"))
     check = _live(tmp_path, heavy)
     line = _line(check, "PORTFOLIO_EXPOSURE")
-    assert line in check.checks_failed and "87.5% > 80.0%" in line
+    assert line in check.checks_failed and "90.0% > 80.0%" in line
 
 
 def test_an_unread_margin_makes_the_sum_a_floor_and_refuses_by_name(tmp_path, enforce):
@@ -185,10 +201,10 @@ def test_symbol_exposure_matches_the_venues_spelling_to_the_scanners(tmp_path, e
     book = (HeldRow("ARB/USDT:USDT", "LONG", 180.0, 900.0),)
     check = _live(tmp_path, book, idea=_idea("ARB/USDT"))
     line = _line(check, "SYMBOL_EXPOSURE")
-    assert line in check.checks_failed and "25.5% > 20.0%" in line
+    assert line in check.checks_failed and "28.0% > 20.0%" in line
     other = _live(tmp_path, (HeldRow("OP/USDT:USDT", "LONG", 180.0, 900.0),))
     assert _line(other, "SYMBOL_EXPOSURE").endswith(
-        "7.5% OK (committed margin on the live book, 0 held)")
+        "10.0% OK (committed margin on the live book, 0 held)")
 
 
 def test_same_symbol_rows_normalise_both_sides():
