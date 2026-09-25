@@ -757,7 +757,7 @@
     "dd.dl_d_unread": { en: "disposition not on record" },
     "dd.dl_open": { en: "open — no close on record" },
     "dd.dl_pnl_unrec": { en: "closed · P&L not recorded" },
-    "dd.dl_hidden": { en: "closed · amount hidden on the anonymous view — sign in to see it" },
+    "dd.dl_hidden": { en: "closed · amount withheld here — shown to the operator only" },
     "dd.dl_unshown": { en: "closed · amount not shown on the anonymous view" },
     "dd.dl_k_block": { en: "blocked" },
     "dd.dl_k_rec": { en: "recovered" },
@@ -822,7 +822,7 @@
     "dd.dc_no_exec": { en: "Nothing was sent to a venue for this decision, so there is no execution to report." },
     "dd.dc_nothing": { en: "On record, but nothing in it is a value this card can show." },
     "dd.dc_not_found": { en: "This decision is no longer in the recent window the bot publishes. The sealed record still exists in the chain; it is just not in this view." },
-    "dd.dc_anon": { en: "Anonymous view — percent, ratio and count only. Dollar amounts are withheld here, not missing from the record." },
+    "dd.dc_anon": { en: "Public view — percent, ratio and count only. Dollar amounts are shown to the operator only; they are withheld here, not missing from the record." },
     "dd.dc_l_when": { en: "when" },
     "dd.dc_l_sym": { en: "symbol" },
     "dd.dc_l_side": { en: "direction" },
@@ -1897,6 +1897,7 @@
     "av.reading": { en: "Reading the chain…" },
     "av.unreadable": { en: "The chain would not answer just now — the grants are unknown, not zero. Try again shortly." },
     "av.clean": { en: "No live grants found among {n} checked pairs on {c} — within this registry only; approvals outside it are not scanned." },
+    "av.partial": { en: "{u} of {n} pairs on {c} could not be read, so this is not a clean result. No live grant was found among the {z} that were read." },
     "av.unlimited": { en: "UNLIMITED" },
     "av.raw_note": { en: "(token units)" },
     "av.revoke_h": { en: "Revoke plan — your wallet sends it, we never do:" },
@@ -2136,7 +2137,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"fddfd9c2","zh":"8df16c34","pt":"6526fb97","fr":"233d36d2","de":"cceb9b98","nl":"e0dc6968","ja":"2bebf0e3","ko":"50a544b4","ru":"1f14387e","tr":"5238dd29","it":"795d6ed0","hi":"07d06671","ar":"3f8e7ce6"};
+  var CHUNKS = {"es":"943cc494","zh":"c1133985","pt":"9f1fbe57","fr":"16696619","de":"38096b73","nl":"74741d83","ja":"d749d5b8","ko":"c24c1243","ru":"8db3f000","tr":"aa4a9c09","it":"cb8c2dae","hi":"24706f78","ar":"bc6ed992"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

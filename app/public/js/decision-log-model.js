@@ -72,7 +72,7 @@
     dUnread:    { key: 'dd.dl_d_unread',    en: 'disposition not on record' },
     open:       { key: 'dd.dl_open',        en: 'open — no close on record' },
     pnlUnrec:   { key: 'dd.dl_pnl_unrec',   en: 'closed · P&L not recorded' },
-    hidden:     { key: 'dd.dl_hidden',      en: 'closed · amount hidden on the anonymous view — sign in to see it' },
+    hidden:     { key: 'dd.dl_hidden',      en: 'closed · amount withheld here — shown to the operator only' },
     unshown:    { key: 'dd.dl_unshown',     en: 'closed · amount not shown on the anonymous view' },
     kBlock:     { key: 'dd.dl_k_block',     en: 'blocked' },
     kRec:       { key: 'dd.dl_k_rec',       en: 'recovered' },

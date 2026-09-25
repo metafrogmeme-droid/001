@@ -131,7 +131,7 @@
     noExec:      { key: 'dd.dc_no_exec',      en: 'Nothing was sent to a venue for this decision, so there is no execution to report.' },
     nothingShown: { key: 'dd.dc_nothing',     en: 'On record, but nothing in it is a value this card can show.' },
     notFound:    { key: 'dd.dc_not_found',    en: 'This decision is no longer in the recent window the bot publishes. The sealed record still exists in the chain; it is just not in this view.' },
-    anonNote:    { key: 'dd.dc_anon',         en: 'Anonymous view — percent, ratio and count only. Dollar amounts are withheld here, not missing from the record.' },
+    anonNote:    { key: 'dd.dc_anon',         en: 'Public view — percent, ratio and count only. Dollar amounts are shown to the operator only; they are withheld here, not missing from the record.' },
   };
   // Only the keys this model INTRODUCES — the three borrowed from the log
   // model are that model's to declare, and counting them twice would make

@@ -39,6 +39,9 @@ const syncSrc = fs.readFileSync(path.join(__dirname, '..', 'routes', 'sync.js'),
 let server, base;
 const SECRET = process.env.BOT_SYNC_SECRET;
 const TOKEN = jwt.sign({ user_id: 1, email: 'op@test.dev' }, process.env.JWT_SECRET);
+// The operator's account row. The dollar view is the operator's alone
+// (lib/operator_view.js): a signed-in stranger gets the public one.
+require('../db').pool.users.push({ id: 1, email: 'op@test.dev', plan: 'admin' });
 
 function post(p, body) {
   return new Promise((resolve, reject) => {

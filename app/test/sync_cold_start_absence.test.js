@@ -36,6 +36,9 @@ const TOKEN = jwt.sign({ user_id: 1, email: 'op@test.dev' }, process.env.JWT_SEC
 function coldServer(circuit_breaker) {
   const pool = {
     execute: async (sql) => {
+      // TOKEN is the operator's: the dollar view is theirs alone now
+      // (lib/operator_view.js), and a signed-in stranger gets the public one.
+      if (/FROM users WHERE id/.test(sql)) return [[{ plan: 'admin' }]];
       if (/scan_cache/.test(sql)) {
         return [[{ scan_json: JSON.stringify({ circuit_breaker,
                                                timestamp: '2026-08-12T07:00:00Z' }) }]];

@@ -10284,6 +10284,69 @@ handed yesterday's total under today's name. The day rule is one method with
 four callers now, and the chip says "realized" because that is all the
 accumulator holds.
 
+**SIGNED IN IS NOT THE OPERATOR, AND FOUR SURFACES READ IT AS THOUGH IT
+WERE.** Registration is open and issues a session at once, and the flight
+record, the weekly letter, the scan payload and the portfolio summary each
+redacted on `req.user`: anonymous got the public view, anyone signed in got
+the operator's. Driven: a freshly registered stranger read `size_usd: 2500`
+and `pnl_usd: -412.55` off `/api/guardian/flight` -- and the chain is
+engine-wide, so those are every account's sealed sizes and outcomes, not only
+the operator's -- and `Net PnL -$1,249.5` off `/api/letter/latest`, the letter
+`routes/mcp.js` refuses to serve for exactly that reason. The guardian test
+file PINNED the defect as the contract, under the title *"an AUTHENTICATED
+caller still gets the full record"*.
+
+**The summary's database fallback crossed accounts outright.** Unscoped, it
+answered the newest equity snapshot of whichever account wrote last beside a
+P&L summed across every account, and cached that as the agent's for every
+later reader. It reads the operator's rows now (`BOT_USER_ID`, the account
+the bot syncs as).
+
+**`lib/operator_view.isOperator` is the one reading**: the plan re-read from
+the database, never the JWT, which is the rule `operatorGate` and `/yield`
+already follow, and a read that fails answers false. The scrubbers open only
+on its literal `true`, so a request object passed by habit (truthy) fails
+closed rather than serving the raw payload. Every withheld view says the
+dollars are *shown to the operator only*. It used to say *"sign in for the
+full record"*, which the fix makes false for everyone except the operator. The
+decision log's and the Decision Court's sentences carried the same promise in
+fourteen languages, and were reworded in all of them.
+
+**Two more doors served the private letter and neither knew who was
+asking.** The web chat's letter intercept and Telegram's `/letter` (through
+the card route) both answered with the stored letter. The chat card is the
+public letter now, for every caller; the operator reads the private one on
+the dashboard panel, which does know. `/latest` still stores the week's letter
+on its first read, because the archive lists stored weeks, and a stranger gets
+the public letter of exactly those weeks and no others.
+
+**And the live stream sent the P&L of every close to anyone listening.**
+`/api/stream` has no auth by design (a "refresh now" signal), and the close
+nudge carried `pnl`. The page only toasts; the figure is gone from the nudge.
+
+**THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS.**
+The read was encoded by ethers, which production resolves to a stub whose
+`encodeFunctionData` answers `'0x'` -- the revoke calldata beside it had
+already been moved to `lib/abi_call` for exactly that reason, and the read
+had not, so in production every pair came back unreadable. One spender's
+checksum was wrong (`...E4C7bd8665...` where EIP-55 says `bD`), so real ethers
+refused it and Uniswap SwapRouter02 was never read on any of its four chains;
+every fixture used Base, where the router is excluded. And the page printed
+*"✅ No live grants found among N checked pairs"* whenever no grant was FOUND,
+so a wallet whose only grant was unlimited to that router read as clean, and
+with the stub installed the sentence was *"among 0 checked pairs"*. The ✅
+needs every pair read now; a partial read says how many could not be read and
+that it is not a clean result, and a chain that answered nothing says the
+grants are unknown.
+
+**Twenty-three mutations, each killed on the first round.** The one worth
+naming is the scrubbers' `=== true`: `operator ? raw : scrubbed` agrees with
+every route drive, because every route hands it the check's boolean. Only a
+direct call with a request object tells them apart, which is the habit the
+strict comparison exists to survive.
+(`app/test/signed_in_is_not_the_operator.test.js`,
+`app/test/allowance_xray_says_what_it_read.test.js`.)
+
 ## A URL is a surface, and a slash in a path segment does not survive a hop
 
 **Every symbol this product names has a slash in it, and two panels sent the

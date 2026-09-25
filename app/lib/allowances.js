@@ -22,7 +22,6 @@
  *   transaction X-ray, so both halves of the firewall agree.
  */
 
-const { ethers } = require('ethers');
 const { encodeCall } = require('./abi_call');
 const { activeChains } = require('./wallet');
 
@@ -35,17 +34,18 @@ const SPENDERS = [
   { label: 'Seaport 1.6 (OpenSea)', address: '0x0000000000000068F116a894984e2DB1123eB395', chains: null },
   // Bytecode verified identical on these four only; the same address on
   // Base hosts a different contract, BNB/Avalanche have none.
-  { label: 'Uniswap SwapRouter02', address: '0x68b3465833fb72A70ecDF485E0e4C7bd8665Fc45',
+  //
+  // The checksum is EIP-55's. It read `...E4C7bd8665...` (one letter's case)
+  // for as long as this row existed, and real ethers refuses a bad checksum
+  // at encode time, so this router was never read on any of its four chains
+  // and every pair against it was counted unreadable.
+  { label: 'Uniswap SwapRouter02', address: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
     chains: ['ethereum', 'arbitrum', 'optimism', 'polygon'] },
 ];
 
 // Same threshold the transaction X-ray uses — the two halves must agree.
 const UNLIMITED_MIN = 2n ** 128n;
 
-const IFACE = new ethers.Interface([
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function approve(address spender, uint256 amount) returns (bool)',
-]);
 
 // ── eth_call with per-chain URL rotation; test seam replaces the whole thing.
 async function defaultEthCall(chain, to, data) {
@@ -101,9 +101,15 @@ async function readAllowances(owner, chainKey) {
   for (const t of chain.tokens) {
     for (const s of spenders) {
       try {
-        const data = IFACE.encodeFunctionData('allowance', [owner, s.address]);
+        // abi_call, NOT ethers, for the reason the revoke plan below gives:
+        // production resolves `ethers` to a stub whose encodeFunctionData
+        // returns '0x'. The revoke calldata was moved off it and this read
+        // was not, so in production every eth_call asked the token nothing
+        // and every pair came back unreadable -- under a page that then
+        // printed an all-clear.
+        const data = encodeCall('allowance(address,address)', [owner, s.address]);
         const out = await ethCall(chain, t.address, data);
-        const amount = ethers.toBigInt(out);
+        const amount = BigInt(out);
         if (amount === 0n) { zero++; continue; }
         findings.push({
           token: t.symbol,

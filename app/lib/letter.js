@@ -716,9 +716,16 @@ const CHAT_RE = /\b(?:(?:this |last )?week'?s letter|weekly (?:agent )?letter|ag
  * (`GET /api/bot/sync/card/letter`). The operator agent's week, for every
  * reader; a week whose record could not be read says so inside the letter.
  */
+// THE PUBLIC LETTER, FOR EVERY CALLER. This card answers the web chat's
+// intercept and Telegram's /letter (through the card route), and neither knows
+// whether the caller is the operator. It used to serve the stored letter, which
+// is the operator's account in dollars, to anyone who typed "this week's
+// letter". The operator reads the private one on the dashboard panel, which
+// does know who is asking (`routes/letter.js`).
 async function letterChatCard() {
   try {
-    const { letter } = await getLetter(lastCompletedWeek());
+    const letter = await getPublicLetter(lastCompletedWeek().key);
+    if (!letter) throw new Error('no completed week');
     const secs = letter.sections.map(s => `<b>${esc(s.title)}</b><br>${s.html}`).join('<br><br>');
     return {
       reply_html: `📜 <b>The Agent Letter — ${esc(letter.week_key)}</b> `
