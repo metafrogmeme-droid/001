@@ -20,10 +20,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from bot.config import CONFIG
 from bot.core.live_executor import normalize_symbol
+from bot.core.order_state import read_amount
 from bot.utils.close_reason import stop_exit_label
 from bot.utils.logger import audit, trade_log, system_log
 from bot.utils.models import Direction
@@ -51,19 +52,62 @@ _POSITION_COUNT_TTL = 30.0  # seconds — refresh at most every 30s
 _PRODUCT_TYPE_PARAMS = {"productType": "USDT-FUTURES"}
 
 
-async def _fetch_exchange_positions(engine) -> list[dict[str, Any]]:
-    """Fetch all open futures positions from Bitget and return only those
-    with a non-zero contract count.
+class ExchangeBook(NamedTuple):
+    """The venue's position list, split by whether each row's size was READ.
+
+    ``rows`` hold a readable, non-zero size. ``unreadable`` hold rows whose
+    size could not be read at all: a missing, null or junk ``contracts``
+    field, or a row that is not a mapping.
+
+    THEY USED TO BE ONE FILTER, ``abs(float(p.get("contracts", 0) or 0)) >
+    0``, so a row the venue listed with no readable size simply disappeared:
+    the position count the risk engine's slot cap reads came up one short,
+    the orphan sweep never saw it, and nothing said so. And a size spelled as
+    text the parser could not read (``"n/a"``) RAISED out of the whole fetch,
+    so one bad row cost every good one: the count fell back to the local
+    book, which is the book the venue was being asked to correct. A measured
+    zero is still flat and is dropped; only a size nobody could read is kept
+    apart, because absent is not a measurement of zero.
+    """
+
+    rows: list[dict[str, Any]]
+    unreadable: list[dict[str, Any]]
+
+
+def _split_by_size(raw: Any) -> ExchangeBook:
+    """One reading of a venue position list: read, flat, or unreadable."""
+    rows: list[dict[str, Any]] = []
+    unreadable: list[dict[str, Any]] = []
+    for p in raw or []:
+        if not isinstance(p, dict):
+            unreadable.append({"symbol": "", "side": "", "raw": p})
+            continue
+        qty = read_amount(p, "contracts")
+        if qty is None:
+            unreadable.append(p)
+        elif abs(qty) > 0:
+            rows.append(p)
+    return ExchangeBook(rows, unreadable)
+
+
+def _row_label(p: dict[str, Any]) -> str:
+    """``SYMBOL side`` for an audit line, with a word where either is absent."""
+    sym = normalize_symbol(str(p.get("symbol") or "")) or "unknown symbol"
+    side = str(p.get("side") or "").lower() or "side unstated"
+    return f"{sym} {side}"
+
+
+async def _fetch_exchange_positions(engine) -> ExchangeBook:
+    """Fetch all open futures positions from Bitget, split into rows with a
+    readable non-zero size and rows whose size could not be read.
 
     For UTA accounts, ccxt's fetch_positions may not return all positions.
     Falls back to querying the v3 REST API directly and merging results.
     """
     exchange = await engine.live_executor._get_exchange()
     raw = await exchange.fetch_positions(params=_PRODUCT_TYPE_PARAMS)
-    ccxt_positions = [
-        p for p in raw
-        if abs(float(p.get("contracts", 0) or 0)) > 0
-    ]
+    book = _split_by_size(raw)
+    ccxt_positions = book.rows
 
     # UTA fallback: query v3 position endpoint directly to catch any
     # positions missed by ccxt (observed with some symbols like INTC).
@@ -74,15 +118,18 @@ async def _fetch_exchange_positions(engine) -> list[dict[str, Any]]:
                 _fetch_v3_positions_direct)
             if v3_positions:
                 # Merge: add any v3 positions not already in ccxt results
+                # An unreadable ccxt row still names its symbol and side, and
+                # the v3 row for it must not be counted a second time.
                 ccxt_syms = {
-                    (p.get("symbol", ""), (p.get("side", "")).lower())
-                    for p in ccxt_positions
+                    (p.get("symbol", ""), (p.get("side") or "").lower())
+                    for p in ccxt_positions + book.unreadable
                 }
                 added = 0
                 for v3p in v3_positions:
                     key = (v3p.get("symbol", ""), (v3p.get("side", "")).lower())
                     if key not in ccxt_syms:
-                        ccxt_positions.append(v3p)
+                        (ccxt_positions if v3p.get("contracts") is not None
+                         else book.unreadable).append(v3p)
                         added += 1
                 if added > 0:
                     audit(system_log,
@@ -91,7 +138,7 @@ async def _fetch_exchange_positions(engine) -> list[dict[str, Any]]:
         except Exception as exc:
             logger.debug("v3 position fallback failed: %s", exc)
 
-    return ccxt_positions
+    return book
 
 
 def _fetch_v3_positions_direct() -> list[dict[str, Any]]:
@@ -128,8 +175,15 @@ def _fetch_v3_positions_direct() -> list[dict[str, Any]]:
 
     positions = []
     for item in data_list:
-        qty = float(item.get("totalQty") or item.get("available") or 0)
-        if qty <= 0:
+        if not isinstance(item, dict):
+            continue
+        # The same reading as the ccxt rows: a size nobody could read is
+        # carried as None for `_fetch_exchange_positions` to count as
+        # unreadable, never dropped here as though it were flat.
+        qty = read_amount(item, "totalQty")
+        if qty is None:
+            qty = read_amount(item, "available")
+        if qty is not None and qty <= 0:
             continue
 
         # Convert Bitget raw symbol to ccxt format
@@ -333,34 +387,73 @@ async def _get_actual_close_price(
         "its exit price is unknown; the next sweep re-tries.", trade.asset)
     return None, "closed on the venue, exit price unreadable", "unpriced"
 
+#: Whether this process has said, once, that the live sync leaves the paper
+#: book alone. The sync runs every tick; one line is the fact, a line per tick
+#: is the noise that trains a reader to skip it.
+_live_paper_book_noted = False
+
+
 async def sync_portfolio_with_exchange(engine) -> list[str]:
     """Reconcile local state with the exchange.
 
-    1. Close ghost portfolio positions (exist locally but not on exchange).
+    1. Close ghost portfolio positions (exist locally but not on exchange) --
+       NOT in live mode; see below.
     2. Adopt orphaned exchange positions (exist on exchange but not locally).
 
     Returns a list of human-readable messages describing every action taken.
+
+    IN LIVE MODE THE PAPER BOOK IS NOT READ AT ALL. Both engine callers sit
+    under ``CONFIG.is_live()``, and in live mode ``engine.portfolio`` is not
+    the venue's mirror: no live fill writes it (``engine.py``: "Exchange is
+    single source of truth — no paper duplicate"), so what it holds is
+    whatever paper trading left there before the account went live. Phase 1
+    walked it anyway, found each of those positions "missing" from the venue,
+    and closed it at a venue price -- and `engine.portfolio._on_trade_close`
+    is `_on_trade_close_composite`, which feeds `self.risk.record_trade_result`:
+    the LIVE operator engine's loss streak, cooldown and breaker, moved by the
+    P&L of a paper position priced off the live ticker, at boot and on every
+    tick. Phase 2 read the same book for its tracked set, so a stale paper
+    ETH long made a real untracked ETH long on the venue read as tracked and
+    adoption was never asked. The live executor's book is the only local
+    record a live sweep compares against.
     """
+    global _live_paper_book_noted
     messages: list[str] = []
+    live = CONFIG.is_live()
 
     # ── Fetch exchange positions ─────────────────────────────────────
     try:
-        exchange_positions = await _fetch_exchange_positions(engine)
+        book = await _fetch_exchange_positions(engine)
     except Exception as exc:
         msg = f"Exchange sync aborted — failed to fetch positions: {exc}"
         audit(system_log, msg, action="exchange_sync", result="ERROR")
         return [msg]
+    exchange_positions = book.rows
 
+    # A row whose size could not be read may still hold a position, so its
+    # key counts as present: nothing local is closed against it.
     exchange_keys: set[tuple[str, str]] = set()
-    for ep in exchange_positions:
+    for ep in exchange_positions + book.unreadable:
         exchange_keys.add(_exchange_key(ep))
 
     audit(system_log,
-          f"Exchange sync: {len(exchange_positions)} open position(s) on exchange",
+          f"Exchange sync: {len(exchange_positions)} open position(s) on exchange"
+          + (f", {len(book.unreadable)} more listed with no readable size"
+             if book.unreadable else ""),
           action="exchange_sync", result="OK")
 
     # ── Phase 1: close ghost portfolio positions ─────────────────────
-    portfolio_positions: dict[str, Any] = dict(engine.portfolio._positions)
+    if live:
+        portfolio_positions: dict[str, Any] = {}
+        if not _live_paper_book_noted:
+            _live_paper_book_noted = True
+            audit(system_log,
+                  "Exchange sync in live mode: the paper book is not the venue's "
+                  "mirror, so it is neither ghost-closed nor read for tracked "
+                  "positions, and no paper P&L reaches the live risk engine",
+                  action="exchange_sync", result="PAPER_BOOK_LEFT_ALONE")
+    else:
+        portfolio_positions = dict(engine.portfolio._positions)
     exchange = await engine.live_executor._get_exchange()
 
     for trade_id, trade in portfolio_positions.items():
@@ -408,9 +501,12 @@ async def sync_portfolio_with_exchange(engine) -> list[str]:
     # Build set of keys tracked by EITHER portfolio or live_executor
     tracked_keys: set[tuple[str, str]] = set()
 
-    # Re-read portfolio after ghost cleanup (use thread-safe property)
-    for trade in engine.portfolio.open_positions:
-        tracked_keys.add(_portfolio_key(trade))
+    # Re-read portfolio after ghost cleanup (use thread-safe property). Not in
+    # live mode: a stale paper position is not a live position, and reading it
+    # as one hid a real orphan from adoption.
+    if not live:
+        for trade in engine.portfolio.open_positions:
+            tracked_keys.add(_portfolio_key(trade))
 
     # Live executor positions (open_positions is a list of LivePosition objects)
     if hasattr(engine.live_executor, "open_positions"):
@@ -432,6 +528,20 @@ async def sync_portfolio_with_exchange(engine) -> list[str]:
                   data={"symbol": key[0], "direction": key[1],
                         "contracts": ep.get("contracts")})
             messages.append(msg)
+
+    # A row the venue listed with no readable size is not adopted -- adoption
+    # needs a quantity -- and it used to vanish without a word. Named here, so
+    # "nothing to adopt" and "something we could not read" stay two sentences.
+    for ep in book.unreadable:
+        key = _exchange_key(ep)
+        if key in tracked_keys:
+            continue
+        msg = (f"Exchange lists {_row_label(ep)} with a size that could not be "
+               f"read — not adopted, and counted as held for the position cap")
+        audit(trade_log, msg, action="orphan_detect", result="UNREADABLE",
+              data={"symbol": key[0], "direction": key[1],
+                    "contracts": ep.get("contracts") if isinstance(ep, dict) else None})
+        messages.append(msg)
 
     if orphans_exist:
         try:
@@ -488,8 +598,17 @@ async def get_exchange_position_count(engine) -> int:
         return _position_count_cache["count"]
 
     try:
-        positions = await _fetch_exchange_positions(engine)
-        count = len(positions)
+        book = await _fetch_exchange_positions(engine)
+        # FAIL-CLOSED FOR THE CAP: a row listed with no readable size may hold
+        # a position, and this count decides whether another may be opened.
+        count = len(book.rows) + len(book.unreadable)
+        if book.unreadable:
+            audit(system_log,
+                  f"Position count: {len(book.unreadable)} row(s) listed with no "
+                  f"readable size ({', '.join(_row_label(p) for p in book.unreadable)}) "
+                  f"— counted as held",
+                  action="exchange_position_count", result="UNREADABLE_ROWS",
+                  data={"readable": len(book.rows), "unreadable": len(book.unreadable)})
         _position_count_cache["count"] = count
         _position_count_cache["timestamp"] = now
         return count
@@ -509,6 +628,15 @@ async def get_exchange_position_count(engine) -> int:
 
 
 def invalidate_position_count_cache():
-    """Call after opening/closing a position to force a fresh exchange query."""
+    """Call after opening/closing a position to force a fresh exchange query.
+
+    None, the module's own "never fetched" spelling. 0.0 is a TIME, and the
+    freshness test compares it to ``time.monotonic()``, whose zero point is
+    arbitrary: on a host up less than the 30s TTL, ``now - 0.0`` is under it,
+    so the invalidated count read as fresh and the count from before the
+    position opened was served -- the trap the header comment above records
+    for the seeded cache, left standing in the one function that writes it
+    afterwards.
+    """
     global _position_count_cache
-    _position_count_cache["timestamp"] = 0.0
+    _position_count_cache["timestamp"] = None
