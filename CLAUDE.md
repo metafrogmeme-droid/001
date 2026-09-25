@@ -10333,6 +10333,15 @@ survived the first round were fixtures (a catalogue the follow had just cached
 is readable, and no test followed a community strategy while the stream was
 down). (`app/test/copy_picks_say_what_they_could_not_read.test.js`.)
 
+**The Hall of Champions was the `LIMIT 1` defect one route over.**
+`pickCurrentSeason`'s docstring records that `SELECT ... FROM arena_seasons
+LIMIT 1` with no `ORDER BY` names whichever season the database returns
+first. The public hall, which lists every ended season, read the same table
+with no `ORDER BY` and took `.slice(0, 12)`, so its order was the storage
+engine's and a thirteenth season would drop an arbitrary one in silence. It
+lists the most recently ended first now, and says when it is showing twelve of
+more. (`app/test/arena_seasons.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

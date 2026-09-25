@@ -241,3 +241,24 @@ test('an empty board reports WHY: closes counted separately from ranked entries'
   assert.ok(s.data.ranked_total <= s.data.closes_in_window);
   assert.ok(!/balance|equity|email/i.test(JSON.stringify(s.data)), '§4');
 });
+
+test('the Hall lists the most recently ended seasons first, and says when it is capped', async () => {
+  const day = 86400000;
+  // Thirteen more ended seasons, inserted OLDEST LAST so insertion order and
+  // recency disagree: a hall that kept the database's order would show them
+  // backwards, and a cap that took the first twelve would drop the newest.
+  for (let i = 0; i < 13; i += 1) {
+    await pool.execute(
+      'INSERT INTO arena_seasons (name, starts_at, ends_at, created_at) VALUES (?, ?, ?, ?)',
+      [`Cup ${i}`, new Date(Date.now() - (40 + i) * day), new Date(Date.now() - (30 + i) * day),
+       new Date()]);
+  }
+  const h = await req('GET', '/api/arena/seasons');
+  const ends = h.data.seasons.map((s) => new Date(s.ends_at).getTime());
+  assert.deepEqual(ends, ends.slice().sort((a, b) => b - a), 'newest first');
+  assert.equal(h.data.seasons.length, 12);
+  assert.ok(h.data.total_ended > 12, 'the cap is said, not silent');
+  assert.equal(h.data.seasons[0].name, 'Closed Cup', 'the most recently ended season is kept');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'arena.html'), 'utf8');
+  assert.match(html, /most recent of/);
+});
