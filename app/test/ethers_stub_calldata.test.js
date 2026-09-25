@@ -209,3 +209,24 @@ test('a hashing failure yields no hash and no calldata, never a placeholder', ()
     assert.equal(require.cache[path].exports.keccak256Utf8, real);
   }
 });
+
+// ── the allowance READ ───────────────────────────────────────────────────────
+
+test('the allowance READ is real calldata under the production stub', async () => {
+  // The revoke plan was moved off ethers and the read beside it was not, so in
+  // production every eth_call sent '0x', every pair came back unreadable, and
+  // the page printed an all-clear over a wallet nobody had read.
+  const owner = '0x' + '12'.repeat(20);
+  const sent = [];
+  allow.setEthCaller(async (_c, _to, data) => { sent.push(data); return '0x' + '0'.repeat(64); });
+  try {
+    const r = await allow.readAllowances(owner, 'ethereum');
+    assert.equal(r.unreadable_pairs, 0, 'the stub still decides the read');
+    assert.ok(r.zero_pairs > 0);
+  } finally { allow.setEthCaller(null); }
+  assert.ok(sent.length > 0);
+  for (const d of sent) {
+    assert.notEqual(d, '0x', 'an allowance read asked the token nothing');
+    assert.match(d, /^0xdd62ed3e[0-9a-f]{128}$/i);
+  }
+});

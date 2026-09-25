@@ -123,7 +123,7 @@ test('the route identifies the caller and redacts on EVERY return path', () => {
   const end = syncSrc.indexOf('// Auth middleware for bot sync', start);
   const handler = syncSrc.slice(start, end);
   const returns = (handler.match(/res\.json\(\{\s*portfolio:/g) || []).length;
-  const redacted = (handler.match(/summaryFor\(req,/g) || []).length;
+  const redacted = (handler.match(/summaryFor\(operator,/g) || []).length;
   const nulls = (handler.match(/res\.json\(\{ portfolio: null \}\)/g) || []).length;
   assert.ok(returns >= 4, `expected 4+ portfolio responses, found ${returns}`);
   assert.equal(redacted + nulls, returns,
@@ -190,9 +190,9 @@ test('the anonymous scan keeps the market and loses the account', () => {
   assert.equal(anon.symbols.BTCUSDT.price, 63500, 'the market payload was scrubbed away');
   assert.equal(anon.symbols.ETHUSDT.price, 3000);
   assert.equal(anon.key_call, SCAN.key_call, 'a public price was blanked as if it were an account figure');
-  assert.match(anon.disclosure, /equity and dollar P&L are removed/i);
+  assert.match(anon.disclosure, /shown to the operator only/i);
 
-  const authed = scanFor({ user: { user_id: 1 } }, SCAN);
+  const authed = scanFor(true, SCAN);
   assert.equal(authed.circuit_breaker.equity, 141.22, 'the operator lost their own equity');
   assert.equal(authed.disclosure, undefined);
   assert.equal(authed, SCAN, 'the authed path must not copy — it is the hot path');
@@ -213,7 +213,7 @@ test('THE REAL summaryFor redacts for anonymous and not for authed', () => {
   // `req.user ? s : scrub(s)` inline and passed with summaryFor reverted to
   // returning the raw summary — it proved my arithmetic, not the code's.
   const { summaryFor } = require('../routes/sync');
-  const authed = summaryFor({ user: { user_id: 1 } }, SUMMARY);
+  const authed = summaryFor(true, SUMMARY);
   assert.equal(authed.equity, 10432.55, 'the authed view lost its equity');
   assert.equal(authed.net_pnl, 812.4);
   assert.equal(authed.disclosure, undefined, 'no anonymous disclosure on an authed response');

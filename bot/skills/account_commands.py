@@ -848,10 +848,18 @@ class AccountCommands:
             # operator account (which is what a linked user would otherwise see as
             # $0.00). Viewing your own balance is read-only, so this works
             # regardless of PER_USER_LIVE_ENABLED (that flag gates order
-            # placement, not balance viewing). Falls back to the operator
-            # executor when the caller has no linked account.
+            # placement, not balance viewing). A caller the resolver cannot
+            # put on an account gets None (see `balance_view_executor`), which
+            # is said rather than shown as somebody else's account.
             tg_id = self._get_tg_id(update)
             balance_exec = self.engine.balance_view_executor(tg_id)
+            if balance_exec is None:
+                from bot.skills.chat_runtime import (
+                    live_account_absence,
+                    no_live_account_line,
+                )
+                await self._send(update, no_live_account_line(live_account_absence(tg_id)))
+                return
             is_operator_view = balance_exec is self.engine.live_executor
             bal = await balance_exec.fetch_balance()
             # LIVE FIX: update engine's cached balance so /status shows fresh data

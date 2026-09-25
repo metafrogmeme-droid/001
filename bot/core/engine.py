@@ -865,11 +865,18 @@ class RuneClawEngine:
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
+        # The ids in `_pending_ideas` the ENGINE's own scan put there. The dict
+        # is shared with every person's ticket, card and analysis, and nothing
+        # said whose an entry was: so one stranger's pending ticket paused the
+        # autonomous scan for every account, the tick's dedup replaced a
+        # person's ticket with the engine's idea for the same asset, and
+        # /forcescan destroyed every person's pending Confirm. See
+        # `_register_engine_idea`.
+        self._engine_idea_ids: set[str] = set()
         # Per-symbol entry lock: serializes confirm_trade for the same symbol so
         # two overlapping auto-confirm cycles can't each pass the (analysis-time)
         # duplicate guard and place two orders for one setup (TOCTOU).
         self._symbol_entry_locks: dict[str, "asyncio.Lock"] = {}
-        self._last_confirmed_idea: Optional[TradeIdea] = None
         self._pending_atr: dict[str, Optional[float]] = {}  # H1: store ATR for re-check
         # Entry-timing (auto path): per-idea (allowed, reason) verdict from the
         # sub-degree confirmation gate, computed at analyze-time on the idea's own
@@ -2270,6 +2277,17 @@ class RuneClawEngine:
         credentials, falls back to the operator executor so behaviour never
         silently breaks — eligibility enforcement is a Phase 5 access-policy
         concern layered on top, not here.
+
+        A NAMED ``venue`` IS THE VENUE, and it never falls back. This used to
+        overwrite its own ``venue`` argument with the user's stored active
+        venue before reading it, so every caller that asked for a particular
+        venue — the multi-venue router's per-venue margin read and the
+        executor it then routes the order to, and ``/venues``' open-position
+        check — got the active venue's executor whatever it named. And when
+        the user's ACTIVE keys were unusable it returned the OPERATOR's
+        executor for a request naming another venue, which is an order routed
+        to the operator's account. With a venue named, this answers that
+        venue's executor or None; only the unnamed ask keeps the fallback.
         """
         if not getattr(CONFIG, "per_user_live_enabled", False):
             return self.live_executor
@@ -2277,17 +2295,36 @@ class RuneClawEngine:
         # account, not an individual user's.
         if not user_id or user_id in ("auto", ""):
             return self.live_executor
+        from bot.core.venue_key import is_split, normalize_venue
+        requested = str(venue or "").strip()
+        active = "bitget"
         try:
             from bot.core.exchange_credentials import get_credential_store
             _store = get_credential_store()
-            creds = _store.get(user_id)
-            venue = getattr(_store, "get_venue", lambda _u: "bitget")(user_id)
+            active = getattr(_store, "get_venue", lambda _u: "bitget")(user_id)
+            if requested:
+                venue = normalize_venue(requested)
+                if not venue:
+                    logger.warning("Per-user executor: %r is not a venue this bot "
+                                   "trades — no executor for %s", requested, user_id)
+                    return None
+                creds = _store.get_for_venue(user_id, venue)
+            else:
+                creds = _store.get(user_id)
+                venue = active
         except Exception as exc:
+            if requested:
+                logger.warning("Per-user executor: %s credentials for %s could not "
+                               "be read (%s) — no executor, and never the operator's",
+                               requested, user_id, exc)
+                return None
             logger.warning("Per-user executor: credential lookup failed for %s: %s "
                            "— using operator executor", user_id, exc)
             creds = None
             venue = "bitget"
         if not creds:
+            if requested:
+                return None
             return self.live_executor
         # MULTI-VENUE, Phase 4 (SHADOW). Record where this order WOULD go if
         # the user's venue selection were being routed on, without changing
@@ -2328,7 +2365,7 @@ class RuneClawEngine:
             _rv = str(venue).strip().lower() if is_split(venue) else ""
         except Exception:
             _rv = ""
-        if _rv:
+        if _rv and not requested:
             creds_v = None
             try:
                 creds_v = _store.get_for_venue(user_id, _rv)
@@ -2348,7 +2385,23 @@ class RuneClawEngine:
         # or switched venue). Full-dict compare is venue-agnostic — Hyperliquid
         # records have no api_key.
         if ex is None or (ex._credentials or {}) != creds:
-            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue)
+            from bot.core.venue_key import executor_state_dir
+            _reader = bool(getattr(self, "_state_persistence_detached", False))
+            # ONE USER, ONE VENUE, ONE BOOK. A split venue's executor keeps its
+            # positions and closed trades under data/venue/{venue}/; before
+            # this, every venue's executor for a user wrote the SAME two files
+            # and the second venue's first save erased the first venue's book.
+            # The pre-split file is the ACTIVE venue's (the only executor that
+            # ever built without a venue named), so it moves there — before
+            # ANY executor for this user is built, whichever venue is asked
+            # for, or the default venue's executor would load it first and
+            # manage another exchange's positions. A reader moves nothing.
+            if not _reader and is_split(active):
+                self._move_legacy_executor_book(user_id, normalize_venue(active))
+            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
+                              state_dir=executor_state_dir(venue))
+            if not _reader:
+                ex.claim_loaded_rows()
             # Capture this user's id in the callback (default-arg avoids the
             # late-binding closure trap) so a per-user live close feeds THAT
             # user's risk engine, not the operator's (audit C1).
@@ -2376,6 +2429,28 @@ class RuneClawEngine:
                   action="per_user_executor", result="BOUND", data={"user": key})
         return ex
 
+    def _move_legacy_executor_book(self, user_id: str, venue: str) -> None:
+        """Move ``user_id``'s pre-split executor book to ``venue``'s directory.
+
+        Best-effort and audited: a move that fails leaves the files where they
+        were, which is the state every build before this one ran on.
+        """
+        from bot.core.live_executor import move_legacy_user_book
+        from bot.core.venue_key import executor_state_dir
+        try:
+            moved = move_legacy_user_book(user_id, executor_state_dir(venue))
+        except Exception as exc:
+            logger.warning("Legacy executor book for %s not moved to %s: %s",
+                           user_id, venue, exc)
+            return
+        if moved:
+            audit(system_log,
+                  f"Moved user {user_id}'s pre-split live book to {venue}: it was "
+                  f"written before the venue was part of the path, by the "
+                  f"executor for their active venue",
+                  action="per_user_executor", result="BOOK_MOVED",
+                  data={"user": str(user_id), "venue": venue, "files": moved})
+
     def balance_view_executor(self, user_id: str = ""):
         """Return the LiveExecutor for a READ-ONLY balance view of the caller's
         OWN account (used by /livebalance).
@@ -2388,8 +2463,18 @@ class RuneClawEngine:
 
           - caller has decryptable linked (/connect) credentials -> a per-user
             executor bound to THEIR account (their explicit choice to link it);
-          - otherwise -> the shared operator executor (unchanged behaviour for
-            the operator/admin, who view the global CONFIG.exchange account).
+          - the OPERATOR otherwise -> the shared operator executor (the global
+            CONFIG.exchange account, which is theirs);
+          - with per-user live OFF, a caller who never linked -> the shared
+            operator executor too: one shared account is what single-account
+            mode is, and `viewer_executor` shows every card that book;
+          - anybody else -> None. This was the operator's executor for every
+            caller without readable keys, so under per-user live a viewer's
+            /livebalance printed the operator's balance, positions and realized
+            P&L in dollars as their own, and in either mode a linked user whose
+            keys stopped decrypting (or whose store could not be asked) was
+            shown the operator's account under "your balance". The card reads
+            `live_account_absence` for None.
 
         These view-only executors are cached in a dedicated dict, NOT in
         _user_executors, so they are never picked up by all_executors() (the
@@ -2398,24 +2483,43 @@ class RuneClawEngine:
         """
         if not user_id or user_id in ("auto", ""):
             return self.live_executor
+        operator = self._is_operator_user(user_id)
+        shared = not getattr(CONFIG, "per_user_live_enabled", False)
         try:
             from bot.core.exchange_credentials import get_credential_store
             _store = get_credential_store()
             creds = _store.get(str(user_id))
             venue = getattr(_store, "get_venue", lambda _u: "bitget")(str(user_id))
+            _state = getattr(_store, "credential_state", None)
+            state = (_state(str(user_id)) if callable(_state)
+                     else ("readable" if creds else "absent"))
         except Exception as exc:
             logger.warning("balance_view_executor: credential lookup failed for "
-                           "%s: %s — using operator executor", user_id, exc)
-            creds = None
-            venue = "bitget"
+                           "%s: %s", user_id, type(exc).__name__)
+            creds, venue, state = None, "bitget", "unresolved"
+        # The shared account is the operator's, and in single-account mode the
+        # book of anybody who never linked. Keys that will not decrypt, and a
+        # store nobody could ask, are neither: that person may have an account
+        # of their own, and showing them somebody else's as theirs is the one
+        # answer that cannot be right.
+        fallback = (self.live_executor
+                    if operator or (shared and state == "absent") else None)
         if not creds:
-            return self.live_executor
+            return fallback
         key = str(user_id)
         ex = self._balance_view_executors.get(key)
         # Rebuild if absent or the user's credentials changed (venue-agnostic
         # full-dict compare — Hyperliquid records have no api_key).
         if ex is None or (ex._credentials or {}) != creds:
-            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue)
+            # The venue's own book, as the trading executor keeps it. A view
+            # moves and claims nothing: it is a reader of that book.
+            from bot.core.venue_key import executor_state_dir
+            try:
+                _state_dir = executor_state_dir(venue)
+            except ValueError:
+                return fallback
+            ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
+                              state_dir=_state_dir)
             # Share the operator WS feed (market data is not per-user). No
             # on_position_closed / risk wiring: this executor never trades.
             ex._ws_feed = self.ws_feed
@@ -3127,6 +3231,7 @@ class RuneClawEngine:
             except Exception as exc:
                 failed += 1
                 logger.warning("Rehydrate executor for %s failed: %s", uid, exc)
+        unmonitored = self._rehydrate_other_venue_books(ids)
         # A NUMERATOR WITH NO DENOMINATOR, AND SILENCE ON THE WORST OUTCOME.
         #
         # This reported "Rehydrated N executor(s)" and nothing else — so N of
@@ -3137,7 +3242,19 @@ class RuneClawEngine:
         # looks exactly like a bot with no linked users, while their persisted
         # LIVE positions sit unmonitored — nothing re-arms their stops and
         # nothing closes them.
-        built = len(self._user_executors)
+        # USERS, not executors: one user can hold a book on two venues now, and
+        # "3 of 2" is a numerator over the wrong denominator.
+        built = sum(1 for uid in ids
+                    if any(k == str(uid) or k.endswith(f"/{uid}")
+                           for k in self._user_executors))
+        if unmonitored:
+            audit(system_log,
+                  f"{len(unmonitored)} saved live book(s) on a venue that is not "
+                  f"the user's active one could not be rebuilt at startup — those "
+                  f"positions are NOT being monitored: "
+                  f"{', '.join(unmonitored)}",
+                  action="per_user_rehydrate", result="WARNING",
+                  level=logging.WARNING)
         if failed:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup — "
@@ -3149,6 +3266,48 @@ class RuneClawEngine:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
+
+    def _rehydrate_other_venue_books(self, ids) -> list:
+        """Build the executor for every NON-active venue that holds a saved book.
+
+        ``_executor_for(uid)`` rebuilds the active venue's executor, and before
+        the venue was part of the executor's path that was the only book there
+        was. A user trading two venues keeps two books now, and the one that
+        is not active would otherwise wait for the next order routed there
+        before anything monitored its open positions. Returns ``venue/user``
+        for each saved book whose executor could not be built.
+        """
+        from bot.core.live_executor import saved_book_holds_positions
+        from bot.core.venue_key import executor_state_dir, normalize_venue
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            store = get_credential_store()
+            list_venues = store.list_venues
+            get_venue = store.get_venue
+        except Exception:
+            return []
+        unmonitored: list = []
+        for uid in ids:
+            try:
+                active = normalize_venue(get_venue(uid))
+                venues = [normalize_venue(v) for v in list_venues(uid)]
+            except Exception as exc:
+                logger.warning("Rehydrate: venues for %s could not be listed: %s",
+                               uid, exc)
+                continue
+            for v in venues:
+                if not v or v == active:
+                    continue
+                try:
+                    if not saved_book_holds_positions(uid, executor_state_dir(v)):
+                        continue
+                    if self._executor_for(uid, v) is None:
+                        unmonitored.append(f"{v}/{uid}")
+                except Exception as exc:
+                    logger.warning("Rehydrate executor for %s on %s failed: %s",
+                                   uid, v, exc)
+                    unmonitored.append(f"{v}/{uid}")
+        return unmonitored
 
     def get_effective_equity(self, user_id: str = "") -> Optional[float]:
         """The equity figure to display, or None when it could not be read.
@@ -5312,13 +5471,19 @@ class RuneClawEngine:
                     data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
                 )
 
-        # C2-26 FIX: Skip scanning when ideas are awaiting confirmation.
-        # A concurrent confirm_trade call while mid-scan creates a race on
-        # shared _pending_ideas state.
-        if self._pending_ideas:
+        # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
+        # confirmation. A concurrent confirm_trade call while mid-scan creates
+        # a race on shared _pending_ideas state.
+        #
+        # The engine's own, not any entry: the dict also holds every person's
+        # ticket, card and analysis, and a skip on "anything pending" let one
+        # stranger's /trade or "analyze BTC" pause the autonomous scan and
+        # auto-confirm for every account, for as long as they kept one there.
+        _engine_pending = self._engine_pending_ids()
+        if _engine_pending:
             system_log.debug(
-                "Skipping scan tick — %d ideas awaiting confirmation",
-                len(self._pending_ideas),
+                "Skipping scan tick — %d engine idea(s) awaiting confirmation",
+                len(_engine_pending),
             )
             self._transition(AgentState.MONITORING, "checking positions (scan skipped, pending confirms)")
             await self._phase(self._check_open_positions(), "positions (pending confirms)")
@@ -5472,18 +5637,9 @@ class RuneClawEngine:
                           data={"asset": idea.asset, "confidence": idea.confidence,
                                 "threshold": CONFIG.risk.min_confidence})
                     continue
-                # Dedup: if an idea for the same asset already exists, replace it
-                existing_id = None
-                idea_key = normalize_symbol(idea.asset)
-                for eid, eidea in list(self._pending_ideas.items()):
-                    if normalize_symbol(eidea.asset) == idea_key:
-                        existing_id = eid
-                        break
-                if existing_id:
-                    self._pending_ideas.pop(existing_id)
-                    self._pending_atr.pop(existing_id, None)
-                    self._pending_pyramid.pop(existing_id, None)  # C2-31 FIX: clean stale pyramid flag
-                self._pending_ideas[idea.id] = idea
+                # Replaces the engine's pending idea for the same asset, and
+                # never a person's ticket (`_register_engine_idea`).
+                self._register_engine_idea(idea)
                 _synced_ideas.append(idea)
 
         # Push these real, engine-generated signals to the website's signal
@@ -7232,9 +7388,6 @@ class RuneClawEngine:
                           data={"trade_id": trade_id, "strategy": _skey})
                     return f"\U0001f6e1 {_g.get('reason', 'Refused by your chosen strategy.')}"
 
-        # Store for marketing forwarder access
-        self._last_confirmed_idea = idea
-
         # H1 fix: re-check with stored ATR so volatility guard runs
         stored_atr = self._pending_atr.get(trade_id, None)
 
@@ -8123,12 +8276,18 @@ class RuneClawEngine:
         """
         audit(system_log, "Force scan triggered", action="force_scan", result="START")
 
-        # Clear gates that would block a normal tick
-        old_pending = len(self._pending_ideas)
-        self._pending_ideas.clear()
-        self._pending_atr.clear()
-        self._pending_timing.clear()
-        self._pending_pyramid.clear()
+        # Clear gates that would block a normal tick: the ENGINE's pending
+        # ideas. This cleared the whole dict, so an operator pressing
+        # /forcescan destroyed every person's pending ticket and card, and
+        # each of their Confirm buttons then answered "not found".
+        _engine_ids = self._engine_pending_ids()
+        old_pending = len(_engine_ids)
+        for _eid in _engine_ids:
+            self._pending_ideas.pop(_eid, None)
+            self._pending_atr.pop(_eid, None)
+            self._pending_timing.pop(_eid, None)
+            self._pending_pyramid.pop(_eid, None)
+        self._engine_idea_ids.clear()
         self._cooldown_until = 0.0
 
         # Run scan
@@ -8157,13 +8316,7 @@ class RuneClawEngine:
         ideas_found = 0
         for idea in results:
             if idea and clears_confidence_floor(idea):
-                idea_key = normalize_symbol(idea.asset)
-                for eid, eidea in list(self._pending_ideas.items()):
-                    if normalize_symbol(eidea.asset) == idea_key:
-                        self._pending_ideas.pop(eid)
-                        self._pending_atr.pop(eid, None)
-                        break
-                self._pending_ideas[idea.id] = idea
+                self._register_engine_idea(idea)
                 ideas_found += 1
 
         # Auto-confirm high-confidence ideas (same as normal tick)
@@ -8171,7 +8324,11 @@ class RuneClawEngine:
         auto_threshold = RUNTIME.auto_confirm_threshold
         auto_confirmed = 0
         _disabled = auto_confirm_is_disabled(auto_threshold)
+        _force_engine_ids = self._engine_pending_ids()
         for tid, tidea in list(self._pending_ideas.items()):
+            # The engine's own ideas only, as on the tick path.
+            if tid not in _force_engine_ids:
+                continue
             # Same sentinel as the tick path. Two gates, one meaning.
             if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
                 # ...and the same reading, for the same reason: a stamp is not
@@ -8291,8 +8448,15 @@ class RuneClawEngine:
                 prices = {}
 
             from bot.core.time_exits import r_multiple_now, thesis_recorded
+            _awaiting = getattr(executor, "awaiting_reconcile", None)
             for pos in list(getattr(executor, "_positions", {}).values()):
                 if getattr(pos, "status", "") != "open":
+                    continue
+                # A row whose true state waits on reconcile (reset from
+                # "closing", or read from the backup) is not closed on local
+                # evidence here either: the executor's own stop/target check
+                # already defers it, and a smart exit is the same close order.
+                if callable(_awaiting) and _awaiting(pos.trade_id):
                     continue
                 # A position adopted with no recorded strategy carries the
                 # dataclass defaults, and the rules below are keyed on them:
@@ -8412,6 +8576,36 @@ class RuneClawEngine:
         except Exception as exc:
             system_log.debug("Live smart-exit evaluation failed: %s", exc)
 
+    def _register_engine_idea(self, idea: TradeIdea) -> None:
+        """Put one of the ENGINE's own scan ideas into the pending book.
+
+        It replaces the engine's pending idea for the same asset, and nobody
+        else's: a person's ticket or analysis for that asset is theirs, and
+        the dedup used to pop whatever entry matched, so a trader's Confirm
+        answered "not found" because the engine had scanned the same coin.
+        """
+        key = normalize_symbol(idea.asset)
+        for eid in list(self._engine_pending_ids()):
+            existing = self._pending_ideas.get(eid)
+            if existing is not None and normalize_symbol(existing.asset) == key:
+                self._pending_ideas.pop(eid, None)
+                self._pending_atr.pop(eid, None)
+                self._pending_pyramid.pop(eid, None)  # C2-31: no stale pyramid flag
+                self._engine_idea_ids.discard(eid)
+                break
+        self._pending_ideas[idea.id] = idea
+        self._engine_idea_ids.add(idea.id)
+
+    def _engine_pending_ids(self) -> set:
+        """The engine's own ideas still pending. Pruned here, because an idea
+        leaves the book by many doors (a confirm, a skip, the TTL sweep) and
+        none of them need to know this set exists."""
+        ids = getattr(self, "_engine_idea_ids", None)
+        if ids is None:
+            return set()
+        ids.intersection_update(self._pending_ideas)
+        return set(ids)
+
     def _auto_confirm_batch(self, auto_threshold: float) -> list:
         """The (trade_id, idea) pairs this tick may auto-confirm.
 
@@ -8437,26 +8631,32 @@ class RuneClawEngine:
         "auto"`) and the `is_manual` reduced-checks concession applied -- a
         concession made BECAUSE a human is looking at the card.
 
-        NOT "on the next tick", which is the tempting misreading and is
-        wrong: `_tick` returns early while anything is pending (C2-26, the
-        `if self._pending_ideas:` skip above), and `_force_scan_locked`
-        CLEARS the dict before it scans. A ticket that is merely sitting
-        there blocks the tick or is destroyed by the button. What reaches
-        this loop is a ticket registered DURING a cycle's scan/analyze
-        window -- `register_manual_idea` takes no lock, and that window is
-        bounded by the scan sweep plus a 300s analyze cap, so it is minutes
-        wide against a user action that takes seconds to type. A guard whose
-        fixture plants the ticket before the cycle starts never reaches this
-        branch, which is why the one in `tests/` registers it from inside
-        the analyze await. `.env.example` says in as many words that "a
-        regular user's trade is NEVER auto-confirmed" and
-        `chat_runtime`'s door rule tells the model that "`register_manual_idea`
-        places nothing"; this is what makes both sentences true.
+        IT WAS A RACE AND IS NOW THE ORDINARY CASE. `_tick` used to return
+        early while ANYTHING was pending (C2-26) and `_force_scan_locked`
+        cleared the whole dict, so a ticket merely sitting there blocked the
+        tick for every account or was destroyed by the button, and only one
+        registered DURING a cycle's scan/analyze window reached this loop.
+        Both now read only the engine's own ideas (`_engine_pending_ids`), so
+        a person's ticket, card and analysis sits beside a running tick on
+        every pass -- which is why this selection reads ownership FIRST: a
+        person's /scan idea carries a measured confidence, passes the stamp
+        reading, and would otherwise be executed under `user_id="auto"` on
+        the operator account the first tick after it was shown with a
+        Confirm button. `.env.example` says in as many words that "a regular
+        user's trade is NEVER auto-confirmed" and `chat_runtime`'s door rule
+        tells the model that "`register_manual_idea` places nothing"; this
+        is what makes both sentences true.
         """
         if auto_confirm_is_disabled(auto_threshold):
             return []
+        # The engine's OWN ideas only. A person's ticket, card or analysis is
+        # theirs to confirm, whatever its confidence reads -- and executing it
+        # here would place it under `user_id="auto"` on the operator account.
+        # `_auto_confirm_suppressed` stays as the reading of the idea itself.
+        engine_ids = self._engine_pending_ids()
         return [(tid, tidea) for tid, tidea in list(self._pending_ideas.items())
-                if self._auto_confirm_gate_value(tidea) >= auto_threshold
+                if tid in engine_ids
+                and self._auto_confirm_gate_value(tidea) >= auto_threshold
                 and not self._auto_confirm_suppressed(tid, tidea)]
 
     def _auto_confirm_suppressed(self, trade_id: str, idea) -> bool:

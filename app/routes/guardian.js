@@ -26,24 +26,39 @@
  * The endpoint stays reachable anonymously, because it must: dashboard.js
  * fetches both /flight and /incidents with `auth: false`. What changes is WHAT
  * an anonymous caller gets — the same §4-safe, percent/ratio-only view the
- * public route serves. A logged-in caller still gets the dollars, which is what
- * public_flight.js said all along.
+ * public route serves. The OPERATOR still gets the dollars; a signed-in caller
+ * who is not the operator gets the public view too, because registration is
+ * open and the chain is engine-wide -- every account's sealed sizes and
+ * outcomes are on it (`lib/operator_view.js`).
  */
 
 const express = require('express');
 const { optionalAuth } = require('../auth');
 const { getLatestFlight } = require('./sync');
 const { inspectWindow, sanitizeRecord } = require('../lib/flight');
+const { isOperator } = require('../lib/operator_view');
 
 const router = express.Router();
 // Identifies, never refuses — see optionalAuth in auth.js.
 router.use(optionalAuth);
 
 /**
- * Redact for anonymous callers. One helper, used by every handler in this file,
- * so a new endpoint here cannot forget it in the way this whole router did.
+ * Redact for everyone but the OPERATOR. One helper, used by every handler in
+ * this file, so a new endpoint here cannot forget it in the way this whole
+ * router did.
+ *
+ * It used to redact for ANONYMOUS callers only, so any free signup read every
+ * sealed record in dollars -- and the chain is engine-wide: the engine seals
+ * `size_usd` for every confirm and the OUTCOME `pnl_usd` for every live close,
+ * per-user accounts included. Signed in is not the operator
+ * (`lib/operator_view.js`).
  */
-const publicSafe = (req, value) => (req.user ? value : sanitizeRecord(value));
+const publicSafe = (operator, value) => (operator === true ? value : sanitizeRecord(value));
+
+/** What a redacted view says about itself. True for an anonymous caller and a
+ * signed-in one alike, so it names no door neither of them can open. */
+const WITHHELD = 'Public view — percent/ratio only, no dollar amounts. Dollar '
+  + 'figures are shown to the operator only.';
 
 /**
  * GET /api/guardian/flight?limit=50
@@ -77,18 +92,18 @@ router.get('/flight', async (req, res) => {
     if (!Number.isFinite(limit) || limit < 1) limit = 50;
     limit = Math.min(limit, 200);
     const records = flight.records.slice(0, limit);
+    const operator = await isOperator(req);
     res.json({
-      records: records.map((r) => publicSafe(req, r)),
+      records: records.map((r) => publicSafe(operator, r)),
       chain: flight.chain || {},
-      policy: publicSafe(req, flight.policy || null),
+      policy: publicSafe(operator, flight.policy || null),
       guardian_status: flight.guardian_status || null,
       // The window check runs over the UNREDACTED records: it verifies hash
       // chaining and sequence, which the scrubber does not touch, and deriving
       // it from the redacted copy would only make it weaker.
       window: inspectWindow(records),
       updated_at: flight.updated_at || null,
-      disclosure: req.user ? undefined
-        : 'Anonymous view — percent/ratio only, no dollar amounts. Sign in for the full record.',
+      disclosure: operator ? undefined : WITHHELD,
     });
   } catch (err) {
     console.error('Guardian flight error:', err.stack || err.message);
@@ -106,11 +121,11 @@ router.get('/flight/:decisionId', async (req, res) => {
     const records = (flight && Array.isArray(flight.records)) ? flight.records : [];
     const rec = records.find((r) => r && r.decision_id === req.params.decisionId);
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
+    const operator = await isOperator(req);
     res.json({
-      record: publicSafe(req, rec),
+      record: publicSafe(operator, rec),
       chain: (flight && flight.chain) || {},
-      disclosure: req.user ? undefined
-        : 'Anonymous view — percent/ratio only, no dollar amounts. Sign in for the full record.',
+      disclosure: operator ? undefined : WITHHELD,
     });
   } catch (err) {
     console.error('Guardian flight-by-id error:', err.stack || err.message);
@@ -169,6 +184,7 @@ router.get('/incidents', async (req, res) => {
     incidents = incidents.slice(0, limit);
     const tally = { block: 0, recovery: 0, flag: 0 };
     for (const i of incidents) { if (i && tally[i.kind] !== undefined) tally[i.kind]++; }
+    const operator = await isOperator(req);
 
     res.json({
       read_only: true,
@@ -177,7 +193,7 @@ router.get('/incidents', async (req, res) => {
       // unscrubbed from the bot, and the derived fallback copies `risk.reason`
       // and `checks_failed[0]` verbatim — risk reasons routinely name a dollar
       // cap. The promise is now kept by the scrubber rather than by intent.
-      incidents: incidents.map((i) => publicSafe(req, i)),
+      incidents: incidents.map((i) => publicSafe(operator, i)),
       counts: tally,
       derived,                          // true = fallback (rejections only)
       guardian_status: (flight && flight.guardian_status) || null,

@@ -376,12 +376,13 @@ def test_the_rule_descends_into_a_nested_def():
 async def test_a_re_offer_registered_mid_scan_is_not_auto_confirmed():
     """The same race #422 established, with the drift offer in the window.
 
-    `_tick` returns early while anything is pending (the C2-26 skip) and
-    `_force_scan_locked` CLEARS the dict before it scans, so an offer merely
-    SITTING there is destroyed rather than executed. What reaches this loop is
-    one registered DURING the scan -- which is exactly what the callback does:
-    `_cmd_confirm`'s drift retry writes into `_pending_ideas` and takes no
-    lock.
+    Written when `_tick` returned early while anything was pending and
+    `_force_scan_locked` cleared the whole dict, so only an offer registered
+    DURING the scan reached this loop -- which is exactly what the callback
+    does: `_cmd_confirm`'s drift retry writes into `_pending_ideas` and takes
+    no lock. Both loops now read the engine's own ideas only, so the offer is
+    refused twice over (it is a person's, and its confidence is inherited);
+    `test_a_persons_pending_idea_is_not_the_engines.py` drives the first.
     """
     confirmed: list[str] = []
     offer = _offer()
@@ -411,8 +412,10 @@ async def test_a_re_offer_registered_mid_scan_is_not_auto_confirmed():
     engine.confirm_trade = _confirm
     engine._auto_confirm_notify_callback = None
     engine.analyzer = None
+    engine._engine_idea_ids = set()
     for name in ("_force_scan_locked", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed"):
+                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_register_engine_idea"):
         setattr(engine, name, getattr(RuneClawEngine, name).__get__(engine))
 
     summary = await engine._force_scan_locked()

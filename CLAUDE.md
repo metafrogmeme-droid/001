@@ -9835,6 +9835,265 @@ failed its strict unused-import gate forty minutes in. *Run the gate after
 the last edit, not after the edit you remember as last.*
 (`tests/test_only_the_bot_writes_its_state.py`.)
 
+**A PERSON WHO TRADED TWO VENUES HAD ONE BOOK, AND THE SECOND VENUE ERASED THE
+FIRST.** The venue has been a directory for the risk engine and the paper
+portfolio since multi-venue began (`bot/core/venue_key.py` says "the venue is a
+DIRECTORY, not a filename fragment"), and the executor's book never heard: its
+two files were `live_positions_{user}.json` and `closed_trades_{user}.json`,
+named by person and not by venue. So under PER_USER_LIVE_ENABLED a person's
+bitget executor and bybit executor wrote one file. Driven: connecting bybit
+built its executor, which LOADED the open bitget position as its own, and its
+first save of its own book erased it. The bitget position, with its stop
+resting on bitget, stopped being monitored by anything. Reconciliation on bybit
+would then have found nothing and booked a close that never happened.
+
+**And the resolver ignored the venue it was asked for.** `_executor_for(uid,
+venue)` overwrote its own `venue` argument with the person's stored active
+venue on its first line, so every caller that named one got the active
+venue's executor whatever it named: the multi-venue router's per-venue margin
+read, the executor it then routed the order to, and `/venues`' open-position
+count. When the active venue's keys were unusable, a request NAMING another
+venue answered the OPERATOR's executor, which is an order routed to the
+operator's account. A named venue is that venue's executor or None now; only
+the unnamed ask keeps its fallback.
+
+**Every row says whose it is, and nothing is guessed.** A split venue keeps its
+book under `data/venue/{venue}/`, and every row it saves carries its venue. An
+executor refuses a row stamped for another venue and writes it back verbatim
+on its next save, because a refusal that deleted it would be the erasure again.
+A file written before rows were stamped is attributed the way the old code
+already attributed it: the only executor it ever built without a venue named
+was the ACTIVE one. So the pre-split file moves to the active venue before ANY
+executor for that person is built, whichever venue is asked first; otherwise
+the default venue's executor would load it first and manage another exchange's
+positions. The move refuses what it cannot be sure of: an existing split book,
+a file that will not parse, an empty main beside a `.bak` holding rows, and a
+file whose rows are already stamped. Unstamped rows are CLAIMED (saved with a
+stamp) by the engine after it builds the executor, never from `__init__`,
+because a reader process must not write the bot's files. The positions file is
+claimed only after a read that reached its end, because a claim-save after a
+partial read replaces the record with the part that was read; the closed-trade
+record keeps every row it could not read (the chapter below), so its claim
+loses nothing.
+
+**Two more fell out, one of them the operator-book shape again.** `/venues`
+refused a person's deselect over the OPERATOR's positions whenever per-user live
+was off, because `_executor_for` answers the operator's executor in that state.
+The bot places nothing on a person's own account then, so there is nothing to
+strand; the count is 0. And a restart rebuilt only the active venue's executor,
+so a book on another venue waited for the next order routed there before
+anything monitored it. `_rehydrate_other_venue_books` builds every venue whose
+saved book holds a position and names each one it could not build. The startup
+count is of people now, not executors, because one person can hold two.
+
+**Thirty-nine mutations across the four files, thirty-eight killed. The one
+that survived was a clause of mine that no input could reach.** The claim checked
+`not _closed_trades_read_failed` beside its own flag, and the flag is only set
+after a read that reached the end, so the clause could never decide anything.
+It is deleted. The property it stood for is driven instead: a positions file
+that raises halfway through is not rewritten, and the mutation that sets the
+flag per row dies on that drive.
+
+The remap for this slice's line shifts also found two map citations into
+`bot/core/engine.py` that were already wrong. The auto-confirm threshold's
+move by realized win rate cited an expiry loop, and the basis hand-off to
+`analyzer.analyze` cited an audit call. Neither line was blank, so the probe
+could not see them; both are re-derived from what their sentences name.
+(`tests/test_one_user_one_venue_one_book.py`.)
+
+**A FLAT BOOK CAME BACK FROM THE BACKUP ON EVERY RESTART.** `_save_positions`
+keeps a `.bak` of the last NON-EMPTY file, and the loader fell back to it
+whenever the main file read `{}`. So once the book went flat the main file
+said "nothing open", the backup still held the last position that closed, and
+the next restart loaded that position as "open". Driven: open A, close A,
+restart, and A is back. The next tick's stop/target check and the engine's
+smart exits then act on a position the venue no longer holds; the best case is
+a close order the venue rejects, and the worst is a reduce-only order against
+a different position on the same symbol. Reconcile's `ALREADY_CLOSED` skip,
+added for "a previous bot instance that closed it", is what had been quietly
+cleaning up after it one tick later.
+
+**And "closing" was never written, so the recovery built for it never ran.**
+`close_position` sets the status and saves, and the save kept only "open" and
+"pending_fill". A restart anywhere inside the close (leg cancels, the market
+close, the fill polls) lost the row from disk when other positions were open,
+and brought it back from the backup unflagged when none were. The loader's
+stuck-in-"closing" recovery, and the incident fix that defers such a row to
+reconcile (`tests/test_recovered_from_closing_dedup.py`), could not be
+reached. The incident that fix was written for is the backup path above: its
+docstring says the position "came back as open via the stuck-closing
+recovery", and no row had ever been written as closing.
+
+**A row whose true state is unknown waits for reconcile, which asks the
+venue.** "closing" is written. A row read from the backup is deferred the same
+way, because the backup is a memory of the book, not the book. The deferral is
+written on the row, so a restart before reconcile ran cannot turn it back into
+an ordinary open position; reconcile clears it once the venue has answered.
+`awaiting_reconcile` is the one question, and both paths that send a close on
+local evidence ask it: the executor's stop/target/time checks and the engine's
+smart exits, which had never asked.
+
+**One unreadable closed-trade row cost every row below it.** The loader
+stopped at the first row it could not read and kept the rows above it, and
+the next close wrote that partial list over the file, which has no backup.
+Driven by the survey: 50 rows, row 2 unreadable, and after one close the file
+held 2. The loader reads row by row now, keeps an unreadable row verbatim and
+writes it back on every save (the vault's rule), and marks the record partial.
+A file that will not parse at all is copied aside once before the first write
+over it, and if the copy fails nothing is written: a close missing from the
+record is a smaller loss than the record the close would erase.
+
+**The earlier commit on this branch broke a guard it never ran.** The partial
+take-profit suite builds its executor with `LiveExecutor.__new__` and a
+hand-written venue stand-in with no `id`. The per-venue stamp made
+`_save_positions` read `self._venue.id`, and the save raises inside its own
+`except`, so every drive in that suite saved nothing and four assertions about
+the file failed. No suite the previous slice ran reached it: *a hand-written
+stand-in that must remember each attribute is one that will forget the next*.
+
+**Sixteen mutations, each killed. The one that survived the first round was
+two fixtures that could not tell.** The copy made only once is named by the
+second it was made, so two closes in one second land on one name and a repeat
+was invisible. And the second close was suppressed as a duplicate booking
+(same symbol and entry within two hours) and never saved at all. The drive
+runs the two closes on two clocks and two symbols now.
+
+**The daily-loss gate read yesterday's loss after midnight.** The live
+accumulator rolls only on the next close, so after the UTC day turned it
+still held yesterday's total. The day's auto-reset cleared a daily-loss trip,
+and the gate three statements later re-tripped it off yesterday's figure,
+dated today. On a halted, flat book no close comes to roll it, so this
+repeated every day until somebody ran /reset. `live_daily_pnl_today()` already
+existed for exactly this and says so in its docstring; the gate was the one
+reader that did not ask it. The survey also named the drawdown transfer hint's
+raw read, and that one is right as it is: the hint asks whether recorded
+losses explain a drop from a peak that may be days old, and after midnight
+today's figure is 0, which would blame a transfer for yesterday's losses.
+(`tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
+`tests/test_live_account_breakers.py`.)
+
+**ONE PERSON'S UNCONFIRMED TICKET PAUSED THE ENGINE FOR EVERY ACCOUNT.**
+`_pending_ideas` is one dict. The engine's scan writes its ideas there, and so
+does every person: `/trade` and the web's propose route, `/scan`, "analyze
+BTC", the drift re-offer. Nothing recorded whose an entry was, so every loop
+that swept the dict treated all of it as the engine's. Driven:
+
+- `_tick` returned early while ANYTHING was pending (C2-26), so a stranger's
+  `/trade`, left unconfirmed, stopped the autonomous scan and its auto-confirm
+  until the ticket expired.
+- The engine's dedup replaced whatever pending entry named the same asset, so
+  a trader's Confirm answered "not found" because the engine had scanned the
+  same coin. "analyze BTC" did the same to the engine's own pending idea.
+- `/forcescan` cleared the whole dict before scanning, destroying every
+  person's pending Confirm.
+
+`_engine_idea_ids` records the engine's own ideas. `_register_engine_idea` is
+the only place the engine assigns into the dict (pinned by an AST walk), and
+`_engine_pending_ids` prunes the set where it is read, because an idea leaves
+the book by many doors (a confirm, a skip, the TTL sweep) and none of them
+need to know the set exists.
+
+**Fixing the skip alone would have made the auto-confirm leak the ordinary
+case.** While the skip stood, a person's idea reached the auto-confirm batch
+only when it was registered during a scan: the race #422 drove. With the skip
+narrowed, the batch sees every person's idea on every tick. A `/scan` idea's
+confidence is MEASURED, so the stamp reading passes it, and it would have been
+executed under `user_id="auto"` on the operator's account the first tick
+after it was shown with a Confirm button. The batch and `/forcescan`'s loop
+read ownership first now. The stamp reading stays as the backstop, with a
+test that plants a stamp on the engine's side, because no product path does
+that today and a backstop nothing drives is a claim that there is one.
+
+**Fourteen mutations, and the two that survived the first round were
+fixtures.** The stamp backstop registered a stamped BTC ticket and then a
+measured BTC idea, and the engine keeps one idea per asset, so the second
+replaced the first and the batch never saw the stamp. And every force-scan
+drive held only stamped or inherited ideas, which the reading refuses by
+itself, so dropping the ownership check there changed nothing until a
+person's measured `/scan` idea was in the book.
+
+**Recorded, not changed.** Ideas carry no owner beyond this split, so two
+people's analyses of the same asset still share the analyze dedup: one
+person's "analyze BTC" can replace another's pending BTC card.
+(`tests/test_a_persons_pending_idea_is_not_the_engines.py`.)
+
+**A REFUSAL WAS ANNOUNCED "✅ EXECUTED" AND POSTED PUBLICLY AS A TRADE.**
+`confirm_trade` answers with a sentence, and the Confirm button decided from a
+private prefix list whether to say "✅ Trade executed" and post the idea to the
+marketing channels as a TRADE OPENED under the RUNECLAW name. The list knew
+"Trade REJECTED" and missed every refusal `confirm_trade` writes without it.
+Driven, each of these was announced as a trade and posted:
+
+- the person's chosen strategy refusing the idea (🛡),
+- the duplicate skip (⏭️ "already have an open/pending order"),
+- "⛔ Paper trading is disabled on this bot",
+- the practice fill's cooldown (⏸) and its failure.
+
+The scan card's confirm carried a second copy of the same list with the same
+gaps. `placed_nothing` in `bot/core/confirm_result.py` is the one reading now: the
+executor's own vocabulary (`execution_indicates_failure`) and then
+`confirm_trade`'s refusals. A test walks every literal answer `confirm_trade`,
+`_confirm_trade_inner` and `_simulate_paper_fill` can give, and every literal
+answer `LiveExecutor.execute` can give, and requires each to be read the right
+way, so a refusal added tomorrow fails there rather than in a person's chat.
+
+**The post was not limited to the agent's book either.** A person's trade on
+their OWN account was posted as RUNECLAW's, and so was a practice fill,
+labelled LIVE whenever the person held live authority. The close side stopped
+publishing per-user books in #19; this is the open side. The post is made now
+when the operator's executor holds the trade, which is a MEASUREMENT: the
+executor keys a new position by the idea's id, and a person's own account, a
+practice fill and every refusal leave it without that id, whatever the
+answer's wording. It is labelled LIVE because nothing else lands there. And
+the idea it posts is read before the confirm pops it. It used to be read from
+`_last_confirmed_idea`, one slot for the whole engine that any other confirm
+could overwrite in between; that slot had no other reader and is deleted.
+
+**Fifteen mutations killed, one equivalent.** Widening the practice-failure
+prefix to a bare ⚠️ changes no verdict, because no answer in the tree that
+placed something begins with ⚠️ (the filled card begins with the direction
+icon). The first round's survivor was a gap: no test fed an executor refusal
+through the reading, so dropping the executor's classifier from it changed
+nothing until `execute`'s own literal answers were walked both ways. Two
+invariants in `test_invariants.py` pinned the spelling
+`execution_indicates_failure` in each door and went red when the doors moved
+one hop out while the property held; they pin `placed_nothing` now, and that
+it asks the executor's classifier.
+(`tests/test_a_refusal_is_never_announced_as_a_trade.py`.)
+
+**/livebalance showed somebody else's account as the caller's.**
+`balance_view_executor` routes a linked caller to their own account whatever
+the per-user flag says, which is right. For everyone else it answered the
+operator's executor, and two cases made that wrong:
+
+- **Per-user live.** Every other card refuses a non-operator the operator's
+  book there (`viewer_executor`). `/livebalance` is `@guard("portfolio")`,
+  which a viewer holds, and it printed the operator's balance, open positions
+  and realized P&L in dollars as the viewer's own.
+- **A link that could not be read, in either mode.** Keys that will not
+  decrypt, a store that could not be asked, and a stored venue this build
+  cannot build all fell back to the operator's account. That person has an
+  account of their own, and was shown somebody else's under "your balance".
+
+Single-account mode is unchanged on purpose. With per-user live off there is
+one shared account and every card shows it, so a caller who never linked sees
+it here too. The fallback is taken by the operator and, in single-account
+mode, by a caller the store reads as never linked (`credential_state` answers
+`absent`). Everyone else gets `None`, and the card prints the shared absence
+sentence (`no_live_account_line(live_account_absence(uid))`).
+
+**The file that pinned the old behaviour describes the defect in its own
+header.** `test_livebalance_own_account.py` opens with a linked user being
+shown the operator's account instead of their own, and one of its tests
+asserted exactly that for a store that raised "decrypt boom". Its contract is
+the new one now.
+
+**Ten mutations, each killed.** The one that survived the first round was a
+corpus gap: nothing planted a link on a venue this build cannot build, so the
+branch that refuses it could send that person to the operator's account
+unseen.
+(`tests/test_the_balance_view_is_never_somebody_elses.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -10147,6 +10406,69 @@ handed yesterday's total under today's name. The day rule is one method with
 four callers now, and the chip says "realized" because that is all the
 accumulator holds.
 
+**SIGNED IN IS NOT THE OPERATOR, AND FOUR SURFACES READ IT AS THOUGH IT
+WERE.** Registration is open and issues a session at once, and the flight
+record, the weekly letter, the scan payload and the portfolio summary each
+redacted on `req.user`: anonymous got the public view, anyone signed in got
+the operator's. Driven: a freshly registered stranger read `size_usd: 2500`
+and `pnl_usd: -412.55` off `/api/guardian/flight` -- and the chain is
+engine-wide, so those are every account's sealed sizes and outcomes, not only
+the operator's -- and `Net PnL -$1,249.5` off `/api/letter/latest`, the letter
+`routes/mcp.js` refuses to serve for exactly that reason. The guardian test
+file PINNED the defect as the contract, under the title *"an AUTHENTICATED
+caller still gets the full record"*.
+
+**The summary's database fallback crossed accounts outright.** Unscoped, it
+answered the newest equity snapshot of whichever account wrote last beside a
+P&L summed across every account, and cached that as the agent's for every
+later reader. It reads the operator's rows now (`BOT_USER_ID`, the account
+the bot syncs as).
+
+**`lib/operator_view.isOperator` is the one reading**: the plan re-read from
+the database, never the JWT, which is the rule `operatorGate` and `/yield`
+already follow, and a read that fails answers false. The scrubbers open only
+on its literal `true`, so a request object passed by habit (truthy) fails
+closed rather than serving the raw payload. Every withheld view says the
+dollars are *shown to the operator only*. It used to say *"sign in for the
+full record"*, which the fix makes false for everyone except the operator. The
+decision log's and the Decision Court's sentences carried the same promise in
+fourteen languages, and were reworded in all of them.
+
+**Two more doors served the private letter and neither knew who was
+asking.** The web chat's letter intercept and Telegram's `/letter` (through
+the card route) both answered with the stored letter. The chat card is the
+public letter now, for every caller; the operator reads the private one on
+the dashboard panel, which does know. `/latest` still stores the week's letter
+on its first read, because the archive lists stored weeks, and a stranger gets
+the public letter of exactly those weeks and no others.
+
+**And the live stream sent the P&L of every close to anyone listening.**
+`/api/stream` has no auth by design (a "refresh now" signal), and the close
+nudge carried `pnl`. The page only toasts; the figure is gone from the nudge.
+
+**THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS.**
+The read was encoded by ethers, which production resolves to a stub whose
+`encodeFunctionData` answers `'0x'` -- the revoke calldata beside it had
+already been moved to `lib/abi_call` for exactly that reason, and the read
+had not, so in production every pair came back unreadable. One spender's
+checksum was wrong (`...E4C7bd8665...` where EIP-55 says `bD`), so real ethers
+refused it and Uniswap SwapRouter02 was never read on any of its four chains;
+every fixture used Base, where the router is excluded. And the page printed
+*"✅ No live grants found among N checked pairs"* whenever no grant was FOUND,
+so a wallet whose only grant was unlimited to that router read as clean, and
+with the stub installed the sentence was *"among 0 checked pairs"*. The ✅
+needs every pair read now; a partial read says how many could not be read and
+that it is not a clean result, and a chain that answered nothing says the
+grants are unknown.
+
+**Twenty-three mutations, each killed on the first round.** The one worth
+naming is the scrubbers' `=== true`: `operator ? raw : scrubbed` agrees with
+every route drive, because every route hands it the check's boolean. Only a
+direct call with a request object tells them apart, which is the habit the
+strict comparison exists to survive.
+(`app/test/signed_in_is_not_the_operator.test.js`,
+`app/test/allowance_xray_says_what_it_read.test.js`.)
+
 ## A URL is a surface, and a slash in a path segment does not survive a hop
 
 **Every symbol this product names has a slash in it, and two panels sent the
@@ -10251,7 +10573,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 230 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 231 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -11063,9 +11385,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **431 of 1034** reach for source text through `source_scan`, `code_only`
+Driven, **433 of 1039** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 431 is a FLOOR and the honest shape is
+source scan that rule does not see, so 433 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

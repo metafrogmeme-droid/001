@@ -5097,20 +5097,22 @@ class TestSprint3Fixes:
         assert isinstance(callback_pnls[0], float), "Callback should get float pnl, not 'LOCKED!'"
 
     def test_c2_26_skip_scan_when_confirming(self):
-        """C2-26: _tick() skips scanning when _pending_ideas is non-empty."""
+        """C2-26: _tick() skips scanning while the ENGINE's own idea awaits
+        confirmation. A person's pending ticket is not the engine's, and is
+        driven in `test_a_persons_pending_idea_is_not_the_engines.py`."""
         from bot.core.engine import RuneClawEngine
         from unittest.mock import AsyncMock
 
         engine = RuneClawEngine()
         engine._running = True
-        # Place a pending idea
+        # Place a pending idea, the way the engine's own scan does
         idea = TradeIdea(
             id="TI-PENDING", asset="ETH/USDT", direction=Direction.LONG,
             entry_price=3000.0, stop_loss=2900.0, take_profit=3200.0,
             confidence=0.75, reasoning="test", signals_used=["rsi"],
             timestamp=datetime.now(UTC), position_size_usd=200.0,
         )
-        engine._pending_ideas[idea.id] = idea
+        engine._register_engine_idea(idea)
 
         # Mock scanner.scan to track if it's called
         engine.scanner.scan = AsyncMock(return_value=[])

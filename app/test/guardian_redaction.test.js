@@ -171,16 +171,40 @@ test('the free-text dollar inside a risk reason is scrubbed, not just the keys',
   });
 });
 
-test('an AUTHENTICATED caller still gets the full record', async () => {
+test('the OPERATOR still gets the full record', async () => {
   // The other half of the boundary. Redacting for everyone would "fix" the leak
   // by deleting the feature, and would quietly make public_flight.js's header
   // false in the opposite direction.
   await withServer(async (server) => {
-    const token = jwt.sign({ user_id: 1, email: 'a@b.c' }, process.env.JWT_SECRET);
+    const { pool } = require('../db');
+    pool.users.push({ id: 4242, email: 'operator@example.com', plan: 'admin' });
+    const token = jwt.sign({ user_id: 4242, email: 'operator@example.com' }, process.env.JWT_SECRET);
     const { status, body } = await get(server, '/api/guardian/flight', token);
     assert.equal(status, 200);
-    assert.equal(body.records[0].result.pnl_usd, 12.5, 'the authed view lost its dollar figures');
-    assert.equal(body.disclosure, undefined, 'no anonymous disclosure on an authed response');
+    assert.equal(body.records[0].result.pnl_usd, 12.5, 'the operator lost their dollar figures');
+    assert.equal(body.disclosure, undefined, 'no withheld-view disclosure for the operator');
+  });
+});
+
+test('SIGNED IN IS NOT THE OPERATOR: a free signup gets the public view', async () => {
+  // This file used to pin the opposite -- "an AUTHENTICATED caller still gets
+  // the full record" -- and registration is open, so that was every stranger
+  // reading every sealed record in dollars. The chain is engine-wide: the
+  // engine seals size_usd for every confirm and pnl_usd for every live close,
+  // other people's accounts included.
+  await withServer(async (server) => {
+    const { pool } = require('../db');
+    pool.users.push({ id: 4243, email: 'stranger@example.com', plan: 'free' });
+    const token = jwt.sign({ user_id: 4243, email: 'stranger@example.com' }, process.env.JWT_SECRET);
+    for (const url of ['/api/guardian/flight', '/api/guardian/flight/T-1', '/api/guardian/incidents']) {
+      const { status, body } = await get(server, url, token);
+      assert.equal(status, 200, url);
+      assert.deepEqual(dollarLeaks(body), [], `a signed-in stranger read dollars on ${url}`);
+    }
+    const { body } = await get(server, '/api/guardian/flight', token);
+    assert.match(body.disclosure, /shown to the operator only/);
+    assert.doesNotMatch(body.disclosure, /sign in/i,
+      'the disclosure told a signed-in caller to sign in');
   });
 });
 
@@ -228,7 +252,13 @@ test('every handler in this router goes through the one redaction helper', () =>
   // used by every handler is what stops the next endpoint added here from
   // repeating it — so the count is pinned rather than trusted.
   const handlers = (guardianSrc.match(/router\.get\(/g) || []).length;
-  const guarded = (guardianSrc.match(/publicSafe\(req/g) || []).length;
+  // `publicSafe(operator` -- the helper's first argument is the operator
+  // check's own answer. It took `req` once and redacted on `req.user`, which
+  // a free signup has.
+  const guarded = (guardianSrc.match(/publicSafe\(operator/g) || []).length;
+  const checked = (guardianSrc.match(/const operator = await isOperator\(req\)/g) || []).length;
+  assert.ok(checked >= handlers,
+    `${handlers} handler(s) but ${checked} operator check(s) -- one redacts on something else`);
   assert.ok(handlers >= 3, 'fewer handlers than expected — re-derive this check');
   assert.ok(guarded >= handlers,
     `${handlers} handler(s) but only ${guarded} publicSafe() call(s) — one serves raw records`);

@@ -16,20 +16,25 @@ const { pool, withTransaction } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
+const { isOperator } = require('../lib/operator_view');
 const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
 const { broadcast } = require('./stream');
 
 /**
- * The summary an anonymous caller may see: the same object with every dollar
- * amount removed, via the SAME scrubber the public flight feed uses. Reusing it
- * rather than hand-listing keys is the point — a field added to the summary
- * later is redacted by default instead of needing someone to remember.
+ * The summary anyone but the OPERATOR may see: the same object with every
+ * dollar amount removed, via the SAME scrubber the public flight feed uses.
+ * Reusing it rather than hand-listing keys is the point — a field added to the
+ * summary later is redacted by default instead of needing someone to remember.
+ *
+ * `operator`, not `req.user`: registration is open, so "signed in" handed any
+ * free signup the operator's equity and net P&L (`lib/operator_view.js`).
  */
-function summaryFor(req, summary) {
+function summaryFor(operator, summary) {
   if (!summary) return summary;
-  return req.user ? summary : { ...scrub(summary), disclosure: 'Anonymous view — '
-    + 'counts and rates only, no dollar amounts. Sign in for equity and P&L.' };
+  return operator === true ? summary : { ...scrub(summary), disclosure: 'Public view — '
+    + 'counts and rates only, no dollar amounts. The operator\'s equity and P&L '
+    + 'are shown to the operator only.' };
 }
 
 const { isVenue } = require('../lib/venues');
@@ -132,8 +137,10 @@ const DEEPSCAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
  * the connection chip keeps working — the standing test that /scan must stay
  * reachable is honoured, because breaking the panel was never the fix.
  */
-function scanFor(req, scan) {
-  if (!scan || req.user) return scan;
+function scanFor(operator, scan) {
+  // `=== true`: a request object passed here by habit is truthy, and would
+  // have served the raw payload. Only the operator check's own answer opens it.
+  if (!scan || operator === true) return scan;
   const out = {};
   for (const k of Object.keys(scan)) {
     if (DOLLAR_KEY.test(k)) continue;
@@ -141,21 +148,22 @@ function scanFor(req, scan) {
   }
   // The one section that is an ACCOUNT read rather than a market read.
   if (scan.circuit_breaker) out.circuit_breaker = scrub(scan.circuit_breaker);
-  out.disclosure = 'Anonymous view — market data, counts and rates. Account '
-    + 'equity and dollar P&L are removed. Sign in for the full read.';
+  out.disclosure = 'Public view — market data, counts and rates. Account '
+    + 'equity and dollar P&L are shown to the operator only.';
   return out;
 }
 
 router.get('/scan', optionalAuth, async (req, res) => {
+  const operator = await isOperator(req);
   if (latestScan) {
-    return res.json({ scan: scanFor(req, latestScan) });
+    return res.json({ scan: scanFor(operator, latestScan) });
   }
   // Cold start: try to load from DB
   try {
     const [rows] = await pool.execute('SELECT scan_json, updated_at FROM scan_cache WHERE id = 1');
     if (rows.length > 0 && rows[0].scan_json) {
       latestScan = JSON.parse(rows[0].scan_json);
-      return res.json({ scan: scanFor(req, latestScan) });
+      return res.json({ scan: scanFor(operator, latestScan) });
     }
   } catch (err) {
     console.error('Scan cache load error:', err.stack || err.message);
@@ -187,9 +195,10 @@ router.get('/scan', optionalAuth, async (req, res) => {
  * trades, win rate, mode — which is what a summary is for.
  */
 router.get('/portfolio-summary', optionalAuth, async (req, res) => {
+  const operator = await isOperator(req);
   // Return cached in-memory summary if available
   if (latestPortfolio) {
-    return res.json({ portfolio: summaryFor(req, latestPortfolio) });
+    return res.json({ portfolio: summaryFor(operator, latestPortfolio) });
   }
   // Try to build from persisted scan data (circuit_breaker has live exchange data)
   if (!latestScan) {
@@ -233,12 +242,16 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       live_unavailable: !!cb.live_unavailable,
       updated_at: latestScan.received_at || latestScan.timestamp || new Date().toISOString()
     };
-    return res.json({ portfolio: summaryFor(req, latestPortfolio) });
+    return res.json({ portfolio: summaryFor(operator, latestPortfolio) });
   }
-  // Final fallback: read from DB
+  // Final fallback: read from DB. The OPERATOR's rows: this is the agent's
+  // summary, and unscoped it answered the newest snapshot of whichever account
+  // wrote last beside a P&L summed across every account -- then cached that
+  // as `latestPortfolio` for every later reader.
   try {
     const [snapRows] = await pool.execute(
-      'SELECT equity, snapshot_at FROM equity_snapshots ORDER BY snapshot_at DESC LIMIT 1'
+      'SELECT equity, snapshot_at FROM equity_snapshots WHERE user_id = ? '
+      + 'ORDER BY snapshot_at DESC LIMIT 1', [AUTHORIZED_BOT_USER_ID]
     );
     // `trades.pnl` is `DECIMAL(14,2)` — NULLABLE — so a CLOSED row with no
     // recorded P&L is reachable, and the previous three queries handled it
@@ -251,10 +264,11 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       "SUM(CASE WHEN pnl IS NOT NULL THEN 1 ELSE 0 END) AS scored, " +
       "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, " +
       "SUM(pnl) AS net_pnl " +
-      "FROM trades WHERE status = 'CLOSED'"
+      "FROM trades WHERE status = 'CLOSED' AND user_id = ?", [AUTHORIZED_BOT_USER_ID]
     );
     const [openRows] = await pool.execute(
-      "SELECT COUNT(*) as open_count FROM trades WHERE status = 'OPEN'"
+      "SELECT COUNT(*) as open_count FROM trades WHERE status = 'OPEN' AND user_id = ?",
+      [AUTHORIZED_BOT_USER_ID]
     );
     const closed = aggregateStats(tradeRows[0]);
     // No invented balances: with no snapshot and no trades there is simply no
@@ -271,7 +285,7 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       scored_trades: closed.scored, unpriced_trades: closed.unpriced,
       updated_at: snapRows[0]?.snapshot_at || new Date().toISOString()
     };
-    res.json({ portfolio: summaryFor(req, latestPortfolio) });
+    res.json({ portfolio: summaryFor(operator, latestPortfolio) });
   } catch (err) {
     // This was a bare `res.json({ portfolio: null })` with no logging —
     // byte-identical to the genuine cold-start empty state twelve lines up,
@@ -411,7 +425,10 @@ router.post('/', async (req, res) => {
       const key = `${lastClosed.symbol}|${lastClosed.closed_at}|${lastClosed.pnl}`;
       if (key !== lastNotifiedClose) {
         lastNotifiedClose = key;
-        nudge('trade', { symbol: lastClosed.symbol, direction: lastClosed.direction, pnl: lastClosed.pnl });
+        // No P&L on the nudge: /api/stream is mounted with no auth, and a
+        // dollar figure on it reached every anonymous listener on every close.
+        // The page only toasts; the figures are read through the gated routes.
+        nudge('trade', { symbol: lastClosed.symbol, direction: lastClosed.direction });
       }
     }
     nudge('portfolio');

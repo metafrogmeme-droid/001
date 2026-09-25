@@ -1679,7 +1679,14 @@ class RiskEngine:
             # against live equity. Without this the daily-loss breaker could
             # never trip on real losses (audit CRITICAL, 2026-07-14).
             if live_equity is not None and live_equity > 0:
-                _daily_pnl = self._live_daily_pnl
+                # TODAY's, through the day rule, never the raw accumulator.
+                # The accumulator rolls only on the next live close, so after
+                # midnight UTC it still holds yesterday's total: the day's
+                # auto-reset cleared the breaker three statements above this
+                # and this line re-tripped it off yesterday's loss, dated
+                # today, every day until somebody ran /reset -- because on a
+                # halted, flat book no close ever comes to roll it.
+                _daily_pnl = self.live_daily_pnl_today()
                 loss_base = live_equity
             else:
                 _daily_pnl = state.daily_pnl

@@ -108,6 +108,40 @@ def is_split(venue) -> bool:
     return bool(v) and v != DEFAULT_VENUE
 
 
+def executor_state_dir(venue):
+    """Where a per-user LIVE EXECUTOR for ``venue`` keeps its book.
+
+    ``None`` for the default venue (and for ``''``): the original ``data/``
+    paths, so a single-venue deploy is byte-identical. ``data/venue/{v}`` for a
+    split venue. Raises ``ValueError`` for a venue the credential store does
+    not know, for the reason ``venue_state_path`` gives.
+
+    The executor's positions and closed-trade files were the one piece of
+    per-user state this layout never reached: they are named
+    ``live_positions_{user}.json`` with no venue in them, so a user's bitget
+    executor and bybit executor wrote ONE file. Driven: a bitget position was
+    loaded into the bybit executor's book when the user connected bybit, and
+    the bybit executor's first save of an empty book erased it.
+
+    Rooted where the EXECUTOR roots its files (``RUNECLAW_STATE_DIR``, default
+    ``data``), not at ``venue_root()``: a user's default-venue book and their
+    split-venue book have to live under one root, or a deployment that moves
+    the state directory splits one person's positions across two trees.
+    """
+    import os
+
+    s = str(venue or "").strip()
+    if not s:
+        return None
+    v = normalize_venue(s)
+    if not v:
+        raise ValueError(f"unknown venue: {venue!r}")
+    if v == DEFAULT_VENUE:
+        return None
+    base = os.environ.get("RUNECLAW_STATE_DIR") or "data"
+    return os.path.join(base, "venue", v)
+
+
 def venue_state_path(kind: str, user_id: str, venue: str) -> str:
     """``data/venue/{venue}/{kind}_{user}.json`` for a split venue.
 

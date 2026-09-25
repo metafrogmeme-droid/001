@@ -9347,7 +9347,7 @@
       'dd.dl_d_unread': T('dd.dl_d_unread', 'disposition not on record'),
       'dd.dl_open': T('dd.dl_open', 'open — no close on record'),
       'dd.dl_pnl_unrec': T('dd.dl_pnl_unrec', 'closed · P&L not recorded'),
-      'dd.dl_hidden': T('dd.dl_hidden', 'closed · amount hidden on the anonymous view — sign in to see it'),
+      'dd.dl_hidden': T('dd.dl_hidden', 'closed · amount withheld here — shown to the operator only'),
       'dd.dl_unshown': T('dd.dl_unshown', 'closed · amount not shown on the anonymous view'),
       'dd.dl_k_block': T('dd.dl_k_block', 'blocked'),
       'dd.dl_k_rec': T('dd.dl_k_rec', 'recovered'),

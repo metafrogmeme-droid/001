@@ -360,14 +360,14 @@ def test_both_loops_ask_the_reading_before_they_confirm(fn, asks):
 async def test_a_ticket_registered_mid_scan_is_not_auto_confirmed_by_forcescan():
     """Driven end to end through the real `_force_scan_locked`.
 
-    REACHABILITY, STATED RATHER THAN OVERCLAIMED. That method CLEARS
-    `_pending_ideas` before it scans, so a ticket registered *before*
-    `/forcescan` is destroyed rather than auto-confirmed (a separate defect --
-    the Confirm button then answers "Trade not found or expired"). The window
-    that reaches this loop is a ticket registered DURING the scan, and the two
-    awaits it spans -- `scanner.scan()` and `_analyze_signals_batched` -- are
-    the slowest things the engine does. The fixture registers the ticket from
-    inside that second await, which is the race made deterministic.
+    REACHABILITY, STATED RATHER THAN OVERCLAIMED. When this was written that
+    method CLEARED `_pending_ideas` before it scanned, so a ticket registered
+    *before* `/forcescan` was destroyed rather than auto-confirmed (the Confirm
+    button then answered "Trade not found or expired"), and only one registered
+    DURING the scan reached this loop. It clears the engine's own ideas now,
+    so a ticket registered before the scan survives it too
+    (`test_a_persons_pending_idea_is_not_the_engines.py`); this fixture keeps
+    the mid-scan race, registering the ticket from inside the analyze await.
     """
     confirmed: list[str] = []
     manual = _manual()
@@ -397,8 +397,10 @@ async def test_a_ticket_registered_mid_scan_is_not_auto_confirmed_by_forcescan()
     engine.confirm_trade = _confirm
     engine._auto_confirm_notify_callback = None
     engine.analyzer = None
+    engine._engine_idea_ids = set()
     for name in ("_force_scan_locked", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed"):
+                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_register_engine_idea"):
         setattr(engine, name, getattr(RuneClawEngine, name).__get__(engine))
 
     summary = await engine._force_scan_locked()
@@ -500,13 +502,21 @@ def test_a_measured_reading_always_carries_its_confidence():
 # The tick's selection, driven.
 # ---------------------------------------------------------------------------
 
-def _batcher(*ideas):
-    """A stand-in `self` carrying only what `_auto_confirm_batch` reaches."""
-    host = SimpleNamespace(analyzer=None)
-    host._pending_ideas = {i.id: i for i in ideas}
+def _batcher(*engine_ideas, people=()):
+    """A stand-in `self` carrying only what `_auto_confirm_batch` reaches.
+
+    The engine's ideas go in through the engine's own registration, and a
+    person's straight into the dict, as `register_manual_idea` puts them."""
+    host = SimpleNamespace(analyzer=None, _pending_ideas={}, _pending_atr={},
+                           _pending_pyramid={}, _engine_idea_ids=set())
     for name in ("_auto_confirm_batch", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed"):
+                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_register_engine_idea"):
         setattr(host, name, getattr(RuneClawEngine, name).__get__(host))
+    for i in engine_ideas:
+        host._register_engine_idea(i)
+    for i in people:
+        host._pending_ideas[i.id] = i
     return host
 
 
@@ -520,7 +530,7 @@ def test_the_tick_batch_drops_the_hand_typed_ticket_and_keeps_the_engines():
     seam that closed it.
     """
     manual, engine_idea = _manual(), _idea(confidence=0.95)
-    batch = _batcher(manual, engine_idea)._auto_confirm_batch(0.85)
+    batch = _batcher(engine_idea, people=[manual])._auto_confirm_batch(0.85)
     ids = [tid for tid, _ in batch]
 
     assert engine_idea.id in ids, (
@@ -529,6 +539,28 @@ def test_the_tick_batch_drops_the_hand_typed_ticket_and_keeps_the_engines():
     assert manual.id not in ids, (
         "and the hand-typed ticket does not, though its stamped 1.0 clears "
         "the bar")
+
+
+def test_the_stamp_reading_still_backs_the_ownership_up():
+    """A person's ticket is left out of the batch because it is not the
+    engine's (`test_a_persons_pending_idea_is_not_the_engines.py`), so the
+    test above no longer measures the stamp reading on its own. This does.
+
+    No product path registers a stamped idea as the engine's today. The
+    reading stays as the backstop for the day one does -- a writer moved into
+    the engine that copies a confidence it did not measure -- and a backstop
+    nothing drives is a claim that there is one. So the stamp is planted on
+    the engine's side here, where the reading is the only thing in play.
+    """
+    # Two assets: the engine keeps one idea per asset, so a measured BTC
+    # idea registered after a stamped BTC one would replace it, and the
+    # batch would never see the stamp at all.
+    stamped, measured = _manual(), _idea(asset="ETH/USDT:USDT", confidence=0.95)
+    batch = _batcher(stamped, measured)._auto_confirm_batch(0.85)
+    ids = [tid for tid, _ in batch]
+    assert measured.id in ids
+    assert stamped.id not in ids, (
+        "a stamped 1.0 is not a measurement, whoever registered it")
 
 
 def test_the_batch_is_empty_when_the_operator_switched_it_off():

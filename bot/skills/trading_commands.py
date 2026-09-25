@@ -511,8 +511,23 @@ class TradingCommands:
             "could not check" and refuses the deselect; returning 0 on failure
             would read as "there are none" and strand real positions.
             """
+            # With per-user live off the bot places nothing on this user's
+            # own accounts, so there is no bot-managed position there to
+            # strand. `_executor_for` answers the OPERATOR's executor in that
+            # state, and counting it refused a deselect over positions on
+            # somebody else's account.
+            if not getattr(CONFIG, "per_user_live_enabled", False):
+                return 0
             ex = self.engine._executor_for(uid, venue)
             if ex is None:
+                # No executor for this venue: its keys are gone or will not
+                # decrypt. That is "none" only if no saved book holds a
+                # position there; otherwise nobody can say how many.
+                from bot.core.live_executor import saved_book_holds_positions
+                from bot.core.venue_key import executor_state_dir
+                if saved_book_holds_positions(uid, executor_state_dir(venue)):
+                    raise RuntimeError(
+                        f"{venue} holds a saved book this bot cannot open")
                 return 0
             return len(getattr(ex, "open_positions", None) or [])
 

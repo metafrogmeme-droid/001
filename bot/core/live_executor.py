@@ -945,6 +945,86 @@ def _user_state_path(base_file: str, state_dir: Optional[str], user_id) -> str:
     return os.path.join(d, name)
 
 
+def move_legacy_user_book(user_id, state_dir: str) -> list:
+    """Move a user's pre-split executor book into ``state_dir``, once.
+
+    Before the venue became a directory for the executor too, every per-user
+    executor wrote ``data/live_positions_{user}.json`` and
+    ``data/closed_trades_{user}.json`` whatever venue it traded, so the file on
+    disk is whichever executor saved last — and with one venue linked, that is
+    the user's ACTIVE venue's. The engine calls this before it builds any
+    executor for a user whose active venue is a split one, so that venue's
+    executor finds its book where it now looks, and the default venue's
+    executor never loads (and then manages) positions on another exchange.
+
+    Moves nothing it cannot be sure about, per file:
+
+      * a destination that already exists — the split book is there; never
+        overwrite it;
+      * a source that will not parse — unreadable is not empty, and it is left
+        for a human rather than moved into a book that would then read it as
+        another venue's;
+      * a source with no rows — an empty main beside a ``.bak`` that holds rows
+        is the default loader's fallback case, and moving the pair would hand
+        the split executor the rows the main file says are gone;
+      * a source whose rows carry a ``venue`` — it was written after rows were
+        stamped, by an executor that said whose it is.
+
+    The ``.bak`` travels with its main file, or the default loader's fallback
+    would find it the moment the main one is gone. Returns the destination
+    paths moved.
+    """
+    moved: list = []
+    for base in (_POSITIONS_FILE, _CLOSED_TRADES_FILE):
+        src = Path(_user_state_path(base, None, str(user_id)))
+        dst = Path(_user_state_path(base, state_dir, str(user_id)))
+        if src == dst or not src.exists():
+            continue
+        if dst.exists() or Path(str(dst) + ".bak").exists():
+            continue
+        try:
+            data = json.loads(src.read_text())
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            rows = [r for r in data.values() if isinstance(r, dict)]
+        elif isinstance(data, list):
+            rows = [r for r in data if isinstance(r, dict)]
+        else:
+            continue
+        if not rows or any(r.get("venue") for r in rows):
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(src, dst)
+        src_bak = Path(str(src) + ".bak")
+        if src_bak.exists():
+            os.replace(src_bak, Path(str(dst) + ".bak"))
+        moved.append(str(dst))
+    return moved
+
+
+def saved_book_holds_positions(user_id, state_dir: Optional[str]) -> bool:
+    """Does ``user_id``'s saved positions file under ``state_dir`` hold a row?
+
+    The question a restart has to ask about a venue that is NOT the user's
+    active one: its executor is built lazily, on the next order routed there,
+    so a position already open on it would sit unmonitored — no stop re-armed,
+    no close noticed — until then. A file that will not parse answers True:
+    unreadable is not empty, and building the executor is what reports it.
+    """
+    path = Path(_user_state_path(_POSITIONS_FILE, state_dir, str(user_id)))
+    for source in (path, Path(str(path) + ".bak")):
+        if not source.exists():
+            continue
+        try:
+            data = json.loads(source.read_text())
+        except Exception:
+            return True
+        if isinstance(data, dict) and data:
+            return True
+    return False
+
+
 #: How long a symbol is refused after the overshoot guard flattened a fill on
 #: it. Long enough that a sticky-leverage symbol cannot be re-entered several
 #: times an hour paying fees each round, short enough that fixing the venue-side
@@ -1307,6 +1387,12 @@ class LivePosition:
     origin: str = "executed"
     fill_source: Optional[str] = None
     close_lookup: Optional[str] = None
+    # venue_recorded: the venue a CLOSED row carried when it was loaded, so a
+    #                 save writes it back rather than restamping another
+    #                 venue's history with this executor's. None for a row
+    #                 this executor closed itself, or one written before rows
+    #                 carried a venue.
+    venue_recorded: Optional[str] = None
 
 
 # ── Kill-switch awareness ────────────────────────────────────────────────────
@@ -1433,6 +1519,12 @@ class LiveExecutor:
         # supports no claim at all, so the two get told apart here rather
         # than collapsing into the same reassuring sentence downstream.
         self._closed_trades_read_failed: bool = False
+        # Rows of the closed-trade file this build could not read, kept
+        # verbatim and written back on every save: the next close must not
+        # erase history this process could not parse. And a file that would
+        # not parse at all, copied aside ONCE before anything writes over it.
+        self._unreadable_closed_rows: list = []
+        self._closed_file_to_preserve: bool = False
         self._order_history: list[LiveOrder] = []
         self._hedge_mode: Optional[bool] = None  # None=unknown, True=hedge, False=one-way
         self._is_uta: Optional[bool] = None  # None=unknown, cached after first detection
@@ -1511,6 +1603,13 @@ class LiveExecutor:
         # check_degradation reads the feed's true last-message age instead of the
         # coarse _ws_last_seen shadow clock. None in paper/tests → shadow clock.
         self._ws_feed: Optional[Any] = None
+        # ONE VENUE, ONE BOOK. Rows stamped with another venue are refused on
+        # load and written back untouched on save (a refusal must not destroy
+        # them); rows with no stamp at all were written before the stamp
+        # existed, and `claim_loaded_rows` stamps them as this venue's.
+        self._foreign_position_rows: dict[str, dict] = {}
+        self._unstamped_positions_loaded = False
+        self._unstamped_closed_loaded = False
         # F-07 FIX: Load persisted positions on startup
         self._load_positions()
         # F-14 FIX: Load persisted closed trades on startup
@@ -8161,7 +8260,7 @@ class LiveExecutor:
                     # incident this guards against. reconcile_positions() (called
                     # right after check_positions() every tick) queries the
                     # exchange directly and resolves this authoritatively.
-                    if trade_id in self._recovered_from_closing:
+                    if self.awaiting_reconcile(trade_id):
                         continue
 
                     # ── Clear a stale "unprotected" alarm ──
@@ -12272,7 +12371,16 @@ class LiveExecutor:
         try:
             data: dict[str, Any] = {}
             for tid, pos in self._positions.items():
-                if pos.status not in ("open", "pending_fill"):
+                # "closing" IS WRITTEN. `close_position` saves right after it
+                # sets the status, and a restart can land anywhere inside the
+                # close that follows (leg cancels, the market close, the fill
+                # polls). Unwritten, that save dropped the row from disk: with
+                # other positions open the position simply vanished, and with
+                # none the main file read `{}` and the loader brought it back
+                # from the backup as "open" and unflagged. The loader's
+                # stuck-in-"closing" recovery below existed for exactly this
+                # and had never once been reached.
+                if pos.status not in ("open", "pending_fill", "closing"):
                     continue
                 data[tid] = {
                     "trade_id": pos.trade_id,
@@ -12324,7 +12432,24 @@ class LiveExecutor:
                     # all along; the open store never did.
                     "strategy_type": pos.strategy_type,
                     "signal_type": pos.signal_type,
+                    # WHICH VENUE THIS ROW IS A POSITION ON. Unwritten, a
+                    # user's bitget and bybit executors shared one file and
+                    # each loaded the other's positions as its own: a bybit
+                    # executor then managed a bitget position on bybit, and
+                    # its first save of an empty book erased it.
+                    "venue": self._venue.id,
                 }
+            # A row whose state waits on reconcile says so on disk, or a
+            # restart before reconcile ran would reload it as an ordinary open
+            # position and the deferral would be gone.
+            for _tid in self._recovered_from_closing:
+                if _tid in data:
+                    data[_tid]["awaiting_reconcile"] = True
+            # Rows this executor refused on load, back on disk verbatim. A
+            # refusal that deleted them would be the erasure the stamp exists
+            # to stop.
+            for _tid, _row in self._foreign_position_rows.items():
+                data.setdefault(_tid, _row)
             path = Path(self._positions_file)
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -12359,6 +12484,58 @@ class LiveExecutor:
             logger.error("Failed to save live positions: %s", exc)
             self._persistence_broken = True
 
+    def awaiting_reconcile(self, trade_id: str) -> bool:
+        """Is this position's true state unknown until reconcile asks the venue?
+
+        True for a row reset from "closing" at startup and for a row read from
+        the backup file. Every path that could send a close order on local
+        evidence asks this first: the executor's own stop/target/time checks
+        and the engine's smart exits. A close sent for a position the venue no
+        longer holds is at best rejected and at worst reduces a different
+        position on the same symbol.
+        """
+        return trade_id in self._recovered_from_closing
+
+    def claim_loaded_rows(self) -> bool:
+        """Stamp rows loaded WITHOUT a venue as this executor's, by saving now.
+
+        Those rows were written before rows carried a venue, by the only
+        executor the old code ever built for a user: the one for their ACTIVE
+        venue (``_executor_for`` ignored its venue argument, and a /connect
+        dropped every cached executor). So "this venue's" is the attribution
+        the old code already made on every load, and claiming them keeps it
+        rather than inventing one. What changes is that it is written down:
+        from here on a row cannot move between venues without a stamp saying
+        which it belongs to.
+
+        Called by the engine after it builds a per-user executor, never from
+        ``__init__``: a reader process must not write the bot's files, and a
+        test that constructs an executor must not find its fixture rewritten.
+        Returns whether anything was claimed.
+
+        Each file is saved only if ITS flag is set, and each loader sets its
+        flag only after a read that reached the end. So a partial read is
+        never saved over the file it came from: that save would replace the
+        record with whatever part of it was read.
+        """
+        claimed = False
+        if self._unstamped_positions_loaded:
+            self._save_positions()
+            self._unstamped_positions_loaded = False
+            claimed = True
+        if self._unstamped_closed_loaded:
+            self._save_closed_trades()
+            self._unstamped_closed_loaded = False
+            claimed = True
+        if not claimed:
+            return False
+        audit(trade_log,
+              f"Claimed this book's rows as {self._venue.id}: they were written "
+              f"before rows carried a venue, by this user's active-venue executor",
+              action="load_positions", result="CLAIMED",
+              data={"venue": self._venue.id, "user": str(self.user_id)})
+        return True
+
     def _load_positions(self) -> None:
         """Load persisted positions on startup.
 
@@ -12382,7 +12559,21 @@ class LiveExecutor:
                               action="load_positions", result="FALLBACK_TO_BAK")
                         continue
                     return
+                _unstamped = False
                 for tid, pdata in data.items():
+                    row_venue = pdata.get("venue") if isinstance(pdata, dict) else None
+                    if row_venue and str(row_venue) != self._venue.id:
+                        # A position on ANOTHER venue. Loading it would hand
+                        # this executor a position it cannot see on its own
+                        # exchange: its SL/TP monitor and reconciliation would
+                        # act on it here, and a reconcile that finds nothing
+                        # books a close that never happened.
+                        self._foreign_position_rows[tid] = pdata
+                        continue
+                    if not row_venue:
+                        _unstamped = True
+                    if pdata.get("awaiting_reconcile"):
+                        self._recovered_from_closing.add(tid)
                     opened_at = datetime.fromisoformat(pdata["opened_at"]) if pdata.get("opened_at") else datetime.now(UTC)
                     self._positions[tid] = LivePosition(
                         trade_id=pdata["trade_id"],
@@ -12414,10 +12605,43 @@ class LiveExecutor:
                         partial_tp_state=restored_ladder(pdata),
                     )
                     restore_provenance(self._positions[tid], pdata)
+                if self._foreign_position_rows:
+                    _other = sorted({str(r.get("venue")) for r in
+                                     self._foreign_position_rows.values()})
+                    audit(trade_log,
+                          f"{len(self._foreign_position_rows)} saved position(s) in "
+                          f"{source} are on {', '.join(_other)}, not "
+                          f"{self._venue.id}: not loaded into this book, kept on "
+                          f"disk for the executor of that venue",
+                          action="load_positions", result="FOREIGN_VENUE",
+                          data={"venue": self._venue.id, "other": _other,
+                                "trade_ids": sorted(self._foreign_position_rows)})
+                # Only a file read to the end may be claimed: a claim SAVES,
+                # and saving a book that stopped half-way would write the
+                # half as the whole.
+                self._unstamped_positions_loaded = _unstamped
                 source_label = "backup" if source == bak_path else "disk"
                 if self._positions:
                     audit(trade_log, f"Loaded {len(self._positions)} live positions from {source_label}",
                           action="load_positions", result="OK")
+                    # A ROW READ FROM THE BACKUP IS A MEMORY, NOT THE BOOK. The
+                    # backup is the last NON-EMPTY file, so once the book goes
+                    # flat the main file reads `{}` and the backup still holds
+                    # the last position that closed. Driven: every restart
+                    # after a flat book brought that position back as "open",
+                    # and the next tick's local stop/target check acted on a
+                    # position that no longer existed. Each backup row waits
+                    # for reconcile, which asks the venue, exactly as a row
+                    # stuck in "closing" does.
+                    if source == bak_path:
+                        _deferred = sorted(self._positions)
+                        self._recovered_from_closing.update(_deferred)
+                        audit(trade_log,
+                              f"{len(_deferred)} position(s) read from the backup "
+                              f"wait for reconcile before anything acts on them: "
+                              f"the main file said the book was empty",
+                              action="load_positions", result="BACKUP_DEFERRED",
+                              data={"trade_ids": _deferred})
                     # Startup recovery: reset any positions stuck in "closing" status.
                     # The close order may or may not have succeeded on the exchange —
                     # resetting to "open" lets reconcile_positions() re-check and handle.
@@ -12490,7 +12714,33 @@ class LiveExecutor:
         whether it was.
         """
         try:
-            data = [closed_trade_row(pos) for pos in self._closed_trades]
+            if self._closed_file_to_preserve:
+                # The file this process could not parse, kept for a human
+                # before the first write replaces it. If the copy fails, the
+                # write does not happen: a close lost from the record is a
+                # smaller loss than the record the close would erase.
+                src = Path(self._closed_trades_file)
+                if src.exists():
+                    keep = Path(f"{src}.unreadable-{int(time.time())}")
+                    import shutil
+                    shutil.copy2(str(src), str(keep))
+                    audit(trade_log,
+                          f"Closed-trade file this build could not read kept as "
+                          f"{keep.name} before the first write over it",
+                          action="save_closed_trades", result="PRESERVED",
+                          level=logging.WARNING)
+                self._closed_file_to_preserve = False
+            # Rows this build could not read, first and verbatim: they are
+            # the oldest part of a file written oldest-first.
+            data = list(self._unreadable_closed_rows)
+            for pos in self._closed_trades:
+                row = closed_trade_row(pos)
+                # The venue the close happened on: the one it was recorded
+                # under when it was loaded, else this executor's own. The
+                # stamp is what tells a pre-venue file from one this build
+                # wrote (see LiveExecutor.claim_loaded_rows).
+                row["venue"] = pos.venue_recorded or self._venue.id
+                data.append(row)
             # H-05: the helper fsyncs before the atomic rename.
             atomic_write_json(self._closed_trades_file, data,
                               indent=2, default=str)
@@ -12498,6 +12748,49 @@ class LiveExecutor:
         except Exception as exc:
             logger.warning("Failed to save closed trades: %s", exc)
             return False
+
+    @staticmethod
+    def _closed_row_to_position(item: dict) -> "LivePosition":
+        """One saved closed-trade row as a LivePosition. Raises on a row it
+        cannot read; the loader keeps such a row verbatim rather than dropping
+        it."""
+        opened_at = datetime.fromisoformat(item["opened_at"]) if item.get("opened_at") else datetime.now(UTC)
+        closed_at = datetime.fromisoformat(item["closed_at"]) if item.get("closed_at") else datetime.now(UTC)
+        pos = LivePosition(
+            trade_id=item["trade_id"],
+            symbol=item["symbol"],
+            direction=item["direction"],
+            entry_price=float(item.get("entry_price") or 0),
+            quantity=float(item.get("quantity") or 0),
+            cost_usd=float(item.get("cost_usd") or 0),
+            stop_loss=float(item.get("stop_loss") or 0),
+            take_profit=float(item.get("take_profit") or 0),
+            leverage=int(item.get("leverage") or 1),
+            close_price=float(item.get("close_price") or 0),
+            # `is None`, not falsiness. _save_closed_trades writes
+            # pos.pnl_usd verbatim, so an unpriced close persists as
+            # JSON null — and `float(x or 0)` read it back as a
+            # measured 0.0. The round trip silently converted "we
+            # could not price this" into "this broke even", which is
+            # precisely the signal win_rate.py exists to preserve:
+            # after one restart the unscored count read zero and the
+            # trade was scored as a non-win against the operator.
+            pnl_usd=(None if item.get("pnl_usd") is None
+                     else float(item["pnl_usd"])),
+            gross_pnl=float(item.get("gross_pnl") or 0) if item.get("gross_pnl") is not None else None,
+            commission=float(item.get("commission") or 0) if item.get("commission") is not None else None,
+            opened_at=opened_at,
+            closed_at=closed_at,
+            status="closed",
+            close_reason=item.get("close_reason"),
+            origin=item.get("origin") or "executed",
+            fill_source=item.get("fill_source"),
+            close_lookup=item.get("close_lookup"),
+            strategy_type=item.get("strategy_type") or "swing",
+            signal_type=item.get("signal_type") or "momentum_confluence",
+        )
+        pos.venue_recorded = item.get("venue") or None
+        return pos
 
     def _load_closed_trades(self) -> None:
         """Load persisted closed trades on startup.
@@ -12509,48 +12802,54 @@ class LiveExecutor:
         """
         path = Path(self._closed_trades_file)
         self._closed_trades_read_failed = False
+        self._unreadable_closed_rows = []
+        self._closed_file_to_preserve = False
         if not path.exists():
             return
         try:
             with open(path, "r") as f:
                 data = json.load(f)
+        except Exception as exc:
+            # The whole file is unreadable. Nothing can be written back row by
+            # row, so the file itself is kept: `_save_closed_trades` copies it
+            # aside before its first write, and never writes over it unkept.
+            self._closed_trades_read_failed = True
+            self._closed_file_to_preserve = True
+            audit(trade_log, f"Failed to load closed trades: {exc}",
+                  action="load_closed_trades", result="ERROR")
+            return
+        if not isinstance(data, list):
+            self._closed_trades_read_failed = True
+            self._closed_file_to_preserve = True
+            audit(trade_log, "Closed-trade file is not a list of rows",
+                  action="load_closed_trades", result="ERROR")
+            return
+        try:
+            _unstamped_closed = False
             for item in data:
-                opened_at = datetime.fromisoformat(item["opened_at"]) if item.get("opened_at") else datetime.now(UTC)
-                closed_at = datetime.fromisoformat(item["closed_at"]) if item.get("closed_at") else datetime.now(UTC)
-                pos = LivePosition(
-                    trade_id=item["trade_id"],
-                    symbol=item["symbol"],
-                    direction=item["direction"],
-                    entry_price=float(item.get("entry_price") or 0),
-                    quantity=float(item.get("quantity") or 0),
-                    cost_usd=float(item.get("cost_usd") or 0),
-                    stop_loss=float(item.get("stop_loss") or 0),
-                    take_profit=float(item.get("take_profit") or 0),
-                    leverage=int(item.get("leverage") or 1),
-                    close_price=float(item.get("close_price") or 0),
-                    # `is None`, not falsiness. _save_closed_trades writes
-                    # pos.pnl_usd verbatim, so an unpriced close persists as
-                    # JSON null — and `float(x or 0)` read it back as a
-                    # measured 0.0. The round trip silently converted "we
-                    # could not price this" into "this broke even", which is
-                    # precisely the signal win_rate.py exists to preserve:
-                    # after one restart the unscored count read zero and the
-                    # trade was scored as a non-win against the operator.
-                    pnl_usd=(None if item.get("pnl_usd") is None
-                             else float(item["pnl_usd"])),
-                    gross_pnl=float(item.get("gross_pnl") or 0) if item.get("gross_pnl") is not None else None,
-                    commission=float(item.get("commission") or 0) if item.get("commission") is not None else None,
-                    opened_at=opened_at,
-                    closed_at=closed_at,
-                    status="closed",
-                    close_reason=item.get("close_reason"),
-                    origin=item.get("origin") or "executed",
-                    fill_source=item.get("fill_source"),
-                    close_lookup=item.get("close_lookup"),
-                    strategy_type=item.get("strategy_type") or "swing",
-                    signal_type=item.get("signal_type") or "momentum_confluence",
-                )
+                try:
+                    pos = self._closed_row_to_position(item)
+                except Exception as row_exc:
+                    # ONE ROW, NOT THE REST. This loop used to stop at the
+                    # first row it could not read and keep only the rows
+                    # above it; the next close then wrote that partial list
+                    # over the file, and every row below the bad one was gone
+                    # for good. The row is kept verbatim and written back.
+                    self._unreadable_closed_rows.append(item)
+                    self._closed_trades_read_failed = True
+                    logger.warning("Unreadable closed-trade row kept verbatim: %s",
+                                   row_exc)
+                    continue
+                if pos.venue_recorded is None:
+                    _unstamped_closed = True
                 self._closed_trades.append(pos)
+            if self._unreadable_closed_rows:
+                audit(trade_log,
+                      f"{len(self._unreadable_closed_rows)} closed-trade row(s) could "
+                      f"not be read; they are kept on disk as they were and every "
+                      f"total over this record is partial",
+                      action="load_closed_trades", result="PARTIAL",
+                      level=logging.WARNING)
             # ── Dedup on load: keep last record per trade_id ──
             if self._closed_trades:
                 seen: dict[str, int] = {}
@@ -12571,6 +12870,8 @@ class LiveExecutor:
                 logger.info("Trimming closed trades on load: %d -> %d",
                             len(self._closed_trades), _MAX_CLOSED_TRADES)
                 self._closed_trades = self._closed_trades[-_MAX_CLOSED_TRADES:]
+            # Read to the end: a claim may save this list (see _load_positions).
+            self._unstamped_closed_loaded = _unstamped_closed
             if self._closed_trades:
                 from bot.utils.win_rate import pnl_stats as _pnl_stats
                 _ps = _pnl_stats(self._closed_trades)
