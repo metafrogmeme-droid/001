@@ -410,8 +410,18 @@ def proposal_binding(flag: str, value: Any,
                 "its sample floor, where it fails open and applies no "
                 "multiplier of either value.")
     if now_mult != after_mult:
-        return (f"\u21b3 <b>binds</b> — on the governor's own window this "
+        line = (f"\u21b3 <b>binds</b> — on the governor's own window this "
                 f"moves size \u00d7{now_mult:.2f} \u2192 \u00d7{after_mult:.2f}.")
+        # A REDUCE multiplier is applied before the notional cap, which binds on
+        # nearly every trade and takes it straight back unless the governor is
+        # one of the reductions the policy lets tighten the cap. A PAUSE (x0)
+        # refuses the trade, so the cap never gets to take that one back.
+        from bot.risk.risk_engine import PRE_CAP_TIGHTENS_CAP
+        if min(now_mult, after_mult) > 0 and "governor" not in PRE_CAP_TIGHTENS_CAP:
+            line += (" Not on the order while the notional cap binds: the cap "
+                     "takes the governor's reduction back (it is not in "
+                     "<code>PRE_CAP_TIGHTENS_CAP</code>).")
+        return line
     return (f"\u21b3 <b>changes nothing on the live window</b> — the "
             f"governor is in {now_status} and size stays "
             f"\u00d7{now_mult:.2f} with this applied. It may bind on a "

@@ -143,6 +143,18 @@ class VarResult:
 # we shrink the position rather than silently leaving it full-size.
 _PROVIDER_FALLBACK_SIZE_MULT = 0.5
 
+#: The pre-cap size reductions that ALSO tighten the notional cap, by kind.
+#: The cap binds on ~every trade, so a reduction outside this set reaches the
+#: order only when the cap does not bind, and the check line says so when it
+#: does. Empty: on the frozen benchmark, letting them reach the order helped
+#: majors_1h and cost alts_1h and corr_dense_1h, so which of them should is a
+#: sizing decision rather than a correctness fix.
+PRE_CAP_TIGHTENS_CAP: frozenset[str] = frozenset()
+
+#: Every kind a pre-cap reduction records itself under.
+PRE_CAP_KINDS = ("session", "session_fallback", "equity_curve", "governor",
+                 "drawdown_recovery", "macro", "correlation")
+
 # Persistence file for safety state (circuit breaker, loss streak, daily PnL).
 # Survives restarts so a crash cannot silently clear protective limits.
 # F-15 FIX: validate state dir path to prevent traversal.
@@ -1323,6 +1335,16 @@ class RiskEngine:
             position_usd *= regime_mult
             note_size_step(idea, f"regime x{regime_mult:.2f}", position_usd)
 
+        # Reductions that multiply the PRE-cap size and nothing else. The
+        # notional cap below binds on ~every crypto trade (and on every trade of
+        # a small live account), so a pre-cap multiplication alone is clamped
+        # straight back to the same number: driven at $128 of equity, the
+        # governor's REDUCE x0.50 left the order at $16.64 either way, with
+        # "governor x0.50" on the size trace one step above the cap that undid
+        # it. Each reduction records itself here. The cap site tightens the cap
+        # by the kinds in PRE_CAP_TIGHTENS_CAP and names the rest as taken back.
+        _pre_cap_only: list[tuple[str, str, float]] = []
+
         # Session-aware position sizing: reduce size in low-liquidity sessions.
         # Only reductions (mult < 1.0) applied pre-cap; never increases.
         try:
@@ -1334,6 +1356,8 @@ class RiskEngine:
             if _session_mult < 1.0:
                 position_usd *= _session_mult
                 note_size_step(idea, f"session x{_session_mult:.2f}", position_usd)
+                _pre_cap_only.append(("session", f"session x{_session_mult:.2f}",
+                                      _session_mult))
         except Exception as _session_exc:
             # RC-AUD-011: fail toward SAFETY.  The session sizer must never *block*
             # risk evaluation (it reduces, never rejects), but a provider error
@@ -1342,6 +1366,9 @@ class RiskEngine:
             position_usd *= _PROVIDER_FALLBACK_SIZE_MULT
             note_size_step(idea, f"session provider fallback x{_PROVIDER_FALLBACK_SIZE_MULT}",
                            position_usd)
+            _pre_cap_only.append(("session_fallback",
+                                  f"session provider fallback x{_PROVIDER_FALLBACK_SIZE_MULT}",
+                                  _PROVIDER_FALLBACK_SIZE_MULT))
             audit(risk_log,
                   f"Session provider error — applying conservative size×"
                   f"{_PROVIDER_FALLBACK_SIZE_MULT} fallback ({_session_exc})",
@@ -1360,6 +1387,8 @@ class RiskEngine:
             else:
                 position_usd *= _eq_mult
                 note_size_step(idea, f"equity-curve breaker x{_eq_mult:.2f}", position_usd)
+                _pre_cap_only.append(("equity_curve", f"equity-curve breaker x{_eq_mult:.2f}",
+                                      _eq_mult))
 
         # Live-performance governor (default ON): de-risk on REALIZED
         # recent results. Reduces size when the recent window underperforms and
@@ -1378,6 +1407,9 @@ class RiskEngine:
                     position_usd *= _gov_mult
                     note_size_step(idea, f"live-performance governor x{_gov_mult:.2f}",
                                    position_usd)
+                    _pre_cap_only.append(("governor",
+                                          f"live-performance governor x{_gov_mult:.2f}",
+                                          _gov_mult))
 
         # Continuous equity throttle (opt-in, default OFF): scale size off the
         # rolling PF of recent realized closes — proportional degradation as
@@ -1449,14 +1481,20 @@ class RiskEngine:
             if idea.confidence < CONFIG.risk.drawdown_recovery_conf_min:
                 failed.append(f"DD_RECOVERY: confidence {idea.confidence:.2f} < {CONFIG.risk.drawdown_recovery_conf_min} (recovery mode)")
             _before = position_usd
-            position_usd *= CONFIG.risk.drawdown_recovery_size_mult
-            note_size_step(idea, f"drawdown recovery x{CONFIG.risk.drawdown_recovery_size_mult:.2f}",
+            _dd_mult = CONFIG.risk.drawdown_recovery_size_mult
+            position_usd *= _dd_mult
+            note_size_step(idea, f"drawdown recovery x{_dd_mult:.2f}",
                            position_usd, before=_before)
+            if _dd_mult < 1.0:
+                _pre_cap_only.append(("drawdown_recovery",
+                                      f"drawdown recovery x{_dd_mult:.2f}", _dd_mult))
 
         # C2-11: Apply macro reduction pre-cap
         if _macro_size_mult < 1.0:
             position_usd *= _macro_size_mult
             note_size_step(idea, f"macro x{_macro_size_mult:.2f}", position_usd)
+            _pre_cap_only.append(("macro", f"macro x{_macro_size_mult:.2f}",
+                                  _macro_size_mult))
 
         # Portfolio-aware correlation sizing (default ON). Shrink the
         # new trade when it stacks on existing open positions in the SAME
@@ -1472,6 +1510,8 @@ class RiskEngine:
                 if _live_rows is None or CONFIG.risk.live_book_risk_gates_enabled:
                     position_usd *= _corr_mult
                     note_size_step(idea, f"correlation x{_corr_mult:.2f}", position_usd)
+                    _pre_cap_only.append(("correlation", f"correlation x{_corr_mult:.2f}",
+                                          _corr_mult))
                 else:
                     passed.append(
                         f"CORRELATION_SIZING: would size x{_corr_mult:.2f} "
@@ -1580,11 +1620,29 @@ class RiskEngine:
                 and _ladder.size_mult < 1.0):
             max_notional_usd *= _ladder.size_mult
             _cap_tight.append(f"quality ladder x{_ladder.size_mult:.2f}")
+        # The pre-cap reductions the policy lets reach the order tighten the
+        # cap too. The rest are named when the cap binds, because a cap that
+        # binds takes each of them back in full, and a trace or a check line
+        # that still says "governor x0.50" is a reduction nobody applied.
+        _taken_back: list[str] = []
+        for _kind, _label, _mult in _pre_cap_only:
+            if _kind in PRE_CAP_TIGHTENS_CAP:
+                max_notional_usd *= _mult
+                _cap_tight.append(_label)
+            else:
+                _taken_back.append(_label)
         if max_notional_usd > 0 and position_usd > max_notional_usd:
             position_usd = max_notional_usd
             note_size_step(idea, f"notional cap {_cap_pct:g}% of ${sizing_equity:,.2f} equity"
-                                 + (f" ({', '.join(_cap_tight)})" if _cap_tight else ""),
+                                 + (f" ({', '.join(_cap_tight)})" if _cap_tight else "")
+                                 + (f"; took back {', '.join(_taken_back)}"
+                                    if _taken_back else ""),
                            position_usd)
+            if _taken_back:
+                passed.append(
+                    f"SIZE_REDUCTIONS: the notional cap took back "
+                    f"{', '.join(_taken_back)}; the order is the cap's figure "
+                    f"and none of them reached it")
         # SHADOW, audited here rather than at the resolve site because the
         # would-be number is only knowable after the cap. #36 is the precedent
         # for the CHANNEL: two shadow deltas went to logger.debug, which has no

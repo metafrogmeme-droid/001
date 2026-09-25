@@ -1164,6 +1164,34 @@ expired or counted. Fixed. `--honest` never rests a limit, so the benchmark on
 record is unchanged (`tests/test_the_portfolio_backtest_drains_resting_limits.py`
 drives both).
 
+### Should the cap-clamped size reductions reach the order? (2026-09-25) — not shown
+
+Seven tighten-only reductions multiply the size before the notional cap and
+nothing else: session, the session provider fallback, the equity-curve
+breaker, the live-performance governor, drawdown recovery, macro and
+correlation sizing. The cap binds on nearly every trade here (13% of $10,000
+is under the fixed-fractional figure) and on every trade of a small live
+account, so each of them is clamped straight back and the order is the same
+with or without it. Three arms, `--honest --walk-forward 6`, same code but the
+cap site:
+
+| dataset | A: none reach the order (shipped) | B: all seven | C: all but session |
+|---|---|---|---|
+| majors_1h | PF 0.58, net −$328, 0/6 folds | PF 0.70, net −$160, 1/6 | PF 0.65, net −$215, 1/6 |
+| alts_1h | PF 1.18, net +$237, 3/6 | PF 1.11, net +$92, 3/6 | PF 1.15, net +$140, 3/6 |
+| corr_dense_1h | PF 0.21, net −$906, 1/6 (81 trades) | PF 0.08, net −$842, 0/6 (59) | PF 0.12, net −$926, 1/6 (59) |
+
+In the arms where they reach the order they fire constantly (the governor's
+REDUCE and the session multipliers account for nearly every reduction logged),
+and they behave like a de-leverage in states the heuristics call bad: smaller
+losses on the two losing snapshots, smaller wins on the one profitable
+snapshot, and on `corr_dense_1h` a different equity path that trips the
+breakers on different bars and takes 22 fewer trades. Neither B nor C is
+harmless on all three, so the code ships with A's sizing: which kinds reach
+the order is one named policy (`risk_engine.PRE_CAP_TIGHTENS_CAP`, empty), and
+whenever the cap binds, the reductions it took back are named on the check
+line and the size trace instead of reading as reductions.
+
 ## Refreshing the snapshot
 
 Re-run step 1 to fetch a newer window (e.g. quarterly). This changes the

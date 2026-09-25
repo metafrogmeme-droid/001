@@ -10287,6 +10287,36 @@ were fixtures.** No test planted an engine whose shared `risk` read raises,
 and none drove the playbook card with the caller's own breaker tripped.
 (`tests/test_a_card_reads_the_callers_own_breaker_and_drawdown.py`.)
 
+**A REDUCTION THE CAP TOOK BACK WAS PRINTED AS A REDUCTION.** Seven
+tighten-only multipliers scale the size before the notional cap and nothing
+else: session, the session provider fallback, the equity-curve breaker, the
+live-performance governor, drawdown recovery, macro and correlation sizing.
+The cap binds on nearly every trade, and on every trade of a small live
+account, so each is clamped straight back. Driven at $128 of equity, the
+governor's REDUCE x0.50 left the order at $16.64 either way, under a size
+trace reading `live-performance governor x0.50` one step above the cap that
+undid it. The nightly audit told the operator a change to
+`LIVE_PERF_REDUCE_MULT` "moves size ×0.50 → ×0.25" about the same order.
+
+**Making them reach the order was the obvious fix, and the benchmark refused
+it.** Three arms on the frozen snapshots (none reach it, all seven, all but
+session): it helped `majors_1h`, cost `alts_1h`, and on `corr_dense_1h` took
+22 fewer trades down a different breaker path to a worse profit factor
+(`docs/FROZEN_BENCHMARK.md`). A change that is not harmless on all three is a
+sizing decision, not a correctness fix. So the kinds that tighten the cap are
+one named policy, `PRE_CAP_TIGHTENS_CAP`, shipped empty, and the decision is a
+single line. What is not a decision is the claim: whenever the cap binds, the
+check line, the size trace and the audit card name the reductions it took
+back. A PAUSE is a refusal, which no cap can take back, so the audit card
+leaves the caveat off a change to x0.
+
+**Eighteen mutations, each killed; two were first killed by the wrong test.**
+Dropping the correlation or the fallback recording died on the test that reads
+the declared kinds off the append calls, not on any drive: a kill for a reason
+unrelated to the rule. Both are driven now: correlation on a live book, the
+fallback with a session provider that raises.
+(`tests/test_a_reduction_the_cap_takes_back_is_not_a_reduction.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11578,7 +11608,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **434 of 1044** reach for source text through `source_scan`, `code_only`
+Driven, **434 of 1045** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 434 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
