@@ -294,9 +294,9 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
     venue answers with its perp, ``BTC/USDT:USDT`` or ``BTC/USDC:USDC``; an
     exact string compare dropped the venue's own row, and a close verification
     that drops the row books a held position as closed. A row is somebody
-    else's only when neither the spelling nor the market it names
-    (`normalize_symbol`) agrees — so the second reading can only KEEP a row the
-    first would have dropped, never drop one it kept.
+    else's when the market it names (`normalize_symbol`) differs. Two equal
+    spellings name one market, so this can only KEEP a row the exact compare
+    dropped, never drop one it kept.
     """
     # The same type guard `position_presence` opens with, and for a sharper
     # reason here: `for row in "not a list"` iterates CHARACTERS, so a string
@@ -310,7 +310,7 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
             kept.append(row)
             continue
         row_symbol = row.get("symbol")
-        if (row_symbol is not None and row_symbol != symbol
+        if (row_symbol is not None
                 and normalize_symbol(str(row_symbol)) != normalize_symbol(str(symbol))):
             continue
         row_side = row.get("side")

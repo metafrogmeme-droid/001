@@ -227,7 +227,7 @@ class _HyperliquidVenue:
 
     async def create_order(self, symbol, type, side, amount, price=None, params=None):
         self.market(symbol)
-        self.sent.append(("create", symbol, dict(params or {})))
+        self.sent.append(("create", symbol, dict(params or {}), amount))
         return {"id": f"o{len(self.sent)}", "status": "closed", "filled": amount,
                 "average": 60000.0}
 
@@ -463,7 +463,10 @@ async def test_bybit_close_keeps_a_position_the_venue_still_holds(tmp_path, fast
 
 
 @pytest.mark.asyncio
-async def test_hyperliquid_close_the_venue_confirms_is_booked_and_protects_nothing(tmp_path, fast):
+async def test_hyperliquid_close_the_venue_confirms_is_booked_and_protects_nothing(
+        tmp_path, fast, monkeypatch):
+    audits: list = []
+    monkeypatch.setattr(le, "audit", lambda log, msg, **kw: audits.append(kw))
     venue = _HyperliquidVenue()
     exr = _executor(tmp_path, "hyperliquid")
     exr._exchange = venue
@@ -479,6 +482,25 @@ async def test_hyperliquid_close_the_venue_confirms_is_booked_and_protects_nothi
     triggers = [s for s in venue.sent if s[0] == "create"
                 and (s[2].get("triggerPrice") or s[2].get("takeProfitPrice"))]
     assert triggers == [], "a close the venue confirmed re-armed stops on a flat book"
+    # The fill lookup read the venue's market: an unreadable one books a
+    # pessimistic fee estimate and audits the failure.
+    assert not [a for a in audits if a.get("action") == "fee_fetch"], audits
+
+
+@pytest.mark.asyncio
+async def test_a_hyperliquid_partial_close_is_rounded_on_its_own_grid(tmp_path, fast):
+    venue = _HyperliquidVenue()
+    exr = _executor(tmp_path, "hyperliquid")
+    try:
+        filled, source, _oid = await exr._partial_close(venue, _pos(), 0.0123456, "tp1")
+    finally:
+        await venue.close()
+    # Hyperliquid's ccxt client ROUNDS to its 5-decimal grid. On the recorded
+    # spelling the rounding raised BadSymbol, was swallowed, and the order
+    # went out unrounded at 0.0123456.
+    created = [s for s in venue.sent if s[0] == "create"]
+    assert created and created[0][3] == pytest.approx(0.01235), created
+    assert (filled, source) == (pytest.approx(0.01235), "filled")
 
 
 # ── B1: the per-tick monitor reads the venue's market ──────────────────────

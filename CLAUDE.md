@@ -10891,6 +10891,96 @@ production caller; in paper mode it would close every paper position.
 `tests/test_an_unreadable_position_row_is_counted_not_dropped.py`,
 `tests/test_an_adopted_limit_order_records_no_guessed_leverage.py`.)
 
+**THE VENUE MAPPING REACHED THE ORDERS AND NOT THE READS THAT SAY WHAT THEY
+DID.** A position records the bot's spot spelling, `BTC/USDT`. Every order and
+cancel went out on `self._venue.order_symbol(pos.symbol)`, and the reads that
+decide what those orders did asked about `pos.symbol` itself. On Bybit that
+names the SPOT market; on Hyperliquid it names no market at all. Driven with
+real ccxt 4.5.56 objects, fabricated markets and the transport stubbed, the
+Bybit venue holding LONG 0.01 of the perp:
+
+    close verification, recorded spelling  ->  confirmed=True   (position/list?category=spot)
+    close verification, venue spelling     ->  position_still_open, remaining 0.01 (category=linear)
+    close_position                         ->  "CLOSED LONG BTC/USDT", priced off the SPOT ticker
+
+On Hyperliquid every read raised BadSymbol: a close the venue confirmed read
+"CLOSE UNVERIFIED" and placed two NEW reduce-only trigger orders on a flat book,
+and the per-tick ticker raised every tick.
+
+**The rule found the one the list missed, and it was an ORDER.** The drift
+fallback's market order went out on `pos.symbol`. On Bybit that is a SPOT market
+buy. The survey that named eleven read sites did not name it. A walk over every
+ccxt call that takes a symbol did. `tests/venue_symbol_reads.py` classifies each
+argument as mapped, carried (a parameter, resolved through every caller in the
+file, recursively) or bare. A bare site fails unless
+`tests/venue_symbol_read_baseline.txt` records it WITH a reason, and the rule is
+two-way. On the base commit it reported 108 site-caller pairs under 55 keys. It
+reports 19 under 14 now, each with a reason: execute's own `symbol`, Bitget's v3
+channel, a row the venue itself returned, and /orders' default reader. Its
+branches are driven on planted trees.
+
+**ccxt refuses every Bybit `fetch_order` on a unified account unless the call
+carries `acknowledged`, and it refuses before sending anything.** Driven: zero
+requests, ArgumentsRequired. A filled Bybit limit entry was never seen
+filling, got no stop, and after eight hours was force-closed `stale_pending` at
+`pnl_usd = 0.0` over a live, unprotected position.
+`_fetch_order` is the one seam for an order read. It maps the symbol and merges
+`Venue.order_read_params()` (Bybit: `acknowledged`) under the caller's params,
+and it passes params only when there are some, so a Bitget read is the call it
+always was. The same drive now reads LIMIT FILLED in one request and places the
+stop and the target. `rows_for_side` compares the market a row names
+(`normalize_symbol`, now in a leaf), not its spelling.
+
+**The v3 sync asked the MODULE's venue.** `_fetch_v3_positions_raw` is a
+staticmethod, and it read `get_venue()`, which is the operator's selector. Under
+a Hyperliquid operator, a per-user Bitget executor read nothing and audited
+"exchange reports NO positions" every sync. The reverse was worse and was not
+in the survey. Under a Bitget operator, a per-user Hyperliquid executor has no
+api_key, so `for_account` fell back to the OPERATOR's keys. It read the
+operator's Bitget book and rewrote its own position's leverage 3 -> 20 and
+margin $200 -> $30. The venue id is a required argument now.
+
+**Four venues linked and got an executor they could not trade.** OKX, Gate and
+KuCoin count a perp order in CONTRACTS, and their adapters sent COINS. 3000
+DOGE went out as 3,000,000 on OKX, 30,000 on Gate and 300,000 at leverage 1 on
+KuCoin. BTC, with a lot of 1, was refused outright. The minimum gate on an OKX
+market said "Bitget requires >= $60000.00", reading one contract as one coin.
+`PER_USER_EXECUTION_VENUES` holds bitget, bybit, bingx and hyperliquid. It is
+checked where `_executor_for` builds an executor, and a refused venue answers
+None, never the operator's executor. The confirm is refused in the venue's own
+words before the re-check, which had read the same None as "re-check failed".
+The card that links such a venue says no order routes there, and promises no
+date. **The contract-size conversion is FILED with those three multipliers**,
+along with the gate's coin-for-contract minimum.
+
+**The Hyperliquid /connect probe proved the wallet, not the key.** Hyperliquid's
+balance is a public read. Both `0xff…ff`, which cannot sign, and the wallet's
+own master key came back `(True, "123.00 USDC free")` and were stored. The probe
+now reads `hyperliquid_key_role` first, and gives three outcomes in the
+/setsigner shape: confirmed, well-formed but unconfirmed, and rejected, in the
+constructor's own words. Two surfaces said per-user accounts "remain on Bitget";
+the resolver has never done that.
+
+**Forty-two mutations: forty-one killed and one equivalent.** The rule caught
+every read-site mutation. Re-run with the rule deselected, eight of sixteen died
+on a drive; two of those needed drives added in the round (the Hyperliquid fill
+lookup and the partial close's grid, where ccxt ROUNDS to 0.01235 and did not
+truncate as the first fixture assumed). The equivalent mutant is the sync's
+venue argument. The early return above it has already answered every
+non-Bitget venue, so the argument is always "bitget" there, and a literal would
+be the module-answer shape one hop out.
+
+**FILED, and the sharpest: Bitget is blind the same way.** The mapping is the
+identity on Bitget, by design, and with UTA markets loaded `BTC/USDT` is Bitget's
+SPOT market. Driven: the endpoint is the same, and ccxt's own post-filter drops
+the swap row. So the close verification reads `confirmed=True` over a held LONG
+0.01, and the per-tick monitor reads `category=SPOT` tickers. The slice kept
+Bitget byte-identical, as it was scoped to. Hyperliquid's margin-mode spelling
+(Bitget's "crossed" reads as isolated there) is noted, not changed.
+(`tests/test_a_read_back_asks_the_venue_in_its_own_spelling.py`,
+`tests/test_a_per_user_executor_is_built_only_for_a_driven_venue.py`,
+`tests/test_the_hyperliquid_probe_refuses_a_key_that_cannot_sign.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
