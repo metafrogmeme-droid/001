@@ -335,11 +335,13 @@ def test_executor_defaults_to_bitget_venue(tmp_path):
     assert ex._venue.id == "bitget"
 
 
-def test_per_user_executor_is_always_bitget(tmp_path, monkeypatch):
-    """A per-user executor whose caller does not name a venue stays
-    Bitget, even when the operator's selector is Hyperliquid. The
-    credential store records the venue; this constructor call does not
-    pass it."""
+def test_an_executor_constructed_without_a_venue_is_bitget(tmp_path, monkeypatch):
+    """What this measures is the CONSTRUCTOR: a per-user executor built
+    without a venue named is Bitget, even when the operator's selector is
+    Hyperliquid. It used to be named as though per-user accounts were
+    always Bitget, which the engine's resolver contradicts — it builds each
+    user's executor on the venue the credential store recorded
+    (tests/test_multi_venue_executor_routing.py)."""
     import bot.core.live_executor as le
     monkeypatch.setattr(
         le, "get_venue",

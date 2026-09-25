@@ -5253,7 +5253,7 @@ class LiveExecutor:
                                 "min_cost": _min_cost, "mult": round(_mult, 3)})
                     return ((f"BLOCKED: {symbol} position too small for the exchange — "
                             f"sized ${size_usd * leverage_mult:.2f} notional at "
-                            f"{leverage_mult}x, but Bitget requires ≥ "
+                            f"{leverage_mult}x, but {self._venue.display_name} requires ≥ "
                             f"${_need_notional:.2f} notional (≈ ${_need_margin:.2f} "
                             f"margin at {leverage_mult}x). Skipped ({_why}) — not "
                             f"worth exceeding the risk-approved size.", quantity))

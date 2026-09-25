@@ -1295,6 +1295,9 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return None
         ex = self._executor_for(user_id)
+        if ex is None:
+            # A venue no executor is built for: no account to size against.
+            return None
         # Operator path: per-user off, or auto/unattended, or the user has no
         # own keys (executor fell back to operator). Decided by EXECUTOR
         # IDENTITY, not by `_is_operator_user`: an operator who linked their
@@ -1346,6 +1349,9 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return _LiveRecheck(None, None, None)
         ex = self._executor_for(user_id)
+        if ex is None:
+            # No executor for this caller's venue: nothing was read.
+            return _LiveRecheck(None, None, None)
         # Executor identity decides, as in get_user_live_equity: the recheck
         # sizes and counts against the account the order will EXECUTE on.
         per_user = (
@@ -2406,6 +2412,21 @@ class RuneClawEngine:
                 # checks for None and refuses.
                 return None
             creds, venue = creds_v, _rv
+        # ONLY A DRIVEN VENUE GETS AN EXECUTOR. /connect stores keys for every
+        # venue `exchange_credentials` knows, and this used to build an
+        # executor for whichever one the store recorded — OKX, Gate and KuCoin
+        # among them, whose adapters send a COIN quantity where those venues
+        # count CONTRACTS (3000 DOGE went out as 3,000,000 on OKX). None here,
+        # for the named ask and the unnamed one alike: the unnamed ask's
+        # fallback is the OPERATOR's executor, and a user's order placed on the
+        # operator's account because their own venue was refused is the one
+        # answer that cannot be right. Checked before the cache, so no executor
+        # built by an older process outlives the rule.
+        from bot.core.venues import per_user_execution_refusal
+        _refusal = per_user_execution_refusal(venue)
+        if _refusal:
+            self._note_execution_refusal(user_id, venue, _refusal)
+            return None
         key = f"{_rv}/{user_id}" if _rv else str(user_id)
         ex = self._user_executors.get(key)
         # Rebuild if absent or the user's credentials changed (e.g. re-/connect,
@@ -2455,6 +2476,38 @@ class RuneClawEngine:
             audit(system_log, f"Per-user live executor bound for user {user_id}",
                   action="per_user_executor", result="BOUND", data={"user": key})
         return ex
+
+    def _note_execution_refusal(self, user_id: str, venue: str, sentence: str) -> None:
+        """Remember why ``user_id`` has no executor, and audit it ONCE per venue.
+
+        `_executor_for` is asked on every confirm, every balance read and every
+        rehydrate, and one sentence repeated on each is how a log stops being
+        read. The sentence is kept for `execution_refusal`, so the confirm that
+        is refused says the venue's reason rather than a re-check crash.
+        """
+        refusals = self.__dict__.setdefault("_execution_refusals", {})
+        said = self.__dict__.setdefault("_execution_refusals_said", set())
+        refusals[str(user_id)] = f"{sentence} Nothing was placed."
+        if (str(user_id), str(venue)) in said:
+            return
+        said.add((str(user_id), str(venue)))
+        audit(system_log,
+              f"No per-user executor for user {user_id} on {venue}: {sentence}",
+              action="per_user_executor", result="REFUSED",
+              level=logging.WARNING,
+              data={"user": str(user_id), "venue": str(venue)})
+
+    def execution_refusal(self, user_id: str = "") -> Optional[str]:
+        """Why this caller's live order has no account to go to, or None.
+
+        Asks `_executor_for` — the one place the rule is applied — and hands
+        back the sentence it recorded when it answered None.
+        """
+        if self._executor_for(user_id) is not None:
+            return None
+        refusals = self.__dict__.get("_execution_refusals", {})
+        return refusals.get(str(user_id)) or (
+            "no account of yours this bot can place an order on. Nothing was placed.")
 
     def _move_legacy_executor_book(self, user_id: str, venue: str) -> None:
         """Move ``user_id``'s pre-split executor book to ``venue``'s directory.
@@ -2631,7 +2684,9 @@ class RuneClawEngine:
         pending entry is open — position records carry venue-native
         symbols and the monitoring/close paths would route them to the
         wrong exchange. The override is persisted (data/venue_override.json)
-        so the choice survives restarts; per-user executors stay Bitget.
+        so the choice survives restarts. It moves the OPERATOR's executor only:
+        a per-user executor trades the venue its user linked, when that venue
+        is one an executor is built for (`PER_USER_EXECUTION_VENUES`).
 
         Every consumer reads self.live_executor live (no captured refs —
         verified), so replacing the attribute plus re-running the four
@@ -5405,6 +5460,16 @@ class RuneClawEngine:
                     continue
                 try:
                     ex = self._executor_for(tg)
+                    if ex is None:
+                        # Their venue has no executor, so this bot placed
+                        # nothing there to flatten; said, not assumed.
+                        audit(system_log,
+                              f"Web emergency-stop from user {tg}: "
+                              f"{self.execution_refusal(tg)}",
+                              action="web_flatten", result="REFUSED",
+                              data={"user": tg})
+                        acks.append({"user_id": uid, "ok": True, "closed": 0})
+                        continue
                     # Never flatten the shared operator account for a
                     # non-operator, whether or not per-user live is on.
                     if ex is self.live_executor and not self._is_operator_user(tg):
@@ -7595,6 +7660,16 @@ class RuneClawEngine:
         # auto-confirm paths, which do not re-fetch a live price here.
         if current_price > 0:
             idea = idea.model_copy(update={"timestamp": datetime.now(UTC)})
+
+        # A caller whose linked venue has no executor is refused HERE, in the
+        # venue's own words. Left to the re-check below, the same None surfaced
+        # as "re-check failed (error logged)" off an AttributeError.
+        if CONFIG.is_live():
+            _no_venue = self.execution_refusal(user_id)
+            if _no_venue:
+                self._pending_pyramid.pop(trade_id, None)
+                self._transition(AgentState.IDLE, f"no executor for {trade_id}")
+                return f"Trade REJECTED: {_no_venue}"
 
         # Re-check risk (portfolio state may have changed -- new positions, daily PnL, drawdown.
         # HONEST LIMITATION: price drift is now checked above (F-05 fix).

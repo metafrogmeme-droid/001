@@ -553,8 +553,10 @@ class EngineOpsCommands:
         the live trading venue at runtime. No .env edit, no restart: the
         switch preflights the target venue with a read-only balance call,
         hot-swaps the operator executor, and persists the choice across
-        restarts. Blocked while positions are open. Per-user (/connect)
-        executors always stay on Bitget.
+        restarts. Blocked while positions are open. It moves the OPERATOR's
+        executor only: a per-user (/connect) executor trades the venue its
+        user linked, where an executor is built for that venue at all
+        (`PER_USER_EXECUTION_VENUES`).
         """
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
@@ -644,7 +646,8 @@ class EngineOpsCommands:
                          f"• Min order notional: ${target.min_notional_usd:.0f}\n"
                          f"• Persisted — survives restarts. "
                          f"<code>/venue {active.id}</code> switches back.\n"
-                         f"• Per-user /connect accounts remain on Bitget.")
+                         f"• This moves the operator's account only. Per-user "
+                         f"/connect accounts trade the venue each user linked.")
 
     async def _cmd_audit(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /audit — show the last nightly self-audit report;

@@ -17,10 +17,13 @@ Design rules (in order of importance):
      (ideas, risk engine, blacklists, learning). Venues translate only at
      the exchange boundary. normalize_symbol()/display_symbol() already
      strip any quote/settle suffix, so USDC symbols round-trip cleanly.
-  3. Per-user executors take the venue the credential store recorded.
-     `exchange_credentials` is multi-venue (Bitget key/secret/passphrase;
-     Hyperliquid wallet_address + agent_private_key). A per-user executor
-     whose caller does not name a venue stays Bitget.
+  3. Per-user executors take the venue the credential store recorded —
+     when that venue is in `PER_USER_EXECUTION_VENUES`, the ones whose order
+     shapes have been driven. `exchange_credentials` is multi-venue (Bitget
+     key/secret/passphrase; Hyperliquid wallet_address + agent_private_key),
+     and every venue it stores can be linked and read; only the listed ones
+     get an executor. A LiveExecutor constructed without a venue named is
+     Bitget.
 
 Selection: VENUE env var ("bitget" default). Hyperliquid is USDC-margined
 perps (one-way only, no hedge mode, no UTA), authenticated with a wallet
@@ -499,8 +502,9 @@ class ParadexVenue(Venue):
     strongest Proof-of-PnL trust tier (onchain_public). ccxt handles the StarkEx
     onboarding from the wallet key.
 
-    NOTE: connectable + read-only-checkable here; must pass the /venue preflight
-    against a real account before being enabled for auto-trade."""
+    Connectable and read-only-checkable here, and NOT an order path: its order
+    shapes have never been driven, so no per-user executor is built for it
+    (`PER_USER_EXECUTION_VENUES`)."""
 
     id = "paradex"
     display_name = "Paradex (DEX)"
@@ -749,9 +753,16 @@ class _KeySecretPerpVenue(Venue):
     mapping — the same shape BingX uses. Concrete venues set ``id``,
     ``display_name``, ``ccxt_id``, ``needs_passphrase`` and any quirks.
 
-    NOTE: these adapters are ccxt-native and unit-tested for symbol/param shape,
-    but each MUST pass the existing /venue preflight against a real account before
-    being enabled for auto-trade — same bar Bybit/BingX cleared."""
+    NOT AN ORDER PATH. These adapters are ccxt-native and unit-tested for
+    symbol/param shape, and that is all: OKX, Gate and KuCoin count a perp
+    order in CONTRACTS where the executor sends a quantity in COINS. Driven
+    with ccxt's own request builders on fabricated markets, 3000 DOGE went out
+    as sz=3000 on OKX (contract 1000 DOGE: 3,000,000 DOGE), size=3000 on Gate
+    (10 DOGE: 30,000) and size=3000 at leverage 1 on KuCoin (100 DOGE:
+    300,000); BTC, lot 1, was refused outright. No per-user executor is built
+    for them (`PER_USER_EXECUTION_VENUES`, checked where the engine builds
+    one): a linked account reads its balance, and no order routes there until
+    the adapter converts sizes and has been driven against a real account."""
 
     ccxt_id: str = ""
     needs_passphrase: bool = False
@@ -861,6 +872,35 @@ _VENUES: dict[str, Venue] = {
 
 def valid_venue_ids() -> list[str]:
     return sorted(_VENUES)
+
+
+#: The venues a per-user EXECUTOR may be built for: the ones whose entry,
+#: stop, close and size unit have been driven against ccxt's own request
+#: builders. Every venue in `_VENUES` can be linked and read; only these
+#: place orders. An allow-list rather than a flag per class, so a venue added
+#: tomorrow is refused until somebody drives it and writes it in here.
+PER_USER_EXECUTION_VENUES = frozenset({"bitget", "bybit", "bingx", "hyperliquid"})
+
+
+def per_user_execution_refusal(venue_id: Optional[str]) -> Optional[str]:
+    """None when a per-user executor may trade ``venue_id``; else why not.
+
+    The sentence names the venue and says what the bot does instead. It
+    promises no date: the gate lifts when the adapter is driven, and that is
+    not a thing this sentence can schedule. It says nothing about what THIS
+    message did — the connect card stores keys, a refused confirm places
+    nothing — so each caller adds that half.
+    """
+    vid = str(venue_id or "").strip().lower()
+    if vid in PER_USER_EXECUTION_VENUES:
+        return None
+    v = _VENUES.get(vid)
+    label = v.display_name if v is not None else (vid or "that venue")
+    reason = (" — it counts perp orders in contracts where this bot sends coins"
+              if isinstance(v, _KeySecretPerpVenue) else "")
+    return (f"{label} is linked for balances only. Its order path has not been "
+            f"driven against a real account{reason}, so this bot places no "
+            f"order there.")
 
 
 def get_venue_override() -> Optional[str]:
