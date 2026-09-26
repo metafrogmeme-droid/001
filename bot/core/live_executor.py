@@ -10316,6 +10316,27 @@ class LiveExecutor:
             net_pnl = gross_pnl - commission
         return gross_pnl, net_pnl, commission
 
+    @staticmethod
+    def _local_close_commission(entry_notional: float, exit_notional: float,
+                                entry_fee_pct: float, exit_fee_pct: float,
+                                stated_fees: Optional[float], fees_cover: str) -> float:
+        """The commission of a close whose P&L is computed here from two prices.
+
+        The venue's own fee is used where it stated one. A position-history
+        row states the round trip (open fee + close fee); a fill or a close
+        order states its own leg only, and the entry leg is estimated beside
+        it. A fee the venue did not state (None, or the 0 a stage writes for
+        a leg it could not price) is estimated at the configured rate, which
+        is what all three local branches used to do whatever the venue had
+        said.
+        """
+        stated = stated_fees if stated_fees is not None and stated_fees > 0 else None
+        if stated is not None and fees_cover == "round_trip":
+            return stated
+        exit_fee = (stated if stated is not None
+                    else exit_notional * exit_fee_pct / 100.0)
+        return entry_notional * entry_fee_pct / 100.0 + exit_fee
+
     def _note_entry_unread_close(self, pos: "LivePosition", action: str,
                                  exit_source: str) -> None:
         """Say that a close was booked UNPRICED because its ENTRY is not on record.
@@ -11080,6 +11101,10 @@ class LiveExecutor:
                 closed_qty = pos.quantity
 
             exchange_close_fees = close_verify["fees"]
+            # What the VENUE stated for the close leg, kept apart from the
+            # pessimistic estimate below that shares the variable above.
+            _stated_close_fee: Optional[float] = (
+                exchange_close_fees if exchange_close_fees > 0 else None)
 
             # ── RC-AUD-023b: residual-close reconciliation ──────────────
             # A partial market close can leave residual exchange exposure while
@@ -11317,10 +11342,18 @@ class LiveExecutor:
                             fee_detail = cf_info.get("feeDetail", {})
                             if isinstance(fee_detail, dict):
                                 total_fees += abs(float(fee_detail.get("totalFee", 0) or 0))
-                        if total_profit != 0 or total_fees != 0:
+                        # A profit of 0 is the field unpopulated, not a
+                        # break-even: Bitget writes "0" on a close fill whose
+                        # realized figure it did not fill in (the lookup
+                        # stages read it the same way). Taking it as the
+                        # venue's P&L booked the close at exactly minus the
+                        # fees, whatever the price did, whenever a fee was
+                        # there. The price is read and prices it below.
+                        if total_profit != 0:
                             exchange_pnl = total_profit
-                            if total_fees > 0:
-                                exchange_close_fees = total_fees
+                        if total_fees > 0:
+                            exchange_close_fees = total_fees
+                            _stated_close_fee = total_fees
                 except Exception as _fee_exc:
                     # CRITICAL FIX: use pessimistic fee assumption (20bp round-trip)
                     # instead of 0 when exchange data unavailable
@@ -11389,12 +11422,12 @@ class LiveExecutor:
                 else:
                     _gross = (pos.entry_price - fill_price) * pos.quantity
 
-                # Exchange commission: entry + exit notional x fee rate
-                entry_notional = pos.entry_price * pos.quantity
-                exit_notional = fill_price * pos.quantity
-                entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
-                exit_fee_pct = exit_rate_pct()
-                _comm = (entry_notional * entry_fee_pct / 100.0) + (exit_notional * exit_fee_pct / 100.0)
+                # Exchange commission: the close fee the venue stated, the
+                # entry leg estimated beside it.
+                _comm = self._local_close_commission(
+                    pos.entry_price * pos.quantity, fill_price * pos.quantity,
+                    entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
+                    _stated_close_fee, "close")
                 gross_pnl, commission = _gross, _comm
                 net_pnl = _gross - _comm
 
@@ -11997,6 +12030,8 @@ class LiveExecutor:
                     "reason_inferred": _reason_inferred,
                     "source": ("bitget_position_history" if final_pnl is not None
                                else "bitget_position_history_local_pnl"),
+                    # openFee + closeFee: the whole round trip.
+                    "fees_cover": "round_trip",
                     "leverage": hist_leverage,
                     # True when pnl is already fee-adjusted: either
                     # netProfit was populated, or we derived net locally
@@ -12169,6 +12204,7 @@ class LiveExecutor:
             "reason": reason,
             "reason_inferred": False,
             "source": "exchange_fill_sltp" if stated else "exchange_fill_sltp_local_pnl",
+            "fees_cover": "close",
             "pnl_is_net": False,
         }, ""
 
@@ -12217,6 +12253,7 @@ class LiveExecutor:
             "reason": self._infer_close_reason(pos, fill_price),
             "reason_inferred": True,
             "source": "exchange_fill_recent" if stated else "exchange_fill_recent_local_pnl",
+            "fees_cover": "close",
             # Gross, close-side fee only -- see exchange_fill_sltp note.
             "pnl_is_net": False,
         }, ""
@@ -12255,7 +12292,8 @@ class LiveExecutor:
                         return {
                             "close_price": float(avg),
                             "pnl": None,  # Not available from orders
-                            "fees": 0.0,
+                            "fees": 0.0,  # not stated: the leg is estimated
+                            "fees_cover": "close",
                             "reason": reason,
                             "reason_inferred": False,
                             "source": "closed_order",
@@ -12637,11 +12675,11 @@ class LiveExecutor:
                 _gross = (est_exit - _entry_px) * pos.quantity
             else:
                 _gross = (_entry_px - est_exit) * pos.quantity
-            entry_notional = _entry_px * pos.quantity
-            exit_notional = est_exit * pos.quantity
-            entry_fee = entry_rate_pct(getattr(pos, 'order_type', None))
-            exit_fee = exit_rate_pct()
-            _comm = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
+            _comm = self._local_close_commission(
+                _entry_px * pos.quantity, est_exit * pos.quantity,
+                entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
+                _num_or_none((close_data or {}).get("fees")),
+                str((close_data or {}).get("fees_cover", "close")))
             gross_pnl, commission, net_pnl = _gross, _comm, _gross - _comm
 
         pos.close_reason = reason
@@ -13995,12 +14033,12 @@ class LiveExecutor:
                                         pos.symbol)
                             else:
                                 # Deduct commission on reconciled close (same as manual close)
-                                entry_notional = _entry_px * pos.quantity
-                                exit_notional = est_exit * pos.quantity
-                                entry_fee = entry_rate_pct(
-                                    getattr(pos, 'order_type', None))
-                                exit_fee = exit_rate_pct()
-                                _comm = (entry_notional * entry_fee / 100.0) + (exit_notional * exit_fee / 100.0)
+                                _comm = self._local_close_commission(
+                                    _entry_px * pos.quantity, est_exit * pos.quantity,
+                                    entry_rate_pct(getattr(pos, 'order_type', None)),
+                                    exit_rate_pct(),
+                                    _num_or_none((close_data or {}).get("fees")),
+                                    str((close_data or {}).get("fees_cover", "close")))
                                 gross_pnl, commission = pnl, _comm
                                 net_pnl = pnl - _comm
                             pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)

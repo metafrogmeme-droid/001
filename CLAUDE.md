@@ -12350,6 +12350,49 @@ on the card.
 (`tests/test_the_engine_card_names_the_source_it_could_not_read.py`,
 `app/test/engine_card_names_the_unread_source.test.js`.)
 
+**THE BOT'S OWN CLOSE BOOKED A WINNING TRADE AS A LOSS OF THE FEES.** When
+position history prices nothing, `_close_position_inner` falls back to
+`fetch_my_trades`, sums the close order's fills, and took their `profit` as
+the venue's P&L whenever the profit *or the fee* was non-zero. Bitget writes
+`profit: "0"` on a close fill whose realized figure it did not fill in. The
+lookup stages already read that `"0"` as "not stated", and the DOT card above
+(`exchange_fill_recent_local_pnl`) shows Bitget leaving it unset in live
+trading. On this path, though, a fill carrying a fee and that `"0"` booked the
+close at gross `0.0` and net exactly minus the fees, whatever the price did.
+Driven through the real `close_position`: a long from 100,000 to 105,000 on
+0.001 BTC, +$5.00 gross, was booked at gross `0.0` and net `-0.123`. That
+record feeds the governor's window, the loss streak, the cooldown, parity and
+every card. A profit is the venue's only when it is non-zero now, and the fill
+price the close already holds prices the rest.
+
+**And all three local branches re-estimated fees the venue had stated.** When
+the P&L is computed from two prices (the bot's own close, a close found
+already done, reconcile), the commission was the configured rate on both legs
+however the venue's row had priced them. Each lookup stage says what its fee
+covers now (`fees_cover`): a position-history row states the round trip, and a
+fill or close order states its own leg. `_local_close_commission` uses what
+was stated and estimates only the rest. On the close path the stated fee is
+kept apart from the 20bp round-trip *guess* that a failed fills read writes
+into the same variable, because charging that guess as the close leg beside
+an estimated entry leg would count the entry twice. The honesty ratchet caught
+the first draft reading the fee as `.get("fees", 0.0) or 0.0`, twice. The fee
+is `Optional` now, and an unstated fee is `None`.
+
+Fifteen tests; against the unfixed executor, eleven of the first fourteen
+fail and the three that pass pin behaviour this change keeps. Thirteen
+mutations, each killed on the first round. The one fixture the round would
+have lacked (the stop order's own fill stating what its fee covers) was
+added before it ran.
+
+> **And a grouped run failed two lock tests that pass alone, because I edited
+> the file under it.** `test_reconcile_close_lock` reads
+> `inspect.getsource(LiveExecutor.reconcile_positions)`, which takes line
+> numbers from the module loaded at collection and reads the file on disk.
+> An edit mid-run shifted the lines under it. That is the `.pyc` chapter's
+> lesson from the other side: the source a test reads can change while the
+> code it loaded does not.
+(`tests/test_an_unstated_fill_profit_is_not_a_break_even.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13641,7 +13684,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1099** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1100** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
