@@ -12282,6 +12282,38 @@ is a product decision.
 (`tests/test_an_abort_card_says_why_and_what_it_cost.py`,
 `tests/test_a_limit_entry_is_timed_from_its_fill.py`.)
 
+**A TEST THAT SWITCHED LOGGING OFF SWITCHED IT OFF FOR EVERY TEST AFTER
+IT.** `test_backtest_validity._run_once` calls
+`logging.disable(logging.WARNING)` to keep a synthetic backtest quiet, and
+nothing undoes it. `logging.disable` is process-wide and every logger reads it
+before its own level. Driven: a probe test run after one backtest test read
+`logging.root.manager.disable == 30`. In a full run the window is every file
+collected after `test_backtest_validity` until
+`test_engineering_standard_accuracy` drives `scripts/red_team.run()`
+in-process, whose `finally` happens to reset it.
+
+**The loud half was already being worked around.** Two suites that sort BEFORE
+the leaking file failed only in grouped runs, where the backtest test ran
+first: the paper-book suite (which had grown its own `logging_on` fixture to
+get past it) and `test_audit_v7_followups`' notional audit. Driven with those
+three together, 4 of 25 fail without the containment and 25 of 25 pass with
+it. **The quiet half is an absence assertion inside the window**, which passes
+whatever the code logs. Read over the window, every test that reads a log
+lifts the level itself, so today's full run is unaffected. That is luck rather
+than care: `caplog.set_level` lifts a disabled level for its own block since
+pytest 7.4, and each of those tests happens to call it.
+
+`tests/conftest.py::_contain_logging_disable` hands the setting back after
+every test, the vault-env and lookahead-flag containments' shape: restore
+rather than assert, because the leaking test tested what it meant to. The
+paper-book workaround is deleted, so that suite now depends on the harness,
+which is where the containment belongs. The drive is an ordered pair in one
+module (a test that leaks, then a test that reads what it inherited), plus the
+fixture list, because autouse binds on the decorator and not the name. Four
+mutations, each killed on the first round: `autouse=False`, no restore, the
+value saved after the yield, the comparison inverted.
+(`tests/test_a_test_that_switches_logging_off_hands_it_back.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13573,7 +13605,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1097** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1098** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

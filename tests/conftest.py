@@ -1264,3 +1264,31 @@ def _contain_vault_writes_to_the_environment():
             _os.environ.pop(name, None)
         elif _os.environ.get(name) != val:
             _os.environ[name] = val
+
+
+@pytest.fixture(autouse=True)
+def _contain_logging_disable():
+    """Hand `logging.disable` back after every test.
+
+    THE SAME SHAPE AGAIN, ONE PROCESS-WIDE SETTING OVER. `logging.disable(N)`
+    sets `logging.root.manager.disable`, which every logger consults before its
+    own level, and nothing undoes it. `test_backtest_validity._run_once` calls
+    `logging.disable(logging.WARNING)` to keep a synthetic backtest quiet and
+    never restores it. Every test collected after that file ran with WARNING
+    and below switched off, until `test_engineering_standard_accuracy` drives
+    `scripts/red_team.run()` in-process and its `finally` happens to reset it.
+
+    A test that asserts a warning WAS logged fails there, which is loud: two
+    suites failed in grouped runs only, and one grew its own fixture to get
+    past it. A test that asserts a warning was NOT logged passes whatever the
+    code does, which is the quiet direction. `caplog.set_level` lifts a
+    disabled level for its own block since pytest 7.4, which is why the
+    log-reading tests inside the window never noticed.
+
+    Restore rather than assert, for the reason the fixtures above give.
+    """
+    import logging as _logging
+    saved = _logging.root.manager.disable
+    yield
+    if _logging.root.manager.disable != saved:
+        _logging.disable(saved)
