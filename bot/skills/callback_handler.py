@@ -37,6 +37,7 @@ from telegram.ext import ContextTypes
 from bot.config import CONFIG
 from bot.core.earn_account import EarnAccount, earn_account_line
 from bot.core.position_telemetry import (
+    entered_at,
     format_level,
     format_rr,
     live_rr,
@@ -896,7 +897,7 @@ class CallbackHandler:
                     _dir = pos_match.direction  # already a string
                     _sl = pos_match.stop_loss
                     _tp = pos_match.take_profit
-                    _opened = pos_match.opened_at
+                    _opened = entered_at(pos_match)
                     # Margin when the venue recorded one, None when it did not
                     # — the two must not share a name (see `position_leverage`).
                     # `_cost` keeps the old margin-or-notional value for the fee
@@ -1165,7 +1166,7 @@ class CallbackHandler:
                     _dir = pos_match.direction
                     _sl = pos_match.stop_loss
                     _tp = pos_match.take_profit
-                    _opened = pos_match.opened_at
+                    _opened = entered_at(pos_match)
                     _cost = pos_match.cost_usd if pos_match.cost_usd > 0 else _entry * _qty
                 else:
                     _entry = pos_match.entry_price

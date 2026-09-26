@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "Gönderilecek bir şey yok. Paneliniz her yüklendiğinde hesabınızı bottan okur, bu yüzden güncellenecek ayrı bir kopya yok — hiçbir şey gönderilmedi.\n\nGörüntüle: {url}/dashboard",
   "take_profit": "Kâr al",
   "total_partial": "toplam, fiyatı olmayan {n} pozisyonu içermiyor",
+  "closed_record_unread": "Kapanan işlem kayıtları okunamadı — buradaki rakamlar sıfır değil, eksik.",
   "trade_confirmed": "✅ Onaylandı — yürütülüyor...",
   "trade_executed": "✅ İşlem gerçekleşti: {direction} {asset} ${price} fiyattan",
   "trade_executed_fail": "<b>İşlem gerçekleşmedi</b>",

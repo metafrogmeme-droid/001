@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 711 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 706 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -11415,7 +11415,7 @@ commit. (`tests/test_the_scan_publishes_the_exit_the_executor_recorded.py`.)
 - `record_unreadable` is `closed_record_unreadable OR open_positions_unread`,
   and the engine card renders it as *"The closed-trade record could not be
   read"*. When the marks or the book were the unread half, that sentence names
-  the wrong source.
+  the wrong source. (Fixed: see the chapter on the engine card's open book.)
 
 **Seven of the map's thirteen citations into `app/routes/mcp.js` pointed at the
 wrong line, and a remap could only carry them forward.** Remapping the map for
@@ -12170,6 +12170,371 @@ its first run it found a third site the grep that scoped this slice missed,
 because the grep read only unindented lines: `risk_engine.py`'s traversal
 fallback, anchored downstream. That and `backup.py`'s prefix constant, which
 is compared and never opened, are baseline rows with their reasons.
+
+**A LIMIT-FILL ABORT CARD NAMED NO CAUSE, BOOKED A GUESS AS THE REASON,
+PRINTED A GROSS PERCENT BESIDE NET DOLLARS, AND TIMED THE HOLD FROM WHEN THE
+ORDER WAS PLACED.** Reported from the live bot on 2026-09-26, private and
+public:
+
+    ⚠️ ENTRY ABORTED: DOT/USDT filled but the stop-loss could not be placed —
+    position CLOSED for safety.
+    CLOSED LONG DOT/USDT (CLOSED (unknown))
+    Entry: $1.2190 → Exit: $1.2170
+    PnL: -$0.3182 (-0.82% margin / -0.16% notional, 5×) | Fees: $0.10 | Hold: 55m
+    Fill source: exchange_fill_recent_local_pnl
+
+Four things on it were wrong, and each had a fix one path over.
+
+**No cause.** The market entry's three abort cards append the venue's refusal
+(`refusal_suffix(self._last_sltp_reason(...))`, the abort-card chapter). The
+limit-fill ladder, `_reattempt_post_fill_sl`, builds the same three cards
+(URGENT, KEPT OPEN, ENTRY ABORTED) and never got the line. So the one card an
+operator reads to decide what to fix gave no cause for a limit entry, the
+entry type that rests longest before the stop is placed. All three carry it
+now, and an unrecorded cause says so.
+
+**"CLOSED (unknown)" over a close the bot made.** The bot flattened the
+position for `sl_placement_failed`. The flatten reached
+`_handle_already_closed_position`, which asks the venue's record for the exit
+price and took the record's REASON too. None of the record's stages named a
+mechanism, so the lookup guessed from where the exit sat against the levels
+and answered "CLOSED (unknown)". The fix that kept a bot close's own reason
+reached the ticker branch only. Parity then counted the abort as a strategy
+trade. Each stage now says whether its reason is a guess (`reason_inferred`):
+a history row with a bare `closeType`, and any close-side fill not tied to our
+orders, are guesses; our stop or target order filling is not. A bot close
+keeps its own reason over a guess. A mechanism the venue named still wins,
+and a close the venue made before the bot's close landed (`bot_closed`
+False) keeps the venue's reading, because the bot's reason is not what closed
+it.
+
+**A gross percent beside net dollars.** `-0.82% margin` was `close_pct`'s
+figure: the price move times the leverage, with no fees. Net of the $0.10 in
+fees, $0.3182 on $26.57 of margin is **-1.20%**. The public post falls back to
+the private text for an abort (`close_card_is_wrong`), so the public channel
+published the -0.82%. `close_pnl_line` prints `realized_margin_return_pct`
+over the margin on record, unread without one, and calls the other figure what
+it is: `-1.20% on margin after fees / -0.16% move, 5×`. `margin_usd` is
+keyword-only, because the old fifth positional argument was the commission,
+and a call written for the old shape must raise rather than read a fee as a
+margin. The three close cards (the bot's own close, the flash close, the
+reconcile) each pass their margin, and each is driven.
+
+**A hold counted from placement.** `opened_at` is when the ORDER was placed,
+and a limit order rests for up to `LIMIT_ORDER_EXPIRE_SEC` (4h by default)
+before it fills. The fill paths had always stamped `filled_at`, and only the
+90-second grace gate read it. The 55m was counted from placement; the ladder
+that closed the position runs at the fill. The same clock ran everything else
+that counts time on a position:
+
+- the executor's time stop and the engine's five time exits, so a scalp limit
+  that rested two hours was time-stopped at the first monitor pass after it
+  filled;
+- the unprotected-age and time alerts;
+- every hold and age on a card (the ACTIVE POSITIONS rows, /positions,
+  /livepositions, the Details card, the three close cards);
+- the time-exit line;
+- the journal's hold, the post-mortem's, the web positions row and the
+  website's trade record.
+
+`filled_at` was never saved either, so a restart put every limit entry back on
+the placement clock. `position_telemetry.entered_at` is the one reading (the
+fill when one is recorded, placement otherwise), every one of those readers
+asks it, and both rows (open and closed) save and restore `filled_at`. A saved
+time that will not read is dropped on its own and never costs the row.
+
+**The class is a ratchet, and its count is exact.** Every read of `opened_at`
+in `bot/` outside `entered_at` is a row in `tests/opened_at_reads_baseline.txt`,
+keyed by function, with a count and a reason: a resting order's age and
+expiry, the paper book (a paper fill is immediate), serialisation, a record's
+identity. Two-way, and the count must match, so a new hold computed inside a
+listed function is not acquitted by the reads already there. Its branches are
+driven on planted source, and the first probe for it missed the reads through
+a local (`_opened = pos_match.opened_at`, then subtracted three hundred lines
+later), which is why the rule counts reads rather than subtractions.
+
+**Two guards pinned the old spelling**, `getattr(pos, "filled_at", None) or
+pos.opened_at`, and broke on the move while the property held: the grace-gate
+pin and the unprotected-escalation ordering pin. The first now drives what
+`entered_at` answers; the second anchors on the new line.
+
+**Thirty-eight mutations, each killed. Two of the first round's thirty-six
+survived, and each was worth more than the mutation.** The already-closed
+card, which is the one the DOT close was built by, dropped its margin and the
+suite stayed green: the assertion read `on margin after fees`, which the card
+prints over `unread` too, so it was satisfied by the label. It asserts the
+figure now. The other was filed as an equivalent mutant:
+`_fill_by_order_id`'s `else`, which read a fill "not tied to our order ids"
+as a guess, looked unreachable because the fills it reads are filtered to the
+stop and target ids. Writing down why it was unreachable is what showed it was
+not. The filter was `t.get("order") in (pos.sl_order_id, pos.tp_order_id)`,
+and a position whose stop was never placed has `sl_order_id` None, so a fill
+carrying no order id matched it. Driven: `SL HIT (exchange)`, a measured
+reason, on a position with no stop (the abort case), and a measured reason
+overrides the bot's own. Only an id on record matches now. The `else` is
+deleted, which retires that mutation, and three more were driven against the
+new match.
+
+**Filed, not changed.** The public abort post still carries the private card's
+`Fill source:` line, which is the executor's vocabulary rather than a reader's.
+Whether an execution abort should be published on the public channel at all
+is a product decision.
+(`tests/test_an_abort_card_says_why_and_what_it_cost.py`,
+`tests/test_a_limit_entry_is_timed_from_its_fill.py`.)
+
+**A TEST THAT SWITCHED LOGGING OFF SWITCHED IT OFF FOR EVERY TEST AFTER
+IT.** `test_backtest_validity._run_once` calls
+`logging.disable(logging.WARNING)` to keep a synthetic backtest quiet, and
+nothing undoes it. `logging.disable` is process-wide and every logger reads it
+before its own level. Driven: a probe test run after one backtest test read
+`logging.root.manager.disable == 30`. In a full run the window is every file
+collected after `test_backtest_validity` until
+`test_engineering_standard_accuracy` drives `scripts/red_team.run()`
+in-process, whose `finally` happens to reset it.
+
+**The loud half was already being worked around.** Two suites that sort BEFORE
+the leaking file failed only in grouped runs, where the backtest test ran
+first: the paper-book suite (which had grown its own `logging_on` fixture to
+get past it) and `test_audit_v7_followups`' notional audit. Driven with those
+three together, 4 of 25 fail without the containment and 25 of 25 pass with
+it. **The quiet half is an absence assertion inside the window**, which passes
+whatever the code logs. Read over the window, every test that reads a log
+lifts the level itself, so today's full run is unaffected. That is luck rather
+than care: `caplog.set_level` lifts a disabled level for its own block since
+pytest 7.4, and each of those tests happens to call it.
+
+`tests/conftest.py::_contain_logging_disable` hands the setting back after
+every test, the vault-env and lookahead-flag containments' shape: restore
+rather than assert, because the leaking test tested what it meant to. The
+paper-book workaround is deleted, so that suite now depends on the harness,
+which is where the containment belongs. The drive is an ordered pair in one
+module (a test that leaks, then a test that reads what it inherited), plus the
+fixture list, because autouse binds on the decorator and not the name. Four
+mutations, each killed on the first round: `autouse=False`, no restore, the
+value saved after the yield, the comparison inverted.
+(`tests/test_a_test_that_switches_logging_off_hands_it_back.py`.)
+
+**THE ENGINE CARD BLAMED THE CLOSED-TRADE RECORD FOR A MARK THE VENUE
+OMITTED.** The scan payload's `record_unreadable` was
+`closed_record_unreadable OR open_positions_unread`, and the card has one
+sentence for it: *"The closed-trade record could not be read — these are not
+zeros."* So a position fetch that failed, or a position the venue did not mark,
+was reported as a failed read of a record that had read fine. The fold was
+deliberate and its reason stands: without a flag the card shows a dash for net
+P&L and says nothing about why. The fix keeps the flag and names the source.
+`open_book_unread` is the open book's own flag, and the card has a sentence
+for each case. When net P&L is blanked because it includes the open book, the
+card says so. When the bot's fallback publishes the closed record's net beside
+a book it could not mark, the card says that net counts closed trades only.
+
+**Setting the flag on every branch found a flat book published from no
+read.** When the venue readout fails on a bot with no closed trades, the
+readout returns nothing, and with the balance cache stale nothing stood in. So
+the open count's initial `0` went out as the account's book, and the public
+summary read *0 open positions*. The chapter above headed *"THE CALLER
+TREATS THAT AS UNKNOWN"* fixed exactly this for the readout that returns the
+realized record, and the one that returns nothing was left over. It is `None` now, with the flag. The four branches that do not
+read the book all say so:
+
+- a failed positions fetch or a missing mark;
+- the trade-file-only result;
+- the cache fallback, whose rows come from the executor's own book and carry
+  no mark;
+- no readout at all.
+
+A readout that returned with no balance still read the positions, and keeps
+its count. That case was added before the mutation round, because the round's
+"fires on every unavailable account" mutation would otherwise have survived.
+Twelve mutations, each killed on the first round: eight on the producer, four
+on the card.
+(`tests/test_the_engine_card_names_the_source_it_could_not_read.py`,
+`app/test/engine_card_names_the_unread_source.test.js`.)
+
+**THE BOT'S OWN CLOSE BOOKED A WINNING TRADE AS A LOSS OF THE FEES.** When
+position history prices nothing, `_close_position_inner` falls back to
+`fetch_my_trades`, sums the close order's fills, and took their `profit` as
+the venue's P&L whenever the profit *or the fee* was non-zero. Bitget writes
+`profit: "0"` on a close fill whose realized figure it did not fill in. The
+lookup stages already read that `"0"` as "not stated", and the DOT card above
+(`exchange_fill_recent_local_pnl`) shows Bitget leaving it unset in live
+trading. On this path, though, a fill carrying a fee and that `"0"` booked the
+close at gross `0.0` and net exactly minus the fees, whatever the price did.
+Driven through the real `close_position`: a long from 100,000 to 105,000 on
+0.001 BTC, +$5.00 gross, was booked at gross `0.0` and net `-0.123`. That
+record feeds the governor's window, the loss streak, the cooldown, parity and
+every card. A profit is the venue's only when it is non-zero now, and the fill
+price the close already holds prices the rest.
+
+**And all three local branches re-estimated fees the venue had stated.** When
+the P&L is computed from two prices (the bot's own close, a close found
+already done, reconcile), the commission was the configured rate on both legs
+however the venue's row had priced them. Each lookup stage says what its fee
+covers now (`fees_cover`): a position-history row states the round trip, and a
+fill or close order states its own leg. `_local_close_commission` uses what
+was stated and estimates only the rest. On the close path the stated fee is
+kept apart from the 20bp round-trip *guess* that a failed fills read writes
+into the same variable, because charging that guess as the close leg beside
+an estimated entry leg would count the entry twice. The honesty ratchet caught
+the first draft reading the fee as `.get("fees", 0.0) or 0.0`, twice. The fee
+is `Optional` now, and an unstated fee is `None`.
+
+Fifteen tests; against the unfixed executor, eleven of the first fourteen
+fail and the three that pass pin behaviour this change keeps. Thirteen
+mutations, each killed on the first round. The one fixture the round would
+have lacked (the stop order's own fill stating what its fee covers) was
+added before it ran.
+
+> **And a grouped run failed two lock tests that pass alone, because I edited
+> the file under it.** `test_reconcile_close_lock` reads
+> `inspect.getsource(LiveExecutor.reconcile_positions)`, which takes line
+> numbers from the module loaded at collection and reads the file on disk.
+> An edit mid-run shifted the lines under it. That is the `.pyc` chapter's
+> lesson from the other side: the source a test reads can change while the
+> code it loaded does not.
+(`tests/test_an_unstated_fill_profit_is_not_a_break_even.py`.)
+
+**`/performance` HAD THREE WAYS TO SAY SOMETHING FALSE OR NOTHING, AND ONE OF
+THEM HAD NEVER RUN.** A search for other readers of a fill's `profit` field,
+the sibling sweep of the close-path fix above, found its exchange-history
+fallback. When the caller's closed record was empty, it asked Bitget's ccxt
+client for `fetch_my_trades(symbol=None)`, which is refused before anything is
+sent (`ArgumentsRequired`, driven offline against the pinned ccxt). It then
+built each row as `LivePosition(side=..., qty=..., sl_price=...)`, and none of
+those are fields. So it raised every time it ran, audited an ERROR on every
+`/performance` of an empty record, and never loaded a trade. mypy had been
+recording the four bad arguments as `call-arg` backlog the whole time. It is
+deleted rather than repaired: a repair would publish external fills, with no
+entry or direction, as the bot's record, and that is a product decision, not a
+wiring line. The mypy ratchet fell 559 → 555 and the honesty ratchet 711 → 708,
+and both were re-recorded in the same commit.
+
+**Reading that card for the fallback found the two that fire.** An adopted
+close the venue never priced, which is the ordinary case for an orphan whose
+entry was not stated (the unread-entry chapter), makes
+`realized_totals(adopted)["net"]` `None`. The handler did `round(None, 2)`,
+so the caller got no card at all. The renderer had drawn a `None` there as a
+dash all along. And the card never asked `closed_trades_read_failed`, so a
+record holding rows the executor could not read printed its win rate and
+all-time total as the whole record. The portfolio card beside it already said
+*"Closed-trade records could not be read — figures here are incomplete, not
+zero."*, so that sentence is `CLOSED_RECORD_UNREAD` in `realized_totals.py`
+now and both cards read it. `warroom_bot.py` imports nothing from `bot`, so the
+handler hands the sentence in and the renderer stays a leaf.
+
+Eight mutations, each killed. One was re-aimed before it counted: "the note is
+read after the figures" first *deleted* the line, and it died because the note
+was missing, not because of the order. Moved below the figures, it dies on the
+ordering assertion itself.
+(`tests/test_the_performance_card_survives_what_it_could_not_read.py`.)
+
+**THE DAILY REPORT WAS THE ALL-TIME RECORD, AND THE PUBLIC CHANNELS WERE SENT
+IT AS THE DAY'S.** Both branches of `/daily_report` counted every close ever
+recorded, under a heading that says DAILY and a comment that says *"The day's
+closes"*. The public post forwarded the same figures. Driven with one close
+today (+$5) and two older ones, the card read Total 3, Net +$35.00, and Best
++$50.00 (a close from thirty days ago). The public post read *"Trades: 3 |
+W/L: 2/1 | Win Rate: 67%"* for a day with one winning trade.
+`closes_on_utc_day` is the day now: the current UTC day, taken from each
+close's recorded time, with the card saying so. A close whose time cannot be
+read is not filed as today's. It is counted apart, and the card names how many
+it left out. The ten suites that already drove this card passed before the
+change and after it, so none of them asserted a count the day could move.
+
+**And Best and Worst were coloured by position.** A day whose only trade made
++$5 showed it red as the day's Worst, and a losing day's Best wore green.
+Colour is a claim, so each icon follows its own figure: muted for unread or
+flat.
+
+Fourteen mutations, each killed on the first round. The case a flat figure
+needed (neither colour) was added before the round ran.
+(`tests/test_the_daily_report_is_the_days.py`.)
+
+**FOURTEEN READERS OF THE CLOSED-TRADE RECORD, AND THREE ASKED WHETHER IT
+HAD READ.** The executor loads its closed-trade file row by row. A row it
+cannot read is kept for the next save and left out of `closed_positions`. A
+file that will not parse loads as `[]`. Either way `closed_trades_read_failed`
+is set. The portfolio skill, the chat prompt and `/performance` asked the
+flag; every other reader printed its figures over whatever list it got.
+`/classpf` told a caller whose file would not parse *"No closed live trades
+yet"*, and the post-mortem answered *"No closed live trades on this account"*
+the same way. A partial record reached `/portfolio`, `/livebalance`, `/start`,
+`/status`, the risk and status skill panes, the `pro_scan` header, the
+playbook, the evening wrap and the post-mortem as though it were whole.
+
+`closed_record_partial` is the one reading, and it answers only a literal
+`True`, because a test double that answers every attribute truthily has
+reported nothing. The English sentence is `CLOSED_RECORD_UNREAD`, and fourteen
+languages carry it as `closed_record_unread` for the cards that are
+translated; a test pins the English key to the constant. A partial daily
+report is not posted to the public channels, the same reason the website sync
+withholds one. The post-mortem says its "last trade" is the latest one that
+could be read.
+
+**The rule is structural.** In `bot/`, outside the executor's own module, a
+function that reads `closed_positions` (as an attribute, or as the string a
+`getattr` names) must ask, in itself or an enclosing function, under any
+import alias, or be a row in `tests/closed_record_reads_baseline.txt` with its
+reason. Two-way. Three rows, each with its reason: the post-mortem's row
+accessor (both callers ask), the Details button's lookup of one close by id,
+and the journal-gap count, which a partial record can only understate. The
+rule checks that a function asks, not that the card says it; the drives read
+what each card says.
+
+**"Daily PnL" on the risk and status panes was every close ever.** The live
+branch summed the whole record under that label, while the paper branch read
+the day's figure. The day is one reading now, `closes_on_utc_day` in the same
+leaf, which `/status`, `/daily_report` and both panes ask. `/status` had its
+own copy (`_closed_on_utc_date`), which is deleted. The shared reading keeps
+that copy's rule that a close stamped tomorrow is not today's, and reads dict
+rows too.
+
+**The daily report called a measured flat close unrecorded.** Its win rate
+divided by `wins + losses`, so one win and one close at exactly 0.00 read
+100% over a note saying the flat close *"carries no recorded P&L"*, while the
+public post of the same day, off `win_stats`, said 50%. `flat` travels to the
+renderer and gets a row when there is one.
+
+**`/classpf` scored an unpriced close as a zero and a class with no loss as
+∞.** It read `float(pnl_usd or 0)`, so an unpriced close counted in the
+class's win-rate denominator. Classes are scored through `win_stats` now, the
+profit factor through `benchmark_record.profit_factor` (none over no loss),
+and a class nobody could price prints dashes and sorts last.
+
+**The `/portfolio` picture was sent only while a limit order was resting.**
+A `from datetime import datetime, timezone` inside the loop over resting
+limit orders made `datetime` local to the whole command, so the stats picture
+a hundred lines below raised `UnboundLocalError` whenever no limit order was
+listed, the `except` logged it at debug, and the command fell back to text.
+The drive written for the picture's caption found it. With the import gone,
+`/portfolio` sends the picture every time, as the code was written to. Ruff's
+F823 cannot see this shape, because the use sits below the import in source
+order, so a zero-baseline rule does
+(`tests/test_a_local_import_does_not_unbind_a_module_name.py`): a function
+must not import a name the module binds inside a branch and use it outside
+that branch.
+
+**And a test from the previous slice was forgiven as flaky, and was a clock.**
+The DOT slice's reconcile-case net-return test failed in the full run of this
+branch and passed alone. It borrows a close fill whose time is taken when the
+other test module is IMPORTED (`OPENED + 60s`), and builds its position three
+hours before the test RUNS. A 35-minute run puts the fill before the position,
+nothing matches, and the reconcile retries instead of closing. Moving the
+borrowed clock back 35 minutes reproduces it on the old test and not on the
+new one, which stamps the fill from its own clock. A fixture that reads the
+wall clock at import and one that reads it at call time disagree by exactly
+the length of the run.
+
+Sixty-three mutations: sixty-two killed and one equivalent. `/classpf`'s
+`trade_pnl` read only feeds `is_filled_close`, which reads `abs(pnl or 0.0)`,
+so a zero and an unread P&L answer alike there; the scoring it guards is
+driven through `win_stats`. Three survived the first round, all in the tests:
+no fixture held a close stamped tomorrow; the class-order fixture's three
+symbols all classified as Crypto, so its order said nothing; and the stale-row
+check passes against an honest baseline whatever the rule does, so it is
+driven on a planted row. Honesty 708 → 706 and mypy 555 → 554, both
+re-recorded.
+(`tests/test_every_closed_record_reader_asks_whether_it_read.py`,
+`tests/closed_record_reads_baseline.txt`.)
 
 ## Public-surface rules
 
@@ -13462,7 +13827,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1095** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1104** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

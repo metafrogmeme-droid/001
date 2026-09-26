@@ -39,6 +39,7 @@ import re
 from typing import Any, Optional
 
 from bot.core.live_executor import position_size_basis
+from bot.core.position_telemetry import entered_at
 from bot.core.trade_journal import r_multiple_for
 from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
 from bot.utils.leveraged_return import realized_margin_return_pct
@@ -156,7 +157,10 @@ def find_closed_trade(book: Any, *, symbol: Optional[str] = None,
     if rows is None:
         return "unreadable", None
     if not rows:
-        return "none", None
+        # An executor whose closed-trade file would not parse holds []. That
+        # is a read that failed, not an account with no closes.
+        from bot.formatters.realized_totals import closed_record_partial
+        return ("unreadable" if closed_record_partial(book) else "none"), None
 
     def _when(p: Any):
         return getattr(p, "closed_at", None)
@@ -218,7 +222,7 @@ def journal_entry_for(journal: Any, pos: Any, *, user_id: str = "") -> Any:
 
 
 def _hold_hours(pos: Any) -> Optional[float]:
-    o, c = getattr(pos, "opened_at", None), getattr(pos, "closed_at", None)
+    o, c = entered_at(pos), getattr(pos, "closed_at", None)
     try:
         if o is None or c is None:
             return None
@@ -449,6 +453,16 @@ def postmortem_for(book: Any, journal: Any, *, symbol: Optional[str] = None,
             rows = [p for p in rows if _base(_symbol_of(p)) == _base(symbol)]
         non_fills = sum(1 for p in rows if never_filled(p))
     entry = journal_entry_for(journal, pos, user_id=user_id) if pos is not None else None
-    return render_postmortem(reading, pos, entry, symbol_asked=symbol,
+    text = render_postmortem(reading, pos, entry, symbol_asked=symbol,
                              trade_id_asked=trade_id, closes_on_record=closes,
                              non_fills_on_record=non_fills, book=book_kind)
+    # The lookup ran over the rows that read. "Your last trade" is then the
+    # latest one that could be read, and a trade asked for by name may be one
+    # of the rows that could not.
+    from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD, closed_record_partial
+    if reading != "unreadable" and closed_record_partial(book):
+        scope = ("The trade reviewed here is the most recent one that could be read."
+                 if reading == "found" else
+                 "The trade asked for may be one of the rows that could not be read.")
+        text += f"\n\n<i>{CLOSED_RECORD_UNREAD} {scope}</i>"
+    return text

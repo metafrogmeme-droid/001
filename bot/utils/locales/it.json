@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "Niente da inviare. La tua dashboard chiede il tuo account al bot ogni volta che si carica, quindi non c'è una copia separata da aggiornare: non è stato inviato nulla.\n\nVedi su: {url}/dashboard",
   "take_profit": "Take profit",
   "total_partial": "il totale esclude {n} posizione/i senza prezzo",
+  "closed_record_unread": "Non è stato possibile leggere i registri dei trade chiusi — le cifre qui sono incomplete, non zero.",
   "trade_confirmed": "✅ Confermato — in esecuzione...",
   "trade_executed": "✅ Trade eseguito: {direction} {asset} a ${price}",
   "trade_executed_fail": "<b>Il trade non è andato a buon fine</b>",

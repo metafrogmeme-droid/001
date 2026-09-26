@@ -15,8 +15,7 @@ behaviour is covered where it always was (`test_registration_flow`,
 `test_arena_cards`, `test_bot_error_handler_version`);
 `tests/test_handler_mixins.py` holds this class to the split's rules.
 
-`_closed_on_utc_date` moved with the group because `/status` is its only
-caller. The War Room menu, the dashboard keyboard and the dashboard link
+The War Room menu, the dashboard keyboard and the dashboard link
 went to `bot/skills/menu_keyboards.py`, a leaf, because the callback
 handler on the host reads them too and a mixin must not import from the
 handler.
@@ -50,29 +49,6 @@ if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
     from bot.skills.chat_runtime import RateLimiter
     from bot.utils.user_store import UserStore
-
-
-def _closed_on_utc_date(pos, day) -> bool:
-    """True if a closed position's ``closed_at`` falls on the given UTC date.
-
-    Handles both LivePosition objects and dict rows, and closed_at as a
-    datetime or an ISO string. Used to make LIVE "Daily PnL" genuinely daily
-    (closed_positions holds ALL closed trades ever).
-    """
-    ca = pos.get("closed_at") if isinstance(pos, dict) else getattr(pos, "closed_at", None)
-    if ca is None:
-        return False
-    if isinstance(ca, str):
-        try:
-            ca = datetime.fromisoformat(ca)
-        except Exception:
-            return False
-    try:
-        if ca.tzinfo is None:
-            ca = ca.replace(tzinfo=UTC)
-        return ca.astimezone(UTC).date() == day
-    except Exception:
-        return False
 
 
 class StartCommands:
@@ -265,6 +241,10 @@ class StartCommands:
             # 38%-vs-52% mismatch.
             from bot.skills.live_stats import live_win_stats, streak_badge
             _start_stats = live_win_stats(executor.closed_positions if executor else [])
+            # The win rate covers the closes that read; say so under the card
+            # when that is not the whole record.
+            from bot.formatters.realized_totals import closed_record_partial
+            _record_partial = closed_record_partial(executor)
             # "N/A" covers both absences: no closes at all, and closes that
             # none of which carried a readable P&L. `win_rate` is None in the
             # second case — formatting it as 0 would put a measured total
@@ -282,6 +262,7 @@ class StartCommands:
             _filled_count = state.open_positions   # paper: template shows this
             win_rate = f"{state.win_rate:.0%}".replace("%", "")
             _streak_badge = ""
+            _record_partial = False
 
         SEP = "\u2500" * 16
         # Unknown gets its own icon and word. Rounding an unreadable gate up to
@@ -351,6 +332,8 @@ class StartCommands:
         _why = gate_sentence(_gate)
         if _why:
             msg += f"\n\n⚠️ <i>{html.escape(_why)}</i>"
+        if _record_partial:
+            msg += f"\n\n<i>{t('closed_record_unread', lang)}</i>"
         await self._send(update, msg, reply_markup=_KB_WARROOM)
 
     async def _handle_unknown_command(self, update: Update,
@@ -830,15 +813,17 @@ class StartCommands:
             # BUGFIX: closed_positions is ALL closed trades ever, so summing it
             # made "Daily PnL" an all-time cumulative figure that never reset.
             # Filter to positions closed TODAY (UTC) so it's genuinely daily.
-            _today = datetime.now(UTC).date()
             # Tri-state, because "nothing closed today" and "today's closes
             # could not be priced" are different days. The first really is
             # $0.00; the second rendered as "⚪ 0.00%" beside a "/ +5.0% limit",
             # a measured flat day manufactured from no measurement.
+            from bot.formatters.realized_totals import closes_on_utc_day
             from bot.formatters.realized_totals import realized_totals as _rt_daily
-            _today_closed = [t for t in ((executor.closed_positions or [])
-                                         if executor is not None else [])
-                             if _closed_on_utc_date(t, _today)]
+            _today_closed, _ = closes_on_utc_day(
+                (executor.closed_positions or []) if executor is not None else [],
+                datetime.now(UTC))
+            from bot.formatters.realized_totals import closed_record_partial
+            _record_partial = closed_record_partial(executor)
             _daily = _rt_daily(_today_closed)
             daily_pnl = (round(_daily["net"], 2)
                          if executor is not None and _daily["net"] is not None
@@ -846,6 +831,7 @@ class StartCommands:
         else:
             equity = state.equity_usd if hasattr(state, "equity_usd") else 10_000.0
             open_count = state.open_positions
+            _record_partial = False
             daily_pnl = round(state.daily_pnl, 2) if hasattr(state, "daily_pnl") else 0.0
         # Show the drawdown the BREAKER ENFORCES, not the paper snapshot.
         # In LIVE mode the gate measures against a live high-water mark while
@@ -921,6 +907,7 @@ class StartCommands:
             equity=equity,
             open_positions=open_count,
             daily_pnl=(None if daily_pnl_pct is None else round(daily_pnl_pct, 2)),
+            record_partial=_record_partial,
             drawdown=drawdown,
             drawdown_source=drawdown_source,
             max_drawdown=drawdown_limit,

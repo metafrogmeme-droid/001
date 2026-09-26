@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "Nichts zu übertragen. Dein Dashboard fragt den Bot bei jedem Laden nach deinem Konto, es gibt also keine separate Kopie zu aktualisieren — es wurde nichts gesendet.\n\nAnsehen unter: {url}/dashboard",
   "take_profit": "Take-Profit",
   "total_partial": "Summe ohne {n} Position(en) ohne Preis",
+  "closed_record_unread": "Die Aufzeichnungen geschlossener Trades konnten nicht vollständig gelesen werden — die Zahlen hier sind unvollständig, nicht null.",
   "trade_confirmed": "✅ Bestätigt — wird ausgeführt...",
   "trade_executed": "✅ Trade ausgeführt: {direction} {asset} zu ${price}",
   "trade_executed_fail": "<b>Trade ist nicht durchgegangen</b>",

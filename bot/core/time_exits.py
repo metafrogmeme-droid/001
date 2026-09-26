@@ -43,7 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from bot.core.position_telemetry import price_on_record, r_denominator
+from bot.core.position_telemetry import entered_at, price_on_record, r_denominator
 from bot.core.smart_exits import (
     HOLD_HARD_LIMIT_MULT,
     HOLD_LIMIT_MIN_R,
@@ -304,7 +304,7 @@ def position_time_exit_line(pos: Any, mark: Optional[float], now: Any,
     +1.40R" is the reading the rule acts on.
     """
     plan = plan_for(pos, time_stop, strategy_types)
-    opened = getattr(pos, "opened_at", None)
+    opened = entered_at(pos)
     held_h = ((now - opened).total_seconds() / 3600.0) if opened is not None else None
     px = price_on_record(mark)
     entry = price_on_record(getattr(pos, "entry_price", None))

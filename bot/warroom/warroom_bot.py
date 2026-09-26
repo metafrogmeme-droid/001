@@ -396,7 +396,10 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     best = data.get("best_pair") or _DASH
     worst = data.get("worst_pair") or _DASH
     adopted_count = data.get("adopted_count", 0)
-    adopted_pnl = data.get("adopted_pnl", 0.0)
+    adopted_pnl = data.get("adopted_pnl")
+    # Said above the figures it qualifies: a win rate and an all-time total
+    # over a partial record read as the record's.
+    record_note = data.get("record_note") or ""
 
     # The gauge is drawn at zero when the rate is unknown, but it is LABELLED
     # n/a — an empty ring next to "n/a" reads as "no reading", while an empty
@@ -425,8 +428,9 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     text = (
         f"{_header(chr(0x1F4CA), 'PERFORMANCE')}\n"
         f"   {_pnl_arrow(today)} {_pill(_money(today, sign=True))} today\n\n"
+        + (f"\u26a0\ufe0f <i>{html.escape(record_note)}</i>\n\n" if record_note else "")
         # ── PnL card ──
-        f"\U0001f4b0 <b>Returns</b>\n"
+        + f"\U0001f4b0 <b>Returns</b>\n"
         "<pre>"
         f"{_kv('Today', _money(today, sign=True))}  {_pnl_arrow(today)}\n"
         f"{_kv('7-Day', _money(week, sign=True))}  {_pnl_arrow(week)}\n"
@@ -515,6 +519,15 @@ def _money_or_unread(v: Any) -> str:
     return "unread" if v is None else f"${v:+.2f}"
 
 
+def _sign_icon(pnl: Optional[float]) -> str:
+    """The colour of ONE figure. Best and Worst were painted green and red by
+    position, so a day of one +$5.00 trade showed it red as the day's Worst,
+    and a losing day's Best wore green. Unknown is muted."""
+    if pnl is None:
+        return _NEU
+    return _OK if pnl > 0 else _BAD if pnl < 0 else _NEU
+
+
 def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     trades = data.get("trades", 0)
     wins = data.get("wins", 0)
@@ -534,6 +547,11 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     worst_t = data.get("worst_trade", "N/A")
     worst_p = data.get("worst_pnl")
     risk_s = data.get("risk_status") or "Unknown"
+    # A close with no readable time is not today's and not yesterday's; the
+    # day's figures leave it out and say how many.
+    _untimed = data.get("untimed") or 0
+    untimed_note = (f" · <i>{_untimed} close(s) with no recorded time "
+                    f"left out</i>" if _untimed else "")
     _rl = str(risk_s).lower()
     risk_icon = (_OK if _rl == "healthy" else _WARN if _rl == "warning"
                  else _NEU if _rl == "unknown" else _BAD)
@@ -560,9 +578,22 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     # frame apart. Its comment: "A 0% win rate is a claim that everything
     # lost." Same rule here — nothing scorable is `n/a`, not 0%, and the ring
     # and bar render empty rather than pretending to a measured zero.
-    scored = wins + losses
+    #
+    # ...and `wins + losses` left out the third priced outcome. A close priced
+    # at exactly 0.00 is a measured break-even, neither a win nor a loss, so
+    # a day of one win and one flat close printed 100% over a note saying the
+    # flat one "carries no recorded P&L", while the public post of the same
+    # day, off `win_stats`, said 50%. `flat` travels from the caller now, and
+    # gets its own row when there is one, so Total is the sum of the rows.
+    flat = data.get("flat") or 0
+    scored = wins + losses + flat
     wr = (wins / scored * 100) if scored > 0 else None
     _unscored = max(0, trades - scored)
+    flat_row = f"{_kv('Flat', str(flat) + ' ' + _NEU)}\n" if flat else ""
+    # The executor's closed-trade record did not read in full, so the day's
+    # closes are the ones that read.
+    record_note = data.get("record_note") or ""
+    record_line = f"   <i>{record_note}</i>\n" if record_note else ""
     wr_bar = _bar(wr if wr is not None else 0.0, 100.0, 10)
     wr_ring = _progress_ring(wr if wr is not None else 0.0)
     wr_str = "n/a" if wr is None else f"{wr:.0f}%"
@@ -575,6 +606,8 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
 
     text = (
         f"{_header(chr(0x1F4D3), 'DAILY REPORT')}\n"
+        f"   <i>Today, UTC</i>{untimed_note}\n"
+        f"{record_line}"
         f"   {_pnl_arrow(net if net is not None else 0.0)} "
         f"Net PnL: {_pill(net_txt)}\n\n"
         # ── Trade summary ──
@@ -583,6 +616,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         f"{_kv('Total', str(trades))}\n"
         f"{_kv('Wins', str(wins) + ' ' + _OK)}\n"
         f"{_kv('Losses', str(losses) + ' ' + _BAD)}\n"
+        f"{flat_row}"
         f"{_kv('Net PnL', net_txt)}"
         "</pre>\n\n"
         # ── Win Rate ──
@@ -595,9 +629,9 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         # the same scorable-rows check -- so printing "N/A unread" would say
         # the same absence twice.
         f"{_kv('Best', best_t if best_p is None else f'{best_t} ${best_p:+.2f}')}"
-        f"  {_OK}\n"
+        f"  {_sign_icon(best_p)}\n"
         f"{_kv('Worst', worst_t if worst_p is None else f'{worst_t} ${worst_p:+.2f}')}"
-        f"  {_BAD}"
+        f"  {_sign_icon(worst_p)}"
         "</pre>\n\n"
         # ── Risk ──
         f"{_SHIELD} <b>Risk Status</b>\n"
