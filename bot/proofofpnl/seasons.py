@@ -15,11 +15,15 @@ No new trust surface, by construction:
   window* (``published_at`` inside it). It is a snapshot competition — "who
   held the strongest verified record during 2026-07" — NOT a claim about
   per-window PnL, which rolling-lookback statements cannot honestly support.
-* Only the CURRENT season is ever written; past seasons are immutable.
+* Only the CURRENT season is ever written; past seasons are immutable --
+  and they were not, while the reader folded a failed read into ``{}``: one
+  failed read and one freeze saved the current season alone, erasing every
+  past season's standings. A file that will not read raises
+  :class:`StoreUnreadable` now and nothing is written over it
+  (`bot/utils/json_store.py`).
 """
 from __future__ import annotations
 
-import json
 import re
 import threading
 from datetime import datetime, timezone
@@ -27,7 +31,7 @@ from typing import Optional
 
 from bot.proofofpnl.leaderboard import rank_entries
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import load_json_store, update_json_store
 from bot.utils.paths import env_state_path, state_path
 
 _SEASON_RE = re.compile(r"^(\d{4})-(\d{2})$")
@@ -61,19 +65,10 @@ class SeasonStore:
         self._lock = threading.RLock()
 
     def _read_raw(self) -> dict:
-        try:
-            with open(self._path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return {}
-
-    def _write_raw(self, data: dict) -> bool:
-        try:
-            atomic_write_json(self._path, data, separators=(",", ":"))
-            return True
-        except OSError:
-            return False
+        """Every season, ``{}`` for a fresh start. RAISES
+        :class:`StoreUnreadable` for a file that will not read: no seasons is
+        a reading, and nobody read the file to make it."""
+        return load_json_store(self._path)
 
     def record_current(self, entries: list[dict], now_ts: float) -> int:
         """Freeze in-window statements into the CURRENT season only.
@@ -90,9 +85,9 @@ class SeasonStore:
         if window is None:
             return 0
         start, end = window
-        frozen = 0
-        with self._lock:
-            data = self._read_raw()
+        counted = {"frozen": 0}
+
+        def _freeze(data: dict) -> bool:
             season = data.get(sid)
             if not isinstance(season, dict):
                 season = {}
@@ -107,11 +102,18 @@ class SeasonStore:
                     continue
                 if start <= at < end:
                     season[handle] = pub
-                    frozen += 1
-            if frozen:
-                data[sid] = season
-                self._write_raw(data)
-        return frozen
+                    counted["frozen"] += 1
+            if not counted["frozen"]:
+                return False
+            data[sid] = season
+            return True
+
+        with self._lock:
+            try:
+                update_json_store(self._path, _freeze, separators=(",", ":"))
+            except OSError:
+                pass
+        return counted["frozen"]
 
     def season_ids(self) -> list[str]:
         """Season ids, newest first."""

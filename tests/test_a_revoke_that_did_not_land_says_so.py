@@ -37,16 +37,20 @@ def path(tmp_path):
 
 @pytest.fixture
 def failing_writes(monkeypatch):
-    """The write the store imports by name refuses, the way a full disk does."""
+    """The write refuses, the way a full disk does. The store writes through
+    the one read-modify-write every JSON store shares
+    (`bot.utils.json_store.update_json_store`), so that is where the write is
+    planted: the store no longer imports the writer by name."""
+    from bot.utils import json_store as _js
     state = {"fail": False}
-    real = us.atomic_write_json
+    real = _js.atomic_write_json
 
     def maybe(*a, **k):
         if state["fail"]:
             raise OSError("disk full")
         return real(*a, **k)
 
-    monkeypatch.setattr(us, "atomic_write_json", maybe)
+    monkeypatch.setattr(_js, "atomic_write_json", maybe)
     return state
 
 
@@ -197,7 +201,8 @@ def test_the_purge_reports_an_unlanded_clear_as_an_error(tmp_path, monkeypatch):
     # borrows its helpers, so it does the same, explicitly.
     monkeypatch.setattr(ug, "_guard_user", lambda *a, **k: None)
     store = _stub_the_other_stores(monkeypatch, tmp_path)
-    monkeypatch.setattr(us, "atomic_write_json",
+    from bot.utils import json_store as _js
+    monkeypatch.setattr(_js, "atomic_write_json",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
     h = _gateway_handler(tmp_path)
     h.conversations = _conversations(tmp_path)

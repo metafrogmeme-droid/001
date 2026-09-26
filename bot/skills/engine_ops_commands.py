@@ -751,7 +751,19 @@ class EngineOpsCommands:
             from bot.core.leverage import resolve_user_leverage
             _tg_id = self._get_tg_id(update)
             if args[:1] == ["reset"]:
-                _lev_store.clear(_tg_id)
+                # A clear that could not read the file, or whose write did not
+                # land, left the preference where it was. "Cleared" over that is
+                # the one false answer, so each gets its own sentence.
+                try:
+                    _lev_store.clear(_tg_id)
+                except _lev_store.StoreUnreadable:
+                    await self._reply(update, _lev_store.UNREAD_SENTENCE)
+                    return
+                except OSError:
+                    await self._reply(update,
+                        "⚠️ Your leverage preference could not be cleared — the "
+                        "write did not land. Nothing was changed; try again.")
+                    return
                 try:
                     _ex = self.engine._user_executors.get(str(_tg_id))
                     if _ex is not None:
@@ -768,11 +780,20 @@ class EngineOpsCommands:
                 except ValueError:
                     await self._reply(update, "Usage: /leverage set <n>")
                     return
-                _stored = _lev_store.set_pref(_tg_id, _val)
-                if _stored is None:
+                if _val < _lev_store.TIGHTEST_PREF:
                     await self._reply(update,
                         "Couldn't save that — use a whole number ≥ 1, "
                         "e.g. <code>/leverage set 3</code>.")
+                    return
+                try:
+                    _stored = _lev_store.set_pref(_tg_id, _val)
+                except _lev_store.StoreUnreadable:
+                    await self._reply(update, _lev_store.UNREAD_SENTENCE)
+                    return
+                if _stored is None:
+                    await self._reply(update,
+                        "⚠️ Your leverage preference could not be saved — the "
+                        "write did not land. Nothing was changed; try again.")
                     return
                 try:
                     _ex = self.engine._user_executors.get(str(_tg_id))

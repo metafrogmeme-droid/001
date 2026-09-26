@@ -18,16 +18,32 @@ deliberate safety choices:
 
 Pure core (``prune``/``window_sum``) is separated from I/O so the accounting is
 trivially testable without a filesystem.
+
+**An unreadable ledger is not an empty one.** This module used to say "a corrupt
+ledger must fail-safe to EMPTY", and empty is $0 spent, the one answer a daily
+cap reads as "the whole allowance is left". Driven: every user's spend read 0.0
+after one failed read, the next ``record`` wrote that one user's entry over the
+file and erased everybody else's day, and after a restart an already-recorded
+ref was recorded again. ``spent``, ``remaining`` and ``record`` raise
+:class:`StoreUnreadable` now and nothing is written over the file; every caller
+already reads a raising ledger as a spend nobody could read, which a daily cap
+refuses by name. Every call tries the read again, so a transient failure
+recovers on its own. A write that did not land raises its ``OSError`` after the
+entry is kept in memory: the day is still counted in this process (the
+over-count bias above), and the caller learns the spend was not persisted.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import threading
 from typing import Any, Optional
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import (
+    UNREADABLE,
+    StoreUnreadable,
+    read_json_store,
+    update_json_store,
+)
 
 DEFAULT_WINDOW_S = 86_400   # 24h rolling window
 
@@ -40,6 +56,26 @@ def _num(x: Any) -> Optional[float]:
     if v != v or v in (float("inf"), float("-inf")):
         return None
     return v
+
+
+def _is_ledger(data: dict) -> str:
+    """``""`` for a ledger file, a reason for a JSON dict that is not one.
+
+    An absent ``book`` is an empty ledger. A ``book`` that is not a map of
+    lists of entries is somebody else's file, and writing an empty book over
+    it would erase it just as surely as a failed parse."""
+    book = data.get("book", {})
+    if not isinstance(book, dict):
+        return "book is not a JSON dict"
+    for entries in book.values():
+        if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+            return "a book entry is not a list of entries"
+    return ""
+
+
+def _ident(entry: dict) -> tuple:
+    """What makes two rows one row, for the merge a write makes."""
+    return (entry.get("ts"), entry.get("amount"), entry.get("ref"))
 
 
 def prune(entries: list[dict], now_ts: float, window_s: float = DEFAULT_WINDOW_S) -> list[dict]:
@@ -75,54 +111,97 @@ class AuthoritySpendLedger:
         # key -> list[{ts, amount, ref}]
         self._book: dict[str, list[dict]] = {}
         self._refs: dict[str, set] = {}      # key -> set of recorded refs (dedup)
+        #: True once the file has been read or found absent. False while it
+        #: cannot be read: memory then is a reading of nothing.
+        self._loaded = False
+        self._unread_detail = ""
         self._load()
 
     # -- persistence -----------------------------------------------------
 
-    def _load(self) -> None:
-        if not self._path or not os.path.exists(self._path):
-            return
-        try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            book = raw.get("book") if isinstance(raw, dict) else None
-            if isinstance(book, dict):
-                self._book = {str(k): list(v) for k, v in book.items()}
-                self._refs = {
-                    k: {str(e.get("ref")) for e in v if e.get("ref") is not None}
-                    for k, v in self._book.items()
-                }
-        except (json.JSONDecodeError, OSError, TypeError, ValueError):
-            # A corrupt ledger must fail-safe to EMPTY — which makes the daily cap
-            # MORE permissive only up to the per-trade cap, and the engine's own
-            # caps still stand. Never crash the caller over a bad ledger file.
-            self._book, self._refs = {}, {}
+    def _adopt(self, raw: dict) -> None:
+        book = raw.get("book") or {}
+        self._book = {str(k): list(v) for k, v in book.items()}
+        self._refs = {
+            k: {str(e.get("ref")) for e in v if e.get("ref") is not None}
+            for k, v in self._book.items()
+        }
 
-    def _save(self) -> None:
+    def _load(self) -> None:
+        """Read the file into memory. An unreadable file leaves memory as it
+        was and ``_loaded`` False, so the next call tries again."""
+        if not self._path:
+            self._loaded = True
+            return
+        r = read_json_store(self._path, check=_is_ledger)
+        if r.state == UNREADABLE:
+            self._unread_detail = r.detail
+            return
+        if r.data is not None:
+            self._adopt(r.data)
+        self._loaded = True
+
+    def _readable(self) -> None:
+        """Raise :class:`StoreUnreadable` unless memory holds a reading of the
+        file, reading it now if an earlier read failed."""
+        if not self._loaded:
+            self._load()
+        if not self._loaded:
+            raise StoreUnreadable(self._path or "", self._unread_detail)
+
+    def _save(self, key: str, now_ts: float) -> None:
+        """Merge memory into the FILE, never over it, and adopt the result.
+
+        Read-modify-write: the file is read again and every row in memory it
+        does not already hold is added, so a write cannot erase a person this
+        process does not hold, and a write that failed earlier is repaired by
+        the next one. Raises :class:`StoreUnreadable` (nothing written) or the
+        write's ``OSError``."""
         if not self._path:
             return
-        try:
-            atomic_write_json(self._path, {"book": self._book})
-        except OSError:
-            pass   # best-effort; the in-memory book is still authoritative this run
+        mem = self._book
+
+        def _merge(data: dict) -> None:
+            book = data.setdefault("book", {})
+            for k, entries in mem.items():
+                held = book.setdefault(k, [])
+                seen = {_ident(e) for e in held}
+                for e in entries:
+                    if _ident(e) not in seen:
+                        held.append(e)
+                        seen.add(_ident(e))
+            book[key] = prune(book.get(key, []), now_ts, self._window_s)
+
+        data, _written = update_json_store(self._path, _merge, check=_is_ledger)
+        self._adopt(data)
 
     # -- public API ------------------------------------------------------
 
     def spent(self, key: str, now_ts: float) -> float:
-        """In-window notional already recorded under ``key`` as of ``now_ts``."""
+        """In-window notional already recorded under ``key`` as of ``now_ts``.
+
+        Raises :class:`StoreUnreadable` when the ledger file cannot be read:
+        $0 is a measurement, and nobody measured it."""
         with self._lock:
+            self._readable()
             return window_sum(self._book.get(str(key), []), now_ts, self._window_s)
 
     def record(self, key: str, amount: Any, now_ts: float,
                ref: Optional[str] = None) -> bool:
         """Record ``amount`` of notional under ``key`` at ``now_ts``. Idempotent by
         ``ref`` (a duplicate ref is ignored). Prunes old entries opportunistically.
-        Returns True if a new entry was added, False if it was a duplicate/invalid."""
+        Returns True if a new entry was added, False if it was a duplicate/invalid.
+
+        Raises :class:`StoreUnreadable`, recording nothing, when the ledger file
+        cannot be read: the duplicate check reads the file's refs, and the
+        write would erase every other person's day. A write that did not land
+        raises its ``OSError`` with the entry kept in memory."""
         amt = _num(amount)
         if amt is None or amt <= 0:
             return False
         k = str(key)
         with self._lock:
+            self._readable()
             refs = self._refs.setdefault(k, set())
             if ref is not None and str(ref) in refs:
                 return False
@@ -136,11 +215,14 @@ class AuthoritySpendLedger:
             if len(kept) != len(book):
                 self._book[k] = kept
                 self._refs[k] = {str(e.get("ref")) for e in kept if e.get("ref") is not None}
-            self._save()
+            self._save(k, now_ts)
             return True
 
     def remaining(self, key: str, daily_cap: Any, now_ts: float) -> Optional[float]:
-        """``daily_cap - spent(key)``, floored at 0, or None if no cap given."""
+        """``daily_cap - spent(key)``, floored at 0, or None if no cap given.
+
+        Raises :class:`StoreUnreadable` through ``spent`` for an unreadable
+        ledger: the whole cap is not what is left of a day nobody read."""
         cap = _num(daily_cap)
         if cap is None:
             return None

@@ -425,7 +425,20 @@ class TradingCommands:
         _tg_id = self._get_tg_id(update)
         args = [a.lower() for a in (ctx.args or [])]
         if args[:1] in (["off"], ["clear"], ["reset"]):
-            if _store.clear(_tg_id):
+            # A clear that could not read the file, or whose write did not
+            # land, left the selection armed. "Nothing to clear" over either
+            # is a false answer about a veto that is still on disk.
+            try:
+                _cleared = _store.clear(_tg_id)
+            except _store.StoreUnreadable:
+                await self._reply(update, _store.UNREAD_SENTENCE)
+                return
+            except OSError:
+                await self._reply(update,
+                    "⚠️ Your strategy could not be cleared — the write "
+                    "did not land. It is still set; try again.")
+                return
+            if _cleared:
                 await self._reply(update,
                     "\U0001f513 Strategy cleared — your confirms are ungated again.")
             else:
@@ -439,7 +452,11 @@ class TradingCommands:
                 await self._reply(update,
                     f"Unknown strategy \u2014 pick one of: {_names} (or /mystrategy off).")
                 return
-            _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
+            try:
+                _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
+            except _store.StoreUnreadable:
+                await self._reply(update, _store.UNREAD_SENTENCE)
+                return
             if _stored is None:
                 await self._reply(update,
                     "Could not save the selection \u2014 nothing changed. Try again.")
@@ -465,14 +482,22 @@ class TradingCommands:
             _lines.append("/mystrategy off clears it any time \u2014 revocable is the point.")
             await self._reply(update, "\n".join(_lines))
             return
-        _cur = _store.get(_tg_id)
+        try:
+            _cur = _store.get(_tg_id)
+            _unread = False
+        except _store.StoreUnreadable:
+            _cur, _unread = None, True
         _lines = ["\u2694\ufe0f <b>Your bot, your strategy</b>"]
         for _k in sorted(_RS.PRESETS):
             _c = _RS.PRESETS[_k]
             _mark = " \u2b05 <b>yours</b>" if _k == _cur else ""
             _lines.append(f"{_c.get('icon', '')} <code>/mystrategy {html.escape(_k)}</code> "
                           f"\u2014 {html.escape(_c.get('desc', ''))}{_mark}")
-        _lines.append("" if _cur else "\nNone selected \u2014 your confirms run ungated.")
+        if _unread:
+            # Not "none selected": nobody read the file to say so.
+            _lines.append("\n" + _store.UNREAD_SENTENCE)
+        else:
+            _lines.append("" if _cur else "\nNone selected \u2014 your confirms run ungated.")
         _lines.append("A selection is a tighten-only veto on YOUR confirms; "
                       "the operator loop keeps its own stance. /mystrategy off clears.")
         await self._reply(update, "\n".join(x for x in _lines if x))
@@ -563,8 +588,12 @@ class TradingCommands:
                 # print as "0 open" beside a venue that may hold positions.
                 pass
 
+        try:
+            selected = store.raw_selection(tg_id)
+        except Exception:
+            selected = None     # the card says it could not be read
         await self._send(update, venue_card(
-            connected=conn, selected=store.raw_selection(tg_id),
+            connected=conn, selected=selected,
             dropped=rd.get("dropped") or (), mode=rd.get("mode") or "off",
             enforce_available=ENFORCE_IMPLEMENTED, positions=pos))
 

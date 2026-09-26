@@ -34,17 +34,26 @@ WHY REFUSING IS THE SAFE DIRECTION HERE, TWICE OVER:
 
 An unreadable store falls back to SINGLE-VENUE, never to "everything
 connected". Every failure path in this module narrows what trades; none widens
-it.
+it. AND IT IS NOT WRITTEN OVER: the load used to leave the map empty and the
+next ``set_selection`` saved that empty map plus one entry, erasing every other
+person's selection. Driven: one failed read, one ``set_selection`` for a third
+user, and the file held the third alone. The reads raise
+:class:`StoreUnreadable` now (``routing_decision`` already turns a raising read
+into single-venue with the reason said), a write is refused with its sentence,
+and every call tries the read again.
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import threading
 from typing import Callable, Optional
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import (
+    UNREADABLE,
+    StoreUnreadable,
+    read_json_store,
+    update_json_store,
+)
 from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.venue_selection")
@@ -52,6 +61,18 @@ log = logging.getLogger("runeclaw.venue_selection")
 #: Anchored at construction — see ``person_peak`` for what a relative durable
 #: path costs. Never joined to directly.
 _STATE_FILE = "data/venue_selection.json"
+
+#: The refusal ``set_selection`` gives while the file will not read. It names
+#: no command, so every surface that passes a refusal through can say it.
+UNREAD_REFUSAL = ("the stored venue selections could not be read, so none "
+                  "was changed: saving over that file would erase every other "
+                  "person's")
+
+
+def _is_selection_file(data: dict) -> str:
+    """``""`` for a selection file, a reason for a JSON dict that is not one."""
+    sel = data.get("selection", {})
+    return "" if isinstance(sel, dict) else "selection is not a JSON dict"
 
 
 class VenueSelectionStore:
@@ -65,35 +86,45 @@ class VenueSelectionStore:
     def __init__(self, path: Optional[str] = None) -> None:
         self._path = str(state_path(path or _STATE_FILE))
         self._sel: dict = {}
+        #: True once the file has been read or found absent.
+        self._loaded = False
+        self._unread_detail = ""
         self._lock = threading.Lock()
         self._load()
 
     # ── persistence ──────────────────────────────────────────────────────
 
-    def _load(self) -> None:
-        try:
-            if not os.path.exists(self._path):
-                return
-            with open(self._path, encoding="utf-8") as fh:
-                data = json.load(fh)
-            raw = (data or {}).get("selection") or {}
-            if not isinstance(raw, dict):
-                return
-            for user, venues in raw.items():
-                if isinstance(venues, list):
-                    self._sel[str(user)] = [str(v).lower().strip()
-                                            for v in venues if str(v).strip()]
-        except Exception as exc:
-            # NOT fatal, and NOT widened: an unreadable selection leaves every
-            # user on the single-venue default until it can be read again.
-            log.warning("venue selection load skipped (all users stay "
-                        "single-venue): %s", exc)
+    def _adopt(self, data: dict) -> None:
+        raw = data.get("selection") or {}
+        sel: dict = {}
+        for user, venues in raw.items():
+            if isinstance(venues, list):
+                sel[str(user)] = [str(v).lower().strip()
+                                  for v in venues if str(v).strip()]
+        self._sel = sel
 
-    def _save(self) -> None:
-        try:
-            atomic_write_json(self._path, {"selection": dict(self._sel)}, indent=None)
-        except Exception as exc:
-            log.warning("venue selection save skipped: %s", exc)
+    def _load(self) -> None:
+        r = read_json_store(self._path, check=_is_selection_file)
+        if r.state == UNREADABLE:
+            # NOT widened, and NOT emptied: every user stays single-venue until
+            # it reads, and nothing is written over it meanwhile.
+            if not self._unread_detail:
+                log.warning("venue selection %s could not be read (%s) — all "
+                            "users stay single-venue and nothing is written "
+                            "over it until it reads", self._path, r.detail)
+            self._unread_detail = r.detail
+            return
+        if r.data is not None:
+            self._adopt(r.data)
+        self._loaded = True
+        self._unread_detail = ""
+
+    def _readable(self) -> None:
+        """Raise :class:`StoreUnreadable` unless the file has been read."""
+        if not self._loaded:
+            self._load()
+        if not self._loaded:
+            raise StoreUnreadable(self._path, self._unread_detail)
 
     # ── reads ────────────────────────────────────────────────────────────
 
@@ -104,8 +135,13 @@ class VenueSelectionStore:
         the user picked whose keys have since stopped working, and a reader
         that only ever sees the filtered list cannot tell "you deselected it"
         from "it stopped working".
+
+        Raises :class:`StoreUnreadable` when the file cannot be read: "you
+        chose nothing" is a claim about the file, and nobody read it.
         """
-        return list(self._sel.get(str(user_id), []))
+        with self._lock:
+            self._readable()
+            return list(self._sel.get(str(user_id), []))
 
     def active_venues(self, user_id: str, connected: Optional[Callable] = None) -> tuple:
         """``(venues_to_trade, dropped)`` — the routing set, and what fell out.
@@ -117,7 +153,9 @@ class VenueSelectionStore:
         behind it.
 
         Empty ``venues_to_trade`` means single-venue — the caller uses whatever
-        it uses today.
+        it uses today. Raises :class:`StoreUnreadable` through
+        ``raw_selection``; ``routing_decision`` reads that as single-venue and
+        says why.
         """
         chosen = self.raw_selection(user_id)
         if not chosen:
@@ -194,7 +232,12 @@ class VenueSelectionStore:
             return False, ("connect these before selecting them: "
                            + ", ".join(missing))
 
-        dropping = [v for v in self.raw_selection(uid) if v not in wanted]
+        try:
+            current = self.raw_selection(uid)
+        except StoreUnreadable as exc:
+            log.warning("venue selection NOT changed for %s: %s", uid, exc)
+            return False, UNREAD_REFUSAL
+        dropping = [v for v in current if v not in wanted]
         if dropping and open_positions is not None:
             blocked = []
             for v in dropping:
@@ -214,12 +257,25 @@ class VenueSelectionStore:
                 return False, ("close these positions before deselecting: "
                                + ", ".join(blocked))
 
-        with self._lock:
+        def _set(data: dict) -> None:
+            sel = data.setdefault("selection", {})
             if wanted:
-                self._sel[uid] = wanted
+                sel[uid] = wanted
             else:
-                self._sel.pop(uid, None)
-            self._save()
+                sel.pop(uid, None)
+
+        with self._lock:
+            try:
+                self._readable()
+                data, _written = update_json_store(
+                    self._path, _set, check=_is_selection_file, indent=None)
+            except StoreUnreadable as exc:
+                log.warning("venue selection NOT changed for %s: %s", uid, exc)
+                return False, UNREAD_REFUSAL
+            except OSError as exc:
+                log.warning("venue selection write failed for %s: %s", uid, exc)
+                return False, "the selection could not be saved — nothing was changed"
+            self._adopt(data)
         return True, ("single venue" if not wanted else ", ".join(wanted))
 
 

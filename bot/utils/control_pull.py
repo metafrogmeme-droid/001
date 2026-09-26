@@ -162,17 +162,21 @@ def _multi_venue_mode() -> str:
         # Unknown reads as OFF: the direction that claims LESS is happening.
         return "off"
 
-def _apply_venue_selection(telegram_id, raw) -> str:
+def _apply_venue_selection(telegram_id, raw) -> Optional[str]:
     """Apply a proposed venue selection and return what is now STORED.
 
     Returns a comma-separated string for the ack — always the store's own
     answer, never the request's, so a refusal cannot be reported as a success.
+    None when the stored selection could not be read: the website writes a
+    null ``venues`` as "we have not been told", where ``''`` would claim the
+    bot cleared it.
 
     ``raw is None`` → nothing proposed. The selection is left alone and its
     CURRENT value is returned, because the ack mirrors state and an omitted
     field would blank the website's copy.
     """
     from bot.core.venue_selection import get_venue_selection_store
+    from bot.utils.json_store import StoreUnreadable
 
     store = get_venue_selection_store()
     uid = str(telegram_id)
@@ -185,7 +189,11 @@ def _apply_venue_selection(telegram_id, raw) -> str:
             # below reports the unchanged selection, so the site shows what is
             # actually in force rather than what was asked for.
             log.warning("control pull: venue selection refused for %s: %s", uid, why)
-    return ",".join(store.raw_selection(uid))
+    try:
+        return ",".join(store.raw_selection(uid))
+    except StoreUnreadable as exc:
+        log.warning("control pull: venue selection unreadable for %s: %s", uid, exc)
+        return None
 
 def pull_and_apply_controls(store=None, allowlist_check=None, on_change=None) -> int:
     """Fetch pending control changes, apply, ack. Returns #acked. No-op when the

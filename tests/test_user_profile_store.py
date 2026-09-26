@@ -93,7 +93,11 @@ class TestAbsenceIsNotAClaim:
         bad.write_text("{not json", encoding="utf-8")
         monkeypatch.setenv("RUNECLAW_USER_PROFILE_FILE", str(bad))
         assert store.note_for("alice") == ""
-        assert store.get("alice") is None
+        # The reading underneath says it could not read, rather than "alice
+        # saved nothing" -- which is what lets the sizing path name the case.
+        from bot.utils.json_store import StoreUnreadable
+        with pytest.raises(StoreUnreadable):
+            store.get("alice")
 
     def test_the_empty_note_says_nothing_about_preferences(self):
         """Pinned as a property of the STRING, because the failure mode is a
@@ -137,7 +141,10 @@ class TestRoundTrip:
 
     def test_a_write_failure_returns_none_and_does_not_raise(self, monkeypatch):
         """A preferences file must never take a chat down."""
-        monkeypatch.setattr(store, "atomic_write_json",
+        # The store writes through the one read-modify-write every JSON
+        # store shares, so the write is planted there.
+        from bot.utils import json_store as _js
+        monkeypatch.setattr(_js, "atomic_write_json",
                             lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
         assert store.set_profile("u1", {"risk_pref": "balanced"}) is None
 

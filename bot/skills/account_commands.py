@@ -648,9 +648,19 @@ class AccountCommands:
         unprotected."""
         if not self._is_admin(update):
             return
-        from bot.core.secrets_vault import vault_status
+        from bot.core.secrets_vault import vault_file_state, vault_status
         status = vault_status()
         if not status:
+            _vstate, _vdetail = vault_file_state()
+            if _vstate == "unreadable":
+                import html as _html
+                await self._send(update,
+                    f"🔴 Vault file could not be read ({_html.escape(_vdetail)})"
+                    " — nothing was restored from it at boot and nothing will "
+                    "be written over it. Restore it from a copy, or move it "
+                    "aside to start a fresh vault; a secret set now lives for "
+                    "this process only.")
+                return
             await self._send(update,
                 "🔴 Vault unavailable (disabled or crypto missing) — secrets "
                 "will NOT survive a redeploy.")

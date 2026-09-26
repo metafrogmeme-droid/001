@@ -26,22 +26,29 @@ PROMPT — the place where free-form text must never arrive. risk_pref is one of
 three known words; watchlist entries are bare uppercase tickers; everything else
 is dropped rather than escaped.
 
-FAIL-SAFE, AND HONEST ABOUT IT. A read error returns None, and None means "no
-context to add" — the caller then omits the profile line entirely. It must never
-render as "this user has no watchlist", because an unreadable file and a user
-who saved nothing are different facts and only one of them is a statement about
-the user. Omission is not a claim; a confident negative is.
+FAIL-SAFE, AND HONEST ABOUT IT. A file that will not read makes `get` raise
+:class:`StoreUnreadable` and `note_for` answer "" -- the caller then omits the
+profile line entirely. It must never render as "this user has no watchlist",
+because an unreadable file and a user who saved nothing are different facts and
+only one of them is a statement about the user. Omission is not a claim; a
+confident negative is. `user_sizing` reads the raise as "profile unreadable",
+which is the reason it has always printed for this case and could never reach.
+
+AND THE WRITER NEVER WRITES OVER IT. `set_profile` used to read the file with
+a loader that answered ``{}`` for a failed read and save that map back with
+one row in it, so one failed read and one profile sync erased every other
+person's preferences. It reads the file again inside the write now and writes
+nothing over a file that will not read (`bot/utils/json_store.py`).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
 from typing import Optional
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import StoreUnreadable, load_json_store, update_json_store
 from bot.utils.paths import env_state_path
 
 log = logging.getLogger(__name__)
@@ -93,24 +100,24 @@ def normalize(profile) -> Optional[dict]:
 
 
 def _load() -> dict:
+    """The stored map, ``{}`` for a fresh start; raises StoreUnreadable for a
+    file that is there and will not read."""
     try:
-        with open(_path(), "r", encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except FileNotFoundError:
-        return {}
-    except Exception as exc:  # pragma: no cover - defensive
-        log.warning("user_profile read failed: %s", exc)
-        return {}
+        return load_json_store(_path())
+    except StoreUnreadable as exc:
+        log.warning("user_profile %s could not be read (%s): no profile is "
+                    "read from it and nothing is written over it",
+                    exc.path, exc.detail)
+        raise
 
 
 def get(user_id) -> Optional[dict]:
-    """A user's stored profile, or None.
+    """A user's stored profile, or None for no file or no entry.
 
-    None covers three different situations on purpose — no file, no entry,
-    unreadable file — because the caller's action is the same for all three:
-    add no profile context. What it must NOT do is invent an empty profile and
-    tell the model the user has no preferences.
+    Raises :class:`StoreUnreadable` for a file that will not read: None says
+    this person saved nothing, and nobody read the file to say so. What it
+    must NOT do is invent an empty profile and tell the model the user has no
+    preferences.
     """
     uid = str(user_id or "").strip()
     if not uid:
@@ -119,46 +126,64 @@ def get(user_id) -> Optional[dict]:
 
 
 def set_profile(user_id, profile) -> Optional[dict]:
-    """Persist a profile. Returns what was stored, or None. Never raises."""
+    """Persist a profile. Returns what was stored, or None. Never raises.
+
+    None covers nothing valid sent, a file that will not read (nothing is
+    written over it) and a write that did not land: in each, nothing is
+    stored for this user now, which is what the caller reports."""
     uid = str(user_id or "").strip()
     if not uid:
         return None
     clean = normalize(profile)
-    with _LOCK:
-        d = _load()
+
+    def _put(d: dict) -> bool:
         if clean is None:
             # An empty profile is a DELETE, not a stored blank. Keeping `{}`
             # would make "saved nothing" indistinguishable from "never saved",
             # and the next reader would have to guess which.
             if uid not in d:
-                return None
+                return False
             del d[uid]
         else:
             d[uid] = clean
-        try:
-            atomic_write_json(_path(), d, indent=None)
-        except Exception as exc:
-            log.warning("user_profile write failed: %s", exc)
-            return None
+        return True
+
+    try:
+        with _LOCK:
+            update_json_store(_path(), _put, indent=None)
+    except StoreUnreadable as exc:
+        log.warning("user_profile %s could not be read (%s): this profile is "
+                    "not stored, and nothing is written over the file",
+                    exc.path, exc.detail)
+        return None
+    except Exception as exc:
+        log.warning("user_profile write failed: %s", type(exc).__name__)
+        return None
     return clean
 
 
 def clear(user_id) -> bool:
-    """Forget a user's profile. Never raises."""
+    """Forget a user's profile. True when it was forgotten, False when there
+    was nothing to forget.
+
+    RAISES :class:`StoreUnreadable` for a file that will not read, and the
+    OSError of a write that did not land. "Nothing to forget" is a claim about
+    the file, and nobody read it to make one; a purge reports either raise as
+    an error, which is what it is.
+    """
     uid = str(user_id or "").strip()
     if not uid:
         return False
-    with _LOCK:
-        d = _load()
+
+    def _forget(d: dict) -> bool:
         if uid not in d:
             return False
         del d[uid]
-        try:
-            atomic_write_json(_path(), d, indent=None)
-        except Exception as exc:  # pragma: no cover - defensive
-            log.warning("user_profile clear failed: %s", exc)
-            return False
-    return True
+        return True
+
+    with _LOCK:
+        _, written = update_json_store(_path(), _forget, indent=None)
+    return bool(written)
 
 
 def note_for(user_id) -> str:
@@ -166,9 +191,12 @@ def note_for(user_id) -> str:
 
     "" is not a claim. The caller appends nothing, and the model is told
     nothing about this user's preferences — which is exactly right when we do
-    not know them.
+    not know them, including a file that will not read.
     """
-    return render_note(get(user_id))
+    try:
+        return render_note(get(user_id))
+    except StoreUnreadable:
+        return ""
 
 
 def render_note(profile) -> str:

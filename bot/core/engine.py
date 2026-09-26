@@ -2460,12 +2460,17 @@ class RuneClawEngine:
             # Record realized slippage into the shared tracker (no-op until set).
             ex._slippage_tracker = getattr(self, "slippage", None)
             # NB3: apply this user's pinned leverage (reduce-only vs the operator
-            # cap; None → operator default). Best-effort — never blocks binding.
+            # cap; None → operator default). Never blocks binding. A store that
+            # could not be read binds UNREAD, never None: None is the operator
+            # default, the LOOSEST a reduce-only preference resolves to, and
+            # the executor that held it kept it for its whole life. UNREAD is
+            # read again at order time and sized at the tightest a preference
+            # can be while it still cannot be read.
+            from bot.core import user_leverage_store as _lev_store
             try:
-                from bot.core import user_leverage_store as _lev_store
                 ex._user_leverage_pref = _lev_store.get(user_id)
             except Exception:
-                ex._user_leverage_pref = None
+                ex._user_leverage_pref = _lev_store.UNREAD
             self._user_executors[key] = ex
             audit(system_log, f"Per-user live executor bound for user {user_id}",
                   action="per_user_executor", result="BOUND", data={"user": key})
@@ -7531,15 +7536,27 @@ class RuneClawEngine:
         # Per-user chosen strategy — a tighten-only veto on THIS user's
         # confirms ("your bot, your strategy"). Applies only to explicit
         # user confirms; the operator auto-loop stays governed by the global
-        # stance. An armed selection that cannot be evaluated fails CLOSED —
-        # unlike a missing preferences file, which simply means "no
-        # selection" (see user_strategy_store's header for the split).
+        # stance. An armed selection that cannot be evaluated fails CLOSED,
+        # and so does a selections file that cannot be READ: it may hold an
+        # armed selection, and reading it as "none" skipped the veto the
+        # person chose. A MISSING file is a fresh start and means no selection
+        # (see user_strategy_store's header for the split).
         if user_id and user_id != "auto":
+            from bot.core import strategy_gate, user_strategy_store
             try:
-                from bot.core import strategy_gate, user_strategy_store
                 _sel = user_strategy_store.get_entry(user_id)
-            except Exception:
-                _sel = None
+            except Exception as _exc:
+                audit(trade_log,
+                      f"Strategy-gate REFUSED {idea.asset} for user {user_id}: "
+                      f"the stored strategy selections could not be read "
+                      f"({type(_exc).__name__})",
+                      action="user_strategy_gate", result="UNREAD",
+                      level=logging.WARNING,
+                      data={"trade_id": trade_id})
+                return ("\U0001f6e1 Your chosen strategy could not be read — the "
+                        "stored selections did not open, so confirms are "
+                        "refused until they can be (fail closed). Nothing was "
+                        "placed.")
             _skey = _sel if isinstance(_sel, str) else (
                 _sel.get("slug") if isinstance(_sel, dict) else None)
             if _sel:

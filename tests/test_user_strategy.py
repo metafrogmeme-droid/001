@@ -17,6 +17,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 from bot.core import strategy_gate, user_strategy_store
 from bot.skills.skill_registry import RunStrategySkill
 
@@ -37,10 +39,19 @@ def test_store_roundtrip_and_validation(tmp_path, monkeypatch):
     assert user_strategy_store.clear(777) is False
 
 
-def test_store_corrupt_file_reads_as_no_selection(tmp_path, monkeypatch):
+def test_a_corrupt_file_is_not_no_selection(tmp_path, monkeypatch):
+    """This used to be `test_store_corrupt_file_reads_as_no_selection` and
+    assert `get(1) is None`. "No selection" means ungated confirms, and the
+    next writer then saved over the file and erased everybody's tighten-only
+    veto. An unreadable file raises, and nothing is written over it."""
     monkeypatch.setenv("RUNECLAW_STATE_DIR", str(tmp_path))
-    (tmp_path / "user_strategy.json").write_text("{not json", encoding="utf-8")
-    assert user_strategy_store.get(1) is None   # fail-safe READ: no selection
+    f = tmp_path / "user_strategy.json"
+    f.write_text("{not json", encoding="utf-8")
+    with pytest.raises(user_strategy_store.StoreUnreadable):
+        user_strategy_store.get(1)
+    with pytest.raises(user_strategy_store.StoreUnreadable):
+        user_strategy_store.set_pref(2, "dip sniper", RunStrategySkill.PRESETS.keys())
+    assert f.read_text(encoding="utf-8") == "{not json"
 
 
 def test_gate_no_selection_is_open():

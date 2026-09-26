@@ -34,12 +34,20 @@ the user path one function below it. `observe()` is called from both, and
 only remembers the surface somebody thought of is worse than none, because it
 makes the agent inconsistent about the same person depending on the door.
 
-UNREADABLE IS NOT "NEW HERE"
-----------------------------
-Every read failure resolves to None, and None renders as "" — the caller
-appends nothing and the model is told nothing about this person's history.
-It must never render as "they have not asked about anything before", which is
-a claim about the user manufactured from a failed file read.
+UNREADABLE IS NOT "NEW HERE", AND IT IS NOT EMPTY EITHER
+--------------------------------------------------------
+A file that will not read is not an empty store. `get` raises
+:class:`StoreUnreadable` for it and `note_for` answers "" -- the caller appends
+nothing and the model is told nothing about this person's history. It must
+never render as "they have not asked about anything before", which is a claim
+about the user manufactured from a failed file read.
+
+The WRITERS are the half that used to destroy it. `observe` runs on every
+dispatched intent, read the file with a loader that answered ``{}`` for a
+failed read, and saved that map back with one row in it: one failed read and
+one ordinary question erased every other person's recall. It reads the file
+again inside the write now and writes nothing over a file that will not read
+(`bot/utils/json_store.py`).
 
 BOUNDED, BECAUSE THIS IS PROMPT BUDGET
 --------------------------------------
@@ -51,14 +59,13 @@ disk problem after that.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
 from datetime import datetime, timezone
 from typing import Optional
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import StoreUnreadable, load_json_store, update_json_store
 from bot.utils.paths import env_state_path
 
 log = logging.getLogger(__name__)
@@ -161,22 +168,21 @@ def _trim(topics: dict) -> dict:
 
 
 def _load() -> dict:
+    """The stored map, ``{}`` for a fresh start; raises StoreUnreadable for a
+    file that is there and will not read."""
     try:
-        with open(_path(), "r", encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except FileNotFoundError:
-        return {}
-    except Exception as exc:  # pragma: no cover - defensive
-        log.warning("user_memory read failed: %s", exc)
-        return {}
+        return load_json_store(_path())
+    except StoreUnreadable as exc:
+        log.warning("user_memory %s could not be read (%s): recall is omitted "
+                    "and nothing is written over it", exc.path, exc.detail)
+        raise
 
 
 def get(user_id) -> Optional[dict]:
-    """A user's memory, or None.
+    """A user's memory, or None for no file or no entry.
 
-    None covers no file, no entry and unreadable file alike, because the
-    caller's action is identical for all three: add no history context.
+    Raises :class:`StoreUnreadable` for a file that will not read: None says
+    this person has no recorded history, and nobody read the file to say so.
     """
     uid = str(user_id or "").strip()
     if not uid:
@@ -202,51 +208,71 @@ def observe(user_id, skill, kwargs=None) -> Optional[dict]:
                 sym = base_symbol(kwargs.get(key))
                 if sym:
                     break
+    stored: dict = {}
+
+    def _record(d: dict) -> bool:
+        rec = normalize(d.get(uid)) or {}
+        topics = dict(rec.get("topics") or {})
+        if sym:
+            prev = topics.get(sym) or {}
+            nxt = max((int(v.get("seq") or 0) for v in topics.values()),
+                      default=0) + 1
+            topics[sym] = {"n": int(prev.get("n") or 0) + 1,
+                           "last": _now_iso(), "seq": nxt}
+            rec["topics"] = _trim(topics)
+        rec["last_skill"] = name
+        clean = normalize(rec)
+        if clean is None:
+            return False
+        d[uid] = clean
+        stored["clean"] = clean
+        return True
+
     try:
         with _LOCK:
-            d = _load()
-            rec = normalize(d.get(uid)) or {}
-            topics = dict(rec.get("topics") or {})
-            if sym:
-                prev = topics.get(sym) or {}
-                nxt = max((int(v.get("seq") or 0) for v in topics.values()),
-                          default=0) + 1
-                topics[sym] = {"n": int(prev.get("n") or 0) + 1,
-                               "last": _now_iso(), "seq": nxt}
-                rec["topics"] = _trim(topics)
-            rec["last_skill"] = name
-            clean = normalize(rec)
-            if clean is None:
-                return None
-            d[uid] = clean
-            atomic_write_json(_path(), d, indent=None)
-        return clean
+            update_json_store(_path(), _record, indent=None)
+        return stored.get("clean")
+    except StoreUnreadable as exc:
+        log.warning("user_memory %s could not be read (%s): this question is "
+                    "not recorded, and nothing is written over the file",
+                    exc.path, exc.detail)
+        return None
     except Exception as exc:
-        log.warning("user_memory write failed: %s", exc)
+        log.warning("user_memory write failed: %s", type(exc).__name__)
         return None
 
 
 def clear(user_id) -> bool:
-    """Forget a user's observed history. Never raises."""
+    """Forget a user's observed history. True when it was forgotten, False
+    when there was nothing to forget.
+
+    RAISES :class:`StoreUnreadable` for a file that will not read, and the
+    OSError of a write that did not land. "Nothing to forget" is a claim about
+    the file, and nobody read it to make one; a purge reports either raise as
+    an error, which is what it is.
+    """
     uid = str(user_id or "").strip()
     if not uid:
         return False
-    with _LOCK:
-        d = _load()
+
+    def _forget(d: dict) -> bool:
         if uid not in d:
             return False
         del d[uid]
-        try:
-            atomic_write_json(_path(), d, indent=None)
-        except Exception as exc:  # pragma: no cover - defensive
-            log.warning("user_memory clear failed: %s", exc)
-            return False
-    return True
+        return True
+
+    with _LOCK:
+        _, written = update_json_store(_path(), _forget, indent=None)
+    return bool(written)
 
 
 def note_for(user_id) -> str:
-    """The history line for a user, or "" when there is nothing to say."""
-    return render_note(get(user_id))
+    """The history line for a user, or "" when there is nothing to say --
+    including a file that will not read: omission is not a claim."""
+    try:
+        return render_note(get(user_id))
+    except StoreUnreadable:
+        return ""
 
 
 def render_note(mem) -> str:

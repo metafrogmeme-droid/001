@@ -1702,8 +1702,11 @@ class LiveExecutor:
         self.user_id = user_id
         self._credentials = credentials
         # NB3: this user's pinned standard leverage (reduce-only vs the operator
-        # cap). None → use the operator default. Set by the engine on bind.
-        self._user_leverage_pref = None
+        # cap). None → use the operator default. Set by the engine on bind: an
+        # int, None, or ``user_leverage_store.UNREAD`` for a preferences file
+        # that could not be read (re-read at order time, see
+        # ``_user_leverage_reading``).
+        self._user_leverage_pref: Any = None
         # Venue spec (bot/core/venues.py). For a per-user executor the venue is
         # whichever exchange the user connected (passed by the engine from the
         # credential store, default "bitget"); the operator's shared executor
@@ -1939,6 +1942,45 @@ class LiveExecutor:
         """
         return apply_margin_risk_cap(self._standard_leverage(symbol), idea)
 
+    #: Set once the audit has said this executor's leverage preference could
+    #: not be read, so a store that stays unreadable is said once per episode
+    #: and not on every order.
+    _leverage_unread_said: bool = False
+
+    def _user_leverage_reading(self) -> Optional[int]:
+        """This user's leverage preference, as sizing reads it.
+
+        ``None`` is no preference: the operator standard. The engine binds
+        ``UNREAD`` when the preferences file could not be read, and that is
+        read again here on every order until it reads. While it still cannot
+        be read the order is sized at ``TIGHTEST_PREF``. The old bind read an
+        unreadable file as None, which is the operator default and the
+        LOOSEST answer a reduce-only preference has, for a person who may
+        have pinned 1x; and the executor kept that None for its whole life.
+        """
+        from bot.core import user_leverage_store as _store
+        pref = getattr(self, "_user_leverage_pref", None)
+        if pref is not _store.UNREAD:
+            return pref
+        try:
+            fresh = _store.get(self.user_id)
+        except Exception as exc:
+            if not self._leverage_unread_said:
+                self._leverage_unread_said = True
+                audit(trade_log,
+                      f"Leverage preference for user {self.user_id} could not "
+                      f"be read ({type(exc).__name__}) — orders are sized at "
+                      f"{_store.TIGHTEST_PREF}x until it reads, never at the "
+                      f"operator default",
+                      action="user_leverage", result="UNREAD",
+                      level=logging.WARNING,
+                      data={"user": self.user_id,
+                            "sized_at": _store.TIGHTEST_PREF})
+            return _store.TIGHTEST_PREF
+        self._user_leverage_pref = fresh
+        self._leverage_unread_said = False
+        return fresh
+
     def _standard_leverage(self, symbol: str) -> int:
         """The standard leverage for a symbol, before this idea's risk cap.
 
@@ -1972,8 +2014,9 @@ class LiveExecutor:
                                  else cfg.default_leverage))
         # NB3: a BYOK live user can pin their OWN standard leverage, applied
         # reduce-only against the operator cap (never above it). Absent/invalid
-        # pref → unchanged. Fail-safe: any error keeps the operator default.
-        _user_pref = getattr(self, "_user_leverage_pref", None)
+        # pref → unchanged. A pref the store could not read is NOT absent:
+        # `_user_leverage_reading` sizes it at the tightest a pref can be.
+        _user_pref = self._user_leverage_reading()
         if _user_pref is not None:
             try:
                 from bot.core.leverage import resolve_user_leverage

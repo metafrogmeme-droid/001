@@ -244,20 +244,10 @@ class LearningOrchestrator:
                 results["queued"] += 1
                 logger.info("Queued for human review: %s", proposal.audit_id)
 
-        # Re-save updated proposals (persist status changes to disk)
-        all_proposals = self.store.get_proposals()
-        # Update statuses
-        pending_ids = {p.audit_id for p in pending}
-        for p in all_proposals:
-            if p.audit_id in pending_ids:
-                match = next((pp for pp in pending if pp.audit_id == p.audit_id), None)
-                if match:
-                    p.status = match.status
-        # Persist the updated proposals back to disk
-        self.store._write_json("backlog", [
-            p.model_dump(mode="json") if hasattr(p, "model_dump") else p.__dict__
-            for p in all_proposals
-        ])
+        # Persist the status changes into the file as it is: every other row,
+        # including one `get_proposals` could not validate, is kept.
+        self.store.set_proposal_statuses(
+            {str(p.audit_id): str(p.status) for p in pending})
 
         return results
 

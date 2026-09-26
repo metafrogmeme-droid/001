@@ -130,8 +130,16 @@ def test_an_unreadable_store_is_not_a_crash_and_not_a_fake_peak(tmp_path):
     p.write_text("{ not json")
     s = PersonPeakStore(path=str(p))
     assert s.peak("alice") is None
-    # And it still works from here — a bad file costs history, not function.
-    assert s.observe("alice", 100.0) == 100.0
+    # It used to "still work from here": `observe` seeded a peak AT the current
+    # equity (so the drawdown read 0.0, the all-clear) and the save wrote that
+    # one peak over the file, erasing everybody else's. An unreadable store
+    # reports no peak and writes nothing until it reads.
+    assert s.observe("alice", 100.0) is None
+    assert s.drawdown_pct("alice", 80.0) is None
+    assert p.read_text() == "{ not json"
+    # A file that reads again is read again, by the next call.
+    p.write_text('{"peaks": {"alice": 100.0}}')
+    assert s.drawdown_pct("alice", 80.0) == pytest.approx(20.0)
 
 
 # ── reset ────────────────────────────────────────────────────────────────

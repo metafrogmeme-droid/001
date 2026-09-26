@@ -5396,7 +5396,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     + "\n".join(f"• {_html.escape(p)}" for p in problems))
             return
 
-        state = read_anchor_state()
+        from bot.utils.json_store import StoreUnreadable as _Unreadable
+        try:
+            _recorded = str(len(read_anchor_state()) or "none")
+        except _Unreadable as _exc:
+            # Not "none": the record file is there and will not read.
+            _recorded = f"could not be read ({_exc.detail})"
         plan = await _aio.to_thread(build_anchor_tx, addr, pubkey)
         est = plan.get("estimate") or {}
         cost = (f"{est.get('est_cost_eth')} ETH (~gas {est.get('gas')}, "
@@ -5405,7 +5410,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         lines = [
             "⚓ <b>ERC-8004 IDENTITY ANCHOR — Base</b>",
             "────────────────",
-            f"Recorded anchors: <code>{len(state) or 'none'}</code>",
+            f"Recorded anchors: <code>{_html.escape(_recorded)}</code>",
             f"Mode: <code>{plan['mode']}</code>",
             f"Commitment: <code>{plan['commitment'][:16]}…</code>",
             "",

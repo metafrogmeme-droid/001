@@ -3123,7 +3123,14 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     from bot.core import user_strategy_store
     from bot.core.strategy_gate import describe_gates
     from bot.skills.skill_registry import RunStrategySkill
-    entry = user_strategy_store.get_entry(tg_id)
+    try:
+        entry = user_strategy_store.get_entry(tg_id)
+    except user_strategy_store.StoreUnreadable:
+        # Not `selected: null`: that reads as "no strategy armed", and nobody
+        # read the file to say so. The confirm path refuses meanwhile.
+        return web.json_response(
+            {"error": "strategy_store_unreadable",
+             "detail": user_strategy_store.UNREAD_SENTENCE}, status=503)
     selected = entry if isinstance(entry, str) else None
     presets = []
     for key in sorted(RunStrategySkill.PRESETS):
@@ -3180,8 +3187,19 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     from bot.core.strategy_gate import resolve_key
     from bot.skills.skill_registry import RunStrategySkill
     raw = str(body.get("strategy") or "").strip().lower()
+    # A write refused over an unreadable file, or one that did not land, left
+    # the selection where it was; answering `selected: null` or the new key
+    # over either would be a claim about a file nothing changed.
+    _unread = web.json_response(
+        {"error": "strategy_store_unreadable",
+         "detail": user_strategy_store.UNREAD_SENTENCE}, status=503)
     if raw in ("", "off", "none", "clear"):
-        user_strategy_store.clear(tg_id)
+        try:
+            user_strategy_store.clear(tg_id)
+        except user_strategy_store.StoreUnreadable:
+            return _unread
+        except OSError:
+            return web.json_response({"error": "store_failed"}, status=500)
         audit(system_log, f"Web strategy cleared for {tg_id}",
               action="web_user_strategy", result="CLEARED")
         return web.json_response({"selected": None})
@@ -3191,8 +3209,11 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     # database. The store re-validates — a caller's projection is never
     # trusted blindly — and the snapshot is explicitly a copy, not a link.
     if str(body.get("kind") or "").lower() == "community":
-        stored = user_strategy_store.set_custom(
-            tg_id, body.get("slug"), body.get("label"), body.get("gates"))
+        try:
+            stored = user_strategy_store.set_custom(
+                tg_id, body.get("slug"), body.get("label"), body.get("gates"))
+        except user_strategy_store.StoreUnreadable:
+            return _unread
         if stored is None:
             return web.json_response({"error": "bad_snapshot"}, status=400)
         audit(system_log, f"Web community strategy armed for {tg_id}: {stored['slug']}",
@@ -3208,7 +3229,10 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
     if key is None:
         return web.json_response({"error": "unknown_strategy"}, status=404)
-    stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
+    try:
+        stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
+    except user_strategy_store.StoreUnreadable:
+        return _unread
     if stored is None:
         return web.json_response({"error": "store_failed"}, status=500)
     audit(system_log, f"Web strategy set for {tg_id}: {stored}",
@@ -3247,7 +3271,11 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
     publication (the same bundle /proof serves openly), re-verified at read
     time: the returned ``verified`` flag is a fresh hash+signature check, never
     a stored claim. 404 for any address that is not the published agent —
-    the directory only ever states what a sealed publication backs."""
+    the directory only ever states what a sealed publication backs.
+
+    A publication that could not be READ is a 503, never that 404: the relay
+    caches a 404 and the website calls ``unknown_agent`` a measured absence,
+    and nobody read the file that would say whether this agent is published."""
     addr = str(request.match_info.get("address") or "").strip().lower()
     if not _AGENT_ADDR_RE.match(addr):
         return web.json_response({"error": "invalid_address"}, status=400)
@@ -3255,8 +3283,10 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
         from bot.proofofpnl.erc8004 import human_readable, verify_card
         from bot.proofofpnl.publish import get_publication_store
         pub = get_publication_store().read()
-    except Exception:
-        pub = None
+    except Exception as exc:
+        system_log.warning("Public agent card: publication unreadable (%s)",
+                           type(exc).__name__)
+        return web.json_response({"error": "unavailable"}, status=503)
     card = ((pub or {}).get("bundle") or {}).get("identity_card")
     card_addr = str(((card or {}).get("identity") or {}).get("agent_address") or "")
     if not card or card_addr.lower() != addr:
@@ -3434,6 +3464,17 @@ def _compile_user_envelope(text: str, mode: str = "shadow"):
     return env, parsed
 
 
+def _authority_unreadable(action: str, tg_id: str) -> web.Response:
+    """The answer for an authority store that could not be read: nothing was
+    changed and nothing reads as bound. A 503 and a sentence, never the
+    "no envelope" answer, which is a claim about a file nobody read."""
+    from bot.guardian.user_authority_store import UNREAD_SENTENCE
+    audit(system_log, "Authority store could not be read — nothing changed",
+          action=action, result="UNREADABLE", data={"user": tg_id})
+    return web.json_response({"ok": False, "error": "authority_store_unreadable",
+                              "detail": UNREAD_SENTENCE}, status=503)
+
+
 def _held_in_memory(store, tg_id: str, *, envelope_id=None, mode=None,
                     revoked=None) -> bool:
     """Did a store write that returned False leave its change IN MEMORY?
@@ -3497,7 +3538,7 @@ async def handle_authority_apply(request: web.Request) -> web.Response:
         return web.json_response({"error": "text required"}, status=400)
     try:
         from bot.guardian.authority import human_readable
-        from bot.guardian.user_authority_store import get_user_authority_store
+        from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
         env, parsed = _compile_user_envelope(text, mode)
         if parsed["unmatched"]:
             return web.json_response(
@@ -3506,7 +3547,10 @@ async def handle_authority_apply(request: web.Request) -> web.Response:
                            "like “only majors”, “max $500 per trade”, “$2000 a "
                            "day”, “only on bitget”."}, status=400)
         _astore = get_user_authority_store()
-        bound = _astore.bind(tg_id, env)
+        try:
+            bound = _astore.bind(tg_id, env)
+        except StoreUnreadable:
+            return _authority_unreadable("web_authority_apply", tg_id)
         if not bound and _held_in_memory(_astore, tg_id,
                                          envelope_id=env.get("envelope_id")):
             audit(system_log, f"User bound authority envelope ({mode}) "
@@ -3538,9 +3582,12 @@ async def handle_authority_mode(request: web.Request) -> web.Response:
     mode = str(body.get("mode") or "").lower()
     if mode not in ("off", "shadow", "enforce"):
         return web.json_response({"error": "bad_mode"}, status=400)
-    from bot.guardian.user_authority_store import get_user_authority_store
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
     _astore = get_user_authority_store()
-    ok = _astore.set_mode(tg_id, mode)
+    try:
+        ok = _astore.set_mode(tg_id, mode)
+    except StoreUnreadable:
+        return _authority_unreadable("web_authority_mode", tg_id)
     if not ok:
         if _held_in_memory(_astore, tg_id, mode=mode):
             audit(system_log, f"User set authority mode {mode} IN MEMORY ONLY",
@@ -3563,14 +3610,21 @@ async def handle_authority_status(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    from bot.guardian.user_authority_store import get_user_authority_store
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
     from bot.guardian.authority import human_readable
     store = get_user_authority_store()
-    env = store.get(tg_id)
+    try:
+        env = store.get(tg_id)
+        mode = store.mode(tg_id)
+    except StoreUnreadable:
+        # Not "bound: false": that is a claim about the file, and nobody read
+        # it. The panel's error state and the readiness axis's "not yet
+        # observed" are both reached from a non-200.
+        return _authority_unreadable("web_authority_status", tg_id)
     dec = _web_live_decision(request.app, tg_handler, tg_id)
     return web.json_response({
         "bound": env is not None,
-        "mode": store.mode(tg_id),
+        "mode": mode,
         "human_readable": human_readable(env) if env else "",
         "envelope_id": (env or {}).get("envelope_id", ""),
         "live_ready": dec.allowed,
@@ -3586,9 +3640,12 @@ async def handle_authority_revoke(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    from bot.guardian.user_authority_store import get_user_authority_store
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
     _astore = get_user_authority_store()
-    revoked = _astore.revoke(tg_id)
+    try:
+        revoked = _astore.revoke(tg_id)
+    except StoreUnreadable:
+        return _authority_unreadable("web_authority_revoke", tg_id)
     if not revoked and _held_in_memory(_astore, tg_id, revoked=True):
         # The kill-switch's one unforgivable answer is "revoked" over a write
         # that did not land: this process stays revoked, and the next restart
@@ -4648,7 +4705,7 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
         return web.json_response({"error": "target_user required"}, status=400)
     spec = body.get("tighten") if isinstance(body.get("tighten"), dict) else {}
     try:
-        from bot.guardian.user_authority_store import get_user_authority_store
+        from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
         from bot.guardian.review_queue import tighten_envelope, get_review_queue
         store = get_user_authority_store()
         cur = store.get(target)
@@ -4680,6 +4737,8 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
                                                "max_notional_daily_usd": new_env.get("max_notional_daily_usd"),
                                                "withdraw_allowed": new_env.get("withdraw_allowed"),
                                                "revoked": new_env.get("revoked")}})
+    except StoreUnreadable:
+        return _authority_unreadable("guardian_tighten", target)
     except Exception:
         # F-15: never leak an exception string (it can carry secrets) to the caller.
         return web.json_response({"error": "tightening failed"}, status=400)
