@@ -7363,6 +7363,45 @@ rather than hand-written: the stand-in written for it listed five attributes
 and the verification block reached for a sixth.
 (`tests/test_the_venue_gets_the_capped_leverage.py`.)
 
+**THE ORDER SENT TO THE VENUE WAS NOT THE ORDER THE CAPS AND THE LEVERAGE
+CHECKED, TWO WAYS.** `_preflight_check` tests the per-trade bound, the total
+margin cap and `PER_USER_MAX_FUNDS_USD` against the approved size, and then
+`_exchange_minimum_gate` raises the quantity to the venue's minimum, up to
+`EXCHANGE_MIN_ROUNDUP_MAX_MULT` (on by default), with nothing asking the caps
+again. Driven through the real `execute` against a venue that records what it
+is sent: a linked account with $70 deployed and a $30 approval at 1x sent
+$40 of margin, $110 against the $100 cap that `.env.example` says "can never
+exceed"; the operator's book went to $505 against $500; and an operator order
+at `/leverage 1` placed $120 against the $100 per-trade bound. The config
+comment named the notional ceiling as the backstop, and that ceiling is
+`max(size, $100) x max(MAX_LEVERAGE, lev) x 1.05`, which bounds neither cap.
+The pure half of the preflight is `_hard_cap_refusal` now (the bounds verdict
+and the per-user cap; no record, no warning), and `execute` asks it again at
+the margin the rounded quantity places, refusing by name when it is over.
+
+**And the leverage was read twice.** `_ensure_leverage` and `_size_or_block`
+each called `_compute_target_leverage`, which re-reads the `/leverage`
+override and, for an unread preference, the preference file. A `/leverage 10`
+landing during the ticker read sized a $100 approval at 10x on a venue set to
+5x ($200 of margin locked), and a preference file that failed its first read
+and passed its second set the venue to 1x and sized at 5x. The capped-leverage
+chapter above made set and size ONE READING; they were still two CALLS of it.
+`execute` reads it once and hands the number to both, and to the generic
+venue path, which read it for itself too. `test_dynamic_leverage_dedup.py`
+derives the set of methods that read the leverage and pinned it at three; it
+is four now, `execute` being the one read per order, and the docstring says
+why.
+
+**Eleven mutations, each killed.** The survey's other sizing findings are
+filed with their measurements: the Tier C limit re-size runs after the
+minimum gate with no minimum check (the venue refuses it, and no money
+moves); a resting limit is sized at the current price and fills at the limit
+price, bounded in practice by the 2% drift cancel; and with balance-relative
+bounds on, the total bound is taken from free margin that already excludes
+committed margin, so committed margin counts twice (fails closed, off by
+default, and the bounds shadow over-reports refusals).
+(`tests/test_the_placed_order_is_the_checked_order.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -13912,7 +13951,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **440 of 1109** reach for source text through `source_scan`, `code_only`
+Driven, **440 of 1110** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 440 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -2111,8 +2111,16 @@ class LiveExecutor:
             return 1
 
     async def _ensure_leverage(self, symbol: str, side: str = "",
-                               idea: Any = None) -> None:
+                               idea: Any = None,
+                               target: Optional[int] = None) -> None:
         """Set leverage and margin mode for a symbol (futures only).
+
+        ``target`` is the leverage `execute` read ONCE for this order and also
+        sizes it at. Reading it again here could answer differently: a
+        `/leverage` change, or a preference file that reads on the second try,
+        between the set and the sizing sized an order at 10x on a venue set to
+        5x. With no target (every caller that is not placing an order) it is
+        read here, as before.
 
         ``idea`` is the order this leverage is being set FOR, when there is
         one. It carries the risk gate's margin-risk cap, and the venue is the
@@ -2141,7 +2149,7 @@ class LiveExecutor:
         # method is Bitget account topology (UTA probes, v2 verification
         # endpoints, crossed/cross quirk) that does not exist elsewhere.
         if self._venue.id != "bitget":
-            await self._ensure_leverage_generic(exchange, symbol, idea)
+            await self._ensure_leverage_generic(exchange, symbol, idea, target)
             return
 
         # ── Set margin mode (best-effort; the verification read below is the
@@ -2267,7 +2275,8 @@ class LiveExecutor:
                       data={"symbol": symbol, "configured": cfg.margin_mode})
 
         # ── Set leverage (dynamic scaling via the shared, reduce-only helper) ──
-        _target_leverage = self._compute_target_leverage(symbol, idea)
+        _target_leverage = (target if target is not None
+                            else self._compute_target_leverage(symbol, idea))
 
         # Did the exchange ACCEPT the target? A bare set_leverage that returns
         # without raising is NOT a confirmation — see the per-side block below
@@ -2606,7 +2615,8 @@ class LiveExecutor:
 
     async def _ensure_leverage_generic(self, exchange: ccxt.Exchange,
                                        symbol: str,
-                                       idea: Any = None) -> None:
+                                       idea: Any = None,
+                                       order_target: Optional[int] = None) -> None:
         """Venue-neutral margin-mode + leverage setup via plain ccxt.
 
         Used for venues without Bitget's account-topology special cases
@@ -2618,7 +2628,8 @@ class LiveExecutor:
         # ccxt's spelling, once: Bitget's "crossed" is isolated to ccxt's
         # Hyperliquid call and refused by its Bybit one (`ccxt_margin_mode`).
         margin_mode = ccxt_margin_mode(cfg.margin_mode)
-        target = self._compute_target_leverage(symbol, idea)
+        target = (order_target if order_target is not None
+                  else self._compute_target_leverage(symbol, idea))
         sym = self._venue.swap_symbol(symbol)
         try:
             market = exchange.market(sym)
@@ -2906,6 +2917,56 @@ class LiveExecutor:
         self._avail_margin_cache = (now, value)
         return value
 
+    def _hard_cap_refusal(self, size_usd: float, bounds: size_bounds.SizeBounds,
+                          exposure: CommittedMargin,
+                          ) -> tuple[Optional[str], Optional[float]]:
+        """The hard caps an order's margin must clear: ``(refusal, total)``.
+
+        The per-trade bound, the book's readability, the total bound and, for
+        a linked account, `PER_USER_MAX_FUNDS_USD`. ``total`` is the committed
+        margin before this order, and a float whenever there is no refusal.
+
+        One method because two places ask: `_preflight_check` at the approved
+        size, and `execute` again at the margin the exchange-minimum round-up
+        will really place. The round-up used to run after the preflight and
+        nothing asked again, so a $30 approval rounded to $40 took a linked
+        account to $110 against its $100 cap, and the operator's book to $505
+        against $500. Nothing here records or warns: the bounds shadow and the
+        reserve warning belong to the preflight, once per order.
+        """
+        _verdict = size_bounds.bounds_verdict(size_usd, bounds, exposure)
+        if _verdict.sentence is not None:
+            return _verdict.sentence, None
+        # `ok` is answered only over a complete reading of the book
+        # (`bounds_verdict` pins it), so the total is a float here.
+        total_exposure = cast(float, _verdict.exposure_total)
+
+        # LIVE-1 (operator directive, live-testing protection): every LINKED
+        # (per-user) account carries its own hard max-funds ceiling — total
+        # deployed margin may never exceed PER_USER_MAX_FUNDS_USD, regardless
+        # of the account's balance. A test account can lose at most what the
+        # operator deliberately allowed it. Operator executor (user_id None)
+        # is governed by the MICRO_* caps above, not this.
+        if self.user_id is not None:
+            try:
+                per_user_cap = float(os.environ.get("PER_USER_MAX_FUNDS_USD", "100"))
+            except ValueError:
+                per_user_cap = 100.0
+            if per_user_cap > 0 and total_exposure + size_usd > per_user_cap:
+                audit(trade_log,
+                      f"PER-USER CAP blocked trade for user {self.user_id}: "
+                      f"${total_exposure + size_usd:.2f} > ${per_user_cap:.2f}",
+                      action="per_user_cap", result="BLOCKED",
+                      data={"user_id": str(self.user_id), "cap": per_user_cap,
+                            "exposure": total_exposure, "new_size": size_usd})
+                return (
+                    f"Linked-account protection: total deployed "
+                    f"${total_exposure + size_usd:.2f} would exceed this "
+                    f"account's max-funds cap ${per_user_cap:.2f} "
+                    "(PER_USER_MAX_FUNDS_USD)"
+                ), None
+        return None, total_exposure
+
     def _preflight_check(self, size_usd: float, symbol: str = "",
                          available_usd: Optional[float] = None,
                          size_before_bound: Optional[float] = None) -> Optional[str]:
@@ -2993,37 +3054,11 @@ class LiveExecutor:
         # refuses an order. The sentences are the ones this method always
         # printed, and the reasons each refusal is worded as it is sit
         # beside it in the leaf.
-        _verdict = size_bounds.bounds_verdict(size_usd, bounds, exposure)
-        if _verdict.sentence is not None:
-            return _verdict.sentence
-        # `ok` is answered only over a complete reading of the book
-        # (`bounds_verdict` pins it), so the total is a float here.
-        total_exposure = cast(float, _verdict.exposure_total)
-
-        # LIVE-1 (operator directive, live-testing protection): every LINKED
-        # (per-user) account carries its own hard max-funds ceiling — total
-        # deployed margin may never exceed PER_USER_MAX_FUNDS_USD, regardless
-        # of the account's balance. A test account can lose at most what the
-        # operator deliberately allowed it. Operator executor (user_id None)
-        # is governed by the MICRO_* caps above, not this.
-        if self.user_id is not None:
-            try:
-                per_user_cap = float(os.environ.get("PER_USER_MAX_FUNDS_USD", "100"))
-            except ValueError:
-                per_user_cap = 100.0
-            if per_user_cap > 0 and total_exposure + size_usd > per_user_cap:
-                audit(trade_log,
-                      f"PER-USER CAP blocked trade for user {self.user_id}: "
-                      f"${total_exposure + size_usd:.2f} > ${per_user_cap:.2f}",
-                      action="per_user_cap", result="BLOCKED",
-                      data={"user_id": str(self.user_id), "cap": per_user_cap,
-                            "exposure": total_exposure, "new_size": size_usd})
-                return (
-                    f"Linked-account protection: total deployed "
-                    f"${total_exposure + size_usd:.2f} would exceed this "
-                    f"account's max-funds cap ${per_user_cap:.2f} "
-                    "(PER_USER_MAX_FUNDS_USD)"
-                )
+        _refusal, _total = self._hard_cap_refusal(size_usd, bounds, exposure)
+        if _refusal is not None:
+            return _refusal
+        # A float whenever there is no refusal (`_hard_cap_refusal`'s contract).
+        total_exposure = cast(float, _total)
 
         # GETCLAW: Capital buffer guard — keep minimum reserve after trade.
         # Deploying too much leaves no buffer for margin calls or new
@@ -5180,7 +5215,8 @@ class LiveExecutor:
         return None, _entry_book, _slip_mode
 
     def _size_or_block(self, idea: TradeIdea, symbol: str, current_price: float,
-                       size_usd: float) -> tuple[Optional[str], int, float]:
+                       size_usd: float, leverage: Optional[int] = None,
+                       ) -> tuple[Optional[str], int, float]:
         """Refuse a price already past the stop, else size the order.
 
         Extracted from execute() verbatim. Returns ``(block, leverage_mult,
@@ -5223,7 +5259,11 @@ class LiveExecutor:
         # cap was clamped HERE and nowhere else, which rebuilt the divergence
         # one field over — and that one enforced nothing, because the sizing
         # leverage cancels out of the ratio the cap bounds.
-        leverage_mult = self._compute_target_leverage(symbol, idea)
+        # `leverage` is the one read `execute` made for this order and handed
+        # to `_ensure_leverage` too; reading again here is how a change landing
+        # between the two sized the order at one leverage and set another.
+        leverage_mult = (leverage if leverage is not None
+                         else self._compute_target_leverage(symbol, idea))
         quantity = (size_usd * leverage_mult) / current_price
         return None, leverage_mult, quantity
 
@@ -6704,6 +6744,15 @@ class LiveExecutor:
                     return (f"EXECUTION FAILED: {symbol} has no futures market — "
                             f"only USDT-M perpetual futures are supported.")
 
+            # ONE READ of this order's leverage, handed to the venue set and to
+            # the sizing below. Each used to read it for itself, so a
+            # `/leverage` change or a preference file that read on the second
+            # try between them set the venue to one leverage and sized the
+            # order at another: $200 of margin locked on a $100 approval.
+            _order_leverage = self._compute_target_leverage(
+                self._venue.swap_symbol(idea.asset) if is_futures else idea.asset,
+                idea)
+
             # Set leverage for this symbol (futures only)
             if is_futures:
                 # AUDIT-FIX: Use swap symbol format for leverage API calls
@@ -6711,7 +6760,8 @@ class LiveExecutor:
                 # The DIRECTION matters: Bitget isolated margin holds leverage
                 # per side, so the field that decides this fill is that side's.
                 await self._ensure_leverage(
-                    swap_sym, getattr(idea.direction, "value", "") or "", idea)
+                    swap_sym, getattr(idea.direction, "value", "") or "", idea,
+                    target=_order_leverage)
 
             # Convert symbol to the perpetual/swap format for the futures order
             # path so the market lookup, price rounding, tick snap and
@@ -6757,7 +6807,7 @@ class LiveExecutor:
 
             # ── SAFEGUARD 1: Pre-trade price validation + sizing ── (see _size_or_block)
             _gate_msg, _sized_lev, _sized_qty = self._size_or_block(
-                idea, symbol, current_price, size_usd)
+                idea, symbol, current_price, size_usd, leverage=_order_leverage)
             if _gate_msg:
                 return _gate_msg
             leverage_mult, quantity = _sized_lev, _sized_qty
@@ -6781,6 +6831,26 @@ class LiveExecutor:
                 leverage_mult, size_usd)
             if _gate_msg:
                 return _gate_msg
+
+            # The round-up above can raise the margin past what the preflight
+            # checked. Ask the hard caps again at the margin this quantity
+            # really places, and refuse rather than place over a cap.
+            _placed_margin = quantity * current_price / max(int(leverage_mult or 1), 1)
+            if _placed_margin > size_usd:
+                _cap_msg, _ = self._hard_cap_refusal(
+                    _placed_margin, _bounds, committed_margin(self.open_positions))
+                if _cap_msg is not None:
+                    audit(trade_log,
+                          f"BLOCKED: {symbol} rounded up to the venue minimum "
+                          f"would place ${_placed_margin:.2f} of margin "
+                          f"(approved ${size_usd:.2f}). {_cap_msg}",
+                          action="live_execute", result="ROUNDUP_OVER_CAP",
+                          data={"asset": symbol, "approved": round(size_usd, 4),
+                                "placed_margin": round(_placed_margin, 4),
+                                "leverage": leverage_mult})
+                    return (f"BLOCKED: {symbol} rounded up to the venue minimum "
+                            f"is ${_placed_margin:.2f} of margin (approved "
+                            f"${size_usd:.2f}). {_cap_msg}")
 
             # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
             _gate_msg = self._notional_boundary_gate(
