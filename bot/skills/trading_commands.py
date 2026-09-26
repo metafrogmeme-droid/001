@@ -1342,7 +1342,9 @@ class TradingCommands:
         # calibrated value (~0.18-0.56); _display_min lives on the raw scale.
         def _raw_conf(i: object) -> float:
             v = getattr(i, "blended_confidence_raw", None)
-            return float((v if v is not None else getattr(i, "confidence", 0.0)) or 0.0)
+            if v is None:
+                v = getattr(i, "confidence", None)
+            return float(v) if v is not None else 0.0
         all_pending = list(self.engine.pending_ideas)
         pending = [i for i in all_pending if _raw_conf(i) >= _display_min]
 
