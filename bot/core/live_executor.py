@@ -5596,12 +5596,9 @@ class LiveExecutor:
                           data={"symbol": symbol, "old_size": old_sz,
                                 "new_size": size_usd,
                                 "multiplier": entry_result.size_multiplier})
-                    # Recalculate quantity with new size
+                    # Recalculate quantity with new size. execute() hands it to
+                    # the exchange-minimum gate, which rounds it to the grid.
                     quantity = (size_usd * leverage_mult) / current_price
-                    if market:
-                        _re_rounded = active_exchange.amount_to_precision(symbol, quantity)
-                        if _re_rounded:
-                            quantity = float(_re_rounded)
 
                 # ── Keep SL/TP geometry attached to the RECALCULATED entry
                 # and gate the structure SL (see recalc_sl_tp_for_shifted_entry) ──
@@ -6878,9 +6875,21 @@ class LiveExecutor:
             limit_price = idea.entry_price if use_limit else None
 
             # ── LIMIT ORDER PRICE VALIDATION ── (see _recalculate_limit_entry)
+            _q_checked = quantity
             use_limit, limit_price, size_usd, quantity = await self._recalculate_limit_entry(
                 active_exchange, symbol, idea, side, market, use_limit, limit_price,
                 current_price, size_usd, quantity, leverage_mult, atr_value)
+            if quantity != _q_checked:
+                # The entry tier re-sized the order after the minimum gate ran,
+                # and the smaller quantity went out unchecked: under the
+                # venue's minimum, or truncated to a coarser grid step. It is
+                # asked again. A round-up cannot pass the quantity the caps
+                # checked, which already met the minimum.
+                _gate_msg, quantity = self._exchange_minimum_gate(
+                    active_exchange, market, symbol, quantity, current_price,
+                    leverage_mult, size_usd)
+                if _gate_msg:
+                    return _gate_msg
 
             if use_limit and limit_price:
                 # Round limit price to the exchange tick grid (see _round_limit_price_to_tick)

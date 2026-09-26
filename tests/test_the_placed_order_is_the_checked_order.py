@@ -16,6 +16,12 @@ Two ways `LiveExecutor.execute` placed something other than what it checked:
   `/leverage 10` landing during the ticker read sized a $100 approval at 10x
   on a venue set to 5x, $200 of margin locked. `execute` reads it once and
   hands the same number to both.
+- **A Tier C limit re-sized after the minimum gate ran.** A limit that would
+  fill as a taker is re-priced, and a marginal-confluence (Tier C) re-price
+  scales the size by 0.7 and recomputes the quantity. That ran after the
+  minimum gate, so $20 at 5x on ETH at 4000 (0.025, over the 0.02 minimum)
+  went out as 0.017, under it, for the venue to refuse. The re-sized quantity
+  is asked the gate again.
 
 Driven through the real `execute` against a venue that records what it is
 sent, with real ccxt precision (`ccxt.bitget` with a fabricated market).
@@ -33,6 +39,7 @@ from bot.config import CONFIG, RUNTIME
 from bot.core import bounds_shadow
 from bot.core import live_executor as le
 from bot.core import user_leverage_store as uls
+from bot.core.limit_entry import EntryResult
 from bot.core.live_executor import LiveExecutor, LivePosition
 from bot.utils.models import Direction, TradeIdea
 
@@ -288,3 +295,75 @@ def test_the_generic_venue_path_sets_the_orders_leverage(tmp_path, monkeypatch):
     monkeypatch.setattr(ex, "_get_exchange", _exchange)
     asyncio.run(ex._ensure_leverage("BTC/USDT", "long", None, target=3))
     assert pushed and set(pushed) == {3}, pushed
+
+
+# ── a Tier C re-size is asked the minimum again ─────────────────────────
+
+def _drive_tier_c(venue, tmp_path, mult=0.7):
+    ex = LiveExecutor(state_dir=tmp_path)
+    ex._exchange = venue
+    idea = _idea(venue.price * 1.001)            # a buy limit above the market
+    tier = EntryResult(limit_price=venue.price * 0.998, tier="C",
+                       confluence_count=1, size_multiplier=mult)
+    audits: list[dict] = []
+    with patch.object(le, "audit", lambda log, msg, **kw: audits.append({"message": msg, **kw})), \
+         patch.object(bounds_shadow.BOUNDS_LEDGER, "record", lambda *a, **k: None), \
+         patch.object(le, "calculate_entry", lambda **k: tier), \
+         patch.object(type(CONFIG), "is_live", return_value=True), \
+         patch.object(LiveExecutor, "_exchange_minimum_gate", autospec=True,
+                      wraps=LiveExecutor._exchange_minimum_gate) as gate:
+        try:
+            result = asyncio.run(ex.execute(idea, size_usd=20.0, order_type="limit",
+                                            atr_value=venue.price * 0.01))
+        except _Sent:
+            result = "<sent>"
+    return result, venue.orders, audits, gate.call_count
+
+
+def test_a_tier_c_resize_under_the_minimum_is_rounded_to_it(tmp_path):
+    RUNTIME.leverage_override = 5
+    venue = _Venue(_market(amount_step=0.001, amount_min=0.02), price=4000.0)
+    # $20 at 5x = 0.025; Tier C x0.7 = 0.0175, under the 0.02 minimum.
+    result, orders, audits, asked = _drive_tier_c(venue, tmp_path)
+    assert result == "<sent>" and orders == [{"amount": 0.02, "leverage": 5}], orders
+    assert asked == 2
+    assert [a["result"] for a in audits].count("ROUNDED_TO_MIN") == 1
+
+
+def test_a_tier_c_resize_is_rounded_once_on_a_coarse_grid(tmp_path):
+    # Truncated to the 0.01 grid first, 0.0175 is 0.01, half the minimum and
+    # past the 1.5x round-up cap; the gate reads it unrounded and takes 0.02.
+    RUNTIME.leverage_override = 5
+    venue = _Venue(_market(amount_step=0.01, amount_min=0.02), price=4000.0)
+    result, orders, _, _ = _drive_tier_c(venue, tmp_path)
+    assert result == "<sent>" and orders == [{"amount": 0.02, "leverage": 5}], orders
+
+
+def test_a_tier_c_resize_under_the_minimum_is_refused_without_a_round_up(tmp_path):
+    RUNTIME.leverage_override = 5
+    venue = _Venue(_market(amount_step=0.001, amount_min=0.02), price=4000.0)
+    object.__setattr__(CONFIG.exchange, "exchange_min_roundup_enabled", False)
+    try:
+        result, orders, audits, _ = _drive_tier_c(venue, tmp_path)
+    finally:
+        object.__setattr__(CONFIG.exchange, "exchange_min_roundup_enabled", True)
+    assert orders == [], orders
+    assert result.startswith("BLOCKED:") and "position too small for the exchange" in result
+    assert "sized $70.00 notional at 5x" in result, result      # the Tier C size, not $100
+    assert any(a.get("result") == "BELOW_EXCHANGE_MIN" for a in audits)
+
+
+def test_a_tier_c_resize_over_the_minimum_keeps_its_smaller_size(tmp_path):
+    RUNTIME.leverage_override = 5
+    venue = _Venue(_market(amount_step=0.001, amount_min=0.001), price=4000.0)
+    result, orders, _, asked = _drive_tier_c(venue, tmp_path)
+    assert result == "<sent>" and orders == [{"amount": 0.017, "leverage": 5}], orders
+    assert asked == 2
+
+
+def test_an_order_the_entry_tier_did_not_resize_is_gated_once(tmp_path):
+    RUNTIME.leverage_override = 5
+    venue = _Venue(_market(amount_step=0.001, amount_min=0.001), price=4000.0)
+    result, orders, _, asked = _drive_tier_c(venue, tmp_path, mult=1.0)
+    assert result == "<sent>" and orders == [{"amount": 0.025, "leverage": 5}], orders
+    assert asked == 1

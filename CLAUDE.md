@@ -7393,13 +7393,24 @@ is four now, `execute` being the one read per order, and the docstring says
 why.
 
 **Eleven mutations, each killed.** The survey's other sizing findings are
-filed with their measurements: the Tier C limit re-size runs after the
-minimum gate with no minimum check (the venue refuses it, and no money
-moves); a resting limit is sized at the current price and fills at the limit
-price, bounded in practice by the 2% drift cancel; and with balance-relative
-bounds on, the total bound is taken from free margin that already excludes
-committed margin, so committed margin counts twice (fails closed, off by
-default, and the bounds shadow over-reports refusals).
+filed with their measurements: a resting limit is sized at the current price
+and fills at the limit price, bounded in practice by the 2% drift cancel; and
+with balance-relative bounds on, the total bound is taken from free margin
+that already excludes committed margin, so committed margin counts twice
+(fails closed, off by default, and the bounds shadow over-reports refusals).
+
+**And the limit re-price re-sized the order after the minimum gate had
+passed it.** A limit that would fill as a taker is re-priced, and a
+marginal-confluence (Tier C) re-price scales the size by 0.7 and recomputes
+the quantity. Driven: $20 at 5x on ETH at 4000 is 0.025, over the 0.02
+minimum; Tier C sent 0.017, and on a 0.01 grid it truncated to 0.01, for the
+venue to refuse with its own error. No money moved, and the operator read a
+raw venue refusal where the gate has a sentence. The re-sized quantity goes
+through the gate again, unrounded, so it is rounded once: to the minimum
+when that is within the round-up cap, or refused in the gate's words. A
+rounded-up quantity is never more than the one the caps checked, which
+already met the minimum, and at the default 1.5x cap and Tier C's 0.7 the
+round-up is always within the cap. Five mutations, each killed.
 (`tests/test_the_placed_order_is_the_checked_order.py`.)
 
 **A SCALP THAT ENTERED BY LIMIT TRAILED, ALTHOUGH ITS STRATEGY SAYS IT MUST
