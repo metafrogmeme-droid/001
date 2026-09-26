@@ -6996,8 +6996,10 @@ stated reason: there the unreadable case is the ORDINARY payload shape and
 refusing it would abort every trade, where here it takes a specific, visible,
 fixable condition. Refusing also has to TERMINATE, and it does: `/liveclose` is
 a door that exists, and adoption never re-reads a position it already tracks
-(`if (sym, side) in tracked: continue`), so the figure never arrives on its own
-and a sentence that said "wait" would be a door painted on a wall.
+(`if (sym, side) in tracked: continue`), so outside one case the figure never
+arrives on its own and a sentence that said "wait" would be a door painted on a
+wall. The one case is Bitget's leverage sync, which derives the margin when the
+leverage was unread too and the entry is on record (the adoption-marker chapter).
 
 **Two sentences, because "a floor" and "no floor" are different facts.** A
 partial book quotes what was read and says it is a floor over N of M. A book
@@ -11075,6 +11077,49 @@ changed nothing until a venue reporting 3x against a 5x target made the retry
 run.
 (`tests/test_margin_mode_reaches_each_venue_in_its_spelling.py`.)
 
+**THE MODEL WAS TOLD A FIELD WAS NEVER STATED, BESIDE THE VALUE THE VENUE HAD
+STATED FOR IT.** Adoption names each field the venue did not report in
+`adoption_unread`, and the chat model's evidence row reads that list back as
+*"the venue did not state margin, leverage at adoption — do not estimate
+them"*. On Bitget the leverage sync runs at boot and every five minutes. It
+writes the venue's leverage onto every open position whose record differs, and
+derives the margin from it when the entry is on record. Nothing took either
+name off the list. Driven on an adopted BTC long with the margin and leverage
+unread and a 20x sync:
+
+    margin $30.00, lev 20x, ... the venue did not state margin, leverage at
+    adoption — do not estimate them
+
+The row made two claims about one field, and the false one was the
+instruction not to use the figure. `clear_unread` takes a name off the list,
+and each writer calls it with the fields it actually wrote. The sync clears
+the leverage always and the margin only when it derived one, so an adopted
+position whose entry is unread keeps "entry_price, margin" after a sync reads
+its leverage. The close reconcile clears the leverage it reads, which the
+unpriced-close audit records. An emptied list restores as no marker.
+
+**The fill paths were checked and left alone.** An adopted limit order records
+leverage 0, so a fill writes `margin_at_fill`'s 0.0 and the margin is still
+unread. The sync that follows every fill is what fills it, and it clears the
+name. A clear at the fill would be a line no input can reach. One fill path
+did not use `margin_at_fill`: the fill during a cancel divided by
+`pos.leverage or 1`, so an adopted limit order that filled while the bot was
+cancelling it recorded its NOTIONAL as its margin, twenty times too much at
+20x, under a marker still saying no margin was stated. It asks `margin_at_fill`
+now.
+
+**And the refusal it feeds said the figure never arrives.** The exposure cap
+refuses while a margin is unread, and its comment (and the committed-margin
+chapter) said adoption never re-reads a position, so the figure never arrives
+on its own. The sync is the exception: when the leverage was unread too and the
+entry is on record, the margin arrives within five minutes and the refusal
+lifts. Both now say so.
+
+**Eleven mutations, each killed.** The one that survived the first round was a
+fixture: the order-keeping test listed the names alphabetically, so a sort
+changed nothing until the fixture's order was not sorted.
+(`tests/test_a_venue_read_clears_what_adoption_could_not_read.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -12366,7 +12411,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1067** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1068** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -569,6 +569,26 @@ def margin_at_fill(raw_cost: float, leverage: Any) -> float:
     return raw_cost / lev if lev > 1 else raw_cost
 
 
+def clear_unread(pos: Any, *names: str) -> None:
+    """Drop ``names`` from ``pos.adoption_unread``: they are on record now.
+
+    Adoption names each field the venue did not state, and the chat model's
+    evidence row reads that list back as "the venue did not state margin,
+    leverage at adoption -- do not estimate them". The leverage sync then
+    reads the venue's leverage onto the same position every five minutes,
+    and derives the margin from it when the entry is on record, and nothing
+    took either name off the list. So the row said the margin was not stated
+    beside "margin $30.00, lev 20x": two claims about one field, and the one
+    telling the model not to use the figure was the false one. Every writer
+    that puts a venue reading into a field the list names calls this, with
+    the names of the fields it actually wrote.
+    """
+    unread = tuple(getattr(pos, "adoption_unread", ()) or ())
+    left = tuple(n for n in unread if n not in names)
+    if left != unread:
+        setattr(pos, "adoption_unread", left)
+
+
 #: What a close card adds when the exit was read and the entry was not.
 ENTRY_UNREAD_NOTE = (
     "\nThe exit was read but no entry price is on record for this position "
@@ -7649,10 +7669,12 @@ class LiveExecutor:
                           action="leverage_sync", result="UPDATED",
                           data={"trade_id": pos.trade_id, "old": pos.leverage, "new": ex_lev})
                     pos.leverage = ex_lev
+                    clear_unread(pos, "leverage")
                     # Recalculate cost_usd with correct leverage
                     if pos.entry_price > 0 and pos.quantity > 0:
                         raw_notional = pos.entry_price * pos.quantity
                         pos.cost_usd = raw_notional / ex_lev
+                        clear_unread(pos, "margin")
                     changed = True
 
             # Quantity drift — REPORT-ONLY (see docstring: never auto-write).
@@ -10517,8 +10539,11 @@ class LiveExecutor:
                         if filled is not None and filled > 0:
                             pos.quantity = filled      # true up to actual fill
                             if pos.entry_price > 0:    # keep margin math consistent
-                                pos.cost_usd = (pos.entry_price * filled
-                                                / (pos.leverage or 1))
+                                # `margin_at_fill`, not `/ (pos.leverage or 1)`:
+                                # an adopted limit order records leverage 0, and
+                                # dividing by 1 wrote the NOTIONAL as its margin.
+                                pos.cost_usd = margin_at_fill(
+                                    pos.entry_price * filled, pos.leverage)
                         # Stamp fill time + protect NOW: this transition previously
                         # placed NO exchange stop at all — the position sat naked
                         # until a later monitor tick. Best-effort placement here
@@ -12292,6 +12317,7 @@ class LiveExecutor:
                     "Leverage reconcile on close %s: tracked=%dx, exchange=%dx",
                     pos.symbol, pos.leverage, hist_lev)
                 pos.leverage = hist_lev
+                clear_unread(pos, "leverage")
         else:
             # All exchange lookups failed — use current ticker (real price, not SL/TP)
             try:

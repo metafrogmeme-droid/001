@@ -292,8 +292,10 @@ def bounds_verdict(size_usd: float, bounds: SizeBounds, exposure: Any) -> Bounds
         # and names "margin" in `adoption_unread`, so the raw sum read that
         # capital as free. Refusing is fail-closed and it NAMES the position,
         # because "exposure cannot be measured" does not say what to go and
-        # change - and adoption never re-reads a position it already tracks,
-        # so the figure never arrives on its own.
+        # change - and adoption never re-reads a position it already tracks.
+        # On Bitget the leverage sync derives one within five minutes when it
+        # reads a leverage the record did not hold and the entry is on
+        # record; otherwise the figure never arrives on its own.
         return BoundsVerdict("exposure_partial", (
             f"Total exposure cannot be measured: the venue never stated "
             f"a margin for {names}, so the ${total:,.2f} "
