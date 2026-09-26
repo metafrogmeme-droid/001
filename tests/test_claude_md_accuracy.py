@@ -937,7 +937,7 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
                if '"productType": "USDT-FUTURES"' in ln][:3]
     for cited in (
             f"bot/core/live_executor.py:{trailing_read} (the per-strategy trailing "
-            f"switch read at the fill)",
+            f"switch, read for every entry and every fill)",
             f"live_executor.py:{entry_call} creates the entry order idempotently, "
             f":{fns['_place_sl_tp'].lineno}/:{fns['_place_sl_tp_v3'].lineno} attach",
             "productType USDT-FUTURES (" + ", ".join(f":{n}" for n in product) + ")"):

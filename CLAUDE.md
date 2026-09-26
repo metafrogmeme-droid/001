@@ -7402,6 +7402,22 @@ committed margin, so committed margin counts twice (fails closed, off by
 default, and the bounds shadow over-reports refusals).
 (`tests/test_the_placed_order_is_the_checked_order.py`.)
 
+**A SCALP THAT ENTERED BY LIMIT TRAILED, ALTHOUGH ITS STRATEGY SAYS IT MUST
+NOT.** Two switches decide whether a position trails: `TRAILING_STOP_ENABLED`
+and the strategy's own (`SCALP_TRAILING_ENABLED` defaults False, the others
+True). The market entry read only the strategy's switch and the three
+limit-fill paths (the pending fill, a partial fill adopted at cancel, the
+drift fallback) read only the global one. Driven through the real
+`check_positions`: a scalp limit filled at 100 got a trailing state, and at a
+mark of 102.5 the trail moved its stop to 100.5, where the same scalp entered
+at market never trails. `trail_starts_for` is the one reading, both switches,
+and every builder of a trailing state asks it; a rule over the module
+requires that of any builder added later. The pending fill and the
+partial-fill adoption are driven; the market entry and the drift fallback sit
+inside long methods and are held by the rule, which is stated rather than
+counted as a drive. Seven mutations, each killed.
+(`tests/test_a_trail_starts_only_where_its_strategy_trails.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -13951,9 +13967,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **440 of 1110** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1111** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 440 is a FLOOR and the honest shape is
+source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

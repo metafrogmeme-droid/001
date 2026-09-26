@@ -579,6 +579,19 @@ def close_pct(exit_price, entry_price, direction, leverage):
     return pct, pct * int(leverage or 1)
 
 
+def trail_starts_for(strategy_type: str) -> bool:
+    """Whether a position of this strategy gets a trailing stop at entry.
+
+    Two switches decide it: the global `TRAILING_STOP_ENABLED` and the
+    strategy's own (`SCALP_TRAILING_ENABLED` defaults False). The market entry
+    read only the strategy's and the three limit-fill paths read only the
+    global one, so a scalp that entered by limit trailed although its strategy
+    says it must not. Every path that builds a trailing state asks this.
+    """
+    return bool(CONFIG.trailing.enabled
+                and CONFIG.strategy_types.get_trailing_enabled(strategy_type))
+
+
 def margin_at_fill(raw_cost: float, leverage: Any) -> float:
     """The margin a fill of ``raw_cost`` notional commits at ``leverage``.
 
@@ -7008,7 +7021,7 @@ class LiveExecutor:
             trailing_st = None
             pos_strategy = getattr(idea, 'strategy_type', 'swing')
             pos_signal_type = getattr(idea, 'signal_type', 'momentum_confluence')
-            trailing_enabled = CONFIG.strategy_types.get_trailing_enabled(pos_strategy)
+            trailing_enabled = trail_starts_for(pos_strategy)
             if trailing_enabled and atr_value > 0:
                 initial_risk = abs(fill_price - idea.stop_loss)
                 trailing_st = make_trailing_state(
@@ -9505,7 +9518,8 @@ class LiveExecutor:
                 pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
                 # Initialize trailing state now that we have a real fill
-                if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+                if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                        and pos.atr_at_entry > 0):
                     initial_risk = abs(fill_price - pos.stop_loss)
                     pos.trailing_state = make_trailing_state(
                         entry_price=fill_price,
@@ -9881,7 +9895,8 @@ class LiveExecutor:
         pos.limit_order_id = None
         pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
-        if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+        if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                and pos.atr_at_entry > 0):
             initial_risk = (abs(fill_price - pos.stop_loss)
                             if pos.stop_loss else pos.atr_at_entry)
             pos.trailing_state = make_trailing_state(
@@ -10064,7 +10079,8 @@ class LiveExecutor:
                     pos.take_profit = round(fill_price * (1 - tp_dist_pct), 8)
 
             # Initialize trailing state
-            if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+            if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                    and pos.atr_at_entry > 0):
                 from bot.utils.trailing import make_trailing_state
                 initial_risk = abs(fill_price - pos.stop_loss) if pos.stop_loss else pos.atr_at_entry
                 pos.trailing_state = make_trailing_state(
