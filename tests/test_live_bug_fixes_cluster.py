@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.core.live_executor import LiveExecutor
-from bot.skills.start_commands import _closed_on_utc_date
+from bot.formatters.realized_totals import closes_on_utc_day
 from bot.skills.telegram_handler import TelegramHandler
 
 UTC = timezone.utc
@@ -87,20 +87,26 @@ class _Pos:
         self.pnl_usd = pnl_usd
 
 
+def _is_today(row, now):
+    today, _untimed = closes_on_utc_day([row], now)
+    return bool(today)
+
+
 def test_closed_on_utc_date_matches_only_today():
-    today = datetime.now(UTC).date()
+    # The /status helper this pinned became the one day reading every card
+    # asks (`realized_totals.closes_on_utc_day`); the cases are unchanged.
     now = datetime.now(UTC)
-    assert _closed_on_utc_date(_Pos(now), today) is True
-    assert _closed_on_utc_date(_Pos(now - timedelta(days=1)), today) is False
+    assert _is_today(_Pos(now), now) is True
+    assert _is_today(_Pos(now - timedelta(days=1)), now) is False
     # ISO string form
-    assert _closed_on_utc_date(_Pos(now.isoformat()), today) is True
+    assert _is_today(_Pos(now.isoformat()), now) is True
     # naive datetime is treated as UTC
-    assert _closed_on_utc_date(_Pos(now.replace(tzinfo=None)), today) is True
+    assert _is_today(_Pos(now.replace(tzinfo=None)), now) is True
     # dict row form
-    assert _closed_on_utc_date({"closed_at": now}, today) is True
+    assert _is_today({"closed_at": now}, now) is True
     # missing / bad
-    assert _closed_on_utc_date(_Pos(None), today) is False
-    assert _closed_on_utc_date(_Pos("not-a-date"), today) is False
+    assert _is_today(_Pos(None), now) is False
+    assert _is_today(_Pos("not-a-date"), now) is False
 
 
 def test_status_card_converts_daily_pnl_to_percent_and_filters_today():
@@ -108,7 +114,7 @@ def test_status_card_converts_daily_pnl_to_percent_and_filters_today():
     # same question; `_cmd_status` is four lines that send it.
     src = inspect.getsource(TelegramHandler.status_card_text)
     # LIVE daily must be filtered to today's UTC close date (was all-time).
-    assert '_closed_on_utc_date(t, _today)' in src
+    assert 'closes_on_utc_day(' in src
     # And dollars are converted to percent-of-equity before rendering.
     #
     # The CONVERSION, not the statement that once contained it. This asserted

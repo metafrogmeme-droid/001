@@ -211,18 +211,18 @@ class TestKellyFormula:
         """kelly_position_size must return the same value regardless of the
         confidence argument: the term was removed in Change 1.
         """
-        from bot.risk.risk_engine import RuneClawEngine
+        from bot.risk.risk_engine import RiskEngine
 
         win_rate, avg_win, avg_loss = 0.55, 3.0, 2.0
-        size_conf_65 = RuneClawEngine.kelly_position_size(0.65, win_rate, avg_win, avg_loss)
-        size_conf_85 = RuneClawEngine.kelly_position_size(0.85, win_rate, avg_win, avg_loss)
-        size_conf_10 = RuneClawEngine.kelly_position_size(1.0,  win_rate, avg_win, avg_loss)
+        size_conf_65 = RiskEngine.kelly_position_size(0.65, win_rate, avg_win, avg_loss)
+        size_conf_85 = RiskEngine.kelly_position_size(0.85, win_rate, avg_win, avg_loss)
+        size_conf_10 = RiskEngine.kelly_position_size(1.0,  win_rate, avg_win, avg_loss)
 
         assert size_conf_65 == size_conf_85 == size_conf_10, (
             f"Kelly still scaled by confidence: {size_conf_65} != {size_conf_85}")
 
     def test_negative_edge_returns_zero(self):
         """kelly_f <= 0 must return 0.0 (do not bet)."""
-        from bot.risk.risk_engine import RuneClawEngine
+        from bot.risk.risk_engine import RiskEngine
         # 34.7% win, 1.11 win/loss: the realized case from the box today.
-        assert RuneClawEngine.kelly_position_size(0.70, 0.347, 3.21, 2.89) == 0.0
+        assert RiskEngine.kelly_position_size(0.70, 0.347, 3.21, 2.89) == 0.0

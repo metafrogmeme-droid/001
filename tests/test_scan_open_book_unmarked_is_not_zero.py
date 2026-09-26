@@ -145,10 +145,14 @@ def test_no_open_positions_is_a_measured_flat_book(record, exchange):
 
 # ── it reaches the payload ──────────────────────────────────────────
 
-def test_the_payload_flag_folds_in_the_open_book(record, exchange, monkeypatch):
-    """`record_unreadable` was only ever true for the CLOSED record. An open
-    book with an unmarked row must raise the same flag, or the dashboard
-    renders "--" for net_pnl with nothing explaining why."""
+def test_the_open_book_has_a_flag_of_its_own(record, exchange, monkeypatch):
+    """An open book with an unmarked row must raise a flag, or the dashboard
+    renders "--" for net_pnl with nothing explaining why.
+
+    It used to raise `record_unreadable`, the CLOSED record's flag, and the
+    engine card then said "The closed-trade record could not be read" over a
+    record that had read fine. The reason for the flag stands; the source it
+    names is the open book's own."""
     _path, write = record
     write([closed_trade_row(_pos(100.0, tid="a"))])
     exchange(positions=[_open("BTC/USDT:USDT", None)])
@@ -163,4 +167,5 @@ def test_the_payload_flag_folds_in_the_open_book(record, exchange, monkeypatch):
     payload = ss._build_scan_payload([], engine=None)
     cb = payload["circuit_breaker"]
     assert cb["net_pnl"] is None
-    assert cb["record_unreadable"] is True
+    assert cb["open_book_unread"] is True
+    assert cb["record_unreadable"] is False, "the closed record read fine"
