@@ -1004,8 +1004,8 @@ def render_live_portfolio_summary(equity: Optional[float], open_count: int,
         # An unreadable store is not an empty one. Saying "no closed trades
         # recorded" over a failed read is the 503-as-"No venues found" shape:
         # a confident negative standing in for a missing measurement.
-        lines.append("<i>Closed-trade records could not be read — "
-                     "figures here are incomplete, not zero.</i>")
+        from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD
+        lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
     elif total_closed <= 0:
         # Says which absence it is. A bare em-dash reads as a render fault;
         # "no closed trades recorded" is the actual state of the book.
@@ -1593,8 +1593,14 @@ def render_status_card(
     position_watch: Optional[dict] = None,
     tick_error: Optional[dict] = None,
     venue: Optional[str] = None,
+    record_partial: bool = False,
 ) -> str:
-    """Render a compact status dashboard. Returns Telegram HTML (CJK-safe)."""
+    """Render a compact status dashboard. Returns Telegram HTML (CJK-safe).
+
+    ``record_partial``: the executor's closed-trade record did not read in
+    full, so the day's P&L covers the closes that read; the card says so
+    under that line.
+    """
     # Whether the SL/TP monitor actually ran. Sits with the phase timeout
     # because they are cause and consequence: analyze blowing its cap is what
     # unwinds the tick before its position check, and the degraded alert names
@@ -1725,6 +1731,7 @@ def render_status_card(
         + (str(open_positions) if open_positions is not None
            else "unavailable"),
         f"- {t('lbl_daily_pnl', lang)}: {pnl_icon} {_dp_str}",
+        *([f"  <i>{t('closed_record_unread', lang)}</i>"] if record_partial else []),
         "",
         f"<b>{t('hdr_risk', lang)}</b>",
     ]

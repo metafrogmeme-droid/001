@@ -322,6 +322,7 @@ def _file_only_result(result: dict, total: int, realized_pnl, win_rate):
         return None
     result["equity"] = None
     result["open_count"] = None
+    result["open_positions_unread"] = True
     result["net_pnl"] = None if realized_pnl is None else round(realized_pnl, 2)
     result["win_rate"] = None if win_rate is None else round(win_rate, 1)
     result["total_trades"] = total
@@ -526,7 +527,11 @@ def _build_scan_payload(results: list[dict], engine=None,
     cb_win_rate = None
     cb_total_trades = 0
     cb_record_unreadable = False
-    cb_open_count = 0
+    # The open book is a second source with its own flag. The card used to
+    # read one flag for both and said "The closed-trade record could not be
+    # read" when the record read fine and a position or its mark had not.
+    cb_open_book_unread = False
+    cb_open_count: Optional[int] = 0
     cb_open_positions = []  # Actual position details for dashboard
     cb_closed_trades = []   # Recent closed trades for dashboard
 
@@ -545,9 +550,8 @@ def _build_scan_payload(results: list[dict], engine=None,
                 cb_open_count = live_data["open_count"]
                 cb_open_positions = live_data.get("open_positions", [])
                 cb_closed_trades = live_data.get("closed_trades", [])
-                cb_record_unreadable = bool(
-                    live_data.get("closed_record_unreadable")
-                    or live_data.get("open_positions_unread"))
+                cb_record_unreadable = bool(live_data.get("closed_record_unreadable"))
+                cb_open_book_unread = bool(live_data.get("open_positions_unread"))
                 live_data_loaded = True
                 log.info("Live exchange data loaded: equity=%s, %d trades, %s open",
                          "unread" if cb_equity is None else f"${cb_equity:.2f}",
@@ -604,6 +608,8 @@ def _build_scan_payload(results: list[dict], engine=None,
                             "leverage": "",
                         })
                     cb_open_count = len(cb_open_positions)
+                    # The executor's own book: which positions, but no mark.
+                    cb_open_book_unread = cb_open_book_unread or bool(cb_open_positions)
                 live_data_loaded = True
                 log.info("Live equity from engine balance cache: $%.2f "
                          "(parallel exchange readout unavailable)", total)
@@ -623,6 +629,14 @@ def _build_scan_payload(results: list[dict], engine=None,
         # balance, and the flag stayed False over an equity nobody read.
         live_unavailable = True
         cb_equity = None
+        if not live_data_loaded:
+            # No readout returned and no cache stood in, so nothing looked at
+            # the book. The count's initial 0 would publish a flat book: the
+            # file-only result sends None for this, and a readout that failed
+            # on a bot with no closed trades returns nothing at all, which
+            # left the 0 standing.
+            cb_open_count = None
+            cb_open_book_unread = True
         log.warning("Live telemetry: exchange balance unavailable — marking the "
                     "live account UNAVAILABLE rather than reporting paper equity.")
     elif engine and not live_data_loaded:
@@ -839,6 +853,7 @@ def _build_scan_payload(results: list[dict], engine=None,
             "net_pnl": None if cb_net_pnl is None else round(cb_net_pnl, 2),
             "win_rate": None if cb_win_rate is None else round(cb_win_rate, 1),
             "record_unreadable": cb_record_unreadable,
+            "open_book_unread": cb_open_book_unread,
             "total_trades": cb_total_trades,
             "open_count": cb_open_count,
             "open_positions": cb_open_positions,

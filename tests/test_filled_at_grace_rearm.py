@@ -12,10 +12,23 @@ from bot.core.live_executor import LiveExecutor, LivePosition
 
 
 def test_grace_gate_prefers_filled_at_over_opened_at():
+    """The gate reads `entered_at`, and `entered_at` prefers the fill.
+
+    This pinned the spelling ``getattr(pos, "filled_at", None) or
+    pos.opened_at`` until that expression became the one reading every hold
+    and time exit asks; the claim is the ORDER of the read and the gate, and
+    what the read answers, which is driven."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.core.position_telemetry import entered_at
     src = inspect.getsource(LiveExecutor.check_positions)
-    i_ref = src.index('getattr(pos, "filled_at", None) or pos.opened_at')
+    i_ref = src.index("_grace_ref = entered_at(pos)")
     i_gate = src.index("if age_secs < 90:")
     assert i_ref < i_gate, "grace age must derive from filled_at when present"
+    placed = datetime.now(timezone.utc) - timedelta(hours=2)
+    filled = placed + timedelta(hours=1, minutes=59)
+    pos = type("P", (), {"opened_at": placed, "filled_at": filled})()
+    assert entered_at(pos) == filled
 
 
 def test_all_deferred_open_transitions_stamp_filled_at():

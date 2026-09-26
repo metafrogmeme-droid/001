@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "Niets te versturen. Je dashboard vraagt je account bij elke keer laden op bij de bot, dus er is geen aparte kopie om bij te werken — er is niets verstuurd.\n\nBekijk op: {url}/dashboard",
   "take_profit": "Take-profit",
   "total_partial": "totaal exclusief {n} positie(s) zonder prijs",
+  "closed_record_unread": "De records van gesloten trades konden niet worden gelezen — de cijfers hier zijn onvolledig, niet nul.",
   "trade_confirmed": "✅ Bevestigd — wordt uitgevoerd...",
   "trade_executed": "✅ Trade uitgevoerd: {direction} {asset} op ${price}",
   "trade_executed_fail": "<b>Trade is niet doorgegaan</b>",

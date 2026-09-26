@@ -482,3 +482,17 @@ def format_trail_fired(fired: Optional[bool]) -> str:
         return "Trail-fired: — (SL update time unavailable)"
     return "Trail-fired: ✅ SL re-issued by trail" if fired else \
         "Trail-fired: ❄️ NOT FIRED (SL unchanged since open)"
+
+
+def entered_at(pos):
+    """When a position entered the market, or None.
+
+    ``opened_at`` is when the ORDER was placed. A market entry fills at once,
+    so the two agree; a limit order can rest for up to LIMIT_ORDER_EXPIRE_SEC
+    (4h by default) before it fills. The fill paths stamp ``filled_at``, and
+    only the 90-second grace gate used to read it, so the time stop, the
+    engine's time exits and every hold printed counted from placement: a
+    scalp limit that rested two hours was time-stopped at the first monitor
+    pass after it filled. Every hold, age and time exit reads this.
+    """
+    return getattr(pos, "filled_at", None) or getattr(pos, "opened_at", None)

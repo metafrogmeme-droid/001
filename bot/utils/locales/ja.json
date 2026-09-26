@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "送信するものはありません。ダッシュボードは読み込むたびにボットからアカウントを読み取るため、別に更新するコピーはありません。何も送信していません。\n\n表示: {url}/dashboard",
   "take_profit": "利確",
   "total_partial": "合計には価格のない {n} 件のポジションが含まれていません",
+  "closed_record_unread": "決済済みトレードの記録を読み込めませんでした — ここの数値はゼロではなく不完全です。",
   "trade_confirmed": "✅ 確認済み — 執行中...",
   "trade_executed": "✅ 取引を執行しました: {direction} {asset} @ ${price}",
   "trade_executed_fail": "<b>取引は成立しませんでした</b>",

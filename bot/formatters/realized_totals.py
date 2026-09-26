@@ -35,7 +35,66 @@ priced. Callers distinguish the two with `is None`, never with falsiness.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Iterable
+
+from bot.compat import UTC
+
+#: What a card says when the executor's closed-trade record could not be read
+#: in full. An unreadable store arrives as an empty or PARTIAL list, and a
+#: total over it printed as whole is a partial total presented as the record.
+#: One sentence, so two cards cannot say it two ways.
+CLOSED_RECORD_UNREAD = ("Closed-trade records could not be read — "
+                        "figures here are incomplete, not zero.")
+
+
+def closes_on_utc_day(rows: Iterable[Any], now: datetime) -> tuple[list, int]:
+    """The closes of ``now``'s UTC day, and how many carry no readable time.
+
+    A close's ``closed_at`` may be a datetime (naive is UTC) or an ISO string,
+    on an object or in a dict row. A close whose time cannot be read cannot
+    be placed in a day: it is counted apart and never filed as today's.
+
+    One reading for every card that says "today". `/status` and `/daily_report`
+    each had their own, and the risk dashboard printed an all-time total under
+    "Daily PnL" because it had none.
+    """
+    day = now.astimezone(UTC).date()
+    today: list = []
+    untimed = 0
+    for row in rows or ():
+        at = row.get("closed_at") if isinstance(row, dict) else getattr(row, "closed_at", None)
+        if isinstance(at, str):
+            try:
+                at = datetime.fromisoformat(at)
+            except ValueError:
+                at = None
+        if not isinstance(at, datetime):
+            untimed += 1
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=UTC)
+        if at.astimezone(UTC).date() == day:
+            today.append(row)
+    return today, untimed
+
+
+def closed_record_partial(executor: Any) -> bool:
+    """Whether ``executor.closed_positions`` is less than the record on disk.
+
+    The executor loads its closed-trade file row by row. A row it cannot read
+    is kept verbatim for the next save and left out of ``closed_positions``;
+    a file that will not parse at all loads as an empty list. Either way it
+    sets ``closed_trades_read_failed``, and a figure over the list is then a
+    figure over part of the record. Every card that reads the list asks here,
+    so a total over a partial record is never printed as the whole.
+
+    An object with no such attribute (a paper book, a stand-in) states nothing
+    about it and reads as whole, which is what every reader assumed before.
+    The executor's property answers a bool, so only ``True`` is a report: a
+    test double that answers every attribute truthily has reported nothing.
+    """
+    return getattr(executor, "closed_trades_read_failed", False) is True
 
 
 def _num(value: Any) -> float | None:

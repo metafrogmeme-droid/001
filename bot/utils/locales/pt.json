@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "Não há nada para enviar. O seu painel pede a sua conta ao bot sempre que carrega, por isso não há uma cópia separada para atualizar — nada foi enviado.\n\nVer em: {url}/dashboard",
   "take_profit": "Take profit",
   "total_partial": "o total exclui {n} posição(ões) sem preço",
+  "closed_record_unread": "Não foi possível ler os registros de operações fechadas — os números aqui estão incompletos, não são zero.",
   "trade_confirmed": "✅ Confirmado — a executar...",
   "trade_executed": "✅ Operação executada: {direction} {asset} a ${price}",
   "trade_executed_fail": "<b>A operação não foi concluída</b>",

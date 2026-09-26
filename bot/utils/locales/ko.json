@@ -217,6 +217,7 @@
   "sync_nothing_to_push": "보낼 것이 없습니다. 대시보드는 열릴 때마다 봇에서 계정을 직접 읽으므로 따로 업데이트할 사본이 없습니다. 아무것도 전송하지 않았습니다.\n\n보기: {url}/dashboard",
   "take_profit": "익절",
   "total_partial": "합계에는 가격이 없는 포지션 {n}개가 제외되었습니다",
+  "closed_record_unread": "종료된 거래 기록을 읽을 수 없었습니다 — 여기 수치는 0이 아니라 불완전한 값입니다.",
   "trade_confirmed": "✅ 확인됨 — 실행 중...",
   "trade_executed": "✅ 거래 실행: {direction} {asset} @ ${price}",
   "trade_executed_fail": "<b>거래가 체결되지 않았습니다</b>",

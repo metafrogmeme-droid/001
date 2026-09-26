@@ -1220,6 +1220,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "total excludes {n} position(s) with no price",
         "zh": "總計不含 {n} 個無法取得價格的持倉",
     },
+    # The executor's closed-trade record did not read in full, so a figure
+    # over it covers part of the record. The English is
+    # realized_totals.CLOSED_RECORD_UNREAD, which the English-only cards
+    # print; a test pins the two as one sentence.
+    "closed_record_unread": {
+        "en": "Closed-trade records could not be read — figures here are incomplete, not zero.",
+        "zh": "已平倉交易紀錄無法完整讀取 — 此處數字不完整，並非為零。",
+    },
     # What the clock can do to a position: bot/core/time_exits.py renders
     # these on /positions, the detail card and /livepositions.
     "tx_head": {
