@@ -192,7 +192,9 @@ def _env_secret_any(*keys: str, default: str = "") -> str:
     return default
 
 
-def _env_choice(key: str, default: str, allowed: tuple[str, ...]) -> str:
+def _env_choice(key: str, default: str, allowed: tuple[str, ...],
+                consequence: str = "would silently treat it as 'not futures' and skip "
+                                   "the leverage and market-existence checks") -> str:
     """A setting whose wrong value would silently change behaviour, validated.
 
     TRADE_MODE is why this exists. It was read raw, and every consumer asked
@@ -217,8 +219,7 @@ def _env_choice(key: str, default: str, allowed: tuple[str, ...]) -> str:
             f"FATAL: {key}={raw!r} is not supported. "
             f"Valid values: {', '.join(sorted(allowed))}. "
             f"Refusing to start rather than run with a setting whose consumers "
-            f"would silently treat it as 'not futures' and skip the leverage "
-            f"and market-existence checks."
+            f"{consequence}."
         )
     return raw
 
@@ -897,8 +898,14 @@ class ExchangeConfig:
     dynamic_leverage_enabled: bool = _env_bool("DYNAMIC_LEVERAGE_ENABLED", False)
     min_leverage: int = int(_env_float_bounded("MIN_LEVERAGE", 2, 1, 125))
     max_leverage: int = int(_env_float_bounded("MAX_LEVERAGE", 10, 1, 125))
-    # Margin mode: "isolated" mandatory (GetClaw rule: prevents runaway losses on gap-risk assets)
-    margin_mode: str = _env("MARGIN_MODE", "isolated")
+    # Margin mode: "isolated" by default (GetClaw rule: prevents runaway losses on gap-risk assets).
+    # Validated, because it was read raw and every venue reads a spelling of
+    # its own: ccxt's Hyperliquid call is cross only for exactly "cross" (so
+    # Bitget's "crossed" went out ISOLATED), and its Bybit call refuses
+    # "crossed". The non-Bitget path translates through `ccxt_margin_mode`.
+    margin_mode: str = _env_choice(
+        "MARGIN_MODE", "isolated", ("isolated", "cross", "crossed"),
+        "would read it as a margin mode it does not name, and on a live account")
     # Exchange-minimum round-up (operator-requested). When a risk-sized order
     # falls just below the venue's minimum amount step / min-notional (common on
     # a small account meeting a high-priced asset — the XPT incident), round the

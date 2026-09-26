@@ -146,6 +146,18 @@ _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
 VENUE_OVERRIDE_FILE = os.path.join(_STATE_DIR, "venue_override.json")
 
 
+def ccxt_margin_mode(mode: str) -> str:
+    """The configured margin mode in ccxt's spelling, "cross" or "isolated".
+
+    `MARGIN_MODE` accepts Bitget's "crossed" too, and ccxt reads that word
+    differently per venue: its Hyperliquid `set_leverage` is cross only for
+    exactly "cross", so "crossed" went out ISOLATED, and its Bybit
+    `set_margin_mode` refuses it. The Bitget path is not routed through here:
+    what it sends is left exactly as it was.
+    """
+    return "cross" if str(mode or "").strip().lower() in ("cross", "crossed") else "isolated"
+
+
 class Venue:
     """Base venue spec — attribute defaults are documentation only; both
     concrete venues override everything they use."""

@@ -10977,7 +10977,7 @@ ccxt's own post-filter drops the swap row. So the close verification read
 `confirmed=True` over a held LONG 0.01, and the per-tick monitor read
 `category=SPOT` tickers. The slice kept Bitget byte-identical, as it was scoped
 to. Hyperliquid's margin-mode spelling (Bitget's "crossed" reads as isolated
-there) is noted, not changed.
+there) was noted, not changed (fixed two chapters on).
 (`tests/test_a_read_back_asks_the_venue_in_its_own_spelling.py`,
 `tests/test_a_per_user_executor_is_built_only_for_a_driven_venue.py`,
 `tests/test_the_hyperliquid_probe_refuses_a_key_that_cannot_sign.py`.)
@@ -11029,6 +11029,51 @@ slice B's structural rule, which reports any ccxt call handed an unmapped
 symbol; that covers the ticker, the two stop roundings and the order read,
 which the drives do not reach on Bitget.
 (`tests/test_bitget_reads_the_perp.py`.)
+
+**"CROSSED" WAS BITGET'S WORD FOR CROSS MARGIN, AND HYPERLIQUID READ IT AS
+ISOLATED.** `MARGIN_MODE` was read raw, and each consumer compared it to a
+spelling of its own. The Bitget path turns "cross" into "crossed" and accepts
+either. The non-Bitget path handed the raw word to ccxt, and driven against the
+pinned ccxt 4.5.56:
+
+- Hyperliquid's `set_leverage` sets `isCross = marginMode == 'cross'`, so
+  "crossed" sent `isCross: false` and opened an ISOLATED position on an
+  account configured for cross.
+- Bybit's `set_margin_mode` accepts isolated, cross and portfolio, and refuses
+  "crossed" before sending anything. The executor logs that refusal at debug,
+  so the account stayed in whatever mode it was already in.
+- BingX takes either spelling.
+
+Hyperliquid is one of `PER_USER_EXECUTION_VENUES`, and the operator's own venue
+can be set to it. **The one reader that checked the mode already knew both
+spellings.** The mismatch alarm below the two set calls translated the word
+(`_want = "cross" if ... in ("cross", "crossed")`); the two calls that SET the
+mode did not. `ccxt_margin_mode` is that translation, done once at the top of
+`_ensure_leverage_generic`, and the set calls, the leverage retry and the alarm
+all read it.
+
+**What Bitget receives is unchanged, on purpose.** ccxt's Bitget client passes
+the order's `marginMode` through raw on a unified account and maps it on a
+classic one, and what Bitget's unified endpoint does with each spelling cannot
+be checked from here. So no Bitget request changes, and a test pins that both
+the order params and the margin-mode call carry the configured word.
+
+**The setting refuses to start on a word it does not implement.** It is an
+`_env_choice` now, the TRADE_MODE rule: isolated, cross or crossed, read
+case-insensitively, and anything else refuses boot with a sentence naming the
+margin mode. `_env_choice` took TRADE_MODE's consequence as a literal, so the
+consequence is a parameter, with TRADE_MODE's sentence as the default and a
+test that it still prints it. **This can refuse a deploy**: a production `.env`
+carrying any other value (a typo, `isolated_margin`) stops the bot at boot
+where it used to run with a mode no venue call understood. The old comment above
+the field called isolated "mandatory" while the code accepted any value; it
+says "by default" now.
+
+**Eleven mutations, each killed.** The one that survived the first round was a
+corpus gap: no fixture drove the leverage retry, so sending the raw word there
+changed nothing until a venue reporting 3x against a 5x target made the retry
+run.
+(`tests/test_margin_mode_reaches_each_venue_in_its_spelling.py`.)
 
 ## Public-surface rules
 
@@ -12321,7 +12366,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1066** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1067** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -47,7 +47,7 @@ from bot.core.order_rules import (
 )
 from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
-from bot.core.venues import get_venue
+from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
     StageOutcome, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
     lookup_skipped, lookup_unmatched, nearest_entry_gap_pct,
@@ -2488,6 +2488,9 @@ class LiveExecutor:
         symbol (e.g. BTC 40x, many alts 10x) and an over-cap set call
         would fail and leave the venue default in place."""
         cfg = CONFIG.exchange
+        # ccxt's spelling, once: Bitget's "crossed" is isolated to ccxt's
+        # Hyperliquid call and refused by its Bybit one (`ccxt_margin_mode`).
+        margin_mode = ccxt_margin_mode(cfg.margin_mode)
         target = self._compute_target_leverage(symbol, idea)
         sym = self._venue.swap_symbol(symbol)
         try:
@@ -2501,7 +2504,7 @@ class LiveExecutor:
             # Venues that set margin mode independently of leverage
             # (Bybit v5, BingX). "already set" responses are expected.
             try:
-                await exchange.set_margin_mode(cfg.margin_mode, sym)
+                await exchange.set_margin_mode(margin_mode, sym)
             except Exception as exc:
                 exc_str = str(exc).lower()
                 if not any(t in exc_str for t in ("already", "same", "not modified")):
@@ -2509,7 +2512,7 @@ class LiveExecutor:
                                  sym, self._venue.id, exc)
         try:
             await exchange.set_leverage(
-                target, sym, params=self._venue.leverage_params(cfg.margin_mode))
+                target, sym, params=self._venue.leverage_params(margin_mode))
         except Exception as exc:
             exc_str = str(exc).lower()
             if any(t in exc_str for t in ("already", "same", "not modified")):
@@ -2546,7 +2549,7 @@ class LiveExecutor:
                                "reports %dx — retrying", sym, self._venue.id, target, _actual)
                 try:
                     await exchange.set_leverage(
-                        target, sym, params=self._venue.leverage_params(cfg.margin_mode))
+                        target, sym, params=self._venue.leverage_params(margin_mode))
                     _lev_info2 = await exchange.fetch_leverage(
                         sym, params=self._venue.futures_params())
                     _actual2 = (_lev_info2.get("longLeverage") or _lev_info2.get("leverage")
@@ -2578,7 +2581,7 @@ class LiveExecutor:
             for _p in (_positions or []):
                 _mm = str((_p.get("marginMode") or (_p.get("info") or {}).get("marginMode")
                            or "")).lower()
-                _want = "cross" if cfg.margin_mode in ("cross", "crossed") else "isolated"
+                _want = margin_mode
                 if _mm and _mm not in (_want, "crossed" if _want == "cross" else _want):
                     logger.critical(
                         "MARGIN MODE MISMATCH for %s on %s: venue=%s config=%s — "
