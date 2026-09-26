@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 704 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 703 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -12536,6 +12536,39 @@ re-recorded.
 (`tests/test_every_closed_record_reader_asks_whether_it_read.py`,
 `tests/closed_record_reads_baseline.txt`.)
 
+**THE `/risk` CARD DREW ITS LEVERAGE GAUGE FROM A LITERAL `1.0`.** The text
+card printed, in green, `Leverage 1 / 5`, whatever the open positions ran at:
+a hard-coded reading on the card whose job is to show risk. Drawing the real
+figure as a bar against the `5` beside it would have been wrong too. That `5`
+is `default_leverage`, the standard every order is set to, not a ceiling (the
+executor's hard ceiling uses `max_leverage` through the notional check), so a
+bar would paint the ordinary state, 5x at a 5x standard, full and red.
+`leverage_in_use` reads the highest leverage across the caller's open
+positions through `position_leverage`, which refuses the stored `0` an
+adopted position carries and derives it from margin and notional when both
+were stated. A paper position's stored 1x is a reading. The card prints it as
+a plain line beside the standard, with no colour claim, and a dash with its
+reason otherwise: nothing open, or unread. It counts the positions it could
+not read.
+
+**And a caller with no executor was shown a flat book.** `open_count` was `0`
+when `_caller_executor` answered `None`. That is a book nobody read, which the
+Positions gauge, "Open Now" and the picture's tile all showed as zero open
+positions. It is `None` now, and the three read "book not read", "—" and a
+grey `—/5`.
+
+**The guard over the gate call read a character window.**
+`test_the_other_surfaces_route_through_it_too` looked for `entry_gate(` in the
+4000 characters after `async def _cmd_risk(`, and the leverage reading pushed
+the call past the window while the property held. It reads the function's own
+body by AST now, and asserts there is exactly one real definition.
+
+Seventeen mutations: sixteen killed on the first round, and the survivor
+(the unread count never handed on) was a corpus gap. No handler drive held a
+partly unread book, so the count could stay behind unseen; one does now.
+Ruff 1181 → 1180 and honesty 704 → 703, both re-recorded.
+(`tests/test_the_risk_card_reads_the_leverage_it_shows.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13827,7 +13860,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1106** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1107** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

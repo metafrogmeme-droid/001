@@ -291,15 +291,32 @@ class TestEverySurfaceReadsTheOneHelper:
         window = src[max(0, i - 400):i + 400]
         assert '_gate_label != "Active"' in window
 
-    @pytest.mark.parametrize("anchor,name", [
-        ("def _banner(", "the banner"),
-        ("async def status_card_text(", "/status"),
-        ("async def _cmd_risk(", "/risk"),
+    @pytest.mark.parametrize("fn,name", [
+        ("_banner", "the banner"),
+        ("status_card_text", "/status"),
+        ("_cmd_risk", "/risk"),
     ])
-    def test_the_other_surfaces_route_through_it_too(self, anchor, name):
-        src = self._src()
-        i = src.index(anchor)
-        assert "entry_gate(" in src[i:i + 4000], f"{name} still rolls its own"
+    def test_the_other_surfaces_route_through_it_too(self, fn, name):
+        # The function's own body, read by AST. This read a 4000-character
+        # window after the `def`, and failed the day /risk grew a leverage
+        # reading that pushed its `entry_gate(` call past the window while
+        # the property held.
+        import ast
+
+        from tests.source_scan import handler_sources, segment_reader
+        bodies = []
+        for path in handler_sources():
+            text = path.read_text(encoding="utf-8")
+            seg = segment_reader(text)
+            for node in ast.walk(ast.parse(text)):
+                if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == fn
+                        and not (len(node.body) == 1 and isinstance(node.body[0], ast.Expr)
+                                 and isinstance(node.body[0].value, ast.Constant)
+                                 and node.body[0].value.value is Ellipsis)):
+                    bodies.append(code_only(seg(node) or ""))
+        assert len(bodies) == 1, f"{name}: {len(bodies)} definitions of {fn}"
+        assert "entry_gate(" in bodies[0], f"{name} still rolls its own"
 
     def test_no_surface_still_hand_rolls_the_subset(self):
         src = self._src()

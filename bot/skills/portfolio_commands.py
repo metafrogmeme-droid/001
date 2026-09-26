@@ -72,6 +72,47 @@ def _caller_dd_status(engine, user_id) -> dict:
     return (risk.drawdown_status() or {}) if risk is not None else {}
 
 
+def leverage_in_use(rows) -> tuple[Optional[float], int]:
+    """The highest leverage among these open positions, and how many could
+    not be read. ``(None, 0)`` for no rows, and for a book nobody read.
+
+    The /risk card drew its leverage gauge from a literal ``1.0``, so it told
+    every reader, in green, that the account ran at 1x whatever its positions
+    ran at. A live position's leverage is read through `position_leverage`,
+    which refuses the stored ``0``/``1`` an adopted position carries and
+    derives it from the margin and notional when both were stated. A paper
+    position's stored leverage is its real one, 1x included.
+    """
+    from bot.utils.leveraged_return import position_leverage
+    if not rows:
+        return None, 0
+    read: list[float] = []
+    unread = 0
+    for p in rows:
+        stored = getattr(p, "leverage", None)
+        if not hasattr(p, "cost_usd"):          # paper: the stored leverage is the leverage
+            try:
+                lev: Optional[float] = float(stored) if stored is not None else None
+            except (TypeError, ValueError):
+                lev = None
+            if lev is not None and not (lev >= 1.0 and lev != float("inf")):
+                lev = None
+        else:
+            entry, qty = getattr(p, "entry_price", None), getattr(p, "quantity", None)
+            notional: Optional[float] = None
+            if entry is not None and qty is not None:
+                try:
+                    notional = float(entry) * float(qty)
+                except (TypeError, ValueError):
+                    notional = None
+            lev = position_leverage(stored, getattr(p, "cost_usd", None), notional)
+        if lev is None:
+            unread += 1
+        else:
+            read.append(lev)
+    return (max(read) if read else None), unread
+
+
 def _unpriced_tag(stats: dict) -> str:
     """" (+N unpriced)" for a W/L line, or "" when everything scored.
 
@@ -829,11 +870,19 @@ class PortfolioCommands:
         portfolio = self.engine.user_portfolios.get(user_id)
         state = portfolio.snapshot()
         # LIVE FIX: use real open position count (per-user: the caller's own).
+        #
+        # A caller with no executor has a book nobody read. It was counted as
+        # 0 open positions, the reading of a flat account; it is None now.
+        _open_rows: Optional[list]
+        open_count: Optional[int]
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
             _risk_ex = self._caller_executor(update)
-            open_count = len(_risk_ex.open_positions) if _risk_ex else 0
+            _open_rows = list(_risk_ex.open_positions) if _risk_ex else None
+            open_count = len(_open_rows) if _open_rows is not None else None
         else:
+            _open_rows = list(getattr(portfolio, "open_positions", None) or [])
             open_count = state.open_positions
+        _lev_used, _lev_unread = leverage_in_use(_open_rows)
         # Source every number from the control that ENFORCES it. This card
         # previously reported `state.max_drawdown_pct` as "current drawdown" —
         # the PAPER portfolio's monotonic worst-EVER, which never recovers and
@@ -878,6 +927,8 @@ class PortfolioCommands:
             "max_open_trades": _max_trades,
             "open_trades": open_count,
             "leverage_cap": CONFIG.exchange.default_leverage,
+            "leverage_in_use": _lev_used,
+            "leverage_unread": _lev_unread,
             # WHY trades are being rejected, or "" — so this card cannot score
             # a halted engine as HEALTHY. Without it the text renderer knew
             # only the drawdown reading, and a restart-erased high-water mark
@@ -915,7 +966,10 @@ class PortfolioCommands:
                     {"label": t("lbl_daily_loss_limit", lang), "value": f"{data['daily_loss_limit']:.1f}%", "color": "yellow"},
                     {"label": t("lbl_current_drawdown", lang), "value": _dd_txt,
                      "color": _dd_col},
-                    {"label": t("lbl_open_trades", lang), "value": f"{data['open_trades']}/{data['max_open_trades']}", "color": "white"},
+                    {"label": t("lbl_open_trades", lang),
+                     "value": ("—" if data["open_trades"] is None else str(data["open_trades"]))
+                     + f"/{data['max_open_trades']}",
+                     "color": "gray" if data["open_trades"] is None else "white"},
                     {"label": t("lbl_leverage_cap", lang), "value": f"{data['leverage_cap']}x", "color": "cyan"},
                     {"label": t("lbl_circuit_breaker", lang), "value": t("val_tripped", lang) if cb else t("val_ok", lang),
                      "color": "red" if cb else "green"},

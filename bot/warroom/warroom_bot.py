@@ -297,8 +297,31 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     # rather than dividing by zero.
     ddl = data.get("drawdown_limit") or dll
     max_t = data.get("max_open_trades", 5)
-    open_t = data.get("open_trades", 0)
+    # None is a book nobody read (a caller with no linked account): a dash,
+    # never the 0 of a flat account.
+    open_t = data.get("open_trades")
     lev = data.get("leverage_cap", 5)
+    # The highest leverage among the open positions, as read. The gauge was
+    # drawn from a literal 1.0, which said in green that the account ran at
+    # 1x whatever its positions ran at.
+    lev_used = data.get("leverage_in_use")
+    lev_unread = data.get("leverage_unread") or 0
+    if isinstance(open_t, (int, float)) and not isinstance(open_t, bool):
+        pos_gauge = _gauge("Positions", float(open_t), float(max_t), unit="#")
+        open_txt = str(open_t)
+    else:
+        pos_gauge = "  Positions  │" + "┄" * 12 + "│ -- (book not read)"
+        open_txt = "—"
+    # A plain line, not a gauge: the figure beside it is the STANDARD every
+    # order is set to, not a ceiling, so a bar would paint the ordinary state
+    # (5x at a 5x standard) full and red.
+    if isinstance(lev_used, (int, float)) and not isinstance(lev_used, bool):
+        lev_gauge = (f"  {_NEU} Leverage   {lev_used:g}x in use (standard {lev}x)"
+                     + (f"  <i>({lev_unread} unread)</i>" if lev_unread else ""))
+    elif open_t == 0:
+        lev_gauge = "  Leverage   — (nothing open)"
+    else:
+        lev_gauge = "  Leverage   — (unread)"
 
     # A card that scores RISK must know whether trading is BLOCKED.
     # This computed `healthy` from drawdown alone, so on 2026-07-30 at 17:40
@@ -351,15 +374,15 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         f"  \u25cf Health \u2502{health_bar}\u2502 {_pill(score_txt)}\n\n"
         # ── Gauges ──
         f"{dd_gauge}\n"
-        f"{_gauge('Positions', float(open_t), float(max_t), unit='#')}\n"
-        f"{_gauge('Leverage', 1.0, float(lev), unit='x')}\n\n"
+        f"{pos_gauge}\n"
+        f"{lev_gauge}\n\n"
         # ── Limits ──
         f"\U0001f512 <b>Limits</b>\n"
         "<pre>"
         f"{_kv('Daily Loss', f'{dll}%')}\n"
         f"{_kv('Drawdown', f'{ddl}%')}\n"
         f"{_kv('Max Trades', str(max_t))}\n"
-        f"{_kv('Open Now', str(open_t))}\n"
+        f"{_kv('Open Now', open_txt)}\n"
         f"{_kv('Leverage', f'{lev}x')}"
         "</pre>"
     )
