@@ -12,6 +12,7 @@ from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.candles import drop_forming_candle
+from bot.core.position_telemetry import price_on_record
 from bot.formatters.drift_offer import (
     STOP_PCT,
     TARGET_PCT,
@@ -56,6 +57,21 @@ def _closed_trades_file() -> Optional[str]:
     except Exception as exc:                      # pragma: no cover - import guard
         log.warning("closed-trade path unavailable: %s", exc)
         return None
+
+
+def _first_present(row: dict, *keys: str):
+    """The value of the first of ``keys`` the row carries, or None.
+
+    The executor and the paper book name the same field differently
+    (``close_price`` / ``exit_price``). The first name PRESENT is the reading,
+    even when its value is None: a row that says its close price was not read
+    is not priced off another field. That is `_first_attr`'s rule for the
+    chat prompt's closed-trade line, over the same record.
+    """
+    for k in keys:
+        if k in row:
+            return row[k]
+    return None
 
 
 def _fetch_live_exchange_data() -> Optional[dict]:
@@ -126,8 +142,13 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         result["closed_trades"].append({
             "symbol": t.get("symbol", ""),
             "direction": t.get("direction", t.get("side", "")),
-            "entry_price": float(t.get("entry_price", t.get("entry", 0)) or 0),
-            "exit_price": float(t.get("exit_price", t.get("exit", 0)) or 0),
+            # The executor records the exit as `close_price` (closed_trade_row)
+            # and this row read `exit_price`/`exit` only, `or 0`, so every
+            # row published an exit of 0.0; the same `or 0` made an adopted
+            # entry nobody stated a measured $0. A price of zero is a level
+            # nobody stated: an unread price is None here, never 0.0.
+            "entry_price": price_on_record(_first_present(t, "entry_price", "entry")),
+            "exit_price": price_on_record(_first_present(t, "close_price", "exit_price", "exit")),
             "pnl": _p,                       # None, not 0 — see the module note
             "closed_at": t.get("closed_at", t.get("timestamp", "")),
         })
