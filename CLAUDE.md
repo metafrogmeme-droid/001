@@ -7517,6 +7517,38 @@ case until a long entered under VWAP was driven back over it, and not yet
 anything the classifier produces; it enters at 0.1% now.
 (`tests/test_a_vwap_reversion_is_not_closed_on_its_own_entry.py`.)
 
+**THE TRAIL DISTANCE EACH STRATEGY DECLARES REACHES NO POSITION.**
+`StrategyTypeConfig` declares a trailing ATR multiplier per type (scalp 1.0,
+intraday 1.2, swing 1.5, position 2.0), the live monitor hands the position's
+figure to `update_trailing_stop`, and that function reads it on one path: a
+trailing state with no `"stage"` key, the format from before the multistage
+trail. `make_trailing_state` writes `"stage": 0` on every state it builds and
+the default rule is `multistage`, whose distance is the stage table
+(`TRAIL_STAGE{1,2,3}_ATR_MULT`: 2.0, 1.5, 1.0). The backtest and the paper
+book never pass the figure at all. Driven through the live monitor, an
+intraday, a swing and a position trade on one price path trail to the same
+stop. `TRAILING_ATR_MULT` had no reader of any kind and is deleted.
+
+**What said otherwise was prose, in three places.** The field comment called
+the figure "the trailing distance". The class docstring said the position type
+starts trailing "after 1.5R" (every type starts at 1R, on the same table), and
+three of its four time stops were wrong (it said 30 min, 24h and 72h where the
+fields say 2h, 48h and 168h). The income map said swing trails "at 1.5 ATR",
+and `test_claude_md_accuracy.py` pinned that sentence with a citation to the
+multiplier's declaration. The code is unchanged: making the figures live
+would change every live exit, which is a measurement and a decision, not a
+wording fix. The docstring states no figure now, each multiplier's own comment
+says what reads it, and the map cites the trailing switch alone.
+
+**Twelve mutations, each killed; two survived the first round and one first
+kill was for the wrong reason.** The prose check read a twelve-line window
+above each field for the word "stage", which a neighbour's note, the class
+docstring and the word "pre-multistage" all satisfy. Deleting swing's own note
+left intraday's in range, and that mutation "died" only on the map's line
+citations moving. The check reads each field's own contiguous comment block
+now.
+(`tests/test_a_strategy_trail_distance_is_what_the_trail_reads.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14066,7 +14098,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1113** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1114** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

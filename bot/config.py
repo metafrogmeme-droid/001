@@ -2080,12 +2080,11 @@ class CacheConfig:
 class TrailingStopConfig:
     """Trailing stop configuration for live positions.
 
-    Strategy: trailing stop activates after 1R profit, then trails at
-    trail_atr_mult * ATR behind the best favorable price.
+    The default rule (multistage) activates at 1R and trails behind the best
+    favorable price at the stage table's distance, TRAIL_STAGE{1,2,3}_ATR_MULT
+    in bot/utils/trailing.py; TRAILING_RULE=playbook trails behind the mark.
     """
     enabled: bool = _env_bool("TRAILING_STOP_ENABLED", True)
-    # ATR multiplier for trailing distance (1.5 = trail at 1.5x ATR)
-    trail_atr_mult: float = _env_float("TRAILING_ATR_MULT", 1.5)
     # Minimum price move (%) before updating exchange SL order.
     # Avoids spamming the exchange with tiny SL adjustments.
     min_sl_update_pct: float = _env_float("TRAILING_MIN_SL_UPDATE_PCT", 0.3)
@@ -2189,16 +2188,23 @@ class TimeStopConfig:
 class StrategyTypeConfig:
     """Per-strategy-type SL/TP/trailing/time-stop overrides.
 
-    Each strategy type has its own risk parameters:
-    - scalp:     tight stops, fast exit, no trailing, 30 min time-stop
-    - intraday:  moderate stops, trailing after 1R, 4h time-stop
-    - swing:     wide stops, trailing after 1R, 24h time-stop
-    - position:  widest stops, trailing after 1.5R, 72h time-stop
+    Each strategy type has its own stop and target distances (in ATR), its own
+    trailing switch, time-close and warn hours, confidence floor, risk budget
+    and reward:risk minimum; the fields below are the values, and the prose
+    states none of them. Scalp is the one type that does not trail by default.
+    Every type that trails activates and trails on the same stage table: the
+    ``*_trailing_atr_mult`` fields are not the trail distance under the
+    default rule (see the note above ``scalp_trailing_atr_mult``).
     """
     # ── SCALP (hold: 5 min - 2h) ──
     scalp_sl_atr_mult: float = _env_float("SCALP_SL_ATR_MULT", 1.5)
     scalp_tp_atr_mult: float = _env_float("SCALP_TP_ATR_MULT", 2.0)
     scalp_trailing_enabled: bool = _env_bool("SCALP_TRAILING_ENABLED", False)
+    # The four *_trailing_atr_mult fields reach update_trailing_stop only for a
+    # trailing state saved with no "stage" key (the pre-multistage format);
+    # make_trailing_state writes one on every state, so under the default rule
+    # every strategy trails at the stage table (TRAIL_STAGE{1,2,3}_ATR_MULT).
+    # The backtest and the paper book never read them.
     scalp_trailing_atr_mult: float = _env_float("SCALP_TRAILING_ATR_MULT", 1.0)
     scalp_time_close_hours: float = _env_float("SCALP_TIME_CLOSE_H", 2.0)
     scalp_time_warn_hours: float = _env_float("SCALP_TIME_WARN_H", 1.0)
@@ -2207,6 +2213,7 @@ class StrategyTypeConfig:
     intraday_sl_atr_mult: float = _env_float("INTRADAY_SL_ATR_MULT", 2.0)
     intraday_tp_atr_mult: float = _env_float("INTRADAY_TP_ATR_MULT", 2.5)
     intraday_trailing_enabled: bool = _env_bool("INTRADAY_TRAILING_ENABLED", True)
+    # Legacy-only trail distance: see scalp's note (the stage table decides).
     intraday_trailing_atr_mult: float = _env_float("INTRADAY_TRAILING_ATR_MULT", 1.2)
     intraday_time_close_hours: float = _env_float("INTRADAY_TIME_CLOSE_H", 4.0)
     intraday_time_warn_hours: float = _env_float("INTRADAY_TIME_WARN_H", 2.0)
@@ -2215,6 +2222,7 @@ class StrategyTypeConfig:
     swing_sl_atr_mult: float = _env_float("SWING_SL_ATR_MULT", 2.5)
     swing_tp_atr_mult: float = _env_float("SWING_TP_ATR_MULT", 3.5)
     swing_trailing_enabled: bool = _env_bool("SWING_TRAILING_ENABLED", True)
+    # Legacy-only trail distance: see scalp's note (the stage table decides).
     swing_trailing_atr_mult: float = _env_float("SWING_TRAILING_ATR_MULT", 1.5)
     swing_time_close_hours: float = _env_float("SWING_TIME_CLOSE_H", 48.0)
     swing_time_warn_hours: float = _env_float("SWING_TIME_WARN_H", 12.0)
@@ -2223,6 +2231,7 @@ class StrategyTypeConfig:
     position_sl_atr_mult: float = _env_float("POSITION_SL_ATR_MULT", 3.0)
     position_tp_atr_mult: float = _env_float("POSITION_TP_ATR_MULT", 5.0)
     position_trailing_enabled: bool = _env_bool("POSITION_TRAILING_ENABLED", True)
+    # Legacy-only trail distance: see scalp's note (the stage table decides).
     position_trailing_atr_mult: float = _env_float("POSITION_TRAILING_ATR_MULT", 2.0)
     position_time_close_hours: float = _env_float("POSITION_TIME_CLOSE_H", 168.0)  # 7 days
     position_time_warn_hours: float = _env_float("POSITION_TIME_WARN_H", 72.0)

@@ -961,9 +961,12 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
     adaptive = next(i + 1 for i, ln in enumerate(eng_lines)
                     if "Adaptive Confidence Threshold" in ln)
     for row in ("swing", "scalp"):
-        trail = ("ENABLED at 1.5 ATR" if row == "swing" else "deliberately OFF")
-        trail_ref = (f"{decl(row + '_trailing_enabled')}-{decl(row + '_trailing_atr_mult')}"
-                     if row == "swing" else f"{decl(row + '_trailing_enabled')}")
+        # The swing row used to cite its trailing ATR multiplier as the trail
+        # distance; the default rule never reads it (the stage table decides),
+        # so both rows cite the trailing switch alone.
+        trail = ("ENABLED on the stage table every type shares" if row == "swing"
+                 else "deliberately OFF")
+        trail_ref = f"{decl(row + '_trailing_enabled')}"
         cited = (f"(config.py:{decl(row + '_sl_atr_mult')}-{decl(row + '_tp_atr_mult')}), "
                  f"trailing {trail} (:{trail_ref}), a ")
         assert flat.count(cited) == 1, cited

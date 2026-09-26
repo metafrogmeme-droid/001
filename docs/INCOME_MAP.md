@@ -120,9 +120,9 @@ adding /swap without a landing link fails on the sa…
 Swing is a first-class hold-duration class in the engine, not a label.
 analyzer.py:1154 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2215-2216), trailing ENABLED at 1.5 ATR
-(:2217-2218), a 48h time-close with a 12h warn (:2219-2220), min confidence
-0.50 (:2234), max risk 2% (:2240) — every one distinct from the scalp row
+ATR / TP 3.5 ATR (config.py:2222-2223), trailing ENABLED on the stage table
+every type shares (:2224), a 48h time-close with a 12h warn (:2227-2228), min
+confidence 0.50 (:2243), max risk 2% (:2249) — every one distinct from the scalp row
 above it. skill_registry.py:2004 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
 mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2519) —
@@ -148,9 +148,9 @@ every entry and every fill).
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
-TP 2.0 ATR (config.py:2199-2200), trailing deliberately OFF (:2201), a 2h
-time-close with a 1h warn (:2203-2204), min confidence 0.65 (:2232), max risk
-1% (:2238); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
+TP 2.0 ATR (config.py:2200-2201), trailing deliberately OFF (:2202), a 2h
+time-close with a 1h warn (:2209-2210), min confidence 0.65 (:2241), max risk
+1% (:2247); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1617 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
@@ -181,7 +181,7 @@ Autonomously: engine.py:6054-6112 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2414-2415), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (config.py:2423-2424), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
 additionally needs _can_trade_live (telegram_handler.py:3930), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
@@ -350,7 +350,7 @@ analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:267) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6054-6112
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2474) with no human in the loop, adaptively moved by
+(default 0.85, config.py:2483) with no human in the loop, adaptively moved by
 realized win rate (engine.py:8994): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
@@ -365,7 +365,7 @@ rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2414) — so "the bot trades for you" is live only after the operator
+(config.py:2423) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -2469,7 +2469,7 @@ half of the measurement that says where the measurement stops.
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
   attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:966`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2663`, and three sibling call
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2672`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:691`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the
