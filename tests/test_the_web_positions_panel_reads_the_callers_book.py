@@ -15,6 +15,8 @@ handler or the view reading drifts.
 """
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import json
 from types import SimpleNamespace
@@ -118,30 +120,116 @@ def test_single_account_mode_is_unchanged(monkeypatch):
 
 
 def _order_placement_reads(source: str) -> list[int]:
-    """Line numbers of every `<x>._executor_for(...)` call in `source`, read
-    from code only, so a comment naming the call is not one."""
+    """Line numbers of every `<x>._executor_for(...)` call in `source` whose
+    answer is READ, from code only, so a comment naming the call is not one.
+
+    One use is not a read, and the web-live gate needs it: asking which
+    account an ORDER would run on, to refuse the operator's. That question
+    belongs to the order-placement reading, and its answer is compared by
+    identity (`is None`, `is engine.live_executor`) and never opened. So a call
+    bound to a name whose every use is an `is`/`is not` comparison is exempt,
+    the operator-account ratchet's own rule ("an identity comparison is not a
+    read"). Any other use of that name -- an attribute, an argument, an `==`
+    that can run `__eq__` -- counts as a read of the book.
+    """
     import ast
 
     from tests.source_scan import code_only
     tree = ast.parse(code_only(source))
+    parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+
+    def scope(node):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node
+        return tree
+
+    def identity_only(call) -> bool:
+        bound = parents.get(call)
+        if not (isinstance(bound, ast.Assign) and len(bound.targets) == 1
+                and isinstance(bound.targets[0], ast.Name)):
+            return False
+        name = bound.targets[0].id
+        uses = [n for n in ast.walk(scope(call))
+                if isinstance(n, ast.Name) and n.id == name
+                and isinstance(n.ctx, ast.Load)]
+        return bool(uses) and all(
+            isinstance(parents.get(u), ast.Compare)
+            and all(isinstance(op, (ast.Is, ast.IsNot)) for op in parents[u].ops)
+            for u in uses)
+
     return [n.lineno for n in ast.walk(tree)
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "_executor_for"]
+            and n.func.attr == "_executor_for" and not identity_only(n)]
 
 
 def test_no_web_gateway_read_asks_the_order_placement_reading():
     """A rule over the class, not the one site. `bot/web/` places no order
     through `_executor_for` -- orders reach the venue through
-    `engine.confirm_trade` -- so a call to it under `bot/web/` can only be a
-    READ, and a read answered by the order-placement reading is this defect:
-    the operator's book, handed to a caller with no keys. The operator-account
-    ratchet looks for `engine.live_executor`, and this spelling walked past it."""
+    `engine.confirm_trade` -- so a call to it under `bot/web/` whose answer is
+    opened can only be a READ, and a read answered by the order-placement
+    reading is this defect: the operator's book, handed to a caller with no
+    keys. The operator-account ratchet looks for `engine.live_executor`, and
+    this spelling walked past it. The web-live gate's identity check is the
+    one exempt use (see `_order_placement_reads`)."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     hits = [f"{path.relative_to(root)}:{line}"
             for path in sorted((root / "bot" / "web").rglob("*.py"))
             for line in _order_placement_reads(path.read_text(encoding="utf-8"))]
     assert hits == [], hits
+
+
+def test_the_web_live_gate_is_the_identity_use_and_is_still_seen():
+    """The exemption is not a hole the size of the file: the gate's call is
+    the one it acquits, and it still counts as a call."""
+    import ast
+    from pathlib import Path
+
+    from tests.source_scan import code_only
+    src = (Path(__file__).resolve().parents[1] / "bot" / "web"
+           / "user_gateway.py").read_text(encoding="utf-8")
+    calls = [n for n in ast.walk(ast.parse(code_only(src)))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "_executor_for"]
+    assert len(calls) == 1
+    assert _order_placement_reads(src) == []
+
+
+@pytest.mark.parametrize("body,flagged", [
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is None:\n        return 1\n"
+     "    if ex is engine.live_executor:\n        return 2\n", False),
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is None:\n        return 1\n"
+     "    return ex.open_positions\n", True),
+    ("    ex = engine._executor_for(t)\n"
+     "    return show(ex)\n", True),
+    ("    ex = engine._executor_for(t)\n"
+     "    return ex == engine.live_executor\n", True),
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is not None:\n        pass\n"
+     "    ex = other()\n    return ex.balance\n", True),
+    ("    return engine._executor_for(t).open_positions\n", True),
+    ("    ex = engine._executor_for(t)\n", True),
+    ("    a, b = engine._executor_for(t)\n"
+     "    return a is None\n", True),
+])
+def test_only_a_pure_identity_use_is_acquitted(body, flagged):
+    planted = "def h(t):\n" + body
+    assert bool(_order_placement_reads(planted)) is flagged, planted
+
+
+def test_a_read_of_the_same_name_elsewhere_is_not_this_calls_read():
+    # Uses are counted in the call's own function: `ex` in another function
+    # is another variable.
+    planted = ("def h(t):\n"
+               "    ex = engine._executor_for(t)\n"
+               "    return ex is None\n"
+               "def g(ex):\n"
+               "    return ex.open_positions\n")
+    assert _order_placement_reads(planted) == []
 
 
 def test_the_rule_sees_a_planted_call_and_not_a_comment():

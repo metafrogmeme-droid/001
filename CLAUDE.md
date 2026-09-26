@@ -5896,6 +5896,20 @@ walked past it. A rule now covers the class: `bot/web/` places no order through
 `_executor_for`, so a call to it there can only be a read, and none is allowed.
 (`tests/test_the_web_positions_panel_reads_the_callers_book.py`.)
 
+**That rule's premise was one use short, and the full gate said so.** The
+web-live gate later needed the one question that belongs to the order-placement
+reading: which account would this ORDER run on, so the operator's can be
+refused. It calls `_executor_for` and compares the answer by identity (`is
+None`, `is engine.live_executor`) and opens nothing. The rule flagged it, in a
+suite none of that slice's runs included: the full gate refusing a slice on
+a test outside it, once more. A call whose answer is bound to a name
+read only in `is`/`is not` comparisons is exempt now, the operator-account
+ratchet's own "an identity comparison is not a read"; an attribute, an argument
+or an `==` still counts. Six mutations, each killed. Two survived the first
+round, both fixtures: the tuple row put the call inside a tuple on the value
+side, so it never reached the target check, and every planted snippet had one
+function, so scoping the uses to the module changed nothing.
+
 **A RESTART SOLD THE RUNNER TWICE, BECAUSE THE LADDER WAS NEVER WRITTEN DOWN.**
 `pos.partial_tp_state` records which take-profit stages have fired and the
 entry-time 1R they are measured in, and `_save_positions` never wrote it. Every
