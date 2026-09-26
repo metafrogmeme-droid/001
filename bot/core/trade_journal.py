@@ -572,8 +572,10 @@ class TradeJournal:
                                    "%s before the first write over it",
                                    os.path.basename(keep))
                 self._file_to_preserve = False
-            # Rows this build could not read, first and verbatim: they are the
-            # oldest part of a file written oldest-first.
+            # Rows this build could not read, verbatim. No reader here depends
+            # on where they sit (the loader skips them wherever they are); they
+            # go first because they are older than every close this process
+            # records, which is all that is known of their age.
             data = list(self._unreadable_rows)
             for e in self._entries[-KEEPS:]:
                 data.append({

@@ -131,6 +131,19 @@ class TestATornTailIsResumedFrom:
         assert entry.sequence == 3
         assert json.loads(_lines(path)[3])["payload"]["fragments"][0]["sha256"] == _digest("null")
 
+    def test_a_bool_sequence_is_not_an_entry(self, tmp_path):
+        """`true` is an int to Python. A line whose sequence is a bool is not
+        an entry this chain wrote, and resuming from it would link the next
+        entry to a hash nobody sealed, at sequence `True + 1`."""
+        ch, path, made = _chain(tmp_path)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"sequence": True, "entry_hash": "f" * 64}) + "\n")
+        entry = ch.append("DECISION", {"a": 9})
+        marker = json.loads(_lines(path)[3])
+        assert marker["event_type"] == TORN_TAIL_EVENT
+        assert marker["prev_hash"] == made[-1].entry_hash
+        assert entry.sequence == 3
+
     def test_a_tail_of_nothing_but_non_entries_is_refused(self, tmp_path):
         """More non-entries at the end than a torn write can leave is not a
         crash. Linking across them would be a guess about where the chain
@@ -234,6 +247,23 @@ class TestVerifyNamesTheTornLineOnce:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         ok, problems = AuditChain.verify(str(path))
         assert "malformed JSON" in problems[0]
+
+    def test_only_the_marker_acknowledges(self, tmp_path):
+        """An entry of another type carrying the marker's payload, sequence
+        and link is not the chain's own record of a write cut short: a
+        caller's payload does not vouch for the chain's bytes."""
+        ch, path, made = _chain(tmp_path)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(FRAGMENT + "\n")
+        forged = ac._link("DECISION", {
+            "fragments": [ac._fragment_record(FRAGMENT)],
+            "resumed_after_sequence": 1,
+        }, "system", made[-1].entry_hash, 2)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(forged.to_dict()) + "\n")
+        ok, problems = AuditChain.verify(str(path))
+        assert "malformed JSON" in problems[0]
+        assert not any("recorded by" in p for p in problems)
 
     def test_an_ordinary_entry_after_a_malformed_line_acknowledges_nothing(self, tmp_path):
         """The old reading for a malformed line in the middle is unchanged:

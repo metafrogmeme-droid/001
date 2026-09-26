@@ -753,9 +753,9 @@ class ConversationStore:
                         # KeyError/JSONDecodeError this loop caught -- so one
                         # bad line kept the bot from starting. A row this store
                         # did not write is unreadable, kept verbatim (below),
-                        # and counted.
-                        if not isinstance(entry, dict):
-                            raise TypeError("not a row")
+                        # and counted. A line that is not an object needs no
+                        # check of its own: `entry["user_id"]` raises TypeError
+                        # on every other value JSON can hold.
                         uid = entry["user_id"]
                         if entry["role"] == "summary":
                             # A note, not a turn: it must never come back

@@ -248,6 +248,20 @@ class TestWhatIsStillRefused:
         said = [x for x in records if "could not be copied aside" in x.getMessage()]
         assert said and said[0].levelno >= logging.WARNING
 
+    def test_the_licence_is_spent_by_the_save_that_uses_it(self, tmp_path):
+        """The one file a recovery may write over is the one it recovered
+        past, ONCE. The same damaged bytes back on disk after the save that
+        replaced them are a new damage, refused like any other."""
+        path = tmp_path / "portfolio_777.json"
+        _with_an_older_backup(path)
+        r = _restart(path)
+        r.save_state()                          # replaces the damaged file
+        path.write_text(DAMAGED)                # the same bytes, again
+        r.save_state()
+        assert path.read_text() == DAMAGED
+        assert conflict_path(path).exists()
+        assert len(_kept(path)) == 1
+
     def test_a_damage_after_a_clean_load_is_still_refused(self, tmp_path):
         """The clobber guard's own case, unchanged: nothing was recovered."""
         path = tmp_path / "portfolio_777.json"

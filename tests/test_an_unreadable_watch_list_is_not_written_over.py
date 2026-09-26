@@ -297,10 +297,13 @@ class TestTheReplySaysWhatWasNotSaved:
             out = _watch(_Host(m), "on")
         assert "⚠" not in out
 
-    def test_a_stand_in_monitor_adds_nothing(self):
+    @pytest.mark.parametrize("answer", [object(), None], ids=["a-mock", "no-answer"])
+    def test_a_stand_in_monitor_adds_nothing(self, answer):
         """A monitor answering something other than a bool (a mock) is not a
-        refusal: only a literal False says the change missed the file."""
-        host = _Host(SimpleNamespace(enable_chat=lambda _id: object()))
+        refusal: only a literal False says the change missed the file. None
+        is what `enable_chat` answered before it answered at all, so a
+        monitor that says nothing is not one that says "not saved"."""
+        host = _Host(SimpleNamespace(enable_chat=lambda _id: answer))
         out = _watch(host, "on")
         assert "⚠" not in out
 
