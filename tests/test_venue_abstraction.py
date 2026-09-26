@@ -47,10 +47,13 @@ def test_bitget_swap_symbol_matches_old_idioms():
     assert BG.swap_symbol("XAU/USDT") == "XAU/USDT:USDT"
 
 
-def test_bitget_order_symbol_is_identity():
-    # The executor historically passes spot-form symbols to create_order on
-    # the swap-default exchange — the venue layer must NOT "fix" that.
-    assert BG.order_symbol("BTC/USDT") == "BTC/USDT"
+def test_bitget_order_symbol_is_the_perp():
+    # This said the venue layer must NOT "fix" the spot-form symbol, on the
+    # belief that Bitget's swap-default client resolves it to the perp. Driven
+    # against the pinned ccxt it resolves to the SPOT market, so every read
+    # that carried no product param asked the spot book
+    # (tests/test_bitget_reads_the_perp.py). Every venue now maps the same way.
+    assert BG.order_symbol("BTC/USDT") == "BTC/USDT:USDT"
     assert BG.order_symbol("BTC/USDT:USDT") == "BTC/USDT:USDT"
 
 

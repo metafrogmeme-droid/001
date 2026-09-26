@@ -27,7 +27,8 @@ bot/core/live_executor.py: _create_order_idempotent.create_order(symbol) <- _sub
 
 # ── Bitget's v3 channel (UTA accounts, `supports_native_triggers`). Both sites
 # try the perp spelling FIRST and fall back to the recorded one on purpose, for
-# a market-precision lookup on the one venue whose order_symbol is the identity.
+# a market-precision lookup. The fallback is the only way the recorded spelling
+# is read there, and only when the perp spelling answered nothing.
 bot/core/live_executor.py: _round_price_to_market.price_to_precision(symbol) <- _place_sl_tp(sym) | 2 | Bitget v3 stop placement only: loops the perp spelling then the spot one for a tick grid, by design
 bot/core/live_executor.py: _round_price_to_market.market(symbol) <- _place_sl_tp(sym) | 2 | Bitget v3 stop placement only: loops the perp spelling then the spot one for a tick grid, by design
 bot/core/live_executor.py: _round_price_to_market.price_to_precision(symbol) <- _update_exchange_sl(pos.symbol) | 1 | Bitget v3 stop move only: the recorded spelling is the second try after swap_symbol(pos.symbol) answered nothing

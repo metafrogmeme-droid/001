@@ -10970,16 +10970,65 @@ venue argument. The early return above it has already answered every
 non-Bitget venue, so the argument is always "bitget" there, and a literal would
 be the module-answer shape one hop out.
 
-**FILED, and the sharpest: Bitget is blind the same way.** The mapping is the
-identity on Bitget, by design, and with UTA markets loaded `BTC/USDT` is Bitget's
-SPOT market. Driven: the endpoint is the same, and ccxt's own post-filter drops
-the swap row. So the close verification reads `confirmed=True` over a held LONG
-0.01, and the per-tick monitor reads `category=SPOT` tickers. The slice kept
-Bitget byte-identical, as it was scoped to. Hyperliquid's margin-mode spelling
-(Bitget's "crossed" reads as isolated there) is noted, not changed.
+**FILED, and the sharpest: Bitget was blind the same way** (fixed in the next
+chapter). The mapping was the identity on Bitget, by design, and with UTA markets
+loaded `BTC/USDT` is Bitget's SPOT market. Driven: the endpoint is the same, and
+ccxt's own post-filter drops the swap row. So the close verification read
+`confirmed=True` over a held LONG 0.01, and the per-tick monitor read
+`category=SPOT` tickers. The slice kept Bitget byte-identical, as it was scoped
+to. Hyperliquid's margin-mode spelling (Bitget's "crossed" reads as isolated
+there) is noted, not changed.
 (`tests/test_a_read_back_asks_the_venue_in_its_own_spelling.py`,
 `tests/test_a_per_user_executor_is_built_only_for_a_driven_venue.py`,
 `tests/test_the_hyperliquid_probe_refuses_a_key_that_cannot_sign.py`.)
+
+**THE ONE VENUE THE BOT TRADES ON WAS THE ONE THE MAPPING SKIPPED, UNDER A RULE
+THAT SAID NOT TO FIX IT.** `venues.py` opened with *"including the identity
+`order_symbol` (Bitget resolves spot-form symbols on the swap exchange today; do
+not "fix" that)"*. Driven against the pinned ccxt 4.5.56 with UTA markets
+loaded, it does not: `market("BTC/USDT")` is the spot market whatever
+`defaultType` says. A position the bot opened records that spelling, so every
+Bitget read that carried no product param asked the spot book:
+
+- the close verification read `category=SPOT`, found no row, and booked the
+  close CONFIRMED while the venue still held the perp;
+- the limit-fill leverage guard (`_guard_fill_leverage`) read the same empty
+  book, so an over-levered limit fill was never flattened;
+- the ticker read asked the spot book, and on an asset listed only as a perp
+  (NATGAS, which the bot has traded live) raised BadSymbol on every read;
+- `/orders`' per-symbol retry listed spot orders;
+- `amount_to_precision` and `price_to_precision` used the SPOT grid. For a
+  sub-cent token that grid is finer than the perp's, so the classic stop, the
+  stop move and the partial close could produce a price or quantity off the
+  perp grid: the 45115 rejection the entry path was already fixed for.
+
+**Orders reached the perp all along, and that is why the fix is safe.** Their
+params carry `productType`, which ccxt sends as the category, and a cancel
+carries no category at all. So an order on the grid and a cancel send the same
+bytes in either spelling, and a test pins that. The default `order_symbol` is
+the perp mapping now, and the four venue overrides that repeated it are
+deleted, so a venue added later cannot inherit the spot spelling. Every other
+venue maps exactly as before.
+
+**The drive found a raise the zero branch could never catch.** `_partial_close`
+rounds the quantity and returns "nothing to send" when it rounds to zero. ccxt
+does not answer "0" for an amount below the grid; it raises `InvalidOrder`.
+That was swallowed, the unrounded amount went to an order ccxt refused for the
+same reason, and the raise left the take-profit ladder on every tick. It reads
+as nothing to send now, which is the ladder's existing path for a zero quantity.
+
+**And the merged branch carried a failure neither slice had run.** Slice A's
+drift-fallback test built its venue as a two-attribute stand-in, and slice B's
+fallback now asks the venue for its order-read params, so the fallback refused
+the market order before the guard the test is about. Each slice's suites were
+green; the broad executor run for this change is what said so, before the full
+gate would have. It uses the real Bitget venue now, as its sibling does.
+
+**Twelve mutations, each killed.** Six die on drives alone. The other six die on
+slice B's structural rule, which reports any ccxt call handed an unmapped
+symbol; that covers the ticker, the two stop roundings and the order read,
+which the drives do not reach on Bitget.
+(`tests/test_bitget_reads_the_perp.py`.)
 
 ## Public-surface rules
 
@@ -12272,7 +12321,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1065** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1066** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

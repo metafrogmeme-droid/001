@@ -3183,9 +3183,10 @@ class LiveExecutor:
         filled limit entry was never seen filling, and a close's fill was never
         read. Both halves are decided here, once: the symbol is mapped (the
         mapping is idempotent, so a caller holding the perp spelling already is
-        unaffected, and on Bitget it is the identity), and the venue's read
-        params are merged under the caller's. Params are passed only when there
-        are some, so a Bitget read is the call it always was.
+        unaffected), and the venue's read params are merged under the caller's.
+        Params are passed only when there are some, so a Bitget read sends what
+        it always sent: its order read takes the order id alone, and the perp
+        spelling changes only which market ccxt parses the answer under.
         """
         read_params = dict(self._venue.order_read_params())
         if params:
@@ -3589,7 +3590,7 @@ class LiveExecutor:
             gap = 0.0
         # The venue's spelling, for the read AND for matching its rows: the
         # post-fill guard hands the recorded (spot-form) symbol, and on Bybit
-        # that read the SPOT book. Idempotent, and the identity on Bitget.
+        # and Bitget that read the SPOT book. Idempotent.
         venue_sym = self._venue.order_symbol(symbol)
         for attempt in range(attempts):
             # THE LAST ATTEMPT'S ANSWER IS THE ANSWER, so the answer fields
@@ -3773,10 +3774,12 @@ class LiveExecutor:
         #     Two answers to one question, in one file, about one venue.
         expected_side = "long" if direction == "LONG" else "short"
         # THE BOOK IS READ IN THE VENUE'S SPELLING. The close path hands the
-        # recorded symbol, which is the bot's spot form: on Bybit that asked the
-        # SPOT book (`category=spot`), which holds no perp, so every close read
-        # flat and booked CONFIRMED while the venue still held the position; on
-        # Hyperliquid it is no market at all and every close read unreadable.
+        # recorded symbol, which is the bot's spot form: on Bybit and Bitget
+        # that asked the SPOT book (`category=spot`, `category=SPOT`), which
+        # holds no perp, so a close read flat and booked CONFIRMED while the
+        # venue still held the position; on Hyperliquid, and on a Bitget asset
+        # listed only as a perp, it is no market at all and every close read
+        # unreadable.
         # The order this reads back was sent on this same mapping.
         venue_sym = self._venue.order_symbol(symbol)
 
@@ -8012,6 +8015,13 @@ class LiveExecutor:
         try:
             _q = exchange.amount_to_precision(self._venue.order_symbol(pos.symbol), qty)
             qty = float(_q) if _q is not None else qty
+        except ccxt.InvalidOrder:
+            # ccxt RAISES for an amount that truncates to nothing on the
+            # market's grid rather than answering "0", so the zero branch below
+            # was unreachable for it: the unrounded amount went on to an order
+            # ccxt refuses for the same reason, and the raise left the ladder
+            # on every tick. Nothing to send is the zero branch's answer.
+            qty = 0.0
         except Exception:
             pass
         if qty <= 0:

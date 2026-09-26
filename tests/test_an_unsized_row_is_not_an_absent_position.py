@@ -98,7 +98,7 @@ def _probe(rows, direction="LONG"):
     from bot.core.venues import get_venue
     ex = LiveExecutor.__new__(LiveExecutor)
     # Every executor carries its venue; the read asks it for the market's
-    # spelling (the identity on Bitget, whose spelling SYMBOL already is).
+    # spelling (the perp, which is the spelling SYMBOL already is).
     ex._venue = get_venue("bitget")
     return asyncio.run(LiveExecutor._verify_position_exists(
         ex, _Book(rows), SYMBOL, direction, max_attempts=1, delay=0))

@@ -9,10 +9,12 @@ first-class object so a second perps venue can plug in WITHOUT touching
 Bitget behavior.
 
 Design rules (in order of importance):
-  1. ZERO Bitget drift. Every BitgetVenue method reproduces the exact
-     params/symbols the executor sent before this module existed —
-     including the identity `order_symbol` (Bitget resolves spot-form
-     symbols on the swap exchange today; do not "fix" that).
+  1. ZERO Bitget drift in the PARAMS. Every BitgetVenue method reproduces
+     the exact params the executor sent before this module existed. The
+     SYMBOL is the one deliberate exception: `order_symbol` used to be the
+     identity on Bitget, on the belief that Bitget resolves a spot-form
+     symbol on the swap exchange, and driven against the pinned ccxt it
+     does not (see `Venue.order_symbol`).
   2. The bot's INTERNAL canonical symbol stays "BASE/USDT" everywhere
      (ideas, risk engine, blacklists, learning). Venues translate only at
      the exchange boundary. normalize_symbol()/display_symbol() already
@@ -180,11 +182,27 @@ class Venue:
         return f"{base}/{self.quote}:{self.quote}"
 
     def order_symbol(self, symbol: str) -> str:
-        """Symbol to hand ccxt order/position calls. Bitget: IDENTITY —
-        the executor historically passes spot-form symbols and Bitget's
-        swap-default exchange resolves them; changing that would alter
-        live behavior. Non-Bitget venues map to their perp symbol."""
-        return symbol
+        """Symbol to hand ccxt order and position calls: the venue's PERP.
+
+        Every venue trades perps only (`TRADE_MODE` accepts "futures" and
+        nothing else), and a position the bot opened records the spot form
+        ("BTC/USDT"). ccxt resolves that to whatever market carries the name,
+        whatever `defaultType` says: the SPOT market on Bybit and on Bitget,
+        no market at all on Hyperliquid.
+
+        On Bitget this was the identity, on the belief that Bitget's
+        swap-default client resolves a spot-form symbol to the perp. Driven
+        against the pinned ccxt 4.5.56 with UTA markets loaded, it does not:
+        a position read asks `category=SPOT` and returns no row, so the close
+        verification read flat over a held position; a ticker read asks the
+        spot book, and on a perp-only asset (NATGAS) raises BadSymbol on every
+        read; `amount_to_precision` and `price_to_precision` round on the SPOT
+        grid, which for a sub-cent token is finer than the perp's and is the
+        45115 rejection the entry path was already fixed for. Orders reached
+        the perp only because their params carry `productType`, and a cancel
+        carries no category at all, so those two are unchanged by the mapping.
+        """
+        return self.swap_symbol(symbol)
 
     # ── param dialects ────────────────────────────────────────────
     def futures_params(self, **extra: Any) -> dict:
@@ -467,10 +485,6 @@ class HyperliquidVenue(Venue):
             return f"{coin}/{self.quote}:{self.quote}"
         return super().swap_symbol(symbol)
 
-    def order_symbol(self, symbol: str) -> str:
-        # Internal symbols are USDT-quoted; Hyperliquid perps are USDC.
-        return self.swap_symbol(symbol)
-
     def entry_params(self, margin_mode: str, leverage: int) -> dict:
         # Margin mode + leverage are set per symbol via set_leverage()
         # beforehand; Hyperliquid's order payload carries neither.
@@ -555,9 +569,6 @@ class ParadexVenue(Venue):
 
     def has_operator_credentials(self, cfg: Any) -> bool:
         return False   # per-user connect venue; the operator trades Bitget
-
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
 
     def trigger_params(self, kind: str, trigger_price: float) -> dict:
         if kind == "tp":
@@ -645,10 +656,6 @@ class BybitVenue(Venue):
     def has_operator_credentials(self, cfg: Any) -> bool:
         return bool(getattr(cfg, "bybit_api_key", "")
                     and getattr(cfg, "bybit_api_secret", ""))
-
-    def order_symbol(self, symbol: str) -> str:
-        # Bybit resolves "BTC/USDT" to the SPOT market — always perp form.
-        return self.swap_symbol(symbol)
 
     def order_read_params(self) -> dict:
         # ccxt 4.5.56 refuses EVERY fetch_order on a unified account (every
@@ -738,9 +745,6 @@ class BingxVenue(Venue):
         return bool(getattr(cfg, "bingx_api_key", "")
                     and getattr(cfg, "bingx_api_secret", ""))
 
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
-
     def leverage_params(self, margin_mode: str) -> dict:
         # One-way mode: BingX requires side=BOTH on set-leverage.
         return {"marginMode": margin_mode, "side": "BOTH"}
@@ -825,9 +829,6 @@ class _KeySecretPerpVenue(Venue):
 
     def has_operator_credentials(self, cfg: Any) -> bool:
         return False   # per-user connect venues; the operator trades Bitget
-
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
 
     def trigger_params(self, kind: str, trigger_price: float) -> dict:
         if kind == "tp":

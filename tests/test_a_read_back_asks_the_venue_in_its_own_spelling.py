@@ -595,7 +595,10 @@ async def test_the_seam_reads_a_bybit_order_in_one_request(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_a_bitget_order_read_is_the_call_it_always_was(tmp_path):
+async def test_a_bitget_order_read_names_the_perp_and_sends_no_params(tmp_path):
+    # Bitget's order read takes the order id alone (`/api/v3/trade/order-info`),
+    # so the spelling decides only which market ccxt parses the answer under,
+    # and no read params are added where Bitget needs none.
     seen: list = []
 
     class _Ex:
@@ -607,8 +610,8 @@ async def test_a_bitget_order_read_is_the_call_it_always_was(tmp_path):
     exr._venue = get_venue("bitget")
     await exr._fetch_order(_Ex(), "oid", "BTC/USDT")
     await exr._fetch_order(_Ex(), "oid", "BTC/USDT", params={"productType": "USDT-FUTURES"})
-    assert seen == [(("oid", "BTC/USDT"), {}),
-                    (("oid", "BTC/USDT"), {"params": {"productType": "USDT-FUTURES"}})]
+    assert seen == [(("oid", "BTC/USDT:USDT"), {}),
+                    (("oid", "BTC/USDT:USDT"), {"params": {"productType": "USDT-FUTURES"}})]
 
 
 def test_only_bybit_needs_read_params():
@@ -743,19 +746,22 @@ def test_bybit_precision_is_the_perp_grid():
 
 
 @pytest.mark.asyncio
-async def test_bitget_reads_reach_the_same_market_as_before(tmp_path):
-    """The mapping is the identity on Bitget, so no Bitget read moved."""
-    assert get_venue("bitget").order_symbol("BTC/USDT") == "BTC/USDT"
+async def test_a_bitget_read_asks_the_perp_book_not_the_spot_one(tmp_path):
+    """This pinned the IDENTITY on Bitget as "no Bitget read moved". It was the
+    defect: with UTA markets loaded, "BTC/USDT" is Bitget's spot market and the
+    read asked `category=SPOT`. The mapped read asks the perp book."""
+    assert get_venue("bitget").order_symbol("BTC/USDT") == "BTC/USDT:USDT"
     ex = _bitget()
     calls = _stub(ex, lambda url, method, body: {"code": "00000", "data": {"list": []}})
     exr = LiveExecutor(state_dir=str(tmp_path))
     exr._venue = get_venue("bitget")
     try:
         await ex.fetch_positions(["BTC/USDT"])
-        direct = [u for _, u, _ in calls]
+        recorded = [u for _, u, _ in calls]
         calls.clear()
         await ex.fetch_positions([exr._venue.order_symbol("BTC/USDT")])
         mapped = [u for _, u, _ in calls]
     finally:
         await ex.close()
-    assert mapped == direct
+    assert len(recorded) == 1 and "category=SPOT" in recorded[0]
+    assert len(mapped) == 1 and "category=USDT-FUTURES" in mapped[0]
