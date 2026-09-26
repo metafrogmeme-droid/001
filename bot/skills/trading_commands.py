@@ -1364,9 +1364,21 @@ class TradingCommands:
                 # Lightweight: skip the order-flow + multi-timeframe fetches so a
                 # tap returns in seconds even under exchange throttling (the full
                 # pipeline still runs in the background loop for auto-trading).
+                #
+                # The scan is SHIELDED from this timeout. force_scan
+                # auto-confirms what clears the bar, so when the timeout ran
+                # out it could be inside confirm_trade -> LiveExecutor.execute,
+                # and wait_for's cancel landed there: between an entry order
+                # the venue had filled and the stop placed for it, or before
+                # the position was recorded at all. The tap stops WAITING at
+                # the timeout; the scan finishes in the background and its
+                # ideas are pending for the next tap, which is what the
+                # timeout sentence below already tells the user.
+                _scan = asyncio.ensure_future(self.engine.force_scan(
+                    max_symbols=CONFIG.interactive_scan_count, lightweight=True))
+                _scan.add_done_callback(_note_background_scan)
                 result = await asyncio.wait_for(
-                    self.engine.force_scan(
-                        max_symbols=CONFIG.interactive_scan_count, lightweight=True),
+                    asyncio.shield(_scan),
                     timeout=CONFIG.interactive_scan_timeout_sec,
                 )
                 pending = [i for i in self.engine.pending_ideas if i.confidence >= _display_min]
@@ -2183,3 +2195,20 @@ class TradingCommands:
              InlineKeyboardButton("\u21a9\ufe0f Cancel", callback_data="emergency_cancel")],
         ])
         await self._send(update, rendered["text"], reply_markup=kb)
+
+
+def _note_background_scan(task: "asyncio.Future") -> None:
+    """Retrieve the outcome of an interactive scan nobody may be awaiting.
+
+    `/latest_signal` stops waiting at its timeout and leaves the scan running
+    (see the shield there). A scan that then fails has no caller to raise to,
+    and an exception nobody retrieves is reported by asyncio as "never
+    retrieved" at garbage collection, long after and far from its cause. The
+    class name is logged, never the text: a driver message can carry a URL
+    or a request.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("Interactive scan failed: %s", type(exc).__name__)

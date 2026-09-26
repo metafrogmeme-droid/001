@@ -73,10 +73,16 @@ def test_the_website_ack_is_computed_not_hardcoded():
 
 
 def test_the_acked_count_excludes_the_failures():
+    # The count is `flatten_closed_count`: closes minus failures, and the
+    # empty-book sentence is not a close. The pump is driven end to end in
+    # test_a_flatten_does_not_skip_a_close_in_flight.py; this pins the call.
+    from bot.formatters.drift_offer import flatten_closed_count
     code = _web_flatten_code()
-    assert "_closed = len(_msgs) - len(_failed)" in code
+    assert "_closed = flatten_closed_count(_msgs)" in code
     assert "len(closed)" not in code, (
         "a count of MESSAGES is not a count of closed positions")
+    assert flatten_closed_count(["Closed BTC", "Failed to close ETH: 502"]) == 1
+    assert flatten_closed_count(["No open positions to close."]) == 0
 
 
 def test_a_partial_flatten_is_audited_as_partial():

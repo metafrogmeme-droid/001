@@ -3888,6 +3888,7 @@ class RuneClawEngine:
         # state where positions may be unmonitored. Now we back off and escalate.
         _consecutive_failures = 0
         _BACKOFF_CAP_S = 300.0
+        _BACKOFF_EXP_MAX = 32
         while self._running:
             try:
                 await self._tick_guarded()
@@ -4006,11 +4007,26 @@ class RuneClawEngine:
                         action="tick", result="CRITICAL_CONSECUTIVE_FAILURES",
                         data={"consecutive_failures": _consecutive_failures},
                     )
+                # The reciprocal watchdog over the proactive monitor ran on a
+                # SUCCESSFUL tick only, so during a failure streak -- the
+                # stretch the monitor exists to report -- nothing checked
+                # that the monitor was alive. Throttled and fail-open, like
+                # its call on the success path. The healthcheck ping stays
+                # on the success path alone: an external dead-man's switch
+                # that is fed by failing ticks cannot alarm on them.
+                await self._with_maintenance_cap(
+                    self._maybe_check_monitor_liveness(), "monitor liveness")
                 # Exponential backoff (2x per failure, capped) instead of a tight retry loop.
+                # The exponent is bounded before the multiply: `base * 2**n`
+                # converts the int to a float and raises OverflowError once n
+                # reaches 1024 (at least 85 hours of backoffs at the cap). That
+                # raised out of this handler and out of run(), which
+                # `bot.main` reports as an engine crash and restarts. Every
+                # exponent past the bound gives the cap anyway.
                 base = self._compute_smart_scan_interval()
-                backoff = min(base * (2 ** _consecutive_failures), _BACKOFF_CAP_S)
-                self._next_tick_due_ts = time.monotonic() + backoff
-                await asyncio.sleep(backoff)
+                backoff = min(base * (2 ** min(_consecutive_failures, _BACKOFF_EXP_MAX)),
+                              _BACKOFF_CAP_S)
+                await self._sleep_watching_stops(backoff, base)
                 continue
             _sleep_s = self._compute_smart_scan_interval()
             # Stamp the plan BEFORE parking: the stall watchdog treats time
@@ -4027,29 +4043,91 @@ class RuneClawEngine:
         degraded alerts) and the loop recovers without a human restart. The
         cap is deliberately far above any legitimate tick (default 900s,
         1.5x the TICK_STALL threshold, so the stall alert with its stack
-        diagnosis still fires first). 0 disables the guard entirely."""
+        diagnosis still fires first). 0 disables the guard entirely.
+
+        A CANCELLED tick gets no backstop. The engine task is cancelled for
+        one reason, a stop request (`bot.main`'s SIGTERM handler), and the
+        `finally` below used to run a full SL/TP monitor pass on the way
+        out, which can cancel stops and send market closes. Starting that at
+        the moment a supervisor is counting down to SIGKILL is how a close
+        is cut between cancelling a position's stop and flattening it. The
+        stops resting on the venue stay where they are, and the next boot's
+        monitor and reconcile take the book up from there. A hard-timeout
+        cancellation is not this case: `wait_for` turns it into a
+        TimeoutError, and the backstop still runs."""
         cap = float(getattr(CONFIG.monitoring, "tick_hard_timeout_sec", 0.0) or 0.0)
-        if cap <= 0:
-            try:
-                await self._tick()
-            finally:
-                await self._backstop_position_monitor()
-            return
+        stopping = False
         try:
-            await asyncio.wait_for(self._tick(), timeout=cap)
-        except asyncio.TimeoutError:
-            audit(
-                system_log,
-                f"Tick exceeded the {cap:.0f}s hard timeout — cancelled the "
-                f"parked await to recover the loop (see the TICK_STALL stack "
-                f"diagnosis in the log for where it hung)",
-                action="tick", result="HARD_TIMEOUT",
-            )
+            if cap <= 0:
+                await self._tick()
+                return
+            try:
+                await asyncio.wait_for(self._tick(), timeout=cap)
+            except asyncio.TimeoutError:
+                audit(
+                    system_log,
+                    f"Tick exceeded the {cap:.0f}s hard timeout — cancelled the "
+                    f"parked await to recover the loop (see the TICK_STALL stack "
+                    f"diagnosis in the log for where it hung)",
+                    action="tick", result="HARD_TIMEOUT",
+                )
+                raise
+        except asyncio.CancelledError:
+            stopping = True
             raise
         finally:
-            await self._backstop_position_monitor()
+            if not stopping:
+                await self._backstop_position_monitor()
 
-    async def _backstop_position_monitor(self) -> None:
+    async def _sleep_watching_stops(self, total: float, step: float) -> None:
+        """Wait out a failure backoff without leaving the stops unwatched.
+
+        The backoff exists so a persistent failure does not retry the scan and
+        the analysis in a tight loop against the venue and the model. It also
+        stopped the SL/TP monitor: after a failed tick the loop slept up to
+        `_BACKOFF_CAP_S` with nothing watching the book. Driven with the
+        analyze phase timing out at its 300s cap every tick, the monitor ran
+        once every 605s (the 300s phase, the 300s sleep, the scan) where a
+        slow but successful tick leaves a gap of one scan interval plus the
+        tick.
+
+        So the sleep is cut into steps of the normal scan interval and the
+        monitor runs after each one. That is the rate a healthy loop already
+        reads positions at, so the backoff still spares the venue and the
+        model everything a failing tick costs and adds nothing a healthy loop
+        does not already do.
+
+        The steps are COUNTED rather than read off the clock, so the total
+        sleep is the backoff and a monitor pass adds its own duration to the
+        wait. The stall watchdog reads `_next_tick_due_ts`, so it is stamped
+        before every step and before every pass: a pass may take up to the
+        per-phase cap, and a declared wait that a bounded pass overruns would
+        page TICK_STALL over a loop that is doing its job. With the cap
+        disabled a pass is unbounded, and one that hangs past the declared
+        wait is a hang, which is what the watchdog should say.
+        """
+        if not step > 0:
+            # A scan interval of 0 gives no step: one plain sleep, the old
+            # behaviour. A step as long as the whole wait needs no branch of
+            # its own: the loop below makes one sleep and no pass.
+            self._next_tick_due_ts = time.monotonic() + total
+            await asyncio.sleep(total)
+            return
+        left = total
+        while left > 0:
+            chunk = min(step, left)
+            self._next_tick_due_ts = time.monotonic() + left
+            await asyncio.sleep(chunk)
+            left -= chunk
+            if left <= 0:
+                return
+            # The phase cap is clamped to [0, 3600] where it is declared, so
+            # it is never None and never negative; 0 means no cap.
+            cap = float(CONFIG.monitoring.tick_phase_timeout_sec)
+            self._next_tick_due_ts = time.monotonic() + left + cap
+            await self._backstop_position_monitor(during_backoff=True)
+
+    async def _backstop_position_monitor(self, *, during_backoff: bool = False) -> None:
         """Watch the stops even when the tick died before reaching them.
 
         WHY. _check_open_positions is the SL/TP monitor, and its call site
@@ -4079,13 +4157,19 @@ class RuneClawEngine:
         check below: `fatal=False` returns None on a timeout, so "did not
         raise" and "watched the stops" are different facts and only one of
         them is the good news.
+
+        `during_backoff` is the pass `_sleep_watching_stops` runs between
+        failed ticks. The tick's own flag describes a check made before the
+        failure, so it is cleared first; the pass is new evidence or none.
         """
-        if getattr(self, "_positions_monitored_tick", False):
+        if during_backoff:
+            self._positions_monitored_tick = False
+        elif getattr(self, "_positions_monitored_tick", False):
             self._record_position_watch("tick")
             return
+        what = "positions (backoff)" if during_backoff else "positions (backstop)"
         try:
-            await self._phase(self._check_open_positions(),
-                              "positions (backstop)", fatal=False)
+            await self._phase(self._check_open_positions(), what, fatal=False)
         except asyncio.CancelledError:
             # Shutdown, not a verdict. Recording "unwatched" here would put a
             # red line on /positions for every clean stop of the process.
@@ -4107,17 +4191,17 @@ class RuneClawEngine:
         # `_check_open_positions` sets the flag at its END, which is the only
         # thing in the process that can tell the two apart. Three outcomes,
         # not two.
+        why = ("The tick loop is backing off after a failed tick"
+               if during_backoff else "Tick ended before its position check")
         if getattr(self, "_positions_monitored_tick", False):
             audit(system_log,
-                  "Tick ended before its position check — ran the SL/TP "
-                  "monitor as a backstop",
+                  f"{why} — ran the SL/TP monitor as a backstop",
                   action="positions_backstop", result="RAN")
             self._record_position_watch("backstop")
         else:
             audit(system_log,
-                  "Tick ended before its position check AND the backstop "
-                  "SL/TP monitor did not complete — open positions are "
-                  "unwatched for this tick",
+                  f"{why} AND the backstop SL/TP monitor did not complete — "
+                  f"open positions are unwatched for this pass",
                   action="positions_backstop", result="INCOMPLETE")
             self._record_position_watch("incomplete")
 
@@ -5251,8 +5335,8 @@ class RuneClawEngine:
     async def _maybe_check_monitor_liveness(self) -> None:
         """Reciprocal watchdog: the proactive monitor delivers every internal
         safety alert, yet nothing watched IT — a dead monitor task silently
-        ended all alerting while trading continued. Each successful tick now
-        checks the monitor's heartbeat; on staleness it audits CRITICAL,
+        ended all alerting while trading continued. Every tick, failed or
+        not, checks the monitor's heartbeat; on staleness it audits CRITICAL,
         notifies the operator through a monitor-independent callback, and
         restarts the (same) monitor object's task when it died. Throttled to
         the check interval so a permanently-dead monitor alerts once per
@@ -5476,7 +5560,7 @@ class RuneClawEngine:
                               data={"user": tg})
                         acks.append({"user_id": uid, "ok": True, "closed": 0})
                         continue
-                    from bot.formatters.drift_offer import flatten_failed_messages
+                    from bot.formatters.drift_offer import flatten_closed_count, flatten_failed_messages
                     _msgs = list(await ex.close_all_positions(
                         reason="web_emergency_stop"))
                     # `ok` used to be the literal True and `closed` the LENGTH
@@ -5489,7 +5573,7 @@ class RuneClawEngine:
                     # that is still open. Same claim as the Telegram card, one
                     # surface over.
                     _failed = flatten_failed_messages(_msgs)
-                    _closed = len(_msgs) - len(_failed)
+                    _closed = flatten_closed_count(_msgs)
                     audit(system_log,
                           f"Web emergency-stop flatten for user {tg}: {_closed} closed"
                           + (f", {len(_failed)} FAILED — row left pending for retry"

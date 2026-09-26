@@ -114,6 +114,11 @@ KEPT_OPEN_HEADINGS = (
 #: the report after it raised, before the close slot was written.
 CLOSE_CARD_NOT_RENDERED = "the close card could not be rendered"
 
+#: close_all_positions' answer for a book that held nothing to close. It
+#: reads as "closed" (nothing is left open), and it is not a close: a count
+#: of positions a flatten closed must not count it.
+NOTHING_TO_CLOSE = "No open positions to close."
+
 
 def close_did_not_happen(msg) -> bool:
     """True when a monitor/guard message reports a close that did NOT happen —

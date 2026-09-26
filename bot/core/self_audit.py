@@ -49,6 +49,15 @@ _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
 DEFAULT_STATE_FILE = os.path.join(_STATE_DIR, "self_audit_state.json")
 
 _MIN_INTERVAL_SEC = 20 * 3600.0   # once a night, restart-proof
+# The least time between two SCHEDULED attempts. `last_run_ts` is written only
+# by a run that finished, so a run that failed (the model refusing, a 529, a
+# timeout) left the audit due on the next tick, and the next: driven, 40 ticks
+# inside the configured hour made 40 LLM calls. A failed night now retries at
+# most every 15 minutes, which inside the one-hour window is at most four
+# attempts. Stored beside `last_run_ts` for the reason that stamp is: a bot
+# that restarts inside the hour (a redeploy, a crash loop) would otherwise
+# start counting again from nothing.
+_RETRY_AFTER_SEC = 15 * 60.0
 _BACKTEST_TIMEOUT_SEC = 900.0     # per benchmark run
 
 # The ONLY knobs the audit may propose. Everything else the LLM suggests
@@ -829,6 +838,10 @@ class SelfAudit:
         self._running = False
         self._pending: list[dict] = []
         self._last_report: str = ""
+        # The last scheduled attempt this process made, kept beside the one
+        # on disk: a state file that cannot be written must not turn the
+        # bound back into a call on every tick.
+        self._last_attempt_ts: Optional[float] = None
 
     # ── persistence ───────────────────────────────────────────────
     def _load_state(self) -> dict:
@@ -864,14 +877,34 @@ class SelfAudit:
         hour = int(time.gmtime(int(now)).tm_hour)
         if hour != int(getattr(CONFIG, "self_audit_hour_utc", 4)):
             return False
-        last = float(self._load_state().get("last_run_ts", 0) or 0)
-        return (now - last) >= _MIN_INTERVAL_SEC
+        state = self._load_state()
+        last = float(state.get("last_run_ts", 0) or 0)
+        if (now - last) < _MIN_INTERVAL_SEC:
+            return False
+        tried = [t for t in (_num(state.get("last_attempt_ts")),
+                             self._last_attempt_ts) if t is not None]
+        return not tried or (now - max(tried)) >= _RETRY_AFTER_SEC
+
+    def _note_attempt(self, now: float) -> None:
+        """Record a scheduled attempt, in memory and beside `last_run_ts`."""
+        self._last_attempt_ts = now
+        state = self._load_state()
+        state["last_attempt_ts"] = now
+        self._save_state(state)
 
     def maybe_spawn(self, engine, now_ts: Optional[float] = None) -> bool:
-        """Fire-and-forget the nightly run when due. Never raises."""
+        """Fire-and-forget the nightly run when due. Never raises.
+
+        The attempt is recorded HERE, at the scheduled door, before the task
+        starts, so a run that fails for any reason still spaces the next one.
+        An operator's `/audit run` calls `run()` directly and is neither
+        limited by the spacing nor counted in it: it is a person asking.
+        """
         try:
-            if not self.due(now_ts):
+            now = float(now_ts if now_ts is not None else time.time())
+            if not self.due(now):
                 return False
+            self._note_attempt(now)
             asyncio.get_running_loop().create_task(self.run(engine))
             return True
         except Exception as exc:

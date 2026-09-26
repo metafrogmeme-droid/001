@@ -64,7 +64,7 @@ from bot.core.trade_costs import (
 from bot.core.time_exits import in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import price_on_record
 from bot.core.order_state import (
-    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, first_reading,
+    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, first_reading,
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
     read_amount, rows_for_side, stop_attached,
 )
@@ -811,6 +811,8 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
         setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
     if pdata.get("unprotected") is True:
         setattr(pos, "unprotected", True)
+    if pdata.get("close_interrupted") is True:
+        setattr(pos, "close_interrupted", True)
 
 
 def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
@@ -1561,6 +1563,37 @@ class LivePosition:
     #                 this executor closed itself, or one written before rows
     #                 carried a venue.
     venue_recorded: Optional[str] = None
+
+
+@dataclass
+class CloseFlight:
+    """How far one close got, for the handler that runs if it is CANCELLED.
+
+    A close sets the position "closing", saves, and then awaits the venue:
+    the stop and target cancels, the close order, the reads after it. Every
+    revert in `_close_position_inner` sits under `except Exception`, and
+    `asyncio.CancelledError` is a BaseException, so a close cancelled mid-way
+    (a tick phase cap, the whole-tick cap, a maintenance cap around a flatten)
+    left the row "closing" for the rest of the process: out of
+    `open_positions`, skipped by the monitor and by reconcile, refused by
+    `close_position` -- after its stops had been cancelled. `close_position`
+    reads this record to put the row back, and only this record can say which
+    stops the venue no longer holds.
+
+    ``removed`` is the close's own ``_cancelled_ids`` set, shared rather than
+    copied, so it is always what the cancel pass has taken off the venue (or
+    could not confirm it left). ``removing`` is the leg whose cancel was in
+    flight when the close was cancelled: nobody can say whether it landed.
+    """
+    prior_status: str
+    removed: set = field(default_factory=set)
+    removing: Optional[str] = None
+    close_order_sent: bool = False
+    close_order_id: Optional[str] = None
+
+    def reached_venue(self) -> bool:
+        """Did anything this close did change what the venue holds?"""
+        return bool(self.removed) or self.removing is not None or self.close_order_sent
 
 
 # ── Kill-switch awareness ────────────────────────────────────────────────────
@@ -10129,15 +10162,30 @@ class LiveExecutor:
         for safety. Returns list of result messages.
         """
         results = []
+        # "closing" IS A POSITION TO CLOSE. It is a close in flight on another
+        # path (the monitor, a button), and that close may still fail and put
+        # the row back to "open" (H-01). Left out, a book holding only that row
+        # answered "No open positions to close." -- which every reader counts
+        # as flat -- so the emergency stop was acknowledged over a position
+        # that was still open when the other close failed. `close_position`
+        # waits on that close's lock and then answers what is really there.
         open_pos = [p for p in self._positions.values()
-                    if p.status in ("open", "pending_fill")]
+                    if p.status in ("open", "pending_fill", "closing")]
 
         if not open_pos:
-            return ["No open positions to close."]
+            return [NOTHING_TO_CLOSE]
 
         for pos in open_pos:
             try:
                 result = await self.close_position(pos.trade_id, reason=reason)
+                # The close already in flight finished it while this one
+                # waited: close_position answers "not found or already
+                # closed", which the flatten readers count as still open. The
+                # book is the reading here -- the row is closed or gone.
+                if (flatten_outcome(result) != "closed"
+                        and (pos.status == "closed" or pos.trade_id not in self._positions)):
+                    result = (f"{pos.direction} {pos.symbol}: closed by the close "
+                              f"that was already in progress on it")
                 results.append(result)
             except Exception as exc:
                 results.append(f"Failed to close {pos.symbol}: {exc}")
@@ -10482,12 +10530,111 @@ class LiveExecutor:
         # C2-02 FIX: Per-trade lock prevents double-close race.
         lock = self._close_locks.setdefault(trade_id, asyncio.Lock())
         async with lock:
-            result = await self._close_position_inner(trade_id, reason, close_price)
+            # Inside the lock, so a caller cancelled while WAITING for it (a
+            # second close queued behind the first) touches nothing: the close
+            # in progress is not its own.
+            try:
+                result = await self._close_position_inner(trade_id, reason, close_price)
+            except asyncio.CancelledError:
+                self._close_was_interrupted(trade_id, reason)
+                raise
         # H-04 FIX: Do NOT pop the lock here — a concurrent caller could
         # create a new Lock() via setdefault() between our release and pop,
         # defeating the mutual-exclusion guarantee.  Stale locks are pruned
         # in _save_positions() instead.
         return result
+
+    def _close_was_interrupted(self, trade_id: str, reason: str) -> None:
+        """Put back a row whose close was CANCELLED while it was "closing".
+
+        Nothing else ever would. `open_positions` keeps open and pending_fill,
+        the monitor skips anything not open, reconcile skips "closing",
+        adoption counts it as tracked and `close_position` refuses it, so the
+        row sat out of every path until a restart -- after its stops had been
+        cancelled. Driven through the real positions phase: both stop legs
+        cancelled on the venue, the close order parked, the 300s cap fired,
+        and the row was invisible and unclosable from then on.
+
+        What it becomes is the answer the loader already gives a row it finds
+        "closing" at startup, for the same reason: whether the close reached
+        the venue is not known. So a row whose close touched the venue goes
+        back to "open" and WAITS FOR RECONCILE (`awaiting_reconcile`), which
+        asks the venue before anything sends another close -- flat, and it is
+        booked from the venue's own history; still held, and monitoring
+        resumes. A row whose close never reached the venue is simply open
+        again. A resting limit order whose cancel was cut off goes back to
+        "pending_fill", which the pending check re-reads every tick, exactly
+        as the cancel path's own "nobody could tell" branch does.
+
+        The stops the cancel pass took off the venue are cleared from the
+        record, and a cleared STOP marks the position unprotected: an id the
+        venue no longer holds reads as protection to every reader, and the
+        per-tick re-place and the unprotected alert both act only on an empty
+        one. The leg whose cancel was in flight is cleared too; nobody can say
+        whether it landed, and `_place_sl_tp` cancels what it finds before it
+        places, so clearing is the self-healing direction.
+
+        `close_interrupted` travels with the row, on disk as well, so the
+        reconcile that books it SAYS so: its notification is suppressed for a
+        row recovered at startup because that close was probably announced
+        before the process died, and this one was announced to nobody.
+
+        Never raises: it runs while a CancelledError is unwinding, and an
+        exception here would replace the cancellation the caller is owed.
+        """
+        try:
+            pos = self._positions.get(trade_id)
+            flight = getattr(pos, "_close_flight", None) if pos is not None else None
+            if pos is None or not isinstance(flight, CloseFlight) or pos.status != "closing":
+                return
+            setattr(pos, "_close_flight", None)
+            pos.status = flight.prior_status
+            cleared: list[str] = []
+            for leg in ("sl_order_id", "tp_order_id"):
+                oid = getattr(pos, leg)
+                if oid and (oid in flight.removed or oid == flight.removing):
+                    setattr(pos, leg, None)
+                    cleared.append(leg)
+            stop_gone = "sl_order_id" in cleared
+            if stop_gone:
+                setattr(pos, "unprotected", True)
+            deferred = pos.status == "open" and flight.reached_venue()
+            if deferred:
+                self._recovered_from_closing.add(trade_id)
+                setattr(pos, "close_interrupted", True)
+            self._save_positions()
+            if flight.close_order_id is not None:
+                stage = (f"after the venue accepted close order "
+                         f"{flight.close_order_id or '(no id)'}")
+            elif flight.close_order_sent:
+                stage = "while the close order was being sent; it may have reached the venue"
+            elif flight.reached_venue():
+                stage = "while its stops were being cancelled, before any close order was sent"
+            else:
+                stage = "before anything reached the venue"
+            if deferred:
+                outcome = "kept OPEN and held for reconcile to ask the venue"
+            else:
+                outcome = f"put back to {pos.status}"
+            (logger.critical if stop_gone else logger.warning)(
+                "CLOSE INTERRUPTED for %s %s (%s): cancelled %s -- %s%s",
+                pos.direction, pos.symbol, reason, stage, outcome,
+                "; its exchange stop was cancelled first, so it is UNPROTECTED until "
+                "one is re-placed" if stop_gone else "")
+            audit(trade_log,
+                  f"Close of {pos.symbol} {pos.direction} was cancelled {stage} — "
+                  f"{outcome}"
+                  + ("; its exchange stop is gone (UNPROTECTED)" if stop_gone else ""),
+                  action="close_interrupted", result="INTERRUPTED",
+                  level=logging.WARNING,
+                  data={"trade_id": trade_id, "symbol": pos.symbol, "reason": reason,
+                        "status": pos.status, "awaiting_reconcile": deferred,
+                        "cleared": cleared, "close_order_sent": flight.close_order_sent,
+                        "close_order_id": flight.close_order_id})
+            self._record_warning("close_interrupted")
+        except Exception as exc:
+            logger.error("Could not put back %s after its close was cancelled: %s",
+                         trade_id, type(exc).__name__)
 
     async def _close_position_inner(self, trade_id: str, reason: str = "bot_auto",
                               close_price: float = 0) -> str:
@@ -10501,6 +10648,7 @@ class LiveExecutor:
         # unfilled limit order. We must cancel that order, not place a market close.
         if pos.status == "pending_fill" and pos.limit_order_id:
             pos.status = "closing"
+            setattr(pos, "_close_flight", CloseFlight(prior_status="pending_fill"))
             self._save_positions()
             try:
                 exchange = await self._get_exchange()
@@ -10720,7 +10868,9 @@ class LiveExecutor:
 
         # C2-02 FIX: Set transitional state BEFORE any await — concurrent callers
         # will see "closing" and bail out at the guard above.
+        _flight = CloseFlight(prior_status=pos.status)
         pos.status = "closing"
+        setattr(pos, "_close_flight", _flight)
         self._save_positions()
 
         # What the final handler needs to know about how far the close got.
@@ -10733,7 +10883,8 @@ class LiveExecutor:
         _venue_flat = False
         _flash_applied = False
         _cancel_pass_done = False
-        _cancelled_ids: set = set()
+        # The flight record's own set, so a cancelled close can read it.
+        _cancelled_ids: set = _flight.removed
         _combined_ids: set = set()
         cancel_failed: list = []
 
@@ -10761,8 +10912,10 @@ class LiveExecutor:
                 # every verdict: it no-ops if the position is already flat,
                 # and guarantees closure if a "gone" stop had expired rather
                 # than fired.
+                _flight.removing = oid
                 _leg_verdict, _leg_detail = await self._cancel_stop_leg(
                     exchange, pos, oid, combined=combined)
+                _flight.removing = None
                 if _leg_verdict != "live":
                     _cancelled_ids.add(oid)
                 if _leg_verdict == "gone":
@@ -10808,15 +10961,18 @@ class LiveExecutor:
             # (e.g. "isolated" when position is "crossed") causes the
             # exchange to miss the position and open a new SHORT instead.
             close_params = self._venue.close_params(self._is_uta)
+            _close_px = await self._venue_market_price(exchange, pos.symbol)
+            _flight.close_order_sent = True
             order = await exchange.create_order(
                 symbol=self._venue.order_symbol(pos.symbol),
                 type="market",
                 side=close_side,
                 amount=pos.quantity,
-                price=await self._venue_market_price(exchange, pos.symbol),
+                price=_close_px,
                 params=close_params,
             )
             close_order_id = str(order.get("id", ""))
+            _flight.close_order_id = close_order_id
 
             # ── POST-CLOSE VERIFICATION (GetClaw-style) ──────────────
             close_verify = await self._verify_position_closed(
@@ -13023,6 +13179,12 @@ class LiveExecutor:
                     # its first save of an empty book erased it.
                     "venue": self._venue.id,
                 }
+                # A close cancelled mid-flight (`_close_was_interrupted`) was
+                # announced to nobody, so the reconcile that books it must
+                # say so, across a restart too. Written only when set, like
+                # the deferral below.
+                if getattr(pos, "close_interrupted", False):
+                    data[tid]["close_interrupted"] = True
             # A row whose state waits on reconcile says so on disk, or a
             # restart before reconcile ran would reload it as an ordinary open
             # position and the deferral would be gone.
@@ -13813,7 +13975,13 @@ class LiveExecutor:
                             # the notification here too since the user almost
                             # certainly already saw a close message for this trade
                             # before the process restarted.
-                            was_recovered = pos.trade_id in self._recovered_from_closing
+                            #
+                            # A close CANCELLED mid-flight in this process
+                            # (`_close_was_interrupted`) is the exception: its
+                            # caller got a CancelledError, not a sentence, so
+                            # nobody was told and this is the first report.
+                            was_recovered = (pos.trade_id in self._recovered_from_closing
+                                             and not getattr(pos, "close_interrupted", False))
                             self._recovered_from_closing.discard(pos.trade_id)
                             if not was_recovered:
                                 messages.append(msg)
@@ -13842,7 +14010,16 @@ class LiveExecutor:
                         # Position still on exchange — confirmed genuinely
                         # open, so a startup-recovered "closing" position is
                         # no longer ambiguous; resume normal local monitoring.
+                        _was_held = pos.trade_id in self._recovered_from_closing
                         self._recovered_from_closing.discard(pos.trade_id)
+                        if getattr(pos, "close_interrupted", False):
+                            setattr(pos, "close_interrupted", False)
+                            _was_held = True
+                        if _was_held:
+                            # Both markers are on disk, so the release is
+                            # written too: a restart before the next save
+                            # would otherwise hold the row again.
+                            self._save_positions()
                         if getattr(pos, "_duplicate_signature", None) == "deferred":
                             # The venue holds it: a real position that happened
                             # to match a booked close, not a second record of
