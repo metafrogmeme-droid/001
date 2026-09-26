@@ -25,6 +25,24 @@ DEFAULT_PAPER_BALANCE = 10_000.0
 DATA_DIR = "data"
 
 
+def _written_beside_a_book(raw_user_id: str, path: str) -> bool:
+    """True when ``portfolio_<raw_user_id>.json`` is a file written BESIDE a
+    book rather than a book, and says so.
+
+    Every book this registry writes is named by a SANITIZED id, and
+    `_sanitize` removes every dot, so no book's name carries one. The
+    stale-write guard parks a refused state as ``<stem>.conflict-<pid>.json``,
+    which the ``portfolio_*.json`` pattern matches: restored, it became a
+    phantom user (``777conflict-4242``) whose parked positions the stop sweep
+    then closed, writing into the file kept so that nothing was lost.
+    """
+    if "." not in raw_user_id:
+        return False
+    log.warning("Not restoring %s as a book: its name is not one this "
+                "registry writes (a file kept beside a book).", path)
+    return True
+
+
 class MultiUserPortfolio:
     """Manages per-user PortfolioTracker instances.
 
@@ -89,7 +107,7 @@ class MultiUserPortfolio:
             if not filename.startswith("portfolio_") or not filename.endswith(".json"):
                 continue
             raw_user_id = filename[len("portfolio_"):-len(".json")]
-            if not raw_user_id:
+            if not raw_user_id or _written_beside_a_book(raw_user_id, path):
                 continue
             # Register under the same canonical key get() will look up by.
             try:
@@ -142,6 +160,8 @@ class MultiUserPortfolio:
                 continue
             filename = os.path.basename(path)
             raw = filename[len("portfolio_"):-len(".json")]
+            if _written_beside_a_book(raw, path):
+                continue
             try:
                 user_id = self._sanitize(raw)
             except ValueError:

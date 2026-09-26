@@ -10,8 +10,10 @@ Upgraded with:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -42,6 +44,11 @@ class TrailingStopConfig:
     activation_pct: float = 50.0         # activate after price reaches 50% of TP distance
     trail_distance_atr_mult: float = 2.0  # trail at ATR * this multiplier
     min_profit_lock_pct: float = 0.3      # minimum profit to lock in (0.3% of entry price)
+
+
+def _file_digest(path: Path) -> str:
+    """sha256 of a file's bytes: which damaged file a recovery was made past."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def _restore_mark_times(data: dict) -> dict[str, float]:
@@ -91,6 +98,11 @@ class PortfolioTracker:
         # writers do not interleave edits — the second stamps its entire stale
         # world over the first.
         self._state_revision: Optional[int] = None
+        # The sha256 of a damaged primary this tracker recovered PAST (it
+        # loaded the backup instead). The next save may replace exactly that
+        # file, after copying it aside; see `_save_state_locked`. `None` when
+        # the primary read cleanly, or once the damaged file is replaced.
+        self._recovered_past: Optional[str] = None
         self._positions: dict[str, TradeExecution] = {}
         self._history: list[TradeExecution] = []
         self._daily_pnl: dict[str, float] = {}  # date-string -> pnl
@@ -604,17 +616,25 @@ class PortfolioTracker:
             # decide they are safe to write revision 5.
             with locked(target_path):
                 on_disk = disk_revision(target_path)
-                if self._is_stale_write(on_disk, target_path, state):
+                # The one unreadable file this tracker may write over: the
+                # damaged primary it recovered past, still byte-for-byte what
+                # it was, and copied aside first. Without this every save after
+                # a recovery was refused as a CONFLICT (disk unreadable), the
+                # book never persisted again, and each restart recovered the
+                # same backup: everything since the recovery lost, every time.
+                # A file that changed since is somebody else's, and the guard
+                # below still refuses it.
+                replacing = self._rescue_recovered_primary(target_path)
+                if not replacing and self._is_stale_write(on_disk, target_path, state):
                     return
-                state[REVISION_KEY] = (on_disk or 0) + 1
-                # F-09 FIX: keep one backup of the previous state
-                if target_path.exists():
-                    backup = target_path.with_suffix(".json.bak")
-                    try:
-                        import shutil
-                        shutil.copy2(str(target_path), str(backup))
-                    except Exception as e:
-                        trade_log.debug("Best-effort backup copy failed: %s", e)
+                if replacing:
+                    # The damaged file's own revision, when it has one, may
+                    # be ahead of the backup's; the new one is past both.
+                    base = max((r for r in (on_disk, self._state_revision)
+                                if r is not None), default=0)
+                else:
+                    base = on_disk or 0
+                state[REVISION_KEY] = base + 1
                 # C2-33: fsync before the rename (inside the helper) so a crash
                 # cannot publish a rename the data has not landed behind.
                 atomic_write_json(str(target_path), state, indent=2, default=str)
@@ -622,9 +642,55 @@ class PortfolioTracker:
                 # survives a crash/power loss. Best-effort.
                 fsync_dir(str(target_path))
                 self._state_revision = state[REVISION_KEY]
+                self._recovered_past = None
+                # F-09: the backup is written AFTER the primary and holds the
+                # SAME state. It used to be a copy of the PREVIOUS file, so a
+                # recovery landed one save behind: a book whose last save was a
+                # close came back with that position open. A backup that did
+                # not land is said at WARNING, because the next recovery would
+                # be that much older and nothing else would record it.
+                backup = target_path.with_suffix(".json.bak")
+                try:
+                    atomic_write_json(str(backup), state, indent=2, default=str)
+                except Exception as e:
+                    trade_log.warning(
+                        "portfolio backup not written (%s): a recovery from %s "
+                        "would now be older than the book", e, backup.name)
         except Exception as exc:
             audit(trade_log, f"Failed to save portfolio state: {exc}",
                   action="save_state", result="ERROR")
+
+    def _rescue_recovered_primary(self, target_path: Path) -> bool:
+        """True when the file at ``target_path`` is the damaged primary this
+        tracker recovered past, and it has now been copied aside.
+
+        The copy is named ``<file>.unreadable-<time>`` so nothing that restores
+        books by pattern (``portfolio_*.json``) reads it as one. A copy that
+        fails answers False, and the ordinary guard then refuses the write:
+        a damaged file is never replaced before it is kept.
+        """
+        if self._recovered_past is None:
+            return False
+        try:
+            if _file_digest(target_path) != self._recovered_past:
+                return False
+            kept = target_path.with_name(
+                f"{target_path.name}.unreadable-"
+                f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}")
+            shutil.copy2(str(target_path), str(kept))
+        except Exception as exc:
+            audit(trade_log,
+                  f"The damaged portfolio file {target_path.name} could not be "
+                  f"copied aside ({type(exc).__name__}), so it is not replaced.",
+                  action="save_state", result="NOT_RESCUED",
+                  level=logging.WARNING)
+            return False
+        audit(trade_log,
+              f"Copied the damaged portfolio file aside as {kept.name} before "
+              f"replacing it with the book recovered from its backup.",
+              action="save_state", result="RESCUED", level=logging.WARNING,
+              data={"kept": kept.name})
+        return True
 
     def _is_stale_write(self, on_disk: Optional[int], target_path: Path,
                         state: dict) -> bool:
@@ -741,8 +807,17 @@ class PortfolioTracker:
                       level=logging.WARNING)
                 recovered = self._load_state_locked(str(backup_path))
                 if recovered:
-                    audit(trade_log, "Recovered portfolio state from backup",
-                          action="load_state", result="RECOVERED")
+                    try:
+                        self._recovered_past = _file_digest(target_path)
+                    except OSError:
+                        self._recovered_past = None
+                    audit(trade_log,
+                          f"Recovered portfolio state from backup "
+                          f"{backup_path.name}. The backup holds the last save "
+                          f"that wrote both copies. {target_path.name} is kept "
+                          f"as it is and copied aside before it is replaced.",
+                          action="load_state", result="RECOVERED",
+                          level=logging.WARNING)
                     return True
             audit(trade_log,
                   f"CRITICAL: Corrupted state file {target}, starting fresh: {exc}",
