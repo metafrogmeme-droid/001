@@ -18,7 +18,7 @@
  */
 
 const { pool } = require('../db');
-const { winStats, realizedTotal } = require('../public/js/trade-stats');
+const { winStats, profitFactor } = require('../public/js/trade-stats');
 const { getTickers } = require('./tickers');
 const rwa = require('./rwa');
 const dex = require('./dex');
@@ -188,21 +188,33 @@ async function buildDossier(base) {
       String(t.symbol || '').toUpperCase().split('/')[0].replace(/USDT.*$/, '') === base);
     if (mine.length) {
       // `parseFloat(t.pnl) || 0` summed every unpriced close as break-even and
-      // `mine.length - wins` filed it as a loss — and `net >= 0 ? 'up'` then
-      // painted the fabricated total green, which says "not down" as loudly
-      // as the digits do. `trades.pnl` is nullable, so all three are real.
+      // `mine.length - wins` filed it as a loss. `trades.pnl` is nullable, so
+      // the count and the scored count are two numbers, and both are printed.
+      //
+      // NO DOLLAR FIGURE. This section used to print the operator's realized
+      // net in dollars per coin (`net +$472.25`) under a source label calling
+      // it "public track record data" -- and the public track record is
+      // percent, ratio and count only. The dossier is served to any signed-in
+      // account, to anonymous MCP and tool-invoke callers, to the web chat and
+      // to Telegram, so the record is a W/L count and the profit factor (a
+      // ratio, none over no loss) and nothing else. No colour either: a ratio
+      // over a handful of closes is not a verdict.
       const ws = winStats(mine);
-      const net = realizedTotal(mine);
+      const pf = profitFactor(mine);
       const record = ws.scored
-        ? `${ws.wins}W/${ws.losses}L, net <b class="${net >= 0 ? 'up' : 'down'}">`
-          + `${net < 0 ? '-' : '+'}$${Math.abs(round2(net)).toFixed(2)}</b>`
+        ? `${ws.wins}W/${ws.losses}L`
+          + (ws.breakeven ? ` (${ws.breakeven} flat)` : '')
+          + (pf !== null
+            ? `, profit factor <b>${round2(pf).toFixed(2)}</b>`
+            : ', no losing close on record, so no profit factor')
           + (ws.unscored ? ` (over the ${ws.scored} with a recorded P&amp;L)` : '')
         : 'none of them carry a recorded P&amp;L, so there is no result to show';
       sections.push({
         title: 'Agent track record here',
         html: `The agent has closed <b>${mine.length}</b> trade(s) on ${esc(base)}: `
           + `${record}.`,
-        source: 'recorded closed trades (public track record data)',
+        source: 'recorded closed trades (win/loss count and profit factor only, '
+          + 'no dollar figures)',
       });
       sources.add('RUNECLAW recorded closed trades');
     }

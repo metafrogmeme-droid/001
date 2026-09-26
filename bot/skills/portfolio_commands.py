@@ -45,6 +45,7 @@ from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
 from bot.utils.logger import system_log
+from bot.utils.paths import state_path
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.win_rate import pnl_stats as _pnl_stats
 from bot.utils.win_rate import trade_pnl as _trade_pnl
@@ -72,6 +73,47 @@ def _caller_dd_status(engine, user_id) -> dict:
     return (risk.drawdown_status() or {}) if risk is not None else {}
 
 
+def leverage_in_use(rows) -> tuple[Optional[float], int]:
+    """The highest leverage among these open positions, and how many could
+    not be read. ``(None, 0)`` for no rows, and for a book nobody read.
+
+    The /risk card drew its leverage gauge from a literal ``1.0``, so it told
+    every reader, in green, that the account ran at 1x whatever its positions
+    ran at. A live position's leverage is read through `position_leverage`,
+    which refuses the stored ``0``/``1`` an adopted position carries and
+    derives it from the margin and notional when both were stated. A paper
+    position's stored leverage is its real one, 1x included.
+    """
+    from bot.utils.leveraged_return import position_leverage
+    if not rows:
+        return None, 0
+    read: list[float] = []
+    unread = 0
+    for p in rows:
+        stored = getattr(p, "leverage", None)
+        if not hasattr(p, "cost_usd"):          # paper: the stored leverage is the leverage
+            try:
+                lev: Optional[float] = float(stored) if stored is not None else None
+            except (TypeError, ValueError):
+                lev = None
+            if lev is not None and not (lev >= 1.0 and lev != float("inf")):
+                lev = None
+        else:
+            entry, qty = getattr(p, "entry_price", None), getattr(p, "quantity", None)
+            notional: Optional[float] = None
+            if entry is not None and qty is not None:
+                try:
+                    notional = float(entry) * float(qty)
+                except (TypeError, ValueError):
+                    notional = None
+            lev = position_leverage(stored, getattr(p, "cost_usd", None), notional)
+        if lev is None:
+            unread += 1
+        else:
+            read.append(lev)
+    return (max(read) if read else None), unread
+
+
 def _unpriced_tag(stats: dict) -> str:
     """" (+N unpriced)" for a W/L line, or "" when everything scored.
 
@@ -86,6 +128,34 @@ def _unpriced_tag(stats: dict) -> str:
     except (AttributeError, TypeError, ValueError):
         return ""
     return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
+
+
+#: The UTC day the agent's daily report was last posted to the public
+#: channels. A claim written BEFORE the post (bot/utils/day_stamp.py).
+PUBLIC_DAILY_POST_STAMP = state_path("data/public_daily_report.json")
+
+
+def _claim_public_daily_post() -> bool:
+    """True when today's public daily report may go out, and it is now
+    recorded as gone.
+
+    At most once per UTC day, across restarts. A stamp file that will not
+    read is NOT "not yet posted" -- it may say it was -- and a claim that
+    could not be saved would let the next call post again, so both answer
+    False and say why. The private card has already been sent by then.
+    """
+    from bot.utils.day_stamp import ALREADY, CLAIMED, claim_period
+
+    day = datetime.now(UTC).strftime("%Y-%m-%d")
+    outcome, detail = claim_period(PUBLIC_DAILY_POST_STAMP, "daily_report", day)
+    if outcome == CLAIMED:
+        return True
+    if outcome != ALREADY:
+        system_log.warning(
+            "Public daily report NOT posted: its once-a-day stamp is %s (%s), "
+            "so whether it already went out today cannot be known.",
+            outcome, detail)
+    return False
 
 
 class PortfolioCommands:
@@ -829,11 +899,19 @@ class PortfolioCommands:
         portfolio = self.engine.user_portfolios.get(user_id)
         state = portfolio.snapshot()
         # LIVE FIX: use real open position count (per-user: the caller's own).
+        #
+        # A caller with no executor has a book nobody read. It was counted as
+        # 0 open positions, the reading of a flat account; it is None now.
+        _open_rows: Optional[list]
+        open_count: Optional[int]
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
             _risk_ex = self._caller_executor(update)
-            open_count = len(_risk_ex.open_positions) if _risk_ex else 0
+            _open_rows = list(_risk_ex.open_positions) if _risk_ex else None
+            open_count = len(_open_rows) if _open_rows is not None else None
         else:
+            _open_rows = list(getattr(portfolio, "open_positions", None) or [])
             open_count = state.open_positions
+        _lev_used, _lev_unread = leverage_in_use(_open_rows)
         # Source every number from the control that ENFORCES it. This card
         # previously reported `state.max_drawdown_pct` as "current drawdown" —
         # the PAPER portfolio's monotonic worst-EVER, which never recovers and
@@ -878,6 +956,8 @@ class PortfolioCommands:
             "max_open_trades": _max_trades,
             "open_trades": open_count,
             "leverage_cap": CONFIG.exchange.default_leverage,
+            "leverage_in_use": _lev_used,
+            "leverage_unread": _lev_unread,
             # WHY trades are being rejected, or "" — so this card cannot score
             # a halted engine as HEALTHY. Without it the text renderer knew
             # only the drawdown reading, and a restart-erased high-water mark
@@ -915,7 +995,10 @@ class PortfolioCommands:
                     {"label": t("lbl_daily_loss_limit", lang), "value": f"{data['daily_loss_limit']:.1f}%", "color": "yellow"},
                     {"label": t("lbl_current_drawdown", lang), "value": _dd_txt,
                      "color": _dd_col},
-                    {"label": t("lbl_open_trades", lang), "value": f"{data['open_trades']}/{data['max_open_trades']}", "color": "white"},
+                    {"label": t("lbl_open_trades", lang),
+                     "value": ("—" if data["open_trades"] is None else str(data["open_trades"]))
+                     + f"/{data['max_open_trades']}",
+                     "color": "gray" if data["open_trades"] is None else "white"},
                     {"label": t("lbl_leverage_cap", lang), "value": f"{data['leverage_cap']}x", "color": "cyan"},
                     {"label": t("lbl_circuit_breaker", lang), "value": t("val_tripped", lang) if cb else t("val_ok", lang),
                      "color": "red" if cb else "green"},
@@ -1226,11 +1309,18 @@ class PortfolioCommands:
         """Daily trading report."""
         user_id = self._get_tg_id(update)
 
+        # WHOSE DAY THIS IS decides whether it may be published as the
+        # agent's (the forward block below). Only the operator's own live
+        # book is RUNECLAW's record; a linked trader's own account and every
+        # practice book are a person's, and never a public post.
+        agent_book = False
         # LIVE mode: use real trade data from executor
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
             # The day's closes, wins and losses — this caller's, not the
             # operator's.
-            executor = self.engine.live_view(user_id).get("executor")
+            _view = self.engine.live_view(user_id)
+            executor = _view.get("executor")
+            agent_book = _view.get("scope") == "operator"
             if executor is None:
                 await self._send(update, no_live_account_line(live_account_absence(user_id)))
                 return
@@ -1371,8 +1461,17 @@ class PortfolioCommands:
         # would be the closes that read, published as the day's; the website
         # sync withholds a partial record for the same reason, and the private
         # card above says so.
+        #
+        # And it is the AGENT's report, so it is posted when the book read is
+        # the agent's and at most once per UTC day. It used to go out on
+        # every call, from whoever called: `journal` is held by viewer, paper
+        # and trader, so a linked trader's own day was published as
+        # RUNECLAW's, once per /daily_report. The claim is on disk before the
+        # post (`claim_period`), so a restart does not post the day again,
+        # and a stamp file that will not read is not "not yet posted".
         try:
-            if today_trades > 0 and not record_partial:
+            if today_trades > 0 and not record_partial and agent_book \
+                    and _claim_public_daily_post():
                 _rate = _ws.get("rate")
                 _lines = [
                     f"Trades: <code>{today_trades}</code> | "

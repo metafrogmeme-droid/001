@@ -428,7 +428,7 @@ python -m bot.main --mode scan
 | `/dashboard` | 開啟網頁儀表板 |
 | `/link` | 將此 Telegram 連結到你的網站帳戶 — /link <token> |
 | `/unlink` | 解除此 Telegram 與網站帳戶的連結 |
-| `/me` | 你的帳戶：方案、投資組合與設定 |
+| `/me` | 你的帳戶：電郵、方案與設定 |
 | `/sync` | 說明儀表板為何不需推送 — 它載入時會直接讀取你的帳號 |
 | `/connect` | 連結你自己的交易所帳戶 |
 | `/exchange` | 你的帳戶連結狀態（永不顯示金鑰） |

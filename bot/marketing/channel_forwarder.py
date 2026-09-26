@@ -9,9 +9,9 @@ no sensitive data. Public-facing marketing content only.
 from __future__ import annotations
 
 import json
-import re
 import threading
 from datetime import datetime
+from typing import Optional
 
 from bot.compat import UTC
 from bot.marketing.public_text import scrub_money
@@ -19,6 +19,12 @@ from bot.utils.logger import audit, system_log
 
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import state_path
+
+#: The TRADE CLOSED headline, by the close's NET outcome
+#: (`public_text.close_outcome`). A measured break-even and an outcome nobody
+#: measured both get the neutral mark: neither is a win or a loss.
+_CLOSE_ICON = {"win": "\U0001f3c6", "loss": "\U0001f4c9", "flat": "\u26aa"}
+_CLOSE_ICON_UNKNOWN = "\u26aa"
 
 # Persistent config file for group chat IDs
 # Repo-root anchored (bot/utils/paths.py): cwd-relative meant the forwarder
@@ -147,13 +153,16 @@ class ChannelForwarder:
             now = datetime.now(UTC).strftime("%H:%M UTC")
 
             _sep = "\u2500" * 18
+            # The adaptive formatter: `:,.4f` published a PEPE signal's three
+            # levels as `$0.0000` each.
+            from bot.formatters.rich_cards import _fmt_price
             msg = (
                 f"\U0001f4e1 <b>RUNECLAW SIGNAL</b>\n"
                 f"{_sep}\n\n"
                 f"{d} <b>{asset}</b>\n\n"
-                f"Entry: <code>${idea.entry_price:,.4f}</code>\n"
-                f"Stop Loss: <code>${idea.stop_loss:,.4f}</code> ({sl_pct:.1f}%)\n"
-                f"Take Profit: <code>${idea.take_profit:,.4f}</code> ({tp_pct:.1f}%)\n"
+                f"Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
+                f"Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code> ({sl_pct:.1f}%)\n"
+                f"Take Profit: <code>{_fmt_price(idea.take_profit)}</code> ({tp_pct:.1f}%)\n"
                 f"R:R: <code>{rr:.1f}x</code>\n"
                 f"Confidence: <code>{idea.confidence:.0%}</code>\n\n"
                 f"{_sep}\n"
@@ -175,13 +184,14 @@ class ChannelForwarder:
             mode_icon = "\U0001f525" if mode == "LIVE" else "\U0001f4dd"
 
             _sep = "\u2500" * 18
+            from bot.formatters.rich_cards import _fmt_price
             msg = (
                 f"\u2705 <b>TRADE OPENED</b>\n"
                 f"{_sep}\n\n"
                 f"{d} <b>{asset}</b> | {mode_icon} {mode}\n\n"
-                f"Entry: <code>${idea.entry_price:,.4f}</code>\n"
-                f"Stop Loss: <code>${idea.stop_loss:,.4f}</code>\n"
-                f"Take Profit: <code>${idea.take_profit:,.4f}</code>\n\n"
+                f"Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
+                f"Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code>\n"
+                f"Take Profit: <code>{_fmt_price(idea.take_profit)}</code>\n\n"
                 f"{_sep}\n"
                 f"\U0001f916 RUNECLAW | {now}\n"
                 f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"
@@ -190,17 +200,25 @@ class ChannelForwarder:
         except Exception as exc:
             system_log.debug("post_trade_opened error: %s", exc)
 
-    async def post_trade_closed(self, close_msg: str) -> None:
-        """Post a trade close result to the group."""
+    async def post_trade_closed(self, close_msg: str,
+                                outcome: Optional[str] = None) -> None:
+        """Post a trade close result to the group.
+
+        ``outcome`` is ``public_text.close_outcome(close_data)``: the NET
+        result's sign, or None when nobody measured it. The headline icon is
+        read from it and from nothing else.
+        """
         if not self._enabled or not self._group_ids:
             return
         try:
-            # The win/loss emoji used to key off "+$", which is exactly the
-            # substring §4 removes from this surface — so the trophy would have
-            # silently become a chart-down on every winning trade. The percent
-            # survives the scrub and carries the same sign.
-            is_win = bool(re.search(r"\+\s?\d[\d,]*(?:\.\d+)?\s?%", close_msg))
-            emoji = "\U0001f3c6" if is_win else "\U0001f4c9"
+            # THE TROPHY WAS A REGEX FOR ANY "+N%" IN THE TEXT, and the text
+            # leads with the price MOVE: a 20x close that moved +0.10% and lost
+            # 0.40% on margin after fees posted "🏆 TRADE CLOSED" above its
+            # own red dot. (It had keyed off "+$" before that, which §4 removes
+            # from this surface.) The sign is the net's, handed in by the
+            # caller that holds the close record, and a close whose net nobody
+            # measured gets neither icon: colour is a claim.
+            emoji = _CLOSE_ICON.get(outcome or "", _CLOSE_ICON_UNKNOWN)
             now = datetime.now(UTC).strftime("%H:%M UTC")
 
             _sep = "\u2500" * 18

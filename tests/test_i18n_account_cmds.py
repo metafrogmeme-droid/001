@@ -60,12 +60,15 @@ def test_unlink_messages():
 
 
 def test_me_and_sync():
-    _eq(t("me_account", L, email="a@b.c", plan="pro", equity="10.00", pnl="1.00",
-          trades=5, llm="openai", notif="on"),
+    # /me carries no balance, P&L or trade count: those came from a table
+    # nothing writes (tests/test_me_shows_no_figure_nobody_recorded.py).
+    _eq(t("me_account", L, email="a@b.c", plan="pro", llm="openai", notif="on",
+          url=URL),
         "<b>Your RUNECLAW Account</b>\n\nEmail:    <code>a@b.c</code>\n"
-        "Plan:     <code>pro</code>\nEquity:   <code>$10.00</code>\n"
-        "Open P&amp;L: <code>$1.00</code>\nTrades:   <code>5</code>\n\n"
-        "LLM: <code>openai</code> | Notifications: <code>on</code>")
+        "Plan:     <code>pro</code>\n\n"
+        "LLM: <code>openai</code> | Notifications: <code>on</code>\n\n"
+        "Your balance and trades are not stored with this account. Your"
+        f" dashboard reads them from the bot each time it loads: {URL}/dashboard")
     # /sync pushes nothing now: it used to answer "Dashboard synced. Equity:
     # $10000.00" over a push of an unwritten table's defaults onto the AGENT's
     # record (tests/test_a_linked_users_sync_does_not_touch_the_agents_record.py).

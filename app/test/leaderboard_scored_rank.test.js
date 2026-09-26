@@ -35,8 +35,12 @@ const express = require('express');
 const APP = path.join(__dirname, '..');
 
 /**
- * `books` maps user id → the CLOSED aggregate MySQL would return.
- * Every listed user is opted in with handle `u<id>`.
+ * `books` maps user id → the CLOSED aggregate MySQL would return, plus the
+ * account's latest `equity` snapshot. Every listed user is opted in with
+ * handle `u<id>`. Return % is measured on the account's own derived starting
+ * equity (snapshot minus realized net), so each book below carries an equity
+ * of 10,000 + net: the same percentages these cases were written against,
+ * without the constant divisor that made `return_pct * 100` the dollar P&L.
  */
 function server(books) {
   const pool = {
@@ -49,6 +53,10 @@ function server(books) {
         return [[{ leaderboard_handle: 'u1' }]];
       }
       if (/FROM trades/.test(sql)) return [[books[params[0]]]];
+      if (/FROM equity_snapshots/.test(sql)) {
+        const b = books[params[0]];
+        return [b && b.equity != null ? [{ equity: b.equity }] : []];
+      }
       return [[]];
     },
   };
@@ -85,7 +93,7 @@ function board(books) {
 
 test('a member whose closes cannot be priced is not ranked at 0.00%', async () => {
   const { body } = await board({
-    1: { total: 3, scored: 3, wins: 2, net_pnl: 900 },   // real record
+    1: { total: 3, scored: 3, wins: 2, net_pnl: 900, equity: 10900 },   // real record
     2: { total: 4, scored: 0, wins: 0, net_pnl: null },  // nothing priceable
   });
   const handles = body.rows.map((r) => r.handle);
@@ -99,11 +107,11 @@ test('an unpriced close leaves the win rate and the return', async () => {
   // Six closes, three priced, two of those won. The old arithmetic said
   // 2/6 = 33.3%; the honest answer is 2/3 = 66.7% over three priced closes.
   const { body } = await board({
-    1: { total: 6, scored: 3, wins: 2, net_pnl: 600 },
+    1: { total: 6, scored: 3, wins: 2, net_pnl: 600, equity: 10600 },
   });
   const me = body.rows[0];
   assert.strictEqual(me.win_rate, 66.7, 'wins / COUNT(*) reported 33.3%');
-  assert.strictEqual(me.return_pct, 6, '600 / 10000 stake');
+  assert.strictEqual(me.return_pct, 6, '600 over a derived start of 10000');
   assert.strictEqual(me.trades, 6);
   assert.strictEqual(me.scored, 3);
   assert.strictEqual(me.unpriced, 3,
@@ -114,9 +122,9 @@ test('unpriced rows cannot reorder the board', async () => {
   // u2's real record is the best of the three. Under COALESCE it scored 0.00%
   // and ranked LAST behind a genuinely flat book.
   const { body } = await board({
-    1: { total: 2, scored: 2, wins: 1, net_pnl: 100 },   // +1.00%
-    2: { total: 5, scored: 1, wins: 1, net_pnl: 500 },   // +5.00%, 4 unpriced
-    3: { total: 2, scored: 2, wins: 0, net_pnl: 0 },     // a real flat book
+    1: { total: 2, scored: 2, wins: 1, net_pnl: 100, equity: 10100 },   // +1.00%
+    2: { total: 5, scored: 1, wins: 1, net_pnl: 500, equity: 10500 },   // +5.00%, 4 unpriced
+    3: { total: 2, scored: 2, wins: 0, net_pnl: 0, equity: 10000 },     // a real flat book
   });
   assert.deepStrictEqual(body.rows.map((r) => r.handle), ['u2', 'u1', 'u3']);
   assert.deepStrictEqual(body.rows.map((r) => r.rank), [1, 2, 3]);
@@ -126,7 +134,7 @@ test('a genuinely flat book is still ranked, at a real 0.00%', async () => {
   // The fix must not erase a measured zero: 0.00% over two priced closes is a
   // real result and belongs on the board.
   const { body } = await board({
-    1: { total: 2, scored: 2, wins: 0, net_pnl: 0 },
+    1: { total: 2, scored: 2, wins: 0, net_pnl: 0, equity: 10000 },
   });
   assert.strictEqual(body.rows.length, 1, 'a measured flat book was dropped');
   assert.strictEqual(body.rows[0].return_pct, 0);

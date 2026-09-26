@@ -116,10 +116,16 @@ class TestBothPathsUseHelper:
         assert "self._size_or_block(" in inspect.getsource(LiveExecutor.execute)
 
     def test_nothing_else_decides_a_leverage(self):
-        """Exactly three methods ask, and no fourth quietly works one out.
+        """Exactly four methods ask, and no fifth quietly works one out.
 
-        The number is DERIVED — a list of the three would be the shape where
-        the fourth added tomorrow is the one missing from it.
+        The number is DERIVED — a list of them would be the shape where the
+        one added tomorrow is the one missing from it. `execute` is the fourth:
+        it reads the leverage ONCE per order and hands that number to the set
+        and to the sizing, because each reading it for itself let a
+        `/leverage` change between them set the venue to one leverage and
+        size the order at another
+        (tests/test_the_placed_order_is_the_checked_order.py). The other three
+        still read it when no order hands them one.
         """
         tree = ast.parse(inspect.getsource(live_executor_mod))
         asks = sorted(
@@ -132,4 +138,4 @@ class TestBothPathsUseHelper:
                     for n in ast.walk(fn))
         )
         assert asks == ["_ensure_leverage", "_ensure_leverage_generic",
-                        "_size_or_block"], asks
+                        "_size_or_block", "execute"], asks

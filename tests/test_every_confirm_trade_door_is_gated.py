@@ -47,7 +47,6 @@ from telegram.ext import ContextTypes
 
 import bot.config as bot_config
 import bot.skills.scan_skill as scan_skill
-from bot.utils.models import RiskVerdict
 from tests.source_scan import code_only
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -210,17 +209,25 @@ def test_every_baseline_row_carries_a_reason():
 
 
 def test_the_known_live_doors_are_all_gated():
-    """The four doors a caller can actually reach today, named.
+    """The three doors a caller can actually reach today, named.
 
     Derived membership rather than a hand-written list of what is gated: every
     site NOT in the baseline must carry a gate, which the first test enforces.
-    This one pins that the four live-facing doors are present at all, so a door
+    This one pins that the live-facing doors are present at all, so a door
     that silently STOPS calling confirm_trade (and starts calling something
     else) does not read as a pass.
+
+    There were FOUR, and the fourth stopped on purpose: `scan_skill`'s
+    `callback_confirm_reject` placed a market order at the scan price with a
+    flat 3%/6% the card never showed. The scan card's ✅ is `confirm:<id>` on
+    the card's own registered idea now, through `_handle_callback` below, and
+    an old `scan_confirm:` payload is refused
+    (`test_an_old_scan_payload_reaches_no_confirm_in_any_mode`).
     """
     by_func = {f"{s['path']}::{s['func']}": s for s in confirm_trade_sites()}
-    for key in ("bot/skills/scan_skill.py::callback_confirm_reject",
-                "bot/skills/telegram_handler.py::_handle_message",
+    assert "bot/skills/scan_skill.py::callback_confirm_reject" not in by_func, (
+        "the scan card's old door reaches confirm_trade again")
+    for key in ("bot/skills/telegram_handler.py::_handle_message",
                 "bot/skills/callback_handler.py::_handle_callback",
                 "bot/web/user_gateway.py::handle_trade_confirm"):
         assert key in by_func, f"{key} no longer reaches confirm_trade — did it move?"
@@ -377,6 +384,8 @@ def test_every_gate_name_can_refuse():
 
 
 def _scan_confirm_fixture(result_text: str = "EXECUTED"):
+    """An OLD scan card's ✅: `scan_confirm:<sym>:<dir>:<price>`, which carries
+    none of the levels the card showed."""
     query = MagicMock()
     query.data = "scan_confirm:DYDX/USDT:LONG:0.20462"
     query.answer = AsyncMock()
@@ -388,21 +397,7 @@ def _scan_confirm_fixture(result_text: str = "EXECUTED"):
     update.callback_query = query
     update.effective_user = types.SimpleNamespace(id=999)
 
-    ohlcv = [[0, 0, 1.0, 0.9, 1.0, 100.0] for _ in range(30)]
-    exchange = MagicMock()
-    exchange.fetch_ohlcv = AsyncMock(return_value=ohlcv)
-    exchange.fetch_ticker = AsyncMock(return_value={"last": 0.20462})
-
-    scanner = MagicMock()
-    scanner._get_exchange = AsyncMock(return_value=exchange)
-
-    risk = MagicMock()
-    risk.evaluate = MagicMock(
-        return_value=types.SimpleNamespace(verdict=RiskVerdict.APPROVED, reason="OK"))
-
     engine = MagicMock()
-    engine.scanner = scanner
-    engine.risk = risk
     engine._pending_ideas = {}
     engine._pending_atr = {}
     engine.confirm_trade = AsyncMock(return_value=result_text)
@@ -428,77 +423,136 @@ def _sent(query) -> str:
 
 
 @pytest.mark.asyncio
-async def test_live_mode_refuses_a_caller_who_may_not_trade_live(monkeypatch):
+@pytest.mark.parametrize("live", [True, False])
+@pytest.mark.parametrize("admin,live_ok", [(False, False), (False, True), (True, False)])
+async def test_an_old_scan_payload_reaches_no_confirm_in_any_mode(live, admin, live_ok,
+                                                                  monkeypatch):
+    """The old door is CLOSED for everybody: it places nothing whoever taps it,
+    in either mode, and says so."""
+    update, context, engine, query = _scan_confirm_fixture()
+    context.bot_data["telegram_handler"] = _handler_stub(admin=admin, live_ok=live_ok)
+    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: live)
+
+    await scan_skill.callback_confirm_reject(update, context)
+
+    assert engine.confirm_trade.await_count == 0
+    assert "nothing was placed" in _sent(query)
+
+
+# The H-18 drives for the door the scan card's money goes through NOW -- the
+# `confirm:` branch of `_handle_callback`, tapped with the id of the idea the
+# card registered. They used to drive `scan_confirm:`, which is refused above.
+
+
+def _confirm_tap(*, admin: bool, live_ok: bool, live: bool,
+                 answer: object = "\u2705 LIVE LONG DYDX/USDT filled"):
+    """One tap of a scan card's ✅ through the REAL dispatcher. `answer` is
+    what `confirm_trade` returns, or an exception it raises."""
+    import asyncio
+
+    from bot.skills import scan_skill as _ss
+    from bot.skills.telegram_handler import TelegramHandler
+    from bot.utils.user_store import ROLE_PERMISSIONS
+
+    uid = "999"
+    rows = [{"sym": "DYDX/USDT", "dir": "LONG", "price": 0.20462, "atr": 0.004,
+             "entry": 0.2034, "sl": 0.1946, "tp": 0.2166, "score": 0.8}]
+    engine = types.SimpleNamespace(_pending_ideas={}, _pending_atr={},
+                                   live_executor=types.SimpleNamespace(_positions={}))
+    _ss.register_scan_offers(engine, rows)
+    _hdr, buttons = _ss.scan_action_rows(rows, {"blocked": False}, uid)
+    data = buttons[0][0][1]
+    engine.confirm_trade = (AsyncMock(side_effect=answer) if isinstance(answer, Exception)
+                            else AsyncMock(return_value=answer))
+
+    class _Users:
+        def get(self, tid):
+            return {"role": "trader", "authorized": True}
+
+        def has_permission(self, tid, perm):
+            return perm in ROLE_PERMISSIONS["trader"]
+
+        def is_authorized(self, *a, **k):
+            return True
+
+        def is_admitted(self, *a, **k):
+            return True
+
+        def permission_denial(self, *a, **k):
+            return None
+
+        def get_tier(self, *a, **k):
+            return "free"
+
+        def register(self, *a, **k):
+            return None
+
+    async def _noop(*a, **k):
+        return None
+
+    replies: list = []
+    h = TelegramHandler.__new__(TelegramHandler)
+    h.engine = engine
+    h.users = _Users()
+    h.forwarder = types.SimpleNamespace(post_trade_opened=_noop)
+    h._limiter = types.SimpleNamespace(allow=lambda u: True)
+    h._check_auth = lambda update: True
+    h._is_admin = MagicMock(return_value=admin)
+    h._can_trade_live = MagicMock(return_value=live_ok)
+    h._live_refusal_key = lambda: "live_not_enabled"
+    h._lang = lambda update: "en"
+
+    async def _send(update, text, **kw):
+        replies.append(text)
+
+    h._send = _send
+    query = types.SimpleNamespace(
+        data=data, answer=_noop,
+        message=types.SimpleNamespace(edit_reply_markup=_noop, chat_id=int(uid)))
+    update = types.SimpleNamespace(
+        callback_query=query,
+        effective_user=types.SimpleNamespace(id=int(uid), first_name="X"),
+        effective_chat=types.SimpleNamespace(id=int(uid)))
+    orig = type(bot_config.CONFIG).is_live
+    type(bot_config.CONFIG).is_live = lambda self: live
+    try:
+        asyncio.new_event_loop().run_until_complete(
+            h._handle_callback(update, types.SimpleNamespace()))
+    finally:
+        type(bot_config.CONFIG).is_live = orig
+    return engine, h, "\n".join(replies)
+
+
+def test_live_mode_refuses_a_caller_who_may_not_trade_live():
     """The arm that matters: refused, and confirm_trade never awaited."""
-    update, context, engine, query = _scan_confirm_fixture()
-    context.bot_data["telegram_handler"] = _handler_stub(admin=False, live_ok=False)
-    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: True)
-
-    await scan_skill.callback_confirm_reject(update, context)
-
+    engine, _h, said = _confirm_tap(admin=False, live_ok=False, live=True)
     assert engine.confirm_trade.await_count == 0, (
-        "a caller who may not trade live reached confirm_trade — on the default "
-        "config that is a real order on the SHARED OPERATOR account")
-    assert "\U0001f512" in _sent(query), "no refusal was shown to the caller"
+        "a caller who may not trade live reached confirm_trade from a scan card "
+        "— on the default config that is a real order on the SHARED OPERATOR "
+        "account")
+    assert "\U0001f512" in said, "no refusal was shown to the caller"
 
 
-@pytest.mark.asyncio
-async def test_live_mode_lets_a_permitted_caller_through(monkeypatch):
+def test_live_mode_lets_a_permitted_caller_through():
     """The other arm. Without it, a handler that does nothing passes above."""
-    update, context, engine, query = _scan_confirm_fixture()
-    context.bot_data["telegram_handler"] = _handler_stub(admin=False, live_ok=True)
-    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: True)
-
-    await scan_skill.callback_confirm_reject(update, context)
-
+    engine, _h, _said = _confirm_tap(admin=False, live_ok=True, live=True)
     assert engine.confirm_trade.await_count == 1, (
         "a permitted caller was refused — the gate is refusing everybody, which "
         "a refusal-only assertion cannot tell from working")
 
 
-@pytest.mark.asyncio
-async def test_an_admin_is_not_refused(monkeypatch):
-    update, context, engine, _ = _scan_confirm_fixture()
-    context.bot_data["telegram_handler"] = _handler_stub(admin=True, live_ok=False)
-    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: True)
-
-    await scan_skill.callback_confirm_reject(update, context)
-
+def test_an_admin_is_not_refused():
+    engine, _h, _said = _confirm_tap(admin=True, live_ok=False, live=True)
     assert engine.confirm_trade.await_count == 1
 
 
-@pytest.mark.asyncio
-async def test_paper_mode_does_not_consult_the_gate(monkeypatch):
+def test_paper_mode_does_not_consult_the_gate():
     """The gate is a LIVE-mode reading; paper must be byte-identical to before."""
-    update, context, engine, _ = _scan_confirm_fixture()
-    handler = _handler_stub(admin=False, live_ok=False)
-    context.bot_data["telegram_handler"] = handler
-    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: False)
-
-    await scan_skill.callback_confirm_reject(update, context)
-
+    engine, h, _said = _confirm_tap(admin=False, live_ok=False, live=False)
     assert engine.confirm_trade.await_count == 1
-    assert handler._can_trade_live.call_count == 0, (
+    assert h._can_trade_live.call_count == 0, (
         "paper mode consulted the live permission — the gate moved out from "
         "under its own `if is_live()`")
-
-
-@pytest.mark.asyncio
-async def test_an_unreachable_handler_fails_CLOSED(monkeypatch):
-    """"Cannot check" must not mean "allowed" on the path that spends money.
-
-    `bot_data` carries no telegram_handler, so there is no way to evaluate the
-    permission at all. The refusal is the whole point of the branch.
-    """
-    update, context, engine, query = _scan_confirm_fixture()
-    context.bot_data.pop("telegram_handler", None)
-    monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: True)
-
-    await scan_skill.callback_confirm_reject(update, context)
-
-    assert engine.confirm_trade.await_count == 0, (
-        "the permission check was unavailable and the trade went through anyway")
-    assert "\U0001f512" in _sent(query)
 
 
 def test_the_growth_rule_names_an_ungated_door(tmp_path):

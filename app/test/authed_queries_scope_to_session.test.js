@@ -245,9 +245,18 @@ test('the leaderboard publishes percent and counts, not dollars', () => {
   const i = src.indexOf('return {');
   const body = src.slice(i, i + 400);
   assert.ok(/return_pct/.test(body) && /win_rate/.test(body));
-  for (const banned of ['net_pnl:', 'pnl_usd', 'total_fees:', 'equity']) {
-    assert.ok(!body.includes(banned), `${banned} on a cross-user surface`);
+  // As EMITTED KEYS. The return is measured on the account's own equity now,
+  // so `snap[0].equity` is read here as the ratio's input -- and a bare
+  // substring test for 'equity' accused that. Reading money to compute a
+  // ratio is exactly right (public_no_dollars.test.js says so in as many
+  // words); a money key in the returned object is the breach.
+  const keyRe = (k) => new RegExp(`(^|[{,\\s])['"\`]?${k}['"\`]?\\s*:`, 'm');
+  for (const banned of ['net_pnl', 'pnl_usd', 'total_fees', 'equity']) {
+    assert.ok(!keyRe(banned).test(body), `${banned} on a cross-user surface`);
   }
+  assert.ok(keyRe('equity').test('{ return_pct: 1, equity: 5 }'), 'the key check can fail');
+  assert.ok(!keyRe('equity').test('ownBasisReturn(net, snap[0].equity)'),
+    'reading the ratio\'s input is not emitting it');
 });
 
 test('every exemption is still an authenticated route', () => {

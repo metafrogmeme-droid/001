@@ -19,8 +19,7 @@
 bot/core/live_executor.py: execute.fetch_ticker(symbol) | 2 | entry path: swap_symbol(idea.asset) in futures mode; the spot branch trades the spot symbol, which is that venue's spelling
 bot/core/live_executor.py: execute.fetch_my_trades(symbol) | 1 | entry path: swap_symbol(idea.asset) in futures mode; the spot branch trades the spot symbol, which is that venue's spelling
 bot/core/live_executor.py: _entry_market_gate.fetch_ticker(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
-bot/core/live_executor.py: _exchange_minimum_gate.amount_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
-bot/core/live_executor.py: _recalculate_limit_entry.amount_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _exchange_minimum_gate.amount_to_precision(symbol) <- execute(symbol) | 2 | entry path: execute's symbol (see above); asked twice, the second time for a Tier C re-size
 bot/core/live_executor.py: _round_limit_price_to_tick.price_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
 bot/core/live_executor.py: _submit_entry_order.price_to_precision(symbol) <- execute(symbol) | 2 | entry path: execute's symbol (see above)
 bot/core/live_executor.py: _create_order_idempotent.create_order(symbol) <- _submit_entry_order(**) | 2 | entry order: create_kwargs carries _submit_entry_order's symbol, which is execute's (see above); the walk cannot see into a ** hand-off

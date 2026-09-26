@@ -404,6 +404,11 @@ class MemoryDB {
       return [[], []];
     }
 
+    // The status page's database probe (lib/status.js pingDatabase): a
+    // liveness read, answered the way MySQL answers it. The shim is an
+    // in-process store, so a read of it that reaches here came back.
+    if (/^SELECT 1$/.test(cmd)) return [[{ 1: 1 }], []];
+
     // ACCOUNT ERASURE — every `DELETE FROM <t> WHERE user_id = ?` in one place.
     //
     // `app/lib/account_erasure.js` emits this one statement shape against 23

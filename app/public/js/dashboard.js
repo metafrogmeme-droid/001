@@ -7935,9 +7935,15 @@
         // Your REAL standing — even when you're past the top-50 window the
         // table below is capped to. Position-only, never a dollar figure (§4).
         const total = Number(data.ranked_total) || 0;
+        // Three states, not two: a member with closed trades and no equity
+        // reading on record is LISTED (by trades and win rate) and not ranked,
+        // because a return % needs the account's own basis. "Close a trade to
+        // get ranked" would be false for them.
         const rankLine = data.my_rank
           ? `<p class="mt-2" style="font-size:var(--fs-lg)">You're <b class="num" style="color:var(--gold-bright)">#${data.my_rank}</b> <span class="muted">of ${total} ranked agent${total === 1 ? '' : 's'}</span></p>`
-          : `<p class="small mt-2 muted">Close a trade to get ranked — your handle appears the moment you have a realized round-trip.</p>`;
+          : data.my_unranked
+            ? `<p class="small mt-2 muted">You're listed by trades and win rate but not ranked: no equity reading is on record for your account, so a return % has nothing to be measured against.</p>`
+            : `<p class="small mt-2 muted">Close a trade to get ranked — your handle appears the moment you have a realized round-trip.</p>`;
         return `<p class="small" style="color:var(--text-2)">You're on the board as <span class="chip chip--gold">${esc(data.handle)}</span>. Only this handle and your % return show — never your email or balance.</p>
           ${rankLine}
           <button class="btn btn--ghost btn--sm mt-3" id="lbLeave" type="button">Leave the leaderboard</button>`;
@@ -7958,13 +7964,13 @@
         <thead><tr><th>#</th><th>Trader</th><th class="r">Return</th><th class="r">Trades</th><th class="r">Win rate</th></tr></thead>
         <tbody>${rows.map(row => `
           <tr${row.is_me ? ' style="background:var(--gold-dim)"' : ''}>
-            <td class="num muted">${row.rank}</td>
+            <td class="num muted">${row.rank == null ? '—' : row.rank}</td>
             <td><b>${esc(row.handle)}</b>${row.is_me ? ' <span class="chip chip--gold">you</span>' : ''}</td>
-            <td class="r num ${pnlClass(row.return_pct)}">${signed(row.return_pct)}%</td>
+            <td class="r num ${pnlClass(row.return_pct)}">${row.return_pct == null ? '—' : `${signed(row.return_pct)}%`}</td>
             <td class="r num muted">${row.trades}</td>
             <td class="r num muted">${fmt(row.win_rate, 1)}%</td>
           </tr>`).join('')}</tbody></table></div>
-        <p class="muted small mt-2">Return % is measured on the standard paper stake. Dollar amounts are never shown.</p>`;
+        <p class="muted small mt-2">Return % is measured on each account's own starting equity; a dash means no equity reading is on record, so that member is listed by trades and win rate and not ranked. Dollar amounts are never shown.</p>`;
     }, { empty: { icon: 'icon-target', text: 'No ranked traders yet — pick a handle above and close a trade to be the first.' } });
 
     // Join / leave.

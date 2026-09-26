@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from bot.utils.client_ip import client_ip
 from bot.db.models import (
     create_user, authenticate_user, get_user_by_id,
-    create_link_token, get_user_portfolio, unlink_telegram,
+    create_link_token, unlink_telegram,
 )
 
 auth_router = APIRouter()
@@ -267,14 +267,16 @@ def _user_info(user_id: int) -> dict:
     7-day one with a GET, repeatedly, bypassing the rotation and single-use
     replay detection that `/refresh` applies. Nothing about "tell me who I am"
     requires issuing a credential.
+
+    No equity either. It was `user_portfolio.equity`, a column nothing
+    writes, so every account answered 10000: the express twin returns user
+    fields only, and so does this one.
     """
     user = get_user_by_id(user_id)
-    pf = get_user_portfolio(user_id)
     return {
         "user_id": user_id,
         "email": user.email,
         "plan": user.plan,
-        "equity": pf["equity"],
         "telegram_linked": user.telegram_chat_id is not None,
     }
 

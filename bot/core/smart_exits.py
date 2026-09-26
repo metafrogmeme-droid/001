@@ -302,29 +302,42 @@ def check_vwap_reversion_exit(
     current_price: float,
     vwap: float,
     direction: str,
+    entry_price: float,
 ) -> tuple[bool, str]:
     """For VWAP reversion trades, check if the thesis is complete or invalidated.
 
-    Exit conditions:
+    Exit conditions, each measured beyond where the trade ENTERED:
     - Price recaptured VWAP from the other side (thesis complete)
     - Price breached VWAP by >0.3% on the wrong side (thesis invalid)
+
+    The classifier calls an idea a VWAP reversion when its price is within
+    0.5% of VWAP (or half a band), and these bands are 0.3% wide, so read
+    from VWAP alone an entry 0.4% below it was "invalidated" and one 0.4%
+    above it "complete" on the first pass: closed at market a minute after it
+    opened, for a round trip of fees. Each band starts from the entry's own
+    distance when the entry sits on that side of VWAP, so a trade gets the
+    band's 0.3% of room from where it entered; an entry at VWAP reads as
+    before.
     """
-    if signal_type != "vwap_reversion" or vwap <= 0:
+    if signal_type != "vwap_reversion" or vwap <= 0 or entry_price <= 0:
         return False, ""
 
     dist_pct = (current_price - vwap) / vwap * 100
+    entry_pct = (entry_price - vwap) / vwap * 100
+    above = max(entry_pct, 0.0) + 0.3
+    below = min(entry_pct, 0.0) - 0.3
 
     if direction == "LONG":
         # LONG near VWAP: target is price moving above VWAP
-        if dist_pct > 0.3:
+        if dist_pct > above:
             return True, f"VWAP reversion complete: price {dist_pct:+.2f}% above VWAP (target reached)"
-        elif dist_pct < -0.3:
+        elif dist_pct < below:
             return True, f"VWAP reversion failed: price {dist_pct:+.2f}% below VWAP (invalidated)"
     else:
         # SHORT near VWAP: target is price moving below VWAP
-        if dist_pct < -0.3:
+        if dist_pct < below:
             return True, f"VWAP reversion complete: price {dist_pct:+.2f}% below VWAP (target reached)"
-        elif dist_pct > 0.3:
+        elif dist_pct > above:
             return True, f"VWAP reversion failed: price {dist_pct:+.2f}% above VWAP (invalidated)"
 
     return False, ""

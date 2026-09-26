@@ -127,6 +127,9 @@ class CalibrationRows(NamedTuple):
     not_measured: int
     #: Rows recorded before the basis was, carrying no analyzer figure.
     unattributed: int
+    #: Rows recorded as measured that carry no analyzer blend -- a scan card's
+    #: score, say: a measurement, but not of the quantity the curve is fitted on.
+    no_blend: int = 0
 
 
 class ConfidenceCalibrator:
@@ -211,28 +214,37 @@ class ConfidenceCalibrator:
         (#35), so its presence marks the analyzer's own measurement of that
         trade. A manual stamp and a re-offer never carry it. An old row without
         it cannot be told from a stamp, so it is left out and counted rather
-        than guessed at. A measured row without it (a producer other than the
-        analyzer) keeps #35's fallback to ``confidence``.
+        than guessed at.
+
+        A ROW WITHOUT THE BLEND IS NOT A SAMPLE, WHATEVER ITS BASIS SAYS. A
+        measured row without it used to keep #35's fallback to ``confidence``,
+        and the one producer that wrote such a row was the scan card's button,
+        which stamped 0.6 on every row: driven, a decision row recorded as
+        measured with ``blended_confidence_raw`` 0.0 was fitted as the sample
+        ``(0.6, lost)``. Even a real scan score is not a blend: the curve is
+        fitted on the analyzer's pre-calibration blend and APPLIED to it, so a
+        different quantity in the same field is a different curve. Such a row
+        is left out and counted as ``no_blend``.
         """
         from bot.risk.quality_ladder import MEASURED_BASIS
         joined = join_outcomes(decisions)
         out: list[tuple[float, bool]] = []
-        not_measured = unattributed = 0
+        not_measured = unattributed = no_blend = 0
         for d, won in joined.rows:
             basis = str(getattr(d, "confidence_basis", "") or "")
             raw = pre_calibration_confidence(d)
             if basis and basis != MEASURED_BASIS:
                 not_measured += 1
                 continue
-            if not basis and raw is None:
-                unattributed += 1
+            if raw is None:
+                if basis:
+                    no_blend += 1
+                else:
+                    unattributed += 1
                 continue
-            conf = raw if raw is not None else getattr(d, "confidence", None)
-            if conf is None or float(conf) <= 0.0:
-                continue
-            out.append((float(conf), won))
+            out.append((raw, won))
         return CalibrationRows(out, joined.not_opened, not_measured,
-                               unattributed)
+                               unattributed, no_blend)
 
     @staticmethod
     def samples_from_decisions(decisions) -> list[tuple[float, bool]]:

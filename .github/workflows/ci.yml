@@ -61,10 +61,29 @@ jobs:
     # RAISED, NOT TRIMMED. The suite really does take this long; splitting
     # tests out of the gate or dropping them to duck under the line would buy
     # a green tick by measuring less, which is the defect this repo spends its
-    # guard tests preventing. A timeout is a backstop against a HANG, and 35
-    # still is one: it is 1.7x the measured runtime, so a genuinely stuck job
-    # is caught while an honest one finishes.
-    timeout-minutes: 35
+    # guard tests preventing. A timeout is a backstop against a HANG: it is
+    # ~1.7x the measured runtime, so a genuinely stuck job is caught while an
+    # honest one finishes.
+    #
+    # AND IT HAPPENED AGAIN AT 35, FOR THE SAME REASON, WITH MAIN 43 SECONDS
+    # FROM IT. On 2026-09-26 PR #447 read `Cancelled after 35m` with every
+    # other job green -- the same symptom, and again nothing had failed: the
+    # gate step alone had run 32m40s when the wall cut it.
+    #
+    # The number that matters is not the PR's, it is MAIN's. Measured on
+    # main's own run 1112 at 11492970, which PASSED: the job took 34m17s of
+    # its 35, the gate step 31m39s, the eleven other steps 2m38s. So main was
+    # already inside a minute of the cap by itself, and any PR that adds a
+    # test -- or any slower runner -- crosses it. #447's gate was ~1 minute
+    # longer than main's, which was enough.
+    #
+    # Two things this measurement settles. The cap had stopped being a hang
+    # backstop and become a budget the suite was quietly racing, so a green
+    # tick was partly a fact about runner speed. And the growth is the
+    # repository's, not one branch's: ~20 minutes when this comment was first
+    # written, ~32 now. 60 keeps the documented ratio against a ~35-minute
+    # job, which is the same backstop the 35 was meant to be.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 

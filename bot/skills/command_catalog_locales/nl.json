@@ -22,7 +22,7 @@
     "dashboard": "open het webdashboard",
     "link": "koppel deze Telegram aan je website-account — /link <token>",
     "unlink": "ontkoppel deze Telegram van je website-account",
-    "me": "je account: abonnement, portfolio en instellingen",
+    "me": "je account: e-mail, abonnement en instellingen",
     "sync": "waarom het dashboard geen push nodig heeft: het leest je account bij het laden",
     "connect": "koppel je eigen exchange-account",
     "exchange": "status van je gekoppelde account (toont nooit sleutels)",

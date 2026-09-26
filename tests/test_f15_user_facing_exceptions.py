@@ -173,11 +173,18 @@ class TestEveryModuleThatTalksToAUser:
         )
 
     def test_scan_skill_specifically(self):
-        # Named because it was the one outside telegram_handler.
+        # Named because it was the one outside telegram_handler. Its one
+        # exception-bearing send ("Invalid trade", in the old `scan_limit:`
+        # door) left with that door: the scan card's buttons name a registered
+        # idea now and the old payloads are refused with a fixed sentence. So
+        # the claim is the stronger one -- no send in the module carries an
+        # exception at all.
         src = code_only(
             open("bot/skills/scan_skill.py", encoding="utf-8").read())
-        i = src.index("Invalid trade")
-        assert "_safe_exc_text(" in src[i - 100:i + 200]
+        sends = self._calls(src)
+        assert sends, "scan_skill still talks to users; the scan must see its sends"
+        assert not [c for c in sends if re.search(r"\{(exc|e|err|error)\b", c)], (
+            "a scan_skill send interpolates an exception")
 
 
 class TestTheRiskiestPathsSpecifically:

@@ -15,13 +15,49 @@ const { START_BALANCE } = require('./arena');
 
 const NAME_RE = /^[\w --·:'!?]{3,60}$/;
 
-/** 'upcoming' | 'live' | 'ended' at `now`. */
+/**
+ * 'upcoming' | 'live' | 'ended' at `now`.
+ *
+ * A clock that is not a readable time RAISES. `Number(undefined)` is NaN and
+ * `NaN >= start` is false, so a caller that forgot the clock used to be told
+ * "upcoming" about every season, a running one included -- which is what
+ * /api/today published. No clock is not a time before the season began.
+ */
 function seasonStatus(season, now) {
   const t = now instanceof Date ? now.getTime() : Number(now);
+  if (now == null || !Number.isFinite(t)) {
+    throw new TypeError('seasonStatus needs the time to read the season at');
+  }
   const s = new Date(season.starts_at).getTime();
   const e = new Date(season.ends_at).getTime();
   if (!(t >= s)) return 'upcoming';
   return t < e ? 'live' : 'ended';
+}
+
+/**
+ * Which row is "the" season.
+ *
+ * This was `SELECT ... FROM arena_seasons LIMIT 1` with NO ORDER BY, which is
+ * only correct while exactly one season has ever existed. MySQL is free to
+ * return any row for an unordered LIMIT 1, and the in-memory shim used in tests
+ * sorts newest-first — so the two disagree by construction and the bug is
+ * invisible until a second season is authored. Genesis ends 2026-09-24; the
+ * second season is not hypothetical, it is scheduled.
+ *
+ * A public board naming the WRONG season, with the wrong standings under it,
+ * is not a degraded read — it is a confident answer to a question nobody asked.
+ * Live wins; otherwise the most recent by start, so an ended season keeps
+ * showing until its successor begins rather than blinking to null.
+ *
+ * It lived in routes/arena.js, and /api/today (lib/daily_rune.js) could not
+ * reach it, so it wrote its own read: `srows[0]` of the same unordered SELECT,
+ * and `seasonStatus(s)` with no `now` -- `Number(undefined)` is NaN, `NaN >= s`
+ * is false, so every season it named was "upcoming", a live one included.
+ */
+function pickCurrentSeason(rows, now) {
+  if (!rows || !rows.length) return null;
+  const byNewest = rows.slice().sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+  return byNewest.find((s) => seasonStatus(s, now) === 'live') || byNewest[0];
 }
 
 /** Validate an operator-authored season. */
@@ -101,4 +137,4 @@ function seasonRanking(trades, handleOf) {
   return rows.slice(0, 50).map((r, i) => ({ rank: i + 1, ...r }));
 }
 
-module.exports = { seasonStatus, validateSeason, seasonRanking, checkSeasonRules, SEASON_MAJORS, NAME_RE };
+module.exports = { seasonStatus, pickCurrentSeason, validateSeason, seasonRanking, checkSeasonRules, SEASON_MAJORS, NAME_RE };

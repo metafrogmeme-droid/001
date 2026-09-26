@@ -163,7 +163,7 @@
   "llm_status_title": "<b>LLMの状態</b>",
   "llm_tiers_title": "<b>マルチティアLLMルーティング</b>",
   "llm_update_failed": "<b>LLMの更新に失敗しました</b>\n\n{msg}",
-  "me_account": "<b>あなたのRUNECLAWアカウント</b>\n\nメール:   <code>{email}</code>\nプラン:   <code>{plan}</code>\n資産:     <code>${equity}</code>\n未実現P&amp;L: <code>${pnl}</code>\n取引数:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 通知: <code>{notif}</code>",
+  "me_account": "<b>あなたのRUNECLAWアカウント</b>\n\nメール:   <code>{email}</code>\nプラン:   <code>{plan}</code>\n\nLLM: <code>{llm}</code> | 通知: <code>{notif}</code>\n\n残高と取引はこのアカウントには保存されていません。ダッシュボードは読み込むたびにボットから読み取ります: {url}/dashboard",
   "mode_live": "🔥 ライブ",
   "mode_paper": "📝 ペーパー",
   "no_open_positions": "保有ポジションはありません。",

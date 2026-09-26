@@ -163,7 +163,7 @@
   "llm_status_title": "<b>СТАТУС LLM</b>",
   "llm_tiers_title": "<b>Многоуровневая маршрутизация LLM</b>",
   "llm_update_failed": "<b>ОБНОВЛЕНИЕ LLM НЕ УДАЛОСЬ</b>\n\n{msg}",
-  "me_account": "<b>Ваш аккаунт RUNECLAW</b>\n\nEmail:    <code>{email}</code>\nПлан:     <code>{plan}</code>\nКапитал:  <code>${equity}</code>\nОткрытый P&amp;L: <code>${pnl}</code>\nСделок:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Уведомления: <code>{notif}</code>",
+  "me_account": "<b>Ваш аккаунт RUNECLAW</b>\n\nEmail:    <code>{email}</code>\nПлан:     <code>{plan}</code>\n\nLLM: <code>{llm}</code> | Уведомления: <code>{notif}</code>\n\nБаланс и сделки не хранятся в этом аккаунте. Панель читает их у бота при каждой загрузке: {url}/dashboard",
   "mode_live": "🔥 Реальный",
   "mode_paper": "📝 Бумажный",
   "no_open_positions": "Открытых позиций нет.",

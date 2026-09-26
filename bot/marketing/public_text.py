@@ -174,6 +174,28 @@ def _num(d: Mapping[str, Any], key: str) -> Optional[float]:
     return None if (f != f or f in (float("inf"), float("-inf"))) else f
 
 
+def close_outcome(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """``"win"`` / ``"loss"`` / ``"flat"`` by the close's NET result, or None.
+
+    The one reading of a close's sign for every public icon: the line's dot
+    below and the forwarder's headline (``post_trade_closed``), which read a
+    regex for any ``+N%`` in the text and put a trophy on a 20x close that
+    moved +0.10% and lost 0.40% on margin after fees. ``pnl_usd`` is net and
+    its SIGN is readable even when the margin was never recorded; the net
+    return on margin says the same thing when the dollars were not read. Both
+    absent is a close nobody priced, and that is not a win or a loss. Read,
+    never printed (§4).
+    """
+    if not close_data:
+        return None
+    net = _num(close_data, "pnl_usd")
+    if net is None:
+        net = _num(close_data, "pnl_pct_margin_net")
+    if net is None:
+        return None
+    return "win" if net > 0 else "loss" if net < 0 else "flat"
+
+
 def public_close_line(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
     """A close, told in percent — or None when the record cannot tell it.
 
@@ -214,12 +236,12 @@ def public_close_line(close_data: Optional[Mapping[str, Any]]) -> Optional[str]:
     # COLOUR IS A CLAIM, AND THE CLAIM IS ABOUT THE ACCOUNT, NOT THE CHART.
     # Keyed on the price move, a close whose move was positive but whose fees
     # ate it renders green on a public channel — and at 20x the fees are 0.12%
-    # of notional, so any move smaller than that flips the sign. `pnl_usd` is
-    # net and its SIGN is readable even when the margin was never recorded, so
-    # it decides here; it is read, never printed (§4).
-    _net = _num(close_data, "pnl_usd")
-    _signal = _net if _net is not None else pct
-    icon = "\U0001f7e2" if _signal > 0 else "\U0001f534" if _signal < 0 else "⚪"
+    # of notional, so any move smaller than that flips the sign. The NET
+    # decides (`close_outcome`), and a close whose net nobody measured is
+    # neither colour: it used to fall back to the gross move here, which is
+    # the chart again.
+    icon = {"win": "\U0001f7e2", "loss": "\U0001f534"}.get(
+        close_outcome(close_data) or "", "⚪")
 
     head = f"{icon} <b>{sym}</b> {direction} closed".rstrip()
     if reason:

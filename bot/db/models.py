@@ -9,7 +9,8 @@ Tables:
   users          -- registered accounts (email + hashed password)
   user_telegram  -- links a user to their Telegram chat_id after /link
   user_settings  -- per-user risk params, LLM key, paper balance
-  user_portfolio -- per-user paper trading state (JSON blob)
+  user_portfolio -- written with its defaults at signup and read by nothing;
+                    kept so an existing database and the purge still reach it
   link_tokens    -- short-lived tokens for the website -> bot link flow
 """
 
@@ -21,7 +22,6 @@ import re
 import secrets
 import sqlite3
 import time
-import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
@@ -769,37 +769,6 @@ def clear_user_ingest_notes(user_id: int) -> int:
         cur = db.execute(
             "DELETE FROM user_ingest_notes WHERE user_id=?", (user_id,))
         return cur.rowcount
-
-
-# -- Per-user portfolio -----------------------------------------------------
-
-def get_user_portfolio(user_id: int) -> dict:
-    with get_db() as db:
-        row = db.execute(
-            "SELECT * FROM user_portfolio WHERE user_id=?", (user_id,)
-        ).fetchone()
-    if not row:
-        return {"equity": 10000, "daily_pnl": 0, "positions": [], "trade_history": []}
-    return {
-        "equity":        row["equity"],
-        "daily_pnl":     row["daily_pnl"],
-        "positions":     json.loads(row["positions"]),
-        "trade_history": json.loads(row["trade_history"]),
-    }
-
-
-def save_user_portfolio(user_id: int, equity: float, daily_pnl: float,
-                        positions: list, trade_history: list) -> None:
-    th = trade_history[-200:]
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO user_portfolio VALUES (?,?,?,?,?,unixepoch()) "
-            "ON CONFLICT(user_id) DO UPDATE SET "
-            "equity=excluded.equity, daily_pnl=excluded.daily_pnl, "
-            "positions=excluded.positions, trade_history=excluded.trade_history, "
-            "updated_at=unixepoch()",
-            (user_id, equity, daily_pnl, json.dumps(positions), json.dumps(th)),
-        )
 
 
 # -- Admin helpers -----------------------------------------------------------

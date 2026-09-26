@@ -6,7 +6,7 @@
     "lib",
     "routes"
   ],
-  "total": 147,
+  "total": 146,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
@@ -61,7 +61,6 @@
       "lib/letter.js": 7,
       "lib/replay.js": 1,
       "lib/reputation.js": 3,
-      "lib/research.js": 1,
       "lib/sentinel.js": 8,
       "lib/trade_performance.js": 1,
       "lib/user_strategies.js": 1,

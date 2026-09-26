@@ -22,7 +22,7 @@
     "dashboard": "web panelini açın",
     "link": "bu Telegram'ı web sitesi hesabınıza bağlayın — /link <token>",
     "unlink": "bu Telegram'ın web sitesi hesabınızla bağlantısını kesin",
-    "me": "hesabınız: plan, portföy ve ayarlar",
+    "me": "hesabınız: e-posta, plan ve ayarlar",
     "sync": "panelin neden gönderim gerektirmediği — yüklenirken hesabınızı okur",
     "connect": "kendi borsa hesabınızı bağlayın",
     "exchange": "bağlı hesabınızın durumu (anahtarları asla göstermez)",

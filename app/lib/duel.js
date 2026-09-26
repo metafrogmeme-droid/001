@@ -36,6 +36,7 @@
 
 const { computeStreak, isoWeek, weekStart } = require('./arena_streaks');
 const { SEASON_MAJORS } = require('./arena_seasons');
+const { exchangeSymbol } = require('./agent_match');
 
 const ROUNDS_PER_DAY = 3;
 /** How long a call runs, measured from the moment it was made. */
@@ -281,7 +282,11 @@ function buildRounds(day, signals, tickers) {
 
   const add = (symbol, agentDirection, signalKey) => {
     if (chosen.length >= ROUNDS_PER_DAY) return;
-    const sym = String(symbol == null ? '' : symbol).trim().toUpperCase();
+    // Exchange-style, the key the ticker map uses. The agent's calls arrive in
+    // the scanner's spelling ('PENDLE/USDT'), so reading them raw priced none
+    // of them and every card was topped up with majors the Claw "passed" on,
+    // while the calls it had actually made that day went unused.
+    const sym = exchangeSymbol(symbol);
     if (!sym || seen.has(sym)) return;
     // A symbol we cannot price right now is a symbol nobody could call, so it
     // does not go on the card. The price itself is NOT kept: the entry belongs

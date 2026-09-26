@@ -396,8 +396,19 @@ def test_the_risk_panes_say_when_the_record_is_partial(mode):
 
 
 # ── /daily_report: a partial record is not posted, and a flat close is priced ─
+#
+# On the OPERATOR's book: it is the only one whose day may be published at all
+# (tests/test_the_scheduled_posts_say_whose_book_they_read.py), so a posting
+# claim measured on a person's own book would pass for that reason alone.
 
-def test_a_partial_record_is_said_on_the_card_and_not_posted(monkeypatch):
+
+@pytest.fixture
+def _stamp_in_tmp(monkeypatch, tmp_path):
+    from bot.skills import portfolio_commands as pc
+    monkeypatch.setattr(pc, "PUBLIC_DAILY_POST_STAMP",
+                        str(tmp_path / "public_daily_report.json"))
+
+def test_a_partial_record_is_said_on_the_card_and_not_posted(monkeypatch, _stamp_in_tmp):
     from tests.test_the_daily_report_is_the_days import _live_report
     rows = [_Row(5.0)]
 
@@ -406,7 +417,7 @@ def test_a_partial_record_is_said_on_the_card_and_not_posted(monkeypatch):
         orig = pc.closed_record_partial
         monkeypatch.setattr(pc, "closed_record_partial", lambda ex: True)
         try:
-            return await _live_report(monkeypatch, rows)
+            return await _live_report(monkeypatch, rows, scope="operator")
         finally:
             monkeypatch.setattr(pc, "closed_record_partial", orig)
     said, posted = asyncio.run(go())
@@ -414,9 +425,9 @@ def test_a_partial_record_is_said_on_the_card_and_not_posted(monkeypatch):
     assert posted == []
 
 
-def test_a_whole_record_is_still_posted(monkeypatch):
+def test_a_whole_record_is_still_posted(monkeypatch, _stamp_in_tmp):
     from tests.test_the_daily_report_is_the_days import _live_report
-    said, posted = asyncio.run(_live_report(monkeypatch, [_Row(5.0)]))
+    said, posted = asyncio.run(_live_report(monkeypatch, [_Row(5.0)], scope="operator"))
     assert CLOSED_RECORD_UNREAD not in said and len(posted) == 1
 
 
@@ -431,9 +442,10 @@ def test_a_flat_close_is_priced_not_unrecorded():
     assert "Flat" in text
 
 
-def test_the_card_and_the_public_post_agree_about_a_flat_day(monkeypatch):
+def test_the_card_and_the_public_post_agree_about_a_flat_day(monkeypatch, _stamp_in_tmp):
     from tests.test_the_daily_report_is_the_days import _live_report
-    said, posted = asyncio.run(_live_report(monkeypatch, [_Row(5.0, tid="a"), _Row(0.0, tid="b")]))
+    said, posted = asyncio.run(_live_report(
+        monkeypatch, [_Row(5.0, tid="a"), _Row(0.0, tid="b")], scope="operator"))
     assert "50%" in said and "Win Rate: <code>50%</code>" in posted[0], (said, posted)
 
 

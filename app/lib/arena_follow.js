@@ -12,6 +12,7 @@
  */
 
 const arena = require('./arena');
+const { exchangeSymbol } = require('./agent_match');
 
 /**
  * @param {object} ctx
@@ -35,7 +36,11 @@ function planFollows(ctx = {}) {
   let lastId = 0;
   for (const s of signals) {
     lastId = Math.max(lastId, Number(s.id) || 0);
-    const symbol = String(s.symbol || '').toUpperCase();
+    // A signal row is in the scanner's spelling ('SOL/USDT'); the marks and
+    // the open positions are exchange-style ('SOLUSDT'). Reading the row raw
+    // found no mark for ANY engine signal, skipped each as `no_mark` and
+    // advanced the cursor past it for good, so practice-follow never opened.
+    const symbol = exchangeSymbol(s.symbol);
     const direction = String(s.direction || '').toUpperCase();
     const margin = Number(prefs.margin), leverage = Math.round(Number(prefs.leverage));
     if (direction !== 'LONG' && direction !== 'SHORT') { skips.push({ signal_id: s.id, reason: 'direction' }); continue; }

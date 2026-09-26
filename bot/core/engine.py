@@ -8883,7 +8883,7 @@ class RuneClawEngine:
                     vwap = self._last_vwap.get(pos.symbol, 0)
                     if vwap > 0:
                         should_exit, reason = check_vwap_reversion_exit(
-                            sig, price, vwap, pos.direction)
+                            sig, price, vwap, pos.direction, pos.entry_price)
 
                 if not should_exit:
                     continue
@@ -9141,22 +9141,18 @@ class RuneClawEngine:
         # manual tickets (which have no analyzer path), so fall back to
         # idea.confidence in that case — manual tickets are not auto-confirmed
         # anyway (auto_confirm_refusal blocks them), so the value is unused.
-        _raw_val = getattr(idea, "blended_confidence_raw", None)
+        # A bool, a string or the unset 0.0 is not a blend: the calibrator's own reading.
+        from bot.learning.confidence_calibration import pre_calibration_confidence
+        _raw_val = pre_calibration_confidence(idea)
         _conf = getattr(idea, "confidence", None)
-        raw: float = (
-            float(_raw_val)
-            if isinstance(_raw_val, float) and _raw_val > 0
-            else (float(_conf) if _conf is not None else 0.0)
-        )
+        raw: float = _raw_val if _raw_val is not None else (float(_conf) if _conf is not None else 0.0)
         try:
             if not getattr(CONFIG, "auto_confirm_use_calibrated", False):
                 return raw
             cal = self.analyzer._get_calibrator() if getattr(self, "analyzer", None) else None
             if not cal or not cal.is_ready():
                 return raw
-            from bot.learning.confidence_calibration import pre_calibration_confidence
-            fitted_on = pre_calibration_confidence(idea)
-            calibrated = float(cal.calibrate(raw if fitted_on is None else fitted_on))
+            calibrated = float(cal.calibrate(raw))
             return min(raw, calibrated)
         except Exception:
             return raw
@@ -9546,6 +9542,7 @@ class RuneClawEngine:
                             current_price=current_price,
                             vwap=vwap,
                             direction=pos.direction.value,
+                            entry_price=pos.entry_price,
                         )
                         if should_exit:
                             audit(trade_log, f"VWAP exit: {pos.asset} — {reason}",

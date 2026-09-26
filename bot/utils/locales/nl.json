@@ -163,7 +163,7 @@
   "llm_status_title": "<b>LLM-STATUS</b>",
   "llm_tiers_title": "<b>LLM-routing met meerdere niveaus</b>",
   "llm_update_failed": "<b>LLM-UPDATE MISLUKT</b>\n\n{msg}",
-  "me_account": "<b>Je RUNECLAW-account</b>\n\nE-mail:   <code>{email}</code>\nAbonnement: <code>{plan}</code>\nVermogen: <code>${equity}</code>\nOpen P&amp;L: <code>${pnl}</code>\nTrades:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Meldingen: <code>{notif}</code>",
+  "me_account": "<b>Je RUNECLAW-account</b>\n\nE-mail:   <code>{email}</code>\nAbonnement: <code>{plan}</code>\n\nLLM: <code>{llm}</code> | Meldingen: <code>{notif}</code>\n\nJe saldo en trades worden niet bij dit account opgeslagen. Je dashboard leest ze bij elke keer laden van de bot: {url}/dashboard",
   "mode_live": "🔥 Live",
   "mode_paper": "📝 Paper",
   "no_open_positions": "Geen open posities.",

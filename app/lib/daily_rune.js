@@ -75,9 +75,14 @@ async function fetchToday() {
     const seasons = require('./arena_seasons');
     const [srows] = await pool.execute(
       'SELECT id, name, starts_at, ends_at FROM arena_seasons');
-    if (srows[0]) {
-      const s = srows[0];
-      parts.season = { name: s.name, status: seasons.seasonStatus(s), ends_at: s.ends_at, starts_at: s.starts_at };
+    // The Arena's own reading of which season is current, and its status AT
+    // A CLOCK. This was `srows[0]` of an unordered SELECT and
+    // `seasonStatus(s)` with no `now`, which compares against NaN and answers
+    // "upcoming" for every season, a running one included.
+    const now = new Date();
+    const s = seasons.pickCurrentSeason(srows, now);
+    if (s) {
+      parts.season = { name: s.name, status: seasons.seasonStatus(s, now), ends_at: s.ends_at, starts_at: s.starts_at };
     }
   } catch (e) { /* no season */ }
   return buildToday(parts);

@@ -491,16 +491,19 @@ def _drift_retry_blocks() -> list[tuple[str, ast.If]]:
     return out
 
 
-def test_both_drift_retry_sites_are_found():
-    """The rule must see the site the old guard could not."""
+def test_the_drift_retry_site_is_found():
+    """The rule must see every site. There is ONE now: `scan_skill`'s site
+    left with the `scan_confirm:` door, because the scan card's ✅ is
+    `confirm:<id>` on the card's own registered idea and goes through
+    `callback_handler`'s branch, drift re-offer included
+    (test_a_scan_button_places_what_the_card_shows)."""
     files = sorted({rel for rel, _ in _drift_retry_blocks()})
-    assert files == ["bot/skills/callback_handler.py", "bot/skills/scan_skill.py"], (
+    assert files == ["bot/skills/callback_handler.py"], (
         f"a drift-retry site appeared or vanished; the rule below only "
         f"protects what it can see: {files}")
 
 
-@pytest.mark.parametrize("rel", ["bot/skills/callback_handler.py",
-                                 "bot/skills/scan_skill.py"])
+@pytest.mark.parametrize("rel", ["bot/skills/callback_handler.py"])
 def test_a_drift_retry_offers_and_never_confirms(rel):
     blocks = [n for r, n in _drift_retry_blocks() if r == rel]
     assert len(blocks) == 1, f"expected one drift block in {rel}, got {len(blocks)}"
@@ -544,7 +547,9 @@ def test_the_inline_second_copy_of_the_geometry_is_gone():
         assert spelling not in src, (
             f"{spelling!r} is a second spelling of drift_offer's constants; "
             f"import STOP_PCT/TARGET_PCT instead")
-    assert "STOP_PCT" in src and "TARGET_PCT" in src
+    # And the scan tap builds no flat geometry at all now: its ✅ places the
+    # card's own ATR levels (test_a_scan_button_places_what_the_card_shows).
+    assert "STOP_PCT" not in src and "TARGET_PCT" not in src
 
 
 def test_the_drift_offer_docstring_is_true_of_both_sites():

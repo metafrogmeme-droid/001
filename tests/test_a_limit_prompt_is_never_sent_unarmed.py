@@ -31,7 +31,6 @@ from bot.core.limit_input import (
     PENDING_TTL_SEC,
     STATE_ATTR,
     arm_limit_input,
-    caller_lang,
     consume_pending,
     limit_expired_text,
     limit_prompt_text,
@@ -178,16 +177,6 @@ class TestTheCardSpeaksTheCallersLanguage:
             "these keys carry a locale-file language inline, so one string "
             f"lives in two stores: {stray}")
 
-    def test_language_falls_back_only_when_nobody_can_be_asked(self):
-        assert caller_lang(_Mixin(), object()) == "nl"
-        assert caller_lang(None, object()) == "en"
-
-        class Raises:
-            def _lang(self, update):
-                raise RuntimeError("store down")
-
-        assert caller_lang(Raises(), object()) == "en"
-
 
 class TestBothDoorsAskOnlyAfterArming:
     """The source half: the prompt may not be reachable without the verdict.
@@ -208,8 +197,12 @@ class TestBothDoorsAskOnlyAfterArming:
             f"{path} hand-writes the prompt again; it belongs to "
             "`limit_prompt` so all fourteen languages move together")
 
+    # ONE door now. The scan card's Limit was a second arming site
+    # (`scan_limit:`), and it armed a flat-percent idea the card never showed;
+    # the card's Limit is `setlimit:` on the card's own registered idea, the
+    # door below (test_a_scan_button_places_what_the_card_shows). Its one
+    # caller gone, `caller_lang` left with it.
     @pytest.mark.parametrize("path", [
-        "bot/skills/scan_skill.py",
         "bot/skills/callback_handler.py",
     ])
     def test_the_prompt_call_sits_under_the_armed_verdict(self, path):

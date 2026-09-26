@@ -199,8 +199,7 @@ class TestValidateTokenBodies:
              patch.object(um, "_user_lang", return_value="en"), \
              patch.object(um.urllib.request, "urlopen", _open), \
              patch.object(um, "_ensure_local_user"), \
-             patch.object(um, "link_telegram", return_value=True), \
-             patch.object(um, "get_user_portfolio", return_value={"equity": 800}):
+             patch.object(um, "link_telegram", return_value=True):
             asyncio.run(um.cmd_link(upd, ctx))
         return upd.message.replies[-1]
 

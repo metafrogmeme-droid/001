@@ -110,8 +110,7 @@ class TestLinkPushesNothing:
              patch.object(um.urllib.request, "urlopen",
                           lambda _req, timeout=0: _Resp(json.dumps(body).encode())), \
              patch.object(um, "_ensure_local_user"), \
-             patch.object(um, "link_telegram", return_value=True), \
-             patch.object(um, "get_user_portfolio", return_value=dict(_UNWRITTEN_PORTFOLIO)):
+             patch.object(um, "link_telegram", return_value=True):
             asyncio.run(um.cmd_link(upd, ctx))
         return upd.message.replies
 
@@ -131,7 +130,6 @@ class TestSyncPushesNothing:
         user = types.SimpleNamespace(id=77, is_active=True, telegram_chat_id="4242")
         with patch.object(um, "get_user_by_chat_id", return_value=user), \
              patch.object(um, "get_user_settings", return_value=types.SimpleNamespace()), \
-             patch.object(um, "get_user_portfolio", return_value=dict(_UNWRITTEN_PORTFOLIO)), \
              patch.object(um, "_user_lang", return_value="en"):
             asyncio.run(um.cmd_sync(upd, ctx))
         return upd.message.replies

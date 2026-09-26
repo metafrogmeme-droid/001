@@ -191,6 +191,11 @@ def _fmt_price(p) -> str:
         return f"${p:,.4f}"
     if p >= 0.01:
         return f"${p:,.5f}"
+    if 0 < p < 0.0001:
+        # Six places leave a PEPE-class price one or two significant digits,
+        # so an entry at 0.0000102 and a stop at 0.0000098 both printed
+        # `$0.000010`: a card whose stop sat ON its entry. Eight keeps four.
+        return f"${p:,.8f}"
     return f"${p:,.6f}"
 
 

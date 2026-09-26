@@ -22,7 +22,7 @@
     "dashboard": "das Web-Dashboard öffnen",
     "link": "dieses Telegram mit deinem Website-Konto verknüpfen — /link <token>",
     "unlink": "dieses Telegram von deinem Website-Konto trennen",
-    "me": "dein Konto: Tarif, Portfolio und Einstellungen",
+    "me": "dein Konto: E-Mail, Tarif und Einstellungen",
     "sync": "warum das Dashboard keine Übertragung braucht: es liest dein Konto beim Laden",
     "connect": "dein eigenes Börsenkonto verknüpfen",
     "exchange": "Status deines verknüpften Kontos (zeigt nie Schlüssel)",

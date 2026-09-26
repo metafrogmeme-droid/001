@@ -85,14 +85,18 @@ test('the three write-path readers each call the picker', () => {
 
 // ── the picker itself, driven with two seasons ────────────────────────────
 
-/** The picker, lifted out of the module so it can be driven directly. */
+/**
+ * The picker, driven directly. It was sliced out of routes/arena.js while it
+ * lived there; it is exported from lib/arena_seasons.js now, because /api/today
+ * needed the same reading and could not reach a function inside a router --
+ * so it wrote its own, and that copy was wrong. The router takes the lib's.
+ */
 function loadPicker() {
-  const start = SRC.indexOf('function pickCurrentSeason');
-  assert.ok(start > 0, 'pickCurrentSeason is gone');
-  const body = SRC.slice(start, SRC.indexOf('\n}', start) + 2);
-  const seasons = require('../lib/arena_seasons');
-  // eslint-disable-next-line no-new-func
-  return new Function('seasons', `${body}; return pickCurrentSeason;`)(seasons);
+  const { pickCurrentSeason } = require('../lib/arena_seasons');
+  assert.equal(typeof pickCurrentSeason, 'function', 'pickCurrentSeason is gone');
+  assert.ok(/const \{ pickCurrentSeason \} = seasons;/.test(CODE),
+    'routes/arena.js no longer takes the shared picker');
+  return pickCurrentSeason;
 }
 
 const pick = loadPicker();

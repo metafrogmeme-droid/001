@@ -559,7 +559,7 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     // 'BTC/USDT', 'BTCUSDT'. The arena's whole world (marks, positions,
     // envelopes) is exchange-style 'BTCUSDT': normalize once at the door so
     // a dialect difference can never turn into a phantom "no live mark".
-    sig.symbol = require('../lib/agent_match').baseOf(sig.symbol) + 'USDT';
+    sig.symbol = require('../lib/agent_match').exchangeSymbol(sig.symbol);
 
     // A fill needs a fresh price, so this one uses getTickers() and fails
     // loudly rather than the bounded read the display path can tolerate.
@@ -966,26 +966,10 @@ const seasons = require('../lib/arena_seasons');
 // GET /api/arena/season — PUBLIC. The most recently authored season with its
 // live status and (once it has started) the in-window standings. A season is
 // a time window, never a reset — the all-time board keeps running.
-/**
- * Which row is "the" season.
- *
- * This was `SELECT ... FROM arena_seasons LIMIT 1` with NO ORDER BY, which is
- * only correct while exactly one season has ever existed. MySQL is free to
- * return any row for an unordered LIMIT 1, and the in-memory shim used in tests
- * sorts newest-first — so the two disagree by construction and the bug is
- * invisible until a second season is authored. Genesis ends 2026-09-24; the
- * second season is not hypothetical, it is scheduled.
- *
- * A public board naming the WRONG season, with the wrong standings under it,
- * is not a degraded read — it is a confident answer to a question nobody asked.
- * Live wins; otherwise the most recent by start, so an ended season keeps
- * showing until its successor begins rather than blinking to null.
- */
-function pickCurrentSeason(rows, now) {
-  if (!rows || !rows.length) return null;
-  const byNewest = rows.slice().sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
-  return byNewest.find((s) => seasons.seasonStatus(s, now) === 'live') || byNewest[0];
-}
+// Which row is "the" season: `pickCurrentSeason` in lib/arena_seasons.js, one
+// reading for this router and for /api/today (lib/daily_rune.js), which read
+// an unordered row and a season status with no clock.
+const { pickCurrentSeason } = seasons;
 
 router.get('/season', publicBoardLimit, async (req, res) => {
   try {

@@ -97,3 +97,124 @@ class TestItDoesNotBreakWhatWorks:
         # for every candidate.
         assert "_vision_ok = (bool(images) and is_admin and not public" in src
         assert "cfg.provider == LLMProvider.ANTHROPIC)" in src
+
+
+# ── driven: what the caller is told, and what is never called ─────────────
+#
+# The checks above read the source; these run `_llm_chat` with the candidate
+# list planted, so the refusal is measured by what reaches the caller and
+# what never reaches a model.
+
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+from dataclasses import replace  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import bot.skills.telegram_handler as th_mod  # noqa: E402
+from bot.core.cost import CostTracker  # noqa: E402
+from bot.llm.provider import BYOK, LLMConfig, LLMProvider  # noqa: E402
+from bot.skills.chat_runtime import _CHAT_NO_TOOLS_RULE  # noqa: E402
+from bot.skills.telegram_handler import TelegramHandler as H  # noqa: E402
+
+IMG = [{"media_type": "image/jpeg", "data": "QUJD"}]
+
+
+class _Conversations:
+    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False):
+        return []
+
+    def append(self, *a, **k):
+        pass
+
+
+def _stub():
+    return SimpleNamespace(
+        engine=SimpleNamespace(cost=CostTracker(), analyzer=None),
+        conversations=_Conversations(),
+        _build_chat_system_prompt=lambda user_id, user_name="", surface="telegram": (
+            "system prompt\n" + _CHAT_NO_TOOLS_RULE),
+        _is_admin=lambda update: False,
+        _note_chat_llm_failure=lambda reason="": None,
+        registry=SimpleNamespace(get=lambda n: None),
+        users=None,
+    )
+
+
+@pytest.fixture
+def chat(monkeypatch):
+    calls = []
+
+    def _plant(provider):
+        monkeypatch.setattr(
+            th_mod, "resolve_tier_config",
+            lambda *a, **kw: LLMConfig(provider=provider, api_key="k", model="m"))
+
+    for env in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "ALIBABA_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setattr(th_mod, "CONFIG", replace(
+        th_mod.CONFIG, llm=replace(th_mod.CONFIG.llm, api_key="",
+                                   chat_tools_enabled=False)))
+    monkeypatch.setattr(th_mod, "create_llm_client", lambda cfg: object())
+    monkeypatch.setattr(th_mod, "resolve_profile_note", lambda note, uid: "")
+
+    async def _complete(client, cfg, sys_p, q, **kw):
+        calls.append((cfg.provider, kw.get("images")))
+        return "a model answer"
+
+    monkeypatch.setattr(th_mod, "llm_complete", _complete)
+    BYOK.reset()
+    yield _plant, calls
+    BYOK.reset()
+
+
+def _ask(**kw):
+    out = asyncio.run(H._llm_chat(_stub(), "what does this chart say?",
+                                  user_id="u1", images=IMG, **kw))
+    return out[0] if isinstance(out, tuple) else out
+
+
+class TestDriven:
+    def test_a_text_model_is_never_asked_about_a_picture(self, chat, monkeypatch):
+        plant, calls = chat
+        plant(LLMProvider.GROK)
+        audits = []
+        monkeypatch.setattr(th_mod, "audit",
+                            lambda log, msg, **kw: audits.append((msg, kw)))
+        out = _ask(is_admin=True)
+        assert calls == [], "the model was paid to answer a prompt about a picture"
+        assert "no vision" in out and "never reached it" in out
+        assert "/analyze BTC" in out
+        hit = [kw for _, kw in audits if kw.get("action") == "chat_vision_unavailable"]
+        assert hit and hit[0]["level"] == logging.WARNING
+        assert hit[0]["data"]["candidates"] == ["grok"]
+
+    def test_a_web_caller_is_given_words_not_a_slash_command(self, chat):
+        plant, calls = chat
+        plant(LLMProvider.GROK)
+        out = _ask(is_admin=True, surface="web")
+        assert calls == []
+        assert '"analyze BTC"' in out
+        assert not re.search(r"(?<!\w)/[a-z]{2,}", out), out
+
+    def test_the_operators_claude_still_reads_the_image(self, chat):
+        plant, calls = chat
+        plant(LLMProvider.ANTHROPIC)
+        out = _ask(is_admin=True)
+        assert out == "a model answer"
+        assert calls and calls[0][1] == IMG, "the image did not reach Claude"
+
+    def test_claude_in_the_list_does_not_see_for_a_non_admin(self, chat):
+        # `_vision_ok` never attaches images for a non-admin caller, so a
+        # Claude candidate in the list is no reason to spend a call.
+        plant, calls = chat
+        plant(LLMProvider.ANTHROPIC)
+        out = _ask(is_admin=False)
+        assert calls == [] and "no vision" in out
+
+    def test_a_text_turn_is_untouched(self, chat):
+        plant, calls = chat
+        plant(LLMProvider.GROK)
+        out = asyncio.run(H._llm_chat(_stub(), "hello there", user_id="u1",
+                                      is_admin=True))
+        out = out[0] if isinstance(out, tuple) else out
+        assert out == "a model answer" and calls == [(LLMProvider.GROK, None)]

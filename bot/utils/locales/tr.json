@@ -163,7 +163,7 @@
   "llm_status_title": "<b>LLM DURUMU</b>",
   "llm_tiers_title": "<b>Çok Katmanlı LLM Yönlendirmesi</b>",
   "llm_update_failed": "<b>LLM GÜNCELLEMESİ BAŞARISIZ</b>\n\n{msg}",
-  "me_account": "<b>RUNECLAW Hesabınız</b>\n\nE-posta:  <code>{email}</code>\nPlan:     <code>{plan}</code>\nSermaye:  <code>${equity}</code>\nAçık P&amp;L: <code>${pnl}</code>\nİşlemler: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Bildirimler: <code>{notif}</code>",
+  "me_account": "<b>RUNECLAW Hesabınız</b>\n\nE-posta:  <code>{email}</code>\nPlan:     <code>{plan}</code>\n\nLLM: <code>{llm}</code> | Bildirimler: <code>{notif}</code>\n\nBakiyeniz ve işlemleriniz bu hesapta saklanmaz. Paneliniz her yüklendiğinde bunları bottan okur: {url}/dashboard",
   "mode_live": "🔥 Canlı",
   "mode_paper": "📝 Paper",
   "no_open_positions": "Açık pozisyon yok.",

@@ -56,12 +56,19 @@ class _Live:
 _REAL_CONFIG = pc.CONFIG
 
 
-async def _live_report(monkeypatch, rows):
+@pytest.fixture(autouse=True)
+def _public_post_stamp_in_tmp(monkeypatch, tmp_path):
+    """The public post's once-a-day stamp is on disk; keep it out of data/."""
+    monkeypatch.setattr(pc, "PUBLIC_DAILY_POST_STAMP",
+                        str(tmp_path / "public_daily_report.json"))
+
+
+async def _live_report(monkeypatch, rows, scope="own"):
     monkeypatch.setattr(pc, "CONFIG", _Live(True))
     monkeypatch.setattr(pc, "_caller_dd_status", lambda engine, uid: {})
     book = types.SimpleNamespace(closed_positions=rows, open_positions=[],
                                  closed_trades_read_failed=False)
-    me = Stand({"scope": "own", "executor": book, "balance": None,
+    me = Stand({"scope": scope, "executor": book, "balance": None,
                 "total": None, "age_s": None})
     me.forwarder = _Fwd()
     await PortfolioCommands._cmd_daily_report(me, object(), object())
@@ -83,8 +90,10 @@ async def test_the_card_counts_only_the_days_closes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_public_post_is_the_days(monkeypatch):
+    # The OPERATOR's book: only the agent's own day is published as its
+    # report (tests/test_the_scheduled_posts_say_whose_book_they_read.py).
     rows = [_close(p, ago, f"T-{i}") for i, (p, ago) in enumerate(THREE)]
-    _said, posted = await _live_report(monkeypatch, rows)
+    _said, posted = await _live_report(monkeypatch, rows, scope="operator")
     assert len(posted) == 1
     assert "Trades: <code>1</code>" in posted[0] and "W/L: <code>1/0</code>" in posted[0]
 
@@ -92,7 +101,8 @@ async def test_the_public_post_is_the_days(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_day_with_no_close_posts_nothing(monkeypatch):
     rows = [_close(50.0, timedelta(days=2), "T-old")]
-    said, posted = await _live_report(monkeypatch, rows)
+    # On the operator's book, which is the only one that may post at all.
+    said, posted = await _live_report(monkeypatch, rows, scope="operator")
     assert posted == []
     assert "Total ·················· 0" in said
 

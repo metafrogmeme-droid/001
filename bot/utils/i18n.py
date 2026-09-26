@@ -1374,9 +1374,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Unlinked from {email}.\nYour data is preserved. Use /link to reconnect.",
         "zh": "已與 {email} 解除連結。\n你的資料已保留。使用 /link 重新連結。",
     },
+    # /me printed Equity, Open P&L and Trades from `user_portfolio`, a table
+    # nothing writes, so every account read $10000.00 / $0.00 / 0. The card
+    # says where the account is read instead.
     "me_account": {
-        "en": "<b>Your RUNECLAW Account</b>\n\nEmail:    <code>{email}</code>\nPlan:     <code>{plan}</code>\nEquity:   <code>${equity}</code>\nOpen P&amp;L: <code>${pnl}</code>\nTrades:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Notifications: <code>{notif}</code>",
-        "zh": "<b>你的 RUNECLAW 帳號</b>\n\n電郵:    <code>{email}</code>\n方案:     <code>{plan}</code>\n權益:   <code>${equity}</code>\n未實現損益: <code>${pnl}</code>\n交易數:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 通知: <code>{notif}</code>",
+        "en": "<b>Your RUNECLAW Account</b>\n\nEmail:    <code>{email}</code>\n"
+              "Plan:     <code>{plan}</code>\n\n"
+              "LLM: <code>{llm}</code> | Notifications: <code>{notif}</code>\n\n"
+              "Your balance and trades are not stored with this account. Your"
+              " dashboard reads them from the bot each time it loads: {url}/dashboard",
+        "zh": "<b>你的 RUNECLAW 帳號</b>\n\n電郵:    <code>{email}</code>\n"
+              "方案:     <code>{plan}</code>\n\n"
+              "LLM: <code>{llm}</code> | 通知: <code>{notif}</code>\n\n"
+              "你的餘額與交易不儲存在此帳號中。儀表板每次載入時都會向機器人讀取：{url}/dashboard",
     },
     # /sync pushes nothing. It used to answer "Dashboard synced. Equity:
     # $10000.00" over a push of `user_portfolio`'s defaults onto the AGENT's

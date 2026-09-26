@@ -39,6 +39,15 @@ let n = 0;
 const reg = () => req('POST', '/api/auth/register',
   { body: { email: `lb${++n}@test.io`, password: 'x'.repeat(12) } });
 
+// The account's own equity reading. Return % is measured on the starting
+// equity derived from it (the latest snapshot minus the realized net), never
+// on a constant stake -- `net / 10000` made `return_pct * 100` the dollar P&L.
+async function seedEquity(uid, equity) {
+  await pool.execute(
+    'INSERT INTO equity_snapshots (user_id, equity, snapshot_at) VALUES (?, ?, ?)',
+    [uid, equity, new Date()]);
+}
+
 async function seedClosedTrade(uid, pnl) {
   await pool.execute(
     "INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at) VALUES (?,?,?,?,?,?,?,?,'CLOSED',?,?,?)",
@@ -72,8 +81,10 @@ test('opt-in needs a valid, unique handle; board ranks by return %, no dollars',
   r = await req('POST', '/api/leaderboard/opt-in', { token: b.data.token, body: { handle: 'ALICE' } });
   assert.strictEqual(r.status, 409);
 
-  // A has a winning closed trade → +5% on the $10k paper stake.
+  // A has a winning closed trade and an equity reading of 10,500, so the
+  // derived starting equity is 10,000 and the +500 is +5% on it.
   await seedClosedTrade(a.data.user_id, 500);
+  await seedEquity(a.data.user_id, 10500);
 
   r = await req('GET', '/api/leaderboard', { token: a.data.token });
   assert.strictEqual(r.status, 200);
@@ -112,6 +123,7 @@ test('UX-6: my_rank/ranked_total report a real position, even past the top windo
   const a = await reg();
   await req('POST', '/api/leaderboard/opt-in', { token: a.data.token, body: { handle: 'ranker' } });
   await seedClosedTrade(a.data.user_id, 300);
+  await seedEquity(a.data.user_id, 5300);
   let r = await req('GET', '/api/leaderboard', { token: a.data.token });
   assert.strictEqual(typeof r.data.my_rank, 'number');
   assert.ok(r.data.my_rank >= 1, 'a member with a closed trade has a numeric rank');

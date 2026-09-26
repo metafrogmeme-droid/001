@@ -39,6 +39,7 @@ from bot.formatters.thesis_text import provenance_tag, split_counter_case, thesi
 from bot.config import CONFIG, TRADFI_PERPETUALS
 from bot.core.engine import RuneClawEngine
 from bot.utils.logger import audit, system_log
+from bot.utils.candles import ohlc_on_record, volume_on_record as _vol_on_record
 
 # THE COUNT IS GONE, AND ITS OWN COMMENT SAID WHY IT HAD TO GO: "update this
 # constant when adding or removing checks" is a number maintained by hand
@@ -885,7 +886,7 @@ class AnalyzeAssetSkill(BaseSkill):
             diag_detail = "\n".join(f"  {l}" for l in diag_lines)
             msg = (
                 f"{_NEU} <b>{_esc(symbol)}</b>  {arrow}\n{SEP}\n\n"
-                f"- Price: <code>${sig.price:,.2f}</code>\n"
+                f"- Price: <code>{_price(sig.price)}</code>\n"
                 f"- 24h: <code>{_chg(sig.change_pct_24h)}</code>\n"
                 f"- Volume: <code>${vol_m:,.0f}M</code>\n\n"
             )
@@ -919,22 +920,28 @@ class AnalyzeAssetSkill(BaseSkill):
         sl_d = abs(idea.entry_price - idea.stop_loss)
         tp_d = abs(idea.take_profit - idea.entry_price)
 
-        # Price ladder with box drawing
+        # Price ladder with box drawing. ADAPTIVE PRECISION: `:,.2f` printed a
+        # DOGE setup at 0.1234 / 0.1209 / 0.1284 as TP $0.13 (+$0.00), IN
+        # $0.12, SL $0.12 (-$0.00) -- two levels that read the same and two
+        # distances that read as nothing, on the text that is the web answer,
+        # the Telegram caption and the model's transcript. `_price` is this
+        # file's own adaptive reading, for the levels and the distances alike.
+        _tp, _in, _sl = _price(idea.take_profit), _price(idea.entry_price), _price(idea.stop_loss)
         if d == "LONG":
             ladder = (
-                f"  \U0001f3af TP    \u2502 ${idea.take_profit:>10,.2f}  (+${tp_d:,.2f})\n"
+                f"  \U0001f3af TP    \u2502 {_tp:>11}  (+{_price(tp_d)})\n"
                 f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
-                f"  {d_arrow}  IN   \u2502 ${idea.entry_price:>10,.2f}\n"
+                f"  {d_arrow}  IN   \u2502 {_in:>11}\n"
                 f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
-                f"  \U0001f6d1 SL    \u2502 ${idea.stop_loss:>10,.2f}  (-${sl_d:,.2f})"
+                f"  \U0001f6d1 SL    \u2502 {_sl:>11}  (-{_price(sl_d)})"
             )
         else:
             ladder = (
-                f"  \U0001f6d1 SL    \u2502 ${idea.stop_loss:>10,.2f}  (-${sl_d:,.2f})\n"
+                f"  \U0001f6d1 SL    \u2502 {_sl:>11}  (-{_price(sl_d)})\n"
                 f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
-                f"  {d_arrow}  IN   \u2502 ${idea.entry_price:>10,.2f}\n"
+                f"  {d_arrow}  IN   \u2502 {_in:>11}\n"
                 f"  \u2500\u2500\u2500\u2500\u2500\u2500\u253c{'─' * 28}\n"
-                f"  \U0001f3af TP    \u2502 ${idea.take_profit:>10,.2f}  (+${tp_d:,.2f})"
+                f"  \U0001f3af TP    \u2502 {_tp:>11}  (+{_price(tp_d)})"
             )
 
         # Confidence bar using gradient blocks
@@ -2894,6 +2901,11 @@ class ProScanSkill(BaseSkill):
         # ── Structure Read per Asset ──
         structure_lines = []
         ideas_found: list = []
+        # What the loop below MEASURED per asset, keyed by symbol: the card
+        # grades each idea off its own asset's reading, and the website push
+        # sends these (or None) rather than a stamped RSI 50 and a 24h dollar
+        # volume in millions under the name `vol_ratio`.
+        asset_read: dict = {}
 
         # Pre-fetch all OHLCV in parallel
         spot_exchange = await engine.scanner._get_exchange()
@@ -2943,27 +2955,46 @@ class ProScanSkill(BaseSkill):
                 )
                 continue
 
+            # A null price, or a volume the venue did not state inside the
+            # window the VWAP and the volume ratio read, is a missing series,
+            # not a reading: `float(None)` raised here and took the whole scan
+            # down with it.
+            volumes = [_vol_on_record(c[5] if len(c) > 5 else None) for c in ohlcv]
+            if not ohlc_on_record(ohlcv) or any(v is None for v in volumes[-20:]):
+                structure_lines.append(
+                    f"  {_BAD} <b>{_esc(sig.symbol)}</b> \u2014 candles unreadable\n"
+                )
+                continue
+
             # Compute quick indicators for regime narrative
             closes = [float(c[4]) for c in ohlcv]
             highs = [float(c[2]) for c in ohlcv]
             lows = [float(c[3]) for c in ohlcv]
-            volumes = [float(c[5]) for c in ohlcv]
 
-            # RSI-14
+            # RSI-14. `avg_loss` fell back to 0.001 only for an EMPTY list, and
+            # the list is never empty -- it holds zeros -- so fourteen rising
+            # closes divided by zero and the whole scan failed (a flat series
+            # too). No loss with gains is RSI 100; no move at all is 50.
             deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
             gains = [max(d, 0) for d in deltas[-14:]]
             losses = [abs(min(d, 0)) for d in deltas[-14:]]
-            avg_gain = sum(gains) / 14 if gains else 0
-            avg_loss = sum(losses) / 14 if losses else 0.001
-            rsi = 100 - (100 / (1 + avg_gain / avg_loss))
+            avg_gain = sum(gains) / 14
+            avg_loss = sum(losses) / 14
+            if avg_loss > 0:
+                rsi = 100 - (100 / (1 + avg_gain / avg_loss))
+            else:
+                rsi = 100.0 if avg_gain > 0 else 50.0
 
             # VWAP approx (typical price * volume / cumulative volume)
             recent = ohlcv[-20:]
+            # Every volume here was read (the check above); the filter only
+            # narrows the type.
+            recent_vol = [v for v in volumes[-20:] if v is not None]
             tp_vol = sum(
-                ((float(c[2]) + float(c[3]) + float(c[4])) / 3) * float(c[5])
-                for c in recent
+                ((float(c[2]) + float(c[3]) + float(c[4])) / 3) * v
+                for c, v in zip(recent, recent_vol)
             )
-            cum_vol = sum(float(c[5]) for c in recent)
+            cum_vol = sum(recent_vol)
             vwap = tp_vol / cum_vol if cum_vol > 0 else closes[-1]
 
             # Support / Resistance from recent swing H/L
@@ -3015,11 +3046,13 @@ class ProScanSkill(BaseSkill):
                 risk_state = "LOWER RISK"
                 risk_icon = "\U0001f7e2"
 
-            # Momentum
-            vol_avg = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / max(len(volumes), 1)
-            vol_now = volumes[-1] if volumes else 0
-            vol_ratio = vol_now / vol_avg if vol_avg > 0 else 1
-            if vol_ratio > 1.5:
+            # Momentum. A window that traded nothing has no ratio: `else 1`
+            # read it as exactly average volume.
+            vol_avg = cum_vol / len(recent_vol)
+            vol_ratio = recent_vol[-1] / vol_avg if vol_avg > 0 else None
+            if vol_ratio is None:
+                momentum_note = "No volume in the window \u2022 No confirmation read"
+            elif vol_ratio > 1.5:
                 momentum_note = "Momentum expansion \u2022 Volume confirmed"
             elif vol_ratio < 0.5:
                 momentum_note = "Momentum fade \u2022 Weak follow-through"
@@ -3089,20 +3122,36 @@ class ProScanSkill(BaseSkill):
                     f"No trigger, no trade. Wait for clean break or sweep.</i>\n"
                 )
 
-            # Setup Quality Score
-            _structure_clear = not in_midrange
-            _vol_conf = vol_ratio > 1.5
-            _conf = 0.5  # default pre-analysis confidence
-            _rr_val = 1.0  # default pre-analysis R:R
-            sq_score, sq_label = _setup_quality_score(_conf, _rr_val, rsi, _vol_conf, _structure_clear)
-            sq_bar = "█" * sq_score + "░" * (10 - sq_score)
-            structure_lines.append(f"  Setup Quality: {sq_bar} <code>{sq_score}/10</code> — <i>{sq_label}</i>\n")
+            # What this asset MEASURED, which the idea below is graded off.
+            # The idea's grade used to stamp midrange=False, volume confirmed
+            # and structure clear, so one card read "NO-TRADE ZONE, Setup
+            # Quality 0/10" for an asset and "Execution Ready, Quality 9/10"
+            # for its idea.
+            vol_conf = vol_ratio is not None and vol_ratio > 1.5
+            structure_clear = not in_midrange
+            read = {"rsi": rsi, "vol_ratio": vol_ratio,
+                    "in_midrange": in_midrange,
+                    "vol_conf": vol_conf,
+                    "structure_clear": structure_clear}
+            asset_read[sig.symbol] = read
 
             # Run full analysis pipeline with mode-specific timeframe
             idea = await engine._analyze_signal(sig, timeframe=cfg["timeframe"])
+            # Setup Quality is graded on the SETUP: the analyzer's confidence
+            # and R:R, beside this asset's readings. It was graded before the
+            # analysis on a stamped confidence of 0.5 and R:R of 1.0.
             if idea:
+                _sl_d = abs(idea.entry_price - idea.stop_loss)
+                _rr_q = abs(idea.take_profit - idea.entry_price) / _sl_d if _sl_d > 0 else 0
+                sq_score, sq_label = _setup_quality_score(
+                    idea.confidence, _rr_q, rsi, vol_conf, structure_clear)
+                sq_bar = "█" * sq_score + "░" * (10 - sq_score)
+                structure_lines.append(f"  Setup Quality: {sq_bar} <code>{sq_score}/10</code> — <i>{sq_label}</i>\n")
                 engine._pending_ideas[idea.id] = idea
-                ideas_found.append((idea, rsi))
+                ideas_found.append((idea, read))
+            else:
+                structure_lines.append(
+                    "  Setup Quality: — <i>no setup from the analyzer to grade</i>\n")
 
         # ── Claw Verdict ──
         verdict_lines = [f"\n\u2694\ufe0f <b>Claw Verdict</b>\n{SEP}"]
@@ -3115,7 +3164,8 @@ class ProScanSkill(BaseSkill):
                 f"\n  <i>A missed trade is better than a forced trade.</i>"
             )
         else:
-            for idea, idea_rsi in ideas_found:
+            for idea, idea_read in ideas_found:
+                idea_rsi = idea_read["rsi"]
                 d_icon = _OK if idea.direction.value == "LONG" else _BAD
                 d_arrow = "\u25b2" if idea.direction.value == "LONG" else "\u25bc"
                 sl_d = abs(idea.entry_price - idea.stop_loss)
@@ -3131,14 +3181,12 @@ class ProScanSkill(BaseSkill):
                 else:
                     setup_risk = "\U0001f534 ELEVATED RISK"
 
-                # Status label
-                _idea_midrange = False  # approximation; full midrange check was per-asset
-                status_icon, status_text = _status_label(idea.confidence, rr, idea_rsi, _idea_midrange)
-
-                # Setup quality for this idea
+                # Status label and quality, off this asset's own readings.
+                status_icon, status_text = _status_label(
+                    idea.confidence, rr, idea_rsi, idea_read["in_midrange"])
                 _idea_sq_score, _idea_sq_label = _setup_quality_score(
-                    idea.confidence, rr, idea_rsi, True, True
-                )
+                    idea.confidence, rr, idea_rsi,
+                    idea_read["vol_conf"], idea_read["structure_clear"])
                 _idea_sq_bar = "█" * _idea_sq_score + "░" * (10 - _idea_sq_score)
 
                 verdict_lines.append(
@@ -3147,9 +3195,11 @@ class ProScanSkill(BaseSkill):
                     f"{setup_risk}\n"
                     f"  \u2502{conf_bar}\u2502 {_pill(f'{idea.confidence:.0%}')}\n"
                     f"<pre>"
-                    f"  Entry Zone    ${_price(idea.entry_price):>12s}\n"
-                    f"  Stop Loss     ${_price(idea.stop_loss):>12s}  (-${_price(sl_d)})\n"
-                    f"  Take Profit   ${_price(idea.take_profit):>12s}  (+${_price(tp_d)})\n"
+                    # `_price` carries its own "$"; a second one in front
+                    # printed "$     $100.30" and "(-$$1.00)".
+                    f"  Entry Zone    {_price(idea.entry_price):>13s}\n"
+                    f"  Stop Loss     {_price(idea.stop_loss):>13s}  (-{_price(sl_d)})\n"
+                    f"  Take Profit   {_price(idea.take_profit):>13s}  (+{_price(tp_d)})\n"
                     f"  R:R           {idea.risk_reward_ratio:>10}x"
                     f"</pre>"
                     f"  Quality: {_idea_sq_bar} <code>{_idea_sq_score}/10</code> — <i>{_idea_sq_label}</i>"
@@ -3181,11 +3231,12 @@ class ProScanSkill(BaseSkill):
         # One-Glance Verdict
         one_glance_lines = []
         if ideas_found:
-            best, _best_rsi = max(ideas_found, key=lambda i: i[0].confidence)
+            best, _best_read = max(ideas_found, key=lambda i: i[0].confidence)
             _best_sl_d = abs(best.entry_price - best.stop_loss)
             _best_tp_d = abs(best.take_profit - best.entry_price)
             _best_rr = _best_tp_d / _best_sl_d if _best_sl_d > 0 else 0
-            _gl_icon, _gl_text = _status_label(best.confidence, _best_rr, _best_rsi, False)
+            _gl_icon, _gl_text = _status_label(best.confidence, _best_rr, _best_read["rsi"],
+                                               _best_read["in_midrange"])
             one_glance_lines.append(f"\n{_gl_icon} <b>One-Glance Verdict: {_gl_text}</b>")
             one_glance_lines.append(
                 f"  {len(ideas_found)} actionable setup(s) detected  •  "
@@ -3229,6 +3280,7 @@ class ProScanSkill(BaseSkill):
             # Convert signals to scan_skill format
             scan_results = []
             for sig in signals:
+                _m = asset_read.get(sig.symbol) or {}
                 scan_results.append({
                     "sym": sig.symbol,
                     "price": sig.price,
@@ -3238,15 +3290,20 @@ class ProScanSkill(BaseSkill):
                     # instead of falling into an `else` that means SHORT.
                     "dir": _dir_from_change(sig.change_pct_24h),
                     "score": max(sig.momentum_score, 0),
-                    "rsi": 50.0,  # RSI computed per-asset above, but not stored on signal
-                    "atr": 0,
-                    "vol_ratio": sig.volume_usd_24h / 1_000_000 if sig.volume_usd_24h else 1.0,
+                    # What the loop above measured, or None: `rsi: 50.0` was a
+                    # stamp the payload derived BTC's regime from, and the
+                    # "vol_ratio" was 24h dollar volume in millions. This loop
+                    # measures no ATR, and `_build_scan_payload` builds no
+                    # entry card off a volatility nobody measured.
+                    "rsi": _m.get("rsi"),
+                    "atr": None,
+                    "vol_ratio": _m.get("vol_ratio"),
                     "patterns": [],
                 })
             payload = _build_scan_payload(scan_results, engine)
             # Enhance with ideas if available
             if ideas_found:
-                for idea, idea_rsi in ideas_found:
+                for idea, idea_read in ideas_found:
                     sym_key = idea.asset.replace("/", "")
                     atr_val = abs(idea.entry_price - idea.stop_loss) / 2.5
                     payload["entry_cards"].append({
@@ -3259,7 +3316,8 @@ class ProScanSkill(BaseSkill):
                         "tp2": str(round(idea.entry_price + (idea.take_profit - idea.entry_price) * 1.5, 6)),
                         "margin": str(round(idea.entry_price * 0.01, 2)),
                         "rr": str(idea.risk_reward_ratio),
-                        "book_ratio": 0,
+                        "book_ratio": (None if idea_read["vol_ratio"] is None
+                                       else round(idea_read["vol_ratio"], 2)),
                         "trigger": f"Confidence {idea.confidence:.0%}",
                         # The website's scan card labels this "thesis". Send
                         # the model's words or an empty string — never the

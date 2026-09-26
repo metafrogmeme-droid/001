@@ -579,6 +579,19 @@ def close_pct(exit_price, entry_price, direction, leverage):
     return pct, pct * int(leverage or 1)
 
 
+def trail_starts_for(strategy_type: str) -> bool:
+    """Whether a position of this strategy gets a trailing stop at entry.
+
+    Two switches decide it: the global `TRAILING_STOP_ENABLED` and the
+    strategy's own (`SCALP_TRAILING_ENABLED` defaults False). The market entry
+    read only the strategy's and the three limit-fill paths read only the
+    global one, so a scalp that entered by limit trailed although its strategy
+    says it must not. Every path that builds a trailing state asks this.
+    """
+    return bool(CONFIG.trailing.enabled
+                and CONFIG.strategy_types.get_trailing_enabled(strategy_type))
+
+
 def margin_at_fill(raw_cost: float, leverage: Any) -> float:
     """The margin a fill of ``raw_cost`` notional commits at ``leverage``.
 
@@ -2111,8 +2124,16 @@ class LiveExecutor:
             return 1
 
     async def _ensure_leverage(self, symbol: str, side: str = "",
-                               idea: Any = None) -> None:
+                               idea: Any = None,
+                               target: Optional[int] = None) -> None:
         """Set leverage and margin mode for a symbol (futures only).
+
+        ``target`` is the leverage `execute` read ONCE for this order and also
+        sizes it at. Reading it again here could answer differently: a
+        `/leverage` change, or a preference file that reads on the second try,
+        between the set and the sizing sized an order at 10x on a venue set to
+        5x. With no target (every caller that is not placing an order) it is
+        read here, as before.
 
         ``idea`` is the order this leverage is being set FOR, when there is
         one. It carries the risk gate's margin-risk cap, and the venue is the
@@ -2141,7 +2162,7 @@ class LiveExecutor:
         # method is Bitget account topology (UTA probes, v2 verification
         # endpoints, crossed/cross quirk) that does not exist elsewhere.
         if self._venue.id != "bitget":
-            await self._ensure_leverage_generic(exchange, symbol, idea)
+            await self._ensure_leverage_generic(exchange, symbol, idea, target)
             return
 
         # ── Set margin mode (best-effort; the verification read below is the
@@ -2267,7 +2288,8 @@ class LiveExecutor:
                       data={"symbol": symbol, "configured": cfg.margin_mode})
 
         # ── Set leverage (dynamic scaling via the shared, reduce-only helper) ──
-        _target_leverage = self._compute_target_leverage(symbol, idea)
+        _target_leverage = (target if target is not None
+                            else self._compute_target_leverage(symbol, idea))
 
         # Did the exchange ACCEPT the target? A bare set_leverage that returns
         # without raising is NOT a confirmation — see the per-side block below
@@ -2606,7 +2628,8 @@ class LiveExecutor:
 
     async def _ensure_leverage_generic(self, exchange: ccxt.Exchange,
                                        symbol: str,
-                                       idea: Any = None) -> None:
+                                       idea: Any = None,
+                                       order_target: Optional[int] = None) -> None:
         """Venue-neutral margin-mode + leverage setup via plain ccxt.
 
         Used for venues without Bitget's account-topology special cases
@@ -2618,7 +2641,8 @@ class LiveExecutor:
         # ccxt's spelling, once: Bitget's "crossed" is isolated to ccxt's
         # Hyperliquid call and refused by its Bybit one (`ccxt_margin_mode`).
         margin_mode = ccxt_margin_mode(cfg.margin_mode)
-        target = self._compute_target_leverage(symbol, idea)
+        target = (order_target if order_target is not None
+                  else self._compute_target_leverage(symbol, idea))
         sym = self._venue.swap_symbol(symbol)
         try:
             market = exchange.market(sym)
@@ -2906,6 +2930,56 @@ class LiveExecutor:
         self._avail_margin_cache = (now, value)
         return value
 
+    def _hard_cap_refusal(self, size_usd: float, bounds: size_bounds.SizeBounds,
+                          exposure: CommittedMargin,
+                          ) -> tuple[Optional[str], Optional[float]]:
+        """The hard caps an order's margin must clear: ``(refusal, total)``.
+
+        The per-trade bound, the book's readability, the total bound and, for
+        a linked account, `PER_USER_MAX_FUNDS_USD`. ``total`` is the committed
+        margin before this order, and a float whenever there is no refusal.
+
+        One method because two places ask: `_preflight_check` at the approved
+        size, and `execute` again at the margin the exchange-minimum round-up
+        will really place. The round-up used to run after the preflight and
+        nothing asked again, so a $30 approval rounded to $40 took a linked
+        account to $110 against its $100 cap, and the operator's book to $505
+        against $500. Nothing here records or warns: the bounds shadow and the
+        reserve warning belong to the preflight, once per order.
+        """
+        _verdict = size_bounds.bounds_verdict(size_usd, bounds, exposure)
+        if _verdict.sentence is not None:
+            return _verdict.sentence, None
+        # `ok` is answered only over a complete reading of the book
+        # (`bounds_verdict` pins it), so the total is a float here.
+        total_exposure = cast(float, _verdict.exposure_total)
+
+        # LIVE-1 (operator directive, live-testing protection): every LINKED
+        # (per-user) account carries its own hard max-funds ceiling — total
+        # deployed margin may never exceed PER_USER_MAX_FUNDS_USD, regardless
+        # of the account's balance. A test account can lose at most what the
+        # operator deliberately allowed it. Operator executor (user_id None)
+        # is governed by the MICRO_* caps above, not this.
+        if self.user_id is not None:
+            try:
+                per_user_cap = float(os.environ.get("PER_USER_MAX_FUNDS_USD", "100"))
+            except ValueError:
+                per_user_cap = 100.0
+            if per_user_cap > 0 and total_exposure + size_usd > per_user_cap:
+                audit(trade_log,
+                      f"PER-USER CAP blocked trade for user {self.user_id}: "
+                      f"${total_exposure + size_usd:.2f} > ${per_user_cap:.2f}",
+                      action="per_user_cap", result="BLOCKED",
+                      data={"user_id": str(self.user_id), "cap": per_user_cap,
+                            "exposure": total_exposure, "new_size": size_usd})
+                return (
+                    f"Linked-account protection: total deployed "
+                    f"${total_exposure + size_usd:.2f} would exceed this "
+                    f"account's max-funds cap ${per_user_cap:.2f} "
+                    "(PER_USER_MAX_FUNDS_USD)"
+                ), None
+        return None, total_exposure
+
     def _preflight_check(self, size_usd: float, symbol: str = "",
                          available_usd: Optional[float] = None,
                          size_before_bound: Optional[float] = None) -> Optional[str]:
@@ -2993,37 +3067,11 @@ class LiveExecutor:
         # refuses an order. The sentences are the ones this method always
         # printed, and the reasons each refusal is worded as it is sit
         # beside it in the leaf.
-        _verdict = size_bounds.bounds_verdict(size_usd, bounds, exposure)
-        if _verdict.sentence is not None:
-            return _verdict.sentence
-        # `ok` is answered only over a complete reading of the book
-        # (`bounds_verdict` pins it), so the total is a float here.
-        total_exposure = cast(float, _verdict.exposure_total)
-
-        # LIVE-1 (operator directive, live-testing protection): every LINKED
-        # (per-user) account carries its own hard max-funds ceiling — total
-        # deployed margin may never exceed PER_USER_MAX_FUNDS_USD, regardless
-        # of the account's balance. A test account can lose at most what the
-        # operator deliberately allowed it. Operator executor (user_id None)
-        # is governed by the MICRO_* caps above, not this.
-        if self.user_id is not None:
-            try:
-                per_user_cap = float(os.environ.get("PER_USER_MAX_FUNDS_USD", "100"))
-            except ValueError:
-                per_user_cap = 100.0
-            if per_user_cap > 0 and total_exposure + size_usd > per_user_cap:
-                audit(trade_log,
-                      f"PER-USER CAP blocked trade for user {self.user_id}: "
-                      f"${total_exposure + size_usd:.2f} > ${per_user_cap:.2f}",
-                      action="per_user_cap", result="BLOCKED",
-                      data={"user_id": str(self.user_id), "cap": per_user_cap,
-                            "exposure": total_exposure, "new_size": size_usd})
-                return (
-                    f"Linked-account protection: total deployed "
-                    f"${total_exposure + size_usd:.2f} would exceed this "
-                    f"account's max-funds cap ${per_user_cap:.2f} "
-                    "(PER_USER_MAX_FUNDS_USD)"
-                )
+        _refusal, _total = self._hard_cap_refusal(size_usd, bounds, exposure)
+        if _refusal is not None:
+            return _refusal
+        # A float whenever there is no refusal (`_hard_cap_refusal`'s contract).
+        total_exposure = cast(float, _total)
 
         # GETCLAW: Capital buffer guard — keep minimum reserve after trade.
         # Deploying too much leaves no buffer for margin calls or new
@@ -5180,7 +5228,8 @@ class LiveExecutor:
         return None, _entry_book, _slip_mode
 
     def _size_or_block(self, idea: TradeIdea, symbol: str, current_price: float,
-                       size_usd: float) -> tuple[Optional[str], int, float]:
+                       size_usd: float, leverage: Optional[int] = None,
+                       ) -> tuple[Optional[str], int, float]:
         """Refuse a price already past the stop, else size the order.
 
         Extracted from execute() verbatim. Returns ``(block, leverage_mult,
@@ -5223,7 +5272,11 @@ class LiveExecutor:
         # cap was clamped HERE and nowhere else, which rebuilt the divergence
         # one field over — and that one enforced nothing, because the sizing
         # leverage cancels out of the ratio the cap bounds.
-        leverage_mult = self._compute_target_leverage(symbol, idea)
+        # `leverage` is the one read `execute` made for this order and handed
+        # to `_ensure_leverage` too; reading again here is how a change landing
+        # between the two sized the order at one leverage and set another.
+        leverage_mult = (leverage if leverage is not None
+                         else self._compute_target_leverage(symbol, idea))
         quantity = (size_usd * leverage_mult) / current_price
         return None, leverage_mult, quantity
 
@@ -5543,12 +5596,9 @@ class LiveExecutor:
                           data={"symbol": symbol, "old_size": old_sz,
                                 "new_size": size_usd,
                                 "multiplier": entry_result.size_multiplier})
-                    # Recalculate quantity with new size
+                    # Recalculate quantity with new size. execute() hands it to
+                    # the exchange-minimum gate, which rounds it to the grid.
                     quantity = (size_usd * leverage_mult) / current_price
-                    if market:
-                        _re_rounded = active_exchange.amount_to_precision(symbol, quantity)
-                        if _re_rounded:
-                            quantity = float(_re_rounded)
 
                 # ── Keep SL/TP geometry attached to the RECALCULATED entry
                 # and gate the structure SL (see recalc_sl_tp_for_shifted_entry) ──
@@ -6704,6 +6754,15 @@ class LiveExecutor:
                     return (f"EXECUTION FAILED: {symbol} has no futures market — "
                             f"only USDT-M perpetual futures are supported.")
 
+            # ONE READ of this order's leverage, handed to the venue set and to
+            # the sizing below. Each used to read it for itself, so a
+            # `/leverage` change or a preference file that read on the second
+            # try between them set the venue to one leverage and sized the
+            # order at another: $200 of margin locked on a $100 approval.
+            _order_leverage = self._compute_target_leverage(
+                self._venue.swap_symbol(idea.asset) if is_futures else idea.asset,
+                idea)
+
             # Set leverage for this symbol (futures only)
             if is_futures:
                 # AUDIT-FIX: Use swap symbol format for leverage API calls
@@ -6711,7 +6770,8 @@ class LiveExecutor:
                 # The DIRECTION matters: Bitget isolated margin holds leverage
                 # per side, so the field that decides this fill is that side's.
                 await self._ensure_leverage(
-                    swap_sym, getattr(idea.direction, "value", "") or "", idea)
+                    swap_sym, getattr(idea.direction, "value", "") or "", idea,
+                    target=_order_leverage)
 
             # Convert symbol to the perpetual/swap format for the futures order
             # path so the market lookup, price rounding, tick snap and
@@ -6757,7 +6817,7 @@ class LiveExecutor:
 
             # ── SAFEGUARD 1: Pre-trade price validation + sizing ── (see _size_or_block)
             _gate_msg, _sized_lev, _sized_qty = self._size_or_block(
-                idea, symbol, current_price, size_usd)
+                idea, symbol, current_price, size_usd, leverage=_order_leverage)
             if _gate_msg:
                 return _gate_msg
             leverage_mult, quantity = _sized_lev, _sized_qty
@@ -6782,6 +6842,26 @@ class LiveExecutor:
             if _gate_msg:
                 return _gate_msg
 
+            # The round-up above can raise the margin past what the preflight
+            # checked. Ask the hard caps again at the margin this quantity
+            # really places, and refuse rather than place over a cap.
+            _placed_margin = quantity * current_price / max(int(leverage_mult or 1), 1)
+            if _placed_margin > size_usd:
+                _cap_msg, _ = self._hard_cap_refusal(
+                    _placed_margin, _bounds, committed_margin(self.open_positions))
+                if _cap_msg is not None:
+                    audit(trade_log,
+                          f"BLOCKED: {symbol} rounded up to the venue minimum "
+                          f"would place ${_placed_margin:.2f} of margin "
+                          f"(approved ${size_usd:.2f}). {_cap_msg}",
+                          action="live_execute", result="ROUNDUP_OVER_CAP",
+                          data={"asset": symbol, "approved": round(size_usd, 4),
+                                "placed_margin": round(_placed_margin, 4),
+                                "leverage": leverage_mult})
+                    return (f"BLOCKED: {symbol} rounded up to the venue minimum "
+                            f"is ${_placed_margin:.2f} of margin (approved "
+                            f"${size_usd:.2f}). {_cap_msg}")
+
             # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
             _gate_msg = self._notional_boundary_gate(
                 symbol, quantity, current_price, size_usd, leverage_mult, market)
@@ -6795,9 +6875,21 @@ class LiveExecutor:
             limit_price = idea.entry_price if use_limit else None
 
             # ── LIMIT ORDER PRICE VALIDATION ── (see _recalculate_limit_entry)
+            _q_checked = quantity
             use_limit, limit_price, size_usd, quantity = await self._recalculate_limit_entry(
                 active_exchange, symbol, idea, side, market, use_limit, limit_price,
                 current_price, size_usd, quantity, leverage_mult, atr_value)
+            if quantity != _q_checked:
+                # The entry tier re-sized the order after the minimum gate ran,
+                # and the smaller quantity went out unchecked: under the
+                # venue's minimum, or truncated to a coarser grid step. It is
+                # asked again. A round-up cannot pass the quantity the caps
+                # checked, which already met the minimum.
+                _gate_msg, quantity = self._exchange_minimum_gate(
+                    active_exchange, market, symbol, quantity, current_price,
+                    leverage_mult, size_usd)
+                if _gate_msg:
+                    return _gate_msg
 
             if use_limit and limit_price:
                 # Round limit price to the exchange tick grid (see _round_limit_price_to_tick)
@@ -6938,7 +7030,7 @@ class LiveExecutor:
             trailing_st = None
             pos_strategy = getattr(idea, 'strategy_type', 'swing')
             pos_signal_type = getattr(idea, 'signal_type', 'momentum_confluence')
-            trailing_enabled = CONFIG.strategy_types.get_trailing_enabled(pos_strategy)
+            trailing_enabled = trail_starts_for(pos_strategy)
             if trailing_enabled and atr_value > 0:
                 initial_risk = abs(fill_price - idea.stop_loss)
                 trailing_st = make_trailing_state(
@@ -8131,7 +8223,9 @@ class LiveExecutor:
 
             "filled"   the venue CONFIRMED this quantity filled
             "none"     nothing was submitted (qty rounded to <= 0)
-            "unknown"  the order went out and the fill could not be read
+            "refused"  the venue refused the order, so nothing was placed
+            "unknown"  the order went out, or may have, and its fill could
+                       not be read
 
         It used to return the SUBMITTED quantity, and the caller subtracted
         that from ``pos.quantity`` and re-sized the exchange stop to match.
@@ -8160,13 +8254,23 @@ class LiveExecutor:
             return 0.0, "none", ""
         close_side = "sell" if pos.direction == "LONG" else "buy"
         params = self._venue.close_params(getattr(self, "_is_uta", False))
-        order = await exchange.create_order(
-            symbol=self._venue.order_symbol(pos.symbol),
-            type="market", side=close_side,
-            amount=qty,
-            price=await self._venue_market_price(exchange, pos.symbol),
-            params=params,
-        )
+        price = await self._venue_market_price(exchange, pos.symbol)
+        try:
+            order = await exchange.create_order(
+                symbol=self._venue.order_symbol(pos.symbol),
+                type="market", side=close_side,
+                amount=qty, price=price, params=params,
+            )
+        except ccxt.ExchangeError:
+            # The venue answered with a refusal: nothing was placed.
+            return 0.0, "refused", ""
+        except Exception:
+            # A timeout (ccxt's NetworkError is not an ExchangeError) says
+            # nothing about whether the venue took the order. This raise used
+            # to leave the ladder unsaved, so the next pass sent the same close
+            # again, and when the first had filled the two closed the whole
+            # position. There is no id to re-read.
+            return 0.0, "unknown", ""
         # A market reduceOnly usually comes back already filled; when the
         # response does not say so, ask the venue through the same helper the
         # full-close path uses rather than assuming the submission was the fill.
@@ -8237,33 +8341,32 @@ class LiveExecutor:
                             "tp2_hit": st.tp2_hit})
         else:
             try:
-                st = PartialTPState(**pos.partial_tp_state)
+                # From the PERSISTED dict, never the live position: rebuilding
+                # from the live pos.stop_loss once it has ratcheted to breakeven
+                # collapses initial_risk toward 0, and check_partial_tp then
+                # reads a huge current_r and fires TP1+TP2 at once. from_record
+                # drops keys a newer schema added and restores what the ladder
+                # had done, which the constructor alone resets on every pass.
+                st = PartialTPState.from_record(pos.partial_tp_state)
             except Exception:
-                # Schema drift — reconstruct from the PERSISTED dict, NOT the
-                # live position. Rebuilding via create_partial_tp_state with the
-                # live pos.stop_loss is unsafe once the stop has ratcheted to
-                # breakeven: initial_risk = |entry - stop| collapses toward 0,
-                # and check_partial_tp then reads a huge current_r (pnl / ~0)
-                # and instantly fires TP1+TP2, dumping ~80% of the runner. Keep
-                # only fields the current dataclass knows (drops extras from a
-                # newer schema); the entry-time initial_risk/original_sl survive.
-                _valid = {f.name for f in _dc.fields(PartialTPState)}
-                _kept = {k: v for k, v in (pos.partial_tp_state or {}).items()
-                         if k in _valid}
-                try:
-                    st = PartialTPState(**_kept)
-                except Exception:
-                    st = create_partial_tp_state(
-                        trade_id=pos.trade_id, direction=pos.direction,
-                        entry_price=pos.entry_price, stop_loss=pos.stop_loss,
-                        take_profit=pos.take_profit, quantity=pos.quantity,
-                        atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
-                    )
-                    # Preserve the entry-time 1R if the dict carried it, so a
-                    # ratcheted live stop can't collapse initial_risk to ~0.
-                    _ir = (pos.partial_tp_state or {}).get("initial_risk")
-                    if isinstance(_ir, (int, float)) and _ir > 0:
-                        st.initial_risk = float(_ir)
+                st = create_partial_tp_state(
+                    trade_id=pos.trade_id, direction=pos.direction,
+                    entry_price=pos.entry_price, stop_loss=pos.stop_loss,
+                    take_profit=pos.take_profit, quantity=pos.quantity,
+                    atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
+                )
+                # Preserve the entry-time 1R if the dict carried it, so a
+                # ratcheted live stop can't collapse initial_risk to ~0.
+                _ir = (pos.partial_tp_state or {}).get("initial_risk")
+                if isinstance(_ir, (int, float)) and _ir > 0:
+                    st.initial_risk = float(_ir)
+
+        # The ladder's view of the stop and the size is the book's. A stage's
+        # stop move is proposed before the venue answers, so the record can
+        # hold a stop the venue refused; read from the book, a refused move is
+        # asked for again, and the size is what the fills left.
+        st.current_sl = pos.stop_loss
+        st.remaining_qty = pos.quantity
 
         def _would_tighten(new_sl: float) -> bool:
             """True iff new_sl tightens the stop (raise LONG / lower SHORT).
@@ -8272,6 +8375,12 @@ class LiveExecutor:
             without mutating local state (the local advance is gated on the
             exchange actually accepting the tighter stop)."""
             return bool(new_sl > pos.stop_loss if is_long else new_sl < pos.stop_loss)
+
+        def _rests(level: float) -> bool:
+            """A stop at `level` can rest on the venue: under the price for a
+            long, over it for a short. One the price is already through is
+            refused, or fills at once."""
+            return level < price if is_long else level > price
 
         def _ratchet_sl(new_sl: float) -> bool:
             """Raise (LONG) / lower (SHORT) the stop only — never loosen it."""
@@ -8311,7 +8420,11 @@ class LiveExecutor:
                             "stage": stage, "qty_closed": late_qty,
                             "remaining": pos.quantity, "late_read": True})
                 _late_sl = pend.get("new_sl")
-                if isinstance(_late_sl, (int, float)) and _late_sl and _would_tighten(_late_sl):
+                # A fill read passes later, and the price may be through the
+                # stage's stop by then; the lock below asks for it again once
+                # it can rest.
+                if (isinstance(_late_sl, (int, float)) and _late_sl
+                        and _would_tighten(_late_sl) and _rests(_late_sl)):
                     ok = False
                     try:
                         ok = await self._update_exchange_sl(exchange, pos, _late_sl)
@@ -8367,7 +8480,8 @@ class LiveExecutor:
                                           "qty": qty, "new_sl": act.new_sl or None}
                             _then = "the order is re-read next pass, never resubmitted"
                         else:
-                            _then = ("the venue returned no order id, so it cannot be "
+                            _then = ("no order id came back (the order call raised or "
+                                     "the venue returned none), so it cannot be "
                                      "re-read and the stage is not retried; the "
                                      "position sync corrects the quantity")
                         audit(trade_log,
@@ -8380,6 +8494,21 @@ class LiveExecutor:
                                     "order_id": order_id or None,
                                     "quantity": pos.quantity, "price": price})
                         self._record_warning("partial_tp_fill_unread")
+                    elif fill_source == "refused":
+                        # Nothing was placed, so the stage did not happen: it
+                        # is re-armed, and its stop move is not made.
+                        setattr(st, f"{act.stage}_hit", False)
+                        setattr(st, f"{act.stage}_qty_closed", 0.0)
+                        audit(trade_log,
+                              f"Partial TP {act.stage} for {pos.symbol}: the venue "
+                              f"refused the close, so nothing was closed and the "
+                              f"stage is re-armed",
+                              action="partial_tp", result="REFUSED",
+                              level=logging.WARNING,
+                              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                    "stage": act.stage, "qty_submitted": qty,
+                                    "price": price})
+                        break
                 if fill_source == "unknown":
                     # Nothing later in this pass may build on a stage whose
                     # fill nobody read: TP2 on the same tick would close a
@@ -8411,6 +8540,9 @@ class LiveExecutor:
             # the ratcheted pos.stop_loss — keeping a single, locked close path.
 
         # Persist the ladder state (and any qty/SL change) onto the position.
+        # The stop recorded is the one the venue confirmed, never a move it
+        # refused.
+        st.current_sl = pos.stop_loss
         pos.partial_tp_state = _dc.asdict(st)
         if changed:
             self._save_positions()
@@ -8418,9 +8550,11 @@ class LiveExecutor:
     def _local_stop_breached(self, pos, price: float) -> tuple[bool, str]:
         """Whether `price` has hit `pos`'s local stop or target.
 
-        Pure mirror of the per-tick static SL/TP check (kept in lock-step with
-        it) so the grace sub-loop and the monitor agree on what "breached"
-        means. Guards stop_loss/take_profit > 0 so an unset level (0.0) can
+        The one reading of "breached": the grace sub-loop and the per-tick
+        static check in `check_positions` both ask it. It used to describe
+        itself as a mirror "kept in lock-step" with the per-tick check, which
+        had lost the guards below, so an unset level read as hit there and not
+        here. Guards stop_loss/take_profit > 0 so an unset level (0.0) can
         never be read as an instant TP/SL hit.
         """
         if price <= 0:
@@ -9105,29 +9239,13 @@ class LiveExecutor:
                                          pos.symbol, pos_strategy, hold_hours, remaining)
 
                     # ── Static SL/TP check ──
-                    should_close = False
-                    reason = ""
-
-                    _trail_on = bool(pos.trailing_state
-                                     and pos.trailing_state.get("trailing_active"))
-                    if pos.direction == "LONG":
-                        if price <= pos.stop_loss:
-                            should_close = True
-                            reason = stop_exit_label(True, pos.entry_price,
-                                                     pos.stop_loss, exit_price=price,
-                                                     trailing_active=_trail_on)
-                        elif price >= pos.take_profit:
-                            should_close = True
-                            reason = "TP HIT"
-                    else:  # SHORT
-                        if price >= pos.stop_loss:
-                            should_close = True
-                            reason = stop_exit_label(False, pos.entry_price,
-                                                     pos.stop_loss, exit_price=price,
-                                                     trailing_active=_trail_on)
-                        elif price <= pos.take_profit:
-                            should_close = True
-                            reason = "TP HIT"
+                    # One reading with the grace sub-loop. This copy had no
+                    # `> 0` guards, so a level the venue never stated (0.0,
+                    # which adoption writes for an order placed by hand) read
+                    # as already hit: a LONG's TP, a SHORT's SL. An adopted
+                    # limit order was market-closed as "TP HIT" or "SL HIT"
+                    # on the first tick after it filled.
+                    should_close, reason = self._local_stop_breached(pos, price)
 
                     if should_close:
                         # Close manually if no exchange SL/TP, or if SL/TP exists but
@@ -9449,7 +9567,8 @@ class LiveExecutor:
                 pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
                 # Initialize trailing state now that we have a real fill
-                if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+                if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                        and pos.atr_at_entry > 0):
                     initial_risk = abs(fill_price - pos.stop_loss)
                     pos.trailing_state = make_trailing_state(
                         entry_price=fill_price,
@@ -9825,7 +9944,8 @@ class LiveExecutor:
         pos.limit_order_id = None
         pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
-        if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+        if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                and pos.atr_at_entry > 0):
             initial_risk = (abs(fill_price - pos.stop_loss)
                             if pos.stop_loss else pos.atr_at_entry)
             pos.trailing_state = make_trailing_state(
@@ -10008,7 +10128,8 @@ class LiveExecutor:
                     pos.take_profit = round(fill_price * (1 - tp_dist_pct), 8)
 
             # Initialize trailing state
-            if CONFIG.trailing.enabled and pos.atr_at_entry > 0:
+            if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
+                    and pos.atr_at_entry > 0):
                 from bot.utils.trailing import make_trailing_state
                 initial_risk = abs(fill_price - pos.stop_loss) if pos.stop_loss else pos.atr_at_entry
                 pos.trailing_state = make_trailing_state(

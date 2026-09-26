@@ -22,7 +22,7 @@
     "dashboard": "abre el panel web",
     "link": "vincula este Telegram a tu cuenta del sitio web — /link <token>",
     "unlink": "desconecta este Telegram de tu cuenta del sitio web",
-    "me": "tu cuenta: plan, cartera y ajustes",
+    "me": "tu cuenta: correo, plan y ajustes",
     "sync": "por qué el panel no necesita envío: lee tu cuenta al cargarse",
     "connect": "vincula tu propia cuenta de exchange",
     "exchange": "estado de tu cuenta vinculada (nunca muestra claves)",

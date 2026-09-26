@@ -13,9 +13,13 @@ THE FALLBACK IS NARROWER THAN IT WAS, and the argument is a stamp. It used to
 take every row with no raw figure, on the reading that such a row was the
 analyzer's before this field existed -- and a manual ticket's decision row has
 no raw figure either, with a `confidence` of 1.0 that `build_manual_idea`
-stamps. A row records whether its confidence was measured now; one recorded as
-measured keeps the fallback, and an old row that says nothing cannot be told
-from a stamp, so it is left out and counted.
+stamps. A row records whether its confidence was measured now, and an old row
+that says nothing cannot be told from a stamp, so it is left out and counted.
+
+AND THE FALLBACK IS GONE. A row recorded as measured kept it, and the one
+producer that wrote such a row was the scan card's button, stamping 0.6 on
+every row. A row with no blend is not a sample for a curve fitted on blends,
+whatever its basis says (`test_a_row_without_the_blend_is_not_a_calibration_sample`).
 """
 
 from bot.learning.confidence_calibration import ConfidenceCalibrator
@@ -40,13 +44,13 @@ class TestTrainsOnApplyField:
         # Trains on the blended_raw (0.7), NOT the post-adjustment confidence 0.9.
         assert samples == [(0.7, True)]
 
-    def test_a_measured_row_without_a_raw_figure_falls_back_to_confidence(self):
+    def test_a_measured_row_without_a_raw_figure_is_not_counted(self):
         decisions = [
             _decision("t2", confidence=0.8, blended_raw=0.0, basis="measured"),
             _decision("t2", pnl=-3.0),                              # losing outcome
         ]
-        samples = ConfidenceCalibrator.samples_from_decisions(decisions)
-        assert samples == [(0.8, False)]
+        rows = ConfidenceCalibrator.rows_from_decisions(decisions)
+        assert rows.samples == [] and rows.no_blend == 1
 
     def test_an_old_row_without_a_raw_figure_is_not_counted(self):
         # It could be the analyzer's before the field existed, or a manual

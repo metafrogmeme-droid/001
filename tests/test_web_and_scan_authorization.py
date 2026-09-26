@@ -160,37 +160,28 @@ def test_the_web_path_consults_the_tier_gate(gateway):
     assert "tier_gate" in fn and "check_user" in fn
 
 
-def test_scan_confirm_checks_live_permission():
-    """The tap-to-trade path now carries the H-18 block its siblings have.
+def test_scan_confirm_no_longer_reaches_confirm_trade():
+    """The tap-to-trade path carried the H-18 block its siblings have; the
+    door itself is gone now.
 
-    SHAPE ONLY, and narrower than its name: it says the gate is PRESENT and
-    runs before `confirm_trade`, not that it is REACHED. The drives that prove
-    the refusal runs — both arms, plus the fail-closed branch — are in
-    `tests/test_every_confirm_trade_door_is_gated.py`, together with the rule
-    that finds a door this file has never heard of.
-
-    It reads `code_only()` because it used to read RAW source, and the H-18
-    comment six lines above the refusal spells `_can_trade_live`: driven,
-    deleting the refusal outright left this test GREEN. A comment that quotes
-    the string it forbids is indistinguishable from the code doing it.
+    `scan_confirm:` placed a market order at the scan price with a flat 3%/6%
+    that the card never showed. The scan card's ✅ is `confirm:<id>` on the
+    card's own registered idea, so it goes through `_handle_callback`'s
+    confirm branch and ITS H-18 block -- driven in
+    `tests/test_every_confirm_trade_door_is_gated.py` (`_confirm_tap`) -- and
+    an old `scan_confirm:` payload is refused. So no function in `scan_skill`
+    dispatches `confirm_trade` at all, and a door grown back there would need
+    its own gate: this is the SHAPE that says so. It reads `code_only()`,
+    because the RAW-source version of this test was satisfied by a comment.
     """
     src = code_only((REPO / "bot" / "skills" / "scan_skill.py").read_text())
-    fn = None
     read = segment_reader(src)
-    for node in ast.walk(ast.parse(src)):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            seg = read(node) or ""
-            if "engine.confirm_trade(" in seg:
-                fn = seg
-                break
-    assert fn, "no function in scan_skill dispatches confirm_trade — did it move?"
-    assert "_can_trade_live" in fn, "scan_confirm reaches confirm_trade with no live check"
-    # ...and refuses when the check itself is unreachable, rather than proceeding.
-    assert fn.index("is_live()") < fn.index("engine.confirm_trade("), (
-        "the live check must run BEFORE confirm_trade, not after")
-    assert "_h is None" in fn, (
-        "scan_confirm no longer fails closed when the telegram handler — and so the "
-        "permission check — is unavailable")
+    dispatchers = [node.name for node in ast.walk(ast.parse(src))
+                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and "engine.confirm_trade(" in (read(node) or "")]
+    assert dispatchers == [], (
+        f"scan_skill reaches confirm_trade again from {dispatchers}; the scan "
+        "card's ✅ belongs on the one confirm: door")
 
 
 # ── The web map must not be laxer than Telegram ───────────────────────────
