@@ -20,8 +20,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.db.models import (
-    get_user_by_chat_id, get_user_settings, get_user_portfolio,
-    save_user_portfolio, link_telegram,
+    get_user_by_chat_id, get_user_settings, link_telegram,
     unlink_telegram, UserSettings,
 )
 from bot.db.models import User as DBUser
@@ -131,12 +130,17 @@ def _ensure_local_user(user_id: int, email: str, plan: str) -> None:
 # -- UserContext: injected into every handler --------------------------------
 
 class UserContext:
-    """Lightweight per-request user state."""
+    """Lightweight per-request user state.
 
-    def __init__(self, user: DBUser, settings: UserSettings, portfolio: dict):
+    It carries no portfolio. It used to carry `user_portfolio`, a table
+    nothing writes, so `/me` printed that table's defaults ($10,000, $0, no
+    trades) as every account's figures. A linked user's account is read from
+    the bot where it is shown (the dashboard), never from that table.
+    """
+
+    def __init__(self, user: DBUser, settings: UserSettings):
         self.user = user
         self.settings = settings
-        self.portfolio = portfolio
 
     @property
     def user_id(self) -> int:
@@ -145,19 +149,6 @@ class UserContext:
     @property
     def chat_id(self) -> str:
         return self.user.telegram_chat_id
-
-    @property
-    def equity(self) -> float:
-        return self.portfolio["equity"]
-
-    def save_portfolio(self) -> None:
-        save_user_portfolio(
-            self.user_id,
-            self.portfolio["equity"],
-            self.portfolio["daily_pnl"],
-            self.portfolio["positions"],
-            self.portfolio["trade_history"],
-        )
 
 
 def require_registered(handler):
@@ -193,8 +184,7 @@ def require_registered(handler):
             return
 
         settings = get_user_settings(user.id)
-        portfolio = get_user_portfolio(user.id)
-        uc = UserContext(user, settings, portfolio)
+        uc = UserContext(user, settings)
 
         try:
             await handler(update, context, uc)
@@ -391,15 +381,17 @@ async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 @require_registered
 async def cmd_me(update: Update, context: ContextTypes.DEFAULT_TYPE,
                  uc: UserContext) -> None:
-    """Show the user's account info."""
-    pf = uc.portfolio
+    """Show the user's account: email, plan and settings.
+
+    No balance, P&L or trade count: those were read from `user_portfolio`,
+    which nothing writes, so every account showed $10000.00 / $0.00 / 0. The
+    card says the dashboard reads the account from the bot instead.
+    """
     s = uc.settings
     await update.message.reply_text(
         t("me_account", _user_lang(str(update.effective_chat.id)),
-          email=uc.user.email, plan=uc.user.plan,
-          equity=f"{pf['equity']:.2f}", pnl=f"{pf['daily_pnl']:.2f}",
-          trades=len(pf['trade_history']), llm=s.llm_provider,
-          notif=('on' if s.notifications_on else 'off')),
+          email=uc.user.email, plan=uc.user.plan, llm=s.llm_provider,
+          notif=('on' if s.notifications_on else 'off'), url=REGISTER_URL),
         parse_mode="HTML",
     )
 
@@ -413,7 +405,7 @@ async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     This used to call `sync_portfolio(uc.user_id, pf["equity"], positions,
     history)` and answer "Dashboard synced. Equity: $10000.00". Both halves
-    were false. `uc.portfolio` is `user_portfolio`, which nothing writes, so
+    were false. `uc.portfolio` was `user_portfolio`, which nothing writes, so
     the figures were the table's defaults; and `/api/bot/sync` is the AGENT's
     record, applied to the operator's rows whatever user id it names -- so a
     /sync by any linked user replaced the agent's published trade history

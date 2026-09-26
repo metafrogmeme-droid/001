@@ -51,6 +51,7 @@ from bot.config import CONFIG
 from bot.core.sltp_reason import venue_reason
 from bot.llm import failure_cause as _fc
 from bot.formatters.rich_cards import (
+    _fmt_price,
     analyze_budget_line,
     position_watch_line,
     tick_error_line,
@@ -62,6 +63,11 @@ from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import state_path
 
 logger = logging.getLogger(__name__)
+
+#: The period each once-a-period digest (morning brief, evening wrap, weekly
+#: parity) last went out in. On disk because `_digest_sent` is memory, and a
+#: redeploy inside the digest hour sent it again.
+DIGEST_STAMP_PATH = state_path("data/digest_sent.json")
 
 
 def _host_of(url: str) -> str:
@@ -226,6 +232,56 @@ def alert_trip_text(row: dict) -> str:
     if not title and not body:
         return "\u23f0 A price alert of yours tripped, and its words did not travel with it."
     return f"<b>{title}</b>\n{body}" if title and body else (title or body)
+
+
+def _pos_asset(pos) -> str:
+    """The symbol a position row names: a paper Position's ``asset``, a
+    LivePosition's ``symbol`` (the bot's spot spelling, which is how the WS
+    feed keys its prices)."""
+    return str(getattr(pos, "asset", None) or getattr(pos, "symbol", "") or "")
+
+
+def _pos_side(pos) -> str:
+    """``LONG``/``SHORT``: a paper Position's direction is an enum, a
+    LivePosition's a string."""
+    d = getattr(pos, "direction", "")
+    return str(getattr(d, "value", d) or "").upper()
+
+
+#: How many rows a digest names before it counts the rest.
+BOOK_NAMES_SHOWN = 6
+
+
+def _book_names(rows: list) -> str:
+    """``BTC LONG, ETH SHORT`` for a digest line, escaped, naming at most
+    ``BOOK_NAMES_SHOWN`` rows and counting the rest: a bounded list printed
+    without its total reads as the total."""
+    bits = []
+    for p in rows[:BOOK_NAMES_SHOWN]:
+        sym = _pos_asset(p).replace("/USDT", "").replace(":USDT", "")
+        bits.append(f"{sym} {_pos_side(p)}")
+    more = len(rows) - len(bits)
+    return _html.escape(", ".join(bits)) + (f" and {more} more" if more > 0 else "")
+
+
+def _signal_buttons(idea) -> tuple:
+    """``(buttons, door_sentence)`` for an engine idea's NEW SIGNAL card.
+
+    The buttons are the signal image's own (`alerts_monitor._signal_card_fn`),
+    with its owner tag: the configured operator chat(s). The callback handler
+    refuses anyone else (`_callback_owner_ok`), so a watcher who is not the
+    operator is shown the button and cannot take the operator's trade with it.
+    With no operator chat configured there is no owner to tag and a button
+    with an empty tag is refused anyway, so there is no button and the card
+    names no door.
+    """
+    raw = str(getattr(CONFIG.telegram, "chat_id", "") or "")
+    owner = ",".join(p.strip() for p in raw.split(",") if p.strip())
+    if not owner or not getattr(idea, "id", None):
+        return None, ""
+    return ([("✅ Take it", f"confirm:{idea.id}:{owner}"),
+             ("Skip", f"reject:{idea.id}:{owner}")],
+            "\n\U0001f449 Operator: tap ✅ Take it below to approve it")
 
 
 class ProactiveMonitor:
@@ -1036,6 +1092,10 @@ class ProactiveMonitor:
             if now.weekday() != dow or now.hour < hour \
                     or self._digest_sent.get("parity") == week:
                 return []
+            # Memory first, so the file below is read once per week rather
+            # than every tick; the claim on DISK is made only once there is a
+            # digest to send (`_claim_digest_on_disk`), because it is what
+            # stops a restart inside the hour from sending it again.
             self._digest_sent["parity"] = week
             from bot.backtest.parity import load_closed_trades, parity_summary
             path = getattr(getattr(self.engine, "live_executor", None),
@@ -1089,6 +1149,8 @@ class ProactiveMonitor:
                 f"<code>${s['total_fees']:,.2f}</code> "
                 f"{fee_clause}"
                 f"{drift}{extra}\n\n<i>/parity for the full bucketed report.</i>")
+            if not self._claim_digest_on_disk("parity", week):
+                return []
             return [Alert(alert_type="PARITY_DIGEST", severity="INFO",
                           title="Weekly parity digest", body=body,
                           dedup_key=f"parity_{week}", audience="admin")]
@@ -1181,16 +1243,84 @@ class ProactiveMonitor:
                 if now.hour >= hour and self._digest_sent.get(kind) != today:
                     self._digest_sent[kind] = today
                     body = self._digest_body(kind)
-                    if body:
+                    # A restart inside the hour re-sent both digests: the
+                    # memory above is all that remembered them. The claim on
+                    # disk is what a fresh process reads.
+                    if body and self._claim_digest_on_disk(kind, today):
                         alerts.append(Alert(
                             alert_type=f"DAILY_{kind.upper()}",
                             severity="INFO",
+                            # THE OPERATOR'S BOOK: its open positions, its
+                            # closes and their net in dollars, its equity. It
+                            # had no audience, so every `/watch on` chat -- a
+                            # viewer's included -- was sent the evening wrap.
+                            audience="admin",
                             title=f"Daily {kind}",
                             body=body,
                             dedup_key=f"digest_{kind}_{today}"))
         except Exception as exc:
             logger.debug("daily digest check skipped: %s", exc)
         return alerts
+
+    def _claim_digest_on_disk(self, kind: str, period: str) -> bool:
+        """True when the ``kind`` digest may go out in ``period``, and the
+        claim is now on disk (bot/utils/day_stamp.py).
+
+        Its outcomes are not all equal. A stamp file that will not read is
+        NOT "not yet sent": it may say the digest already went, so nothing is
+        sent and the operator log says why. A claim that could not be saved is
+        sent anyway, because the memory in `_digest_sent` still holds it to
+        once for this process, and the operator would otherwise get no digest
+        at all on a box that cannot write; the log says a restart may repeat
+        it.
+        """
+        from bot.utils.day_stamp import ALREADY, CLAIMED, UNWRITTEN, claim_period
+
+        path = getattr(self, "_digest_stamp_path", None) or DIGEST_STAMP_PATH
+        outcome, detail = claim_period(path, kind, period)
+        if outcome == CLAIMED:
+            return True
+        if outcome == ALREADY:
+            return False
+        if outcome == UNWRITTEN:
+            system_log.warning(
+                "The %s digest for %s is sent, but its once-per-period stamp "
+                "could not be saved (%s): a restart before %s ends may send it "
+                "again.", kind, period, detail, period)
+            return True
+        system_log.warning(
+            "The %s digest for %s is NOT sent: its once-per-period stamp file "
+            "could not be read (%s), so whether it already went out cannot be "
+            "known. It is not written over.", kind, period, detail)
+        return False
+
+    def _operator_book_rows(self) -> Optional[tuple[list, list]]:
+        """``(positions, resting_orders)`` in the operator's book, or None when
+        it could not be read.
+
+        The digests counted ``open_positions``, which is open AND
+        ``pending_fill``: one filled position and two resting limit orders read
+        "Carrying 3 open position(s)". And a LIVE book with nothing in it fell
+        through to the shared PAPER book, so a position an older build left
+        there was reported as the operator's live position, its side printed
+        as ``DIREC`` (``str()`` of the direction enum, cut at five).
+
+        LIVE: the operator's executor, split by status. PAPER: the shared
+        paper book, which holds no resting orders. A book that is not there,
+        or whose read raised, is None: a count of zero is a reading.
+        """
+        e = self.engine
+        try:
+            if CONFIG.is_live():
+                rows = list(e.live_executor.open_positions)
+            else:
+                rows = list(e.portfolio.open_positions)
+        except Exception:
+            return None
+
+        def _resting(p) -> bool:
+            return getattr(p, "status", "open") == "pending_fill"
+        return [p for p in rows if not _resting(p)], [p for p in rows if _resting(p)]
 
     def _digest_body(self, kind: str) -> str:
         """Compact, truthful engine digest. Everything best-effort — a field
@@ -1203,45 +1333,53 @@ class ProactiveMonitor:
             mode = "?"
         state = str(getattr(e, "state", "") or "").replace("EngineState.", "")
 
-        # Open positions (operator book; live executor first).
-        positions = []
-        try:
-            ex = getattr(e, "live_executor", None)
-            if ex is not None and getattr(ex, "open_positions", None):
-                positions = list(ex.open_positions)
-            elif getattr(e, "portfolio", None) is not None:
-                positions = list(e.portfolio.open_positions)
-        except Exception:
-            pass
-        pos_bits = []
-        for p in positions[:6]:
-            sym = str(getattr(p, "symbol", getattr(p, "asset", "?")))
-            sym = sym.replace("/USDT", "").replace(":USDT", "")
-            side = str(getattr(p, "direction", getattr(p, "side", "")))[:5].upper()
-            pos_bits.append(f"{sym} {side}")
+        # The operator's book: positions and resting orders apart, or None.
+        book = self._operator_book_rows()
 
-        # Free margin / equity from the venue-aware cache (may be absent).
+        # EQUITY WAS READ FROM A KEY NOTHING WRITES. `cache["equity"]` --
+        # fetch_balance writes `total`/`free`/`used` -- so the line never
+        # printed, on the live account it describes. The reading the engine
+        # uses for the live total is `live_balance_cached` (age-gated) and
+        # `_read_balance_total`; the free margin is `read_money_field`, which
+        # tests presence, so an absent one is not a "$0.00 free". In LIVE mode
+        # a balance that did not read says so; paper has no live balance.
         equity_bit = ""
         try:
-            cache = getattr(e, "_live_balance_cache", None) or {}
-            eq = float(cache.get("equity", 0) or 0)
-            free = float(cache.get("free", 0) or 0)
-            if eq > 0:
-                equity_bit = (f"Equity <code>${eq:,.2f}</code> · free margin "
-                              f"<code>${free:,.2f}</code>")
+            from bot.core.engine import _read_balance_total
+            from bot.core.margin_clamp import read_money_field
+            _cached = getattr(e, "live_balance_cached", None)
+            bal = _cached() if callable(_cached) else None
+            eq = _read_balance_total(bal)
+            free = read_money_field(bal, "free")
+            if eq is not None:
+                equity_bit = f"Equity <code>${eq:,.2f}</code>"
+                if free is not None:
+                    equity_bit += f" · free margin <code>${free:,.2f}</code>"
+            elif mode == "LIVE":
+                equity_bit = "Equity <code>unread</code>"
         except Exception:
-            pass
+            if mode == "LIVE":
+                equity_bit = "Equity <code>unread</code>"
 
         if kind == "brief":
             lines.append("🌅 <b>Morning brief — today's plan</b>")
             lines.append(f"Mode <b>{mode}</b>" + (f" · engine <code>{_html.escape(state)}</code>" if state else ""))
             if equity_bit:
                 lines.append(equity_bit)
-            lines.append(
-                f"Carrying <b>{len(positions)}</b> open position(s)"
-                + (f": {_html.escape(', '.join(pos_bits))}" if pos_bits else "")
-                + " — managing SL/TP and scanning the universe for setups "
-                  "at or above the auto-trade confidence gate.")
+            if book is None:
+                lines.append("Open positions <code>unread</code> — the "
+                             "operator's book could not be read.")
+            else:
+                filled, resting = book
+                lines.append(
+                    f"Carrying <b>{len(filled)}</b> open position(s)"
+                    + (f": {_book_names(filled)}" if filled else "")
+                    + " — managing SL/TP and scanning the universe for setups "
+                      "at or above the auto-trade confidence gate.")
+                if resting:
+                    lines.append(
+                        f"<b>{len(resting)}</b> resting limit order(s), not yet "
+                        f"filled: {_book_names(resting)}")
             lines.append("<i>/status for detail · /whynot SYMBOL to see why "
                          "something isn't being traded.</i>")
         else:
@@ -1252,7 +1390,16 @@ class ProactiveMonitor:
             # Recent closed trades (live book) — count + net, best/worst.
             try:
                 ex = getattr(e, "live_executor", None)
-                closed = list(getattr(ex, "closed_positions", []) or [])[-20:]
+                # FILLS ONLY. A limit order that never filled is appended to
+                # the closed record with a zero P&L, so five lapsed orders
+                # beside three fills read "Recent closes: 8 (2 wins of 8
+                # priced)". `is_filled_close` is the one reading of which rows
+                # are trades (close_reason.NON_FILL_CLOSE_REASONS).
+                from bot.utils.close_reason import is_filled_close
+                from bot.utils.win_rate import trade_pnl
+                closed = [t for t in list(getattr(ex, "closed_positions", []) or [])
+                          if is_filled_close(getattr(t, "close_reason", None),
+                                             trade_pnl(t))][-20:]
                 if closed:
                     # `getattr(t, "pnl_usd", 0) or 0` over LivePosition, whose
                     # pnl_usd is Optional[float] = None: an unpriced close was
@@ -1282,9 +1429,18 @@ class ProactiveMonitor:
                     lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
             except Exception:
                 pass
-            lines.append(
-                f"Still open: <b>{len(positions)}</b>"
-                + (f" — {_html.escape(', '.join(pos_bits))}" if pos_bits else ""))
+            if book is None:
+                lines.append("Still open: <code>unread</code> — the "
+                             "operator's book could not be read.")
+            else:
+                filled, resting = book
+                lines.append(
+                    f"Still open: <b>{len(filled)}</b>"
+                    + (f" — {_book_names(filled)}" if filled else ""))
+                if resting:
+                    lines.append(
+                        f"Resting limit orders: <b>{len(resting)}</b> — "
+                        f"{_book_names(resting)}")
             lines.append("<i>/daily_report for the full report · "
                          "/yield checks what idle cash could earn.</i>")
         return "\n\n".join(lines)
@@ -1569,14 +1725,34 @@ class ProactiveMonitor:
     def _check_drawdown_tiers(self) -> list[Alert]:
         """Early-warning alerts as drawdown approaches the circuit-breaker limit.
 
-        Fires once at 50%, 75%, 85% of MAX_DRAWDOWN_PCT so the operator can act
-        BEFORE the breaker halts trading. Re-arms only after drawdown recovers to
-        a lower tier (tracked via _last_dd_tier), so it doesn't spam."""
+        Fires once at 50%, 75%, 85% of the limit IN FORCE so the operator can
+        act BEFORE the breaker halts trading. Re-arms only after drawdown
+        recovers to a lower tier (tracked via _last_dd_tier), so it doesn't
+        spam.
+
+        IT NEVER FIRED. It read `risk.current_drawdown_pct`, which RiskEngine
+        does not have, and divided by the PAPER `MAX_DRAWDOWN_PCT` (10%) where
+        the live breaker halts at the live limit (7% by default); the only test
+        planted the attribute on a stand-in, which is why it passed. Driven on
+        a real engine at 3.5/6.0/6.5% of a 7% live limit, it returned nothing
+        each time. The reading is `drawdown_status()` through
+        `enforced_drawdown` -- the figure and the limit the breaker gates on,
+        each validated -- and an unread one fires nothing and says nothing.
+        In LIVE mode a `paper` source is not what the breaker gates on (the
+        live gate refuses an unread live equity before this gate), so it is
+        read as unread too.
+        """
         alerts: list[Alert] = []
         try:
-            dd = getattr(self.engine.risk, "current_drawdown_pct", None)
-            limit = float(getattr(CONFIG.risk, "max_drawdown_pct", 0) or 0)
-            if dd is None or limit <= 0:
+            from bot.formatters.drawdown_card import (
+                drawdown_source_note,
+                enforced_drawdown,
+            )
+            dd, source, limit = enforced_drawdown(
+                self.engine.risk.drawdown_status())
+            if dd is None or limit is None:
+                return alerts
+            if source == "paper" and CONFIG.is_live():
                 return alerts
             frac = float(dd) / limit
             tier = 85 if frac >= 0.85 else (75 if frac >= 0.75 else (50 if frac >= 0.50 else 0))
@@ -1584,11 +1760,15 @@ class ProactiveMonitor:
                 sev = "CRITICAL" if tier >= 85 else "WARNING"
                 alerts.append(Alert(
                     alert_type="DRAWDOWN_TIER", severity=sev,
+                    # The operator's own account's drawdown: the engine's
+                    # breaker, read off the operator's risk engine.
+                    audience="admin",
                     title=f"Drawdown {tier}% of limit",
                     body=(
                         f"⚠️ <b>DRAWDOWN AT {tier}% OF LIMIT</b>\n"
                         "────────────────\n"
-                        f"- Current drawdown: <code>{float(dd):.2f}%</code>\n"
+                        f"- Current drawdown: <code>{float(dd):.2f}%</code>"
+                        f"{_html.escape(drawdown_source_note(source))}\n"
                         f"- Circuit-breaker limit: <code>{limit:.2f}%</code>\n\n"
                         "The risk engine halts all entries at 100% of the limit.\n"
                         "Consider reducing size or reviewing open risk now.\n"
@@ -2642,21 +2822,15 @@ class ProactiveMonitor:
         return alerts
 
     def _held_base_assets(self) -> list[str]:
-        """Symbols currently held across all portfolios (shared + per-user), as the
-        analyzer sees them (e.g. 'BTC/USDT'). Reused by the news refresh + check."""
+        """Symbols currently held across every book `_position_walk` reads
+        (the live books in live mode too), as the analyzer sees them (e.g.
+        'BTC/USDT'). Biases the news refresh toward what is held."""
         out: list[str] = []
         try:
-            up = getattr(self.engine, "user_portfolios", None)
-            if up is not None and up.all_portfolios():
-                for uid in up.all_portfolios():
-                    for pos in (up.get(uid).open_positions or []):
-                        if getattr(pos, "asset", None):
-                            out.append(pos.asset)
-            else:
-                pf = getattr(self.engine, "portfolio", None)
-                for pos in (getattr(pf, "open_positions", []) or []):
-                    if getattr(pos, "asset", None):
-                        out.append(pos.asset)
+            for _owner, _op, pos in self._position_walk():
+                asset = _pos_asset(pos)
+                if asset:
+                    out.append(asset)
         except Exception:
             pass
         return out
@@ -2697,36 +2871,59 @@ class ProactiveMonitor:
             radar = getattr(self.engine, "_news_radar", None)
             if radar is None:
                 return alerts
-            held = self._held_base_assets()
-            if not held:
+            # WHO HOLDS EACH BASE, not only what is held. The alert says "a
+            # position YOU hold", and it went to every watching chat and the
+            # public feed whoever held it: a practice book's PEPE reached a
+            # watcher holding nothing, and "High-impact news · PEPE" reached
+            # the landing page -- a symbol one person holds. One alert per
+            # holder, scoped the way the proximity alerts are
+            # (`_position_walk`): a person's book to that person, the
+            # operator's live book to the operator, the shared paper book to
+            # every watcher as before.
+            from bot.core.news import _base_asset
+            holders: dict = {}
+            for owner, operator_book, pos in self._position_walk():
+                base = _base_asset(_pos_asset(pos))
+                if base and (owner, operator_book) not in holders.setdefault(base, []):
+                    holders[base].append((owner, operator_book))
+            if not holders:
                 return alerts
-            recs = radar.standdown(held, time.time())
+            recs = radar.standdown(list(holders), time.time())
             for rec in recs[:5]:                     # cap per cycle — no burst spam
                 url = rec.get("url", "") or ""
                 sym = rec.get("symbol", "?")
-                key = f"{url}|{sym}"
-                if key in self._news_alerted:
-                    continue
-                self._remember_once(self._news_alerted, key)
                 headline = _html.escape(rec.get("headline", "") or "")
                 src = _html.escape(rec.get("source", "") or "")
                 age_min = max(1, int(rec.get("age_sec", 0)) // 60)
                 link = f'\n\U0001f517 {_html.escape(url)}' if url else ""
-                alerts.append(Alert(
-                    alert_type="NEWS_STANDDOWN", severity="WARNING",
-                    title=f"High-impact news · {sym}",
-                    body=(
-                        f"\U0001f4f0 <b>NEWS ON A POSITION YOU HOLD</b> — {_html.escape(sym)}\n"
-                        "────────────────\n"
-                        f"<b>{headline}</b>\n"
-                        f"<i>{src} · {age_min}m ago</i>{link}\n"
-                        "────────────────\n"
-                        "\U0001f449 Review it — consider tightening the stop or "
-                        "trimming. <b>Advisory only</b>; nothing was changed or "
-                        "moved.\n"
-                        "\U0001f449 /news — full radar"),
+                title = f"High-impact news · {sym}"
+                body = (
+                    f"\U0001f4f0 <b>NEWS ON A POSITION YOU HOLD</b> — {_html.escape(sym)}\n"
+                    "────────────────\n"
+                    f"<b>{headline}</b>\n"
+                    f"<i>{src} · {age_min}m ago</i>{link}\n"
+                    "────────────────\n"
+                    "\U0001f449 Review it — consider tightening the stop or "
+                    "trimming. <b>Advisory only</b>; nothing was changed or "
+                    "moved.\n"
+                    "\U0001f449 /news — full radar")
+                for owner, operator_book in holders.get(sym, []):
+                    holder = "operator" if operator_book else (owner or "shared")
+                    key = f"{url}|{sym}|{holder}"
+                    if key in self._news_alerted:
+                        continue
+                    self._remember_once(self._news_alerted, key)
                     # Once-only via _news_alerted; dedup_key adds the 5-min floor.
-                    dedup_key=f"news_standdown_{key}"))
+                    if operator_book:
+                        alerts.append(Alert(
+                            alert_type="NEWS_STANDDOWN", severity="WARNING",
+                            audience="admin", title=title, body=body,
+                            dedup_key=f"news_standdown_{key}"))
+                    else:
+                        alerts.append(Alert(
+                            alert_type="NEWS_STANDDOWN", severity="WARNING",
+                            user_id=owner, title=title, body=body,
+                            dedup_key=f"news_standdown_{key}"))
         except Exception as exc:
             system_log.debug("news-standdown check failed: %s", exc)
         return alerts
@@ -3354,7 +3551,19 @@ class ProactiveMonitor:
         alerts = []
         try:
             min_alert_conf = CONFIG.risk.signal_display_min_confidence
+            # THE ENGINE'S OWN IDEAS, AND NOBODY ELSE'S. `_pending_ideas` is
+            # one book: a person's /trade ticket, their /scan and "analyze BTC"
+            # all land in it beside the autonomous scan's ideas. This loop read
+            # the whole book, so a hand-typed ticket (confidence stamped 1.0)
+            # went to every watching chat as a NEW SIGNAL and to the public
+            # channels as "RUNECLAW SIGNAL · AI-generated". `_engine_pending_ids`
+            # is the ownership reading the rest of the engine already asks; an
+            # engine that cannot answer it has signalled nothing.
+            _owned = getattr(self.engine, "_engine_pending_ids", None)
+            engine_ids = _owned() if callable(_owned) else set()
             for idea_id, idea in list(self.engine._pending_ideas.items()):
+                if idea_id not in engine_ids:
+                    continue
                 key = f"signal_{idea_id}"
                 if key in self._alerted_signals:
                     continue
@@ -3375,6 +3584,16 @@ class ProactiveMonitor:
                     reward_amt = abs(idea.take_profit - idea.entry_price)
                     rr_ratio = reward_amt / risk_amt if risk_amt > 0 else 0
                     base = idea.asset.split('/')[0] if '/' in idea.asset else idea.asset
+                    # THE DOOR IS A BUTTON ON THIS CARD. The last line said
+                    # `Say "confirm"`, and "confirm" routes nowhere: no router
+                    # rule claims it and the social gate greets it. The real
+                    # door is the Take-it button the signal image carries,
+                    # and that image is best-effort (no PIL, no card), so the
+                    # same two buttons ride on this message, tagged to the
+                    # operator exactly as the image's are: an engine idea is
+                    # the operator's to take. With no operator chat configured
+                    # there is nobody to tag, so no button and no sentence.
+                    buttons, door = _signal_buttons(idea)
                     alerts.append(Alert(
                         alert_type="TRADE_SIGNAL",
                         severity="INFO",
@@ -3384,46 +3603,43 @@ class ProactiveMonitor:
                             "────────────────\n"
                             f"- Direction: {d}\n"
                             f"- Confidence: <code>{_conf_for_alert:.0%}</code>\n"
-                            f"- Entry: <code>${idea.entry_price:,.2f}</code>\n"
-                            f"- Stop Loss: <code>${idea.stop_loss:,.2f}</code>\n"
-                            f"- Take Profit: <code>${idea.take_profit:,.2f}</code>\n"
+                            # The repo's adaptive formatter: `:,.2f` printed a
+                            # DOGE idea at 0.1234/0.1201/0.1299 as
+                            # $0.12/$0.12/$0.13 and a PEPE one as $0.00 three
+                            # times, beside an R:R computed from real levels.
+                            f"- Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
+                            f"- Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code>\n"
+                            f"- Take Profit: <code>{_fmt_price(idea.take_profit)}</code>\n"
                             f"- R:R Ratio: <code>{rr_ratio:.1f}</code>\n"
                             "────────────────\n"
                             "\u23f3 Awaiting operator confirmation.\n"
-                            f"\U0001f449 Say \"analyze {base}\" to review analysis\n"
-                            f"\U0001f449 Say \"confirm\" to approve this trade"
+                            f"\U0001f449 Say \"analyze {base}\" to review analysis"
+                            + door
                         ),
                         dedup_key=key,
                         idea=idea,
+                        buttons=buttons,
                     ))
         except Exception as exc:
             logger.debug("_check_trade_signals error: %s", exc)
         return alerts
 
     def _check_sl_tp_proximity(self) -> list[Alert]:
-        """Alert when open positions approach their SL or TP levels."""
+        """Alert when open positions approach their SL or TP levels.
+
+        Each position with its OWNER (`_position_walk`). A per-user book's
+        alert names its user (`user_id=owner`); the operator's LIVE book is
+        the operator's (`audience="admin"`); the SHARED paper book keeps the
+        fan-out it has always had -- its owner is None on purpose: the product
+        broadcasts that book (its entries go out as TRADE_SIGNAL to every
+        watching chat), so a single-user paper deploy is unchanged. The
+        audience is a CONSTANT on each constructor, never an expression: the
+        audience ratchet reads it by AST and scores an expression as "all".
+        """
         alerts = []
         proximity_threshold = 0.015  # 1.5%
         try:
-            # Collect positions from all user portfolios and the shared
-            # portfolio, EACH WITH ITS OWNER. The uid was already in this loop
-            # and was dropped one line later, so every alert built below was
-            # about a named person and said so to nobody.
-            #
-            # The else branch's owner is None on purpose: that is the SHARED
-            # book, which the product broadcasts (its entries go out as
-            # TRADE_SIGNAL to every watching chat), so it keeps the fan-out it
-            # has always had and a single-user deploy is unchanged.
-            all_positions: list = []
-            if self.engine.user_portfolios.all_portfolios():
-                for uid in self.engine.user_portfolios.all_portfolios():
-                    portfolio = self.engine.user_portfolios.get(uid)
-                    all_positions.extend(
-                        (str(uid), p) for p in portfolio.open_positions)
-            else:
-                all_positions.extend(
-                    (None, p) for p in self.engine.portfolio.open_positions)
-
+            all_positions = self._position_walk()
             if not all_positions:
                 return alerts
 
@@ -3435,63 +3651,133 @@ class ProactiveMonitor:
                 ws_prices = self.engine.ws_feed.get_prices(
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
-            for owner, pos in all_positions:
-                current_price = ws_prices.get(pos.asset)
+            for owner, operator_book, pos in all_positions:
+                asset = _pos_asset(pos)
+                current_price = ws_prices.get(asset)
                 if not current_price or current_price <= 0:
                     continue
                 if not pos.stop_loss or not pos.take_profit or pos.entry_price <= 0:
                     continue
+                base = asset.split('/')[0] if '/' in asset else asset
 
                 # Check SL proximity
                 sl_distance_pct = abs(current_price - pos.stop_loss) / current_price
                 if sl_distance_pct <= proximity_threshold:
-                    key = f"sl_prox_{pos.asset}_{pos.trade_id}"
-                    base = pos.asset.split('/')[0] if '/' in pos.asset else pos.asset
-                    alerts.append(Alert(
-                        alert_type="SL_PROXIMITY",
-                        user_id=owner,
-                        severity="WARNING",
-                        title=f"SL Proximity: {pos.asset}",
-                        body=(
-                            f"\u26a0\ufe0f <b>STOP LOSS APPROACHING — {pos.asset}</b>\n"
-                            "────────────────\n"
-                            f"- Current Price: <code>${current_price:,.4f}</code>\n"
-                            f"- Stop Loss: <code>${pos.stop_loss:,.4f}</code>\n"
-                            f"- Distance: <code>{sl_distance_pct:.2%}</code>\n"
-                            f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                            "────────────────\n"
-                            f"\U0001f449 /positions — review open trades\n"
-                            f"\U0001f449 Say \"analyze {base}\" for updated analysis"
-                        ),
-                        dedup_key=key,
-                    ))
+                    key = f"sl_prox_{asset}_{pos.trade_id}"
+                    title = f"SL Proximity: {asset}"
+                    body = (
+                        f"\u26a0\ufe0f <b>STOP LOSS APPROACHING — {asset}</b>\n"
+                        "────────────────\n"
+                        f"- Current Price: <code>${current_price:,.4f}</code>\n"
+                        f"- Stop Loss: <code>${pos.stop_loss:,.4f}</code>\n"
+                        f"- Distance: <code>{sl_distance_pct:.2%}</code>\n"
+                        f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
+                        "────────────────\n"
+                        f"\U0001f449 /positions — review open trades\n"
+                        f"\U0001f449 Say \"analyze {base}\" for updated analysis"
+                    )
+                    if operator_book:
+                        alerts.append(Alert(
+                            alert_type="SL_PROXIMITY", audience="admin",
+                            severity="WARNING", title=title, body=body,
+                            dedup_key=key))
+                    else:
+                        alerts.append(Alert(
+                            alert_type="SL_PROXIMITY", user_id=owner,
+                            severity="WARNING", title=title, body=body,
+                            dedup_key=key))
 
                 # Check TP proximity
                 tp_distance_pct = abs(current_price - pos.take_profit) / current_price
                 if tp_distance_pct <= proximity_threshold:
-                    key = f"tp_prox_{pos.asset}_{pos.trade_id}"
-                    base = pos.asset.split('/')[0] if '/' in pos.asset else pos.asset
-                    alerts.append(Alert(
-                        alert_type="TP_PROXIMITY",
-                        user_id=owner,
-                        severity="INFO",
-                        title=f"TP Proximity: {pos.asset}",
-                        body=(
-                            f"\U0001f3af <b>TAKE PROFIT APPROACHING — {pos.asset}</b>\n"
-                            "────────────────\n"
-                            f"- Current Price: <code>${current_price:,.4f}</code>\n"
-                            f"- Take Profit: <code>${pos.take_profit:,.4f}</code>\n"
-                            f"- Distance: <code>{tp_distance_pct:.2%}</code>\n"
-                            f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                            "────────────────\n"
-                            f"\U0001f449 /positions — review open trades\n"
-                            f"\U0001f449 Say \"analyze {base}\" for updated analysis"
-                        ),
-                        dedup_key=key,
-                    ))
+                    key = f"tp_prox_{asset}_{pos.trade_id}"
+                    title = f"TP Proximity: {asset}"
+                    body = (
+                        f"\U0001f3af <b>TAKE PROFIT APPROACHING — {asset}</b>\n"
+                        "────────────────\n"
+                        f"- Current Price: <code>${current_price:,.4f}</code>\n"
+                        f"- Take Profit: <code>${pos.take_profit:,.4f}</code>\n"
+                        f"- Distance: <code>{tp_distance_pct:.2%}</code>\n"
+                        f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
+                        "────────────────\n"
+                        f"\U0001f449 /positions — review open trades\n"
+                        f"\U0001f449 Say \"analyze {base}\" for updated analysis"
+                    )
+                    if operator_book:
+                        alerts.append(Alert(
+                            alert_type="TP_PROXIMITY", audience="admin",
+                            severity="INFO", title=title, body=body,
+                            dedup_key=key))
+                    else:
+                        alerts.append(Alert(
+                            alert_type="TP_PROXIMITY", user_id=owner,
+                            severity="INFO", title=title, body=body,
+                            dedup_key=key))
         except Exception as exc:
             logger.debug("_check_sl_tp_proximity error: %s", exc)
         return alerts
+
+    def _position_walk(self, *, live_only: bool = False) -> list:
+        """``(owner, operator_book, pos)`` for every open position the monitor
+        watches, each WITH ITS OWNER. The one walk the proximity, time-stop and
+        news checks share.
+
+        ``live_only``: the live executors' rows and nothing else -- no practice
+        book and no shared paper book, and so nothing at all in paper mode.
+        The time-stop alert asks for it: the time exits it describes run on
+        the live books alone (`time_exits`).
+
+        PAPER, as it always was: every per-user book with its uid, or -- when
+        there are none -- the SHARED book with owner None, which the product
+        broadcasts.
+
+        LIVE: the live executors too, and that is the fix. These walks read
+        the paper books alone, so in live mode no real position ever reached
+        SL/TP proximity, the time stops or the news stand-down: a live BTC long
+        0.48% from its stop and 60h old produced nothing, and the only news
+        alert was about a practice book, sent to a watcher who held nothing and
+        published to the public feed. The owner is read the way
+        `_check_unprotected_positions` reads it: the operator's book by
+        IDENTITY (`operator_book` True -- an operator fact, `audience="admin"`)
+        and a per-user book by its `user_id`. A per-user executor with no id
+        is not the operator's and reaches no chat, so it is skipped and said.
+        A resting order is not a position. The shared paper book is not walked
+        in live mode (live trades never land in it); per-user practice books
+        still are, scoped to their owners as before.
+        """
+        rows: list = []
+        if CONFIG.is_live():
+            op = getattr(self.engine, "live_executor", None)
+            try:
+                executors = list(self.engine._all_live_executors())
+            except Exception:
+                executors = [op] if op is not None else []
+            for ex in executors:
+                is_op = ex is op
+                owner = None if is_op else str(getattr(ex, "user_id", "") or "")
+                if not is_op and not owner:
+                    system_log.warning(
+                        "A per-user live book with no account id was not walked "
+                        "for position alerts: it reaches no chat, and it is not "
+                        "the operator's.")
+                    continue
+                for pos in (getattr(ex, "open_positions", None) or []):
+                    if getattr(pos, "status", "open") != "open":
+                        continue
+                    rows.append((owner, is_op, pos))
+        if live_only:
+            return rows
+        up = getattr(self.engine, "user_portfolios", None)
+        if up is not None and up.all_portfolios():
+            for uid in up.all_portfolios():
+                portfolio = up.get(uid)
+                rows.extend((str(uid), False, p)
+                            for p in (portfolio.open_positions or []))
+        elif not CONFIG.is_live():
+            pf = getattr(self.engine, "portfolio", None)
+            rows.extend((None, False, p)
+                        for p in (getattr(pf, "open_positions", None) or []))
+        return rows
 
     # ── Deduplication ─────────────────────────────────────────────
 
@@ -3784,119 +4070,144 @@ class ProactiveMonitor:
     # ── Time Stops (Rules 6/17) ──────────────────────────────────
 
     def _check_time_stops(self) -> list[Alert]:
-        """Alert when positions exceed time limits without profit."""
-        alerts = []
-        if not CONFIG.time_stop.enabled:
-            return alerts
+        """Tell a holder what the clock is about to do to a live position.
 
+        THE THIRD READER OF `time_exits`. This alert judged "intraday or swing"
+        off the stop distance (under 2% intraday) and warned and "closed" on
+        four TIME_STOP_* hours that nothing else read, while the executor's
+        time stop closes on the strategy table and four smart exits can close
+        earlier. Driven: a swing trade with a 1.5% stop was CRITICAL "AUTO-CLOSE
+        recommended" at 5h when nothing would close it before 48h; a scalp the
+        executor closes at 2h was told "Auto-close in 2.0h ... at 4h"; a close
+        up a sub-fee fraction read as in profit and got no alert before the
+        executor closed it; an adopted position with no recorded strategy (no
+        time exit applies, 2026-09-24) and a practice position (no time exit
+        reads one) were told to close by hand with `/liveclose`, a command
+        that is admin-only, for a close the bot makes by itself.
+
+        Now the plan is `plan_for`, the reading is `clock_reading` (the fee-aware
+        profit test the time stop takes), and the two verdicts are the plan's:
+
+        * DUE (`due_exit`): a rule past its hour whose condition holds -- the
+          one the exit code closes the position on. TIME_STOP_CLOSE says the
+          bot closes it by itself, names the rule, and names no manual door.
+        * WARN (`next_exit`): from the strategy table's warn hour, the first
+          rule not yet at its hour that would close the position if the
+          reading held. TIME_STOP_WARN names the rule and how long is left.
+
+        A plan that is not armed (no recorded strategy, time stops off) runs
+        no time exit, so nothing is said about one. Only the live books are
+        walked: the practice books have no time exit, and the shared paper
+        book's (the paper loop's own copy of the smart exits) is not a plan
+        `time_exits` describes -- nothing in this build writes that book.
+        """
+        from bot.core.position_telemetry import price_on_record
+        from bot.core.time_exits import (
+            clock_reading,
+            due_exit,
+            exit_phrase,
+            next_exit,
+            plan_for,
+            time_exit_line,
+            warn_hour,
+        )
+
+        alerts: list[Alert] = []
         try:
-            # Each position with its OWNER — see the same walk in
-            # `_check_sl_tp_proximity` for why the uid may not be dropped, and
-            # why the shared book's owner is None.
-            all_positions: list = []
-            if self.engine.user_portfolios.all_portfolios():
-                for uid in self.engine.user_portfolios.all_portfolios():
-                    portfolio = self.engine.user_portfolios.get(uid)
-                    all_positions.extend(
-                        (str(uid), p) for p in portfolio.open_positions)
-            else:
-                all_positions.extend(
-                    (None, p) for p in self.engine.portfolio.open_positions)
-
-            if not all_positions:
-                return alerts
-
+            # Each position with its OWNER — see `_position_walk`, and the
+            # same walk in `_check_sl_tp_proximity` for why the uid may not be
+            # dropped and why the operator's live book is an audience rather
+            # than a person.
+            all_positions = self._position_walk(live_only=True)
             now = datetime.now(UTC)
-            cfg = CONFIG.time_stop
-
-            # Get current prices (staleness-bounded, as in the SL/TP monitor) so
-            # a frozen WS price can't trigger a time-stop/SL-proximity alert.
+            # Staleness-bounded, as in the SL/TP monitor, so a frozen WS price
+            # cannot drive a verdict about a rule's condition.
             ws_prices = {}
             if self.engine.ws_feed.is_connected():
                 ws_prices = self.engine.ws_feed.get_prices(
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
-            for owner, pos in all_positions:
-                from bot.core.position_telemetry import entered_at
-                opened_at = entered_at(pos)
-                if not opened_at:
+            for owner, operator_book, pos in all_positions:
+                plan = plan_for(pos, CONFIG.time_stop, CONFIG.strategy_types)
+                asset = _pos_asset(pos)
+                # No fresh mark, no verdict: the exit code needs one too.
+                mark = price_on_record(ws_prices.get(asset))
+                if mark is None:
+                    continue
+                held_h, r_now, fee_clear = clock_reading(pos, mark, now)
+                due = due_exit(plan, held_h, r_now, fee_clear)
+                rule = due
+                if due is None and held_h is not None and held_h >= warn_hour(
+                        pos, CONFIG.strategy_types):
+                    rule = next_exit(plan, held_h, r_now, fee_clear)
+                if rule is None:
                     continue
 
-                # Calculate age in hours
-                age_hours = (now - opened_at).total_seconds() / 3600.0
-
-                # Determine trade type from SL distance: tight SL = intraday, wide = swing
-                # Heuristic: if SL distance < 2% = intraday, else swing
-                sl_pct = abs(pos.entry_price - pos.stop_loss) / pos.entry_price if pos.entry_price > 0 and pos.stop_loss > 0 else 0
-                is_intraday = sl_pct < 0.02
-                warn_hours = cfg.intraday_warn_hours if is_intraday else cfg.swing_warn_hours
-                close_hours = cfg.intraday_close_hours if is_intraday else cfg.swing_close_hours
-                trade_type = "intraday" if is_intraday else "swing"
-
-                # Check if position is in profit
-                current_price = ws_prices.get(pos.asset) or 0
-                if current_price <= 0:
-                    continue
-                if pos.direction.value == "LONG":
-                    in_profit = current_price > pos.entry_price
-                else:
-                    in_profit = current_price < pos.entry_price
-
-                if in_profit:
-                    continue  # Time stops only apply to positions NOT in profit
-
-                base = pos.asset.split('/')[0] if '/' in pos.asset else pos.asset
-
-                # Force close check
-                if age_hours >= close_hours:
+                entry = price_on_record(getattr(pos, "entry_price", None))
+                reading = []
+                if r_now is not None:
+                    reading.append(f"{r_now:+.2f}R")
+                if fee_clear is not None:
+                    reading.append("in profit after fees" if fee_clear
+                                   else "not in profit after fees")
+                phrase = _html.escape(exit_phrase(rule, held_h, r_now, fee_clear))
+                rules_line = _html.escape(time_exit_line(
+                    plan, held_h=held_h, r_now=r_now, fee_clear=fee_clear))
+                # The two fields the rules are keyed on, so "after 8h" has a
+                # reason on the card: a swing trade on a momentum signal.
+                thesis = _html.escape(" · ".join(
+                    str(getattr(pos, k, "") or "")
+                    for k in ("strategy_type", "signal_type")))
+                head = (
+                    "────────────────\n"
+                    f"- Held: <code>{held_h:.1f}h</code> · {thesis}\n"
+                    f"- Entry: <code>{_fmt_price(entry)}</code>\n"
+                    f"- Current: <code>{_fmt_price(mark)}</code>\n"
+                    + (f"- Now: <code>{' · '.join(reading)}</code>\n" if reading else "")
+                    + "────────────────\n")
+                if due is not None:
                     key = f"time_close_{pos.trade_id}"
-                    alerts.append(Alert(
-                        alert_type="TIME_STOP_CLOSE",
-                        user_id=owner,
-                        severity="CRITICAL",
-                        title=f"Time Stop: {pos.asset}",
-                        body=(
-                            f"\u23f0 <b>TIME STOP — {pos.asset}</b>\n"
-                            "────────────────\n"
-                            f"- Type: <code>{trade_type}</code>\n"
-                            f"- Open: <code>{age_hours:.1f}h</code> (limit: {close_hours:.0f}h)\n"
-                            f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                            f"- Current: <code>${current_price:,.4f}</code>\n"
-                            f"- Status: <b>NOT in profit — AUTO-CLOSE recommended</b>\n"
-                            "────────────────\n"
-                            # /close does not exist, and /liveclose takes a
-                            # TRADE ID, not a symbol — so "/close BTC" was
-                            # wrong twice over on an alert recommending a
-                            # close. Name the two steps that work.
-                            f"\U0001f449 /positions — find {base}'s trade ID\n"
-                            "\U0001f449 /liveclose &lt;trade_id&gt; — close it manually\n"
-                            "\U0001f449 /positions — review all open trades"
-                        ),
-                        dedup_key=key,
-                    ))
-                # Warning check
-                elif age_hours >= warn_hours:
+                    title = f"Time Exit Due: {asset}"
+                    body = (
+                        f"\u23f0 <b>TIME EXIT DUE — {_html.escape(asset)}</b>\n"
+                        + head
+                        + "The bot closes it at market by itself on this "
+                          f"rule: <b>{phrase}</b>.\n"
+                        f"{rules_line}\n"
+                        "\U0001f449 /positions — review open trades"
+                    )
+                    if operator_book:
+                        alerts.append(Alert(
+                            alert_type="TIME_STOP_CLOSE", audience="admin",
+                            severity="CRITICAL", title=title, body=body,
+                            dedup_key=key))
+                    else:
+                        alerts.append(Alert(
+                            alert_type="TIME_STOP_CLOSE",
+                            user_id=owner,
+                            severity="CRITICAL", title=title, body=body,
+                            dedup_key=key))
+                else:
                     key = f"time_warn_{pos.trade_id}"
-                    remaining = close_hours - age_hours
-                    alerts.append(Alert(
-                        alert_type="TIME_STOP_WARN",
-                        user_id=owner,
-                        severity="WARNING",
-                        title=f"Time Warning: {pos.asset}",
-                        body=(
-                            f"\u23f3 <b>TIME WARNING — {pos.asset}</b>\n"
-                            "────────────────\n"
-                            f"- Type: <code>{trade_type}</code>\n"
-                            f"- Open: <code>{age_hours:.1f}h</code>\n"
-                            f"- Auto-close in: <code>{remaining:.1f}h</code>\n"
-                            f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                            f"- Current: <code>${current_price:,.4f}</code>\n"
-                            f"- Status: NOT in profit\n"
-                            "────────────────\n"
-                            f"Position will be flagged for close at {close_hours:.0f}h if not profitable."
-                        ),
-                        dedup_key=key,
-                    ))
+                    title = f"Time Warning: {asset}"
+                    body = (
+                        f"\u23f3 <b>TIME WARNING — {_html.escape(asset)}</b>\n"
+                        + head
+                        + "As it stands, the bot closes it at market by "
+                          f"itself on this rule: <b>{phrase}</b>.\n"
+                        f"{rules_line}"
+                    )
+                    if operator_book:
+                        alerts.append(Alert(
+                            alert_type="TIME_STOP_WARN", audience="admin",
+                            severity="WARNING", title=title, body=body,
+                            dedup_key=key))
+                    else:
+                        alerts.append(Alert(
+                            alert_type="TIME_STOP_WARN",
+                            user_id=owner,
+                            severity="WARNING", title=title, body=body,
+                            dedup_key=key))
         except Exception as exc:
             logger.debug("_check_time_stops error: %s", exc)
         return alerts

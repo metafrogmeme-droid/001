@@ -27,6 +27,17 @@ function baseOf(sym) {
   return s.endsWith('USDT') && s.length > 4 ? s.slice(0, -4) : s;
 }
 
+// The exchange-style key ('BTCUSDT') the ticker map, the arena's positions and
+// the duel's rounds are all keyed by. A signal row is stored in the scanner's
+// spelling ('BTC/USDT', sometimes 'BTC/USDT:USDT'), so every reader that looks
+// a signal up in the ticker map has to spell it this way first -- a read that
+// skips it finds no mark for any engine signal and says so as though the
+// market had none. '' for a row with no base, which no mark matches.
+function exchangeSymbol(sym) {
+  const b = baseOf(sym);
+  return b ? `${b}USDT` : '';
+}
+
 // Project a COMMUNITY strategy's signal-checkable rules onto the same gate
 // shape the engine agents publish, so one matcher serves both catalogues.
 // Only rules the signal payload can actually answer become gates:
@@ -116,4 +127,4 @@ function picksForAgent(agent, signals, limit = 8) {
   return { id: agent.id, name: agent.name, icon: agent.icon || '🤖', matched_on: applied, picks };
 }
 
-module.exports = { baseOf, rulesToGates, matchableGates, agentWouldTake, picksForAgent };
+module.exports = { baseOf, exchangeSymbol, rulesToGates, matchableGates, agentWouldTake, picksForAgent };

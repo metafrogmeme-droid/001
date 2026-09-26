@@ -163,7 +163,7 @@
   "llm_status_title": "<b>LLM 상태</b>",
   "llm_tiers_title": "<b>다중 등급 LLM 라우팅</b>",
   "llm_update_failed": "<b>LLM 업데이트 실패</b>\n\n{msg}",
-  "me_account": "<b>내 RUNECLAW 계정</b>\n\n이메일:   <code>{email}</code>\n요금제:   <code>{plan}</code>\n자산:     <code>${equity}</code>\n미실현 P&amp;L: <code>${pnl}</code>\n거래 수:  <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 알림: <code>{notif}</code>",
+  "me_account": "<b>내 RUNECLAW 계정</b>\n\n이메일:   <code>{email}</code>\n요금제:   <code>{plan}</code>\n\nLLM: <code>{llm}</code> | 알림: <code>{notif}</code>\n\n잔고와 거래는 이 계정에 저장되지 않습니다. 대시보드는 열릴 때마다 봇에서 직접 읽습니다: {url}/dashboard",
   "mode_live": "🔥 실거래",
   "mode_paper": "📝 모의",
   "no_open_positions": "보유 포지션이 없습니다.",

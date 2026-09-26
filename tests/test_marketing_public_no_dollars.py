@@ -45,7 +45,7 @@ import re
 
 import pytest
 
-from bot.marketing.public_text import public_close_line, scrub_money
+from bot.marketing.public_text import close_outcome, public_close_line, scrub_money
 
 
 class TestPricesSurviveBecauseTheyArePublicFacts:
@@ -229,14 +229,18 @@ class TestTheBoundaryEnforcesItRegardlessOfCaller:
             self, tmp_path, monkeypatch):
         # The win/loss emoji used to key off "+$" — the very substring §4
         # removes — so every winning trade would have posted the losing icon.
+        # It then keyed off any "+N%" in the text, which leads with the gross
+        # move; the sign is the close record's NET now, handed in by the
+        # caller (tests/test_the_scheduled_posts_say_whose_book_they_read.py).
         f = _forwarder(tmp_path, monkeypatch)
-        asyncio.run(f.post_trade_closed(public_close_line({
-            "symbol": "BTC", "direction": "LONG", "pnl_pct": 1.23,
-            "hold_time": "1h"})))
+        win = {"symbol": "BTC", "direction": "LONG", "pnl_pct": 1.23,
+               "pnl_usd": 1.20, "hold_time": "1h"}
+        asyncio.run(f.post_trade_closed(public_close_line(win),
+                                        outcome=close_outcome(win)))
         assert "\U0001f3c6" in f._bot.sent[0], "a win posted as a loss"
-        asyncio.run(f.post_trade_closed(public_close_line({
-            "symbol": "BTC", "direction": "LONG", "pnl_pct": -1.23,
-            "hold_time": "1h"})))
+        loss = dict(win, pnl_pct=-1.23, pnl_usd=-1.26)
+        asyncio.run(f.post_trade_closed(public_close_line(loss),
+                                        outcome=close_outcome(loss)))
         assert "\U0001f4c9" in f._bot.sent[1]
         # AND THE MARKUP SURVIVED THE TRIP. This test already sent exactly the
         # message the live leak came out of and asserted on the result — it

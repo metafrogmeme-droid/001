@@ -397,6 +397,9 @@ def _calibration_left_out(rows) -> str:
         parts.append(f"{rows.unattributed} recorded before the bot marked "
                      f"which confidences were measured, with no analyzer "
                      f"figure to tell")
+    if rows.no_blend:
+        parts.append(f"{rows.no_blend} with no analyzer blend, the figure "
+                     f"the curve is fitted on (a scan card's score, say)")
     if rows.not_opened:
         parts.append(f"{rows.not_opened} failed attempt(s) before a retry "
                      f"that opened")

@@ -16,6 +16,7 @@ const { buildInfo } = require('./version');
 const FRESH_SCAN_MS = 15 * 60_000;        // engine pushes the scan every few minutes
 const FRESH_REPORTS_MS = 2.5 * 3600_000;  // intelligence reports are hourly
 const FRESH_LETTER_MS = 9 * 86_400_000;   // weekly letter: last completed ISO week
+const DB_PROBE_MS = 2500;                 // a liveness read, not a query plan
 
 let _probes = null;
 
@@ -82,6 +83,31 @@ function defaultProbes() {
         return { state: 'unreachable' };
       }
     },
+    /**
+     * The DATABASE, read rather than asserted.
+     *
+     * This line used to be `{ state: 'ok', mode }` by construction, under an
+     * honesty note saying "nothing here is hand-set". Driven with every query
+     * refused (ECONNREFUSED), the page still said status ok and database ok
+     * while a sign-in answered 500 -- the one component every account-facing
+     * route depends on, reported healthy from no reading at all. A trivial
+     * read under a short deadline is the reading: `ok` only when it came back,
+     * `unreachable` when it threw or did not answer in time.
+     */
+    pingDatabase: async () => {
+      let timer = null;
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('database probe timed out')), DB_PROBE_MS);
+      });
+      try {
+        await Promise.race([pool.execute('SELECT 1', []), deadline]);
+        return { state: 'ok' };
+      } catch (e) {
+        return { state: 'unreachable' };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     latestLetter: async () => {
       const [rows] = await pool.execute(
         'SELECT week_key, generated_at FROM agent_letters ORDER BY week_key DESC LIMIT 1', []);
@@ -109,7 +135,9 @@ async function buildStatus(now = Date.now()) {
   const components = {};
 
   components.web = { state: 'ok', uptime_s: p.uptimeS() };
-  components.database = { state: 'ok', mode: p.dbMode() };
+  let dbState = { state: 'unreachable' };
+  try { dbState = await p.pingDatabase(); } catch (e) { /* keep unreachable */ }
+  components.database = { ...dbState, mode: p.dbMode() };
 
   let scan = null;
   try { scan = await p.getScan(); } catch (e) { /* honest no_data below */ }
@@ -147,7 +175,7 @@ async function buildStatus(now = Date.now()) {
     note: 'generated on demand from recorded data — quiet weeks are normal',
   };
 
-  const worrying = ['engine_scan', 'intelligence_reports', 'bot_gateway', 'api_bridge']
+  const worrying = ['database', 'engine_scan', 'intelligence_reports', 'bot_gateway', 'api_bridge']
     .filter((k) => !['fresh', 'ok', 'reachable', 'not_configured'].includes(components[k].state));
   return {
     status: worrying.length === 0 ? 'ok'

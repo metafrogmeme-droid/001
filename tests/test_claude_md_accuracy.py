@@ -937,7 +937,7 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
                if '"productType": "USDT-FUTURES"' in ln][:3]
     for cited in (
             f"bot/core/live_executor.py:{trailing_read} (the per-strategy trailing "
-            f"switch read at the fill)",
+            f"switch, read for every entry and every fill)",
             f"live_executor.py:{entry_call} creates the entry order idempotently, "
             f":{fns['_place_sl_tp'].lineno}/:{fns['_place_sl_tp_v3'].lineno} attach",
             "productType USDT-FUTURES (" + ", ".join(f":{n}" for n in product) + ")"):
@@ -961,9 +961,12 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
     adaptive = next(i + 1 for i, ln in enumerate(eng_lines)
                     if "Adaptive Confidence Threshold" in ln)
     for row in ("swing", "scalp"):
-        trail = ("ENABLED at 1.5 ATR" if row == "swing" else "deliberately OFF")
-        trail_ref = (f"{decl(row + '_trailing_enabled')}-{decl(row + '_trailing_atr_mult')}"
-                     if row == "swing" else f"{decl(row + '_trailing_enabled')}")
+        # The swing row used to cite its trailing ATR multiplier as the trail
+        # distance; the default rule never reads it (the stage table decides),
+        # so both rows cite the trailing switch alone.
+        trail = ("ENABLED on the stage table every type shares" if row == "swing"
+                 else "deliberately OFF")
+        trail_ref = f"{decl(row + '_trailing_enabled')}"
         cited = (f"(config.py:{decl(row + '_sl_atr_mult')}-{decl(row + '_tp_atr_mult')}), "
                  f"trailing {trail} (:{trail_ref}), a ")
         assert flat.count(cited) == 1, cited
@@ -1438,3 +1441,51 @@ def test_the_basis_citations_are_the_lines_they_name():
     assert (f"constructed at engine.py:{ctor} and fetched in `_analyze_signal`'s "
             f"context gather (engine.py:{fetch}) — its result is handed to "
             f"analyzer.analyze at :{hand} as `basis`") in flat
+
+
+def test_the_pro_scan_and_preset_citations_are_the_lines_they_name():
+    """Four map citations into `skill_registry.py` sat on unrelated lines -- a
+    docstring, a macro-provider read, a `</pre>` append, a section comment --
+    under sentences naming /pro_scan's swing and scalp configurations, the
+    Safe Scalper preset and the preset table. None was blank, so the probe
+    could not see them, and a remap carried them faithfully. Each is derived
+    from what its sentence names."""
+    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    src = (ROOT / "bot" / "skills" / "skill_registry.py").read_text(encoding="utf-8")
+    lines = src.splitlines()
+
+    def line_of(text, after=0):
+        hits = [i + 1 for i, ln in enumerate(lines) if i + 1 > after and ln.strip() == text]
+        assert hits, text
+        return hits[0]
+
+    mode_cfg = line_of("MODE_CFG: dict[str, dict] = {")
+    presets = line_of("PRESETS: dict[str, dict[str, Any]] = {")
+    scalper = line_of('"safe scalper": {', presets)
+    scalper_end = next(i + 1 for i in range(scalper, len(lines)) if lines[i].strip() == "},")
+    swing = line_of('"swing": {', mode_cfg)
+    scalp = line_of('"scalp": {', mode_cfg)
+    assert f"wide SL/TP (skill_registry.py:{swing})" in doc
+    assert f"tight zones (skill_registry.py:{scalp})" in doc
+    assert f"top-3 volume — skill_registry.py:{scalper})" in doc
+    assert f"Full Scan — skill_registry.py:{presets})" in doc
+    assert f':{scalper}-{scalper_end} is the literal "safe scalper" preset dict' in doc
+
+
+def test_the_handler_citations_are_the_functions_they_name():
+    """Two map citations into the Telegram handler pointed at unrelated lines:
+    `_can_trade_live` at a `_remember_routed` call and `_is_admin_id` at an
+    `if not delivered:`. Neither was blank, so the probe could not see them,
+    and a remap would have carried both to the same wrong lines."""
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+
+    def def_line(name):
+        hits = [i + 1 for i, ln in enumerate(src.splitlines())
+                if ln.startswith(f"    def {name}(")]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    assert f"_can_trade_live (telegram_handler.py:{def_line('_can_trade_live')})" in doc
+    assert (f"`_is_admin_id`\n  (`bot/skills/telegram_handler.py:{def_line('_is_admin_id')}`)"
+            in doc)

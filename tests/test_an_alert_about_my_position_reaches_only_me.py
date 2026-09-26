@@ -139,8 +139,8 @@ def _shared_book_engine():
 
 
 def _stale_position(asset, entry):
-    """Open long enough to trip a time stop, and NOT in profit (the walk skips
-    a winner). 30h clears the 24h swing close bar."""
+    """30h old and below its entry: the paper row the time-stop alert used to
+    call "AUTO-CLOSE recommended" off its own 24h bar, which nothing reads."""
     from datetime import datetime, timedelta, timezone
     pos = _Pos(asset, entry, entry * 0.90, entry * 1.20, f"T-{asset[:3]}")
     pos.opened_at = datetime.now(timezone.utc) - timedelta(hours=30)
@@ -155,20 +155,29 @@ def _stale_shared_book_engine():
     )
 
 
-def _stale_two_user_engine():
-    """Only ALICE's position is stale; Bob's is fresh, so a walk that kept the
-    owner and one that lost it differ in WHO is told, not just how many."""
-    from datetime import datetime, timezone
-    fresh = _Pos(BOB_SYMBOL, 200.0, 180.0, 240.0, "T-BOB")
-    fresh.opened_at = datetime.now(timezone.utc)
+def _stale_two_user_live_engine():
+    """Alice's live swing momentum long is past its 16h hard limit; Bob's was
+    opened just now. Two per-user executors, the operator's empty."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.core.live_executor import LivePosition
+
+    def _live(sym, tid, hours):
+        return LivePosition(trade_id=tid, symbol=sym, direction="LONG",
+                            entry_price=3000.0, quantity=0.01, cost_usd=100.0,
+                            stop_loss=2900.0, take_profit=3300.0,
+                            opened_at=datetime.now(timezone.utc)
+                            - timedelta(hours=hours))
+    op = types.SimpleNamespace(user_id=None, open_positions=[])
+    execs = [op,
+             types.SimpleNamespace(user_id="alice", open_positions=[
+                 _live(ALICE_SYMBOL, "T-A", 30)]),
+             types.SimpleNamespace(user_id="bob", open_positions=[
+                 _live(BOB_SYMBOL, "T-B", 0)])]
     return types.SimpleNamespace(
-        user_portfolios=_Books({
-            "alice": _Book([_stale_position(ALICE_SYMBOL, 3000.0)]),
-            "bob": _Book([fresh]),
-        }),
-        portfolio=_Book([]),
-        ws_feed=_Feed({ALICE_SYMBOL: 2900.0, BOB_SYMBOL: 190.0}),
-    )
+        live_executor=op, _all_live_executors=lambda: execs,
+        user_portfolios=_Books({}), portfolio=_Book([]),
+        ws_feed=_Feed({ALICE_SYMBOL: 2990.0, BOB_SYMBOL: 2990.0}))
 
 
 def _monitor(engine=None, chats=(), admin_fn=None):
@@ -229,8 +238,11 @@ class TestOneUsersPositionReachesOnlyThem:
         leaving the other is this repo's own "fixing two left the third"."""
         src = code_only(SRC.read_text(encoding="utf-8"))
         body = _function_source(src, "_check_time_stops")
-        assert "for owner, pos in all_positions:" in body
+        # The walk carries whether the book is the operator's LIVE one, which
+        # is an audience rather than a person (`_position_walk`).
+        assert "for owner, operator_book, pos in all_positions:" in body
         assert body.count("user_id=owner,") == 2, body.count("user_id=owner,")
+        assert body.count("audience='admin'") == 2, body.count("audience='admin'")
 
     def test_the_unprotected_alert_is_scoped_to_the_account_it_is_about(self):
         """CRITICAL, live-only, and it tells the reader to go and place a stop
@@ -349,24 +361,28 @@ class TestTheSharedBookKeepsItsFanOut:
         assert sorted(got) == ["111", "222"], sorted(got)
 
     def test_the_time_stop_walk_over_the_shared_book_too(self, operators):
-        """THE MUTATION ROUND ASKED FOR THIS ONE. Giving the shared book an
-        owner in `_check_time_stops` changed no verdict in the first round,
-        because the compat case was driven for `_check_sl_tp_proximity` alone —
-        the round reporting a coverage gap rather than a code one, which is
-        what it is for. The two walks are near-identical and a fix that lands
-        on one is this repo's own "fixing two left the third"."""
+        """THE MUTATION ROUND ASKED FOR THIS ONE, and the alert it pinned was a
+        defect. Giving the shared book an owner in `_check_time_stops` changed
+        no verdict in the first round, so this drove the shared paper book's
+        time-stop FAN-OUT -- a CRITICAL "AUTO-CLOSE recommended ... /liveclose"
+        to every watcher. That book is time-exited by the paper loop's own copy
+        of the smart exits, never by a plan `time_exits` describes, and the
+        time-stop alert reads the live books alone now
+        (`tests/test_the_time_stop_alert_reads_the_plan.py`). The shared book
+        keeps its fan-out for the proximity alerts above."""
         operators(chat_id="", admin_ids="")
         m = _monitor(_stale_shared_book_engine(), chats=("dave", "erin"))
-        alerts = m._check_time_stops()
-        assert alerts, "the fixture did not reach a time stop"
-        assert all(a.user_id is None for a in alerts), [a.user_id for a in alerts]
-        got = _delivered(m, alerts)
-        assert sorted(got) == ["dave", "erin"], sorted(got)
+        assert m._check_time_stops() == []
 
-    def test_the_time_stop_walk_scopes_a_users_book(self, operators):
-        """And the other direction on the same walk."""
+    def test_the_time_stop_walk_scopes_a_users_book(self, operators, monkeypatch):
+        """The other direction on the same walk, on the books the time stop
+        reads: a per-user LIVE book. Only Alice's position is due; Bob's is
+        fresh, so a walk that kept the owner and one that lost it differ in
+        WHO is told, not just how many."""
         operators(chat_id="", admin_ids="")
-        m = _monitor(_stale_two_user_engine(), chats=("alice", "bob", "carol"))
+        from bot.config import CONFIG
+        monkeypatch.setattr(type(CONFIG), "is_live", lambda self: True)
+        m = _monitor(_stale_two_user_live_engine(), chats=("alice", "bob", "carol"))
         alerts = m._check_time_stops()
         assert alerts, "the fixture did not reach a time stop"
         assert {a.user_id for a in alerts} == {"alice"}, [a.user_id for a in alerts]
@@ -394,8 +410,11 @@ class TestTheOperatorsOwnFiguresAreAnOperatorAudience:
 
 # ── the ratchet: a check added tomorrow cannot reintroduce it ────────────
 
-#: The two engine attributes that hand back somebody's own book.
-PER_USER_SOURCES = ("user_portfolios", "_all_live_executors")
+#: The two engine attributes that hand back somebody's own book, and the one
+#: walk over both (`_position_walk`) the position checks call instead of
+#: reading them: a check that asks the walk reads a per-user book as surely
+#: as one that walks it by hand.
+PER_USER_SOURCES = ("user_portfolios", "_all_live_executors", "_position_walk")
 
 
 class TestAPerUserCheckCannotBuildAnUnscopedAlert:

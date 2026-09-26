@@ -120,12 +120,12 @@ adding /swap without a landing link fails on the sa…
 Swing is a first-class hold-duration class in the engine, not a label.
 analyzer.py:1154 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2215-2216), trailing ENABLED at 1.5 ATR
-(:2217-2218), a 48h time-close with a 12h warn (:2219-2220), min confidence
-0.50 (:2234), max risk 2% (:2240) — every one distinct from the scalp row
-above it. skill_registry.py:2004 reads those multipliers when it builds the
+ATR / TP 3.5 ATR (config.py:2221-2222), trailing ENABLED on the stage table
+every type shares (:2223), a 48h time-close with a 12h warn (:2226-2227), min
+confidence 0.50 (:2242), max risk 2% (:2248) — every one distinct from the scalp row
+above it. skill_registry.py:2011 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2519) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2759) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,26 +136,27 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2004 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :1840-1844 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2011 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :2209-2215 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:6941 (the per-strategy trailing switch read at the fill).
+bot/core/live_executor.py:592 (the per-strategy trailing switch, read for
+every entry and every fill).
 
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
 TP 2.0 ATR (config.py:2199-2200), trailing deliberately OFF (:2201), a 2h
-time-close with a 1h warn (:2203-2204), min confidence 0.65 (:2232), max risk
-1% (:2238); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
+time-close with a 1h warn (:2208-2209), min confidence 0.65 (:2240), max risk
+1% (:2246); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
 of movement; config.py:1617 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2502); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2743); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1968) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2209) as a
 tighten-only veto on that user's own confirms (trading_commands.py:412); /run
 scalp and /fullscan scalp are the other two.
 
@@ -167,9 +168,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5849 creates the entry order idempotently, :7343/:7811 attach
+live_executor.py:5899 creates the entry order idempotently, :7435/:7903 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2167, :2183, :2310); venues.py:340 selects the swap
+productType USDT-FUTURES (:2188, :2204, :2332); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1100); signal cards from /analyze, /scan and the pro scans
@@ -180,9 +181,9 @@ Autonomously: engine.py:6054-6112 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2414-2415), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (config.py:2422-2423), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:3930), which requires
+additionally needs _can_trade_live (telegram_handler.py:4878), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -349,7 +350,7 @@ analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:267) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6054-6112
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2474) with no human in the loop, adaptively moved by
+(default 0.85, config.py:2482) with no human in the loop, adaptively moved by
 realized win rate (engine.py:8994): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
@@ -357,14 +358,14 @@ suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1952) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:2194) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2414) — so "the bot trades for you" is live only after the operator
+(config.py:2422) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -820,7 +821,7 @@ exist. So: reputation is measured and displayed today; it buys nothing.
 not serve this row and the 'rewards' half is recognition-only. Verified
 shipped and reachable: GET /api/reputation (app/routes/reputation.js,
 authMiddleware, mounted app/server.js:440) is fetched by a real nav view —
-dashboard.js:47 registers { id:'reputation' }, dashboard.js:8744 maps it to
+dashboard.js:47 registers { id:'reputation' }, dashboard.js:8750 maps it to
 renderReputation, which fetches at dashboard.js:5875 and abstains with
 'Unrated' rather th…
 
@@ -841,7 +842,7 @@ A complete, reachable, publicly-ranked forecasting contest — the Daily Duel �
 with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
 agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
 24h horizon measured from their own call, beating the agent scoring double
-(app/lib/duel.js:5-8, :40-43). Doors, opened and read: Telegram /duel at
+(app/lib/duel.js:5-8, :41-44). Doors, opened and read: Telegram /duel at
 bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
@@ -853,7 +854,7 @@ app/routes/duel.js:43/57/73/98; and the session-free public board and referral
 'squads' board at app/routes/public_duel.js:3 (mounted app/server.js:370),
 ranked per calendar-month season. Scoring is one pure module both surfaces
 share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
-unresolved rounds are excluded from the denominator (app/lib/duel.js:183-195),
+unresolved rounds are excluded from the denominator (app/lib/duel.js:184-196),
 settlement runs lazily in batches on read (duel_service.js:117), and every
 pick is cryptographically SEALED at the moment it is made (duel_service.js:195
 -> callseal.sealDuelPick, kind 'duel_pick' in docs/PROVABLE_CALLS_SPEC.md:97)
@@ -1008,7 +1009,7 @@ accompanies it.
 
 *The verifier refused part of this row.* The DRAFT half is upheld exactly as described — I confirmed the 'ERC-721 NFT'
 template string at dashboard.js:7085, the #studio view is in VIEWS
-(dashboard.js:54) and RENDER (dashboard.js:10078), the POST reaches
+(dashboard.js:54) and RENDER (dashboard.js:10084), the POST reaches
 handle_contract_studio (contract.js:37 → user_gateway.py:1433), and
 _guard_user with NO command argument means any signed-in web caller (auto-
 provisioned paper user, user_gateway.py:397-417) — not admin-only, metered by
@@ -1068,12 +1069,12 @@ PRIZE half does not exist anywhere. Arena seasons are real operator-authored
 time windows over the paper book — 'a NAMED TIME WINDOW over the existing
 Arena, never a reset', ranking percent return from trades closed inside the
 window (arena_seasons.js:3-11), with rule variants a live season enforces
-server-side (max leverage 1-20, majors only: arena_seasons.js:27-50, enforced
+server-side (max leverage 1-20, majors only: arena_seasons.js:63-86, enforced
 at arena.js:173/444/587). GET /api/arena/season is public and returns status
-plus in-window standings (arena.js:990-1014), with the wrong-season trap
+plus in-window standings (arena.js:974-998), with the wrong-season trap
 already fixed by pickCurrentSeason (:979-987). Alongside it: an opt-in
 anonymous ranked leaderboard showing handle, return %, trade count and win
-rate and never a dollar (leaderboard.js:1-10), the Daily Duel with a 90-day
+rate and never a dollar (leaderboard.js:1-20), the Daily Duel with a 90-day
 record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
 Command Deck's streaks/weekly quests/achievement glyphs. Telegram doors: /duel
 (start_commands.py:578, @guard("start")), /leaderboard (:623) and /arena (:650).
@@ -1085,7 +1086,7 @@ arena.js's engine, leaderboard.js, duel*.js and achievements.js returns only
 bot/formatters/board_cards.py:72 naming a promo prize footer as the
 HYPOTHETICAL future leak its dollar guard exists to catch. Rank, glyph and
 streak are the entire reward. Season creation and deletion are adminOnly and
-API-only with no UI (arena.js:1069, :1095, :1149, :1178), so a user cannot
+API-only with no UI (arena.js:1061, :1085, :1139, :1168), so a user cannot
 host a tournament; there is no bracket, no team registration, no
 entry/settlement of stakes, and no esports data or integration of any kind.
 
@@ -1211,7 +1212,7 @@ attribution of revenue (there is no revenue), and no third-party affiliate
 integration: app/lib/venue_links.js:17 builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:422-424 passes only
+button is constructed with no ref_code (alerts_monitor.py:429-431 passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
@@ -1398,7 +1399,7 @@ are RUNECLAW's, with no user deploy door.
 
 *The verifier refused part of this row.* partial — STATUS UNCHANGED, but the claim must be narrowed to drafting. The
 draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
-→ renderContractStudio dashboard.js:7070, registered dashboard.js:10078; POST
+→ renderContractStudio dashboard.js:7070, registered dashboard.js:10084; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1433 gated by _guard_user at :1452, route registered
 user_gateway.py:5080; five template buttons, flags, Copy and Download .sol at
@@ -1462,7 +1463,7 @@ developers.html:55 advertises. The MARKER is the list, here as everywhere: this
 paragraph named four of the five and cited four of the five lines, because
 xray_transaction joined the family and no prose moved. Mint an rcarena_
 key yourself from the Arena page's Agent keys panel (arena.html:366 →
-app/routes/arena.js:1232, max 5, revocable, shown once) and the three arena_*
+app/routes/arena.js:1216, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
 endpoint are served for on-chain discovery, and /api/llm lets a user plug
 their own model key in.
@@ -1471,7 +1472,7 @@ their own model key in.
 deliberately carries no pricing block and no access predicate, with per-call
 charging (x402) stated as design-only (app/lib/tool8257.js:16-22). The agent-
 IDENTITY half has no UI — POST /api/agents (claim a slug, app/server.js:363)
-and POST /api/arena/keys/agent (bind a key to it, arena.js:1272) are mounted
+and POST /api/arena/keys/agent (bind a key to it, arena.js:1256) are mounted
 and authed but referenced by nothing in app/public; the only thing naming the
 claim door is an error string, 'Claim it first at POST /api/agents'
 (app/lib/arena_keys.js:155), which is this repo's own card-names-a-door-with-
@@ -1579,7 +1580,7 @@ its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
 there is no Telegram command to see your own invite link (command_catalog's
 `share` is the private-notes command). (3) The close-card share button passes
-only close_data and the bot username (alerts_monitor.py:422-423), so invite_link()
+only close_data and the bot username (alerts_monitor.py:429-430), so invite_link()
 is called with ref_code=None and the shared link is a bare t.me/<bot> with no
 attribution.
 
@@ -2009,9 +2010,9 @@ path beneath it: a triple-gated execution preview and then a real first-leg
 signed transfer.
 
 *Where.* POST /api/web3/cross-plan (app/routes/web3_execute.js:100 → gateway
-/cross/plan; dashboard.js:8557, panel #c-crossyield section 'Worth moving? —
+/cross/plan; dashboard.js:8563, panel #c-crossyield section 'Worth moving? —
 cross-chain yield planner'); POST /api/web3/sign, POST /api/web3/sign/prepare,
-GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8617,
+GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8623,
 :8671, :8698) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
 TESTNET-ONLY by the routes' own headers.
 
@@ -2381,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4846`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4969`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.
@@ -2468,7 +2469,7 @@ half of the measurement that says where the measurement stops.
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
   attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:966`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2663`, and three sibling call
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2671`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:691`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the

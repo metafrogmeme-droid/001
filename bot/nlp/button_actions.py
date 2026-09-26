@@ -217,10 +217,10 @@ CALLBACK_NO_PERMISSION: dict[str, str] = {
     "reject:": "owner-checked (`_callback_owner_ok`); rejecting an idea places "
                "nothing",
     "risk_control": "delegates to `_cmd_risk`, which carries its own `@guard`",
-    "scan_confirm:": "gated one hop out in `scan_skill` by `_is_admin` and "
-                     "H-18 `_can_trade_live`",
-    "scan_limit:": "arms a limit prompt; the placement behind it is "
-                   "`confirm:`, which is gated",
+    "scan_confirm:": "a refusal: a button from a scan card sent before the "
+                     "card's buttons named its idea; it places nothing",
+    "scan_limit:": "a refusal: a button from a scan card sent before the "
+                   "card's buttons named its idea; it arms nothing",
     "scan_reject:": "a rejection: it places nothing",
     "setlimit:": "owner-checked (`_callback_owner_ok`); the placement behind "
                  "it is `confirm:`, which is gated",

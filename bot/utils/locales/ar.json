@@ -163,7 +163,7 @@
   "llm_status_title": "<b>حالة LLM</b>",
   "llm_tiers_title": "<b>توجيه LLM متعدد المستويات</b>",
   "llm_update_failed": "<b>فشل تحديث LLM</b>\n\n{msg}",
-  "me_account": "<b>حساب RUNECLAW الخاص بك</b>\n\nالبريد:   <code>{email}</code>\nالخطة:    <code>{plan}</code>\nرأس المال: <code>${equity}</code>\nP&amp;L المفتوح: <code>${pnl}</code>\nالصفقات: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | الإشعارات: <code>{notif}</code>",
+  "me_account": "<b>حساب RUNECLAW الخاص بك</b>\n\nالبريد:   <code>{email}</code>\nالخطة:    <code>{plan}</code>\n\nLLM: <code>{llm}</code> | الإشعارات: <code>{notif}</code>\n\nرصيدك وصفقاتك غير محفوظة مع هذا الحساب. لوحة التحكم تقرؤها من البوت في كل مرة تُحمَّل فيها: {url}/dashboard",
   "mode_live": "🔥 حقيقي",
   "mode_paper": "📝 تجريبي",
   "no_open_positions": "لا توجد مراكز مفتوحة.",

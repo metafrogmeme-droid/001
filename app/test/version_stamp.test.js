@@ -94,6 +94,7 @@ test('the status payload embeds the build block', async () => {
     getScan: async () => null,
     getReports: async () => null,
     pingGateway: async () => ({ state: 'not_configured' }),
+    pingDatabase: async () => ({ state: 'ok' }),
     latestLetter: async () => null,
     dbMode: () => 'memory',
     uptimeS: () => 1,

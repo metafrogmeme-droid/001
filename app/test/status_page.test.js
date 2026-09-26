@@ -22,6 +22,7 @@ function probes(overrides = {}) {
     getReports: async () => ({ received_at: new Date(NOW - 30 * 60_000).toISOString() }),
     pingGateway: async () => ({ state: 'reachable' }),
     pingBridge: async () => ({ state: 'reachable' }),
+    pingDatabase: async () => ({ state: 'ok' }),
     latestLetter: async () => ({ week_key: '2026-W29',
       generated_at: new Date(NOW - 2 * 86_400_000).toISOString() }),
     dbMode: () => 'memory',

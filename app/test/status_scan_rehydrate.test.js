@@ -48,6 +48,7 @@ test('the status probe wiring reads a real age from a rehydrated scan (no false 
     getReports: async () => ({ received_at: new Date(NOW - 30 * 60_000).toISOString() }),
     pingGateway: async () => ({ state: 'reachable' }),
     pingBridge: async () => ({ state: 'reachable' }),
+    pingDatabase: async () => ({ state: 'ok' }),
     latestLetter: async () => ({ week_key: '2026-W01', generated_at: new Date(NOW - 3 * 86_400_000).toISOString() }),
     dbMode: () => 'memory',
     uptimeS: () => 42,

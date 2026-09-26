@@ -184,23 +184,6 @@ def limit_expired_text(lang: str, *, pair: str) -> str:
              minutes=str(PENDING_TTL_SEC // 60))
 
 
-def caller_lang(handler: Any, update: Any) -> str:
-    """The caller's UI language, or English when nobody can be asked.
-
-    `_lang` reads a STORED preference off the handler's user store, so a
-    door reached without a handler has no preference to read. English there
-    is a fact about what could be read, not a guess about the person — and
-    it is the same fallback `_lang` itself takes when the store raises.
-    """
-    resolve = getattr(handler, "_lang", None)
-    if resolve is None:
-        return "en"
-    try:
-        return str(resolve(update))
-    except Exception:
-        return "en"
-
-
 def _price(value: float) -> str:
     """A price as this product prints one: significant digits, not 4dp.
 

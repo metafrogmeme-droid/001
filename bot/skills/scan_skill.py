@@ -11,14 +11,8 @@ from telegram.ext import ContextTypes
 from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
-from bot.utils.candles import drop_forming_candle
+from bot.utils.candles import drop_forming_candle, ohlc_on_record
 from bot.core.position_telemetry import price_on_record
-from bot.formatters.drift_offer import (
-    STOP_PCT,
-    TARGET_PCT,
-    reanalyzed_idea,
-    render_reanalyzed_offer,
-)
 from bot.formatters.rich_cards import (
     fetch_analysis_data,
     render_analysis_card,
@@ -497,19 +491,25 @@ def _build_scan_payload(results: list[dict], engine=None,
     now = datetime.now(UTC)
 
     # ── Regime from BTC ──
+    # Only from an RSI somebody MEASURED. /pro_scan's rows used to carry a
+    # stamped `rsi: 50.0`, and this derived "NEUTRAL, score 0.0" from it with
+    # the gate set to BTC's price -- which the website reads as a regime that
+    # was read. A BTC row with no RSI leaves the regime unread (gate 0), the
+    # same as no BTC row.
     btc = next((r for r in results if "BTC" in r["sym"]), None)
+    btc_rsi = _num(btc.get("rsi")) if btc else None
     regime = {"label": "NEUTRAL", "score": 0.0, "gate": 0, "long_short": "", "funding": ""}
-    if btc:
+    if btc and btc_rsi is not None:
         regime["gate"] = btc["price"]
-        if btc["rsi"] > 60 and btc["dir"] == "LONG":
+        if btc_rsi > 60 and btc["dir"] == "LONG":
             regime["label"] = "BULLISH"
-            regime["score"] = min((btc["rsi"] - 50) / 30, 1.0)
-        elif btc["rsi"] < 40 and btc["dir"] == "SHORT":
+            regime["score"] = min((btc_rsi - 50) / 30, 1.0)
+        elif btc_rsi < 40 and btc["dir"] == "SHORT":
             regime["label"] = "BEARISH"
-            regime["score"] = -min((50 - btc["rsi"]) / 30, 1.0)
+            regime["score"] = -min((50 - btc_rsi) / 30, 1.0)
         else:
             regime["label"] = "NEUTRAL"
-            regime["score"] = (btc["rsi"] - 50) / 50
+            regime["score"] = (btc_rsi - 50) / 50
 
     # ── Circuit breaker from engine + real exchange data ──
     cb_rules = []
@@ -735,9 +735,10 @@ def _build_scan_payload(results: list[dict], engine=None,
         else:
             status, label = "skip", "SKIP"
 
-        # Book ratio from vol_ratio (capped at reasonable range)
-        vr = r.get("vol_ratio", 1.0) or 1.0
-        book_ratio = round(vr, 2)
+        # Book ratio from vol_ratio. None when nobody measured one: `or 1.0`
+        # read an absent ratio -- and a measured 0.0 -- as exactly average.
+        vr = _num(r.get("vol_ratio"))
+        book_ratio = None if vr is None else round(vr, 2)
         # `"BID" if dir == "LONG" else "ASK"` put every non-LONG row on the
         # ask. A side is a claim; a direction nobody determined has no side.
         _d = r["dir"]
@@ -753,7 +754,7 @@ def _build_scan_payload(results: list[dict], engine=None,
             "score": score,
             "direction": r["dir"],
             "vol_ratio": vr,
-            "atr": r.get("atr", 0),
+            "atr": _num(r.get("atr")),
         }
 
     # ── Entry cards (top setups only) ──
@@ -761,10 +762,12 @@ def _build_scan_payload(results: list[dict], engine=None,
     setups = [r for r in results if r["score"] >= 0.4]
     for r in setups[:8]:
         price = r["price"]
-        # ATR fallback: if 0 or missing, use 2% of price as proxy
-        atr = r.get("atr", 0) or 0
-        if atr <= 0:
-            atr = price * 0.02
+        # No card off a volatility nobody measured. A 2%-of-price "ATR" stood
+        # in for a missing one, so /pro_scan's rows (which measure no ATR)
+        # were sealed as calls with levels no scan computed.
+        atr = _num(r.get("atr"))
+        if atr is None or atr <= 0:
+            continue
 
         # The ENTRY must be the same number Telegram publishes. The scan
         # message advertises a pullback entry (price -/+ 0.3*ATR, rendered as
@@ -796,13 +799,15 @@ def _build_scan_payload(results: list[dict], engine=None,
         rr = round(reward_dist / risk_dist, 2) if risk_dist > 0 else 0
 
         # Patterns as trigger description
+        vr = _num(r.get("vol_ratio"))
+        _rsi_s = "unread" if _num(r.get("rsi")) is None else str(r["rsi"])
+        _vol_s = "unread" if vr is None else f"{vr:.1f}x"
         pat_names = [p["name"] for p in r.get("patterns", [])[:2]]
-        trigger = ", ".join(pat_names) if pat_names else f"RSI {r['rsi']}, Vol {r.get('vol_ratio', 1.0):.1f}x"
+        trigger = ", ".join(pat_names) if pat_names else f"RSI {_rsi_s}, Vol {_vol_s}"
 
         # Margin: ~5% of a $100 notional position
         margin = round(100 * 0.05, 2)  # $5 margin per $100 at 20x
 
-        vr = r.get("vol_ratio", 1.0) or 1.0
         entry_cards.append({
             "symbol": r["sym"].replace("/USDT", ""),
             "direction": r["dir"],
@@ -813,9 +818,9 @@ def _build_scan_payload(results: list[dict], engine=None,
             "tp2": str(tp2),
             "margin": str(margin),
             "rr": str(rr),
-            "book_ratio": round(vr, 2),
+            "book_ratio": None if vr is None else round(vr, 2),
             "trigger": trigger,
-            "thesis": f"{r['dir']} bias | RSI {r['rsi']} | Score {r['score']:.0%} | Vol {vr:.1f}x avg",
+            "thesis": f"{r['dir']} bias | RSI {_rsi_s} | Score {r['score']:.0%} | Vol {_vol_s} avg",
         })
 
     # ── Key call narrative ──
@@ -832,7 +837,8 @@ def _build_scan_payload(results: list[dict], engine=None,
             f"Top movers: {top_names}\n"
         )
         if btc:
-            key_call += f"BTC RSI: {btc['rsi']:.0f} | Price: ${btc['price']:,.2f}\n"
+            _br = "unread" if btc_rsi is None else f"{btc_rsi:.0f}"
+            key_call += f"BTC RSI: {_br} | Price: ${btc['price']:,.2f}\n"
         key_call += f"Scanned at {now.strftime('%H:%M UTC')}"
     else:
         key_call = "No scan data available."
@@ -1117,7 +1123,75 @@ def _scan_verify_links(payload: dict) -> dict:
     return out
 
 
-def scan_action_rows(top_setups: list[dict], gate: dict) -> tuple[str, list]:
+def scan_row_idea(r: dict) -> tuple[Optional[TradeIdea], str]:
+    """The trade a scan card row SHOWS, or ``(None, why)`` when it cannot be one.
+
+    THE ✅ PLACED A TRADE THE CARD NEVER SHOWED. The row prints a pullback
+    entry (price ∓ 0.3·ATR), a 2.5·ATR stop and a 3·ATR target, and
+    `_build_scan_payload` seals those same levels as the provable call; the
+    button carried only the symbol, the side and the scan price, and built a
+    MARKET order there with a flat 3% stop and 6% target. So the idea is built
+    here, from the row's own levels, and the button names it by id.
+
+    A LIMIT, because the entry the card prints is a pullback away from the
+    price: a market order fills at the price, which is a different entry. The
+    confidence is the row's own SCORE, the figure the card prints beside it --
+    the scanner's measurement of this row, and not the flat 0.6 the old
+    button stamped on every row, which cleared the 0.60 confidence floor by
+    construction. A row whose score does not clear the floor the risk gate
+    applies (`clears_confidence_floor`, the gate's own reading) is not offered,
+    because its button's only possible answer is that refusal.
+    """
+    from bot.risk.confidence_floor import clears_confidence_floor, min_confidence_for
+    from bot.risk.quality_ladder import confidence_on_record
+
+    score = confidence_on_record(r.get("score"))
+    if score is None:
+        return None, "its scan score could not be read"
+    try:
+        idea = TradeIdea(
+            asset=r["sym"], direction=Direction(r["dir"]),
+            entry_price=r["entry"], stop_loss=r["sl"], take_profit=r["tp"],
+            confidence=score, order_type="limit", source="scan_skill",
+            reasoning=(f"Scan card setup for {r['sym']}: pullback limit entry, "
+                       f"stop 2.5 ATR and target 3 ATR from the scan price; "
+                       f"scan score {score:.0%}"))
+    except (KeyError, TypeError, ValueError):
+        return None, "its levels do not make a valid trade"
+    if not clears_confidence_floor(idea):
+        return None, (f"score {score:.0%} is under the "
+                      f"{min_confidence_for(idea):.0%} confidence floor the "
+                      f"risk gate applies")
+    return idea, ""
+
+
+def register_scan_offers(engine, top_setups: list[dict]) -> None:
+    """Put each row's own idea in the pending book, as the caller's.
+
+    A PERSON's idea, like `/analyze`'s: written straight into
+    ``_pending_ideas`` and never through ``_register_engine_idea``, so the
+    autonomous auto-confirm, which reads ownership first, never executes it.
+    Each row gets ``idea_id``, or None with ``no_offer`` saying why.
+    """
+    book = getattr(engine, "_pending_ideas", None)
+    atrs = getattr(engine, "_pending_atr", None)
+    for r in top_setups:
+        idea, why = scan_row_idea(r)
+        if idea is None or not isinstance(book, dict):
+            r["idea_id"] = None
+            r["no_offer"] = why or "the pending-idea book could not be reached"
+            continue
+        book[idea.id] = idea
+        atr = _num(r.get("atr"))
+        if isinstance(atrs, dict) and atr is not None and atr > 0:
+            # The ATR the card's levels were placed off, for the risk gate's
+            # re-check at the tap.
+            atrs[idea.id] = atr
+        r["idea_id"] = idea.id
+
+
+def scan_action_rows(top_setups: list[dict], gate: dict,
+                     owner: str = "") -> tuple[str, list]:
     """The scan card's actions: ``(header, rows)``, each row a list of
     ``(label, callback_data)``.
 
@@ -1129,23 +1203,41 @@ def scan_action_rows(top_setups: list[dict], gate: dict) -> tuple[str, list]:
     the header is the gate's own sentence and there are no buttons. An
     UNREAD gate still offers them: the risk gate decides at the tap, and a
     status that could not be read is not a refusal.
+
+    Each button names the row's registered idea (`register_scan_offers`) and
+    carries its owner, the shape every other trade button has, so the tap goes
+    through the one ``confirm:`` door: its owner check, its H-18 live
+    permission and its drift re-offer. A row with no idea gets no button, and
+    the header says why.
     """
     import html as _html
 
     from bot.core.trade_gate import gate_sentence
 
     if gate.get("blocked"):
-        return ("\u26d4 <b>No actions</b> — " + _html.escape(gate_sentence(gate))
+        return ("⛔ <b>No actions</b> — " + _html.escape(gate_sentence(gate))
                 + " Nothing on this card can be placed until that changes.", [])
     rows = []
+    not_offered = []
     for r in top_setups:
         sym_short = r["sym"].replace("/USDT", "")
+        iid = r.get("idea_id")
+        if not iid:
+            not_offered.append(
+                f"{sym_short}: {r.get('no_offer') or 'no trade was built from this row'}")
+            continue
         rows.append([
-            (f"\u2705 {sym_short}", f"scan_confirm:{r['sym']}:{r['dir']}:{r['price']}"),
-            ("Limit", f"scan_limit:{r['sym']}:{r['dir']}:{r['price']}"),
-            ("Skip", f"scan_reject:{r['sym']}"),
+            (f"✅ {sym_short}", f"confirm:{iid}:{owner}"),
+            ("Limit", f"setlimit:{iid}:{owner}"),
+            ("Skip", f"reject:{iid}:{owner}"),
         ])
-    return "\u2694\ufe0f <b>Actions</b> — tap to execute", rows
+    note = ("\n<i>Not offered: " + _html.escape("; ".join(not_offered)) + ".</i>"
+            if not_offered else "")
+    if not rows:
+        return "⛔ <b>No actions</b>" + note, []
+    return ("⚔️ <b>Actions</b> — tap to execute\n"
+            "<i>✅ places the entry shown, as a limit order, with its stop "
+            "and target.</i>" + note), rows
 
 
 def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | None = None) -> None:
@@ -1217,16 +1309,24 @@ async def _scan_symbol(exchange, symbol: str, analyzer=None) -> Optional[dict]:
     # `vol_ratio` worst of all — `v[-1]` is a part-period's volume charged
     # against a 20-bar mean of whole ones, so a fresh 4h bar read ~0.25x on the
     # one figure that is supposed to detect a volume SPIKE.
-    mark = float(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else 0.0
+    mark = price_on_record(ohlcv[-1][4]) if ohlcv and len(ohlcv[-1]) > 4 else None
     ohlcv = drop_forming_candle(ohlcv, "4h")
     if not ohlcv or len(ohlcv) < 30:
+        return None
+    # A CLOSED bar with a price the venue did not state makes the series
+    # missing, not neutral. `np.array` turns the null into NaN silently and
+    # `price > sma50` is False, so the heuristic below read a clean uptrend
+    # with one null close as SHORT 0.5, over the 0.4 setup gate, while the
+    # engine read it could not make fell back to that heuristic unseen.
+    # `Analyzer.analyze` refuses the same series (`ohlc_on_record`).
+    if not ohlc_on_record(ohlcv):
         return None
     o = np.array([c[1] for c in ohlcv], dtype=float)
     h = np.array([c[2] for c in ohlcv], dtype=float)
     l = np.array([c[3] for c in ohlcv], dtype=float)
     c = np.array([c[4] for c in ohlcv], dtype=float)
     v = np.array([c[5] for c in ohlcv], dtype=float)
-    price = mark if mark > 0 else float(c[-1])
+    price = mark if mark is not None else float(c[-1])
     rsi, atr = _compute_rsi(c), _compute_atr(h, l, c)
     vm = float(np.mean(v[-20:])) if len(v) >= 20 else float(np.mean(v))
     vol_ratio = float(v[-1] / vm) if vm > 0 else 1.0
@@ -1489,8 +1589,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
         setup_lines.append(
             f"<b>#{i} — {sym}USDT</b>  {_dir_emoji(direction)} {direction}\n"
-            f"  Entry: <code>${entry:,.6g}</code>  ({'+' if direction == 'LONG' else '-'}"
-            f"pullback)\n"
+            f"  Entry: <code>${entry:,.6g}</code>  (limit, on a pullback)\n"
             f"  TP:    <code>${tp:,.6g}</code>  (+{tp_dist:.1f}%)\n"
             f"  SL:    <code>${sl:,.6g}</code>  (-{sl_dist:.1f}%)\n"
             f"  R:R:   <code>{rr:.1f}:1</code>  |  RSI {r['rsi']}  |  Vol {r['vol_ratio']}x\n"
@@ -1535,7 +1634,12 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # answer is a refusal is a door painted on a wall (scan_action_rows).
     from bot.core.trade_gate import entry_gate
     _caller = str(update.effective_user.id) if update.effective_user else ""
-    btn_text, rows = scan_action_rows(top_setups, entry_gate(engine, _caller))
+    _gate = entry_gate(engine, _caller)
+    if not _gate.get("blocked"):
+        # Each row's OWN trade, registered as the caller's before its button
+        # is built: the button names it by id (scan_row_idea).
+        register_scan_offers(engine, top_setups)
+    btn_text, rows = scan_action_rows(top_setups, _gate, _caller)
     buttons = [[InlineKeyboardButton(label, callback_data=data) for label, data in row]
                for row in rows]
 
@@ -1559,8 +1663,10 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 chat_id=chat_id, text=btn_text,
                 parse_mode="HTML", reply_markup=kb)
     else:
-        # Fallback: plain text with buttons (no Pillow or card failed)
-        if top_setups and not buttons:
+        # Fallback: plain text with buttons (no Pillow or card failed). The
+        # actions line travels whether or not there are buttons: it says what
+        # ✅ places and names any row that was not offered.
+        if top_setups:
             text += "\n\n" + btn_text
         await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
@@ -1652,11 +1758,31 @@ async def _scan_single(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 text += (f"  \u2022 <b>{p['name']}</b> -- {p['signal']} ({p.get('confidence',0):.0%})\n"
                          f"    <i>{p.get('description','')}</i>\n")
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("\u2705 Confirm",
-                             callback_data=f"scan_confirm:{symbol}:{result['dir'] if result else 'LONG'}:{result['price'] if result else 0}"),
-        InlineKeyboardButton("\u274c Reject", callback_data=f"scan_reject:{symbol}"),
-    ]])
+    # THE BUTTON IS THE CARD'S IDEA. The card above prints the 1h analyzer's
+    # setup and its risk verdict; the button carried the 4h scan row's side
+    # and price instead, so a card reading SHORT placed a LONG, and it was
+    # offered when the analyzer produced no idea at all. The idea is
+    # registered as the caller's (like /analyze) and the button names it; no
+    # idea, no button. And only when the card SHOWS it: without the rich data
+    # the fallback card prints the scan row, not the analyzer's setup.
+    kb = None
+    _book = getattr(engine, "_pending_ideas", None)
+    if idea is None:
+        text += "\n\n<i>No setup from the analyzer, so there is nothing to place.</i>"
+    elif not data:
+        text += "\n\n<i>The analyzer's setup could not be shown here, so it is not offered.</i>"
+    elif isinstance(_book, dict):
+        _book[idea.id] = idea
+        _atr = _num(result.get("atr")) if result else None
+        _atrs = getattr(engine, "_pending_atr", None)
+        if _atr is not None and _atr > 0 and isinstance(_atrs, dict):
+            # The ATR the card's risk verdict above was evaluated with.
+            _atrs[idea.id] = _atr
+        _owner = str(update.effective_user.id) if getattr(update, "effective_user", None) else ""
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("\u2705 Confirm", callback_data=f"confirm:{idea.id}:{_owner}"),
+            InlineKeyboardButton("\u274c Reject", callback_data=f"reject:{idea.id}:{_owner}"),
+        ]])
     await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
@@ -1695,7 +1821,17 @@ async def _ai_summary(results: list[dict]) -> str:
 # ── Callback handler ──────────────────────────────────────────────
 
 async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle inline keyboard callbacks from scan results."""
+    """Handle the ``scan_*`` inline callbacks.
+
+    The scan cards' buttons are ``confirm:`` / ``setlimit:`` / ``reject:`` on
+    a registered idea now (`scan_action_rows`, `_scan_single`). What reaches
+    here is a ``scan_reject:`` (it places nothing) or a ``scan_confirm:`` /
+    ``scan_limit:`` from a card sent before that: those payloads carry a
+    symbol, a side and the scan PRICE and nothing else, so the levels the card
+    showed are not in them. They used to be placed as a market order at that
+    price with a flat 3% stop and 6% target -- a trade the card never showed.
+    They are refused, and say so.
+    """
     query = update.callback_query
     await query.answer()
     data = query.data or ""
@@ -1705,260 +1841,17 @@ async def callback_confirm_reject(update: Update, context: ContextTypes.DEFAULT_
         await query.message.reply_text(f"\u274c <b>{sym}</b> skipped.", parse_mode="HTML")
         return
 
-    # ── scan_limit: prompt user to set custom limit price ──
-    if data.startswith("scan_limit:"):
-        parts = data.split(":")
-        if len(parts) < 4:
-            await query.message.reply_text("Invalid callback data."); return
-        _, symbol, dir_str, price_str = parts[:4]
-        price = float(price_str)
-        direction = Direction.LONG if dir_str == "LONG" else Direction.SHORT
-        engine = context.bot_data.get("engine")
-        if engine is None:
-            await query.message.reply_text("Engine not available."); return
-
-        # Create idea and register as pending
-        atr_val = price * 0.03  # default 3% ATR estimate
-        try:
-            exchange = await engine.scanner._get_exchange()
-            ohlcv = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
-            # CLOSED bars only: this ATR is the risk gate's denominator, and a
-            # forming 4h bar truncates the newest true range, so the gate sizes
-            # against an understated volatility.
-            ohlcv = drop_forming_candle(ohlcv, "4h")
-            h = np.array([c[2] for c in ohlcv], dtype=float)
-            l_arr = np.array([c[3] for c in ohlcv], dtype=float)
-            c_arr = np.array([c[4] for c in ohlcv], dtype=float)
-            atr_val = _compute_atr(h, l_arr, c_arr)
-        except Exception:
-            pass
-        _long_lim = direction == Direction.LONG
-        sl = round(price * ((1 - STOP_PCT) if _long_lim else (1 + STOP_PCT)), 6)
-        tp = round(price * ((1 + TARGET_PCT) if _long_lim else (1 - TARGET_PCT)), 6)
-        try:
-            idea = TradeIdea(asset=symbol, direction=direction, entry_price=price,
-                             stop_loss=sl, take_profit=tp, confidence=0.6,
-                             reasoning=f"Scan signal for {symbol} with custom limit",
-                             source="scan_skill", order_type="limit")
-        except ValueError as e:
-            # F-15: deferred import — scan_skill has no module-level
-            # dependency on telegram_handler and adding one would be circular.
-            from bot.utils.exc_text import _safe_exc_text
-            await query.message.reply_text(
-                f"\u26a0\ufe0f Invalid trade: {_safe_exc_text(e)}",
-                parse_mode="HTML")
-            return
-
-        engine._pending_ideas[idea.id] = idea
-        engine._pending_atr[idea.id] = atr_val
-
-        # ARM FIRST, ASK ONLY IF ARMED. This block used to write the pending
-        # state `if hasattr(handler, "_pending_limit_input")` and send the
-        # prompt regardless — and that attribute is a bare annotation on the
-        # callback mixin ("created on first use"), so on a process where the
-        # other door had not run, the card asked for a price with nothing
-        # listening and the typed number fell through to the chat model.
-        # `arm_limit_input` CREATES the state and answers whether this caller
-        # is being listened to; the prompt is the True branch and nothing
-        # else.
-        from bot.core.limit_input import (
-            arm_limit_input,
-            caller_lang,
-            limit_prompt_text,
-            limit_unarmed_text,
-        )
-        handler = context.bot_data.get("telegram_handler")
-        caller_uid = str(update.effective_user.id) if update.effective_user else ""
-        sym_short = symbol.replace("/USDT", "")
-        lang = caller_lang(handler, update)
-        armed = arm_limit_input(
-            handler, caller_uid,
-            trade_id=idea.id, asset=sym_short, pair=symbol,
-            direction=direction.value, current_entry=price,
-        )
-        # ONE send, and the prompt is only ever the ARMED branch's text.
-        # Two `reply_text` calls would be two chances for a later edit to
-        # move one of them out from under the verdict, which is how the
-        # unconditional prompt got there in the first place.
-        if not armed:
-            said = limit_unarmed_text(lang)
-        else:
-            said = limit_prompt_text(
-                lang, asset=sym_short, direction=direction.value,
-                entry=price, stop_loss=sl, take_profit=tp)
-        await query.message.reply_text(said, parse_mode="HTML")
+    if not (data.startswith("scan_confirm:") or data.startswith("scan_limit:")):
         return
-
-    if not data.startswith("scan_confirm:"):
-        return
-    parts = data.split(":")
-    if len(parts) < 4:
-        await query.message.reply_text("Invalid callback data."); return
-    _, symbol, dir_str, price_str = parts[:4]
-    price = float(price_str)
-    direction = Direction.LONG if dir_str == "LONG" else Direction.SHORT
-    engine = context.bot_data.get("engine")
-    if engine is None:
-        await query.message.reply_text("Engine not available."); return
-    # The same two constants `drift_offer` names, rather than a third spelling
-    # of them -- this file had the pair written out in THREE places, and the
-    # guard's own assertion is what found the one nobody had counted.
-    _long = direction == Direction.LONG
-    sl = round(price * ((1 - STOP_PCT) if _long else (1 + STOP_PCT)), 6)
-    tp = round(price * ((1 + TARGET_PCT) if _long else (1 - TARGET_PCT)), 6)
+    import html as _html
+    sym = data.split(":")[1]
     try:
-        idea = TradeIdea(asset=symbol, direction=direction, entry_price=price,
-                         stop_loss=sl, take_profit=tp, confidence=0.6,
-                         reasoning=f"Operator-confirmed scan signal for {symbol}",
-                         source="scan_skill")
-        exchange = await engine.scanner._get_exchange()
-        ohlcv = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
-        ohlcv = drop_forming_candle(ohlcv, "4h")   # the gate's denominator
-        h = np.array([c[2] for c in ohlcv], dtype=float)
-        l = np.array([c[3] for c in ohlcv], dtype=float)
-        c = np.array([c[4] for c in ohlcv], dtype=float)
-        atr = _compute_atr(h, l, c)
-        rc = engine.risk.evaluate(idea, atr=atr)
-        ve = "\u2705" if rc.verdict == RiskVerdict.APPROVED else "\u26a0\ufe0f"
         await query.edit_message_reply_markup(reply_markup=None)
-
-        if rc.verdict != RiskVerdict.APPROVED:
-            await query.message.reply_text(
-                f"{ve} <b>{symbol} {direction.value}</b> -- Risk: <b>{rc.verdict.value}</b>\n"
-                f"  Entry <code>${price:,.6g}</code>  SL <code>${sl:,.6g}</code>  TP <code>${tp:,.6g}</code>\n"
-                f"  R:R <code>{idea.risk_reward_ratio}</code>\n  <i>{rc.reason}</i>",
-                parse_mode="HTML")
-            return
-
-        # Risk passed — register as pending idea and execute via confirm_trade
-        trade_id = idea.id
-        engine._pending_ideas[trade_id] = idea
-        engine._pending_atr[trade_id] = atr
-
-        caller_uid = str(update.effective_user.id) if update.effective_user else ""
-
-        # H-18: LIVE mode needs per-user live-trading permission, exactly as the
-        # three sibling confirm paths do (telegram_handler.py's `confirm:` button
-        # and inline branch, and user_gateway.py). This one had NO auth check at
-        # all — grep for _can_trade_live/_is_admin/has_permission in this file
-        # returned nothing — so a user in LIVE_TRADER_TELEGRAM_IDS who had never
-        # been granted per-user live could tap the ✅ on a scan card and place a
-        # real order on the SHARED OPERATOR account, while the same person
-        # tapping `confirm:` on an /analyze card was refused.
-        #
-        # Fails CLOSED when the handler is unreachable: without it there is no
-        # way to evaluate the permission, and "cannot check" must not mean
-        # "allowed" on the path that spends real money.
-        from bot.config import CONFIG as _CFG   # module-scope import does not exist here
-        if _CFG.is_live():
-            _h = context.bot_data.get("telegram_handler") if context else None
-            if _h is None:
-                await query.message.reply_text(
-                    "\U0001f512 Live trade refused — the permission check is "
-                    "unavailable, so this could not be authorised.",
-                    parse_mode="HTML")
-                return
-            if not _h._is_admin(update) and not _h._can_trade_live(caller_uid):
-                from bot.utils.i18n import t as _t
-                await query.message.reply_text(
-                    "\U0001f512 " + _t(_h._live_refusal_key(), _h._lang(update)),
-                    parse_mode="HTML")
-                return
-
-        result = await engine.confirm_trade(trade_id, user_id=caller_uid)
-
-        # ── Auto re-analyze on price drift rejection ──
-        # If price moved since scan, rebuild the idea at the current price
-        # and retry once (max 1 retry to avoid loops).
-        if "price drifted" in result.lower() and "re-analyze" in result.lower():
-            await query.message.reply_text(
-                f"\u26a0\ufe0f <b>Price moved — auto re-analyzing {symbol}...</b>",
-                parse_mode="HTML")
-            try:
-                ticker = await exchange.fetch_ticker(symbol)
-                new_price = float(ticker.get("last", 0))
-                # OFFERED, not executed -- the rule `drift_offer`'s module
-                # docstring states ("The re-analysed trade is a DIFFERENT
-                # trade. Offer it; never execute it"), applied to the SECOND
-                # site that does this. The analyze card was converted when that
-                # module was written and this one was not, so the same rebuild
-                # went on being placed with no second tap: a different entry,
-                # flat placeholder levels, and -- driven -- a reward:risk of
-                # exactly TARGET_PCT/STOP_PCT whatever the signal found.
-                #
-                # `reanalyzed_idea` replaces an INLINE SECOND COPY of that
-                # geometry, spelled out here as bare percentages, whose
-                # `reasoning` was the literal string that module's docstring
-                # quotes as the thing it removed -- still here, one file over.
-                new_idea = reanalyzed_idea(idea, new_price)
-                if new_idea is not None:
-                    # Re-fetch ATR with fresh data
-                    ohlcv2 = await exchange.fetch_ohlcv(symbol, "4h", limit=30)
-                    ohlcv2 = drop_forming_candle(ohlcv2, "4h")
-                    h2 = np.array([c2[2] for c2 in ohlcv2], dtype=float)
-                    l2 = np.array([c2[3] for c2 in ohlcv2], dtype=float)
-                    c2 = np.array([c2[4] for c2 in ohlcv2], dtype=float)
-                    atr2 = _compute_atr(h2, l2, c2)
-                    rc2 = engine.risk.evaluate(new_idea, atr=atr2)
-                    if rc2.verdict != RiskVerdict.APPROVED:
-                        await query.message.reply_text(
-                            f"\u274c <b>{symbol} {direction.value}</b> re-analysis rejected\n"
-                            f"  New entry: <code>${new_price:,.6g}</code>\n"
-                            f"  <i>{rc2.reason}</i>",
-                            parse_mode="HTML")
-                        return
-                    engine._pending_ideas[new_idea.id] = new_idea
-                    engine._pending_atr[new_idea.id] = atr2
-                    # The import is OUTSIDE the try that may fail, because a
-                    # name bound only on the happy path is unbound on the other
-                    # one and the NameError lands three lines below -- the
-                    # `fw_verdict` shape this repo already records once.
-                    from bot.utils.i18n import t as _t2
-                    _lang2 = "en"
-                    try:
-                        _h2 = context.bot_data.get("telegram_handler") if context else None
-                        if _h2 is not None:
-                            _lang2 = _h2._lang(update)
-                    except Exception:
-                        _lang2 = "en"
-                    kb2 = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(_t2("btn_take_it", _lang2),
-                            callback_data=f"confirm:{new_idea.id}:{caller_uid}"),
-                        InlineKeyboardButton(_t2("lbl_limit", _lang2),
-                            callback_data=f"setlimit:{new_idea.id}:{caller_uid}"),
-                        InlineKeyboardButton(_t2("btn_skip", _lang2),
-                            callback_data=f"reject:{new_idea.id}:{caller_uid}"),
-                    ]])
-                    await query.message.reply_text(
-                        render_reanalyzed_offer(idea, new_idea),
-                        parse_mode="HTML", reply_markup=kb2)
-                    return
-            except Exception as retry_exc:
-                log.error("Auto re-analyze failed for %s: %s", symbol, retry_exc)
-                result = f"Auto re-analyze failed: {retry_exc}"
-
-        # Check if execution succeeded, through the one reading of a confirm
-        # answer (`confirm_result`). A local prefix list here once missed
-        # "EXECUTION BLOCKED:" and later every refusal written without
-        # "REJECTED", so a trade with NO order placed was displayed as
-        # "✅ EXECUTED". The re-analysis failure is this function's own words.
-        from bot.core.confirm_result import placed_nothing
-        is_failure = (placed_nothing(result)
-                      or result.startswith("Auto re-analyze failed"))
-        if is_failure:
-            await query.message.reply_text(
-                f"\u274c <b>{symbol} {direction.value}</b> -- Execution failed\n\n{result}",
-                parse_mode="HTML")
-        else:
-            await query.message.reply_text(
-                f"\u2705 <b>{symbol} {direction.value} EXECUTED</b>\n\n{result}",
-                parse_mode="HTML")
-    except Exception as exc:
-        # Audit F-15: log the real exception server-side, but never send raw
-        # exception text to the user -- str(exc) on a ccxt/auth error can
-        # contain the raw API key (same class of leak fixed across
-        # telegram_handler.py's command handlers).
-        log.error("Confirm callback failed for %s: %s", symbol, exc, exc_info=True)
-        await query.message.reply_text(
-            "\u26a0\ufe0f Something went wrong confirming this trade. Try again in a moment.",
-            parse_mode="HTML")
+    except Exception:
+        pass
+    await query.message.reply_text(
+        f"\u26a0\ufe0f <b>{_html.escape(sym)}</b>: this button is from an older "
+        "scan card and does not carry the entry, stop and target that card "
+        "showed, so nothing was placed. Run the scan again for a card whose "
+        "buttons place what it shows.",
+        parse_mode="HTML")

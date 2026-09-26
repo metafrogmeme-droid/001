@@ -272,11 +272,17 @@ def test_the_prefixes_are_exact():
 
 
 # ── the scan card's confirm reads the same way ────────────────────────────
+#
+# The scan card's ✅ is `confirm:<id>` on the card's own registered idea now,
+# so its answer is read by the dispatcher above (`_tap`). An OLD card's
+# `scan_confirm:` payload is refused before anything is asked of
+# `confirm_trade`, so whatever confirm_trade would have answered, it is never
+# announced as executed.
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("result", REFUSALS[:4], ids=lambda r: r[:14])
-async def test_the_scan_confirm_does_not_say_executed(result, monkeypatch):
+async def test_an_old_scan_confirm_does_not_say_executed(result, monkeypatch):
     from bot.skills import scan_skill
     from tests.test_every_confirm_trade_door_is_gated import _handler_stub, _scan_confirm_fixture, _sent
 
@@ -285,4 +291,5 @@ async def test_the_scan_confirm_does_not_say_executed(result, monkeypatch):
     monkeypatch.setattr(type(bot_config.CONFIG), "is_live", lambda self: True)
     await scan_skill.callback_confirm_reject(update, context)
     out = _sent(query)
-    assert "Execution failed" in out and "EXECUTED" not in out, out
+    assert engine.confirm_trade.await_count == 0
+    assert "nothing was placed" in out and "EXECUTED" not in out, out

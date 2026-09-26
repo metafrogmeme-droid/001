@@ -22,7 +22,7 @@
     "dashboard": "apri la dashboard web",
     "link": "collega questo Telegram al tuo account del sito — /link <token>",
     "unlink": "scollega questo Telegram dal tuo account del sito",
-    "me": "il tuo account: piano, portafoglio e impostazioni",
+    "me": "il tuo account: email, piano e impostazioni",
     "sync": "perché la dashboard non ha bisogno di invii: legge il tuo account quando si carica",
     "connect": "collega il tuo account exchange",
     "exchange": "stato del tuo account collegato (non mostra mai le chiavi)",

@@ -50,7 +50,7 @@ test.before(async () => {
 
 test('an unpriced close is not a loss and not a zero in the total', async () => {
   // +40, -10, unpriced. Old: "1W/2L, net +$30.00" — the null summed as 0 and
-  // scored as a defeat.
+  // scored as a defeat (and the dollar net was the operator's own).
   await closeTrade('ZZZ/USDT', 40);
   await closeTrade('ZZZ/USDT', -10);
   await closeTrade('ZZZ/USDT', null);
@@ -61,7 +61,10 @@ test('an unpriced close is not a loss and not a zero in the total', async () => 
   assert.match(s.html, /1W\/1L/, 'the unpriced close was filed as a defeat');
   assert.match(s.html, /over the 2 with a recorded P&amp;L/,
     'a partial window was printed as a whole one');
-  assert.match(s.html, /\+\$30\.00/);
+  // The record is a count and a ratio, never the operator's dollars: this
+  // used to pin `+$30.00`. Gross 40 over gross 10 is a profit factor of 4.
+  assert.match(s.html, /profit factor <b>4\.00<\/b>/);
+  assert.ok(!/\$/.test(s.html), `a dollar figure on the track record: ${s.html}`);
 });
 
 test('a record nothing can price says so, and carries no colour', async () => {

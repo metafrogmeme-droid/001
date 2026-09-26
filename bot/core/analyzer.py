@@ -2595,7 +2595,20 @@ class Analyzer:
             if len(obv) >= 10:
                 obv_recent = float(np.mean(obv[-5:]))
                 obv_prev = float(np.mean(obv[-10:-5]))
-                results["obv_trend"] = "rising" if obv_recent > obv_prev else "falling"
+                # THREE-VALUED. `rising if > else falling` read EQUAL as
+                # falling, and a series whose volume the venue did not state
+                # (sanitized to 0 by `analyze()`) has an OBV of 0 throughout:
+                # driven, the OBV voter cast -1.0 at weight 0.6 off a volume
+                # nobody read. Equal is flat, and flat is not a vote. A
+                # non-finite OBV is no reading at all.
+                if not (math.isfinite(obv_recent) and math.isfinite(obv_prev)):
+                    pass
+                elif obv_recent > obv_prev:
+                    results["obv_trend"] = "rising"
+                elif obv_recent < obv_prev:
+                    results["obv_trend"] = "falling"
+                else:
+                    results["obv_trend"] = "flat"
             else:
                 results["obv_trend"] = "neutral"
 
@@ -3297,7 +3310,9 @@ class Analyzer:
         # OBV trend vote (weight 0.6 — volume confirms price trend)
         # Guard: only vote when obv_trend is present to keep votes/weights aligned
         obv_trend = indicators.get("obv_trend")
-        if obv_trend is not None:
+        # A FLAT OBV abstains: it is no volume evidence either way, and a 0.0
+        # vote at weight 0.6 still pulls the confluence to the middle.
+        if obv_trend is not None and obv_trend != "flat":
             if obv_trend == "rising":
                 votes.append(1.0)
             elif obv_trend == "falling":

@@ -1,4 +1,4 @@
-"""The time exits a live position is subject to: one reading, two readers.
+"""The time exits a live position is subject to: one reading, three readers.
 
 A live position can be closed on the clock by five rules, run in two places:
 
@@ -37,6 +37,12 @@ accessors and the executor's strategy table, the two exit paths ask
 ``plan_for`` -- so a card cannot state a rule the code does not run, and a
 rule changed in one place changes on the card. ``tests/test_a_position_card_
 states_its_time_exits.py`` drives every check function against the plan.
+
+The THIRD reader is the monitor's time-stop alert (``ProactiveMonitor.
+_check_time_stops``), which asks ``due_exit`` and ``next_exit``: it used to
+judge "intraday or swing" off the stop distance against four hours no exit
+reads, told a holder to close by hand a position the bot closes by itself,
+and read "in profit" gross.
 """
 from __future__ import annotations
 
@@ -240,6 +246,24 @@ def _duration(hours: float) -> str:
     return f"{mins / 1440:.1f}d"
 
 
+def closes_at_reading(e: TimeExit, r_now: Optional[float],
+                      fee_clear: Optional[bool]) -> Optional[bool]:
+    """Whether the rule's condition holds at this reading, once its hour is
+    reached: True, False, or None when the reading it needs was not taken.
+
+    The one reading of a rule's condition: the card's status and the
+    monitor's alert both ask it, so the alert cannot call a rule due that the
+    card calls armed.
+    """
+    if e.fee_profit:
+        return None if fee_clear is None else not fee_clear
+    if e.r_below is None:
+        return True                    # whatever the R
+    if r_now is None:
+        return None
+    return r_now < e.r_below
+
+
 def _status(e: TimeExit, held_h: Optional[float], r_now: Optional[float],
             fee_clear: Optional[bool], lang: str) -> str:
     """Where the rule stands: counting down, armed and not met, or due."""
@@ -247,17 +271,53 @@ def _status(e: TimeExit, held_h: Optional[float], r_now: Optional[float],
         return ""
     if held_h < e.hours:
         return t("tx_in", lang, d=_duration(e.hours - held_h))
-    if e.always:
+    closes = closes_at_reading(e, r_now, fee_clear)
+    if closes:
         return t("tx_due", lang)
-    if e.fee_profit:
-        if fee_clear is None:
-            return t("tx_armed", lang)
-        return t("tx_armed_fee", lang) if fee_clear else t("tx_due", lang)
-    if r_now is None:
+    if closes is None:
         return t("tx_armed", lang)
-    if e.r_below is not None and r_now < e.r_below:
-        return t("tx_due", lang)
+    if e.fee_profit:
+        return t("tx_armed_fee", lang)
     return t("tx_armed_r", lang, r=f"{r_now:+.2f}")
+
+
+def due_exit(plan: TimeExitPlan, held_h: Optional[float], r_now: Optional[float],
+             fee_clear: Optional[bool]) -> Optional[TimeExit]:
+    """The first rule past its hour whose condition holds at this reading: the
+    one the exit code closes the position on, or None.
+
+    A plan that is not armed carries no rules, so nothing is due on it.
+    """
+    if held_h is None:
+        return None
+    for e in plan.exits:
+        if held_h >= e.hours and closes_at_reading(e, r_now, fee_clear):
+            return e
+    return None
+
+
+def next_exit(plan: TimeExitPlan, held_h: Optional[float], r_now: Optional[float],
+              fee_clear: Optional[bool]) -> Optional[TimeExit]:
+    """The first rule not yet at its hour whose condition holds at this
+    reading: what closes the position first if the reading does not change,
+    or None (nothing would, or the plan runs nothing).
+
+    A rule whose reading was not taken is not predicted: "unread" is not
+    "would close".
+    """
+    if held_h is None:
+        return None
+    for e in plan.exits:
+        if held_h < e.hours and closes_at_reading(e, r_now, fee_clear):
+            return e
+    return None
+
+
+def warn_hour(pos: Any, strategy_types: Any) -> float:
+    """From this many hours held the time-stop alert may warn: the strategy
+    table's warn hours, the ones the executor's own time stop reads."""
+    return float(strategy_types.get_time_warn_hours(
+        getattr(pos, "strategy_type", "swing")))
 
 
 def exit_phrase(e: TimeExit, held_h: Optional[float] = None,
@@ -304,6 +364,21 @@ def position_time_exit_line(pos: Any, mark: Optional[float], now: Any,
     +1.40R" is the reading the rule acts on.
     """
     plan = plan_for(pos, time_stop, strategy_types)
+    held_h, r_now, fee_clear = clock_reading(pos, mark, now)
+    return time_exit_line(plan, held_h=held_h, r_now=r_now, fee_clear=fee_clear,
+                          lang=lang)
+
+
+def clock_reading(pos: Any, mark: Optional[float], now: Any
+                  ) -> tuple[Optional[float], Optional[float], Optional[bool]]:
+    """``(held_h, r_now, fee_clear)`` for a live position at ``mark`` and
+    ``now``: the hours since it entered, its R, and whether the mark clears
+    its round trip in fees. Each is None when it cannot be read.
+
+    One reading for the card and the monitor's alert, so the two cannot
+    disagree about how long a position has been held or whether it is in
+    profit.
+    """
     opened = entered_at(pos)
     held_h = ((now - opened).total_seconds() / 3600.0) if opened is not None else None
     px = price_on_record(mark)
@@ -312,5 +387,4 @@ def position_time_exit_line(pos: Any, mark: Optional[float], now: Any,
     fee_clear = (in_profit_after_fees(getattr(pos, "direction", ""), entry, px,
                                       getattr(pos, "order_type", None))
                  if px is not None and entry is not None else None)
-    return time_exit_line(plan, held_h=held_h, r_now=r_now, fee_clear=fee_clear,
-                          lang=lang)
+    return held_h, r_now, fee_clear

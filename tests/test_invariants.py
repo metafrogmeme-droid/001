@@ -151,8 +151,14 @@ class TestSingleExecutionFailureClassifier:
     def test_telegram_handler_uses_the_canonical_function(self):
         assert "placed_nothing(" in _read(TELEGRAM_HANDLER)
 
-    def test_scan_skill_uses_the_canonical_function(self):
-        assert "placed_nothing(" in _read(SCAN_SKILL)
+    def test_scan_skill_reads_no_confirm_answer_of_its_own(self):
+        """It read one, through `placed_nothing`, while its door placed the
+        scan's flat-percent trade. The scan card's ✅ is `confirm:<id>` now,
+        answered by the dispatcher's one reading, so scan_skill asks
+        `confirm_trade` nothing and has no answer to classify -- a second
+        classifier grown back here would be a second answer."""
+        src = _read(SCAN_SKILL)
+        assert "confirm_trade(" not in src and "placed_nothing(" not in src
 
     def test_the_reading_asks_the_canonical_function(self):
         import inspect
