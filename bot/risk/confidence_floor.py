@@ -74,7 +74,12 @@ def _raw_confidence(idea) -> float | None:
             except (TypeError, ValueError):
                 pass
     conf = getattr(idea, "confidence", None)
-    return None if conf is None else float(conf)
+    if conf is None:
+        return None
+    try:
+        return float(conf)
+    except (TypeError, ValueError):
+        return None
 
 
 def clears_confidence_floor(idea) -> bool:
