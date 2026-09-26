@@ -264,7 +264,11 @@ def _fetch_live_exchange_data() -> Optional[dict]:
                              else round(realized_pnl + unrealized_pnl, 2))
         result["win_rate"] = None if win_rate is None else round(win_rate, 1)
         result["total_trades"] = total
-        result["open_count"] = len(open_pos)
+        # A positions read that failed is not an empty book. `len(open_pos)`
+        # counted the `positions = []` the failed read left behind, and the
+        # payload's slot chip then read "Open Positions: 0/5" in green over a
+        # book nobody had looked at. None travels, as the equity does.
+        result["open_count"] = len(open_pos) if positions_read else None
 
         log.info("Live data: equity=%s, realized=%s, %d trades (%d wins, "
                  "%d unpriced), %d open",
@@ -284,11 +288,19 @@ def _fetch_live_exchange_data() -> Optional[dict]:
 def _file_only_result(result: dict, total: int, realized_pnl, win_rate):
     """The exchange leg failed; publish what the trade file alone supports.
 
-    Equity stays 0 here and the caller treats that as "unknown" — the point of
-    this path is the realized record, which does not need the exchange.
+    The trade file supports the realized record and nothing about the account
+    as it stands, so the equity and the open-position count are None here.
+    This docstring used to say "Equity stays 0 here and the caller treats that
+    as unknown", and the caller did so only while the engine's balance cache
+    was fresh: with the cache stale, the 0 and the default open count of 0
+    were published as the live account's balance and a flat book, and the
+    slot chip read "Open Positions: 0/5" in green. Every /venue switch away
+    from Bitget takes this path on every scan.
     """
     if total <= 0 and not result.get("closed_record_unreadable"):
         return None
+    result["equity"] = None
+    result["open_count"] = None
     result["net_pnl"] = None if realized_pnl is None else round(realized_pnl, 2)
     result["win_rate"] = None if win_rate is None else round(win_rate, 1)
     result["total_trades"] = total
@@ -516,8 +528,10 @@ def _build_scan_payload(results: list[dict], engine=None,
                     live_data.get("closed_record_unreadable")
                     or live_data.get("open_positions_unread"))
                 live_data_loaded = True
-                log.info("Live exchange data loaded: equity=$%.2f, %d trades, %d open",
-                         cb_equity, cb_total_trades, cb_open_count)
+                log.info("Live exchange data loaded: equity=%s, %d trades, %s open",
+                         "unread" if cb_equity is None else f"${cb_equity:.2f}",
+                         cb_total_trades,
+                         "unread" if cb_open_count is None else cb_open_count)
         except Exception as exc:
             log.warning("Failed to fetch live exchange data: %s", exc)
 
@@ -575,11 +589,17 @@ def _build_scan_payload(results: list[dict], engine=None,
         except Exception as exc:
             log.debug("Engine balance-cache fallback failed: %s", exc)
 
-    if _live_mode and not live_data_loaded:
+    if _live_mode and (not live_data_loaded or cb_equity is None):
         # Live mode but the exchange balance could not be read. Do NOT
         # masquerade the $10k paper baseline as the live account (that made the
         # website show paper while the real account was live) — flag it
         # unavailable so the dashboard shows the truth.
+        #
+        # `live_data_loaded` says the readout RETURNED, not that it read a
+        # balance: the file-only result returns the realized record with no
+        # balance at all, and a readout whose fetch answered with no USDT
+        # total returns None for it. With the cache stale neither reaches a
+        # balance, and the flag stayed False over an equity nobody read.
         live_unavailable = True
         cb_equity = None
         log.warning("Live telemetry: exchange balance unavailable — marking the "

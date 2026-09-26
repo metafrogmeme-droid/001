@@ -246,13 +246,13 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       // `live_unavailable` false — and published $0.00 as the account balance,
       // the one figure the comment above swears never to coerce. Same rule,
       // same object, one line short of applied.
-      // `open_count` is deliberately left alone: `_build_scan_payload` starts it
-      // at 0 and only ever raises it from a real read, unlike `cb_equity` /
-      // `cb_net_pnl` / `cb_win_rate`, which that function made explicitly None
-      // for exactly this reason. Nulling a field the producer never sends null
-      // buys no case and costs a real refactor.
+      // `open_count` was left as `|| 0` here under a comment saying the producer
+      // "only ever raises it from a real read". It did not: a positions fetch
+      // that failed, and every scan whose venue readout failed or was skipped,
+      // sent 0 for a book nobody had looked at. The producer sends null for
+      // those now, and `?? null` keeps it null; a counted 0 still arrives as 0.
       equity: cb.live_unavailable ? null : (cb.equity ?? null),
-      open_count: cb.open_count || 0,
+      open_count: cb.open_count ?? null,
       // The equity null was honoured here and the two figures beside it were
       // not — `?? null` rather than `|| 0`, so a bot that says "we could not
       // price this record" is not overruled by the ingest. `|| 0` also ate a
@@ -979,7 +979,8 @@ router.post('/scan', async (req, res) => {
         // together, because fixing one and leaving the other is how this pair
         // survived the first pass.
         equity: cb.live_unavailable ? null : (cb.equity ?? null),
-        open_count: cb.open_count || 0,
+        // `?? null`, as on the GET path: an unread book is not a flat one.
+        open_count: cb.open_count ?? null,
         // Same contract as the GET path above, and it matters more here for
         // the same reason the equity comment gives: this ingest runs on every
         // scan sync and stamps over whatever the cold path carefully set.
