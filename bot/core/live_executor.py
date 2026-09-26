@@ -8214,7 +8214,9 @@ class LiveExecutor:
 
             "filled"   the venue CONFIRMED this quantity filled
             "none"     nothing was submitted (qty rounded to <= 0)
-            "unknown"  the order went out and the fill could not be read
+            "refused"  the venue refused the order, so nothing was placed
+            "unknown"  the order went out, or may have, and its fill could
+                       not be read
 
         It used to return the SUBMITTED quantity, and the caller subtracted
         that from ``pos.quantity`` and re-sized the exchange stop to match.
@@ -8243,13 +8245,23 @@ class LiveExecutor:
             return 0.0, "none", ""
         close_side = "sell" if pos.direction == "LONG" else "buy"
         params = self._venue.close_params(getattr(self, "_is_uta", False))
-        order = await exchange.create_order(
-            symbol=self._venue.order_symbol(pos.symbol),
-            type="market", side=close_side,
-            amount=qty,
-            price=await self._venue_market_price(exchange, pos.symbol),
-            params=params,
-        )
+        price = await self._venue_market_price(exchange, pos.symbol)
+        try:
+            order = await exchange.create_order(
+                symbol=self._venue.order_symbol(pos.symbol),
+                type="market", side=close_side,
+                amount=qty, price=price, params=params,
+            )
+        except ccxt.ExchangeError:
+            # The venue answered with a refusal: nothing was placed.
+            return 0.0, "refused", ""
+        except Exception:
+            # A timeout (ccxt's NetworkError is not an ExchangeError) says
+            # nothing about whether the venue took the order. This raise used
+            # to leave the ladder unsaved, so the next pass sent the same close
+            # again, and when the first had filled the two closed the whole
+            # position. There is no id to re-read.
+            return 0.0, "unknown", ""
         # A market reduceOnly usually comes back already filled; when the
         # response does not say so, ask the venue through the same helper the
         # full-close path uses rather than assuming the submission was the fill.
@@ -8320,33 +8332,32 @@ class LiveExecutor:
                             "tp2_hit": st.tp2_hit})
         else:
             try:
-                st = PartialTPState(**pos.partial_tp_state)
+                # From the PERSISTED dict, never the live position: rebuilding
+                # from the live pos.stop_loss once it has ratcheted to breakeven
+                # collapses initial_risk toward 0, and check_partial_tp then
+                # reads a huge current_r and fires TP1+TP2 at once. from_record
+                # drops keys a newer schema added and restores what the ladder
+                # had done, which the constructor alone resets on every pass.
+                st = PartialTPState.from_record(pos.partial_tp_state)
             except Exception:
-                # Schema drift — reconstruct from the PERSISTED dict, NOT the
-                # live position. Rebuilding via create_partial_tp_state with the
-                # live pos.stop_loss is unsafe once the stop has ratcheted to
-                # breakeven: initial_risk = |entry - stop| collapses toward 0,
-                # and check_partial_tp then reads a huge current_r (pnl / ~0)
-                # and instantly fires TP1+TP2, dumping ~80% of the runner. Keep
-                # only fields the current dataclass knows (drops extras from a
-                # newer schema); the entry-time initial_risk/original_sl survive.
-                _valid = {f.name for f in _dc.fields(PartialTPState)}
-                _kept = {k: v for k, v in (pos.partial_tp_state or {}).items()
-                         if k in _valid}
-                try:
-                    st = PartialTPState(**_kept)
-                except Exception:
-                    st = create_partial_tp_state(
-                        trade_id=pos.trade_id, direction=pos.direction,
-                        entry_price=pos.entry_price, stop_loss=pos.stop_loss,
-                        take_profit=pos.take_profit, quantity=pos.quantity,
-                        atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
-                    )
-                    # Preserve the entry-time 1R if the dict carried it, so a
-                    # ratcheted live stop can't collapse initial_risk to ~0.
-                    _ir = (pos.partial_tp_state or {}).get("initial_risk")
-                    if isinstance(_ir, (int, float)) and _ir > 0:
-                        st.initial_risk = float(_ir)
+                st = create_partial_tp_state(
+                    trade_id=pos.trade_id, direction=pos.direction,
+                    entry_price=pos.entry_price, stop_loss=pos.stop_loss,
+                    take_profit=pos.take_profit, quantity=pos.quantity,
+                    atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
+                )
+                # Preserve the entry-time 1R if the dict carried it, so a
+                # ratcheted live stop can't collapse initial_risk to ~0.
+                _ir = (pos.partial_tp_state or {}).get("initial_risk")
+                if isinstance(_ir, (int, float)) and _ir > 0:
+                    st.initial_risk = float(_ir)
+
+        # The ladder's view of the stop and the size is the book's. A stage's
+        # stop move is proposed before the venue answers, so the record can
+        # hold a stop the venue refused; read from the book, a refused move is
+        # asked for again, and the size is what the fills left.
+        st.current_sl = pos.stop_loss
+        st.remaining_qty = pos.quantity
 
         def _would_tighten(new_sl: float) -> bool:
             """True iff new_sl tightens the stop (raise LONG / lower SHORT).
@@ -8450,7 +8461,8 @@ class LiveExecutor:
                                           "qty": qty, "new_sl": act.new_sl or None}
                             _then = "the order is re-read next pass, never resubmitted"
                         else:
-                            _then = ("the venue returned no order id, so it cannot be "
+                            _then = ("no order id came back (the order call raised or "
+                                     "the venue returned none), so it cannot be "
                                      "re-read and the stage is not retried; the "
                                      "position sync corrects the quantity")
                         audit(trade_log,
@@ -8463,6 +8475,21 @@ class LiveExecutor:
                                     "order_id": order_id or None,
                                     "quantity": pos.quantity, "price": price})
                         self._record_warning("partial_tp_fill_unread")
+                    elif fill_source == "refused":
+                        # Nothing was placed, so the stage did not happen: it
+                        # is re-armed, and its stop move is not made.
+                        setattr(st, f"{act.stage}_hit", False)
+                        setattr(st, f"{act.stage}_qty_closed", 0.0)
+                        audit(trade_log,
+                              f"Partial TP {act.stage} for {pos.symbol}: the venue "
+                              f"refused the close, so nothing was closed and the "
+                              f"stage is re-armed",
+                              action="partial_tp", result="REFUSED",
+                              level=logging.WARNING,
+                              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                    "stage": act.stage, "qty_submitted": qty,
+                                    "price": price})
+                        break
                 if fill_source == "unknown":
                     # Nothing later in this pass may build on a stage whose
                     # fill nobody read: TP2 on the same tick would close a
@@ -8494,6 +8521,9 @@ class LiveExecutor:
             # the ratcheted pos.stop_loss — keeping a single, locked close path.
 
         # Persist the ladder state (and any qty/SL change) onto the position.
+        # The stop recorded is the one the venue confirmed, never a move it
+        # refused.
+        st.current_sl = pos.stop_loss
         pos.partial_tp_state = _dc.asdict(st)
         if changed:
             self._save_positions()

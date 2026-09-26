@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Optional
 
 from bot.config import CONFIG
@@ -53,9 +53,37 @@ class PartialTPState:
     pending: Optional[dict] = None
 
     def __post_init__(self):
+        # A NEW ladder starts here. A saved one is restored by `from_record`,
+        # which puts these three back after this has run.
         self.remaining_qty = self.original_qty
         self.current_sl = self.original_sl
         self.runner_trail_best = self.entry_price
+
+    #: What a stage leaves behind that construction would otherwise reset.
+    _RECORDED = ("remaining_qty", "current_sl", "runner_trail_best")
+
+    @classmethod
+    def from_record(cls, record: dict) -> "PartialTPState":
+        """The ladder a saved record describes, including what it had done.
+
+        The executor saves the ladder after every pass and reads it back at
+        the start of the next, so a restart is not the only reload: every
+        tick is one. Rebuilding it through the constructor ran `__post_init__`
+        over the saved dict and reset the runner's best price to the entry,
+        its stop to the entry-time stop and its remaining quantity to the
+        original, so the runner trailed from the current price rather than the
+        best one, and a move the venue refused at the peak was retried from
+        wherever the price had fallen to. Keys this build does not know are
+        dropped; a recorded value that is not a finite number is not restored.
+        """
+        known = {f.name for f in fields(cls)}
+        st = cls(**{k: v for k, v in record.items() if k in known})
+        for name in cls._RECORDED:
+            v = record.get(name)
+            if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(v)):
+                setattr(st, name, float(v))
+        return st
 
 
 @dataclass
@@ -139,6 +167,34 @@ def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
     return st, ""
 
 
+def _tp1_lock(state: PartialTPState) -> float:
+    """TP1's stop: breakeven, plus a small buffer for fees."""
+    fee_buffer = state.entry_price * 0.001  # 0.1% buffer
+    return (state.entry_price + fee_buffer if state.direction == "LONG"
+            else state.entry_price - fee_buffer)
+
+
+def _tp2_lock(state: PartialTPState) -> float:
+    """TP2's stop: 1R of profit locked in."""
+    return (state.entry_price + state.initial_risk if state.direction == "LONG"
+            else state.entry_price - state.initial_risk)
+
+
+def stage_lock(state: PartialTPState) -> Optional[float]:
+    """The stop the stages that have fired lock in, or None before TP1.
+
+    A stage fires once, so the stop move it asks for was asked for once: when
+    the venue refused it, nothing asked again, and a position whose TP1 had
+    closed half of it kept its original stop on the other half. This is the
+    level `check_partial_tp` proposes on every pass until the stop reaches it.
+    """
+    if state.tp2_hit:
+        return _tp2_lock(state)
+    if state.tp1_hit:
+        return _tp1_lock(state)
+    return None
+
+
 def check_partial_tp(
     state: PartialTPState,
     current_price: float,
@@ -173,11 +229,7 @@ def check_partial_tp(
             state.remaining_qty -= close_qty
 
             # Move SL to breakeven (+ small buffer for fees)
-            fee_buffer = state.entry_price * 0.001  # 0.1% buffer
-            if is_long:
-                new_sl = state.entry_price + fee_buffer
-            else:
-                new_sl = state.entry_price - fee_buffer
+            new_sl = _tp1_lock(state)
             state.current_sl = new_sl
 
             actions.append(PartialTPAction(
@@ -199,11 +251,7 @@ def check_partial_tp(
             state.remaining_qty -= close_qty
 
             # Tighten SL to lock profit (1R above entry)
-            lock_distance = state.initial_risk
-            if is_long:
-                new_sl = state.entry_price + lock_distance
-            else:
-                new_sl = state.entry_price - lock_distance
+            new_sl = _tp2_lock(state)
             state.current_sl = new_sl
 
             actions.append(PartialTPAction(
@@ -214,15 +262,24 @@ def check_partial_tp(
                 stage="tp2",
             ))
 
+    # A stage's lock the stop has not reached is asked for again. When the
+    # stage fired on this call, current_sl already sits at its lock and this
+    # asks nothing. The runner builds on the lock rather than moving twice.
+    lock = stage_lock(state)
+    if lock is not None and not (lock > state.current_sl if is_long
+                                 else lock < state.current_sl):
+        lock = None                  # the stop already holds it
+
     # Runner: aggressive trailing stop for remaining position
     if state.tp2_hit and state.remaining_qty > 0:
         trail_dist = state.atr * cfg.runner_trail_atr_mult
+        floor = lock if lock is not None else state.current_sl
 
         if is_long:
             if current_price > state.runner_trail_best:
                 state.runner_trail_best = current_price
             trail_sl = state.runner_trail_best - trail_dist
-            new_sl = max(trail_sl, state.current_sl)  # never lower SL
+            new_sl = max(trail_sl, floor)  # never lower SL
 
             if new_sl > state.current_sl:
                 state.current_sl = new_sl
@@ -245,7 +302,7 @@ def check_partial_tp(
             if current_price < state.runner_trail_best:
                 state.runner_trail_best = current_price
             trail_sl = state.runner_trail_best + trail_dist
-            new_sl = min(trail_sl, state.current_sl)  # never raise SL for shorts
+            new_sl = min(trail_sl, floor)  # never raise SL for shorts
 
             if new_sl < state.current_sl:
                 state.current_sl = new_sl
@@ -264,6 +321,14 @@ def check_partial_tp(
                     reason=f"Runner SL hit at {current_price:.4f}",
                     stage="runner_sl",
                 ))
+    elif lock is not None:
+        state.current_sl = lock
+        actions.append(PartialTPAction(
+            action="move_sl",
+            new_sl=lock,
+            reason=f"Stage lock not yet on the stop: SL→{lock:.4f}",
+            stage="lock",
+        ))
 
     return actions
 

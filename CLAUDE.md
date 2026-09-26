@@ -7418,6 +7418,53 @@ inside long methods and are held by the rule, which is stated rather than
 counted as a drive. Seven mutations, each killed.
 (`tests/test_a_trail_starts_only_where_its_strategy_trails.py`.)
 
+**A PARTIAL CLOSE WHOSE ORDER CALL RAISED WAS SENT AGAIN, AND A STOP MOVE THE
+VENUE REFUSED WAS NEVER ASKED FOR AGAIN.** Three defects in the partial
+take-profit ladder, each driven through the real `_run_partial_tp`:
+
+- **A raise from `create_order` escaped before the ladder saved**, so the
+  record still said TP1 had not fired and the next pass sent the same close.
+  Driven with a timeout on the first order: two orders of 0.5 on a position of
+  1.0, which close all of it when the first one filled. A raise is read now. A
+  `ccxt.ExchangeError` is the venue's refusal, nothing was placed, and the
+  stage is re-armed. Anything else (a timeout; ccxt's `NetworkError` is not an
+  `ExchangeError`) may have placed the order, so the stage is held and never
+  sent again, the rule the no-order-id case already followed.
+- **TP1's move to breakeven and TP2's 1R lock were asked for once.** Each
+  rides on the stage's close, and a stage fires once, so a move the venue
+  refused left a position whose TP1 had closed half of it on its original
+  stop, driven for as many passes as the price stayed there. `stage_lock` is
+  the stop the fired stages lock in, and `check_partial_tp` proposes it on
+  every pass until the stop reaches it. The runner builds on the lock rather
+  than moving twice, and the stage's own move and the lock are one formula.
+- **Every pass reset what the ladder had done.** The executor saves the ladder
+  after each pass and reads it back at the start of the next, so a restart is
+  not the only reload: every tick is one. The read ran `__post_init__`, which
+  reset the runner's best price to the entry, its stop and its remaining
+  quantity, so the runner trailed from the current price rather than the best
+  one. Driven: a move refused at a peak of 130 was retried from 128 and landed
+  at 126.4 where the peak put it at 128.4. `PartialTPState.from_record`
+  restores what a record holds, and a rule over `bot/` refuses a reload through
+  the constructor.
+
+**Restoring the record exposed what the reset had been hiding.** A stage
+proposes its stop and takes its slice off the remaining quantity before the
+venue answers. With the reset, both came back every pass; restored, a refused
+TP1 followed by a TP1 that lands left TP2 nothing to close and the runner
+nothing to trail. So the ladder reads the stop and the size from the book
+(`pos.stop_loss`, `pos.quantity`) at the start of every pass and writes the
+book's stop back at the end: a record never holds a move the venue refused,
+and a record an older build wrote is read against the book.
+
+**Twenty-five mutations, each killed on the first round.** The backtest keeps
+its own copy of the ladder and is unchanged, because a backtest stop move
+always lands; its docstring says so. The survey's other ladder findings are
+filed with their measurements: a position too small to split marks TP1 done
+and moves the stop with nothing closed, the breakeven buffer (0.1% of price)
+sits under a taker round trip at the default rate (0.12%), and a rebuilt
+ladder sizes TP2 off the quantity left after TP1 rather than the entry's.
+(`tests/test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -13967,7 +14014,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1111** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1112** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
