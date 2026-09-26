@@ -195,6 +195,8 @@
   "reg_welcome_ready": "<b>Welkom, {name}.</b>\n\nIk ben RUNECLAW: ik scan de markt, bepaal de risicogrootte en loods je door elke trade.\n\n✅ Je bent geregistreerd. Niets om op te wachten.\nJe ID: <code>{tg_id}</code>\n\n<b>Begin hier:</b> /start voor je dashboard - /scan voor setups - /help voor al het andere.\nOf zeg gewoon in gewone taal wat je wilt.",
   "reject": "Afwijzen",
   "reset_cb_done": "<b>Stroomonderbreker gereset</b>\n\nTrading hervat.",
+  "reset_gov_cleared": "<b>Pauze van de prestatieregelaar opgeheven</b>\n\nHij had gepauzeerd met {wins} winnaars in de laatste {n} sluitingen. Hij telt nu alleen sluitingen vanaf hier, op volle grootte tot er {min} zijn vastgelegd.",
+  "reset_gov_cleared_others": "De pauze van de regelaar is ook opgeheven op {k} andere rekening(en).",
   "reset_nothing": "<b>Niets om te resetten</b>\n\nCB: uit  •  Reeks: {n}",
   "reset_streak_cleared": "<b>Reeks gewist</b>  {n} → 0",
   "revoke_live_result": "<b>LIVE TRADEN INGETROKKEN</b>\n\n- Gebruiker: <b>{name}</b> (<code>{id}</code>)\n- Trading: 📝 Alleen paper",

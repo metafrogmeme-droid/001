@@ -286,7 +286,10 @@ def test_the_resume_card_names_the_governor_not_the_circuit_breaker():
         "live_perf_pause: 4 of the last 20 closes won, net negative; a probe entry "
         "is allowed in 13.2h with no position open")
     assert "live-performance governor paused (4 of the last 20" in line
-    assert "circuit breaker" not in line and "/resume does not clear it" in line
+    # /resume clears a PAUSE before it reads the gate
+    # (`test_resume_and_reset_clear_the_governor_pause.py`), so a pause the
+    # card still sees is a clear that failed, and the line says that.
+    assert "circuit breaker" not in line and "/resume tried to clear it and could not" in line
     assert "equity-curve breaker" in resume_gate_line("equity_curve_pause")
 
 

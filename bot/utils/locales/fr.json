@@ -195,6 +195,8 @@
   "reg_welcome_ready": "<b>Bienvenue, {name}.</b>\n\nJe suis RUNECLAW : je scanne le marché, je dimensionne le risque et je vous accompagne sur chaque trade.\n\n✅ Vous êtes inscrit. Rien à attendre.\nVotre ID : <code>{tg_id}</code>\n\n<b>Commencez ici :</b> /start pour votre tableau de bord - /scan pour les configurations - /help pour tout le reste.\nOu dites-moi simplement ce que vous voulez, en langage naturel.",
   "reject": "Rejeter",
   "reset_cb_done": "<b>Coupe-circuit réinitialisé</b>\n\nTrading repris.",
+  "reset_gov_cleared": "<b>Pause du régulateur de performance levée</b>\n\nIl s'était mis en pause avec {wins} gagnants sur les {n} dernières clôtures. Il ne compte désormais que les clôtures à partir d'ici, en taille pleine jusqu'à ce que {min} soient enregistrées.",
+  "reset_gov_cleared_others": "La pause du régulateur a aussi été levée sur {k} autre(s) compte(s).",
   "reset_nothing": "<b>Rien à réinitialiser</b>\n\nCB : inactif  •  Série : {n}",
   "reset_streak_cleared": "<b>Série effacée</b>  {n} → 0",
   "revoke_live_result": "<b>TRADING RÉEL RÉVOQUÉ</b>\n\n- Utilisateur : <b>{name}</b> (<code>{id}</code>)\n- Trading : 📝 Paper uniquement",

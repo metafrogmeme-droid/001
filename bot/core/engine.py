@@ -763,7 +763,8 @@ class RuneClawEngine:
                 _seeded = self.risk.seed_realized_window(
                     _live_executor_mod.realized_close_pnls(_closed_record),
                     returns=_live_executor_mod.realized_close_returns(_closed_record),
-                    last_close_at=_live_executor_mod.realized_close_last_at(_closed_record))
+                    last_close_at=_live_executor_mod.realized_close_last_at(_closed_record),
+                    stamps=_live_executor_mod.realized_close_stamps(_closed_record))
                 if _seeded:
                     system_log.info(
                         "Live-performance window seeded from %d recorded closes", _seeded)
@@ -3233,6 +3234,23 @@ class RuneClawEngine:
             except Exception as exc:
                 logger.error("Resume: user %s risk engine reset failed: %s", uid, exc)
         return reset
+
+    def clear_governor_pauses(self) -> dict[str, dict]:
+        """Clear the live-performance governor's PAUSE on the shared engine and
+        every per-user one, as the operator's /reset does for the breakers.
+        Keyed by account: "" is the shared engine, otherwise the user id; an
+        engine that was not paused is absent. Fail-open per engine, so one
+        engine that raises costs the others nothing."""
+        cleared: dict[str, dict] = {}
+        for key, eng in [("", self.risk)] + list(self._user_risk.items()):
+            try:
+                info = eng.clear_governor_pause()
+            except Exception as exc:
+                logger.error("Governor clear failed for %s: %s", key or "shared", exc)
+                continue
+            if info is not None:
+                cleared[str(key)] = info
+        return cleared
 
     def _rehydrate_user_executors(self) -> None:
         """Rebuild per-user executors for all linked users at startup so their

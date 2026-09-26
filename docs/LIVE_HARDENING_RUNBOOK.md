@@ -69,14 +69,19 @@ LIVE_PERFORMANCE_GOVERNOR_ENABLED=true      # de-risk automatically when REALIZE
 
 **Effect:** the learners accrue their curves in **shadow** (logged, not yet applied);
 the LLM can't dominate sizing while its confidence is still unproven (this cap
-auto-lifts the moment calibration is enabled in Stage 3). The **performance
+lifts only once a fitted calibration curve is applied, not on the flag alone). The **performance
 governor** is a separate, deterministic backstop: it watches the realized win
 rate + net PnL of your most recent closed trades and, once ≥`LIVE_PERF_MIN_SAMPLES`
-(default 10) have accrued, **shrinks size** when the recent window underperforms
+(default 5) have accrued, **shrinks size** when the recent window underperforms
 and **pauses trading** if it's both losing often *and* net-negative. It can only
 tighten — no effect while results are healthy or before enough trades exist.
 Tune `LIVE_PERF_REDUCE_WINRATE` / `LIVE_PERF_PAUSE_WINRATE` if the defaults feel
-too eager; `/whynot SYMBOL` shows `LIVE_PERF_GOVERNOR` when it acts.
+too eager; `/whynot SYMBOL` shows `LIVE_PERF_GOVERNOR` when it acts. A pause
+lifts three ways: the window recovers; after `LIVE_PERF_PROBE_HOURS` (24) with
+no position open, one probe entry at the reduce size; or by hand, with `/resume`
+or `/reset`. The manual clear starts the governor's count fresh: it scores only
+the closes after the clear, at full size until `LIVE_PERF_MIN_SAMPLES` are on
+record, while Kelly, the VaR proxy and the auto-confirm bar keep the full record.
 **Watch:** let this run until you have a meaningful sample of **closed** trades
 (≈50–100+). Check `/calibration` — it tells you when the calibrator `is_ready`.
 **Do not proceed to Stage 3 until the calibrator reports ready.**

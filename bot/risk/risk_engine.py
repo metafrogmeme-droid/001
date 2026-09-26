@@ -273,6 +273,14 @@ class RiskEngine:
     #: an engine a test builds with `__new__` reads "no close on record"
     #: rather than raising inside a status property.
     _last_close_time: Optional[float] = None
+    #: When the operator last cleared a governor PAUSE by hand
+    #: (`clear_governor_pause`), epoch seconds; None is "never". Class defaults
+    #: for the same `__new__` reason as the clock above.
+    _governor_cleared_at: Optional[float] = None
+    #: When each close in `_realized_pnl_window` happened, appended in lockstep
+    #: with it so the two align from their NEWEST end (`_governor_closes`).
+    #: None until the first close is stamped; built lazily by `_close_stamps`.
+    _realized_stamps: "Optional[deque[Optional[float]]]" = None
 
     def __init__(self, portfolio: "PortfolioTracker", state_file: Optional[str] = None,  # noqa: F821
                  macro_calendar: Optional["MacroCalendar"] = None,  # noqa: F821
@@ -792,7 +800,8 @@ class RiskEngine:
 
     def seed_realized_window(self, pnls: Sequence[float],
                              returns: Sequence[float] = (),
-                             last_close_at: Optional[float] = None) -> int:
+                             last_close_at: Optional[float] = None,
+                             stamps: Optional[Sequence[Optional[float]]] = None) -> int:
         """Rebuild the live-performance window from the closed-trade record.
 
         The window is memory and a restart empties it, so a governor that had
@@ -814,6 +823,12 @@ class RiskEngine:
         newest close happened: the governor's probe clock, set only when no
         close has been stamped in this process, so a restart does not restart
         the probe's wait and a close already seen is never moved back.
+        ``stamps`` (`live_executor.realized_close_stamps`) is when each of
+        ``pnls`` happened, in the same order: a manual clear of a PAUSE scores
+        only the closes after it (`_governor_closes`), and a restart must not
+        forget which those are. Stamps whose count does not match the closes
+        are not guessed at: every seeded close is then unstamped, which the
+        governor reads as before any clear.
         Returns how many closes were seeded into the P&L window.
         """
         with self._lock:
@@ -825,13 +840,93 @@ class RiskEngine:
                 return 0
             values = [float(p) for p in pnls]
             self._realized_pnl_window.extend(values)
+            seeded_stamps = (list(stamps) if stamps is not None
+                             and len(stamps) == len(values) else [None] * len(values))
+            self._close_stamps().extend(None if t is None else float(t)
+                                        for t in seeded_stamps)
             return len(values)
+
+    def _close_stamps(self) -> "deque[Optional[float]]":
+        """The per-close time deque, built on first use (an engine a test
+        builds with `__new__` has none) with the P&L window's own bound, so
+        the two evict together once both are full."""
+        if self._realized_stamps is None:
+            self._realized_stamps = deque(maxlen=self._realized_pnl_window.maxlen)
+        return self._realized_stamps
+
+    def _governor_closes(self) -> list[float]:
+        """The closes the live-performance governor scores, oldest first.
+
+        Every close in the window, until the operator clears a PAUSE by hand;
+        after that, only the closes that happened after the clear
+        (`clear_governor_pause`). The window itself is untouched, because Kelly,
+        the equity throttle and the adaptive auto-confirm bar read it too and
+        the operator's decision (2026-09-26) was that they keep the full record.
+
+        The stamps align with the window from its NEWEST end: every append to
+        one is an append to the other, and a window a test builds without
+        stamps has none of its entries stamped. Read from that end, stamps left
+        over from before the window was emptied (`reset_performance_window`)
+        pair with nothing, so neither the reset nor the seed clears them. A close with no time on record
+        is read as BEFORE the clear, for the reason the closed-trade record
+        sorts an undated close oldest: nothing places it after one.
+        """
+        pnls = list(self._realized_pnl_window)
+        cleared = self._governor_cleared_at
+        if cleared is None:
+            return pnls
+        stamps = list(self._realized_stamps or ())
+        k = min(len(pnls), len(stamps))
+        if k == 0:
+            return []
+        return [p for p, t in zip(pnls[-k:], stamps[-k:])
+                if t is not None and t > cleared]
+
+    def clear_governor_pause(self) -> Optional[dict]:
+        """The operator's manual way out of a governor PAUSE: start fresh.
+
+        The operator's decision (2026-09-26), beside the 24h probe: after a
+        clear the governor scores only the closes that happen from here on,
+        so it trades at full size until `live_perf_min_samples` of them are
+        on record (WARMUP), then scores them as usual and may pause again. The
+        closes before the clear stay in the window for every other reader.
+
+        Acts on a PAUSE and nothing else. A REDUCE is left alone: the ask was
+        a way out of a pause, and resetting a REDUCE on every /resume would
+        take away a size cut nobody asked to lift. None means nothing was
+        cleared; otherwise the counts of the window that paused, for the card
+        that says what it did. Counts only, never a dollar figure.
+
+        Persisted in the risk state (`governor_cleared_at`), so a restart
+        keeps the fresh start. A save that fails keeps it in this process
+        only, and a restart then scores the full window again: the tighter
+        direction, which is why it is not refused.
+        """
+        with self._lock:
+            inp = self.live_perf_inputs()
+            _mult, status = governor_verdict(**inp)
+            if status != GOVERNOR_PAUSE:
+                return None
+            samples = int(inp["samples"])
+            wins = int(round(float(inp["win_rate"]) * samples))
+            self._governor_cleared_at = self._now()
+            audit(risk_log,
+                  f"Live-performance governor pause cleared by hand: {wins} of the "
+                  f"last {samples} closes had won; it now scores only closes after "
+                  "this one",
+                  action="governor", result="CLEARED",
+                  data={"wins": wins, "samples": samples,
+                        "min_samples": int(inp["min_samples"])})
+            self._save_state()
+            return {"wins": wins, "samples": samples,
+                    "min_samples": int(inp["min_samples"])}
 
     def _record_trade_result_locked(self, pnl: float) -> None:
         # Live-performance governor: record EVERY realized close (win/loss/flat)
         # so the rolling window reflects the true recent win rate + net PnL.
         self._realized_pnl_window.append(float(pnl))
         self._last_close_time = self._now()
+        self._close_stamps().append(self._last_close_time)
         if pnl < 0:
             self._consecutive_losses += 1
             self._last_loss_time = self._now()
@@ -953,10 +1048,11 @@ class RiskEngine:
 
         `win_rate` and `net` are None for an empty window rather than 0.0 and
         0.0: no closes is not a 0% win rate, and `governor_verdict` fails open
-        on either being absent.
+        on either being absent. The closes are `_governor_closes`: after a
+        manual clear, only those since it.
         """
         window = CONFIG.risk.live_perf_window
-        recent = list(self._realized_pnl_window)[-window:]
+        recent = self._governor_closes()[-window:]
         n = len(recent)
         wins = sum(1 for p in recent if p > 0)
         return {
@@ -1056,11 +1152,16 @@ class RiskEngine:
                 # scored a different set of trades. Same rule `summary.scored`
                 # states one module over: the span belongs with the figure.
                 "window": CONFIG.risk.live_perf_window,
+                # When the operator last cleared a PAUSE by hand (epoch
+                # seconds), or None. After a clear the window above holds only
+                # the closes since it, and a reader handed "WARMUP, 2 closes"
+                # beside a record of forty needs to know why.
+                "cleared_at": self._governor_cleared_at,
             }
         except Exception:
             return {"enabled": False, "samples": 0, "win_rate": 0.0,
                     "net_pnl": 0.0, "multiplier": 1.0, "status": "OFF",
-                    "probe_in_seconds": None, "window": None}
+                    "probe_in_seconds": None, "window": None, "cleared_at": None}
 
     @property
     def in_drawdown_recovery(self) -> bool:
@@ -4184,6 +4285,27 @@ class RiskEngine:
         except Exception:
             return
 
+    def _restore_governor_clear(self, data: dict) -> None:
+        """Restore when the operator last cleared a governor PAUSE.
+
+        Anything but a finite time no later than now is ignored, and ignoring
+        it means NO clear: the governor then scores its whole window, which is
+        the tighter reading. A time in the future would read every close up
+        to it as before the clear and keep the governor in warm-up (full size)
+        until then, so a tampered or clock-skewed value is refused rather than
+        honoured. It is not one of `_STATE_FIELDS`: an unreadable value there
+        fails the whole state closed (breaker tripped), which is a large
+        consequence for a field whose safe reading is simply "never cleared".
+        """
+        try:
+            val = data.get("governor_cleared_at")
+            if (not isinstance(val, (int, float)) or isinstance(val, bool)
+                    or not math.isfinite(val) or val > self._now()):
+                return
+            self._governor_cleared_at = float(val)
+        except Exception:
+            return
+
     def _load_state(self) -> None:
         """Restore safety state from disk.
         Fix 3 (fail-closed persistence):
@@ -4211,6 +4333,7 @@ class RiskEngine:
             self._restore_dd_override(data)
             self._restore_live_daily(data)
             self._restore_live_peak(data)
+            self._restore_governor_clear(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
                       action="state_restore", result="LOADED")
@@ -4348,6 +4471,10 @@ class RiskEngine:
             # just as wrong.
             "live_daily_pnl": float(self._live_daily_pnl),
             "live_daily_day": self._live_daily_day,
+            # A manual clear of a governor PAUSE (`clear_governor_pause`): the
+            # closes before it no longer count toward the governor, and a
+            # restart must not bring the pause back from them.
+            "governor_cleared_at": self._governor_cleared_at,
             "saved_at": datetime.now(UTC).isoformat(),
         }
 
@@ -4414,6 +4541,7 @@ class RiskEngine:
         # was true of `_load_state` alone.
         self._restore_live_daily(data)
         self._restore_live_peak(data)
+        self._restore_governor_clear(data)
         if self._circuit_open:
             audit(risk_log, "Circuit breaker state restored from combined state: ACTIVE",
                   action="state_restore", result="LOADED")

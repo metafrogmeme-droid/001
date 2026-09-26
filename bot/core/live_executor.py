@@ -1026,6 +1026,17 @@ def realized_close_returns(positions: Any) -> list[float]:
             if notional is not None and notional > 0]
 
 
+def realized_close_stamps(positions: Any) -> list[Optional[float]]:
+    """When each close `realized_close_pnls` counts happened (epoch seconds),
+    in the same order: the governor's manual clear
+    (`RiskEngine.clear_governor_pause`) scores only the closes after it, and
+    this is how a restart keeps knowing which those are. A close with no
+    readable time is None, never a guessed one: it sorts oldest in the record
+    and the governor reads it as before any clear."""
+    return [None if math.isinf(stamp) else stamp
+            for stamp, _i, _pnl, _n in _realized_close_rows(positions)]
+
+
 def realized_close_pnls(positions: Any) -> list[float]:
     """The realized P&L of every close the engine's risk feed counts, oldest
     first: the closes `_fire_position_closed` reports with a priced P&L.

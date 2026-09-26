@@ -906,6 +906,17 @@ defaults:
     description: >
       Size multiplier applied while the governor is in the reduce zone.
 
+  live_perf_probe_hours:
+    value: 24.0
+    env_var: LIVE_PERF_PROBE_HOURS
+    description: >
+      The way out of a pause, which opens nothing and so could never lift on a
+      flat book. After this many hours since the last close, with no position
+      open, one entry goes through at the reduce size; its close enters the
+      window. 0 turns probing off. /resume and /reset also clear a pause by
+      hand: the governor then scores only closes after the clear, at full size
+      until live_perf_min_samples are on record.
+
   funding_clock_gate_enabled:
     value: true
     env_var: FUNDING_CLOCK_GATE_ENABLED

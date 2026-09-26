@@ -401,7 +401,9 @@ class EngineOpsCommands:
                 lines.append(
                     f"{icon} <code>{acct[:10]}</code> {g['status']} "
                     f"(×{g['multiplier']:.2f} · win {g['win_rate']*100:.0f}% · "
-                    f"net ${g['net_pnl']:,.0f} · n={g['samples']})")
+                    f"net ${g['net_pnl']:,.0f} · n={g['samples']}"
+                    + (" since cleared" if g.get("cleared_at") is not None else "")
+                    + ")")
         # 🎛 Continuous equity throttle — same quiet-unless-acting rule.
         pf_throttled = []
         for r in rows:

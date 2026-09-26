@@ -195,6 +195,8 @@
   "reg_welcome_ready": "<b>Hoş geldiniz, {name}.</b>\n\nBen RUNECLAW: piyasayı tarar, riski boyutlandırır ve her işlemde size eşlik ederim.\n\n✅ Kaydınız tamam. Beklemeniz gereken bir şey yok.\nID'niz: <code>{tg_id}</code>\n\n<b>Buradan başlayın:</b> paneliniz için /start - kurulumlar için /scan - geri kalan her şey için /help.\nYa da ne istediğinizi düz cümlelerle söyleyin.",
   "reject": "Reddet",
   "reset_cb_done": "<b>Devre kesici sıfırlandı</b>\n\nİşleme devam edildi.",
+  "reset_gov_cleared": "<b>Performans düzenleyicisinin duraklatması kaldırıldı</b>\n\nSon {n} kapanıştan yalnızca {wins} kazançlıyken duraklamıştı. Artık yalnızca bundan sonraki kapanışları sayar ve {min} kapanış kaydedilene kadar tam boyutla işlem yapar.",
+  "reset_gov_cleared_others": "Düzenleyicinin duraklatması {k} başka hesapta da kaldırıldı.",
   "reset_nothing": "<b>Sıfırlanacak bir şey yok</b>\n\nCB: kapalı  •  Seri: {n}",
   "reset_streak_cleared": "<b>Seri temizlendi</b>  {n} → 0",
   "revoke_live_result": "<b>CANLI İŞLEM KALDIRILDI</b>\n\n- Kullanıcı: <b>{name}</b> (<code>{id}</code>)\n- İşlem: 📝 Yalnızca paper",

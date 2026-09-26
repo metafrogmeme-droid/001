@@ -1260,17 +1260,37 @@ class TradingCommands:
             # Operator: reset the shared engine AND every per-user risk engine,
             # so resuming after a global halt clears every account's breaker.
             self.engine.reset_circuit_breaker_all()
+            # The governor's PAUSE too, on the same engines (operator decision,
+            # 2026-09-26): the reset does not touch it, and a /reset that left
+            # every entry refused behind a "reset" card was the other half of
+            # the 2026-09-25 report.
+            gov_cleared = self._clear_governors_shared()
         else:
             # This caller's own engine, and only theirs. The operator's breaker
             # — and every other user's — is untouched.
             risk.reset_circuit_breaker()
+            gov_cleared = self._clear_governor(risk)
+        own_gov = gov_cleared.get("")
         lang = self._lang(update)
         if was_active:
             msg = f"\U0001f7e2 {t('reset_cb_done', lang)}"
         elif streak_before >= 3:
             msg = f"\U0001f7e2 {t('reset_streak_cleared', lang, n=streak_before)}"
-        else:
+        elif own_gov is None and not gov_cleared:
             msg = f"\U0001f7e1 {t('reset_nothing', lang, n=streak_before)}"
+        else:
+            msg = ""
+        # "Nothing to reset" is a claim, and it is false of a reset that
+        # cleared a governor pause; so the pause gets its own sentence and the
+        # nothing-card is printed only when there was nothing at all.
+        if own_gov is not None:
+            msg += ("\n\n" if msg else "\U0001f7e2 ") + t(
+                "reset_gov_cleared", lang, wins=own_gov["wins"],
+                n=own_gov["samples"], min=own_gov["min_samples"])
+        others = len(gov_cleared) - (1 if own_gov is not None else 0)
+        if others > 0:
+            msg += ("\n\n" if msg else "\U0001f7e2 ") + t(
+                "reset_gov_cleared_others", lang, k=others)
         # The card must not let a personal reset read as a global one. Same rule
         # as every other surface here: the scope of a claim is part of the claim.
         if scope == "own":
@@ -2088,6 +2108,10 @@ class TradingCommands:
             await self._refuse_shared_control(update, "resume")
             return
         risk.reset_circuit_breaker()
+        # And the governor's PAUSE on the same engine (operator decision,
+        # 2026-09-26: start fresh). Before the gate is read below, so the card
+        # reads the gate the clear left.
+        _gov = self._clear_governor(risk).get("")
         # Honest resume: if the daily-loss/drawdown condition still holds, the
         # breaker re-trips on the next evaluation — warn instead of showing a
         # clean CLEAR that the next status card contradicts with "Paused".
@@ -2101,11 +2125,36 @@ class TradingCommands:
         # ENABLED" was printed over entries still being refused (live, 13:59
         # on 2026-09-03). Read AFTER the reset, through the seam.
         _gate = self._resume_gate_state(risk)
-        rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate)
+        rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate,
+                             governor_cleared=_gov)
         await self._send(update, rendered["text"])
         audit(system_log, "Bot resumed via /resume", action="resume", result="OK",
               data={"retrip_warning": _retrip or None, "scope": scope,
-                    "gate_after_reset": _gate})
+                    "gate_after_reset": _gate,
+                    "governor_cleared": _gov is not None})
+
+    @staticmethod
+    def _clear_governor(risk) -> dict:
+        """Clear one engine's governor PAUSE: ``{"": counts}`` when it was
+        paused and is not now, ``{}`` otherwise. A clear that raises is
+        logged and cleared nothing, so the card falls back to what the gate
+        says; the resume or reset around it goes ahead either way."""
+        try:
+            info = risk.clear_governor_pause()
+        except Exception as exc:
+            system_log.warning("governor clear failed: %s", type(exc).__name__)
+            return {}
+        return {} if info is None else {"": info}
+
+    def _clear_governors_shared(self) -> dict:
+        """The operator's clear: the shared engine (key "") and every per-user
+        engine (keyed by user id), as `engine.clear_governor_pauses` walks
+        them. ``{}`` when the walk itself raised."""
+        try:
+            return dict(self.engine.clear_governor_pauses())
+        except Exception as exc:
+            system_log.warning("governor clear failed: %s", type(exc).__name__)
+            return {}
 
     @staticmethod
     def _resume_gate_state(risk) -> Optional[str]:

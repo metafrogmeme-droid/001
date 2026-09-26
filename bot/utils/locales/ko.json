@@ -195,6 +195,8 @@
   "reg_welcome_ready": "<b>환영합니다, {name}님.</b>\n\n저는 RUNECLAW입니다. 시장을 스캔하고, 리스크를 산정하고, 모든 거래를 함께합니다.\n\n✅ 등록이 완료되었습니다. 기다릴 것은 없습니다.\n당신의 ID: <code>{tg_id}</code>\n\n<b>여기서 시작하세요:</b> /start 대시보드 - /scan 셋업 - /help 그 외 모든 것.\n또는 원하는 것을 평범한 말로 말해 주세요.",
   "reject": "거부",
   "reset_cb_done": "<b>서킷 브레이커 초기화</b>\n\n거래를 재개했습니다.",
+  "reset_gov_cleared": "<b>성과 조절기 일시정지 해제</b>\n\n최근 {n}건의 청산 중 수익은 {wins}건이어서 일시정지되었습니다. 이제 지금부터의 청산만 계산하며, {min}건이 기록될 때까지 전체 크기로 거래합니다.",
+  "reset_gov_cleared_others": "다른 계정 {k}개에서도 조절기 일시정지를 해제했습니다.",
   "reset_nothing": "<b>초기화할 것이 없습니다</b>\n\nCB: 꺼짐  •  연속: {n}",
   "reset_streak_cleared": "<b>연속 기록 초기화</b>  {n} → 0",
   "revoke_live_result": "<b>실거래 권한 회수됨</b>\n\n- 사용자: <b>{name}</b> (<code>{id}</code>)\n- 거래: 📝 모의만",

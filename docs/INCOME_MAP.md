@@ -100,7 +100,7 @@ the user signs in their own wallet at /swap (swap-page.js:181). It is double-
 gated off: build_swap refuses unless the /memeplan plan came back allowed,
 which needs MEME_TRADING_ENABLED (default OFF, meme_executor.py:8-9), and
 `signable` is False unless MEME_EXECUTION_NETWORK=mainnet, which
-.env.example:889 ships as `simulate`.
+.env.example:890 ships as `simulate`.
 
 *Gap.* No CEX spot order path of any kind — not disabled-by-flag but absent, and
 deliberately so. The one spot-swap door is Solana DEX only, single-leg, no
@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:6779 (the per-strategy trailing switch read at the fill).
+bot/core/live_executor.py:6790 (the per-strategy trailing switch read at the fill).
 
 **Scalping** — **shipped**
 
@@ -167,16 +167,16 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5687 creates the entry order idempotently, :7181/:7622 attach
+live_executor.py:5698 creates the entry order idempotently, :7192/:7633 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2050, :2066, :2193); venues.py:283 selects the swap
+productType USDT-FUTURES (:2061, :2077, :2204); venues.py:283 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1070); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:5730-5788 confirms and executes any idea at or above
+Autonomously: engine.py:5748-5806 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,8 +280,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6588) — its
-result is handed to analyzer.analyze at :6720 as `basis` CONTEXT that votes on
+(engine.py:6606) — its
+result is handed to analyzer.analyze at :6738 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -347,10 +347,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:242) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5730-5788
+trade gate whose whole enforcing set /enforcing lists. engine.py:5748-5806
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2467) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8648): the paper book's in paper mode, both
+realized win rate (engine.py:8666): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -802,7 +802,7 @@ grants achievement glyphs 'by arithmetic, never by grant tables'
 on the leaderboard/track-record boards, and bot/proofofpnl/erc8004.py:52 binds
 a fills-derived reputation block into a signed ERC-8004 identity card (which
 refuses to attach any reputation to an unpublished statement, and whose
-publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at .env.example:625).
+publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at .env.example:626).
 
 *Gap.* Nothing REWARDS any of it, and I checked rather than assumed:
 computeReputation's only non-test caller in the tree is the route that prints
@@ -925,7 +925,7 @@ NFTs" (app/lib/opensea.js:88). Both HTTP routes (/radar, /wallet/:address)
 have no browser caller anywhere in the repo; the chat intercept and /nft on
 Telegram — the same card, fetched rendered over the sync channel — are the UI
 doors. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
-commented out at .env.example:762 and set nowhere, so configured() is false
+commented out at .env.example:763 and set nowhere, so configured() is false
 and every reader honestly answers available:false / not_configured rather than
 a fabricated radar. The Telegram door, /nft, renders that same honest card
 (market_commands.py fetches the web intercept's own rendering), so an
@@ -1050,7 +1050,7 @@ rarity or valuation model, no sweep/snipe/alert on floor movement; the Worlds
 view prints counts and links with NO price at all. Nothing farms an in-game
 asset or currency: no game is integrated, only the metaverse COLLECTION slugs
 are recognised. And the whole surface is inert until the operator sets
-OPENSEA_API_KEY — commented out at .env.example:762 — in which case every door
+OPENSEA_API_KEY — commented out at .env.example:763 — in which case every door
 honestly answers available:false rather than an empty radar.
 
 *The verifier refused part of this row.* Still partial, but the door list is wrong in both directions. (1) EVERY door
@@ -1126,7 +1126,7 @@ values for the unfurl. Separately, X is an OAuth IDENTITY provider:
 app/lib/oauth2.js:58 requests scope `tweet.read users.read` but the only call
 made with the token is profileUrl `users/me` (parseProfile reads id + avatar),
 and the provider is advertised only when both env vars are set —
-.env.example:577 ships them commented out.
+.env.example:578 ships them commented out.
 
 *Gap.* Nothing posts to X, schedules a post, reads a timeline or mentions, or
 measures a single impression/follower. There is no per-user X account
@@ -1431,7 +1431,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7371-7408
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7389-7426
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1731,7 +1731,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7918
+bot/core/stock_trading.py, also read by bot/core/engine.py:7936
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2467,7 +2467,7 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:942`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:943`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2656`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:674`). Every handler guards its own read and has an

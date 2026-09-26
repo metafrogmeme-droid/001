@@ -114,7 +114,9 @@ def probe_clause(probe_in_seconds: Optional[float], probe_hours: float,
     probe also needs a flat book rather than guessing that it has one.
     """
     if probe_hours <= 0:
-        return "; probing is off (LIVE_PERF_PROBE_HOURS is 0), so this lifts only when the settings change"
+        # No slash command named: this clause reaches the website's scan chip,
+        # where a Telegram command is a door painted on a wall.
+        return "; probing is off (LIVE_PERF_PROBE_HOURS is 0), so this lifts only when an operator clears it"
     if probe_in_seconds is None:
         return "; no close is on record to time a probe entry from"
     if open_count is not None and open_count != 0:

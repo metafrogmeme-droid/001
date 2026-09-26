@@ -877,6 +877,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>Circuit breaker reset</b>\n\nTrading resumed.",
         "zh": "<b>熔斷已重設</b>\n\n交易已恢復。",
     },
+    "reset_gov_cleared": {
+        "en": ("<b>Governor pause cleared</b>\n\nIt had paused on {wins} wins in the "
+               "last {n} closes. It now counts only closes from here, at full size "
+               "until {min} are on record."),
+        "zh": ("<b>績效調節器暫停已清除</b>\n\n暫停時最近 {n} 筆平倉中只有 {wins} 筆獲利。"
+               "現在只計算此後的平倉，累積到 {min} 筆之前以全額倉位交易。"),
+    },
+    "reset_gov_cleared_others": {
+        "en": "The governor pause was also cleared on {k} other account(s).",
+        "zh": "另有 {k} 個帳戶的調節器暫停也已清除。",
+    },
     "reset_streak_cleared": {
         "en": "<b>Streak cleared</b>  {n} → 0",
         "zh": "<b>連敗已清除</b>  {n} → 0",

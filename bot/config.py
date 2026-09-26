@@ -782,7 +782,7 @@ class RiskLimits:
     # not lift it either: without this the pause is permanent. The probe's
     # close enters the window, which leaves PAUSE on its own if it recovers and
     # re-arms the wait if not. 0 turns probing off (the pause then lifts only
-    # when these settings change). Operator decision, 2026-09-25.
+    # by hand: /resume, /reset). Operator decisions, 2026-09-25 and -26.
     live_perf_probe_hours: float = _env_float_bounded("LIVE_PERF_PROBE_HOURS", 24.0, 0.0, 720.0)
     # Fable-5 round 2 — CONTINUOUS equity-curve throttle. Scales size off the
     # rolling profit factor of the most recent closed trades: PF >= pf_full →

@@ -702,10 +702,13 @@ def resume_gate_line(gate: Optional[str]) -> str:
                 "/status says when a probe trade is allowed.")
     if gate.startswith("live_perf_pause:"):
         # The governor's own sentence says what ends the pause (the probe's
-        # time, or why there is none); /resume does not touch its window.
+        # time, or why there is none). /resume clears a PAUSE before the gate
+        # is read (`RiskEngine.clear_governor_pause`), so a pause still here
+        # is a clear that raised, which the log names.
         why = html.escape(gate.split(":", 1)[1].strip())
         return (f"  \u26d4 New entries are still <b>refused</b>: live-performance "
-                f"governor paused ({why}). /resume does not clear it.")
+                f"governor paused ({why}). /resume tried to clear it and could "
+                "not; the log says why.")
     if gate == "equity_curve_pause":
         return ("  \u26d4 New entries are still <b>refused</b>: equity-curve breaker "
                 "(equity below its moving band). /resume does not clear it.")
@@ -713,8 +716,21 @@ def resume_gate_line(gate: Optional[str]) -> str:
             f"(<code>{gate}</code>).")
 
 
+def _governor_cleared_line(info: Optional[dict]) -> str:
+    """What /resume did to the live-performance governor, or "" when it did
+    nothing (the governor was not paused). Counts only: the card is the
+    operator's, but the counts are the whole of what the governor scored."""
+    if not info:
+        return ""
+    return (f"  {_OK} Live-performance governor pause <b>cleared</b>: it had "
+            f"paused on {int(info['wins'])} wins in the last {int(info['samples'])} "
+            "closes. It now counts only closes from here, at full size until "
+            f"{int(info['min_samples'])} are on record.")
+
+
 def render_resume(retrip_warning: str = "", scope: str = "shared",
-                  gate: Optional[str] = "") -> Dict[str, Any]:
+                  gate: Optional[str] = "",
+                  governor_cleared: Optional[dict] = None) -> Dict[str, Any]:
     """Resume card. When the risk engine reports the breaker would RE-TRIP on
     the next evaluation (daily loss / drawdown condition still holds), the card
     says so instead of claiming a clean resume that the very next status check
@@ -729,6 +745,11 @@ def render_resume(retrip_warning: str = "", scope: str = "shared",
     answer" the bridge's /health was cured of on 2026-07-29. "Trading" is now
     ENABLED / REFUSED / UNREAD from the gate, and the CLEAR line stays because
     that part was true.
+
+    ``governor_cleared`` is what `RiskEngine.clear_governor_pause` answered:
+    the counts of the governor window that had paused, or None when it was
+    not paused. The line says the pause was cleared and what happens next,
+    because the gate read after it no longer names it.
 
     ``scope`` — see render_pause. "RUNECLAW is back online" is a claim about the
     engine; a per-user resume clears one account's breaker and brings nothing
@@ -746,6 +767,9 @@ def render_resume(retrip_warning: str = "", scope: str = "shared",
         f"{_kv('Circuit Breaker', 'CLEAR' if not retrip_warning else 'CLEAR*')}"
         "</pre>\n\n"
     )
+    _gov_line = _governor_cleared_line(governor_cleared)
+    if _gov_line:
+        text += _gov_line + "\n\n"
     _gate_line = resume_gate_line(gate)
     if _gate_line:
         text += _gate_line + "\n\n"

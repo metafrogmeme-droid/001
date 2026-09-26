@@ -344,6 +344,11 @@ def governor_line(gov: Optional[dict]) -> str:
     span = (f"its own window: last {int(win)} closes"
             if isinstance(win, (int, float)) and win else
             "its own window: not reported")
+    if gov.get("cleared_at") is not None:
+        # After a manual clear the governor scores only the closes since it
+        # (`clear_governor_pause`), a different span from the last N closes of
+        # the record, and the span belongs with the figure.
+        span += " since its pause was cleared by hand"
     if status == OFF_STATUS:
         return ("Governor: <b>OFF</b> — switched off, so nothing it scores "
                 "reaches sizing.")

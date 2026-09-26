@@ -10585,6 +10585,64 @@ a pre-cap reduction back. A 20% stop sizes under the cap, and there the
 probe's $300 against $600 is the halving measured.
 (`tests/test_a_governor_pause_says_so_and_can_end.py`.)
 
+**A PAUSE CAN ALSO BE CLEARED BY HAND NOW, AND "CLEARED" HAD TO MEAN
+SOMETHING THAT SURVIVES A BOOT.** The operator asked for a manual way out
+beside the probe and decided what it means (2026-09-26): start fresh. After a
+clear the governor ignores every close before it and trades at full size
+until `live_perf_min_samples` new closes are on record, then scores those as
+usual and may pause again. Kelly, the VaR proxy, the equity throttle and the
+adaptive auto-confirm bar keep the full record, so the window is not wiped:
+`_governor_closes` is the window read after the clear, and
+`live_perf_inputs` is its one reader. `/resume` and `/reset` both clear, each
+on the engines it already resets (the operator's `/reset` walks every
+per-user engine through `engine.clear_governor_pauses`), and each card says
+what it cleared, in counts.
+
+**The window is rebuilt at boot, so the clear is a TIME and every close
+carries one.** A count of closes at the clear would not survive the seed.
+`_realized_stamps` is appended in lockstep with the window and read from its
+newest end, `live_executor.realized_close_stamps` hands the boot seed the
+record's close times beside the P&Ls, and `governor_cleared_at` is in the
+saved risk state. A close with no time on record reads as before the clear,
+because the record sorts an undated close oldest. The saved time is restored
+by a helper of its own and not through `_STATE_FIELDS`: an unreadable field
+there fails the whole state closed and trips the breaker, and the safe reading
+of a bad clear time is simply "never cleared", which scores the whole window.
+A time in the future is refused for the same reason: it would read every
+close up to it as cleared and keep the governor at full size until then.
+
+**Only a PAUSE is cleared.** A REDUCE is a size cut nobody asked to lift, and
+`/resume` is typed after every halt. And `reset_circuit_breaker()` does not
+clear it: the backtest and the red team call that, and every benchmark fold
+the governor paused in would have changed.
+
+**Three sentences the clear made false, found by reading what it touched.**
+The resume card said *"/resume does not clear it"* under a governor pause. It
+now says `/resume` tried and could not, which is the only way a pause is
+still on the card after a resume. `probe_clause` said a pause with probing
+off *"lifts only when the settings change"*. It now says an operator clears
+it, and names no slash command, because that clause reaches the website's scan
+chip. `/reset` printed *"Nothing to reset"* whenever the breaker was closed
+and the streak under three. It is printed now only when nothing was cleared.
+
+**The probe slice had left a flag out of the risk manifest, and this slice's
+suites found it.** `LIVE_PERF_PROBE_HOURS` reached `RiskLimits` and never
+`config/risk_manifest.yaml`, whose defaults test compares every field. None of
+that slice's suites ran it, and the full gate would have refused the push. The
+runbook paragraph beside it also said the governor needs "default 10" closes
+(it is 5) and that the LLM weight cap "auto-lifts the moment calibration is
+enabled", which stopped being true when the cap moved to lifting only once a
+fitted curve is applied. Both are corrected.
+
+**Thirty-five mutations, each killed on the first round.** Two lines were
+deleted before the round rather than pinned: a `clear()` of the stamps in the
+seed and in `reset_performance_window`. Read from the newest end, stamps left
+over from before an emptied window pair with nothing, so neither clear changed
+any outcome. And the guard that both loaders call every restore helper had
+hand-listed the three it knew, so it failed on the fourth for being called
+rather than for being missed; it derives the set from the class now.
+(`tests/test_resume_and_reset_clear_the_governor_pause.py`.)
+
 **THE WEB'S CONFIRM ANSWERED EVERY REFUSAL 200, AUDITED IT OK, AND THE PAGE
 TOASTED IT GREEN.** The Telegram Confirm button was cured of this, with
 `placed_nothing` as the one reading, and the website's door never asked it.
@@ -12124,7 +12182,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1061** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1062** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
