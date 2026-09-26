@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "prepare_web_env.py"
 SPEC = importlib.util.spec_from_file_location("prepare_web_env", SCRIPT)
 assert SPEC and SPEC.loader
