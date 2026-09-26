@@ -76,8 +76,9 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from bot.compat import UTC
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, TypeGuard
+
+from bot.compat import UTC
 
 if TYPE_CHECKING:
     # Import only for type-checking so the forward-ref annotations on __init__
@@ -106,11 +107,10 @@ from bot.risk.quality_ladder import (
     ladder_verdict,
     rungs_from_config,
 )
+from bot.utils.atomic_write import atomic_write_json
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
 from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
-
-from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import state_path
 
 
@@ -1104,8 +1104,7 @@ class RiskEngine:
         the window), or on any error. Tighten-only; never pauses.
         """
         try:
-            from bot.risk.equity_throttle import (
-                rolling_profit_factor, throttle_multiplier)
+            from bot.risk.equity_throttle import rolling_profit_factor, throttle_multiplier
             cfg = CONFIG.risk
             recent = list(self._realized_pnl_window)[-cfg.equity_throttle_window:]
             if len(recent) < cfg.equity_throttle_min_samples:
@@ -2413,7 +2412,8 @@ class RiskEngine:
                 # applied the flat global first, so it decided a question that
                 # had already been answered.
                 from bot.risk.confidence_floor import (
-                    clears_confidence_floor, min_confidence_for,
+                    clears_confidence_floor,
+                    min_confidence_for,
                 )
                 # Change 1: use clears_confidence_floor(), which reads
                 # blended_confidence_raw when calibration is on. idea.confidence
@@ -2975,9 +2975,9 @@ class RiskEngine:
         validation_result = None
         if getattr(CONFIG.risk, "validation_gate_enabled", False):
             try:
-                from bot.core.validation_gate import (
-                    get_validation_gate, FAILED as _VG_FAILED,
-                    NEVER_TESTED as _VG_UNTESTED)
+                from bot.core.validation_gate import FAILED as _VG_FAILED
+                from bot.core.validation_gate import NEVER_TESTED as _VG_UNTESTED
+                from bot.core.validation_gate import get_validation_gate
                 _strat = str(getattr(idea, "strategy_type", "") or "").strip()
                 _vmode = str(getattr(CONFIG.risk, "validation_gate_mode",
                                      "shadow") or "shadow").lower()

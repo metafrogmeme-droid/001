@@ -12,7 +12,6 @@ _make_idea() below will make the new test fail loudly before it ships.
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
 # ---------------------------------------------------------------------------
