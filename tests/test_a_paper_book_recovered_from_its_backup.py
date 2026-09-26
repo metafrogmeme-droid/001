@@ -66,20 +66,7 @@ def _kept(path: Path) -> list[Path]:
 
 
 @pytest.fixture
-def logging_on():
-    """A suite that runs earlier may leave `logging.disable(...)` set for the
-    rest of the session (test_backtest_validity's `_run_once` does), which
-    would silence the WARNINGs these tests read. Undone after the test."""
-    before = logging.root.manager.disable
-    logging.disable(logging.NOTSET)
-    try:
-        yield
-    finally:
-        logging.disable(before)
-
-
-@pytest.fixture
-def records(logging_on):
+def records():
     """trade_log does not propagate, so caplog cannot see it."""
     seen: list[logging.LogRecord] = []
 
@@ -324,7 +311,7 @@ class TestAParkedFileIsNotABook:
         multi = _registry(tmp_path, monkeypatch)
         assert sorted(multi.all_portfolios()) == ["777", "a-b_c", "web5"]
 
-    def test_the_skip_is_said(self, tmp_path, monkeypatch, caplog, logging_on):
+    def test_the_skip_is_said(self, tmp_path, monkeypatch, caplog):
         real = tmp_path / "portfolio_777.json"
         _open(real)
         (tmp_path / "portfolio_777.conflict-4242.json").write_text(real.read_text())

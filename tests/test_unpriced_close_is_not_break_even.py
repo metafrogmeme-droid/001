@@ -28,40 +28,42 @@ from tests.source_scan import code_only
 
 
 class TestCloseP0nlLine:
-    def test_a_real_close_renders_exactly_as_before(self):
-        pnl, pct, fee = close_pnl_line(-0.2128, -0.5, -10.0, 20, 0.21)
+    def test_a_real_close_prints_the_net_return_on_margin(self):
+        """The margin figure is net, like the dollars beside it: -$0.2128 on
+        $2.00 of margin is -10.64%, where the price move x 20 is -10.00%."""
+        pnl, pct, fee = close_pnl_line(-0.2128, -0.5, 20, 0.21, margin_usd=2.0)
         assert pnl == "-$0.2128"
-        assert pct == "-10.00% margin / -0.50% notional, 20×"
+        assert pct == "-10.64% on margin after fees / -0.50% move, 20×"
         assert fee == "$0.21"
 
     def test_a_measured_break_even_is_still_printed(self):
         # 0.0 is a real, measured, break-even close — falsy and true.
-        pnl, pct, fee = close_pnl_line(0.0, 0.0, 0.0, 1, 0.0)
+        pnl, pct, fee = close_pnl_line(0.0, 0.0, 1, 0.0, margin_usd=50.0)
         assert pnl == "+$0.0000"
-        assert pct == "+0.00%"
+        assert pct == "+0.00% on margin after fees / +0.00% move"
         assert fee == "$0.00"
 
     def test_an_unread_pnl_is_not_zero(self):
-        pnl, _, _ = close_pnl_line(None, None, None, 1, None)
+        pnl, _, _ = close_pnl_line(None, None, 1, None, margin_usd=None)
         assert pnl == UNREAD
         assert "0" not in pnl
 
     def test_an_unread_percentage_is_not_zero_and_keeps_the_leverage(self):
-        _, pct, _ = close_pnl_line(None, None, None, 20, None)
-        assert pct == f"{UNREAD}, 20×"
+        _, pct, _ = close_pnl_line(None, None, 20, None, margin_usd=None)
+        assert pct == f"{UNREAD} on margin after fees / {UNREAD} move, 20×"
         assert "0.00%" not in pct
 
     def test_an_unread_fee_is_not_a_free_trade(self):
-        _, _, fee = close_pnl_line(None, None, None, 1, None)
+        _, _, fee = close_pnl_line(None, None, 1, None, margin_usd=None)
         assert fee == UNREAD
         assert fee != "$0.00"
 
     def test_the_three_readings_fail_independently(self):
         # The venue can report realized PnL for a close whose exit price no
         # source would give up: the money is known, the percentages are not.
-        pnl, pct, fee = close_pnl_line(-1.5, None, None, 5, 0.30)
+        pnl, pct, fee = close_pnl_line(-1.5, None, 5, 0.30, margin_usd=30.0)
         assert pnl == "-$1.5000"
-        assert pct == f"{UNREAD}, 5×"
+        assert pct == f"-5.00% on margin after fees / {UNREAD} move, 5×"
         assert fee == "$0.30"
 
 
