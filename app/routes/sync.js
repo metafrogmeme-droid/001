@@ -138,6 +138,30 @@ const DEEPSCAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
  * the connection chip keeps working — the standing test that /scan must stay
  * reachable is honoured, because breaking the panel was never the fix.
  */
+// A key naming a position's SIZE. The scrub drops every key naming an
+// amount (`notional`, `margin`, `unrealized_pnl`), and each position row kept
+// `contracts` beside `entry_price` and `leverage`: contracts x entry is the
+// notional and notional / leverage the margin, so the two figures the scrub
+// dropped were one multiplication away, to the cent. The entry, the side and
+// the leverage stay; they say nothing about the account's size on their own.
+// `quantity` and `qty` are the executor's and the Guardian's names for the
+// same field, so a row built from either is covered by default. Unanchored,
+// as `DOLLAR_KEY` is, because the executor spells a size a dozen more ways
+// (`filled_qty`, `remaining_qty`, `closed_qty`) and a row that carries one
+// tomorrow should lose it without anybody editing this line.
+const POSITION_SIZE_KEY = /(contracts|quantity|qty)/;
+
+function dropSizes(value) {
+  if (Array.isArray(value)) return value.map(dropSizes);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const k of Object.keys(value)) {
+    if (POSITION_SIZE_KEY.test(k)) continue;
+    out[k] = dropSizes(value[k]);
+  }
+  return out;
+}
+
 function scanFor(operator, scan) {
   // `=== true`: a request object passed here by habit is truthy, and would
   // have served the raw payload. Only the operator check's own answer opens it.
@@ -148,9 +172,9 @@ function scanFor(operator, scan) {
     out[k] = scan[k];
   }
   // The one section that is an ACCOUNT read rather than a market read.
-  if (scan.circuit_breaker) out.circuit_breaker = scrub(scan.circuit_breaker);
+  if (scan.circuit_breaker) out.circuit_breaker = dropSizes(scrub(scan.circuit_breaker));
   out.disclosure = 'Public view — market data, counts and rates. Account '
-    + 'equity and dollar P&L are shown to the operator only.';
+    + 'equity, dollar P&L and position sizes are shown to the operator only.';
   return out;
 }
 
