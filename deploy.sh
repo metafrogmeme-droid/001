@@ -164,6 +164,23 @@ link_persistent "data"
 mkdir -p "$PERSIST_DIR/data"     # AFTER the move, never before
 link_persistent ".env"
 
+# Build a SECOND, persistent env for the web container.  The bot's own
+# BOT_GATEWAY_URL is intentionally loopback (:8080), which is correct on this
+# box and dead when copied into a separate container.  Both web-facing links
+# travel through the named public tunnel, whose ingress splits gateway routes
+# to :8080 and bridge routes to :8000.  Generate rather than hand-edit this on
+# every deploy so the bridge cannot silently fall back to localhost and the
+# gateway cannot point back at the web container itself.
+if [ -e "$PERSIST_DIR/.env" ] \
+  && grep -qE '^[[:space:]]*(export[[:space:]]+)?PUBLIC_GATEWAY_URL=' "$PERSIST_DIR/.env"; then
+  [ -f "$REPO_DIR/scripts/prepare_web_env.py" ] || {
+    echo "  ✗ scripts/prepare_web_env.py is missing; refusing an incomplete deploy." >&2
+    exit 1
+  }
+  "${py:-python3}" "$REPO_DIR/scripts/prepare_web_env.py" \
+    "$PERSIST_DIR/.env" "$PERSIST_DIR/web.env"
+fi
+
 # logs/ persists for the same reason data/ does, and it is NOT optional.
 # logs/audit_chain.jsonl is a TAMPER-EVIDENT chain: losing it does not just
 # lose history, it breaks the chain's continuity, which is unrecoverable and

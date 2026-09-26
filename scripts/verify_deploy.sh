@@ -150,6 +150,53 @@ if [ "$CHECK_WEB" -eq 1 ]; then
       fi
     fi
   fi
+
+  # Ask FROM INSIDE THE WEB RUNTIME whether both server-to-server links work.
+  # A localhost probe on the bot box cannot catch a web container configured
+  # with BOT_GATEWAY_URL=http://127.0.0.1:8080 or an unset BOT_API_URL: both
+  # bot processes can be healthy while the three bridge-backed panels 502.
+  # /api/public/status performs the real web-originating reads and publishes
+  # the two links separately, so a deploy verifies neither by proxy for the
+  # other.
+  public_status="$(curl -fsSL --max-time 20 "$WEB_URL/api/public/status" 2>/dev/null)" \
+    || public_status=""
+  if [ -z "$public_status" ]; then
+    unk "could not read $WEB_URL/api/public/status — web-to-bot links not verified."
+  elif ! command -v node >/dev/null 2>&1; then
+    unk "node is not available here, so public component states cannot be parsed."
+  else
+    component_states="$(printf '%s' "$public_status" | node -e '
+      let input = "";
+      process.stdin.on("data", c => input += c);
+      process.stdin.on("end", () => {
+        try {
+          const c = JSON.parse(input).components || {};
+          process.stdout.write(String(c.bot_gateway?.state || "__missing__") + "|"
+            + String(c.api_bridge?.state || "__missing__"));
+        } catch (_) { process.exitCode = 1; }
+      });
+    ' 2>/dev/null)" || component_states=""
+    web_gateway_state="${component_states%%|*}"
+    web_bridge_state="${component_states#*|}"
+    if [ -z "$component_states" ] || [ "$component_states" = "$web_gateway_state" ] \
+      || [ "$web_gateway_state" = "__missing__" ] \
+      || [ "$web_bridge_state" = "__missing__" ]; then
+      unk "$WEB_URL/api/public/status did not report both link states."
+    else
+      if [ "$web_gateway_state" = "reachable" ]; then
+        ok "web container can reach bot gateway"
+      else
+        fail "web container reports bot_gateway=$web_gateway_state"
+        note "BOT_GATEWAY_URL must be the public tunnel URL, never bot-box loopback."
+      fi
+      if [ "$web_bridge_state" = "reachable" ]; then
+        ok "web container can reach API bridge"
+      else
+        fail "web container reports api_bridge=$web_bridge_state — insight/patterns/lab will fail"
+        note "BOT_API_URL must be the same public tunnel URL; ingress routes bridge paths to :8000."
+      fi
+    fi
+  fi
   echo
 fi
 
