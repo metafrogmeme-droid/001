@@ -15,6 +15,7 @@ Design constraints:
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 import time
@@ -25,11 +26,24 @@ from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_text
 
+logger = logging.getLogger(__name__)
+
 #: Below this age a turn carries no stamp. "[12 s ago]" on every live
 #: exchange is noise, and the age that matters is the one the model cannot
 #: see — hours and days, when Monday's `[get_portfolio] result:` is read on
 #: Friday as the current book.
 FRESH_SECONDS = 60.0
+
+
+def _line_owner(line: str):
+    """The `user_id` a stored line names, or None when the line is not one
+    of this store's rows (it does not parse, or is not an object). One
+    reading for the two walks that ask it: the loader keeping a line it
+    could not read, and a deletion deciding which lines are the user's."""
+    try:
+        return json.loads(line).get("user_id")
+    except (ValueError, AttributeError):
+        return None
 
 
 def turn_time(ts) -> Optional[float]:
@@ -287,6 +301,10 @@ class ConversationStore:
         self._conversations: OrderedDict[str, list[Message]] = OrderedDict()
         self._user_contexts: dict[str, UserContext] = {}
         self._persist_path = Path(persist_path) if persist_path else None
+        # Lines the loader could not read, kept verbatim so compaction (which
+        # rewrites the file from memory) writes them back instead of erasing
+        # them. See `_load`.
+        self._unreadable_lines: list[str] = []
 
         if self._persist_path:
             self._load()
@@ -511,6 +529,12 @@ class ConversationStore:
         with self._lock:
             had_rows = self._conversations.pop(user_id, None) is not None
             had_ctx = self._user_contexts.pop(user_id, None) is not None
+            # A line the loader could not read is still the user's when it
+            # names them, and compaction writes these back: without this a
+            # purged user's unreadable row would return at the next rewrite.
+            self._unreadable_lines = [
+                ln for ln in self._unreadable_lines
+                if str(_line_owner(ln)) != str(user_id)]
             had_disk = self._forget_on_disk(user_id)
         return had_rows or had_ctx or had_disk
 
@@ -529,9 +553,8 @@ class ConversationStore:
         kept: list[str] = []
         dropped = 0
         for line in lines:
-            try:
-                owner = json.loads(line).get("user_id")
-            except (ValueError, AttributeError):
+            owner = _line_owner(line)
+            if owner is None:
                 kept.append(line)
                 continue
             if str(owner) == str(user_id):
@@ -723,6 +746,16 @@ class ConversationStore:
                         continue
                     try:
                         entry = json.loads(line)
+                        # ONE LINE MUST NOT STOP THE LOAD. This store is built
+                        # in the Telegram handler's constructor, and a line
+                        # that is not an object, or a turn whose content is not
+                        # text, raised a TypeError or AttributeError past the
+                        # KeyError/JSONDecodeError this loop caught -- so one
+                        # bad line kept the bot from starting. A row this store
+                        # did not write is unreadable, kept verbatim (below),
+                        # and counted.
+                        if not isinstance(entry, dict):
+                            raise TypeError("not a row")
                         uid = entry["user_id"]
                         if entry["role"] == "summary":
                             # A note, not a turn: it must never come back
@@ -765,11 +798,19 @@ class ConversationStore:
                                 "text": text,
                             }])[-self.NOTIFICATIONS_MAX:]
                             continue
+                        content = entry["content"]
+                        meta = entry.get("metadata") or {}
+                        if (not isinstance(entry["role"], str)
+                                or not isinstance(content, str)
+                                or not isinstance(meta, dict)):
+                            # A turn with no text is not a turn: kept as a
+                            # line, never handed to the model as a message.
+                            raise TypeError("not a turn this store writes")
                         msg = Message(
                             role=entry["role"],
-                            content=entry["content"],
+                            content=content,
                             timestamp=entry.get("timestamp", 0),
-                            metadata=entry.get("metadata", {}),
+                            metadata=meta,
                         )
                         if uid not in self._conversations:
                             self._conversations[uid] = []
@@ -783,8 +824,15 @@ class ConversationStore:
                             # with no time leaves the mention undated.
                             self._user_contexts[uid].update_from_message(
                                 msg.content, now=turn_time(msg.timestamp) or 0.0)
-                    except (KeyError, json.JSONDecodeError):
+                    except (KeyError, TypeError, ValueError, AttributeError):
+                        self._unreadable_lines.append(line)
                         continue
+
+            if self._unreadable_lines:
+                logger.warning(
+                    "conversation store: %d line(s) could not be read and were "
+                    "skipped; they are kept in the file as they are",
+                    len(self._unreadable_lines))
 
             # Prune loaded data to limits
             for uid in list(self._conversations.keys()):
@@ -849,6 +897,10 @@ class ConversationStore:
                 }) + "\n"
                 for uid, ctx in self._user_contexts.items()
                 for row in ctx.notifications)
+            # And the lines the loader could not read, verbatim, for the same
+            # reason: this rewrite would otherwise be the thing that erased
+            # them.
+            rows.extend(ln + "\n" for ln in self._unreadable_lines)
             atomic_write_text(self._persist_path, "".join(rows))
         except OSError:
             pass  # compaction is an optimization, never a requirement
