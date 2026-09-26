@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 703 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 697 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7652,6 +7652,107 @@ carried them, so they are re-derived from the routes they name.
 `app/test/status_reads_the_database.test.js`,
 `app/test/daily_rune_reads_the_current_season.test.js`.)
 
+**A HAND-TYPED TICKET WAS PUBLISHED AS "RUNECLAW SIGNAL · AI-GENERATED ·
+CONFIDENCE 100%", AND SIX MORE SCHEDULED MESSAGES READ THE WRONG BOOK OR NONE.**
+The pending-ideas chapter split the engine's own ideas out of the one book
+(`_engine_pending_ids`), and `_check_trade_signals` was the loop it did not
+convert. Driven: `build_manual_idea("LONG", "PEPE", ...)` registered the way
+`/trade` registers it went to every watching chat as a NEW SIGNAL, and the
+TRADE_SIGNAL forward posted it to the public channels. It reads the engine's
+ideas now, and an engine that cannot say which are its own signals none.
+
+**The card's door routed nowhere and its prices were two decimals.** `Say
+"confirm"` reaches no router rule and the social gate greets it. The real door
+is the Take-it button the signal image carries, and the image is best-effort,
+so the same Take-it and Skip ride on the text card now, tagged to the operator
+chat exactly as the image's are, and the card names them. That tag was checked
+and is right: an engine idea is the operator's trade, and `_callback_owner_ok`
+refuses a watcher who is shown the button. With no operator chat there is no
+tag, so no button and no sentence. The levels go through `_fmt_price`, whose
+sub-cent branch printed a PEPE entry and stop both as `$0.000010`; below 0.0001
+it keeps eight places now. The public signal and TRADE OPENED posts carried the
+same `:,.4f` and read `$0.0000`.
+
+**/daily_report posted whoever called it, every time.** `journal` is held by
+viewer, paper and trader, so a linked trader's own day went out as RUNECLAW's
+report, once per call. The post is made when the book read is the operator's
+(`live_view` scope `operator`) and at most once per UTC day. The claim is on
+disk before the post (`bot/utils/day_stamp.py`, over `json_store`), a stamp file
+that will not read is not "not yet posted", and a claim that could not be saved
+posts nothing; the private card is sent first either way. Paper mode never
+posts: the command reads the caller's practice book there, which is never the
+agent's. That was a decision, and it removes a post rather than moving one.
+
+**The close post put a trophy on a loss.** `post_trade_closed` read a regex for
+any "+N%", and the public line leads with the gross move: a 20x close that moved
++0.10% and lost 0.40% on margin after fees went out as "🏆 TRADE CLOSED" above
+its own red dot. `close_outcome` is the one reading of a close's sign (the net
+dollars, else the net return on margin, else nothing), the caller that holds
+the record hands it over, and the line's dot asks it too; it used to fall back
+to the gross move. A close nobody priced is neither icon. The private card's
+own fallback read an absent "+$" as a loss; an unread P&L is no sign there now.
+
+**The drawdown early warning could never fire.** It read
+`risk.current_drawdown_pct`, which `RiskEngine` does not have, against the paper
+10% limit; the test planted the field on a stand-in. Driven on a real engine at
+3.5/6.0/6.5% of a 7% live limit it returned nothing. It reads
+`drawdown_status()` through `enforced_drawdown` now, names the source, goes to
+the operator only, and a paper figure in live mode is not what the live breaker
+gates on, so it fires nothing.
+
+**The digests were the operator's book sent to every watcher, twice after a
+restart.** The brief and the wrap had no audience, lived in `_digest_sent`
+only, counted never-filled orders as closes (three fills and five lapsed limit
+orders read "Recent closes: 8") and read the equity from `cache["equity"]`,
+which `fetch_balance` never writes. They are admin-only, their stamps are on
+disk with the weekly parity digest's (claimed only once there is a digest to
+send), closes go through `is_filled_close`, and the equity is
+`live_balance_cached` read by `_read_balance_total`, "unread" in live when it
+did not read. An unreadable digest stamp sends nothing and says so; a claim
+that could not be saved is still sent once, because a digest the operator
+never gets on a box that cannot write is worse than one repeated after a
+restart.
+
+**In LIVE mode the position alerts read the paper books.** SL/TP proximity,
+the time stops and the news stand-down walked `user_portfolios` or the shared
+paper book, so a live BTC long 0.48% from its stop and 60h old produced
+nothing, and the one news alert was a practice book's PEPE, sent to a watcher
+who held nothing and published to the public feed. `_position_walk` is one
+walk for all three: in live mode the live executors too, the operator's book
+by identity (`audience="admin"`) and a per-user book by its id, a resting
+order skipped and a per-user book with no id skipped and said. Paper mode walks
+what it walked. The news alert is one per holder now, scoped the same way.
+Each alert type is built twice with constant audiences rather than with an
+expression, and the audience ratchet read one audience per type, the last
+constructor's, so the "admin" half was invisible to it; it reads the set now.
+
+**The auto-confirm notice said AUTO-CONFIRMED TRADE over a refusal.** The
+engine calls it whatever `confirm_trade` answered. It asks `placed_nothing`
+now: a refusal has its own heading, says nothing was placed and why, and is
+recorded as `AUTO_CONFIRM_REFUSED`.
+
+**Filed, not changed.** The monitor's time-stop alert still judges intraday
+and swing off the stop distance and `TIME_STOP_*`, where the live executor
+closes on its strategy table; in live mode the two can disagree about when.
+The morning brief counts a resting order among its open positions. A private
+close card with no record still heads a kept-OPEN message "Closed".
+
+**Three suites had pinned a defect as the contract.** The daily report's
+public-post test drove a linked trader's own book and asserted one public
+post; two posting tests beside it did the same; the drawdown tests planted the
+missing field; and the close-emoji test handed the forwarder text alone. Each
+drives the operator's book, a real `RiskEngine` or the outcome now.
+
+**Fifty-six mutations, each killed on the first round.** One fresh assertion
+was wrong before the code was: "no door sentence" asserted `"confirm" not in`
+the card, and "Awaiting operator confirmation" contains it, which is this
+file's recurring misfire; it names the door now. The type ratchet caught the
+headline reading `dict.get` with an Optional key. The honesty ratchet improved
+(703 to 697) and was re-recorded with the figure its paragraph quotes, and the
+test-file total in "Writing tests that scan source" moved to 1115 with this
+slice's test.
+(`tests/test_the_scheduled_posts_say_whose_book_they_read.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14201,7 +14302,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1114** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1115** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

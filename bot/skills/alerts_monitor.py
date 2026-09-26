@@ -29,7 +29,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
-from bot.marketing.public_text import public_close_line
+from bot.marketing.public_text import close_outcome, public_close_line
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import _redact_string, audit, system_log
 
@@ -437,9 +437,14 @@ class AlertsMonitor:
                     reason = close_data.get("reason", "") if close_data else ""
                     # No `, 0` default: an unpriced close must reach
                     # humanize_close_reason as None so it answers ⚪ rather
-                    # than the ✅ that `0 >= 0` buys.
+                    # than the ✅ that `0 >= 0` buys. With no record, the
+                    # private text's own net figure is the sign when it has
+                    # one ("+$" or "-$"); a text with neither (an unread P&L,
+                    # a kept-OPEN notice) is no sign, where an absent "+$"
+                    # used to read as a loss.
                     pnl_for_sign = (close_data.get("pnl_usd") if close_data
-                                    else (1.0 if "+$" in msg else -1.0))
+                                    else (1.0 if "+$" in msg
+                                          else -1.0 if "-$" in msg else None))
                     emoji, heading = humanize_close_reason(reason, pnl_for_sign)
                     sym = close_data.get("symbol", "") if close_data else ""
                     direction = close_data.get("direction", "") if close_data else ""
@@ -469,8 +474,14 @@ class AlertsMonitor:
                 # fallback is escaped HERE, where we know which of the two we
                 # picked. The forwarder used to escape both and printed
                 # `public_close_line`'s own tags to the channel as a result.
+                #
+                # The headline's win/loss icon is the close RECORD's net sign,
+                # handed over here where the record is; the forwarder used to
+                # read it off the text, and the text leads with the gross move.
+                # No record (the fallback) is no sign, and no trophy.
                 await _forwarder.post_trade_closed(
-                    public_close_line(close_data) or html.escape(msg))
+                    public_close_line(close_data) or html.escape(msg),
+                    outcome=close_outcome(close_data))
             except Exception:
                 pass
 
@@ -578,34 +589,56 @@ class AlertsMonitor:
 
         # ── Auto-confirm notification ──────────────────────────────
         async def _on_auto_confirmed(idea, result_msg: str) -> None:
-            """Notify admin when a trade is auto-confirmed (high confidence)."""
+            """Notify admin when the engine auto-confirmed an idea -- and say
+            whether anything was placed.
+
+            The engine calls this WHATEVER `confirm_trade` answered, and the
+            card used to be one card: "🤖 AUTO-CONFIRMED TRADE ... Confidence
+            exceeded auto-confirm threshold" over "Trade REJECTED by risk:
+            DAILY_LOSS ..." or "⏭️ Skipped: already have...", recorded in the
+            transcript as AUTO_CONFIRMED. The model was then told a trade was
+            placed that the risk gate had refused. `placed_nothing` is the one
+            reading of that answer (bot/core/confirm_result.py), and a refusal
+            gets its own heading, its own closing sentence and its own record.
+            """
             try:
+                from bot.core.confirm_result import placed_nothing
+                from bot.formatters.rich_cards import _fmt_price
+                refused = placed_nothing(result_msg)
                 pair = idea.asset.replace("/USDT", "")
                 direction = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
                 conf = idea.confidence * 100
                 from datetime import datetime as _dt, timezone as _tz
                 card_lines = [
-                    "\U0001f916 <b>AUTO-CONFIRMED TRADE</b>",
+                    ("\U0001f916 <b>AUTO-CONFIRM: NOTHING PLACED</b>" if refused
+                     else "\U0001f916 <b>AUTO-CONFIRMED TRADE</b>"),
                     "\u2500" * 28,
                     "",
                     f"\U0001f4b0 <b>{pair}</b> {direction} | Conf <b>{conf:.0f}%</b>",
-                    f"Entry: <code>${idea.entry_price:,.4f}</code>",
-                    f"SL: <code>${idea.stop_loss:,.4f}</code> | TP: <code>${idea.take_profit:,.4f}</code>",
+                    f"Entry: <code>{_fmt_price(idea.entry_price)}</code>",
+                    f"SL: <code>{_fmt_price(idea.stop_loss)}</code> | TP: <code>{_fmt_price(idea.take_profit)}</code>",
                     "",
                 ]
                 # Add result preview. The executor's line already carries HTML
                 # (<b>\u2026</b>); html.escape() would turn those into literal "<b>"
                 # text in the card. Strip the tags first, then escape the plain
                 # text so it renders cleanly under parse_mode=HTML.
-                first_line = result_msg.strip().split("\n")[0] if result_msg else ""
-                if first_line:
-                    _plain = re.sub(r"<[^>]+>", "", first_line)
-                    card_lines.append(f"\u2192 {html.escape(_plain)}")
+                first_line = (result_msg.strip().split("\n")[0]
+                              if isinstance(result_msg, str) else "")
+                _plain = html.escape(re.sub(r"<[^>]+>", "", first_line)) if first_line else ""
+                if refused:
+                    card_lines.append(
+                        "Auto-confirm tried this idea and nothing was placed: "
+                        + (_plain or "the answer could not be read") + ".")
+                elif _plain:
+                    card_lines.append(f"\u2192 {_plain}")
                 card_lines.extend([
                     "",
                     "\u2500" * 28,
                     f"\U0001f43e RUNECLAW | {_dt.now(_tz.utc).strftime('%H:%M')} UTC",
-                    "<i>Confidence exceeded auto-confirm threshold</i>",
+                    ("<i>Confidence cleared the auto-confirm threshold; the "
+                     "trade did not go through.</i>" if refused
+                     else "<i>Confidence exceeded auto-confirm threshold</i>"),
                 ])
                 a_chat = (os.environ.get("ADMIN_CHAT_ID")
                           or os.environ.get("TELEGRAM_CHAT_ID") or "")
@@ -618,7 +651,8 @@ class AlertsMonitor:
                 await _notify_chats(
                     [c.strip() for c in a_chat.split(",")
                      if c.strip().isdigit()],
-                    "AUTO_CONFIRMED", "\n".join(card_lines))
+                    "AUTO_CONFIRM_REFUSED" if refused else "AUTO_CONFIRMED",
+                    "\n".join(card_lines))
             except Exception as exc:
                 system_log.debug("Auto-confirm notify send failed: %s", exc)
 

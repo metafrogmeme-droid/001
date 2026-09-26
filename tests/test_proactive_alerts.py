@@ -19,7 +19,6 @@ from bot.core.proactive_monitor import ProactiveMonitor
 def _engine(**risk):
     eng = types.SimpleNamespace()
     eng.risk = types.SimpleNamespace(
-        current_drawdown_pct=risk.get("dd"),
         warning_rate_breaker_active=risk.get("warn", False),
         _warning_rate_trip_key=risk.get("warn_key", ""),
     )
@@ -40,39 +39,66 @@ def live(monkeypatch):
 
 
 # ── drawdown tiers ────────────────────────────────────────────────────────
+#
+# A REAL RiskEngine, not a stand-in. These tests planted `current_drawdown_pct`
+# on a SimpleNamespace, a field RiskEngine does not have, so they passed while
+# the check read nothing on the real engine and never fired. The drawdown is
+# planted where the engine keeps it (the live high-water mark and the last live
+# equity) and read back through `drawdown_status()`, the figure the breaker
+# gates on. Paper mode: the limit in force is MAX_DRAWDOWN_PCT (10.0), so
+# 50%/75%/85% sit at 5.0/7.5/8.5.
 
-def test_drawdown_tiers_fire_once_and_escalate():
-    # MAX_DRAWDOWN_PCT defaults to 10.0 -> 50%/75%/85% at dd 5.0/7.5/8.5.
-    m = _mon(_engine(dd=5.0))
+def _dd_engine(tmp_path, dd):
+    from bot.risk.portfolio import PortfolioTracker
+    from bot.risk.risk_engine import RiskEngine
+    pt = PortfolioTracker(initial_balance=1000.0,
+                          state_file=str(tmp_path / "pf.json"))
+    risk = RiskEngine(pt, state_file=str(tmp_path / "risk.json"))
+    eng = types.SimpleNamespace(risk=risk)
+    _set_dd(eng, dd)
+    return eng
+
+
+def _set_dd(eng, dd):
+    eng.risk._live_equity_peak = 1000.0
+    eng.risk._last_live_equity = None if dd is None else 1000.0 * (1 - dd / 100.0)
+
+
+def test_drawdown_tiers_fire_once_and_escalate(tmp_path):
+    m = _mon(_dd_engine(tmp_path, 5.0))
     a = m._check_drawdown_tiers()
     assert len(a) == 1 and a[0].alert_type == "DRAWDOWN_TIER" and "50%" in a[0].title
     # Same tier again -> no repeat.
     assert m._check_drawdown_tiers() == []
     # Escalate to 75% then 85%.
-    m.engine.risk.current_drawdown_pct = 7.5
+    _set_dd(m.engine, 7.5)
     a = m._check_drawdown_tiers()
     assert len(a) == 1 and "75%" in a[0].title and a[0].severity == "WARNING"
-    m.engine.risk.current_drawdown_pct = 8.5
+    _set_dd(m.engine, 8.5)
     a = m._check_drawdown_tiers()
     assert len(a) == 1 and "85%" in a[0].title and a[0].severity == "CRITICAL"
 
 
-def test_drawdown_tier_rearms_after_recovery():
-    m = _mon(_engine(dd=7.5))
+def test_drawdown_tier_rearms_after_recovery(tmp_path):
+    m = _mon(_dd_engine(tmp_path, 7.5))
     assert m._check_drawdown_tiers()           # 75% fires
-    m.engine.risk.current_drawdown_pct = 2.0   # recover below 50%
+    _set_dd(m.engine, 2.0)                     # recover below 50%
     assert m._check_drawdown_tiers() == []     # re-arm, no alert at tier 0
-    m.engine.risk.current_drawdown_pct = 7.5   # back up
+    _set_dd(m.engine, 7.5)                     # back up
     assert m._check_drawdown_tiers()           # fires again
 
 
-def test_drawdown_no_alert_below_50pct():
-    m = _mon(_engine(dd=3.0))                   # 30% of limit
+def test_drawdown_no_alert_below_50pct(tmp_path):
+    m = _mon(_dd_engine(tmp_path, 3.0))        # 30% of limit
     assert m._check_drawdown_tiers() == []
 
 
 def test_drawdown_handles_missing_data():
-    assert _mon(_engine(dd=None))._check_drawdown_tiers() == []
+    # `drawdown_status()` is documented "returns empty on any error": an
+    # unread reading fires nothing.
+    eng = types.SimpleNamespace(
+        risk=types.SimpleNamespace(drawdown_status=lambda: {}))
+    assert _mon(eng)._check_drawdown_tiers() == []
 
 
 # ── tick failures ─────────────────────────────────────────────────────────
@@ -165,11 +191,21 @@ def _idea(conf, direction="LONG"):
     )
 
 
+def _engine_owns(eng, ideas):
+    """The engine's own pending ideas: the book and the ownership reading the
+    real engine keeps (`_engine_pending_ids`), bound off the class."""
+    from bot.core.engine import RuneClawEngine
+    eng._pending_ideas = dict(ideas)
+    eng._engine_idea_ids = set(ideas)
+    eng._engine_pending_ids = types.MethodType(
+        RuneClawEngine._engine_pending_ids, eng)
+
+
 def test_trade_signal_only_alerts_above_display_threshold():
     # Default risk.signal_display_min_confidence is 0.70: a 0.62 idea still
     # queues/trades but must NOT ping Telegram; a 0.75 idea does.
     m = _mon(_engine())
-    m.engine._pending_ideas = {"lo": _idea(0.62), "hi": _idea(0.75)}
+    _engine_owns(m.engine, {"lo": _idea(0.62), "hi": _idea(0.75)})
     a = m._check_trade_signals()
     assert len(a) == 1 and a[0].alert_type == "TRADE_SIGNAL"
     assert "75%" in a[0].body            # the high-conviction idea messaged
@@ -179,7 +215,7 @@ def test_trade_signal_only_alerts_above_display_threshold():
 
 def test_trade_signal_at_threshold_alerts():
     m = _mon(_engine())
-    m.engine._pending_ideas = {"edge": _idea(0.70)}   # exactly at the gate
+    _engine_owns(m.engine, {"edge": _idea(0.70)})   # exactly at the gate
     assert len(m._check_trade_signals()) == 1
 
 
@@ -225,6 +261,12 @@ def test_idle_cash_disabled_by_env(monkeypatch):
 
 
 # ── daily digest (morning brief / evening wrap) ───────────────────────────
+
+@pytest.fixture(autouse=True)
+def _digest_stamps_in_tmp(monkeypatch, tmp_path):
+    """The digests' once-a-period stamp is on disk now; keep it out of data/."""
+    monkeypatch.setattr(pm, "DIGEST_STAMP_PATH", str(tmp_path / "digest_sent.json"))
+
 
 def test_daily_digest_fires_each_kind_once_per_day(monkeypatch):
     monkeypatch.setenv("DAILY_BRIEF_HOUR_UTC", "0")

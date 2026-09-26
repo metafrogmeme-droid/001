@@ -45,6 +45,7 @@ from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
 from bot.utils.logger import system_log
+from bot.utils.paths import state_path
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.win_rate import pnl_stats as _pnl_stats
 from bot.utils.win_rate import trade_pnl as _trade_pnl
@@ -127,6 +128,34 @@ def _unpriced_tag(stats: dict) -> str:
     except (AttributeError, TypeError, ValueError):
         return ""
     return f" <i>(+{n} unpriced)</i>" if n > 0 else ""
+
+
+#: The UTC day the agent's daily report was last posted to the public
+#: channels. A claim written BEFORE the post (bot/utils/day_stamp.py).
+PUBLIC_DAILY_POST_STAMP = state_path("data/public_daily_report.json")
+
+
+def _claim_public_daily_post() -> bool:
+    """True when today's public daily report may go out, and it is now
+    recorded as gone.
+
+    At most once per UTC day, across restarts. A stamp file that will not
+    read is NOT "not yet posted" -- it may say it was -- and a claim that
+    could not be saved would let the next call post again, so both answer
+    False and say why. The private card has already been sent by then.
+    """
+    from bot.utils.day_stamp import ALREADY, CLAIMED, claim_period
+
+    day = datetime.now(UTC).strftime("%Y-%m-%d")
+    outcome, detail = claim_period(PUBLIC_DAILY_POST_STAMP, "daily_report", day)
+    if outcome == CLAIMED:
+        return True
+    if outcome != ALREADY:
+        system_log.warning(
+            "Public daily report NOT posted: its once-a-day stamp is %s (%s), "
+            "so whether it already went out today cannot be known.",
+            outcome, detail)
+    return False
 
 
 class PortfolioCommands:
@@ -1280,11 +1309,18 @@ class PortfolioCommands:
         """Daily trading report."""
         user_id = self._get_tg_id(update)
 
+        # WHOSE DAY THIS IS decides whether it may be published as the
+        # agent's (the forward block below). Only the operator's own live
+        # book is RUNECLAW's record; a linked trader's own account and every
+        # practice book are a person's, and never a public post.
+        agent_book = False
         # LIVE mode: use real trade data from executor
         if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
             # The day's closes, wins and losses — this caller's, not the
             # operator's.
-            executor = self.engine.live_view(user_id).get("executor")
+            _view = self.engine.live_view(user_id)
+            executor = _view.get("executor")
+            agent_book = _view.get("scope") == "operator"
             if executor is None:
                 await self._send(update, no_live_account_line(live_account_absence(user_id)))
                 return
@@ -1425,8 +1461,17 @@ class PortfolioCommands:
         # would be the closes that read, published as the day's; the website
         # sync withholds a partial record for the same reason, and the private
         # card above says so.
+        #
+        # And it is the AGENT's report, so it is posted when the book read is
+        # the agent's and at most once per UTC day. It used to go out on
+        # every call, from whoever called: `journal` is held by viewer, paper
+        # and trader, so a linked trader's own day was published as
+        # RUNECLAW's, once per /daily_report. The claim is on disk before the
+        # post (`claim_period`), so a restart does not post the day again,
+        # and a stamp file that will not read is not "not yet posted".
         try:
-            if today_trades > 0 and not record_partial:
+            if today_trades > 0 and not record_partial and agent_book \
+                    and _claim_public_daily_post():
                 _rate = _ws.get("rate")
                 _lines = [
                     f"Trades: <code>{today_trades}</code> | "

@@ -229,8 +229,11 @@ class TestOneUsersPositionReachesOnlyThem:
         leaving the other is this repo's own "fixing two left the third"."""
         src = code_only(SRC.read_text(encoding="utf-8"))
         body = _function_source(src, "_check_time_stops")
-        assert "for owner, pos in all_positions:" in body
+        # The walk carries whether the book is the operator's LIVE one, which
+        # is an audience rather than a person (`_position_walk`).
+        assert "for owner, operator_book, pos in all_positions:" in body
         assert body.count("user_id=owner,") == 2, body.count("user_id=owner,")
+        assert body.count("audience='admin'") == 2, body.count("audience='admin'")
 
     def test_the_unprotected_alert_is_scoped_to_the_account_it_is_about(self):
         """CRITICAL, live-only, and it tells the reader to go and place a stop
@@ -394,8 +397,11 @@ class TestTheOperatorsOwnFiguresAreAnOperatorAudience:
 
 # ── the ratchet: a check added tomorrow cannot reintroduce it ────────────
 
-#: The two engine attributes that hand back somebody's own book.
-PER_USER_SOURCES = ("user_portfolios", "_all_live_executors")
+#: The two engine attributes that hand back somebody's own book, and the one
+#: walk over both (`_position_walk`) the position checks call instead of
+#: reading them: a check that asks the walk reads a per-user book as surely
+#: as one that walks it by hand.
+PER_USER_SOURCES = ("user_portfolios", "_all_live_executors", "_position_walk")
 
 
 class TestAPerUserCheckCannotBuildAnUnscopedAlert:

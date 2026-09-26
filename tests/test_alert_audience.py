@@ -155,16 +155,34 @@ ADMIN_ONLY = {
     # before it ever looks at an audience. An audience is a class; that one
     # is about a person.
     "POSITION_UNPROTECTED",
+    # The drawdown of the account the operator's risk engine gates on. It
+    # was "all" and could never fire (it read a field RiskEngine does not
+    # have); the day it could, it would have told every `/watch on` chat how
+    # far the operator's own account was down.
+    "DRAWDOWN_TIER",
 }
+
+#: Built with BOTH audiences, one constructor each, and the split is the
+#: point. The operator's LIVE book is the operator's (`audience="admin"`); the
+#: shared PAPER book keeps the fan-out it has always had ("all"); a person's
+#: book names the person (`user_id`), which `_recipients_for` answers before
+#: it reads either. See `ProactiveMonitor._position_walk`.
+BY_BOOK = {"SL_PROXIMITY", "TP_PROXIMITY", "TIME_STOP_WARN",
+           "TIME_STOP_CLOSE", "NEWS_STANDDOWN"}
 
 
 def _alert_audiences() -> dict:
-    """{alert_type: audience} read off the Alert() constructors by AST.
+    """{alert_type: {audience, ...}} read off the Alert() constructors by AST.
 
     AST, not a regex, because ``alert_type`` and ``audience`` are keywords on a
     multi-line call and a text scan cannot reliably tell which constructor a
     given line belongs to — the failure would be a misattributed audience,
     which is the thing being checked.
+
+    A SET per type, because a type can be built twice with two audiences
+    (`BY_BOOK`). This was a dict of one audience each, and the LAST
+    constructor won: a type built "admin" for one book and "all" for another
+    read "all", so the admin half was invisible to every assertion here.
     """
     import ast
     import inspect
@@ -180,7 +198,8 @@ def _alert_audiences() -> dict:
         if not isinstance(t, ast.Constant):
             continue                      # f-string types (DAILY_*) — see below
         aud = kw.get("audience")
-        out[t.value] = (aud.value if isinstance(aud, ast.Constant) else "all")
+        out.setdefault(t.value, set()).add(
+            aud.value if isinstance(aud, ast.Constant) else "all")
     return out
 
 
@@ -194,7 +213,7 @@ def test_every_operator_infrastructure_alert_is_admin_only():
     the failure that faces the other way.
     """
     got = _alert_audiences()
-    admin = {t for t, a in got.items() if a == "admin"}
+    admin = {t for t, a in got.items() if a == {"admin"}}
     assert admin == ADMIN_ONLY, (
         f"unexpectedly admin-only: {sorted(admin - ADMIN_ONLY)}\n"
         f"no longer admin-only: {sorted(ADMIN_ONLY - admin)}")
@@ -208,8 +227,16 @@ def test_the_alerts_a_trader_acts_on_still_reach_them():
     got = _alert_audiences()
     for t in ("TRADE_SIGNAL", "SL_PROXIMITY", "TP_PROXIMITY",
               "CIRCUIT_BREAKER", "BLACK_SWAN", "STATE_CHANGE",
-              "TIME_STOP_WARN", "TIME_STOP_CLOSE", "DRAWDOWN_TIER"):
-        assert got.get(t) == "all", f"{t} was narrowed to admins"
+              "TIME_STOP_WARN", "TIME_STOP_CLOSE", "NEWS_STANDDOWN"):
+        assert "all" in got.get(t, set()), f"{t} was narrowed to admins"
+
+
+def test_the_by_book_alerts_are_built_both_ways():
+    """Each is built once per audience, never with an expression: the
+    operator's live book as "admin", the shared paper book as "all"."""
+    got = _alert_audiences()
+    for t in BY_BOOK:
+        assert got.get(t) == {"admin", "all"}, (t, got.get(t))
 
 
 def test_the_naked_position_card_still_reaches_whoever_holds_it():

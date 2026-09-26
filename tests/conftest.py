@@ -57,6 +57,12 @@ _STATE_FILES = (
     "data/user_profile.json",
     "data/user_profile.json.bak",
     "data/user_profile.json.tmp",
+    # The once-a-period stamps (bot/utils/day_stamp.py): the monitor's
+    # digests and the agent's public daily report. A digest test that left
+    # one behind would read "already sent" in every later test. Listed in
+    # the same commit as the feature, per the rule the glob block records.
+    "data/digest_sent.json",
+    "data/public_daily_report.json",
 )
 _STATE_GLOBS = (
     "data/portfolio_*.json",
