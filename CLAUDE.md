@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 708 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 706 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -12449,6 +12449,93 @@ Fourteen mutations, each killed on the first round. The case a flat figure
 needed (neither colour) was added before the round ran.
 (`tests/test_the_daily_report_is_the_days.py`.)
 
+**FOURTEEN READERS OF THE CLOSED-TRADE RECORD, AND THREE ASKED WHETHER IT
+HAD READ.** The executor loads its closed-trade file row by row. A row it
+cannot read is kept for the next save and left out of `closed_positions`. A
+file that will not parse loads as `[]`. Either way `closed_trades_read_failed`
+is set. The portfolio skill, the chat prompt and `/performance` asked the
+flag; every other reader printed its figures over whatever list it got.
+`/classpf` told a caller whose file would not parse *"No closed live trades
+yet"*, and the post-mortem answered *"No closed live trades on this account"*
+the same way. A partial record reached `/portfolio`, `/livebalance`, `/start`,
+`/status`, the risk and status skill panes, the `pro_scan` header, the
+playbook, the evening wrap and the post-mortem as though it were whole.
+
+`closed_record_partial` is the one reading, and it answers only a literal
+`True`, because a test double that answers every attribute truthily has
+reported nothing. The English sentence is `CLOSED_RECORD_UNREAD`, and fourteen
+languages carry it as `closed_record_unread` for the cards that are
+translated; a test pins the English key to the constant. A partial daily
+report is not posted to the public channels, the same reason the website sync
+withholds one. The post-mortem says its "last trade" is the latest one that
+could be read.
+
+**The rule is structural.** In `bot/`, outside the executor's own module, a
+function that reads `closed_positions` (as an attribute, or as the string a
+`getattr` names) must ask, in itself or an enclosing function, under any
+import alias, or be a row in `tests/closed_record_reads_baseline.txt` with its
+reason. Two-way. Three rows, each with its reason: the post-mortem's row
+accessor (both callers ask), the Details button's lookup of one close by id,
+and the journal-gap count, which a partial record can only understate. The
+rule checks that a function asks, not that the card says it; the drives read
+what each card says.
+
+**"Daily PnL" on the risk and status panes was every close ever.** The live
+branch summed the whole record under that label, while the paper branch read
+the day's figure. The day is one reading now, `closes_on_utc_day` in the same
+leaf, which `/status`, `/daily_report` and both panes ask. `/status` had its
+own copy (`_closed_on_utc_date`), which is deleted. The shared reading keeps
+that copy's rule that a close stamped tomorrow is not today's, and reads dict
+rows too.
+
+**The daily report called a measured flat close unrecorded.** Its win rate
+divided by `wins + losses`, so one win and one close at exactly 0.00 read
+100% over a note saying the flat close *"carries no recorded P&L"*, while the
+public post of the same day, off `win_stats`, said 50%. `flat` travels to the
+renderer and gets a row when there is one.
+
+**`/classpf` scored an unpriced close as a zero and a class with no loss as
+∞.** It read `float(pnl_usd or 0)`, so an unpriced close counted in the
+class's win-rate denominator. Classes are scored through `win_stats` now, the
+profit factor through `benchmark_record.profit_factor` (none over no loss),
+and a class nobody could price prints dashes and sorts last.
+
+**The `/portfolio` picture was sent only while a limit order was resting.**
+A `from datetime import datetime, timezone` inside the loop over resting
+limit orders made `datetime` local to the whole command, so the stats picture
+a hundred lines below raised `UnboundLocalError` whenever no limit order was
+listed, the `except` logged it at debug, and the command fell back to text.
+The drive written for the picture's caption found it. With the import gone,
+`/portfolio` sends the picture every time, as the code was written to. Ruff's
+F823 cannot see this shape, because the use sits below the import in source
+order, so a zero-baseline rule does
+(`tests/test_a_local_import_does_not_unbind_a_module_name.py`): a function
+must not import a name the module binds inside a branch and use it outside
+that branch.
+
+**And a test from the previous slice was forgiven as flaky, and was a clock.**
+The DOT slice's reconcile-case net-return test failed in the full run of this
+branch and passed alone. It borrows a close fill whose time is taken when the
+other test module is IMPORTED (`OPENED + 60s`), and builds its position three
+hours before the test RUNS. A 35-minute run puts the fill before the position,
+nothing matches, and the reconcile retries instead of closing. Moving the
+borrowed clock back 35 minutes reproduces it on the old test and not on the
+new one, which stamps the fill from its own clock. A fixture that reads the
+wall clock at import and one that reads it at call time disagree by exactly
+the length of the run.
+
+Sixty-three mutations: sixty-two killed and one equivalent. `/classpf`'s
+`trade_pnl` read only feeds `is_filled_close`, which reads `abs(pnl or 0.0)`,
+so a zero and an unread P&L answer alike there; the scoring it guards is
+driven through `win_stats`. Three survived the first round, all in the tests:
+no fixture held a close stamped tomorrow; the class-order fixture's three
+symbols all classified as Crypto, so its order said nothing; and the stale-row
+check passes against an honest baseline whatever the rule does, so it is
+driven on a planted row. Honesty 708 → 706 and mypy 555 → 554, both
+re-recorded.
+(`tests/test_every_closed_record_reader_asks_whether_it_read.py`,
+`tests/closed_record_reads_baseline.txt`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13740,7 +13827,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1102** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1104** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -578,9 +578,22 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     # frame apart. Its comment: "A 0% win rate is a claim that everything
     # lost." Same rule here — nothing scorable is `n/a`, not 0%, and the ring
     # and bar render empty rather than pretending to a measured zero.
-    scored = wins + losses
+    #
+    # ...and `wins + losses` left out the third priced outcome. A close priced
+    # at exactly 0.00 is a measured break-even, neither a win nor a loss, so
+    # a day of one win and one flat close printed 100% over a note saying the
+    # flat one "carries no recorded P&L", while the public post of the same
+    # day, off `win_stats`, said 50%. `flat` travels from the caller now, and
+    # gets its own row when there is one, so Total is the sum of the rows.
+    flat = data.get("flat") or 0
+    scored = wins + losses + flat
     wr = (wins / scored * 100) if scored > 0 else None
     _unscored = max(0, trades - scored)
+    flat_row = f"{_kv('Flat', str(flat) + ' ' + _NEU)}\n" if flat else ""
+    # The executor's closed-trade record did not read in full, so the day's
+    # closes are the ones that read.
+    record_note = data.get("record_note") or ""
+    record_line = f"   <i>{record_note}</i>\n" if record_note else ""
     wr_bar = _bar(wr if wr is not None else 0.0, 100.0, 10)
     wr_ring = _progress_ring(wr if wr is not None else 0.0)
     wr_str = "n/a" if wr is None else f"{wr:.0f}%"
@@ -594,6 +607,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     text = (
         f"{_header(chr(0x1F4D3), 'DAILY REPORT')}\n"
         f"   <i>Today, UTC</i>{untimed_note}\n"
+        f"{record_line}"
         f"   {_pnl_arrow(net if net is not None else 0.0)} "
         f"Net PnL: {_pill(net_txt)}\n\n"
         # ── Trade summary ──
@@ -602,6 +616,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         f"{_kv('Total', str(trades))}\n"
         f"{_kv('Wins', str(wins) + ' ' + _OK)}\n"
         f"{_kv('Losses', str(losses) + ' ' + _BAD)}\n"
+        f"{flat_row}"
         f"{_kv('Net PnL', net_txt)}"
         "</pre>\n\n"
         # ── Win Rate ──

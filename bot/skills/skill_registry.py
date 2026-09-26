@@ -984,6 +984,9 @@ class CheckRiskSkill(BaseSkill):
         streak = risk.consecutive_losses
         cost = engine.cost.snapshot()
 
+        # The closed-trade record did not read in full: the daily figure,
+        # the total and the win rate cover the rows that read.
+        record_note = ""
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
         if CONFIG.is_live():
             # The book THIS caller may view, through the same isolation guard
@@ -1014,9 +1017,19 @@ class CheckRiskSkill(BaseSkill):
             # measured break-even and prints the partial as a whole — and the
             # comment explaining exactly that was already sitting on the next
             # three lines, applied to the win rate only.
+            from bot.formatters.realized_totals import closed_record_partial as _partial_fn
+            from bot.formatters.realized_totals import closes_on_utc_day as _today_fn
             from bot.formatters.realized_totals import realized_totals as _rt_fn
             from bot.utils.win_rate import win_stats as _win_stats
-            display_pnl = _rt_fn(live_closed)["net"]
+            # "Daily PnL" on both panes, and this was the realized total of
+            # every close ever recorded. The paper branch below reads the
+            # day's figure; the live one reads the day's closes now, the one
+            # day reading /status and /daily_report share.
+            _today_closed, _ = _today_fn(live_closed, datetime.now(UTC))
+            display_pnl = _rt_fn(_today_closed)["net"]
+            if _partial_fn(executor):
+                from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD
+                record_note = CLOSED_RECORD_UNREAD
             # Scored over scorable: pnl_usd is Optional, and `or 0` filed
             # every unpriced close as a defeat while len() kept it in the
             # denominator.
@@ -1070,14 +1083,16 @@ class CheckRiskSkill(BaseSkill):
         if mode == "status":
             return self._status(engine, state, cb, streak, cost, exp_pct,
                                 display_equity, display_open, display_total_trades,
-                                display_pnl, display_win_rate, gate=gate, dd=dd)
+                                display_pnl, display_win_rate, gate=gate, dd=dd,
+                                record_note=record_note)
         return self._risk(state, cb, streak, total_exp, exp_pct, groups,
                           display_equity, display_open, display_pnl, gate=gate,
-                          dd=dd, exp_note=exp_note)
+                          dd=dd, exp_note=exp_note, record_note=record_note)
 
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
-                display_pnl, display_win_rate, gate=None, dd=(None, None, 0.0)):
+                display_pnl, display_win_rate, gate=None, dd=(None, None, 0.0),
+                record_note=""):
         # Two-valued off `simulation_mode` alone announced LIVE on an
         # IDLE real account — sim off, live never armed — on a card fed
         # to the LLM as engine state. `mode_label` is the reading and
@@ -1126,7 +1141,8 @@ class CheckRiskSkill(BaseSkill):
             f"  {health_ring} System Health {_health_txt}\n\n"
             # ── Capital card ──
             f"\U0001f4b0 <b>Capital</b>\n"
-            f"- Equity: <code>{_money(display_equity)}</code>\n"
+            + (f"<i>{record_note}</i>\n" if record_note else "")
+            + f"- Equity: <code>{_money(display_equity)}</code>\n"
             f"- Net: <code>{_money(net)}</code>\n"
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
             f"- Drawdown: <code>{'--' if _dd_pct is None else f'{_dd_pct:.1f}%'}</code>"
@@ -1155,7 +1171,7 @@ class CheckRiskSkill(BaseSkill):
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
               display_equity, display_open, display_pnl, gate=None,
-              dd=(None, None, 0.0), exp_note=""):
+              dd=(None, None, 0.0), exp_note="", record_note=""):
         _gw = gate_words(gate)
         cb_icon, cb_label = _gw.split(" ", 1)
         grp = ", ".join(f"{g}={c}" for g, c in groups.items()) if groups else "none"
@@ -1189,7 +1205,8 @@ class CheckRiskSkill(BaseSkill):
             f"{_gauge('Streak', streak, CONFIG.risk.max_consecutive_losses, unit='#')}\n\n"
             # ── Capital breakdown ──
             f"\U0001f4b0 <b>Capital</b>\n"
-            f"- Equity: <code>{_money(display_equity)}</code>\n"
+            + (f"<i>{record_note}</i>\n" if record_note else "")
+            + f"- Equity: <code>{_money(display_equity)}</code>\n"
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
             f"- Exposure: <code>{_money(total_exp)}</code>{exp_note}\n"
             f"- Positions: <code>{display_open} / {CONFIG.risk.max_open_positions}</code>\n"
@@ -2764,6 +2781,7 @@ class ProScanSkill(BaseSkill):
             # scan header was missed; it is reachable from Telegram today and
             # the web retarget would have added a second door to it.
             executor = engine.viewer_executor(_uid)
+            scan_pnl_partial = False
             if executor is None:
                 # No book to describe is not a flat book. The scan itself does
                 # not need an account, so the card still runs — it says the
@@ -2777,12 +2795,18 @@ class ProScanSkill(BaseSkill):
                 # `or 0` books every unpriced close as a measured break-even
                 # and prints the partial as a whole. The same file gets this
                 # right 600 lines down, with pnl_stats().
+                from bot.formatters.realized_totals import closed_record_partial as _partial_scan
                 from bot.formatters.realized_totals import realized_totals as _rt_scan
                 scan_pnl = _rt_scan(live_closed)["net"]
+                # A total over part of the record is marked on the cell it
+                # qualifies; the header has one line and no room for the
+                # sentence.
+                scan_pnl_partial = _partial_scan(executor)
         else:
             scan_equity = state.equity_usd
             scan_open = state.open_positions
             scan_pnl = state.daily_pnl
+            scan_pnl_partial = False
 
         header = (
             f"\u2694\ufe0f <b>RUNECLAW {cfg['label']}</b>\n{SEP}\n"
@@ -2796,7 +2820,8 @@ class ProScanSkill(BaseSkill):
             + "</code>"
             + "  \u2502  PnL: <code>"
             + (_money(scan_pnl, sign=True) if scan_pnl is not None
-               else "not linked") + "</code>\n"
+               else "not linked") + "</code>"
+            + (" <i>(record partly unread)</i>" if scan_pnl_partial else "") + "\n"
             f"  Timeframe: <code>{cfg['timeframe'].upper()}</code>"
             f"  \u2502  Scan Mode: <code>Swing-by-swing</code>\n"
         )
@@ -3492,6 +3517,8 @@ class PlaybookSkill(BaseSkill):
             from bot.utils.win_rate import pnl_stats as _pnl_stats
             _rp = _pnl_stats(closed_trades)
             realized_pnl = _rp["total"]
+            from bot.formatters.realized_totals import closed_record_partial as _partial_pb
+            realized_partial = _partial_pb(executor)
             # None, not 0: with the equity unread the ratio is unknown, and
             # "0% utilised" is the reassuring end of the range.
             utilization_pct = (total_exposure / display_equity * 100
@@ -3529,6 +3556,9 @@ class PlaybookSkill(BaseSkill):
                 lines.append(
                     f"  <i>covers {_rp['scored']} of {_rp['count']} closes — "
                     f"{_rp['unscored']} carry no recorded P&L</i>")
+            if realized_partial:
+                from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD
+                lines.append(f"  <i>{CLOSED_RECORD_UNREAD}</i>")
             # The bounds this account is actually held to, and WHICH figure
             # produced them. They were three flat constants, so the line said
             # the same thing to a $200 account and a $20,000 one; `why` names

@@ -227,14 +227,22 @@ def _card(path):
     """A priced 5x close through the bot's own close or the reconcile, with a
     limit entry placed 3h ago that filled 10 minutes ago."""
     from tests.test_an_unread_entry_is_an_unpriced_close import _close_fill, _executor
-    ex, _x = _executor(fills=[_close_fill("LONG", price=150.0, profit="100")]
-                       if path == "reconcile" else ())
+    now = datetime.now(UTC)
+    fill = _close_fill("LONG", price=150.0, profit="100")
+    # The borrowed fixture stamps its fill from ITS module's import-time clock
+    # (`OPENED + 60s`), and this position opens three hours before the test
+    # RUNS. In a 35-minute full run those two clocks are 35 minutes apart, the
+    # fill predates the position, nothing matches, and the reconcile retries
+    # instead of closing: a failure only a full run could produce, which the
+    # flake filter then forgave. The fill is stamped from this card's clock.
+    fill["timestamp"] = int((now - timedelta(minutes=1)).timestamp() * 1000)
+    ex, _x = _executor(fills=[fill] if path == "reconcile" else ())
     pos = LivePosition(trade_id="T-5X", symbol="SOL/USDT:USDT", direction="LONG",
                        entry_price=140.0, quantity=10.0, cost_usd=280.0,
                        stop_loss=130.0, take_profit=160.0, leverage=5,
                        status="open", order_type="limit",
-                       opened_at=datetime.now(UTC) - timedelta(hours=3))
-    setattr(pos, "filled_at", datetime.now(UTC) - timedelta(minutes=10))
+                       opened_at=now - timedelta(hours=3))
+    setattr(pos, "filled_at", now - timedelta(minutes=10))
     ex._positions = {pos.trade_id: pos}
     if path == "reconcile":
         (msg,) = asyncio.run(ex.reconcile_positions())

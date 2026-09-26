@@ -1271,6 +1271,15 @@ class ProactiveMonitor:
                         f"Recent closes: <b>{len(closed)}</b> "
                         f"(<b>{ws['wins']}</b> wins of {ws['scored']} priced) · "
                         f"{net_bit}{unpriced}")
+                # "Recent" is the newest that READ: a record that did not
+                # read in full may be missing the closes that matter most,
+                # and one that would not parse at all shows none here.
+                from bot.formatters.realized_totals import (
+                    CLOSED_RECORD_UNREAD,
+                    closed_record_partial,
+                )
+                if closed_record_partial(ex):
+                    lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
             except Exception:
                 pass
             lines.append(

@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2215-2216), trailing ENABLED at 1.5 ATR
 (:2217-2218), a 48h time-close with a 12h warn (:2219-2220), min confidence
 0.50 (:2234), max risk 2% (:2240) — every one distinct from the scalp row
-above it. skill_registry.py:1987 reads those multipliers when it builds the
+above it. skill_registry.py:2004 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2502) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2519) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,8 +136,8 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:1987 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :1823-1827 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2004 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :1840-1844 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
@@ -153,9 +153,9 @@ time-close with a 1h warn (:2203-2204), min confidence 0.65 (:2232), max risk
 of movement; config.py:1617 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2485); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2502); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1951) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1968) as a
 tighten-only veto on that user's own confirms (trading_commands.py:412); /run
 scalp and /fullscan scalp are the other two.
 
@@ -357,7 +357,7 @@ suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1935) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:1952) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -679,7 +679,7 @@ and three share buttons (dashboard.js:5251-5299); an anonymous ?ref= landing
 resolves the referrer's public handle only, 404s unknown codes and is rate-
 limited and cached (public_invite.js:25). Telegram is covered too: /start
 parses the ref_ payload and writes it write-once, refusing self-referral
-(start_commands.py:163-166 → user_store.py:659). And one perk is genuinely
+(start_commands.py:139-142 → user_store.py:659). And one perk is genuinely
 backed — app/lib/duel_squads.js builds Daily Duel SQUADS out of exactly this
 referral graph, served by GET /api/public/duel/squads (public_duel.js:101) and
 rendered on /duel.
@@ -842,12 +842,12 @@ with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
 agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
 24h horizon measured from their own call, beating the agent scoring double
 (app/lib/duel.js:5-8, :40-43). Doors, opened and read: Telegram /duel at
-bot/skills/start_commands.py:595 (@guard("start"), which `pending` holds, so
+bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
 registered at
 telegram_handler.py:1004, with LONG/SHORT/PASS inline buttons whose taps land
-in _handle_duel_callback at start_commands.py:613; the web page at
+in _handle_duel_callback at start_commands.py:596; the web page at
 app/server.js:477 driving the four authed routes at
 app/routes/duel.js:43/57/73/98; and the session-free public board and referral
 'squads' board at app/routes/public_duel.js:3 (mounted app/server.js:370),
@@ -1076,7 +1076,7 @@ anonymous ranked leaderboard showing handle, return %, trade count and win
 rate and never a dollar (leaderboard.js:1-10), the Daily Duel with a 90-day
 record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
 Command Deck's streaks/weekly quests/achievement glyphs. Telegram doors: /duel
-(start_commands.py:595, @guard("start")), /leaderboard (:640) and /arena (:667).
+(start_commands.py:578, @guard("start")), /leaderboard (:623) and /arena (:650).
 
 *Gap.* No prize, purse, payout, entry fee, wager or token/NFT award exists in any of
 it — grep for prize/reward/payout across arena.js, arena_seasons.js,
@@ -1199,7 +1199,7 @@ people who joined on it (auth.js:896-916), the invite panel renders the link
 with one-tap Telegram/X/Warpcast shares, /api/public/invite/:code personalises
 the landing while revealing only an already-public handle, and Telegram /start
 parses a `ref_<code>` deep-link payload on first contact
-(start_commands.py:163). Referrals also do one real thing: they build your
+(start_commands.py:139). Referrals also do one real thing: they build your
 Duel squad.
 
 *Gap.* It pays nothing, and the code says so in as many words — app/auth.js:433-434:
@@ -1221,7 +1221,7 @@ self-referral guarded at auth.js:591-606, GET /api/auth/referrals returning
 code+count at auth.js:896-916, the invite panel's Telegram/X/Warpcast buttons
 at dashboard.js:5292-5296, GET /api/public/invite/:code, the Telegram
 `ref_<code>` deep link parsed on FIRST CONTACT ONLY at
-start_commands.py:163-166 v…
+start_commands.py:139-142 v…
 
 **Ambassador roles** — nothing serves this ⟲ — the verifier overturned *partial*
 
@@ -1573,7 +1573,7 @@ referral read, and rc_ref is consumed only by the email/password register
 (index.html:1289-1291), so the localStorage persistence whose own comment says
 it exists "so it survives an OAuth round-trip" reaches no OAuth path. (2) The
 Telegram half is a dead end: /start records an attribution into the bot's JSON
-store (start_commands.py:163-166 → user_store.record_referrer at :659), and
+store (start_commands.py:139-142 → user_store.record_referrer at :642), and
 grepping bot/ for readers of `referred_by` finds NONE outside that write and
 its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
@@ -1586,7 +1586,7 @@ attribution.
 *The verifier refused part of this row.* Still partial for the WEB email/password program, but two of the named doors
 do not lead where the row says. (1) THE TELEGRAM ref_ DEEP LINK HAS NO
 PRODUCER AND NO READER. The receiver is real and reachable —
-start_commands.py:163-166 calls parse_start_payload(ctx.args[0]) on first
+start_commands.py:139-142 calls parse_start_payload(ctx.args[0]) on first
 contact and writes users.record_referrer — but nothing in the product ever
 mints such a link. invite_link(bot_username, ref_code) (share_invite.py:118)
 is called from exactly on…

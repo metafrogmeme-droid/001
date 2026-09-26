@@ -941,6 +941,14 @@ class AccountCommands:
             executor = balance_exec
             open_pos = executor.open_positions
             closed_pos = executor.closed_positions
+            # The Net PnL and the trade count below cover the rows the
+            # executor could read; say so when that is not the whole record.
+            from bot.formatters.realized_totals import (
+                CLOSED_RECORD_UNREAD,
+                closed_record_partial,
+            )
+            _record_line = ([f"   <i>{CLOSED_RECORD_UNREAD}</i>"]
+                            if closed_record_partial(executor) else [])
             # Filter out adopted/injected trades and never-filled orders (canceled/
             # expired/price_drift/rejected close at $0 PnL) for consistency with
             # the Performance view.
@@ -1003,6 +1011,7 @@ class AccountCommands:
                 f"💰 <b>{account_label}</b>",
                 f"{SEP}",
                 f"   {pnl_icon}  Net PnL: <code>{_realized_str}</code> (fees: {_fees_str}){_partial}",
+                *_record_line,
                 "",
             ]
             # The higher of venue-reported `used` and bot-tracked exposure is

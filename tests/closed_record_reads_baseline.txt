@@ -1,0 +1,9 @@
+# Functions that read executor.closed_positions and do not ask whether the
+# record read in full (closed_record_partial / closed_trades_read_failed).
+# Read by tests/test_every_closed_record_reader_asks_whether_it_read.py.
+# Two-way: a new unasked reader fails, and a row the rule no longer finds
+# fails. Every row carries its reason after a '#'.
+
+bot/core/trade_postmortem.py::rows_of  # a row accessor over two book kinds; both of its callers (find_closed_trade, postmortem_for) ask the book whether its record read in full
+bot/skills/callback_handler.py::CallbackHandler._handle_callback  # the Details button looks up ONE close by its trade id to recover a symbol for the venue fallback; a row that did not read cannot be found by id either way, and the fallback then asks the venue by the id it was given
+bot/skills/engine_ops_commands.py::_journal_gap_closes  # counts executor closes to say the journal is SHORT of them; a partial record can only make that count a floor, so the gap line can be understated and never invented

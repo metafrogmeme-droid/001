@@ -36,6 +36,11 @@ from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.live_executor import committed_margin, committed_margin_note
 from bot.core.trade_gate import caller_risk, entry_gate
+from bot.formatters.realized_totals import (
+    CLOSED_RECORD_UNREAD,
+    closed_record_partial,
+    closes_on_utc_day,
+)
 from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
@@ -65,36 +70,6 @@ def _caller_dd_status(engine, user_id) -> dict:
     """
     risk = caller_risk(engine, str(user_id or ""))
     return (risk.drawdown_status() or {}) if risk is not None else {}
-
-
-def closes_on_utc_day(rows, now) -> tuple[list, int]:
-    """The closes of ``now``'s UTC day, and how many carry no readable time.
-
-    `/daily_report` counted every close ever recorded under a heading that
-    says DAILY, and forwarded the same figures to the public channels as the
-    day's. A close whose time cannot be read cannot be placed in a day: it is
-    counted apart and never filed as today's.
-    """
-    from datetime import datetime as _dt
-
-    from bot.compat import UTC as _UTC
-    start = now.astimezone(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    today, untimed = [], 0
-    for row in rows:
-        at = getattr(row, "closed_at", None)
-        if isinstance(at, str):
-            try:
-                at = _dt.fromisoformat(at)
-            except ValueError:
-                at = None
-        if not isinstance(at, _dt):
-            untimed += 1
-            continue
-        if at.tzinfo is None:
-            at = at.replace(tzinfo=_UTC)
-        if at >= start:
-            today.append(row)
-    return today, untimed
 
 
 def _unpriced_tag(stats: dict) -> str:
@@ -172,42 +147,74 @@ class PortfolioCommands:
             await self._send(update, no_live_account_line(live_account_absence(user_id)))
             return
         trades = list(executor.closed_positions or [])
+        # A record the executor could not read in full holds only the rows it
+        # could read, and a file that would not parse at all arrives as [].
+        # "No closed live trades yet" over that is the failed read printed as
+        # an empty history.
+        partial = closed_record_partial(executor)
         if not trades:
-            await self._send(update, "📊 No closed live trades yet — "
-                                     "per-class stats appear after the first close.")
+            await self._send(update, (f"📊 <i>{CLOSED_RECORD_UNREAD}</i>" if partial
+                                      else "📊 No closed live trades yet — "
+                                           "per-class stats appear after the first close."))
             return
 
+        from bot.backtest.benchmark_record import profit_factor
         from bot.utils.close_reason import is_filled_close
+        from bot.utils.win_rate import trade_pnl, win_stats
 
-        buckets: dict[str, list[float]] = {}
+        # Per class, the filled closes themselves, read through the one P&L
+        # reading (`trade_pnl`, None for a close nobody priced). The P&L was
+        # read as `float(pnl_usd or 0)`, so an unpriced close counted as a
+        # measured break-even in the class's win-rate denominator, the shape
+        # `win_stats` exists to refuse.
+        buckets: dict[str, list] = {}
         skipped_non_fills = 0
         for tr in trades:
             try:
-                pnl = float(getattr(tr, "pnl_usd", 0) or 0)
+                pnl = trade_pnl(tr)
                 if not is_filled_close(getattr(tr, "close_reason", None), pnl):
                     skipped_non_fills += 1
                     continue  # never filled — no capital was at risk
                 cat = category_for_symbol(getattr(tr, "symbol", "") or "")
             except Exception:
                 continue
-            buckets.setdefault(cat, []).append(pnl)
+            buckets.setdefault(cat, []).append(tr)
+
+        def _priced(rows: list) -> list[float]:
+            return [x for x in (trade_pnl(r) for r in rows) if x is not None]
+
+        def _net(rows: list) -> Optional[float]:
+            priced = _priced(rows)
+            return sum(priced) if priced else None
 
         n_filled = sum(len(v) for v in buckets.values())
         lines = ["📊 <b>Live performance by asset class</b>",
                  f"({n_filled} filled trades, net PnL"
                  + (f"; {skipped_non_fills} never-filled records excluded)"
                     if skipped_non_fills else ")")]
-        for cat in sorted(buckets, key=lambda c: -sum(buckets[c])):
-            pnls = buckets[cat]
-            wins = [p for p in pnls if p > 0]
-            losses = [-p for p in pnls if p < 0]
-            gw, gl = sum(wins), sum(losses)
-            pf = (gw / gl) if gl > 0 else (float("inf") if gw > 0 else 0.0)
-            pf_s = "∞" if pf == float("inf") else f"{pf:.2f}"
-            wr = 100.0 * len(wins) / len(pnls) if pnls else 0.0
+        if partial:
+            lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
+        # Classes with a readable net first, largest first; a class nobody
+        # could price last, because it has no place on that scale.
+        nets = {c: _net(rows) for c, rows in buckets.items()}
+        priced_nets = {c: n for c, n in nets.items() if n is not None}
+        order = (sorted(priced_nets, key=lambda c: -priced_nets[c])
+                 + [c for c in buckets if nets[c] is None])
+        for cat in order:
+            rows = buckets[cat]
+            ws = win_stats(rows)
+            priced = _priced(rows)
+            net = nets[cat]
+            # No losing trade is not an infinite edge, and no trade that
+            # could be priced is not a profit factor of 0.
+            pf = profit_factor(priced)
+            pf_s = "—" if pf is None else f"{pf:.2f}"
+            wr_s = "—" if ws["rate"] is None else f"{100.0 * ws['rate']:.0f}%"
+            net_s = "—" if net is None else f"${net:+.2f}"
+            unpriced_s = f" · {ws['unscored']} unpriced" if ws["unscored"] else ""
             lines.append(
-                f"{category_icon(cat)} <b>{cat}</b>: {len(pnls)} trades · "
-                f"PF <b>{pf_s}</b> · WR {wr:.0f}% · net ${sum(pnls):+.2f}")
+                f"{category_icon(cat)} <b>{cat}</b>: {len(rows)} trades · "
+                f"PF <b>{pf_s}</b> · WR {wr_s} · net {net_s}{unpriced_s}")
         lines.append("")
         lines.append("PF &gt; 1 = profitable class. Small samples lie — "
                      "judge classes on 20+ trades.")
@@ -386,6 +393,11 @@ class PortfolioCommands:
         _card_exposure: Optional[float] = None
         _card_dd: Optional[float] = None
         _card_dd_src: Optional[str] = None
+        # Set when the realized figures on the card and in the text cover
+        # part of the closed-trade record, because the record did not read
+        # in full. The PNG returns before the text is sent, so its caption
+        # has to carry it too.
+        _record_note = ""
         sep = "─" * 16
 
         if mode_str == "LIVE":
@@ -405,6 +417,8 @@ class PortfolioCommands:
                 return
             live_open = executor.open_positions
             all_closed = executor.closed_positions
+            if closed_record_partial(executor):
+                _record_note = t("closed_record_unread", lang)
 
             # Exclude adopted orphan trades and injected diagnostic artifacts
             # so Portfolio matches Performance numbers
@@ -514,6 +528,7 @@ class PortfolioCommands:
                  + (f"${live_exposure:,.2f}" if live_exposure is not None
                     else t('pnl_unknown', lang))
                  + "</code>" + committed_margin_note(_exp)),
+                *([f"<i>{_record_note}</i>"] if _record_note else []),
                 _net_pnl_line,
                 (f"- {t('lbl_fees_paid', lang)}: <code>${live_total_fees:,.2f}</code>"
                  if _fees_known else
@@ -561,8 +576,12 @@ class PortfolioCommands:
                     pair = lp.symbol.replace("/", "").replace(":USDT", "")
                     # Calculate time since placed
                     if lp.opened_at:
-                        from datetime import datetime, timezone
-                        age_secs = (datetime.now(timezone.utc) - lp.opened_at).total_seconds()
+                        # The module's own `datetime`. A local `from datetime
+                        # import datetime` here made the name local to the
+                        # WHOLE function, so the stats picture below raised
+                        # UnboundLocalError whenever no limit order was
+                        # resting, and /portfolio fell back to text.
+                        age_secs = (datetime.now(UTC) - lp.opened_at).total_seconds()
                         if age_secs < 3600:
                             age_str = f"{age_secs / 60:.0f}m ago"
                         else:
@@ -794,7 +813,9 @@ class PortfolioCommands:
                     {"label": _dd_lbl, "value": _dd_val, "color": _dd_col},
                 ],
             })
-            if _png and await self._send_photo(update, _png, f"\U0001f4ca <b>{t('portfolio_card_title', lang)}</b>"):
+            _caption = f"\U0001f4ca <b>{t('portfolio_card_title', lang)}</b>" + (
+                f"\n<i>{_record_note}</i>" if _record_note else "")
+            if _png and await self._send_photo(update, _png, _caption):
                 return
         except Exception as exc:
             system_log.debug("portfolio card render failed: %s", exc)
@@ -1004,7 +1025,7 @@ class PortfolioCommands:
             # are fields. It raised every time it ran and audited an ERROR on
             # every /performance of an empty record. It never loaded a trade,
             # so deleting it changes no card.
-            record_partial = bool(getattr(executor, "closed_trades_read_failed", False))
+            record_partial = closed_record_partial(executor)
 
             # ── Separate adopted/injected vs user-initiated trades ──
             # Exclude: TI-adopted (orphan positions), TI-injected (diagnostic artifacts),
@@ -1018,7 +1039,7 @@ class PortfolioCommands:
             # Third copy of the same parenthetical (see /balance and
             # /portfolio). The win rate six lines below was carefully made to
             # pass None through; this total beside it was not.
-            from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD, realized_totals
+            from bot.formatters.realized_totals import realized_totals
             adopted_pnl = realized_totals(adopted_trades)["net"]
 
             total_trades = len(user_trades)
@@ -1217,6 +1238,7 @@ class PortfolioCommands:
 
             from bot.compat import UTC as _UTC_daily
             from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_daily
+            record_partial = closed_record_partial(executor)
             closed, untimed = closes_on_utc_day(
                 [t for t in executor.closed_positions
                  if not any(getattr(t, "trade_id", "").startswith(p)
@@ -1282,6 +1304,7 @@ class PortfolioCommands:
             from bot.compat import UTC as _UTC_daily
             trades, untimed = closes_on_utc_day(portfolio.trade_history,
                                                 _dt_daily.now(_UTC_daily))
+            record_partial = False
             today_trades = len(trades)
             # The PAPER twin of the live branch above, and it carried the same
             # two defects in a different shape: `t.pnl > 0` raises rather than
@@ -1322,6 +1345,8 @@ class PortfolioCommands:
             "risk_status": risk_status, "drawdown_pct": dd,
             "unscored": unscored,
             "untimed": untimed,
+            "flat": _ws["flat"],
+            "record_note": CLOSED_RECORD_UNREAD if record_partial else "",
         }
         rendered = wr_daily_report(data)
         await self._send(update, rendered["text"])
@@ -1341,8 +1366,13 @@ class PortfolioCommands:
         #   * a day with zero closes posted "W/L: 0/0 | Win Rate: 0%". A 0%
         #     win rate is a claim that everything lost. Nothing traded is a
         #     different statement, and it does not need a post at all.
+        #
+        # And a record that did not read in full is not posted. The day's count
+        # would be the closes that read, published as the day's; the website
+        # sync withholds a partial record for the same reason, and the private
+        # card above says so.
         try:
-            if today_trades > 0:
+            if today_trades > 0 and not record_partial:
                 _rate = _ws.get("rate")
                 _lines = [
                     f"Trades: <code>{today_trades}</code> | "

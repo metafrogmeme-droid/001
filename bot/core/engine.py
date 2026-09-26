@@ -771,12 +771,12 @@ class RuneClawEngine:
         self.live_executor.on_position_closed = lambda pos: self._on_live_position_closed(pos)
         # Wire risk engine for warning rate circuit breaker
         self.live_executor._risk_engine = self.risk
-        # The live-performance governor's window is memory and the executor's
-        # closed-trade record is on disk, so a restart used to lift a PAUSE.
-        # Live only: in paper mode the window is fed by paper closes.
+        # A restart used to lift a governor PAUSE (the window is memory, the record disk). Live only.
         if CONFIG.is_live():
             try:
                 _closed_record = self.live_executor.closed_positions
+                if self.live_executor.closed_trades_read_failed:
+                    logger.warning("Governor window seeded from a closed-trade record that did not read in full")
                 _seeded = self.risk.seed_realized_window(
                     _live_executor_mod.realized_close_pnls(_closed_record),
                     returns=_live_executor_mod.realized_close_returns(_closed_record),
