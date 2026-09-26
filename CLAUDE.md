@@ -11134,6 +11134,137 @@ fixture: the order-keeping test listed the names alphabetically, so a sort
 changed nothing until the fixture's order was not sorted.
 (`tests/test_a_venue_read_clears_what_adoption_could_not_read.py`.)
 
+**ANY LINKED USER'S /link WIPED THE AGENT'S PUBLISHED RECORD, AND THE ROUTE
+CALLED THAT "SERVER-ENFORCED".** `cmd_link` pushed
+`sync_in_background(user_id, portfolio.get("equity", 800), [], [])` after
+every successful link, ungated, and `cmd_sync` (`@require_registered` only)
+pushed `sync_portfolio(uc.user_id, ...)`. Both read `user_portfolio`, and
+nothing in the tree writes a figure to that table: its two inserts write the
+column defaults, and `save_user_portfolio`'s one caller
+(`UserContext.save_portfolio`) has no caller. So the payload was always equity 10,000, no positions,
+no closes. `app/routes/sync.js` enforced the operator's id by IGNORING the
+one the payload carried, which meant a push about somebody else was applied
+to the agent's rows. Driven on the in-memory website with the real route:
+
+    operator sync  -> 200, 3 closes, equity 250
+    user 77 /link  -> 200, DELETE FROM trades WHERE user_id = 1,
+                          DELETE FROM equity_snapshots WHERE user_id = 1,
+                          INSERT equity_snapshots (1, 10000, ...)
+
+The public track record went to `trades: 0`. The user was told "Dashboard
+synced. Equity: $10000.00"; their own account received nothing.
+
+**There was never anything to push.** A linked user's dashboard asks the bot
+for their account each time it loads (`app/routes/portfolio.js` reads the
+gateway by Telegram id), so /link sends nothing now and /sync says so: no
+figure, no "synced", and "nothing was sent". The link card no longer promises
+that /sync pushes an update, in fourteen languages. `sync_portfolio` and
+`sync_in_background` take no account at all, because the push is the agent's
+record and the website decides whose rows those are (`BOT_USER_ID`). A
+parameter is a door, and the one caller that held a user id would hand it to
+the one route that writes the agent's rows.
+
+**The route refuses rather than ignores.** `POST /` and `/trade-event`
+answer 409 `not_the_agent_record` and write nothing for a payload that names
+another account. An absent id is the agent's record (what the bot sends
+now). The operator's own id, as a number or a numeric string, is accepted
+too: older bot builds named `1` for the agent's push. `true` and `[1]` are
+`1` to `Number()`, so a non-numeric id is refused by type first. The refusal
+is logged with the named id JSON-quoted and cut at 40 characters, so a
+newline in it cannot split the log line. Refusing is also what protects the
+deploy window: `app/` and `bot/` deploy separately, and an older bot's /link
+push is refused by a new website.
+
+**Deliberately not changed, and one deploy cost stated.** A deployment that
+set `BOT_USER_ID` to something other than 1 will refuse an older bot's agent
+pushes (they named `1`) until the bot is redeployed; the website then shows
+the last synced record rather than a wrong one. And an older bot's /link by
+the operator's own website account still names the operator's id and is
+accepted, so the bot redeploy is what closes that case. `/me` still prints
+equity from the same unwritten table, which is filed rather than fixed here.
+
+**The one legitimate sender is driven, not stubbed.** The operator's paper
+close mirrors the agent's book from a callback built inside the engine's
+`__init__`. Once the sender took no account, a leftover `user_id=1` there
+would raise inside that callback's own `except`, which logs and moves on:
+the agent's record would silently stop being mirrored. A stub that accepts
+anything cannot see that, so the test builds the real engine and records the
+push with the sender's real signature.
+
+**Twenty-two mutations, each killed. One first-round kill was for the wrong
+reason.** Adding `user_id=None` between two positional parameters of
+`sync_portfolio` is a SyntaxError, so it "died" at collection. Re-aimed as a
+trailing keyword, it dies on the signature test. The engine edit also kept
+its line count, because `docs/INCOME_MAP.md` cites `engine.py` lines below
+it, and the first draft moved one of them by a line.
+(`tests/test_a_linked_users_sync_does_not_touch_the_agents_record.py`,
+`app/test/a_bot_push_naming_another_account_is_refused.test.js`.)
+
+**A CLOSED-TRADE FILE THE BOT COULD NOT READ WAS PUBLISHED AS THE AGENT'S
+WHOLE HISTORY.** `/api/bot/sync` replaces the operator's rows: `sync.js`
+deletes every operator trade on every push and inserts the list it is sent.
+When the closed-trade file will not parse, or holds a row the loader cannot
+read, `LiveExecutor` says so (`closed_trades_read_failed`) and holds an empty
+or partial list. `_sync_live_state_to_website` never asked, and it runs at
+boot and on every open and close. Driven with a real executor over a planted
+file: a file that would not parse was pushed as `closed_trades: []`, and a
+file with one bad row of three was pushed as the other two. The website would
+have deleted every trade it held and published what was left as the record.
+
+**Nothing is pushed until the file reads.** `website_sync.record_unreadable`
+is the check, and the engine asks it before building anything. The website
+keeps its last copy, and that copy's age says how old it is. Sending the
+positions and equity without the trades was not an option: `sync.js` deletes
+the trades on every push whatever it is sent, and so does every website
+already deployed, while `app/` and `bot/` deploy separately. The warning is
+said once per file, because the sync runs on every open and close. A file
+that is simply absent is a bot that has closed nothing, and is still pushed as
+an empty list.
+
+**THE RULE FOR WHAT COUNTS AS A TRADE HAD NEVER RUN ON THE LIVE PATH.**
+`sync_portfolio` filters with `trade_filter.countable` before anything reaches
+the website, whose schema stores neither `trade_id` nor `close_reason`. The
+live sync handed it dicts with neither key, and the rule read them with
+`getattr`, which a dict answers with the default for every key. Driven: a
+limit order that never filled (`stale_pending`, pnl 0.0) and an adopted
+orphan's stop-out were both sent, so the public track record counted the
+unfilled order as a flat trade in its win rate and the orphan's loss in its
+profit factor. The scan payload read the closed-trade file, dicts again,
+through no filter at all. The rule reads a dict's keys now (`_field`), the
+live rows carry the two fields (they never reach the wire; a test pins the
+payload's shape), and the scan payload's count, net and win rate go through
+the same rule. `test_the_sync_sends_only_countable_trades` had pinned that
+the filter was CALLED, which it was, on rows it could not read.
+
+**THE PUBLIC RECORD NOW SAYS WHAT WINDOW IT COVERS, AND WHAT WINDOW TO KEEP
+IS FILED AS A DECISION.** Measured: the executor keeps up to 500 closes and the
+sync sends the newest 50, filtered after the slice, so ten never-filled
+orders among the newest 50 publish 40. Every sync with an equity reading also
+deletes the operator's equity curve and starts it again from that reading.
+So `/api/public/track-record`'s count, win rate, profit factor, monthly
+buckets and first trade cover at most the last 50 closes, and its drawdown,
+return and curve cover only the time since the last push, and nothing said
+so. The payload and the MCP `get_track_record` tool carry a `coverage` block
+now (`recordCoverage`, one function in `track.js`): the basis, the count of
+closes, where the equity curve starts, and a sentence saying these are the
+bot's newest closes, not necessarily its whole history. What is sent and
+kept is unchanged: sending the whole record, appending snapshots instead of
+replacing them, or disclosing the bot's own total are product decisions.
+
+**Twenty-seven mutations, each killed on the first round.** Two were shaped by
+planning the round rather than by running it. The curve's start taken from
+its newest point would have survived a fixture holding one snapshot, because
+after a sync the first point is the last; a reading written after the sync is
+in the fixture now. And keying the warning by nothing instead of by file
+first died on the said-once test for the wrong reason (an earlier test's
+warning had already used the one key); a test with two unreadable files
+measures it directly. The engine's line count is unchanged: the rationale
+moved into `website_sync`, and a nine-line comment above the P&L field was
+condensed, because `docs/INCOME_MAP.md` cites `engine.py` lines below it.
+(`tests/test_an_unreadable_record_is_not_published_as_the_whole.py`,
+`tests/test_the_live_record_publishes_only_trades.py`,
+`app/test/track_record_states_its_window.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -12425,7 +12556,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1068** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1071** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
