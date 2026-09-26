@@ -196,13 +196,16 @@ class TestTheIntendedLeverage:
     def test_the_drift_fallback_guard_reads_it(self, origin, expected):
         """The third fill guard, driven the way the partial-fill suite drives
         the fallback: a market order for the remainder, then the guard."""
-        from types import SimpleNamespace
         ex = LiveExecutor.__new__(LiveExecutor)
         ex._standard_leverage = lambda symbol: 7
         pos = self._pos(origin, 0)
         pos.limit_order_id = "OID1"
         ex._positions = {"T": pos}
-        ex._venue = SimpleNamespace(order_symbol=lambda s: s, futures_params=lambda: {})
+        # The real venue, as the partial-fill case above uses. A stand-in that
+        # listed two attributes lost the drift fallback's pre-fill read when
+        # that read began asking the venue for its order-read params, and the
+        # fallback then refused the market order before the guard was reached.
+        ex._venue = get_venue("bitget")
         ex._save_positions = lambda: None
         ex._place_sl_tp = AsyncMock(return_value=("SL1", "TP1"))
         ex._reattempt_post_fill_sl = AsyncMock(return_value=("SL1", "TP1", None))
