@@ -32,10 +32,12 @@ class TestReconcileExchangeClosePnlPure:
 
     def test_net_path_reconstructs_gross_by_adding_full_round_trip_fees(self):
         # Bitget netProfit=48, full round-trip fee (open+close)=2 -> gross=50.
-        gross, net, commission = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=48.0, exchange_close_fees=2.0, pnl_is_net=True,
             entry_notional=1000.0, entry_fee_pct=0.02,
         )
+        gross, net, commission = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert gross == pytest.approx(50.0)
         assert net == pytest.approx(48.0)
         assert commission == pytest.approx(2.0)
@@ -43,10 +45,12 @@ class TestReconcileExchangeClosePnlPure:
     def test_gross_path_does_not_double_count_the_close_fee(self):
         # Per-fill "profit"=50 (gross), close-side fee only=1, entry
         # notional=1000 @ 0.02% maker -> estimated entry fee=0.2.
-        gross, net, commission = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=50.0, exchange_close_fees=1.0, pnl_is_net=False,
             entry_notional=1000.0, entry_fee_pct=0.02,
         )
+        gross, net, commission = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         # gross_pnl must stay exactly the reported (already-gross) figure --
         # NOT 50 + 1 = 51, which is what the old code computed.
         assert gross == pytest.approx(50.0)
@@ -54,18 +58,22 @@ class TestReconcileExchangeClosePnlPure:
         assert net == pytest.approx(50.0 - 1.2)  # 48.8, NOT 50.0
 
     def test_gross_path_net_pnl_is_always_less_than_gross_pnl_for_positive_fees(self):
-        gross, net, commission = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=10.0, exchange_close_fees=0.5, pnl_is_net=False,
             entry_notional=500.0, entry_fee_pct=0.06,
         )
+        gross, net, commission = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert net < gross
         assert commission > 0.5  # includes the estimated entry fee on top
 
     def test_net_path_with_zero_fees_is_a_no_op(self):
-        gross, net, commission = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=10.0, exchange_close_fees=0.0, pnl_is_net=True,
             entry_notional=500.0, entry_fee_pct=0.06,
         )
+        gross, net, commission = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert gross == net == pytest.approx(10.0)
         assert commission == 0.0
 

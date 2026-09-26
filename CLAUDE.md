@@ -13143,6 +13143,190 @@ added before it ran.
 > code it loaded does not.
 (`tests/test_an_unstated_fill_profit_is_not_a_break_even.py`.)
 
+**FUNDING IS A COST, THE VENUE STATES IT ON THE ROW THIS BOT ALREADY FETCHES,
+AND NOTHING READ IT.** `_close_from_history` calls
+`/api/v2/mix/position/history-position` and reads seven fields off the matched
+row — `openAvgPrice`, `closeAvgPrice`, `pnl`, `achievedProfits`, `openFee`,
+`closeFee`, `netProfit`, `leverage`. The same row carries `totalFunding`, the
+accumulated funding over the position's whole life, and a grep of `bot/` for
+funding finds only the entry-time WARN and the `funding_clock` import.
+`closed_trade_row` had `pnl_usd`, `gross_pnl` and `commission` and **no funding
+field at all**, so every figure built on that record was short by it: the
+governor's realized window, the loss streak, the cooldown, the live daily
+accumulator, the equity throttle's profit factor, parity's net, `/performance`,
+the journal's R and the public close return. The backtest chapter above states
+the rule this violates and was cured of it — *"no funding" has to be READABLE,
+because on a market that pays none it means there was nothing to charge and on
+one that does it means nobody priced it* — and the live path, which can actually
+read the number, never got that cure.
+
+**THE COMMENT OVER THE CALL SAID IT WAS HANDLED.** *"Try position history first
+(includes funding fees — most accurate)"* has stood above that lookup since it
+was written. It is true of ONE of the stage's branches and false of the one
+below it, which derives a net from the GROSS field and flagged it `_pnl_is_net
+= True`: `pnl` excludes funding and `openFee + closeFee` are fees, so that
+branch booked a "net" with no funding in it and said it was net. A comment that
+is true of the happy branch is how the other one goes unexamined.
+
+**WHICH FIGURE CONTAINS IT IS MEASURED, NOT READ OFF A DOC FOR A SIBLING
+ENDPOINT.** `docs/bitget-uta/trade.md` is vendored in this repo and settles the
+semantics of the UTA twins — `cumRealisedPnl` *"Excluding fees and funding
+costs"*, `netProfit` *"Including fees and funding costs"*, `totalFunding` *"If
+the value is zero, it indicates no fees have been charged"* — and the call this
+bot makes is the CLASSIC v2 endpoint, whose table is not in the repo. So the
+relationship is checked against each row's own fields:
+
+    funding-inclusive:  netProfit == pnl + funding - (|openFee| + |closeFee|)
+    fee-only:           netProfit == pnl - (|openFee| + |closeFee|)
+
+The two candidates differ by **exactly the funding**, which is what lets one row
+decide for itself — and it decides only when it has to. `leverage_readback`'s
+shape one field over: the value, the field it came from, and whether that field
+DECIDES, never a number without the third.
+
+**THE RECORDED GROSS WAS THE PRICE MOVE MINUS THE FUNDING, UNDER THE NAME
+GROSS.** With `netProfit` as the reported figure, `gross = exchange_pnl + fees`
+put the funding inside the gross, because the funding was already inside the
+net. Driven on one row — gross 12.50, funding paid 0.84, fees 1.22 — the old
+arithmetic recorded **11.66** as the gross where the price move is **12.50**: a
+quantity with no name, on the one field every card labels as the move before
+fees. The funding is stripped out first now, so the triple closes
+(`gross - commission + funding == net`), and the two branches converge: the
+venue's own net and a net derived from its gross land on the same figure, which
+is the correctness claim and a test.
+
+**A STATED ZERO IS A MEASUREMENT AND AN UNSTATED FUNDING IS NOT ZERO.** The
+venue's words for a zero are *"no fees have been charged"*, so it is a reading of
+no funding and it is inside every net by arithmetic — which is also why the
+undecidable case is harmless there: with funding at zero the two formulas are
+the same expression. A row that says NOTHING is the other fact entirely, and it
+is what every other stage has: a fill and a closed order carry no funding field,
+so a fill-priced close records `funding_in_net = None` — the net's funding
+content is unknown — rather than implying it is zero. There is no False on that
+field, and the reason is worth stating: a net this code could confirm the funding
+was missing from is a net this code folded it into, so the state cannot survive
+the reconcile.
+
+**THE CARD PRINTS IT ONLY WHERE IT BITES.** A permanent `Funding: $0.00` under
+every scalp is the row that trains a reader to stop reading the line, which is
+the committed-margin note's rule and the analyze-budget buckets'. So a stated
+zero prints nothing, an unstated funding prints nothing, and the case that MUST
+be said is the third: the venue stated a funding and this code could not place
+it, so the net printed beside it may be short by a figure the operator can now
+see.
+
+> **And the first draft of that sentence made the claim the tri-state exists to
+> avoid.** It read *"(NOT in the net above)"* for `funding_in_net is None` —
+> which is *unknown*, not *absent*. Found by rendering the line and reading it,
+> not by reading the diff, which is how every other instance in this file was
+> found.
+
+**Eight existing assertions broke at once, and that is the shape they were.**
+`_reconcile_exchange_close_pnl` answers a `CloseAccounting` now, because the row
+grew a funding figure and a placement flag, and three suites unpacked it
+positionally — an assertion naming a POSITION where it meant a FIELD, which is
+`_LiveRecheck`'s recorded lesson one row over. They read by name now, in one
+place per file, so the sixth field moves nothing below.
+
+**A branch no input can reach was deleted rather than pinned.** The first draft
+of the placement carried a separate `elif funding == 0.0` arm; a stated zero
+reaches the reconcile paired with `in_net=True`, takes the first arm and reads as
+in-net, so the second could never fire. A line no input can reach is a claim
+that there is a check.
+
+**AND THE LEAF WRITTEN TO HOLD THE JUDGEMENT HAD NO PRODUCTION CALLER, WHILE THE
+RECONCILE KEPT ITS OWN COPY OF IT.** `fold_funding` was written first, tested six
+ways, and imported by nothing but its own test file — and forty lines away
+`_reconcile_exchange_close_pnl` spelled the same four arms inline, sign and
+tri-state included. Two answers to one question AND the fifth granularity beside
+it, in the slice whose whole subject is that a figure must be read in one place.
+`test_no_new_unreachable_functions` named it — *"these public functions have no
+caller anywhere outside tests: `bot/core/close_funding.py:fold_funding`"* —
+before the gate reached it, which is that ratchet doing exactly what its header
+says the module ratchet cannot.
+
+**Baselining it would have been the wrong repair, and so would a wrapper.**
+Recording a seam as a deliberate unbuilt feature is the `scan_timeframes` ruling,
+and a one-line wrapper over the inline arms is `_venue_map`'s. So the leaf became
+the shape the reconcile can actually ASK: `place_funding` answers a
+`FundingPlacement(base, add_to_net)` — the figure the fee arithmetic must run on,
+and what the resulting net must gain — and every one of its four arms is reached
+by a production input, where `fold_funding`'s `already_in is True` arm was
+reachable from nothing once the reconcile did the stripping. The two fields are
+both load-bearing: `add_to_net is not None` IS the placed verdict, so there is no
+third field for a reader to find always-True.
+
+**One question stays the reconcile's, and stating which is the point.** *Is there
+a net to fold into* is answered where the book is — an unpriceable close has
+`net_pnl is None` — and the leaf is handed a figure, not a book. **And the guard
+is a DRIVE**: a byte-identical copy of those four arms agrees with every fixture
+in the file and diverges on the first edit to either, so the walk is proved by
+patching the leaf with a placement the arms could never produce and reading what
+the reconcile answers.
+
+> **And my own fresh assertion reached for a name the executor does not
+> import.** The drive patched `le.FundingPlacement`, and the executor imports
+> only `place_funding` — which is correct, since the tuple is the leaf's. *When a
+> fresh assertion fails, check whether the code or the assertion is wrong before
+> touching the code.*
+
+**Forty-seven mutations, each killed — and SIX survived the first round, of
+which four were one gap and one was a comment of mine claiming a check the code
+did not make.**
+
+**THE FOUR WERE THE CABLE.** The stage reports the funding, the reconcile places
+it, and nothing drove the WIRE between them at either real call site: dropping
+the `funding=`/`funding_in_pnl=` arguments, and dropping the two lines that write
+the placement onto the position, each survived at the close path AND at the
+25227 path. The leaf was driven, the stage was driven, the reconcile was driven,
+and the two functions that book every live close were joined by nothing a test
+could see — `capability_answer`'s `extras` shape, a socket with no cable, on the
+money path. All four are driven end to end now against a planted history row, so
+the chain is stage → reconcile → position → card with nothing stubbed between,
+and the assertion is the TRIPLE closing on the position the drive leaves behind.
+
+**AND THE COMMENT PROMISED A CHECK THAT WAS TWO SPELLINGS OF ONE NUMBER.** The
+fee loop skipped an unstated leg — `if fee is not None: fees += abs(fee)` — under
+a comment of mine reading *"a fee this row does not state is left OUT of the
+total rather than read as a fee of zero"*. It starts at `0.0`, so skipping a leg
+and adding zero for it are the same arithmetic: the mutation that replaced the
+guard with `abs(fee or 0.0)` changed no verdict anywhere, and the test named for
+that sentence measured nothing. **An equivalent mutant is the round saying the
+code claims a check it does not make**, which is this file's own rule, arriving
+on a comment I had written in the same slice. The check is real now — BOTH legs
+stated or the row is UNPLACED — the ONE-leg cases are what make it measurable,
+and a row whose net closes exactly on the close leg alone is in the corpus,
+because under the old reading that row DECIDED off half the fees.
+
+**The sixth was a fixture that could not tell.** `_fund_in_pnl = True`
+hard-coded on the `netProfit` branch survived, because every stage fixture
+planted a row whose arithmetic really did put the funding inside its net. The
+input that separates them is a netProfit row whose arithmetic closes to NEITHER
+candidate, where the honest code reports None and the mutant reports True — and
+reading it as in-net strips a funding out of a base that may never have carried
+it.
+
+**And the round asked for two fixtures before it ran.** The `achievedProfits`
+fallback — the row's second spelling of the gross — was reached by nothing, so
+deleting it changed no verdict. And the tolerance pair's own docstring claim
+(*an absolute cent alone is too tight on a large position and a relative term
+alone is too tight on a small one*) was driven by neither term, so each is a
+fixture now: a whole row scaled a thousandfold, and a net of a few cents.
+
+> **And the first of those two fixtures was a position no venue can produce.**
+> It multiplied the gross by a thousand and left the funding at 0.84 — and
+> funding is a RATE on notional, so the whole row scales. It read UNPLACED, and
+> chasing why found a coverage limit worth stating rather than a defect: the two
+> candidates are one funding apart, so a row decides only where the tolerance is
+> SMALLER than the funding, and the relative term grows with the net. A big
+> winner whose funding is under a tenth of a percent of its net therefore reads
+> UNPLACED and the card says the content is unknown. That is the conservative
+> failure rather than a fabricated figure — both of the pair's failures are
+> refusals rather than guesses — and it is driven, so the exclusion is a recorded
+> limit rather than something the next reader discovers from a card.
+(`tests/test_funding_is_a_cost_the_record_reads.py`,
+`bot/core/close_funding.py`.)
+
 **`/performance` HAD THREE WAYS TO SAY SOMETHING FALSE OR NOTHING, AND ONE OF
 THEM HAD NEVER RUN.** A search for other readers of a fill's `profit` field,
 the sibling sweep of the close-path fix above, found its exchange-history
@@ -13992,7 +14176,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 234 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 235 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -14804,9 +14988,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **443 of 1125** reach for source text through `source_scan`, `code_only`
+Driven, **444 of 1126** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 443 is a FLOOR and the honest shape is
+source scan that rule does not see, so 444 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
