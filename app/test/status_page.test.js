@@ -16,6 +16,13 @@ const status = require('../lib/status');
 
 const NOW = 1_800_000_000_000;
 
+test('gateway status probe uses the normal gateway request budget', () => {
+  assert.equal(status.GATEWAY_PROBE_MS, 20_000);
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'lib', 'status.js'), 'utf8');
+  assert.match(src, /getGateway\('\/public\/proofofpnl', GATEWAY_PROBE_MS\)/);
+});
+
 function probes(overrides = {}) {
   return {
     getScan: async () => ({ received_at: new Date(NOW - 5 * 60_000).toISOString() }),
