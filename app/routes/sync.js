@@ -316,6 +316,42 @@ function botAuth(req, res, next) {
 router.use(botAuth);
 
 /**
+ * The account a bot push NAMES, when it names one other than the operator's.
+ *
+ * `/` and `/trade-event` write the OPERATOR's rows -- the agent's record, the
+ * one the public track record and the portfolio summary publish -- and the id
+ * is server-enforced. That enforcement IGNORED the id a payload carried
+ * rather than refusing it, so a push that was about somebody else was applied
+ * to the agent's record anyway. Driven: the bot's /link sent
+ * `{user_id: 77, equity: 10000, positions: [], closed_trades: []}` for a
+ * freshly linked user, and this route deleted the operator's three closes and
+ * whole equity curve and stamped $10,000 as the agent's equity.
+ *
+ * A payload naming NO account is the agent's record: the bot sends none for
+ * it and leaves the operator's id to this file. One naming the operator, as a
+ * number or a numeric string, is accepted too: older bot builds named `1` for
+ * the agent's own push, which is this file's default operator id. A
+ * deployment that set BOT_USER_ID to another id refuses those older pushes
+ * until the bot is redeployed, which is the safe direction. Anything else --
+ * another id, `true`, an object -- is not the operator, and is refused.
+ */
+function namesAnotherAccount(body) {
+  const named = body ? body.user_id : undefined;
+  if (named === undefined || named === null) return null;
+  const numeric = typeof named === 'number' || typeof named === 'string';
+  return numeric && Number(named) === AUTHORIZED_BOT_USER_ID ? null : String(named);
+}
+
+function refuseAnotherAccount(req, res) {
+  const named = namesAnotherAccount(req.body);
+  if (named === null) return false;
+  console.warn(`Bot sync refused: the payload names account ${JSON.stringify(named.slice(0, 40))}, and this `
+    + 'route writes only the agent\'s record. Nothing was written.');
+  res.status(409).json({ ok: false, error: 'not_the_agent_record' });
+  return true;
+}
+
+/**
  * POST /api/bot/sync
  * Body: {
  *   equity: number,
@@ -323,11 +359,14 @@ router.use(botAuth);
  *   closed_trades: [{ symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at }]
  * }
  *
- * Replaces all trade data for the authorized bot user. user_id is server-enforced, not client-supplied.
+ * Replaces the agent's record: the authorized bot user's trades. That id is
+ * server-enforced, and a payload naming any OTHER account is refused
+ * (`refuseAnotherAccount`), never applied to the agent's rows.
  */
 router.post('/', async (req, res) => {
   try {
-    const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced, ignores any client-supplied user_id
+    if (refuseAnotherAccount(req, res)) return;
+    const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced; a payload naming another account is refused above
     const { equity, positions, closed_trades } = req.body;
     // Truthful equity: the bot sends a real number, or null/absent when the
     // LIVE balance can't be read (bot-side resolve_display_equity ->
@@ -491,6 +530,7 @@ function _seenEvent(id) {
 
 router.post('/trade-event', async (req, res) => {
   try {
+    if (refuseAnotherAccount(req, res)) return;
     const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced
     const { event, trade, equity, event_id } = req.body;
     if (!event || !trade) {

@@ -23,7 +23,7 @@
     "link": "bu Telegram'ı web sitesi hesabınıza bağlayın — /link <token>",
     "unlink": "bu Telegram'ın web sitesi hesabınızla bağlantısını kesin",
     "me": "hesabınız: plan, portföy ve ayarlar",
-    "sync": "portföyünüzü şimdi web sitesi paneline gönderin",
+    "sync": "panelin neden gönderim gerektirmediği — yüklenirken hesabınızı okur",
     "connect": "kendi borsa hesabınızı bağlayın",
     "exchange": "bağlı hesabınızın durumu (anahtarları asla göstermez)",
     "livebalance": "gerçek borsa bakiyeniz (kendi hesabınız, salt okunur)",

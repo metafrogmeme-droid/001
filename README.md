@@ -473,7 +473,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/link` | link this Telegram to your website account — /link <token> |
 | `/unlink` | disconnect this Telegram from your website account |
 | `/me` | your account: plan, portfolio and settings |
-| `/sync` | push your portfolio to the website dashboard now |
+| `/sync` | why the dashboard needs no push — it reads your account when it loads |
 | `/connect` | link your own exchange account |
 | `/exchange` | your linked-account status (never shows keys) |
 | `/livebalance` | your real exchange balance (your own account, read-only) |

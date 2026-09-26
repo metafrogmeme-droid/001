@@ -203,9 +203,19 @@ def unlink_telegram_on_website(user_id: int, chat_id: str) -> Optional[bool]:
     return bool(result.get("ok") and result.get("unlinked"))
 
 
-def sync_portfolio(user_id: int, equity: float,
+def sync_portfolio(equity: Optional[float],
                    positions: list, closed_trades: list) -> bool:
-    """Full sync: replace all website data for a user with current bot state."""
+    """Replace the website's copy of the AGENT's record with the bot's.
+
+    THE AGENT'S RECORD, AND NOBODY ELSE'S. `/api/bot/sync` writes the
+    operator's rows -- the ones the public track record, the portfolio summary
+    and the operator's dashboard read -- whatever the payload says, so this
+    sends no user id: the website decides whose rows the agent's record is
+    (`BOT_USER_ID`), and refuses a payload that names another account. The
+    per-user callers that used to send one (/link and /sync) pushed a $10,000
+    default from a table nothing writes, and each push replaced the agent's
+    published history with an empty list.
+    """
     open_list = []
     for p in positions:
         open_list.append({
@@ -258,14 +268,13 @@ def sync_portfolio(user_id: int, equity: float,
     # duplicate. Retrying only closes the gap sooner than the next scheduled
     # push would.
     result = _post("/api/bot/sync", {
-        "user_id": user_id,
         "equity": equity,
         "positions": open_list,
         "closed_trades": closed_list,
     }, retries=2)
 
     if result and result.get("ok"):
-        log.info(f"Synced to website: user={user_id} equity={equity} "
+        log.info(f"Synced the agent's record to the website: equity={equity} "
                  f"open={len(open_list)} closed={len(closed_list)}")
         return True
     return False
@@ -317,12 +326,12 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
     return False
 
 
-def sync_in_background(user_id: int, equity: float,
+def sync_in_background(equity: Optional[float],
                        positions: list, closed_trades: list) -> None:
-    """Non-blocking sync: runs in a background thread."""
+    """Non-blocking `sync_portfolio`: runs in a background thread."""
     t = threading.Thread(
         target=sync_portfolio,
-        args=(user_id, equity, positions, closed_trades),
+        args=(equity, positions, closed_trades),
         daemon=True,
     )
     t.start()

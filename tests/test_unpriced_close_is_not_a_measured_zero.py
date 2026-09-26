@@ -139,7 +139,7 @@ class TestTheDashboardPayloadCarriesTheUnknown:
         captured = {}
         monkeypatch.setattr(
             ws, "sync_in_background",
-            lambda user_id, equity, positions, closed_trades:
+            lambda equity, positions, closed_trades:
                 captured.update(closed_trades=closed_trades))
         executor = types.SimpleNamespace(
             open_positions=[], closed_positions=[closed_pos], user_id=7)
@@ -198,7 +198,7 @@ class TestBothWiresMakeTheSameClaim:
         return sent["body"]
 
     def test_the_bulk_wire_sends_none(self, monkeypatch):
-        body = self._posted(monkeypatch, ws.sync_portfolio, 7, 100.0, [],
+        body = self._posted(monkeypatch, ws.sync_portfolio, 100.0, [],
                             [self._closed_trade(None, None)])
         assert body["closed_trades"], "the countable filter dropped the row"
         assert body["closed_trades"][0]["pnl"] is None
@@ -211,7 +211,7 @@ class TestBothWiresMakeTheSameClaim:
         assert body["trade"]["exit_price"] is None
 
     def test_both_wires_still_send_a_measured_zero(self, monkeypatch):
-        bulk = self._posted(monkeypatch, ws.sync_portfolio, 7, 100.0, [],
+        bulk = self._posted(monkeypatch, ws.sync_portfolio, 100.0, [],
                             [self._closed_trade(0.0, 63.6)])
         assert bulk["closed_trades"][0]["pnl"] == 0.0
         single = self._posted(monkeypatch, ws.sync_trade_event, 7, "close",

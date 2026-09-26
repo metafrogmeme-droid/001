@@ -23,7 +23,7 @@
     "link": "lier ce Telegram à votre compte du site — /link <token>",
     "unlink": "délier ce Telegram de votre compte du site",
     "me": "votre compte : forfait, portefeuille et réglages",
-    "sync": "pousser votre portefeuille vers le tableau de bord du site maintenant",
+    "sync": "pourquoi le tableau de bord n'a rien à recevoir : il lit votre compte au chargement",
     "connect": "lier votre propre compte d'exchange",
     "exchange": "état de votre compte lié (n'affiche jamais de clés)",
     "livebalance": "votre solde réel sur l'exchange (votre compte, lecture seule)",

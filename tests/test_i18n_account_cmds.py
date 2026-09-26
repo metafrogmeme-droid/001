@@ -48,8 +48,7 @@ def test_link_messages():
     # tests/test_account_linking.py holds the properties; this pins the bytes.
     _eq(t("link_success", L, email="a@b.c", plan="pro", url=URL),
         "Linked.\n\nAccount: a@b.c\nPlan: pro\n\n"
-        f"Your dashboard at {URL} now mirrors this chat. /me shows the account,"
-        " /sync pushes an update.\n\n"
+        f"Your dashboard at {URL} now mirrors this chat. /me shows the account.\n\n"
         "Bot commands are separate — if /scan says you're not approved,"
         " that's the operator's allowlist, not this link.")
 
@@ -67,16 +66,20 @@ def test_me_and_sync():
         "Plan:     <code>pro</code>\nEquity:   <code>$10.00</code>\n"
         "Open P&amp;L: <code>$1.00</code>\nTrades:   <code>5</code>\n\n"
         "LLM: <code>openai</code> | Notifications: <code>on</code>")
-    _eq(t("sync_success", L, equity="10.00", positions=2, trades=3, url=URL),
-        f"Dashboard synced.\nEquity: $10.00\nOpen positions: 2\nClosed trades: 3\n\n"
-        f"View at: {URL}/dashboard")
-    _eq(t("sync_failed", L), "Sync failed. Please try again in a moment.")
+    # /sync pushes nothing now: it used to answer "Dashboard synced. Equity:
+    # $10000.00" over a push of an unwritten table's defaults onto the AGENT's
+    # record (tests/test_a_linked_users_sync_does_not_touch_the_agents_record.py).
+    _eq(t("sync_nothing_to_push", L, url=URL),
+        "Nothing to push. Your dashboard asks the bot for your account each"
+        " time it loads, so there is no separate copy to update \u2014 nothing"
+        f" was sent.\n\nView it at: {URL}/dashboard")
+    assert "sync_success" not in _STRINGS and "sync_failed" not in _STRINGS
 
 
 def test_keys_have_chinese():
     for k in ("link_already_linked", "link_prompt", "link_token_invalid",
               "link_validate_failed", "link_unreachable", "link_other_account",
               "link_success", "unlink_not_linked", "unlink_success", "me_account",
-              "sync_success", "sync_failed"):
+              "sync_nothing_to_push"):
         assert k in _STRINGS and _STRINGS[k]["zh"].strip(), k
         assert t(k, "zh") != t(k, "en") or "{" in _STRINGS[k]["en"], k

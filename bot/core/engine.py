@@ -840,7 +840,7 @@ class RuneClawEngine:
                 from bot.utils.website_sync import sync_in_background
                 state = self.portfolio.snapshot()
                 sync_in_background(
-                    user_id=1,  # default user; multi-user resolves via telegram handler
+                    # the agent's record: no user id (see `sync_portfolio`)
                     equity=state.equity_usd,
                     positions=list(self.portfolio.open_positions),
                     closed_trades=list(self.portfolio._history[-50:]),
@@ -1739,8 +1739,8 @@ class RuneClawEngine:
         # send None (website renders "unavailable"), never the paper baseline
         # that get_effective_equity() silently falls back to.
         equity, _eq_src = self.resolve_display_equity_sync()
-        user_id = getattr(executor, "user_id", None) or 1
-        sync_in_background(user_id, equity, positions, closed)
+        # No user id: the AGENT's record, and the website decides whose rows.
+        sync_in_background(equity, positions, closed)
 
     def _intent_engine_caps(self) -> dict:
         """The authoritative engine caps a compiled policy is clamped against
