@@ -2951,23 +2951,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "or use a specific command like /scan or /positions."),
                     None, return_meta)
 
-        # AI-VISION-GUARD: if the caller attached images but no candidate in the
-        # chain can read them, refuse early rather than letting a text model
-        # answer the vision prompt — which produces a plausible-sounding
-        # "I can't see the image" that reads like a failed upload.
-        if images and not any(c.provider == LLMProvider.ANTHROPIC
-                              for _, c in configs_to_try):
-            audit(system_log, "chat_vision_unavailable: no Anthropic candidate",
-                  action="chat_vision_unavailable", result="REFUSED")
-            return _chat_ret(_say(
-                _ui, "chat_vision_unavailable",
-                "The image never reached it — the current chat tier has no vision "
-                "capability, so the upload was dropped before the model was called. "
-                "No vision provider is active right now.\n\n"
-                "Use /analyze instead: the analysis tier runs on a model that can "
-                "read charts and screenshots."),
-                None, return_meta)
-
         # Try each config in order, under ONE wall-clock deadline.
         #
         # Every timeout in this chain is PER ATTEMPT (bot/llm/provider.py does

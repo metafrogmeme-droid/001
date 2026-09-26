@@ -8020,6 +8020,36 @@ the tree did not have. A recorded total is now required to equal the sum of
 its counts, in all three baselines.
 (`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.)
 
+**AND THE SAME REBASE MERGED TWO COPIES OF ONE GUARD, CLEANLY.** Main fixed
+the vision refusal itself while this branch was open, at a different offset in
+the same function, so git took both: two `if images and not any(...)` blocks,
+forty lines apart, in one method. Nothing conflicted and nothing failed --
+the first one answers every caller the second would have, so the second is a
+branch no input reaches, which is the shape this file calls a claim that there
+is a check.
+
+**The two guards were not the same reading, and driving them is what said
+which to keep.** Main's asks whether an Anthropic candidate is in the chain.
+The gate that decides whether the image is ATTACHED (`_vision_ok`) asks
+`bool(images) and is_admin and not public` -- so for a non-admin, or on the
+public surface, a chain holding Anthropic passes main's guard, the image is
+attached to nothing, and a text model is paid to answer a prompt about a
+picture. Driven against main's own tree, the model really is called with
+`None` for the image: the defect the file exists to prevent, surviving for
+everyone who is not the operator. Main's refusal also names `/analyze`, a
+slash command, to a web caller who cannot run one. So the guard kept is the
+one that mirrors `_vision_ok`'s own rule and keys its door by surface, and
+main's copy is deleted rather than left unreachable.
+
+**The eight tests that stood over it were all source scans.** Every one takes
+a `src` fixture, so the file that records the 2026-09-05 incident could not
+see either defect, and one of them pins that the vision gate is keyed
+`is_admin and not public` -- the very rule the guard beside it did not read.
+Five drives were added: a text model is never asked about a picture, a web
+caller is given words, the operator's Claude still reads the image, a
+non-admin with Claude in the list is still refused, and a text turn is
+untouched. Against main's implementation three of the five fail.
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
