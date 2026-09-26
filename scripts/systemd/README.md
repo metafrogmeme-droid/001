@@ -92,11 +92,14 @@ that. `always` does.
 
 `launch_all.sh` and these units will fight: run the launcher after
 `systemctl enable --now` and you get two bots, both bound to :8080, one of them
-losing. Once the units are in place the deploy becomes
+losing. Once the units are in place, keep each restart in its own invocation.
+Chaining work after a restart has terminated the invoking SSH session with
+exit 143; the units perform their own port waits, and verification follows.
 
 ```bash
 scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
-sudo systemctl restart runeclaw-bot runeclaw-bridge
+systemctl --user restart runeclaw-bot
+systemctl --user restart runeclaw-bridge
 scripts/systemd/runeclaw-status.sh || { echo "DEPLOY FAILED"; exit 1; }
 ```
 

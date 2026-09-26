@@ -1328,7 +1328,8 @@ def test_every_bot_main_command_it_prints_passes_the_mode():
 def test_the_units_it_restarts_are_the_units_that_exist():
     """The names in the chapter's systemctl line are real unit files."""
     restart = [ln for b in _fenced_blocks(DEPLOY_CHAPTER)
-               for ln in b.splitlines() if "systemctl restart" in ln]
+               for ln in b.splitlines()
+               if re.search(r"systemctl(?:\s+--user)?\s+restart", ln)]
     assert restart, "the chapter prints no systemctl restart line"
     named = set()
     for line in restart:

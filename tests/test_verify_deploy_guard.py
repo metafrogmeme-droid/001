@@ -57,8 +57,22 @@ def _expected():
 class _Handler(BaseHTTPRequestHandler):
     payload = b"{}"
     content_type = "application/json"
+    status_payload = {
+        "components": {
+            "bot_gateway": {"state": "reachable"},
+            "api_bridge": {"state": "reachable"},
+        }
+    }
 
     def do_GET(self):
+        if self.path == "/api/public/status":
+            body = json.dumps(self.status_payload, separators=(",", ":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path != "/api/version":
             self.send_response(404)
             self.end_headers()
@@ -91,6 +105,12 @@ def _serve(httpd, body, content_type="application/json"):
     _Handler.payload = (body if isinstance(body, bytes)
                         else json.dumps(body, separators=(",", ":")).encode())
     _Handler.content_type = content_type
+    _Handler.status_payload = {
+        "components": {
+            "bot_gateway": {"state": "reachable"},
+            "api_bridge": {"state": "reachable"},
+        }
+    }
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
@@ -145,6 +165,18 @@ def test_matching_hashes_verify(server):
     r = _run(url)
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     assert "DEPLOY VERIFIED" in r.stdout
+
+
+@pytest.mark.parametrize("component", ["bot_gateway", "api_bridge"])
+def test_web_runtime_must_reach_both_bot_processes(server, component):
+    want_build, want_assets = _expected()
+    url = _serve(server, {"sha": "c4d3baa", "build": want_build,
+                          "assets": want_assets})
+    _Handler.status_payload["components"][component]["state"] = "unreachable"
+    r = _run(url)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert component in r.stdout
+    assert "DEPLOY NOT VERIFIED" in r.stdout
 
 
 def test_a_genuinely_different_build_is_still_a_fail(server):

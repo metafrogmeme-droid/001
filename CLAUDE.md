@@ -14969,13 +14969,14 @@ cp scripts/launch_all.sh.template ~/launch_all.sh && chmod +x ~/launch_all.sh
 `scripts/systemd/` is the other half, and it answers what the launcher cannot:
 a deploy-time gate has nothing to say about 03:00 on a Tuesday. `Restart=always`,
 not `on-failure` — the 2026-08-01 failure was the bot exiting **zero**, which
-`on-failure` does not restart. Once those units are installed the deploy is
-three lines, and **`launch_all.sh` must not also run**: the two would fight and
+`on-failure` does not restart. Once those units are installed, each restart is
+its own invocation, and **`launch_all.sh` must not also run**: the two would fight and
 leave two bots bound to :8080, one of them losing.
 
 ```bash
 scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
-sudo systemctl restart runeclaw-bot runeclaw-bridge
+systemctl --user restart runeclaw-bot
+systemctl --user restart runeclaw-bridge
 scripts/systemd/runeclaw-status.sh || { echo "DEPLOY FAILED"; exit 1; }
 ```
 
@@ -15053,6 +15054,15 @@ during a blip fails exactly when it is needed.
 entry point. Nothing needs to remember it: the launcher runs it, and both
 units run it as `ExecStartPre`. Both paths are gitignored, so `git reset
 --hard` leaves them alone in any case.
+
+It also regenerates `~/runeclaw-persist/web.env`. Never publish the bot's
+`.env` directly: its `BOT_GATEWAY_URL` is correctly loopback on the bot box and
+therefore wrong inside the web container. In the generated web environment,
+both `BOT_GATEWAY_URL` and `BOT_API_URL` are derived from
+`PUBLIC_GATEWAY_URL`; named-tunnel ingress dispatches their route families to
+:8080 and :8000 respectively. After publishing, `scripts/verify_deploy.sh`
+asks `/api/public/status` and requires both `bot_gateway` and `api_bridge` to
+be `reachable` from the web runtime.
 
 **And the units already wait for the port**, via
 `ExecStartPost=wait_for_port.sh`, so there is nothing to chain after a

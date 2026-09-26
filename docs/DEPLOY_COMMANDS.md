@@ -2,6 +2,40 @@
 
 **The code on the box is never the source. Every deploy fetches from git first.**
 
+## Production sequence (bot box + web container)
+
+There are two bot-box processes and a separate web container. A deploy is not
+complete until all three use the new source and the web runtime can reach both
+bot processes.
+
+1. Fetch by URL and reset to `FETCH_HEAD`.
+2. Run `./deploy.sh`. Besides restoring `.env`, `data/`, and `logs/`, it writes
+   the persistent `~/runeclaw-persist/web.env` used for web publishes.
+3. Run `scripts/verify_deploy_source.sh` before starting anything.
+4. Restart `runeclaw-bot.service` and `runeclaw-bridge.service`, each as its
+   own command. Do not chain a probe onto a restart; verify afterward.
+5. Publish `app/` using `~/runeclaw-persist/web.env`, not the bot `.env`.
+   There is no install step unless a dependency manifest changed.
+6. Run `scripts/verify_deploy.sh` in a separate invocation.
+
+The generated web environment deliberately sets both web links to the same
+public named-tunnel origin:
+
+```text
+BOT_GATEWAY_URL = PUBLIC_GATEWAY_URL
+BOT_API_URL     = PUBLIC_GATEWAY_URL
+```
+
+Never copy the bot box's `BOT_GATEWAY_URL` into the web container. On the box
+it correctly points to loopback `:8080`; in the web container that points back
+at the web container. Tunnel ingress sends `/gateway/*` to the gateway on
+`:8080`, and `/insight`, `/patterns`, `/lab`, and `/health` to the separate API
+bridge on `:8000`.
+
+The final verifier checks both content hashes and `/api/public/status`. A clean
+result requires `bot_gateway=reachable` and `api_bridge=reachable` as measured
+from inside the web runtime. Local port checks alone are insufficient.
+
 That is not a style preference. On 2026-08-20 a deploy ran `git fetch origin &&
 git reset --hard origin/main`, reported success, and landed on a commit **255
 commits stale** — `origin` on that box is a GitLab mirror and the real
