@@ -133,12 +133,14 @@ class TestTriggers:
     @pytest.mark.asyncio
     async def test_vwap_reversion_invalidation_closes(self):
         from datetime import datetime
+        # Entered 0.1% above VWAP, the classifier's "near"; an entry 1% out
+        # is no VWAP reversion, and its bands start from where it entered.
         pos = _pos(
             opened_at=datetime.now(UTC), signal_type="vwap_reversion",
-            direction="LONG", entry_price=100.0, stop_loss=99.0,
+            direction="LONG", entry_price=99.1, stop_loss=98.0,
         )
         ex = _Executor([pos])
-        # Price >0.3% above VWAP → LONG vwap-reversion target reached → exit.
+        # Price >0.3% past the entry's side of VWAP → target reached → exit.
         eng = _engine(ex, {"BTC/USDT": 100.2}, vwap={"BTC/USDT": 99.0})
         p, _ = _cfg()
         try:

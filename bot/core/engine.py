@@ -8883,7 +8883,7 @@ class RuneClawEngine:
                     vwap = self._last_vwap.get(pos.symbol, 0)
                     if vwap > 0:
                         should_exit, reason = check_vwap_reversion_exit(
-                            sig, price, vwap, pos.direction)
+                            sig, price, vwap, pos.direction, pos.entry_price)
 
                 if not should_exit:
                     continue
@@ -9546,6 +9546,7 @@ class RuneClawEngine:
                             current_price=current_price,
                             vwap=vwap,
                             direction=pos.direction.value,
+                            entry_price=pos.entry_price,
                         )
                         if should_exit:
                             audit(trade_log, f"VWAP exit: {pos.asset} — {reason}",

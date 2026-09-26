@@ -7489,6 +7489,34 @@ sits under a taker round trip at the default rate (0.12%), and a rebuilt
 ladder sizes TP2 off the quantity left after TP1 rather than the entry's.
 (`tests/test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py`.)
 
+**A VWAP REVERSION WAS CLOSED ON ITS OWN ENTRY, AND THAT WAS MOST OF THEM.**
+The analyzer calls an idea `vwap_reversion` when its price is within 0.5% of
+VWAP (or half a VWAP band), and the smart exit read the price's distance from
+VWAP alone: 0.3% past it on the trade's wrong side was "invalidated", 0.3% on
+the right side "complete". Driven through `_evaluate_live_smart_exits`, a long
+entered at 99.6 under a VWAP of 100 was closed at market sixty seconds after
+it opened. Measured by tapping the analyzer during the honest walk-forward on
+the two disjoint v2 snapshots, 30 of 42 vwap_reversion ideas on majors_1h_v2
+and 45 of 53 on alts_1h_v2 entered past the band (median distance 0.42% and
+0.66%), and all but one of the 75 on the invalidation side. The entry can sit
+past the classifier's 0.5% because the classifier reads the signal's price
+and the idea's entry can be a limit. The backtest never runs this exit, so the
+benchmark measured none of it.
+
+Each band now starts from the entry's own distance when the entry sits on that
+side of VWAP, so a trade gets 0.3% of room from where it entered, and an entry
+at VWAP reads exactly as before. That also changes an entry inside 0.3%: one
+0.25% under VWAP had 0.05% of room and has 0.3% now, which is the same defect
+in degree. Filed: `_last_vwap` lives in memory, so after a restart this exit is
+inert for a position opened before it (the direction that closes nothing).
+
+**Eight mutations, each killed; the one that survived the first round was the
+corpus.** Measuring the upper band from the entry on both sides passed every
+case until a long entered under VWAP was driven back over it, and not yet
+0.3% past it. An existing drive had planted an entry 1% above VWAP, outside
+anything the classifier produces; it enters at 0.1% now.
+(`tests/test_a_vwap_reversion_is_not_closed_on_its_own_entry.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14038,7 +14066,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1112** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1113** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
