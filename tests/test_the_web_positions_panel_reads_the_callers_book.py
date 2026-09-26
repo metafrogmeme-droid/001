@@ -15,12 +15,11 @@ handler or the view reading drifts.
 """
 from __future__ import annotations
 
-import pytest
-
 import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
