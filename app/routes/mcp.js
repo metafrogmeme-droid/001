@@ -30,6 +30,7 @@ const { safeErrorText } = require('../lib/safe_error');
 // comment here promised they shared one source of truth.
 const { classifyPnls, outcomeOf, recordCoverage } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
+const { publicFeedEvent } = require('../lib/public_feed');
 const { publicSignal } = require('../lib/public_signal');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The module itself as well as the two names above: ask_runeclaw reads
@@ -648,7 +649,9 @@ const TOOLS = {
       const [rows] = await pool.execute(
         `SELECT event_type, severity, symbol, title, body, created_at
            FROM agent_events ORDER BY id DESC LIMIT ${limit}`, []);
-      return { events: rows };
+      // The ring holds rows written before the ingest scrubbed them, so the
+      // public shape is applied here too (no dollar amount of the account).
+      return { events: rows.map(publicFeedEvent) };
     },
   },
 

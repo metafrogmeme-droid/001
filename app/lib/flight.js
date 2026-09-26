@@ -68,6 +68,20 @@ const isRatioKey = (k) => RATIO_KEY.test(k) && !CURRENCY_TOKEN.test(k);
 // unchanged while `$-5.00` was redacted. The producer no longer prints a
 // dollar there at all; this is the backstop, and it now knows both signs.
 const DOLLAR_TEXT = /\$\s?[-+]?\d[\d,]*(\.\d+)?/g;
+// A SIGNED currency amount: `-$41.20`, `+$1.23`, `$+12.34`. A price is never
+// written with a sign, so this is the shape of a P&L, and it is the one money
+// rule that can run over text that legitimately carries prices (a trade's
+// entry and stop, a thesis naming a level). The sign in front is part of the
+// match, so `Closed BTC -$41.20` does not leave a dangling `-⋯`, but only
+// when no digit or letter sits right before it: in `$60,000-$62,000` the
+// hyphen joins a price range and both prices stay. The digits are read as
+// thousands groups, so a comma that ENDS the figure (`+$7, then`) is the
+// sentence's and stays.
+const SIGNED_DOLLAR_TEXT = /(?<![\w.,])[-+]\s?\$\s?\d+(?:,\d{3})*(?:\.\d+)?|\$\s?[-+]\s?\d+(?:,\d{3})*(?:\.\d+)?/g;
+
+function scrubSignedDollars(text) {
+  return String(text).replace(SIGNED_DOLLAR_TEXT, '⋯');
+}
 
 function scrub(value) {
   if (value == null) return value;
@@ -108,4 +122,4 @@ function sanitizeRecord(rec) {
   return out;
 }
 
-module.exports = { HEX64, inspectWindow, sanitizeRecord, scrub, DOLLAR_KEY };
+module.exports = { HEX64, inspectWindow, sanitizeRecord, scrub, scrubSignedDollars, DOLLAR_KEY };

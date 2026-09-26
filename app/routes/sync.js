@@ -16,6 +16,7 @@ const { pool, withTransaction } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
+const { publicFeedEvent } = require('../lib/public_feed');
 const { isOperator } = require('../lib/operator_view');
 const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
@@ -817,19 +818,40 @@ router.post('/events', async (req, res) => {
       return res.status(400).json({ error: 'events array required' });
     }
     let inserted = 0;
-    for (const ev of events) {
-      const title = String(ev?.title || '').slice(0, 300);
+    for (const raw of events) {
+      if (!raw || typeof raw !== 'object') continue;
+      const type = FEED_TYPES.has(raw.event_type) ? raw.event_type : 'info';
+      // EVERY READER OF THIS FEED IS PUBLIC (the landing page, the
+      // unauthenticated /api/stream, a web push to every subscriber, the MCP
+      // tool), so the event is made public HERE, before it is stored,
+      // streamed or pushed. The bot's close event used to carry the
+      // operator's dollar P&L in its title and data, and this route stored
+      // and rebroadcast it verbatim. `publicFeedEvent` is the one reading;
+      // the read routes apply it too, for rows stored before it existed.
+      const ev = publicFeedEvent({
+        event_type: type,
+        title: String(raw.title || ''),
+        body: String(raw.body || ''),
+        data: raw.data,
+      });
+      if (ev.title !== String(raw.title || '') || ev.body !== String(raw.body || '')
+          || JSON.stringify(ev.data) !== JSON.stringify(raw.data)) {
+        // A producer composed private text for a public feed. The scrub keeps
+        // the feed working; this line is how the producer gets found.
+        console.warn(`agent feed: removed a dollar amount from a ${type} event`
+          + ' before publishing it');
+      }
+      const title = ev.title.slice(0, 300);
       if (!title) continue;
-      const type = FEED_TYPES.has(ev.event_type) ? ev.event_type : 'info';
-      const severity = FEED_SEVERITIES.has(ev.severity) ? ev.severity : 'info';
-      const symbol = String(ev.symbol || '').slice(0, 32);
-      const body = String(ev.body || '').slice(0, 600);
+      const severity = FEED_SEVERITIES.has(raw.severity) ? raw.severity : 'info';
+      const symbol = String(raw.symbol || '').slice(0, 32);
+      const body = ev.body.slice(0, 600);
       let dataJson = null;
       try {
         dataJson = ev.data && typeof ev.data === 'object'
           ? JSON.stringify(ev.data).slice(0, 2000) : null;
       } catch (e) { dataJson = null; }
-      const ts = ev.ts ? new Date(ev.ts) : new Date();
+      const ts = raw.ts ? new Date(raw.ts) : new Date();
       const at = isNaN(ts.getTime()) ? new Date() : ts;
       // Per-event fail-soft WITH the real driver error logged: one bad row
       // must not abort the batch, and a silent 500 to the bot's

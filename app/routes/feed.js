@@ -5,13 +5,15 @@
  * opens/closes, stop moves, alerts, stance changes), pushed by the bot via
  * POST /api/bot/sync/events and stored in the bounded agent_events ring.
  * Public by design: this powers the landing page's "watch the agent think"
- * section and the dashboard timeline. The bot sanitizes events before they
- * ever reach the site (no balances, no per-user activity); a 5s micro-cache
- * keeps hot reload traffic off the DB.
+ * section and the dashboard timeline. The bot sends operator activity only,
+ * and every event is passed through `publicFeedEvent` (no dollar amount of
+ * the account) at the ingest and again here; a 5s micro-cache keeps hot
+ * reload traffic off the DB.
  */
 
 const express = require('express');
 const { pool } = require('../db');
+const { publicFeedEvent } = require('../lib/public_feed');
 
 const router = express.Router();
 
@@ -34,7 +36,10 @@ router.get('/recent', async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT event_type, severity, symbol, title, body, data_json, created_at
        FROM agent_events ORDER BY id DESC LIMIT ${limit}`);
-    const events = rows.map(r => ({
+    // Scrubbed on the way OUT as well as on the way in: the ingest has made
+    // every event public since it learned to, and the ring holds up to 500
+    // rows written before that, some carrying the operator's dollar P&L.
+    const events = rows.map(r => publicFeedEvent({
       event_type: r.event_type,
       severity: r.severity,
       symbol: r.symbol || '',

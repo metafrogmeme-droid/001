@@ -1663,23 +1663,17 @@ class RuneClawEngine:
 
         # Public mind-stream: operator-account closes only (user_id "" is the
         # operator executor; per-user closes carry that user's id and stay
-        # private). Realized PnL is already public on the track-record page.
+        # private). The feed is served to anonymous readers, so the close is
+        # told in percent of margin and never in dollars (`close_event`).
         try:
-            from bot.core.agent_feed import FEED
+            from bot.core.agent_feed import FEED, close_event
             if not user_id:
-                _fpnl = getattr(pos, "pnl_usd", None)
-                _fsym = getattr(pos, "symbol", "")
-                if _fpnl is not None and _fsym:
-                    _fpnl = float(_fpnl)
-                    _freason = str(getattr(pos, "close_reason", "") or "")
-                    FEED.emit(
-                        "trade_close",
-                        f"Closed {_fsym} "
-                        f"{'+' if _fpnl >= 0 else '-'}${abs(_fpnl):,.2f}",
-                        body=f"Exit: {_freason}" if _freason else "",
-                        symbol=_fsym,
-                        severity="success" if _fpnl >= 0 else "warning",
-                        data={"pnl": round(_fpnl, 2), "reason": _freason})
+                _fev = close_event(
+                    getattr(pos, "symbol", ""), getattr(pos, "pnl_usd", None),
+                    _live_executor_mod.position_size_basis(pos)[0],
+                    getattr(pos, "close_reason", ""))
+                if _fev is not None:
+                    FEED.emit("trade_close", **_fev)
         except Exception as _feed_exc:
             logger.debug("Agent feed close event skipped: %s", _feed_exc)
 
