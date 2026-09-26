@@ -11728,6 +11728,186 @@ backoff's inline stamp. Each pins the new seam now.
 `tests/test_a_failed_self_audit_does_not_retry_every_tick.py`,
 `tests/test_a_tap_timeout_does_not_cancel_the_scan.py`.)
 
+**A FILE THAT IS THERE AND WILL NOT READ IS NOT AN EMPTY ONE, AND FIFTEEN
+STORES READ IT AS EMPTY AND THEN SAVED OVER IT.** Twenty-eight functions in
+`bot/` read a JSON file inside a `try` whose handler answered `{}`, and wrote
+the whole file back from the same scope. A MISSING file is a fresh start. A
+file that is there and did not read holds every other user's row, and the next
+write replaced it with the one row the writer knew about. Driven on the base
+commit, each through one failed read and one ordinary write:
+
+| store | before | after one write |
+|---|---|---|
+| per-user leverage | users 111, 222, 333 | `{"444": 5}` |
+| per-user strategy | three selections | `{"444": "conservative"}` |
+| authority ledger | three users' 24h spend | 333's alone, and a replayed ref records again |
+| per-person equity peak | two peaks | one; after a restart the other person's drawdown reads `0.0` |
+| per-user authority envelopes | three bindings | `{"222": …}` |
+| secrets vault (file truncated) | `BITGET_API_KEY`, `BITGET_API_SECRET` | one boot later: `TELEGRAM_BOT_TOKEN` alone |
+
+The vault is the sharpest. `store_secrets` already kept an entry it could not
+DECRYPT (the chapter above records that); a FILE that would not parse loaded
+as an empty vault, and `seed_and_restore` runs on every boot and saves whenever
+any managed env value is present. One boot erased the exchange keys, from a
+file with no `.bak`, and the log said only "secrets vault file unreadable —
+ignoring it".
+
+**The readers failed in the flattering direction every time**, which is what
+made the erasure quiet: an unread leverage preference was `None`, the operator
+default and the LOOSEST a reduce-only preference resolves to, and the engine
+stored that on the executor at bind for the executor's whole life; an unread
+strategy file was "no selection", so the confirm path skipped the tighten-only
+veto the person had armed; an unread ledger was $0 spent against a daily cap;
+an unread peak was "no drawdown"; an unread venue selection was single-venue.
+And both preference stores' `clear()` wrote with `open(…, "w")`: driven on a
+full disk, `clear(222)` answered False and left `{"111"` on disk.
+
+**ONE READING, THREE STATES.** `bot/utils/json_store.py`:
+
+- `read_json_store(path, *, shape=dict, check=None) -> StoreRead(state, data, detail)`.
+  `fresh` is a missing OR empty file; `read` is a file that parsed and is
+  `shape` and passes the store's own `check`; `unreadable` is anything else
+  (an OSError other than missing, a parse error, the wrong shape, a `check`
+  reason). `detail` is the exception's CLASS, never its text. Nothing the file
+  holds makes it raise.
+- `load_json_store(...)` answers the data, `shape()` for a fresh start, and
+  raises `StoreUnreadable` (a `RuntimeError`, not an `OSError`, carrying
+  `.path` and `.detail`) for an unreadable file.
+- `update_json_store(path, change, *, shape=dict, check=None, **json_kwargs)
+  -> (data, written)` is the one write the shape allows. It READS THE FILE
+  AGAIN, raises `StoreUnreadable` without calling `change` or writing, writes
+  nothing when `change` answers `False`, and replaces the file through
+  `atomic_write_json`, whose `OSError` is the caller's. A write that starts
+  from the file cannot erase what the file held, whatever a copy in memory
+  believes, so the stores that keep one adopt what was written. The in-process
+  lock stays the caller's; two processes interleaving a read-modify-write
+  still lose the key they both changed, and nothing else.
+
+A missing file is a fresh start and an EMPTY one is too, because nothing in it
+can be erased; `RiskEngine._load_state` already answers an empty file that way.
+
+**WHAT A READER GETS IS DECIDED BESIDE THE READER, NOT IN THE HELPER**, because
+it depends on what the store means:
+
+- **Leverage.** The bind stores `UNREAD`, never `None`. The executor reads the
+  store again at order time and sizes at `TIGHTEST_PREF` (1x) while it still
+  cannot, saying so once. `/leverage` says the file did not read.
+- **Strategy.** The confirm is refused (🛡, audited `UNREAD`), because an
+  unread file may hold an armed selection. `/mystrategy` says it could not be
+  read, and a clear that could not read or did not land says the selection is
+  still set.
+- **Equity peak.** An unread peak is `None`, "not measurable", never `0.0`.
+  The merge keeps the MAX of the file's peak and this one's.
+- **Authority ledger.** `spent`, `record` and `remaining` raise; the daily cap
+  refuses. The merge adds the rows memory lacks rather than writing memory
+  over the file.
+- **Venue selection.** `raw_selection` raises; `set_selection` answers
+  `(False, UNREAD_REFUSAL)`; the `/venues` card says the selection could not
+  be read; the control pull's ack is `null`, not "cleared".
+- **Authority envelopes.** Reads and writes raise; the gateway answers 503; a
+  change that did not land is held in memory and the route says so.
+- **Memory, profile.** `get` raises; the prompt's note is empty rather than a
+  profile nobody read.
+- **Leaderboard, seasons.** The public route answers 503 rather than an empty
+  board.
+- **Secrets vault.** Nothing is restored from it and nothing is written over
+  it, at CRITICAL; `/vault` names the unreadable file (`vault_file_state`)
+  rather than "disabled or crypto missing".
+- **Anchor record, publication.** A confirm refuses to record; the `/anchor`
+  card says the record could not be read; `anchor_for_card` answers
+  UNVERIFIED; `/proof` says unavailable, the agent card 503.
+- **Learning store.** Writers never write over it; readers answer `shape()`
+  with an ERROR log. It is not money, and a refused read there would stop the
+  refit rather than protect anything.
+- **Free-chat quota. The one store that fails OPEN, and it says so.** An
+  unreadable count allows the question, counts nothing, writes nothing, and
+  marks the answer `unmetered: True, unread: <class>`. It is a soft product
+  limit, and refusing every free user's chat over a file fault would turn a
+  spend fence into an outage.
+
+**THE RULE IS STRUCTURAL, AND IT WAS DRIVEN ON PLANTED SOURCE BEFORE THE REAL
+TREE.** `tests/test_no_json_store_writes_over_a_failed_read.py` walks `bot/`
+for a LOADER (a `try` around `json.load`, `json.loads` or `load_json_store`
+whose handler swallows: it raises nothing, returns or sets only an empty value,
+calls only a logger) and a WRITER (`atomic_write_json`, `json.dump`, or
+`json.dumps` handed to a write not in append mode), paired when they are
+methods of one class or module functions one call chain reaches. A site not in
+`tests/json_store_baseline.txt` fails, a listed site the rule no longer finds
+fails, and a row with no reason fails. Twenty-eight sites on the base commit;
+fifteen converted; thirteen baselined, each read and each with its reason. On
+the base tree the real-tree test fails and the thirty-five planted cases pass.
+
+**Its blind spots are stated and pinned, and the first draft of that list was
+wrong about one.** A class nested in a class, a def or class under a
+module-level `if` or `try`, and a read or write through a helper in another
+module are not seen; driven over `bot/` with each read, none holds a site
+today. The draft docstring also listed a def nested in a function. The planted
+test for it found the rule reading it and charging it to the outer function,
+so the sentence went.
+
+**WHAT WAS NOT CHANGED, AND WHY.** The thirteen baselined rows:
+
+- Four are not defects of this shape: the self-audit (every save replaces both
+  keys whatever was read), the calibrator and the voter weights (derived fits
+  rewritten whole from the decisions), and the proactive watch list, which
+  slice B1 owns.
+- Two lose something bounded: the catalog watch (queued new-listing alerts),
+  and the executor's positions (a restart cache the venue rebuilds, though
+  provenance is lost).
+- Seven are real and FILED: the shadow book, the review queue (its `seq`
+  restarts and reuses ids), slippage (a PARTIAL load and a non-atomic save),
+  the adaptive limit distance (non-atomic), the validation gate, the channel
+  forwarder, and the conversation store (its compaction drops lines it could
+  not parse).
+
+Each of those needs a load-failure state its readers can see, not a wiring
+line. The publication writer stays unconditional on purpose: it is a snapshot
+the bot builds whole.
+
+**Sixty-nine mutations, each killed. Six survived the first round and every
+one was the corpus.** The peak merge replacing the file's peaks survived until
+a fixture held a HIGHER peak on disk than in memory. The ledger keeping only
+this process's book needed two ledgers on one file. A ledger book that is a
+list, and a venue selection that is a list, needed a file of the right JSON
+kind with the wrong shape inside. The `/venues` card handed no venues needed
+the handler driven rather than the card. The learning status change breaking
+on a non-dict row needed that row planted. All six die now. One kill was
+reported by the driver for the wrong line: "the card ignores an unreadable
+file" printed a log line as its failure. Re-applied by hand, it dies on
+`test_the_card_says_the_file_did_not_read_not_disabled`.
+
+**The type ratchet found three `Any` returns from the helper, and the cure was
+the helper's signature, not casts.** `load_json_store` answered `Any` for
+every store, so seven callers returned it untyped. It is overloaded now: the
+default answers `dict`, and `shape=T` answers `T`. The executor's preference
+field holds an `int`, `None` or `UNREAD`, and says so. mypy fell 568 → 565
+(`assignment` 55 → 53, `no-any-return` 97 → 96) and was re-recorded. The
+honesty ratchet held at 713. Ruff's `I001` reads 598 against a baseline of 597
+on this branch and identically on the base commit it started from, so that +1
+is not this slice's and was not re-recorded.
+
+**And the helper's own docstring claimed more than it checked.** It said
+`read_json_store` "never raises", and a store's `check` is called outside its
+`try`. Every check in the tree reads only `dict.get` and `isinstance` on a
+value already of `shape`, so none can raise, and a `try` there would be a line
+no input reaches. The docstring says that instead.
+(`tests/test_an_unreadable_store_is_not_an_empty_one.py`,
+`tests/test_a_reader_of_an_unreadable_store_fails_closed.py`,
+`tests/test_the_vault_and_three_more_stores_keep_an_unreadable_file.py`,
+`tests/test_no_json_store_writes_over_a_failed_read.py`,
+`bot/utils/json_store.py`.)
+
+**The ratchet's one owned-elsewhere row was settled at merge, as the row said
+it would be.** The watch list was baselined "owned by the persistence slice,
+checked against `json_store` at merge", and that slice rewrote the loader in
+the same round. Merged, the rule finds no site there and the two-way rule
+refused the stale row, so it is deleted. Read against the helper, the loader
+refuses what the helper refuses and never writes over a failed read. It
+differs in one case: an empty file is unreadable there and a fresh start here.
+That is the stricter reading and it is sound: the watch list is saved through
+`atomic_write_json`, so an empty file is never this module's own output, and
+the operator is still enrolled for that run.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13019,7 +13199,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1086** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1090** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

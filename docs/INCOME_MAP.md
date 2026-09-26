@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:1013, :1022), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:1042, :1051), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:340 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:6867 (the per-strategy trailing switch read at the fill).
+bot/core/live_executor.py:6910 (the per-strategy trailing switch read at the fill).
 
 **Scalping** — **shipped**
 
@@ -167,16 +167,16 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5775 creates the entry order idempotently, :7269/:7737 attach
+live_executor.py:5818 creates the entry order idempotently, :7312/:7780 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2093, :2109, :2236); venues.py:340 selects the swap
+productType USDT-FUTURES (:2136, :2152, :2279); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1070); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1099); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:5891-5949 confirms and executes any idea at or above
+Autonomously: engine.py:5896-5954 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,8 +280,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6749) — its
-result is handed to analyzer.analyze at :6881 as `basis` CONTEXT that votes on
+(engine.py:6754) — its
+result is handed to analyzer.analyze at :6886 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -347,10 +347,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:254) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5891-5949
+trade gate whose whole enforcing set /enforcing lists. engine.py:5896-5954
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2474) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8819): the paper book's in paper mode, both
+realized win rate (engine.py:8836): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -359,7 +359,7 @@ with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
 skill_registry.py:1934) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
-user_strategy_store.py:30, mirrored on the web at /api/bot-strategy). Research
+user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
@@ -388,7 +388,7 @@ elite) nominally gate behind $RCLAW, though that gate is off by default.
 READ-ONLY tracking of what you already hold, and it is genuinely wired on both
 surfaces. /livebalance fetches the caller's own linked-venue futures balance
 AND enumerates spot holdings, pricing each against a live ticker
-(account_commands.py:833; an unread holdings list is None, never [], so
+(account_commands.py:843; an unread holdings list is None, never [], so
 'nothing held' and 'nothing read' stay apart). /networth and /holdings
 aggregate CEX venues plus SIWE-linked wallet chains, one row per source, with
 an explicit error row for any source that would not read (holdings.js:1 header
@@ -400,7 +400,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:1013, :1022); the engine, live_executor
+futures-only mode' (trading_commands.py:1042, :1051); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -1165,7 +1165,7 @@ captain — the 'Connector' tier at app/auth.js:437 is the one tier marked
 state:'live'). Copy-follow, the strategy marketplace, the Arena, the public
 leaderboard and the operator's Telegram broadcast channel all exist. An
 ACCESS-TIER mechanism also exists: basic/pro/elite plans, a 5-question/day
-free chat quota with pro/elite/admin exempt (bot/web/chat_quota.py:32), and a
+free chat quota with pro/elite/admin exempt (bot/web/chat_quota.py:43), and a
 per-feature tier map in bot/token/tier_gate.py.
 
 *Gap.* There is no payment rail anywhere in the tree — no Stripe, no checkout, no
@@ -1401,7 +1401,7 @@ draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
 → renderContractStudio dashboard.js:7070, registered dashboard.js:10078; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1433 gated by _guard_user at :1452, route registered
-user_gateway.py:5019; five template buttons, flags, Copy and Download .sol at
+user_gateway.py:5078; five template buttons, flags, Copy and Download .sol at
 dashboard.js:625…
 
 **Trading/analytics tools** — partial
@@ -1431,7 +1431,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7532-7569
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7537-7586
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1441,7 +1441,7 @@ Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
 strategy is a tighten-only VETO over signals the operator's engine generated —
 it originates no entries, and the community snapshot keeps only five gate
 kinds (confidence_threshold, symbols, blocked_symbols, direction,
-regime_filter; user_strategy_store.py:124-142), silently dropping the rest.
+regime_filter; user_strategy_store.py:150-168), silently dropping the rest.
 The Arena key is structurally paper-only: 'it reaches the paper Arena and
 nothing else… there is no code path from one of these keys to a live order, an
 exchange credential, a wallet, or another user's row'
@@ -1612,8 +1612,8 @@ preferring the non-custodial option and stating the tradeoff
 failed fetch yields NO option, never a fabricated APY). Two doors reach it:
 GET /api/idleyield (app/routes/idleyield.js, authMiddleware — any signed-in
 web user, mounted app/server.js:387) via gateway POST /idleyield
-(bot/web/user_gateway.py:3370, which calls fetch_noncustodial_options at
-:3336), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
+(bot/web/user_gateway.py:3400, which calls fetch_noncustodial_options at
+:3366), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
 check (bot/skills/yield_commands.py:142). Separately, an existing stETH
 position is MIRRORED read-only from the mainnet contract (app/lib/defi.js:36
 LIDO_STETH, :103 readLido) through GET /api/defi and the c-defi panel. The
@@ -1731,7 +1731,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8089
+bot/core/stock_trading.py, also read by bot/core/engine.py:8106
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2365,7 +2365,7 @@ half of the measurement that says where the measurement stops.
   comments (`app/routes/web3_execute.js:52, :93, :124`), and a comment that
   misdescribes which half of a gate is off is a failure mode this repo has
   recorded before. All three re-checks exist and refuse:
-  `handle_web3_sign` (`bot/web/user_gateway.py:4711`), `handle_cross_plan`
+  `handle_web3_sign` (`bot/web/user_gateway.py:4770`), `handle_cross_plan`
   (`:1722`) and `handle_contract_deploy` (`:1607`) each `403` a non-admin —
   and the last of those is why the check had to be driven rather than
   grepped, because a search for `handle_web3_deploy`, the name the route
