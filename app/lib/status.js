@@ -17,6 +17,11 @@ const FRESH_SCAN_MS = 15 * 60_000;        // engine pushes the scan every few mi
 const FRESH_REPORTS_MS = 2.5 * 3600_000;  // intelligence reports are hourly
 const FRESH_LETTER_MS = 9 * 86_400_000;   // weekly letter: last completed ISO week
 const DB_PROBE_MS = 2500;                 // a liveness read, not a query plan
+// The gateway shares the bot's event loop with a live scan. Measured after a
+// deploy, a valid authenticated response took 6.7s while the old 3.5s probe
+// declared it unreachable. Match the gateway client's normal request budget:
+// slow is visible in the request latency, but it is not the same as absent.
+const GATEWAY_PROBE_MS = 20_000;
 
 let _probes = null;
 
@@ -47,7 +52,7 @@ function defaultProbes() {
     pingGateway: async () => {
       if (!gw.isConfigured()) return { state: 'not_configured' };
       try {
-        const r = await gw.getGateway('/public/proofofpnl', 3500);
+        const r = await gw.getGateway('/public/proofofpnl', GATEWAY_PROBE_MS);
         return { state: r.status >= 200 && r.status < 500 ? 'reachable' : 'error' };
       } catch (e) {
         return { state: 'unreachable' };
@@ -195,4 +200,6 @@ async function buildStatus(now = Date.now()) {
 // which means the probe that ACTUALLY RUNS IN PRODUCTION was the one thing not
 // exercised — a mutation removing its not_configured guard passed the whole
 // suite. A test double cannot vouch for the implementation it replaces.
-module.exports = { buildStatus, setProbes, defaultProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS };
+module.exports = {
+  buildStatus, setProbes, defaultProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS, GATEWAY_PROBE_MS,
+};
