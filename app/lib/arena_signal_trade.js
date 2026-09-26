@@ -30,6 +30,7 @@
  */
 
 const arena = require('./arena');
+const { exchangeSymbol } = require('./agent_match');
 
 // A call older than this is history, not a position to take.
 const MAX_SIGNAL_AGE_MS = 6 * 60 * 60 * 1000;   // 6 hours
@@ -135,7 +136,11 @@ function decorateForPicker(signals, ctx = {}) {
   const openSymbols = new Set((ctx.positions || []).map((p) => String(p.symbol || '').toUpperCase()));
   const marks = ctx.marks || {};
   return (Array.isArray(signals) ? signals : []).map((s) => {
-    const symbol = String(s.symbol || '').toUpperCase();
+    // The same spelling the open route normalises to at its door: the row is
+    // 'SOL/USDT', the marks and positions 'SOLUSDT'. Read raw, every engine
+    // signal showed no mark, no drift, and "tradeable" beside a SOL position
+    // already open.
+    const symbol = exchangeSymbol(s.symbol);
     const direction = String(s.direction || '').toUpperCase();
     const createdAt = s.created_at ? new Date(s.created_at) : null;
     const ageMs = createdAt && !isNaN(createdAt.getTime()) ? now.getTime() - createdAt.getTime() : null;

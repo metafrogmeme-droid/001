@@ -7569,6 +7569,89 @@ their functions now.
 (`tests/test_chat_vision_unavailable.py`,
 `tests/test_calibration_change1_gates.py`.)
 
+**THE RESEARCH DOSSIER PUBLISHED THE OPERATOR'S REALIZED P&L IN DOLLARS, PER
+COIN, TO ANONYMOUS CALLERS.** Its "Agent track record here" section read the
+operator's closed trades and printed `net +$X` under a source label saying
+"public track record data". The public track record is percent, ratio and
+count only. Driven with two operator PENDLE closes planted (+612.40, -140.15):
+a freshly registered stranger's `GET /api/research/pendle`, an anonymous
+`POST /mcp` `research_token` and an anonymous `POST /api/tool/invoke` each
+answered `1W/1L, net +$472.25`. The same lib feeds the web chat's research
+intercept and Telegram's `/research` through the bot's sync route, so one line
+was five doors. The section prints the W/L count, a flat count when there is
+one, and the profit factor (`trade-stats.profitFactor`, none over no loss), with
+no colour, and the label says so. A percent on the recorded size was not used:
+`size_usd` is margin on some rows and notional on others. Two tests pinned the
+dollar figure as the contract (`+$50.00`, `+$30.00`); they pin the ratio now.
+`public_no_dollars.test.js` could not see this and still cannot: it scans
+route files for emitted money keys, and this was a figure inside an HTML
+string built in a lib, which that guard names as its own scope limit. The new
+suite drives all five doors. The JS honesty ratchet improved by one and was
+re-recorded.
+
+**The leaderboard's return was the dollar P&L divided by a constant.**
+`return_pct = net / 10000`, so `return_pct * 100` was the member's realized
+P&L in dollars: closes of +412.37, -95.12 and +23.40 were shown at 3.41%. The
+return is on the account's own starting equity now, the way the reputation
+route derives it (`deriveStartEquity`: the latest equity snapshot minus the
+realized net). No snapshot is no basis. A basis at the clamp's floor of 1 is
+no basis either: a withdrawal leaves the snapshot below the realized net, and
+dividing by 1 publishes the net times 100. Such a member is listed by trades
+and win rate with `return_pct: null` and no rank, after the ranked rows,
+because `b - a` over a null reads it as 0. The panel prints a dash for both,
+its caption no longer claims a standard stake, and the join panel has a third
+sentence for a member who has closed trades and has no equity reading. A
+guard in `authed_queries_scope_to_session.test.js` read 400 characters after
+`return {` for the substring `equity` and accused the ratio's input
+(`snap[0].equity`); it checks emitted keys now, the rule `public_no_dollars`
+already states.
+
+**Practice-follow never opened and the Daily Duel never used the agent's
+calls, because of spelling.** Signals are stored as `SOL/USDT`; the ticker
+map, the arena's positions and the duel's rounds are keyed `SOLUSDT`. Only
+`/open-signal` normalised. Driven: a `SOL/USDT` signal left the follower with
+no position and its cursor advanced past it for good (`no_mark`); the duel
+card was three majors the Claw "passed" on, on a day it had called PENDLE and
+ARB; the picker showed no mark and `tradeable: true` beside an open SOL
+position. `agent_match.exchangeSymbol` is the one normalisation, and the
+follow sweep, the picker, the duel's round builder and `/open-signal` ask it.
+Not acted on: once the duel uses the agent's direction, its promise that the
+agent's call stays hidden is weaker than it reads, because `/api/signals`
+publishes the same direction.
+
+**The public status page reported the database ok without reading it.**
+`components.database` was the literal `{ state: 'ok' }`, beside an honesty
+note saying nothing is hand-set. Driven with every query refused, the page
+said ok while a sign-in answered 500. It runs `SELECT 1` under a 2.5s deadline
+now, reads `unreachable` on a throw or a hang, and counts that toward the
+verdict. Under the existing rule one worrying component is `partial`, so a
+database outage alone reads partial, not degraded. The in-memory shim gained a
+`SELECT 1` branch. The first draft `unref`ed the deadline timer; with nothing
+else alive, the event loop emptied under a hung query and the probe never
+resolved. The drive found it. Filed: the weekly-letter line reads `no_data`
+during a database outage, because its read failed.
+
+**`/api/today` called every season "upcoming".** It called
+`seasonStatus(s)` with no clock, so `NaN >= start` answered false, and it took
+`srows[0]` of an unordered SELECT, the `LIMIT 1` defect `pickCurrentSeason`
+records. The picker moved from `routes/arena.js` to `lib/arena_seasons.js` and
+both readers take it; `seasonStatus` raises on a missing clock. The in-memory
+shim sorts seasons newest-first, which hides the ordering half, so the test
+authors the live season first and hands the rows over in both orders.
+
+**Thirty-eight mutations, each killed. The one that survived the first round
+was a door nothing drove.** `/open-signal` had normalised the spelling since
+it was written, and no test opened a scanner-spelled signal through it, so
+putting the raw spelling back there changed nothing. It is driven now. Four
+map citations for season creation and deletion (`arena.js:1069, :1095, :1149,
+:1178`) sat on a blank line, a comment and a `catch`; a remap would have
+carried them, so they are re-derived from the routes they name.
+(`app/test/research_track_record_carries_no_dollar.test.js`,
+`app/test/leaderboard_return_is_on_the_accounts_own_basis.test.js`,
+`app/test/arena_reads_a_signal_in_the_exchange_spelling.test.js`,
+`app/test/status_reads_the_database.test.js`,
+`app/test/daily_rune_reads_the_current_season.test.js`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A

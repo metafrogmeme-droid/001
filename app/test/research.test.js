@@ -104,7 +104,12 @@ test('buildDossier: PENDLE gets market + RWA + signals + track sections, each so
   assert.match(sig.html, /1 long \/ 0 short/);
   const tr = d.sections.find(s => s.title === 'Agent track record here');
   assert.match(tr.html, /1<\/b> trade/);
-  assert.match(tr.html, /\+\$50\.00/);
+  // No dollar figure: this used to pin `+$50.00`, the operator's realized net
+  // on a surface anonymous callers reach. One winning close and no loss is
+  // 1W/0L with no profit factor, said in words.
+  assert.match(tr.html, /1W\/0L/);
+  assert.match(tr.html, /no losing close on record, so no profit factor/);
+  assert.ok(!/\$/.test(tr.html), `a dollar figure on the track record: ${tr.html}`);
   assert.ok(d.sources.length >= 3);
   assert.match(d.next_step, /analyze PENDLE/);
   assert.match(d.disclaimer, /no scraped or generated claims/i);

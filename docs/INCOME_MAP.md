@@ -821,7 +821,7 @@ exist. So: reputation is measured and displayed today; it buys nothing.
 not serve this row and the 'rewards' half is recognition-only. Verified
 shipped and reachable: GET /api/reputation (app/routes/reputation.js,
 authMiddleware, mounted app/server.js:440) is fetched by a real nav view —
-dashboard.js:47 registers { id:'reputation' }, dashboard.js:8744 maps it to
+dashboard.js:47 registers { id:'reputation' }, dashboard.js:8750 maps it to
 renderReputation, which fetches at dashboard.js:5875 and abstains with
 'Unrated' rather th…
 
@@ -842,7 +842,7 @@ A complete, reachable, publicly-ranked forecasting contest — the Daily Duel �
 with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
 agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
 24h horizon measured from their own call, beating the agent scoring double
-(app/lib/duel.js:5-8, :40-43). Doors, opened and read: Telegram /duel at
+(app/lib/duel.js:5-8, :41-44). Doors, opened and read: Telegram /duel at
 bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
@@ -854,7 +854,7 @@ app/routes/duel.js:43/57/73/98; and the session-free public board and referral
 'squads' board at app/routes/public_duel.js:3 (mounted app/server.js:370),
 ranked per calendar-month season. Scoring is one pure module both surfaces
 share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
-unresolved rounds are excluded from the denominator (app/lib/duel.js:183-195),
+unresolved rounds are excluded from the denominator (app/lib/duel.js:184-196),
 settlement runs lazily in batches on read (duel_service.js:117), and every
 pick is cryptographically SEALED at the moment it is made (duel_service.js:195
 -> callseal.sealDuelPick, kind 'duel_pick' in docs/PROVABLE_CALLS_SPEC.md:97)
@@ -1009,7 +1009,7 @@ accompanies it.
 
 *The verifier refused part of this row.* The DRAFT half is upheld exactly as described — I confirmed the 'ERC-721 NFT'
 template string at dashboard.js:7085, the #studio view is in VIEWS
-(dashboard.js:54) and RENDER (dashboard.js:10078), the POST reaches
+(dashboard.js:54) and RENDER (dashboard.js:10084), the POST reaches
 handle_contract_studio (contract.js:37 → user_gateway.py:1433), and
 _guard_user with NO command argument means any signed-in web caller (auto-
 provisioned paper user, user_gateway.py:397-417) — not admin-only, metered by
@@ -1069,12 +1069,12 @@ PRIZE half does not exist anywhere. Arena seasons are real operator-authored
 time windows over the paper book — 'a NAMED TIME WINDOW over the existing
 Arena, never a reset', ranking percent return from trades closed inside the
 window (arena_seasons.js:3-11), with rule variants a live season enforces
-server-side (max leverage 1-20, majors only: arena_seasons.js:27-50, enforced
+server-side (max leverage 1-20, majors only: arena_seasons.js:63-86, enforced
 at arena.js:173/444/587). GET /api/arena/season is public and returns status
-plus in-window standings (arena.js:990-1014), with the wrong-season trap
+plus in-window standings (arena.js:974-998), with the wrong-season trap
 already fixed by pickCurrentSeason (:979-987). Alongside it: an opt-in
 anonymous ranked leaderboard showing handle, return %, trade count and win
-rate and never a dollar (leaderboard.js:1-10), the Daily Duel with a 90-day
+rate and never a dollar (leaderboard.js:1-20), the Daily Duel with a 90-day
 record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
 Command Deck's streaks/weekly quests/achievement glyphs. Telegram doors: /duel
 (start_commands.py:578, @guard("start")), /leaderboard (:623) and /arena (:650).
@@ -1086,7 +1086,7 @@ arena.js's engine, leaderboard.js, duel*.js and achievements.js returns only
 bot/formatters/board_cards.py:72 naming a promo prize footer as the
 HYPOTHETICAL future leak its dollar guard exists to catch. Rank, glyph and
 streak are the entire reward. Season creation and deletion are adminOnly and
-API-only with no UI (arena.js:1069, :1095, :1149, :1178), so a user cannot
+API-only with no UI (arena.js:1061, :1085, :1139, :1168), so a user cannot
 host a tournament; there is no bracket, no team registration, no
 entry/settlement of stakes, and no esports data or integration of any kind.
 
@@ -1399,7 +1399,7 @@ are RUNECLAW's, with no user deploy door.
 
 *The verifier refused part of this row.* partial — STATUS UNCHANGED, but the claim must be narrowed to drafting. The
 draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
-→ renderContractStudio dashboard.js:7070, registered dashboard.js:10078; POST
+→ renderContractStudio dashboard.js:7070, registered dashboard.js:10084; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1433 gated by _guard_user at :1452, route registered
 user_gateway.py:5080; five template buttons, flags, Copy and Download .sol at
@@ -1463,7 +1463,7 @@ developers.html:55 advertises. The MARKER is the list, here as everywhere: this
 paragraph named four of the five and cited four of the five lines, because
 xray_transaction joined the family and no prose moved. Mint an rcarena_
 key yourself from the Arena page's Agent keys panel (arena.html:366 →
-app/routes/arena.js:1232, max 5, revocable, shown once) and the three arena_*
+app/routes/arena.js:1216, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
 endpoint are served for on-chain discovery, and /api/llm lets a user plug
 their own model key in.
@@ -1472,7 +1472,7 @@ their own model key in.
 deliberately carries no pricing block and no access predicate, with per-call
 charging (x402) stated as design-only (app/lib/tool8257.js:16-22). The agent-
 IDENTITY half has no UI — POST /api/agents (claim a slug, app/server.js:363)
-and POST /api/arena/keys/agent (bind a key to it, arena.js:1272) are mounted
+and POST /api/arena/keys/agent (bind a key to it, arena.js:1256) are mounted
 and authed but referenced by nothing in app/public; the only thing naming the
 claim door is an error string, 'Claim it first at POST /api/agents'
 (app/lib/arena_keys.js:155), which is this repo's own card-names-a-door-with-
@@ -2010,9 +2010,9 @@ path beneath it: a triple-gated execution preview and then a real first-leg
 signed transfer.
 
 *Where.* POST /api/web3/cross-plan (app/routes/web3_execute.js:100 → gateway
-/cross/plan; dashboard.js:8557, panel #c-crossyield section 'Worth moving? —
+/cross/plan; dashboard.js:8563, panel #c-crossyield section 'Worth moving? —
 cross-chain yield planner'); POST /api/web3/sign, POST /api/web3/sign/prepare,
-GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8617,
+GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8623,
 :8671, :8698) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
 TESTNET-ONLY by the routes' own headers.
 
