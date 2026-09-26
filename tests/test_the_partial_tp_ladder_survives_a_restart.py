@@ -311,7 +311,12 @@ class TestTheFillReading:
         ({"confirmed": True, "fill_qty": 0.5}, (0.5, "filled")),
         ({"confirmed": True, "fill_qty": 0.0, "failure_stage": ""}, (0.0, "unknown")),
         ({"failure_stage": "order_cancelled", "raw": {"filled": 0.2}}, (0.2, "filled")),
-        ({"failure_stage": "order_cancelled", "raw": {"filled": 0}}, (0.0, "none")),
+        # A stated zero USED to read "none" -- the word for nothing being
+        # SUBMITTED -- so the caller could not tell an order the venue took and
+        # closed nothing with from a slice that rounds to nothing on the
+        # market's grid, and acted on neither. They are two facts with two
+        # remedies: this one may be sent again, and that one never can.
+        ({"failure_stage": "order_cancelled", "raw": {"filled": 0}}, (0.0, "cancelled")),
         # a cancel whose filled amount nobody stated may have closed some:
         # "nothing" would re-arm the stage and could close twice
         ({"failure_stage": "order_cancelled", "raw": {"filled": None}}, (0.0, "unknown")),

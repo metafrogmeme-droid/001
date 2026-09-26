@@ -6033,10 +6033,99 @@ unit is fee-inclusive; `PartialTPState.initial_risk` is the bare price distance,
 so `tp1_r_multiple = 1.5` fires at 1.5 GROSS R. Moving the ladder onto the
 fee-inclusive unit changes when the stages TRIGGER rather than where the stop
 sits, which is a strategy decision with a benchmark cost, not a wording fix. The
-two siblings in the same function stay filed too: a position too small to split
-marks TP1 done and moves the stop with nothing closed, and a rebuilt ladder sizes
-TP2 off the quantity left after TP1 rather than the entry's.
+sibling that stays filed is the rebuilt ladder sizing TP2 off the quantity left
+after TP1 rather than the entry's. The other one it filed — a position too small
+to split marking TP1 done and moving the stop with nothing closed — is the
+chapter below.
 (`tests/test_the_breakeven_lock_is_breakeven_after_fees.py`.)
+
+**A LADDER STAGE THAT CLOSED NOTHING WAS RECORDED AS HIT, MOVED THE STOP, AND
+AUDITED NOTHING.** `_partial_close` answers one of five words and the caller
+acted on three. The one it did not act on was "nothing closed" — the only
+outcome of the four with no audit line at all. Driven through the real
+`_run_partial_tp` on a lot-size-1 market with a position of one contract, so
+TP1's slice is 0.5:
+
+    orders sent    0        tp1_hit  True        tp1_qty_closed  0.5
+    pos.quantity   1.0      stop     90.0 -> 100.1 (breakeven + fees)
+    AUDIT LINES    []
+
+**THE ORDINARY CASE IS AN ACCOUNT TRADING AT THE VENUE'S MINIMUM.**
+`_exchange_minimum_gate` raises a small order's quantity to the venue's minimum
+lot, and TP1 closes 50% of it — below that minimum by construction. So every
+position such an account opens has a ladder that can bank nothing, fires TP1
+silently, and pulls the stop to breakeven: a ride to the target turned into a
+scratch if price comes back, on the premise of a slice that was never closed.
+Nothing on any card or in any audit said so. Driven against the pinned ccxt, a
+0.5 on an amount precision of 1 RAISES `InvalidOrder` (which `_partial_close`
+already reads as nothing to send) and a 1.4 TRUNCATES to 1.
+
+**TWO PRODUCERS OF ONE WORD, WITH DIFFERENT REMEDIES.** `_read_partial_fill`
+also answered `none` for an order the venue CANCELLED having filled a STATED
+zero — an order that went OUT. That is not "nothing was submitted": a later
+pass may fill, so it takes the re-arm treatment `refused` already had, and it
+is `cancelled` now so the audit can name which happened. The reachable case is
+ordinary: the exchange stop fires between the ladder's read and its close
+order, and a reduceOnly order with nothing left to reduce is cancelled
+unfilled. A reader that folds the two retries the grid case forever or gives up
+on the cancelled one. `refused` and `cancelled` share one branch because they
+share one ACTION, and one sentence each because a venue that refused the order
+and one that took it and closed nothing with it send an operator to different
+places.
+
+**A STAGE THE SIZE CANNOT PLACE IS RECORDED, NOT RE-ARMED.** Re-arming retries
+it on every pass forever, because a position's quantity only shrinks: a slice
+that cannot be placed once cannot be placed later. `PartialTPState.unplaceable`
+records it, `check_partial_tp` stops proposing it, and `stage_lock` locks no
+stop for it — a stage that banked nothing has nothing to lock, and without that
+second half the lock the stage skipped would be asked for again on the very
+next pass. Both readers ask `unplaceable_stages`, because a second copy of that
+judgement is a second answer about whether a stage fired; the field is READ
+rather than trusted, since `from_record` hands the constructor whatever the dict
+holds and a list of stage names this build does not know must not turn the whole
+ladder off.
+
+**AND IT DOES NOT TURN THE WHOLE LADDER OFF, which the existing `LADDER_OFF`
+mechanism would have made the one-line fix.** A TP2 whose slice rounds to
+nothing must not cost TP1's lock the re-proposal `stage_lock` was written to
+provide — that is the defect this file already records as fixed, and reaching
+for the cheap path would have reintroduced it one stage over. The runner needs
+`tp2_hit`, so a ladder whose TP1 cannot be placed proposes nothing at all and
+costs one arithmetic call a tick; what it gains is a record that says the stage
+banked nothing rather than one that says it fired.
+
+**TWO FACTS SHARE THAT ONE ACTION TOO, and the sentence was found by re-reading
+the diff rather than by the round.** The GRID refusing a slice and the BOOK
+having nothing left to close both mean the stage cannot be taken, and the first
+draft printed the grid sentence for both — so an operator whose TP1 over-filled
+to zero was told the market refused a slice on a pass where the market answered
+nothing at all. The second cause is reachable and driven: a TP1 fill larger than
+its slice takes the book to zero INSIDE the pass, which is the one door to the
+caller's `qty <= 0`, because `check_partial_tp` guards its own `close_qty > 0`
+against a `remaining_qty` the pass reads from `pos.quantity` — so an empty book
+proposes nothing and the loop never runs.
+
+**Twenty-two mutations, each killed — and the two that survived the first
+round were the guard's coverage and a redundant line of mine.** Every fixture's
+`_save_positions` was a no-op, so dropping `changed = True` left the mark in
+memory and never on DISK: a restart would re-propose the stage and record it
+again, which no assertion about the record could see. And
+`isinstance(s, str)` beside the membership test changed no verdict on any input
+— `CLOSING_STAGES` is a tuple, so `in` compares with `==` and never raises, and
+every non-string fails it anyway — so it is DELETED rather than pinned, which is
+the round saying the code claimed a check it did not make.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A PIN IN A FILE NONE OF ITS SUITES
+RAN.** `test_audit_fixes_batch_3.py::test_a_cancelled_order_closed_nothing`
+asserted `(0.0, "none", "O1")` for a cancel that filled nothing — the word this
+slice split in two — and its own name is the reason the split was needed: a
+cancel that closed nothing and a slice that was never SENT are different facts
+with different remedies, and the first may be tried again where the second
+would be re-armed every tick forever. The pin moves with the contract, and the
+sibling two tests down still reads `none`, because there the quantity rounded
+away and no order went out. Eleventh time the full gate has refused a slice on
+a test outside its own suites.
+(`tests/test_a_stage_that_closed_nothing_did_not_fire.py`.)
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -14255,7 +14344,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 236 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 237 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -15067,9 +15156,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **445 of 1127** reach for source text through `source_scan`, `code_only`
+Driven, **446 of 1128** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 445 is a FLOOR and the honest shape is
+source scan that rule does not see, so 446 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

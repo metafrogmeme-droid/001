@@ -877,7 +877,11 @@ def _read_partial_fill(check: dict) -> tuple[float, str]:
             # and could close the position twice; unknown holds the ladder
             # while the stop still protects the position.
             return 0.0, "unknown"
-        return (part, "filled") if part > 0 else (0.0, "none")
+        # A stated zero is the venue saying nothing filled, so the stage may be
+        # sent again -- but the order DID go out, which "none" does not say:
+        # that word means nothing was submitted at all, and the two have
+        # different causes and different remedies.
+        return (part, "filled") if part > 0 else (0.0, "cancelled")
     return 0.0, "unknown"
 
 
@@ -8293,11 +8297,24 @@ class LiveExecutor:
         "unknown" fill be RE-READ on a later pass instead of resubmitted.
         source is:
 
-            "filled"   the venue CONFIRMED this quantity filled
-            "none"     nothing was submitted (qty rounded to <= 0)
-            "refused"  the venue refused the order, so nothing was placed
-            "unknown"  the order went out, or may have, and its fill could
-                       not be read
+            "filled"    the venue CONFIRMED this quantity filled
+            "none"      nothing was SUBMITTED: the slice rounds to nothing on
+                        this market's amount grid. A position's quantity only
+                        shrinks, so this is true on every later pass too --
+                        the stage cannot be taken at this size.
+            "refused"   the venue refused the order, so nothing was placed
+            "cancelled" the order went out and the venue cancelled it having
+                        filled a STATED zero, so nothing closed and a later
+                        pass may do better
+            "unknown"   the order went out, or may have, and its fill could
+                        not be read
+
+        "none" and "cancelled" both mean nothing closed and used to be one
+        word. They are two facts: one is the position's size against the
+        market's grid, which no later pass changes, and the other is an order
+        the venue took and closed nothing with, which a later pass may. A
+        reader that folds them retries the first forever or gives up on the
+        second.
 
         It used to return the SUBMITTED quantity, and the caller subtracted
         that from ``pos.quantity`` and re-sized the exchange stop to match.
@@ -8370,9 +8387,13 @@ class LiveExecutor:
         Banks profit early to fix the realized R:R asymmetry without removing the
         exchange-side safety net."""
         import dataclasses as _dc
+
         from bot.core.partial_tp import (
-            create_partial_tp_state, check_partial_tp, PartialTPState,
+            PartialTPState,
+            check_partial_tp,
+            create_partial_tp_state,
             rebuild_ladder,
+            unplaceable_stages,
         )
 
         is_long = pos.direction == "LONG"
@@ -8575,16 +8596,24 @@ class LiveExecutor:
                                     "order_id": order_id or None,
                                     "quantity": pos.quantity, "price": price})
                         self._record_warning("partial_tp_fill_unread")
-                    elif fill_source == "refused":
-                        # Nothing was placed, so the stage did not happen: it
-                        # is re-armed, and its stop move is not made.
+                    elif fill_source in ("refused", "cancelled"):
+                        # Nothing was closed, so the stage did not happen: it
+                        # is re-armed, and its stop move is not made. A later
+                        # pass may do better, which is what separates these
+                        # two from "none". The sentence names which, because a
+                        # venue that REFUSED the order and one that took it and
+                        # cancelled it unfilled send an operator to different
+                        # places.
                         setattr(st, f"{act.stage}_hit", False)
                         setattr(st, f"{act.stage}_qty_closed", 0.0)
+                        _why = ("the venue refused the close"
+                                if fill_source == "refused" else
+                                "the venue cancelled the close having filled "
+                                "nothing")
                         audit(trade_log,
-                              f"Partial TP {act.stage} for {pos.symbol}: the venue "
-                              f"refused the close, so nothing was closed and the "
-                              f"stage is re-armed",
-                              action="partial_tp", result="REFUSED",
+                              f"Partial TP {act.stage} for {pos.symbol}: {_why}, "
+                              f"so nothing was closed and the stage is re-armed",
+                              action="partial_tp", result=fill_source.upper(),
                               level=logging.WARNING,
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
                                     "stage": act.stage, "qty_submitted": qty,
@@ -8596,6 +8625,54 @@ class LiveExecutor:
                     # second slice of a quantity the book cannot state.
                     changed = True
                     break
+                if fill_source == "none":
+                    # NOTHING WAS SUBMITTED: this slice rounds to nothing on
+                    # the market's amount grid. It was the one outcome of the
+                    # four with no audit line, and the stage was recorded as
+                    # HIT with nothing banked while its stop move went through
+                    # -- so a position whose ladder can bank nothing had its
+                    # stop pulled to breakeven at TP1's trigger, on the
+                    # premise of a slice that was never closed. It is the
+                    # ORDINARY case for an account trading at the venue's
+                    # minimum: `_exchange_minimum_gate` raises the quantity to
+                    # that minimum, and TP1's half of it is below it by
+                    # construction.
+                    #
+                    # Re-arming it would retry forever -- a position's quantity
+                    # only shrinks, so a slice that cannot be placed once
+                    # cannot be placed later -- so the stage is RECORDED as
+                    # unplaceable instead: `check_partial_tp` stops proposing
+                    # it and `stage_lock` locks no stop for it, because it
+                    # banked nothing. The rest of the ladder is untouched: a
+                    # TP2 that cannot be placed must not cost TP1's lock the
+                    # re-proposal that `stage_lock` exists for.
+                    setattr(st, f"{act.stage}_hit", False)
+                    setattr(st, f"{act.stage}_qty_closed", 0.0)
+                    st.unplaceable = tuple(
+                        sorted(set(unplaceable_stages(st)) | {act.stage}))
+                    changed = True
+                    # TWO FACTS, ONE ACTION. The GRID refusing a slice and the
+                    # BOOK having nothing left to close both mean the stage
+                    # cannot be taken, and they are not the same sentence: the
+                    # second is reachable when a TP1 fill came back larger than
+                    # its slice, which takes the book to zero inside the pass,
+                    # and telling the operator the market refused it would send
+                    # them to look at a market that answered nothing at all.
+                    _cannot = (f"its slice of {qty} rounds to nothing on this "
+                               f"market's amount grid" if qty > 0 else
+                               "there is nothing left on the book to close")
+                    audit(trade_log,
+                          f"Partial TP {act.stage} for {pos.symbol}: {_cannot} — "
+                          f"nothing was submitted and nothing was closed, so the "
+                          f"stage is off for this position and its stop move is "
+                          f"not made. The position's own stop and take-profit "
+                          f"still apply.",
+                          action="partial_tp", result="STAGE_UNPLACEABLE",
+                          level=logging.WARNING,
+                          data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                "stage": act.stage, "qty_submitted": qty,
+                                "quantity": pos.quantity, "price": price})
+                    continue
                 if act.new_sl and _would_tighten(act.new_sl):
                     # Advance the local stop ONLY after the exchange confirms the
                     # tighter level — same discipline as the trailing path, so the

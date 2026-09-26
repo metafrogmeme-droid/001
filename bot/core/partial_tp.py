@@ -88,6 +88,14 @@ class PartialTPState:
     #: first order may already have filled closes the position twice, and
     #: acting on the next stage would build on a fill nobody confirmed.
     pending: Optional[dict] = None
+    #: Stages this position's SIZE cannot place: the slice rounds to nothing on
+    #: the market's amount grid, so no order is ever submitted for it. A
+    #: position's quantity only shrinks, so a stage that cannot be placed once
+    #: cannot be placed later either -- it is recorded rather than retried, and
+    #: it banked nothing, so it locks no stop. Read through
+    #: `unplaceable_stages`, never off the field: a record another build wrote
+    #: can carry anything.
+    unplaceable: tuple = ()
 
     def __post_init__(self):
         # A NEW ladder starts here. A saved one is restored by `from_record`,
@@ -240,6 +248,37 @@ def _tp2_lock(state: PartialTPState) -> float:
             else state.entry_price - state.initial_risk)
 
 
+#: The two stages that close a slice. The runner is not one: the ladder never
+#: closes it (`close_runner` is deliberately not executed), so it has no slice
+#: to be unplaceable.
+CLOSING_STAGES = ("tp1", "tp2")
+
+
+def unplaceable_stages(state: PartialTPState) -> frozenset:
+    """The stages this position's size cannot place, read from the record.
+
+    One reading, two readers: `check_partial_tp` must not propose a stage the
+    size cannot place (it would be refused on every pass, forever), and
+    `stage_lock` must not lock a stop for one (it banked nothing, so there is
+    nothing to lock). A second copy of that judgement is a second answer about
+    whether a stage fired.
+
+    The field is read rather than trusted: a saved record is restored by
+    `from_record`, which passes whatever the dict holds to the constructor, and
+    a list of stage names this build does not know must not turn the whole
+    ladder off.
+    """
+    raw = getattr(state, "unplaceable", None)
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return frozenset()
+    # Membership in `CLOSING_STAGES` is the WHOLE check: the first draft also
+    # asked `isinstance(s, str)`, and the mutation round said that changed no
+    # verdict on any input -- `CLOSING_STAGES` is a tuple, so `in` compares with
+    # `==` and never raises, and every non-string fails it anyway. A line no
+    # input can reach differently is a claim that there is a check.
+    return frozenset(s for s in raw if s in CLOSING_STAGES)
+
+
 def stage_lock(state: PartialTPState) -> Optional[float]:
     """The stop the stages that have fired lock in, or None before TP1.
 
@@ -248,9 +287,10 @@ def stage_lock(state: PartialTPState) -> Optional[float]:
     closed half of it kept its original stop on the other half. This is the
     level `check_partial_tp` proposes on every pass until the stop reaches it.
     """
-    if state.tp2_hit:
+    cannot = unplaceable_stages(state)
+    if state.tp2_hit and "tp2" not in cannot:
         return _tp2_lock(state)
-    if state.tp1_hit:
+    if state.tp1_hit and "tp1" not in cannot:
         return _tp1_lock(state)
     return None
 
@@ -271,6 +311,7 @@ def check_partial_tp(
     cfg = CONFIG.partial_tp
 
     is_long = state.direction == "LONG"
+    cannot = unplaceable_stages(state)
 
     # Calculate R-multiple of current price move
     if is_long:
@@ -279,7 +320,7 @@ def check_partial_tp(
         current_r = (state.entry_price - current_price) / state.initial_risk if state.initial_risk > 0 else 0
 
     # Check TP1: first partial close
-    if not state.tp1_hit and current_r >= cfg.tp1_r_multiple:
+    if not state.tp1_hit and "tp1" not in cannot and current_r >= cfg.tp1_r_multiple:
         close_qty = state.original_qty * (cfg.tp1_close_pct / 100.0)
         close_qty = min(close_qty, state.remaining_qty)
 
@@ -301,7 +342,8 @@ def check_partial_tp(
             ))
 
     # Check TP2: second partial close
-    if state.tp1_hit and not state.tp2_hit and current_r >= cfg.tp2_r_multiple:
+    if (state.tp1_hit and not state.tp2_hit and "tp2" not in cannot
+            and current_r >= cfg.tp2_r_multiple):
         close_qty = state.original_qty * (cfg.tp2_close_pct / 100.0)
         close_qty = min(close_qty, state.remaining_qty)
 
