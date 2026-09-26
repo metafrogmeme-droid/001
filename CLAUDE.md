@@ -11431,6 +11431,145 @@ on the definition of a tool its own paragraph names. On the uncorrected map it
 reports all seven. Its rule is also driven on a planted map, because the real
 one is correct.
 
+**FIVE RECORDS WERE ERASED OR BROKEN BY THE READ BEFORE THEM, AND EACH READ
+SAID NOTHING LOUDER THAN DEBUG.** A persistence survey named them; each was
+driven before anything changed, and each had the same shape: a read that
+could not finish was read as a read that found little, and the next write
+replaced the file with what was left.
+
+**A torn audit-chain line broke every later append, and one of those appends
+is the seal after a live fill.** The chain read its tail with
+`json.loads(lines[-1])`, so a write cut short at the end of
+`logs/audit_chain.jsonl` made every later append raise. Driven: two entries, a
+partial third line, and three appends in a row each raised *"Unterminated
+string"*. The engine sealed the decision AFTER `execute()` had placed the
+order, with no guard, so the raise came out of `confirm_trade` over an open
+position: the Confirm button printed *"Trade execution failed"*, auto-confirm
+skipped its notification, and the learner and the IDLE transition never ran.
+The critique HALT's record sat inside a handler that reads any exception as
+*"the critique could not complete"*, which in paper mode lets the halted trade
+go ahead. The chain is tamper-EVIDENT, so the fragment is never removed or
+rewritten: the next append links to the last whole entry and writes a
+`CHAIN_TORN_TAIL` marker naming each fragment's sha256 and length, `verify()`
+reports the torn line once instead of every entry after it, and a tail of more
+non-entries than a cut-short write can leave is refused
+(`AuditChainUnreadable`) rather than guessed across. Every confirm-path record
+is written through `_seal_on_chain`: what happened stands, the failure is
+logged at ERROR (scrubbed), and the answer says the record was not sealed,
+naming the exception CLASS only, because it reaches a chat.
+
+**The trade journal kept the rows above the first one it could not read, and
+the next close wrote them over the file.** Driven: 50 rows with the third
+missing `sl` loaded 2, and one `record_trade` left 3 rows on disk; a file cut
+short loaded 0 and one close left 1. `read_failed` was set and `_save` never
+asked it. The journal takes the executor's closed-trade rule now: rows are
+read one by one, a row it cannot read is kept verbatim and written back on
+every save, a file that will not parse is copied aside once before the first
+write over it, and nothing is written when that copy fails, because a close
+missing from the journal is a smaller loss than the journal the close would
+erase. The write is atomic, and a failed one is said at WARNING.
+
+**An unreadable watch list read as nobody watching, and the next `/watch on`
+made that true.** Driven: a list of three cut short read as `[]`, and
+`/watch on 4004` left `{"enabled_chats": ["4004"]}`. Every chat that had asked
+for CRITICAL alerts stopped getting them, and the operator was not
+auto-enrolled either, because the file existed. A list this module did not
+write is unreadable now: said at ERROR, never written over this run, and the
+operator is enrolled for this run only, so a CRITICAL alert reaches somebody
+while nobody knows who was watching. `/watch on` and `/watch off` say when a
+change was not saved, in two sentences for the two causes (a list that could
+not be read is left alone on purpose; a write that failed is a disk to look
+at), and `/watch status` says its count is only the chats enabled since.
+
+**The wait after a close nobody could price was lifted by a restart inside
+it.** `note_unpriced_close` stamped a field the export did not write and the
+writer did not save. Driven: stamp, restart, `None`. It is saved and restored
+on both loaders now, by a helper of its own and not through `_STATE_FIELDS`,
+for the reason `_restore_governor_clear` gives: an unreadable value there
+fails the whole state closed over a field whose worst case is one 120s wait.
+A value that is not a finite number is ignored, and a stamp in the future is
+read as now, so the account waits one period and not for the skew.
+
+**One malformed conversation line kept the bot from starting.** The store is
+built in the Telegram handler's constructor, and its loader caught `KeyError`
+and `JSONDecodeError`. A line that is not an object raised `TypeError`, and a
+user turn with null content raised `AttributeError` in the mention reader.
+Both escaped. An assistant turn with null content loaded as a Message whose
+content was `None` and reached the model as a turn. A row this store did not
+write is unreadable now: skipped, counted at WARNING, and kept verbatim,
+because compaction rewrites the file from memory and would otherwise be what
+erased it. A deletion still takes the user's own unreadable lines, through the
+one `_line_owner` reading the loader and the purge share.
+
+**A PAPER BOOK RECOVERED FROM ITS BACKUP REOPENED A CLOSED POSITION, AND
+NOTHING SAVED AFTER THE RECOVERY SURVIVED THE NEXT RESTART.** The practice
+books keep a `.json.bak`, and the backup was a copy of the PREVIOUS file taken
+before each write, so a recovery landed one save behind. Driven: a book whose
+last save was a close, primary damaged, came back with the position open (open
+0 -> 1, balance 1009.87 -> 900, history 1 -> 0). Then every save after the
+recovery was refused as a CONFLICT, because the damaged primary reads as
+unreadable and the stale-write guard refuses an unreadable file. The state was
+parked in `portfolio_<u>.conflict-<pid>.json`, and the next restart recovered
+the same backup: everything since the recovery lost, every time. The backup
+is written after the primary now and holds the same state. The damaged file a
+recovery was made past is copied aside once (named so no pattern restores it)
+and then replaced; a file that cannot be copied aside, or that changed since
+the recovery, is still refused. The revision written is past both the
+backup's and the damaged file's own.
+
+**AND THE PARKED FILE CAME BACK AS A PERSON.** `portfolio_*.json` matches
+`portfolio_777.conflict-4242.json`, so the registry restored the sidecar as a
+phantom user `777conflict-4242`, and the stop sweep closed its parked
+positions, writing into the file that was kept so that nothing was lost. Not
+in the survey; found by reading what the fix's own refusal wrote. A dotted
+name is not restored as a book now, because `_sanitize` strips every dot and
+no book's name carries one, and the skip is said.
+
+**What is deliberately not changed.** The paper book's fee and state model is
+untouched. The shared helper for the "a failed read of a per-user JSON store
+is read as empty" class belongs to the slice that owns that class, and none
+of its stores is touched here. The journal's two readers of `read_failed`
+still say the record is unknown when any row was unreadable, as before.
+
+**Filed, with what was driven and what was only read.** DRIVEN:
+`data/portfolio_state.json`, the operator's default `PORTFOLIO_STATE_FILE`,
+matches the same glob and is restored by `MultiUserPortfolio` as a per-user
+book named `state`. READ, not driven: `combined_state.json` gets a `.bak` that
+nothing reads, and a combined file that will not parse falls back to
+individual files that have not been written since the migration. And
+`test_backtest_validity._run_once` leaves `logging.disable(logging.WARNING)`
+set for the rest of the session, which is why a WARNING-level assertion in a
+later file (`test_audit_v7_followups::test_risk_audit_logs_leverage_and_notional`)
+fails only in a grouped run; the new paper-book suite lifts it for its own
+tests rather than depending on order.
+
+**Eighty-five mutations: eighty-four killed and one equivalent. Six
+survived the first round of eighty-six, and not one was a defect in the
+code.** Four were fixtures that could not tell the difference. The audit
+chain read a bool `sequence` as an entry, and no tail line carried one.
+Any whole entry could acknowledge a fragment, and no fixture forged one
+that was not the marker. The `/watch` reply read a monitor answering
+`None` as "not saved", and the only stand-in answered a mock. And a
+recovered paper book's licence to replace its damaged file was never
+shown to be spent by the save that used it, so a second damaged write
+after that save could have been replaced too. Each is planted now and
+each mutation dies. The fifth was a line of mine no input could reach:
+the conversation loader refused a line that is not an object by name,
+and `entry["user_id"]` already raises `TypeError` on every other value
+JSON can hold, so the check is deleted and the comment says why. The
+sixth is recorded rather than counted: the journal writes the rows it
+could not read ahead of the ones it can, and no reader depends on where
+they sit, so putting them after changes nothing. The comment above it
+had claimed the order mattered, and says it does not now. The whole-tree
+mypy ratchet improved by one (`assignment` 55 -> 54) and was re-recorded
+in the commit that lowered it.
+
+**And the map's `RiskEngine` citation was twelve lines short.** It cited
+`risk_engine.py:242`, a row of the symbol-to-sector table above the class, and
+had done so since before this round. It sits on a non-blank line, so the probe
+could not see it. The slice's agent noticed it while checking its own shifts.
+`test_the_risk_engine_citation_is_the_class` now derives it from the class line.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -12722,7 +12861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1074** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1081** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

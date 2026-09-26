@@ -1403,3 +1403,14 @@ def test_the_mcp_citation_rule_refuses_what_it_exists_to_refuse():
     assert _mcp_citation_errors("get_rwa_radar\n\n(mcp.js:2)", mcp)
     # out of range reads as no definition, never as an index error
     assert _mcp_citation_errors("get_rwa_radar (mcp.js:99)", mcp)
+
+
+def test_the_risk_engine_citation_is_the_class():
+    """The map cited `RiskEngine` at a line of the symbol-to-sector table
+    above it: twelve lines short, and on a non-blank line the probe cannot
+    see. A citation that names a class is that class's own line."""
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "risk" / "risk_engine.py").read_text(encoding="utf-8")
+    line = next(i + 1 for i, ln in enumerate(src.splitlines())
+                if ln.startswith("class RiskEngine"))
+    assert doc.count(f"RiskEngine (bot/risk/risk_engine.py:{line})") == 1

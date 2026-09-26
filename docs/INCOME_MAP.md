@@ -346,7 +346,7 @@ execution on a real venue.
 The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (bot/risk/risk_engine.py:242) is the fail-closed pre-
+signal modules; RiskEngine (bot/risk/risk_engine.py:254) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:5807-5865
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2474) with no human in the loop, adaptively moved by
