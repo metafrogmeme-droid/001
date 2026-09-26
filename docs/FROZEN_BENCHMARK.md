@@ -233,6 +233,34 @@ re-recorded on 2026-09-24 at `73740a1a`, the commit that holds the analyzer's
 limits to the minimum reward:risk (below): mean OOS −0.55%, 0 of 6 folds
 profitable, 129 pooled trades, PF 0.58, on the same `dataset_hash`.
 
+**Re-recorded again on 2026-09-26 at `0701fb0a`, the commit that makes TP1's
+breakeven lock breakeven AFTER FEES.** The partial-TP ladder put its post-TP1
+stop a hard-coded 0.1% of entry past the entry and called it breakeven; a round
+trip is 0.1200% under `--honest` (which replaces the stale `--commission`
+default with the live taker rate), so every stop-out there lost 0.0200% of
+notional. The lock reads the runtime's own round trip now, which makes it a
+slightly TIGHTER stop, and the cost is measured rather than argued:
+
+| | 2026-09-24 `73740a1a` | 2026-09-26 `0701fb0a` |
+|---|---|---|
+| mean OOS return | −0.545% | **−0.572%** |
+| profitable folds | 0 of 6 | 0 of 6 |
+| pooled trades | 129 | 129 |
+| pooled W/L | 66 / 63 | 66 / 63 |
+| pooled net | −$327.76 | **−$343.13** |
+| pooled PF | 0.5807 | **0.5828** |
+
+Same `dataset_hash`, same trade count, same win/loss split: the fix changes only
+where some runners were stopped. A tighter breakeven stop cut a few winners
+short, which is $15.37 over 129 trades (−$0.12 a trade) with the profit factor
+marginally better. The claim on the audit line is true now, and what it cost on
+this window is on the record rather than in a memory.
+
+`code_sha` names the commit the measurement was taken AT, which is why the
+artefact lands in the commit AFTER the one that changed the code: an artefact
+whose sha is the commit containing it cannot exist. `73740a1a` above set the
+same precedent.
+
 ## Is live tracking the benchmark? (`bot.backtest.parity`)
 
 The parity report closes the loop against reality. It reads the LIVE realized

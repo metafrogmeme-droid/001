@@ -258,7 +258,10 @@ class TestTheExecutorReadsTheEntryLegItPlaced:
     @staticmethod
     def _lock_asked(order_type):
         from tests.test_a_ladder_stage_is_neither_repeated_nor_left_half_done import (
-            _exchange, _filled, _pos, _run,
+            _exchange,
+            _filled,
+            _pos,
+            _run,
         )
         from tests.test_a_ladder_stage_is_neither_repeated_nor_left_half_done import (
             _executor as _ladder_executor,
