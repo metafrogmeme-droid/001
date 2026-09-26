@@ -11946,20 +11946,11 @@ The accounts are saved with the peak and restored behind the same
 read is dropped on its own and never fails the restore closed, because the
 worst case of a lost peak is a re-seed.
 
-**Filed, with what was driven.** The per-person caps under per-user live
-(`set_person_totals_fn`) sum `user_portfolios.venue_readings`, which are the
-PAPER practice books. Driven with `PER_USER_LIVE_ENABLED` on: the person
-totals read `open_positions=0, equity_usd=10000.0` for a person holding live
-positions on two venues, and the gate printed `OPEN_POSITIONS: 3 OK` from the
-active venue's count alone. So the cross-venue cap
-`docs/MULTI_VENUE_RISK_SPLIT.md` records as decided ("caps and drawdown per
-person") binds nothing live. The practice book can only tighten it (a
-practice position counts against the live cap; a practice drawdown would
-halt every venue). The fix needs each venue's live balance and a
-per-field completeness reading the aggregator does not have, so it is a
-decision about how the caps read venues the person is not trading on now. No
-caller passes a venue to `risk_for`, so the per-venue breakers that document
-describes are one engine per person in practice. Separately,
+**Filed, with what was driven.** No caller passes a venue to `risk_for`, so
+the per-venue breakers `docs/MULTI_VENUE_RISK_SPLIT.md` describes are one
+engine per person in practice. (This paragraph also filed the per-person
+caps as reading the practice books; the chapter after the next one fixes
+that.) Separately,
 `risk_engine`'s authority bridge (`_spent = 0.0` on a failed ledger read)
 cannot fire: nothing binds an envelope to a `RiskEngine`, and its setters are
 on the unreachable-methods baseline. Fix it before wiring it.
@@ -12018,6 +12009,73 @@ which is a syntax error, so the suite errored at collection. Re-aimed as
 dies too, because the pass right after the invalidation must visit the
 rebuilt book.
 (`tests/test_an_invalidated_executor_is_rebuilt_before_the_monitor_runs.py`.)
+
+**THE PER-PERSON POSITION CAP COUNTED A PRACTICE BOOK NOBODY HAD TRADED.**
+`docs/MULTI_VENUE_RISK_SPLIT.md` records the decision: caps per PERSON,
+because "two venues each with their own max 5 is ten positions against one
+person's money". A per-user engine reads its person totals through
+`set_person_totals_fn`, and that function summed
+`user_portfolios.venue_readings`, which are the PAPER practice books. Driven
+with per-user live on, a person holding three live positions on bitget and
+three on bybit, against a cap of five: the totals read `open_positions=0,
+equity_usd=10000.0`, and the gate printed `OPEN_POSITIONS: 3 OK` off the
+active venue's count. The cross-venue cap bound nothing live. The one thing
+the practice book could do was tighten it: a practice position counted
+against the live cap, and a practice drawdown could halt the person's live
+trading.
+
+**Live, the count is read off the person's live books.**
+`_live_person_readings` builds one reading per venue: each executor this
+engine holds for the person, plus each venue the credential store lists as
+linked. `venue_aggregate.position_totals` sums them. A linked venue with no
+executor loaded is read from its saved book: nothing saved counts zero, and a
+saved book holding positions is a count nobody read. The total is then a
+FLOOR, and the cap refuses it by name, in the aggregator's existing words. A
+credential store that cannot list the venues makes the set of venues unknown,
+so it refuses too. Paper mode keeps the practice books, because there they
+are the book.
+
+**Equity and daily P&L are not summed live, and the reason is what the
+engine already reads.** A venue's balance is read only when that venue is
+traded, so a person-level equity would need a live read of every venue the
+person is not trading on now. `position_totals` leaves both `None`, which the
+gates read as "no person-level figure" and fall back to their own: the
+drawdown of the account being traded (the peaks chapter above) and the
+engine's live daily accumulator, which already records every priced close the
+person makes. An incomplete reading still refuses the daily-loss and drawdown
+gates as well as the cap, which is the aggregator's rule: a partial signed
+total has no bound either way.
+`docs/MULTI_VENUE_RISK_SPLIT.md` said all three figures were counted per
+person; it carries a dated correction saying what each one is in live mode.
+
+**Two traps in the first draft, each found by reading the helper it
+called.**
+
+- `normalize_venue` answers `''` for a venue this build does not know, and
+  `''` is the default venue's path. A linked venue under an unknown name
+  would have been counted off bitget's saved book. The name is only
+  lower-cased now. `executor_state_dir` refuses an unknown one, which reads
+  as a count nobody read.
+- The loop skipped an executor whose venue id could not be read, so its
+  positions went uncounted: an undercount, the direction that lets a trade
+  through. It is counted under the empty name.
+
+**Stated limit.** A linked venue whose stored name this build does not know
+makes every trade for that person refuse, with the venue named, until the
+record changes. That is reachable only through a stored name outside
+`known_venues()`.
+
+**Seventeen mutations, each killed.** One anchor was refused for matching
+twice (the owner test sits in two loops) and was re-anchored on the line after
+it.
+(`tests/test_the_person_cap_counts_the_live_books.py`.)
+
+**The remap for this slice carried two map citations that had drifted
+again.** The basis paragraph cited the context gather one line short, on the
+market-cap fetch, and the hand-off to `analyzer.analyze` 136 lines short, on
+a comment. They had been re-derived once already, with no guard, and a remap
+keeps what a citation points at. All three basis citations are derived from
+the code now (`test_the_basis_citations_are_the_lines_they_name`).
 
 ## Public-surface rules
 
@@ -13310,7 +13368,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1092** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1093** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

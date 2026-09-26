@@ -1414,3 +1414,27 @@ def test_the_risk_engine_citation_is_the_class():
     line = next(i + 1 for i, ln in enumerate(src.splitlines())
                 if ln.startswith("class RiskEngine"))
     assert doc.count(f"RiskEngine (bot/risk/risk_engine.py:{line})") == 1
+
+
+def test_the_basis_citations_are_the_lines_they_name():
+    """The map's three basis citations were re-derived once and drifted
+    again: the context gather sat one line short, on the market-cap fetch,
+    and the hand-off to `analyzer.analyze` 136 lines short, on a comment
+    about suppression. Neither line was blank, so the probe could not see
+    them. Each is derived from the code it names."""
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8")
+
+    def line_of(pred):
+        hits = [i + 1 for i, ln in enumerate(src.splitlines()) if pred(ln)]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    ctor = line_of(lambda ln: "self.basis = BasisAnalyzer(" in ln)
+    fetch = line_of(lambda ln: "self.basis.get_basis(signal.symbol)" in ln)
+    hand = line_of(lambda ln: "self.analyzer.analyze(" in ln
+                   and "basis=basis_ctx" in ln)
+    flat = " ".join(doc.split())
+    assert (f"constructed at engine.py:{ctor} and fetched in `_analyze_signal`'s "
+            f"context gather (engine.py:{fetch}) — its result is handed to "
+            f"analyzer.analyze at :{hand} as `basis`") in flat

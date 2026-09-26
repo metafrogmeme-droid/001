@@ -2931,7 +2931,14 @@ class RuneClawEngine:
             # loose for exactly as long as nobody noticed. With one book the
             # total equals that book, so this is a no-op until it is not.
             def _totals(_uid=str(user_id)):
-                from bot.risk.venue_aggregate import aggregate
+                from bot.risk.venue_aggregate import aggregate, position_totals
+                # LIVE, the person's money is on their live venues. The paper
+                # books below are practice: driven, a person holding three
+                # live positions on bitget and three on bybit against a cap of
+                # five read "OPEN_POSITIONS: 3 OK", counted off a practice
+                # book of $10,000 and no positions.
+                if CONFIG.is_live():
+                    return position_totals(self._live_person_readings(_uid))
                 return aggregate(self.user_portfolios.venue_readings(_uid))
             eng.set_person_totals_fn(_totals)
             # Drawdown is per person and measured off ONE shared peak, so this
@@ -3396,6 +3403,59 @@ class RuneClawEngine:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
+
+    def _live_person_readings(self, user_id: str) -> list:
+        """One reading per venue this person trades live: its open positions.
+
+        Counted off the executor that holds the venue's book (open and
+        resting, `open_positions`). A linked venue with no executor is
+        counted off its saved book: nothing saved is zero, and a saved book
+        that holds a row is a count nobody read (`None`), because the
+        executor that would load it is not built, so the total is a floor.
+        A credential store that could not list the venues makes the whole
+        set unknown, since the missing venue could be any of them.
+
+        A linked name is NOT passed through `normalize_venue`: that answers
+        ``''`` for a venue this build does not know, and ``''`` is the
+        default venue's path, so the unknown venue would be counted off
+        bitget's book. `executor_state_dir` refuses an unknown name instead,
+        which reads here as a count nobody read.
+        """
+        from bot.core.live_executor import saved_book_holds_positions
+        from bot.core.venue_key import executor_state_dir
+        from bot.risk.venue_aggregate import VenueReading
+        uid = str(user_id)
+        held: dict = {}
+        for key, executor in list(self._user_executors.items()):
+            owner = key.split("/", 1)[1] if "/" in key else key
+            if owner == uid:
+                held[_executor_account(executor)] = executor
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            linked = {str(v).strip().lower()
+                      for v in get_credential_store().list_venues(uid)}
+        except Exception as exc:
+            logger.warning("Person-level positions: venues for %s could not "
+                           "be listed: %s", uid, exc)
+            return [*(VenueReading(venue=v, open_positions=len(ex.open_positions))
+                      for v, ex in sorted(held.items())),
+                    VenueReading(venue="linked venues",
+                                 unreadable_reason="venues_unlisted")]
+        readings: list = []
+        for venue in sorted(linked | set(held)):
+            ex = held.get(venue)
+            if ex is not None:
+                readings.append(VenueReading(
+                    venue=venue, open_positions=len(ex.open_positions)))
+                continue
+            try:
+                holds = saved_book_holds_positions(uid, executor_state_dir(venue))
+            except Exception:
+                holds = True
+            readings.append(
+                VenueReading(venue=venue, unreadable_reason="book_not_loaded")
+                if holds else VenueReading(venue=venue, open_positions=0))
+        return readings
 
     def _rebind_invalidated_executors(self) -> list:
         """Rebuild the executors `invalidate_user_executor` dropped.
