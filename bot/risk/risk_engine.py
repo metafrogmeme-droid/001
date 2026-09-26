@@ -2413,17 +2413,26 @@ class RiskEngine:
                 # had already been answered.
                 from bot.risk.confidence_floor import (
                     clears_confidence_floor,
+                    confidence_for_floor,
                     min_confidence_for,
                 )
                 # Change 1: use clears_confidence_floor(), which reads
                 # blended_confidence_raw when calibration is on. idea.confidence
                 # is calibrated here; comparing it against a raw floor would
                 # reject everything (calibrated ceiling ~0.56 < raw floor 0.60).
+                # The line quotes the figure the COMPARISON used. It used to
+                # print `idea.confidence`, which under calibration is the
+                # curve's output while the floor is on the raw scale -- so a
+                # passing idea printed `CONFIDENCE: 0.31 OK` against a 0.60
+                # minimum, a check line whose own two numbers say it failed,
+                # and a refusal quoted a comparison nobody made.
+                _floor = min_confidence_for(idea)
+                _conf = confidence_for_floor(idea)
+                _shown = "unread" if _conf is None else _conf
                 if not clears_confidence_floor(idea):
-                    _floor = min_confidence_for(idea)
-                    failed.append(f"CONFIDENCE: {idea.confidence} < {_floor} minimum")
+                    failed.append(f"CONFIDENCE: {_shown} < {_floor} minimum")
                 else:
-                    passed.append(f"CONFIDENCE: {idea.confidence} OK")
+                    passed.append(f"CONFIDENCE: {_shown} OK")
             except Exception as exc:
                 failed.append(f"CONFIDENCE: evaluation error ({exc})")
 

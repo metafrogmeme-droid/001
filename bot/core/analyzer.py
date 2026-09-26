@@ -29,6 +29,7 @@ from pathlib import Path
 from bot.compat import UTC
 from bot.llm import failure_cause as _fc
 from bot.risk.quality_ladder import confidence_on_record
+from bot.core.signal_levels import atr_on_record, record_atr
 from typing import Optional
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
@@ -1849,7 +1850,12 @@ class Analyzer:
             return None
 
         entry = signal.price
-        atr = indicators.get("atr", entry * 0.02)
+        # `dict.get` fires its default for an absent KEY and not for a
+        # present 0.0, and a recorded 0.0 is what every other reader in
+        # this tree documents as "no ATR on record" -- so this line read
+        # it as a measured zero and built `stop_loss == entry`.
+        _atr_read = atr_on_record(indicators.get("atr"))
+        atr = entry * 0.02 if _atr_read is None else _atr_read
 
         # ── Smart limit entry detection ──
         # If price is extended from a key level, suggest a limit order at a
@@ -2521,9 +2527,12 @@ class Analyzer:
                 atr = float(atr_vals[-1])
             else:
                 atr = np.mean(true_range)
-            results["atr"] = round(float(atr), 6)
+            # Six significant digits, not six DECIMAL PLACES: the old
+            # grid recorded 0.0 for every asset priced below a cent,
+            # off a perfectly healthy range (bot/core/signal_levels.py).
+            results["atr"] = record_atr(atr)
         else:
-            results["atr"] = round(float(closes[-1] * 0.02), 6)
+            results["atr"] = record_atr(closes[-1] * 0.02)
 
         # ── ADX-14 (Average Directional Index) ──
         adx_data = _compute_adx(highs, lows, closes, 14)

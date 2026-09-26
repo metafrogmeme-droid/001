@@ -794,7 +794,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 695 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 693 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -13319,6 +13319,120 @@ partly unread book, so the count could stay behind unseen; one does now.
 Ruff 1181 → 1180 and honesty 704 → 703, both re-recorded.
 (`tests/test_the_risk_card_reads_the_leverage_it_shows.py`.)
 
+**ONE MESSAGE, TWO CONFIDENCES — AND THE PICTURE AND ITS CAPTION WERE BUILT IN
+THE SAME FUNCTION.** A live SUI signal went out with a caption reading
+`Conf 70%` over an image whose CONFIDENCE cell read `31%`. Both come off one
+`TradeIdea` in one `send_photo`: `_send_idea_with_door` renders
+`signal_card_from_idea(new_idea)` and then composes its own caption twelve
+lines below, and the two read DIFFERENT QUANTITIES. Once Change 1 is on,
+`blended_confidence_raw` is the analyzer's blend — the scale every floor in
+this repo is defined on (`MIN_CONFIDENCE`, `SCALP_MIN`,
+`SIGNAL_DISPLAY_MIN_CONFIDENCE`, `min_alert_conf`) — and `confidence` is what
+the calibration curve left on the field, an estimated win rate on a different
+scale. Five surfaces printed them under one word with five hand-written
+fallbacks:
+
+    proactive_monitor.py  float((raw if raw is not None else confidence) or 0.0)
+    trading_commands.py   float(v) if v is not None else 0.0
+    telegram_handler.py   raw if raw is not None else new_idea.confidence
+    signal_card.py        idea.confidence            <- the calibrated one
+    risk_engine.py        prints idea.confidence beside a RAW floor
+
+**THE CHECK LINE WAS THE SHARPEST OF THE FIVE, because it asserts a comparison
+nobody made.** `clears_confidence_floor` compares the BLEND against the raw
+floor and the line then printed `CONFIDENCE: {idea.confidence} OK` — so a
+passing idea read `CONFIDENCE: 0.31 OK` against a `0.60` minimum: a check line
+whose own two numbers say it failed, and a refusal quoting a comparison that
+was never made. That is `SL 16.0% x 2x = 32.0% <= 30.0%` one gate over, where
+the operator was shown an inequality the code had not evaluated.
+
+**TWO OF THE FIVE READ A BOOL AS A CONFIDENCE.** `float(True)` is 1.0, which
+clears any bar and prints as 100% — the defect `pre_calibration_confidence`
+was written for, arriving at the display end. `displayed_confidence` is the
+one reading, and it has FOUR words because four things are true of an idea's
+confidence and only two are a measurement: `blend` (the analyzer's own),
+`own` (no blend, and the producer measured its own score — a scan row, a drift
+re-offer), `stamp` (`build_manual_idea` writes `confidence=1.0` on every
+hand-typed ticket, so a card printing `100%` tells the operator the bot is
+certain about an idea the operator typed), and `unread`. A stamp and an
+unreadable field get DIFFERENT words, because they are different facts: a
+figure nobody measured, and a field nobody could read.
+
+**THE ALERT GATE AND THE PRINTED FIGURE ARE ONE READING NOW**, so a signal
+cannot be admitted on one number and described with another; an idea whose
+confidence cannot be measured is not alerted on at all.
+
+**AN ATR QUANTISED ON AN ABSOLUTE GRID IS NOT A READING, AND THE RATIO BESIDE
+IT CANNOT REVEAL THAT.** The same live card printed an entry, a stop and a
+target that were the SAME number at the precision the card prints, under
+`R:R 4.8`. Driven on the analyzer's own arithmetic (`sl_mult` 1.5,
+`tp_mult` 7.2):
+
+    atr=0.0117   entry $1.1710  sl $1.1535  tp $1.2552   R:R 4.8
+    atr=1e-05    entry $1.1710  sl $1.1710  tp $1.1711   R:R 4.8
+    atr=1e-06    entry $1.1710  sl $1.1710  tp $1.1710   R:R 4.8
+
+**R:R IS THE FIGURE STRUCTURALLY INCAPABLE OF REVEALING IT.** Reward and risk
+are the same multiple of one ATR, so the ATR CANCELS: the ratio reads 4.8
+whether the stop is 1.7% away or a millionth of a percent. The most reassuring
+number on the card is the one that cannot move when the setup collapses, which
+is why it survived being looked at.
+
+**`round(atr, 6)` IS AN ABSOLUTE GRID ON A RELATIVE QUANTITY, and that is the
+ordinary half.** The analyzer recorded its ATR to six DECIMAL PLACES, so an
+asset priced below a cent cannot have one. Driven over a perfectly healthy 1%
+range: SUI at $1.17 records `0.01171`, PEPE at $0.0000112 records **`0.0`**,
+SHIB at $0.0000091 records **`0.0`**. A recorded `0.0` then makes
+`stop_loss == entry`, which `TradeIdea`'s directional-sanity validator
+REFUSES — so every sub-cent asset was silently incapable of producing a setup,
+and nothing said why. That is `_fmt_price`'s own lesson (it keeps eight places
+below 0.0001) one quantity over: a price distance is recorded in SIGNIFICANT
+digits, never in decimal places.
+
+**`dict.get` FIRES ITS DEFAULT FOR AN ABSENT KEY AND NEVER FOR A PRESENT
+ZERO.** Every other reader in this tree documents a recorded ATR of `0.0` as
+its own absence — the risk engine falls back to a percentage stop, `atr_pct`
+answers None, `atr_reading`'s docstring says so in as many words — and
+`indicators.get("atr", entry * 0.02)` was the ONE reader that took it as a
+measured zero. `atr_on_record` is the reading, so a recorded `0.0` takes the
+same documented path as an absent key.
+
+**WHAT A CARD MAY PRINT IS A DIFFERENT QUESTION FROM WHAT A GATE MAY DECIDE.**
+`risk_reward_ratio` decides whether a trade may open and is left exactly as it
+is; narrowing it would change what trades. `printed_rr` is what the cards ask,
+and it answers `None` when the product's own `_fmt_price` cannot tell the
+three levels apart — a MEASUREMENT rather than a guessed floor, the way
+`{:.0f}` printing "0%" for a real 0.5 is settled by asking the format string.
+`format_rr` then renders the dash it already had.
+
+> **And the first draft of the ATR rule accused four correct sites.** It
+> forbade `indicators.get("atr", <default>)` anywhere in the analyzer, and the
+> SMC block, the zone detector, the strategy classifier and the POC read each
+> write `if atr > 0:` on the next line — which IS reading a recorded zero as
+> absence. A checker with a blind spot manufactures exactly the accusation it
+> exists to prevent. The second draft asked whether the name was compared
+> anywhere in its enclosing function, which a 1,376-line `analyze()` acquits
+> on a DIFFERENT `atr > 0` twenty screens away — and the mutation round is
+> what said so, by restoring the defect and watching the rule stay green. The
+> rule is the MODELLED DEFAULT: `get("atr", 0)` is the absence spelling, and
+> `get("atr", entry * 0.02)` substitutes a made-up figure and must ask the
+> reading.
+
+**Seventeen mutations, each killed — and the two that survived the first round
+were the corpus and the rule, never the code.** The alert-bar fixture planted
+`confidence=0.20` behind the bool only after the first round: the draft used
+`confidence=0.9`, which `displayed_confidence` reads perfectly well as the
+idea's own figure, so the mutant and the fix both alerted and the test could
+not tell them apart. *A fixture that cannot produce the state it names
+measures nothing.* Ratchets: honesty 695 -> 693, re-recorded in this commit;
+ruff held after three growths of my own were fixed rather than recorded — an
+import below a module-level `def` (`E402`), the two operands the inline ratio
+left orphaned (`F841`), and two import blocks my own insertions unsorted
+(`I001`).
+(`tests/test_one_signal_one_confidence.py`,
+`tests/test_a_collapsed_setup_prints_no_ratio.py`,
+`bot/core/signal_confidence.py`, `bot/core/signal_levels.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13798,7 +13912,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 233 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 234 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -14610,9 +14724,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1122** reach for source text through `source_scan`, `code_only`
+Driven, **443 of 1125** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 441 is a FLOOR and the honest shape is
+source scan that rule does not see, so 443 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -14625,6 +14739,19 @@ the sweep this paragraph forbids. Most of them should scan —
 `tests/test_trade_live_mode.py` says so in its own docstring: the behaviour is
 covered elsewhere and the file locks *wiring*. The narrow failure mode is a
 source scan **standing in for behaviour nothing else tests**.
+
+**AND THE DERIVATION IS WHAT MAKES THE TWO-BRANCH MERGE LOUD RATHER THAN
+WRONG.** Driven on 2026-09-26: two branches each added test files -- this one
+two, and main one (`tests/test_prepare_web_env.py`) -- and main left the
+sentence reading 441 of 1122 over a tree of 1123, so main's own head fails
+this guard (`AssertionError: (441, 1123)`). The merged tree is 1125, which is
+neither branch's number. That is the `tests/honesty_baseline.json` merge trap
+one ratchet over, where each side lowered a different per-file count and the
+recorded total kept one side's answer with no gate comparing the two; the
+difference is that a DERIVED count cannot be merged into agreement with
+itself. So the figure is re-measured at the REBASE rather than carried across
+it, because a number written for one branch alone is wrong for the merge, and
+a count carried over a rebase is a count nobody took.
 
 Rank candidates by what a wrong claim would cost. That list is empty now —
 `_status_lines` was the last, and it had the same shape as the other two:

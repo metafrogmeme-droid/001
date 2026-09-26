@@ -1,0 +1,128 @@
+"""An ATR that cannot separate a stop from an entry is not a reading.
+
+A live SUI card printed an entry, a stop and a target that were the SAME
+number at the precision the card prints, with ``R:R 4.8`` beside them. Driven
+on the analyzer's own arithmetic (``sl_mult=1.5``, ``tp_mult=7.2``):
+
+    atr=0.0117   entry $1.1710  sl $1.1535  tp $1.2552   R:R 4.8
+    atr=1e-05    entry $1.1710  sl $1.1710  tp $1.1711   R:R 4.8
+    atr=1e-06    entry $1.1710  sl $1.1710  tp $1.1710   R:R 4.8
+
+**THE RATIO IS THE FIGURE STRUCTURALLY INCAPABLE OF REVEALING IT.** R:R is
+reward over risk, and both are the same multiple of one ATR, so the ATR
+CANCELS: the ratio reads 4.8 whether the stop is 1.7% away or a millionth of a
+percent. The most reassuring number on the card is the one that cannot move
+when the setup collapses -- which is why it survived being looked at.
+
+Two things produce such an ATR and the first is ordinary.
+
+**`round(atr, 6)` IS AN ABSOLUTE GRID ON A RELATIVE QUANTITY.** The analyzer
+recorded its ATR to six DECIMAL PLACES, so an asset priced below a cent cannot
+have one. Driven over a perfectly healthy 1% range:
+
+    SUI   $1.17          true ATR 1.17e-02   recorded 0.01171
+    PEPE  $0.0000112     true ATR 1.12e-07   recorded 0.0
+    SHIB  $0.0000091     true ATR 9.10e-08   recorded 0.0
+
+A recorded `0.0` then makes `stop_loss == entry`, which `TradeIdea`'s
+directional-sanity validator REFUSES -- so every sub-cent asset was silently
+incapable of producing a setup, and nothing said why. That is `_fmt_price`'s
+own lesson (it keeps eight places below 0.0001) one quantity over: a price
+distance is recorded in SIGNIFICANT digits, never in decimal places.
+
+The second is a venue answering flat or stale bars, where the ATR is genuinely
+tiny rather than unrecorded. There the levels are arithmetic on a market that
+did not move, and the card must not print a ratio over them.
+
+`0.0` KEEPS ITS EXISTING MEANING ON THE WIRE. Every reader in this tree
+already documents a recorded ATR of `0.0` as its own absence -- the risk
+engine falls back to a percentage stop, `atr_pct` answers None,
+`atr_reading`'s docstring says so in as many words -- and the analyzer's
+`indicators.get("atr", entry * 0.02)` was the ONE reader that took it as a
+measured zero, because `dict.get` fires its default for an absent KEY and not
+for a present zero.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any, Optional
+
+#: How many significant digits a recorded price distance keeps. Six is what
+#: the old `round(..., 6)` gave an asset priced near $1, so nothing above a
+#: cent records less than it did; below a cent it records a figure at all.
+ATR_SIG_DIGITS = 6
+
+
+def record_atr(value: Any) -> float:
+    """The ATR as the analyzer records it: significant digits, not places.
+
+    Answers `0.0` for anything that is not a positive finite number, which is
+    the spelling every existing reader already treats as "no ATR on record".
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(v) or v <= 0.0:
+        return 0.0
+    return float(f"{v:.{ATR_SIG_DIGITS}g}")
+
+
+def atr_on_record(value: Any) -> Optional[float]:
+    """A recorded ATR when it is a measurement, `None` when it is not.
+
+    `None` is what `dict.get`'s default already means to the one caller that
+    builds levels from it, so a recorded `0.0` and an absent key take the same
+    documented percentage fallback instead of collapsing the stop onto the
+    entry.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v <= 0.0:
+        return None
+    return v
+
+
+def _price_text(p: float) -> str:
+    """The product's own price formatter, asked rather than re-spelled."""
+    from bot.formatters.rich_cards import _fmt_price
+
+    return _fmt_price(p)
+
+
+def levels_separate(entry: Any, stop_loss: Any, take_profit: Any) -> bool:
+    """Do these three levels print as three different prices?
+
+    A MEASUREMENT, not a guessed threshold: it asks the formatter the cards
+    actually use, the way `{:.0f}` printing "0%" for a real 0.5 is settled by
+    asking the format string rather than by inventing a floor beside it. A
+    level the card cannot tell from the entry is not a level a venue could
+    rest an order at either.
+    """
+    try:
+        e, s, t = float(entry), float(stop_loss), float(take_profit)
+    except (TypeError, ValueError):
+        return False
+    if not all(math.isfinite(x) for x in (e, s, t)):
+        return False
+    et = _price_text(e)
+    return _price_text(s) != et and _price_text(t) != et
+
+
+def printed_rr(entry: Any, stop_loss: Any, take_profit: Any) -> Optional[float]:
+    """The reward:risk a card may print, or `None` when it would be a claim.
+
+    The ratio is scale-free, so it stays 4.8 over levels that have collapsed
+    into one price. Where the card cannot show three different prices it shows
+    no ratio either, and `format_rr` renders the dash that says so.
+    """
+    if not levels_separate(entry, stop_loss, take_profit):
+        return None
+    e, s, t = float(entry), float(stop_loss), float(take_profit)
+    risk = abs(e - s)
+    if risk <= 0.0:
+        return None
+    return round(abs(t - e) / risk, 2)

@@ -49,6 +49,9 @@ from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
 from bot.core.sltp_reason import venue_reason
+from bot.core.signal_confidence import displayed_confidence
+from bot.core.position_telemetry import format_rr
+from bot.core.signal_levels import printed_rr
 from bot.llm import failure_cause as _fc
 from bot.formatters.rich_cards import (
     _fmt_price,
@@ -3574,15 +3577,22 @@ class ProactiveMonitor:
                 # Change 1: gate on raw confidence — min_alert_conf (0.70) lives
                 # on the raw scale; idea.confidence is calibrated when
                 # CONFIDENCE_CALIBRATION_ENABLED is on.
-                _raw_val = getattr(idea, "blended_confidence_raw", None)
-                _conf_for_alert = float(
-                    (_raw_val if _raw_val is not None else getattr(idea, "confidence", 0.0)) or 0.0
-                )
-                if _conf_for_alert >= min_alert_conf:
+                # One reading for the GATE and for the figure the card prints,
+                # so a signal cannot be admitted on one number and described
+                # with another. The old expression was `float(x or 0.0)`: a
+                # blend of `True` read as 1.0 and cleared any bar, and a blend
+                # of `False` read as a measured 0%. An idea nobody could read a
+                # confidence for is not alerted on at all.
+                _conf_read = displayed_confidence(idea)
+                _conf_for_alert = _conf_read.value if _conf_read.measured else None
+                if _conf_for_alert is not None and _conf_for_alert >= min_alert_conf:
                     d = "\U0001f7e2 LONG" if idea.direction.value == "LONG" else "\U0001f534 SHORT"
-                    risk_amt = abs(idea.entry_price - idea.stop_loss)
-                    reward_amt = abs(idea.take_profit - idea.entry_price)
-                    rr_ratio = reward_amt / risk_amt if risk_amt > 0 else 0
+                    # A ratio of two ATR multiples is scale-free, so it
+                    # reads the same over levels that have collapsed into
+                    # one printed price. `printed_rr` answers None there
+                    # and `format_rr` renders the dash that says so.
+                    rr_ratio = printed_rr(idea.entry_price, idea.stop_loss,
+                                          idea.take_profit)
                     base = idea.asset.split('/')[0] if '/' in idea.asset else idea.asset
                     # THE DOOR IS A BUTTON ON THIS CARD. The last line said
                     # `Say "confirm"`, and "confirm" routes nowhere: no router
@@ -3602,7 +3612,7 @@ class ProactiveMonitor:
                             f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n"
                             "────────────────\n"
                             f"- Direction: {d}\n"
-                            f"- Confidence: <code>{_conf_for_alert:.0%}</code>\n"
+                            f"- Confidence: <code>{_conf_read.pct()}</code>\n"
                             # The repo's adaptive formatter: `:,.2f` printed a
                             # DOGE idea at 0.1234/0.1201/0.1299 as
                             # $0.12/$0.12/$0.13 and a PEPE one as $0.00 three
@@ -3610,7 +3620,7 @@ class ProactiveMonitor:
                             f"- Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
                             f"- Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code>\n"
                             f"- Take Profit: <code>{_fmt_price(idea.take_profit)}</code>\n"
-                            f"- R:R Ratio: <code>{rr_ratio:.1f}</code>\n"
+                            f"- R:R Ratio: <code>{format_rr(rr_ratio, suffix='')}</code>\n"
                             "────────────────\n"
                             "\u23f3 Awaiting operator confirmation.\n"
                             f"\U0001f449 Say \"analyze {base}\" to review analysis"

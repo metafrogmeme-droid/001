@@ -96,6 +96,8 @@ from bot.core.position_telemetry import (  # noqa: E402
     format_rr,
     pct_on_record,
 )
+from bot.core.signal_confidence import displayed_confidence  # noqa: E402
+from bot.core.signal_levels import printed_rr  # noqa: E402
 
 #: What a card says where a percent nobody read would otherwise print
 #: as a measured flat. Shared by the alpha, scan-grid and patterns
@@ -497,10 +499,13 @@ def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None)
         parts = [f"{dir_str} bias"]
         if rsi:
             parts.append(f"RSI {rsi:.1f}")
-        conf = idea.confidence
-        if conf <= 1:
-            conf *= 100
-        parts.append(f"Score {conf:.0f}%")
+        # The card and its caption are built in one function
+        # (`_send_idea_with_door`), and this line read `idea.confidence` --
+        # the CALIBRATED figure -- while the caption read the raw blend. One
+        # message, two numbers. `displayed_confidence` is the one reading.
+        _conf_read = displayed_confidence(idea)
+        if _conf_read.measured:
+            parts.append(f"Score {_conf_read.pct()}")
         if vol_x:
             parts.append(f"Vol {vol_x:.1f}x avg")
         if regime:
@@ -516,10 +521,18 @@ def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None)
         "tp1": idea.take_profit,
         "tp2": sd.get("tp2", 0),
         "margin_usd": sd.get("margin_usd", sd.get("position_size_usd", 0)),
-        "rr": idea.risk_reward_ratio if hasattr(idea, "risk_reward_ratio") else 0,
+        # `risk_reward_ratio` is the GATE's figure and stays what it is. What
+        # a card may print is a different question: the ratio cancels the ATR,
+        # so it read 4.8 over an entry, a stop and a target that were one
+        # price at this card's own precision.
+        "rr": printed_rr(idea.entry_price, idea.stop_loss, idea.take_profit),
         "pattern": pattern,
         "rsi": rsi,
-        "confidence": idea.confidence,
+        # The raw-scale reading every gate on this page compares against, so
+        # the cell cannot show a number no gate used. None for a hand-typed
+        # ticket's stamp, which `pct_on_record` then renders as a dash rather
+        # than as the 100% `build_manual_idea` writes.
+        "confidence": displayed_confidence(idea).value,
         "volume_x": vol_x,
         "summary": summary,
         "strategy_type": getattr(idea, "strategy_type", ""),
