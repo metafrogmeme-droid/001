@@ -3,14 +3,40 @@ RUNECLAW Partial Take-Profit Ladder — institutional-style position scaling.
 
 Instead of all-or-nothing exits at a single TP, this module manages
 staged profit-taking:
-  Stage 1 (TP1): Close 50% at 1.5R, move SL to breakeven
+  Stage 1 (TP1): Close 50% at 1.5R, move SL to breakeven AFTER FEES
   Stage 2 (TP2): Close 30% at 2.5R, lock profit with tight trail
   Stage 3 (Runner): Remaining 20% rides with aggressive ATR trail
 
 Benefits:
   - Locks in profits early to reduce variance
   - Lets winners run with a portion of the position
-  - Moves SL to breakeven after TP1, making the trade "risk-free"
+  - After TP1 the runner's own leg breaks even at its stop, so the trade's
+    realized outcome is TP1's banked profit or better
+
+AFTER FEES IS THE WHOLE CORRECTION, AND IT WAS A HARD-CODED 0.1%. `_tp1_lock`
+read `entry_price * 0.001` under a docstring calling it "breakeven, plus a small
+buffer for fees", and a round trip is not 0.1% of price in either runtime.
+Driven at the shipped live defaults, `trade_costs.round_trip_pct` is 0.1200% for
+a MARKET entry (taker 0.06 twice) and 0.0800% for a LIMIT one (maker 0.02 plus
+the taker stop), so the same constant closed the runner at **-0.0200% of
+notional** on a market entry -- a loss printed as `SL->breakeven` -- and
+over-locked a limit entry by a quarter, which is the "half again too wide for a
+limit entry" shape the time stop's buffer had.
+
+The backtest runs this same ladder (`PARTIAL_TP_ENABLED` defaults True) and
+charges `commission_pct` on both legs, and WHICH rate that is was driven rather
+than read off the field: `--honest` -- how the frozen benchmark is run --
+replaces the stale `--commission` default with the live taker rate, so its round
+trip is 0.1200% and the old lock lost the same 0.0200% there. A run at
+`BacktestConfig`'s own field default (0.1) has a 0.2000% round trip, where the
+old lock lost **0.1000% of notional**.
+
+The round trip is an INPUT (`fee_round_trip_pct`), never computed here, because
+each runtime has its own fee model and this module must not import one: the live
+executor supplies the position's own entry leg and the backtest supplies its
+`commission_pct` pair, which is the division CLAUDE.md already records for fees
+(`bot/risk/portfolio.py` is injected with the backtest's rate so the simulated
+fee matches the run being compared).
 """
 
 from __future__ import annotations
@@ -36,6 +62,17 @@ class PartialTPState:
     initial_risk: float  # abs(entry - sl)
     original_qty: float
     atr: float  # ATR at entry for trailing
+    #: The ROUND TRIP this position pays, as a percent of notional, in the fee
+    #: model of the runtime that built this ladder. TP1's lock is this far past
+    #: the entry, so a stop-out there costs nothing rather than a fifth of it.
+    #:
+    #: None is the BACKSTOP and not the design: every production builder
+    #: supplies it, and the live executor re-reads it from the position on every
+    #: pass (a record written before this field carries no fee model and is
+    #: upgraded on its first pass, without losing what the ladder had done).
+    #: `_tp1_lock` falls back to the pre-slice constant there, so a ladder this
+    #: build did not write behaves exactly as it always did.
+    fee_round_trip_pct: Optional[float] = None
 
     # Stage tracking
     tp1_hit: bool = False
@@ -103,6 +140,7 @@ def create_partial_tp_state(
     take_profit: float,
     quantity: float,
     atr: float,
+    fee_round_trip_pct: Optional[float] = None,
 ) -> PartialTPState:
     """Create a new partial TP tracking state for a position."""
     initial_risk = abs(entry_price - stop_loss)
@@ -115,13 +153,16 @@ def create_partial_tp_state(
         initial_risk=initial_risk,
         original_qty=quantity,
         atr=atr if atr > 0 else entry_price * 0.02,
+        fee_round_trip_pct=fee_round_trip_pct,
     )
 
 
 def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
                    stop_loss: float, take_profit: float, quantity: float,
                    atr: float, entry_risk: object,
-                   restored_without_ladder: bool) -> tuple[Optional[PartialTPState], str]:
+                   restored_without_ladder: bool,
+                   fee_round_trip_pct: Optional[float] = None,
+                   ) -> tuple[Optional[PartialTPState], str]:
     """A ladder for a position that has none, or the reason it cannot have one.
 
     THE 1R IS THE ENTRY-TIME RISK, NEVER THE DISTANCE TO A STOP THAT HAS
@@ -156,7 +197,8 @@ def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
     entry_stop = entry_price - risk if is_long else entry_price + risk
     st = create_partial_tp_state(
         trade_id=trade_id, direction=direction, entry_price=entry_price,
-        stop_loss=entry_stop, take_profit=take_profit, quantity=quantity, atr=atr)
+        stop_loss=entry_stop, take_profit=take_profit, quantity=quantity, atr=atr,
+        fee_round_trip_pct=fee_round_trip_pct)
     st.current_sl = stop_loss
     st.remaining_qty = quantity
     if restored_without_ladder and stop_loss > 0:
@@ -166,9 +208,28 @@ def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
     return st, ""
 
 
+#: What the lock used before the fee model was an input. Reached only by a
+#: ladder record this build did not write, and kept so such a record behaves
+#: exactly as it always did rather than moving on a figure nobody supplied.
+LEGACY_FEE_BUFFER_PCT = 0.1
+
+
 def _tp1_lock(state: PartialTPState) -> float:
-    """TP1's stop: breakeven, plus a small buffer for fees."""
-    fee_buffer = state.entry_price * 0.001  # 0.1% buffer
+    """TP1's stop: breakeven AFTER the round trip this position pays.
+
+    A price move of x% of entry realizes x% of notional, and the round trip
+    costs its own percent of notional, so the two are compared directly: the
+    stop that costs nothing sits exactly `fee_round_trip_pct` past the entry.
+    A constant 0.1% there is a LOSS wherever the round trip is wider (every
+    market entry at the shipped live rates, and every backtest trade at its
+    default commission) and an over-lock wherever it is narrower.
+    """
+    rt = state.fee_round_trip_pct
+    buffer_pct = (float(rt) if isinstance(rt, (int, float))
+                  and not isinstance(rt, bool)
+                  and math.isfinite(rt) and rt >= 0.0
+                  else LEGACY_FEE_BUFFER_PCT)
+    fee_buffer = state.entry_price * buffer_pct / 100.0
     return (state.entry_price + fee_buffer if state.direction == "LONG"
             else state.entry_price - fee_buffer)
 

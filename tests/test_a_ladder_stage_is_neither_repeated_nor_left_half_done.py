@@ -52,10 +52,21 @@ from bot.core.partial_tp import (
     create_partial_tp_state,
     stage_lock,
 )
+from bot.core.trade_costs import round_trip_pct
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY, QTY, ATR = 100.0, 1.0, 2.0             # 1R = 10 either side
 TRAIL = ATR * CONFIG.partial_tp.runner_trail_atr_mult
+
+#: TP1's lock is a BREAKEVEN stop, so it sits the position's own round trip past
+#: the entry -- derived here rather than spelled, because eleven assertions in
+#: this file carried the pre-slice hard-coded 0.1% and all eleven moved at once
+#: when the lock started reading the fee model. These positions carry no
+#: `order_type`, so the executor reads the TAKER round trip for them, and a rate
+#: change now moves one line instead of eleven.
+ROUND_TRIP = round_trip_pct(None)
+LOCK_LONG = ENTRY * (1.0 + ROUND_TRIP / 100.0)
+LOCK_SHORT = ENTRY * (1.0 - ROUND_TRIP / 100.0)
 
 
 def _pos(direction="LONG", **over) -> LivePosition:
@@ -145,7 +156,7 @@ def test_a_held_stage_still_brings_the_stop_to_breakeven():
     x = _exchange(ccxt.RequestTimeout("timed out"))
     _run(ex, x, pos, 116.0)
     _run(ex, x, pos, 116.0)
-    assert pos.stop_loss == pytest.approx(ENTRY * 1.001)
+    assert pos.stop_loss == pytest.approx(LOCK_LONG)
 
 
 @pytest.mark.parametrize("exc", [ccxt.InvalidOrder("below minimum"),
@@ -199,7 +210,7 @@ def test_a_failure_before_the_order_is_sent_is_not_a_placed_order():
 # ── a refused stop move is asked for again ──────────────────────────────
 
 @pytest.mark.parametrize("direction, tp1_price, lock", [
-    ("LONG", 116.0, ENTRY * 1.001), ("SHORT", 84.0, ENTRY * 0.999)])
+    ("LONG", 116.0, LOCK_LONG), ("SHORT", 84.0, LOCK_SHORT)])
 def test_a_refused_breakeven_move_is_retried_until_it_lands(direction, tp1_price, lock):
     pos = _pos(direction)
     ex = _executor(pos)
@@ -227,7 +238,7 @@ def test_a_refused_tp2_lock_is_retried():
     _run(ex, x, pos, 116.0)
     ex._venue_accepts = [False, True]
     _run(ex, x, pos, 125.5)                  # TP2 fires; its lock is refused
-    assert pos.stop_loss == pytest.approx(ENTRY * 1.001)
+    assert pos.stop_loss == pytest.approx(LOCK_LONG)
     _run(ex, x, pos, 120.0)
     assert ex.moves[-2:] == [pytest.approx(110.0)] * 2
     assert pos.stop_loss == pytest.approx(ENTRY + 10.0)
@@ -238,7 +249,7 @@ def test_the_pass_that_fires_tp1_asks_for_the_lock_once():
     ex = _executor(pos)
     x = _exchange(_filled(0.5))
     _run(ex, x, pos, 116.0)
-    assert ex.moves == [pytest.approx(ENTRY * 1.001)]
+    assert ex.moves == [pytest.approx(LOCK_LONG)]
 
 
 def test_a_stop_already_past_the_lock_is_never_pulled_back():
@@ -248,7 +259,7 @@ def test_a_stop_already_past_the_lock_is_never_pulled_back():
     _run(ex, x, pos, 116.0)
     pos.stop_loss = 108.0                    # the trailing path moved it further
     _run(ex, x, pos, 116.0)
-    assert ex.moves == [pytest.approx(ENTRY * 1.001)]
+    assert ex.moves == [pytest.approx(LOCK_LONG)]
     assert pos.stop_loss == 108.0
 
 
@@ -258,12 +269,12 @@ def test_a_record_an_older_build_wrote_is_read_against_the_book():
     pos = _pos()
     st = create_partial_tp_state("T1", "LONG", ENTRY, 90.0, 140.0, QTY, ATR)
     st.tp1_hit, st.tp1_qty_closed, st.remaining_qty = True, 0.5, 0.5
-    st.current_sl = ENTRY * 1.001
+    st.current_sl = ENTRY * 1.001      # what the older build's lock was
     pos.partial_tp_state = _dc.asdict(st)
     pos.quantity = 0.5
     ex = _executor(pos)
     _run(ex, _exchange(), pos, 112.0)
-    assert ex.moves == [pytest.approx(ENTRY * 1.001)]
+    assert ex.moves == [pytest.approx(LOCK_LONG)]
 
 
 # ── the runner, and a stop the price is already through ────────────────
@@ -291,8 +302,8 @@ def test_a_runner_move_refused_at_the_peak_is_retried_where_it_can_rest(
 
 
 @pytest.mark.parametrize("direction, tp1, through, back, lock", [
-    ("LONG", 116.0, 99.9, 105.0, ENTRY * 1.001),
-    ("SHORT", 84.0, 100.1, 95.0, ENTRY * 0.999),
+    ("LONG", 116.0, 99.9, 105.0, LOCK_LONG),
+    ("SHORT", 84.0, 100.1, 95.0, LOCK_SHORT),
 ])
 def test_a_lock_the_price_is_through_waits_for_the_price(direction, tp1, through, back, lock):
     pos = _pos(direction)
@@ -320,8 +331,8 @@ def test_a_lock_the_price_is_through_does_not_hold_back_a_trail():
 
 
 @pytest.mark.parametrize("direction, tp1, through, back, lock", [
-    ("LONG", 116.0, 99.5, 104.0, ENTRY * 1.001),
-    ("SHORT", 84.0, 100.5, 96.0, ENTRY * 0.999),
+    ("LONG", 116.0, 99.5, 104.0, LOCK_LONG),
+    ("SHORT", 84.0, 100.5, 96.0, LOCK_SHORT),
 ])
 def test_a_late_fill_does_not_ask_for_a_stop_the_price_is_through(
         direction, tp1, through, back, lock):

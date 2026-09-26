@@ -60,6 +60,7 @@ from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
+    round_trip_pct,
 )
 from bot.core.time_exits import in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
@@ -8438,6 +8439,15 @@ class LiveExecutor:
         # asked for again, and the size is what the fills left.
         st.current_sl = pos.stop_loss
         st.remaining_qty = pos.quantity
+        # And its view of the FEES is this runtime's, read from the position's
+        # own entry leg on every pass. TP1's lock is a breakeven stop, which is
+        # the round trip past the entry and not a hard-coded 0.1%: a market
+        # entry pays 0.1200% at the shipped rates and a limit one 0.0800%, so
+        # one constant lost a fifth of the round trip on one and over-locked the
+        # other. Set HERE, above the check, so a record written before the field
+        # is upgraded on its first pass rather than through a rebuild that would
+        # forget which stages had fired.
+        st.fee_round_trip_pct = round_trip_pct(getattr(pos, "order_type", None))
 
         def _would_tighten(new_sl: float) -> bool:
             """True iff new_sl tightens the stop (raise LONG / lower SHORT).

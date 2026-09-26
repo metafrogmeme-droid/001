@@ -5959,6 +5959,85 @@ sentence names now, including the bare ones.
 (`tests/test_the_partial_tp_ladder_survives_a_restart.py`.)
 
 
+**TP1's "BREAKEVEN" LOCK WAS A MEASURED LOSS, AND THE SEAM THAT PRICES A ROUND
+TRIP WAS ALREADY IN THE TREE.** The partial-TP ladder closes half the position at
+1.5R and moves the stop to breakeven, and `_tp1_lock` was
+`state.entry_price * 0.001` under a docstring reading *"breakeven, plus a small
+buffer for fees"*. A price move of x% of entry realizes x% of NOTIONAL and the
+round trip costs its own percent of notional, so the two compare directly and the
+stop that costs nothing sits exactly one round trip past the entry. Driven
+through `trade_costs.round_trip_pct`, which `partial_tp` imported nothing of:
+
+| runtime | round trip | the 0.1% lock realized |
+|---|---|---|
+| live, MARKET entry | 0.1200% | **-0.0200% of notional** |
+| live, LIMIT entry | 0.0800% | +0.0200% |
+| backtest `--honest` | 0.1200% | **-0.0200%** |
+| backtest, field default | 0.2000% | **-0.1000%** |
+
+So a market-entry runner stopped out at its lock paid a fifth of its round trip,
+with `SL->breakeven` on the audit line; and a limit entry over-locked by a
+quarter, which is *"the time stop's buffer was half again too wide for a limit
+entry"* one control over. **ONE CONSTANT FOR TWO LEG COMBINATIONS**, on the stop
+whose whole claim is that the leg costs nothing.
+
+**IT IS AN INPUT, NEVER COMPUTED IN THE LADDER, because two runtimes run this
+ladder and the module must not pick a fee model.** `PARTIAL_TP_ENABLED` defaults
+True, so the backtest scales out through the same `check_partial_tp` — the live
+executor supplies the position's own entry leg and the backtest supplies its
+`commission_pct` pair, which is the division this file already records for fees
+(`bot/risk/portfolio.py` is injected with the backtest's rate *"so the simulated
+fee matches the run being compared"*). A test fails on `partial_tp` importing
+`trade_costs`, `commission_pct` or either fee field.
+
+**THE LIVE FIGURE IS SET ON EVERY PASS, ABOVE THE CHECK, AND THAT IS WHAT MAKES
+THE FIELD SAFE TO DEFAULT.** A ladder record written before the field carries no
+fee model; the executor writes it beside `st.current_sl = pos.stop_loss`, so such
+a record is upgraded on its first pass. A REQUIRED field would raise `TypeError`
+in `from_record`, and the executor's own `except` rebuilds through the
+constructor — which resets `tp1_hit`, the exact defect the persistence chapter
+records as *"A RESTART SOLD THE RUNNER TWICE"*. So the field defaults and
+`_tp1_lock` falls back to the pre-slice constant there, which is named
+`LEGACY_FEE_BUFFER_PCT` and stated as the BACKSTOP rather than the design: no
+product input reaches it, a source assertion pins the executor's write above the
+check, and a record this build did not write behaves exactly as it always did.
+
+**ELEVEN ASSERTIONS CARRIED THE OLD LOCK AND ALL ELEVEN MOVED AT ONCE.**
+`test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py` spelled
+`ENTRY * 1.001` in nine places and `ENTRY * 0.999` in three, and the properties
+they guard — the lock is asked for once, retried after a refusal, never pulled
+back, never asked for where the price is already through it — held throughout. It
+DERIVES the lock from the fee model now, so the next rate change moves one line
+rather than eleven. The one literal that stays is the older build's own recorded
+stop, because that is what an older build wrote.
+
+**A CLAIM IN MY OWN PROSE DID NOT SURVIVE BEING DRIVEN.** The first draft said
+the backtest charges 0.2% *"at its default"*, from `BacktestConfig`'s field
+default — and `--honest`, which is how the frozen benchmark and every ratcheted
+run are taken, replaces the stale `--commission` default with
+`CONFIG.risk.taker_fee_pct` and says so in its own comment. So under `--honest`
+the two runtimes charge the SAME round trip and the old lock lost the same 0.02%
+in both; the 0.2% figure is reachable only by a plain run. Both rates are driven
+now, and the test asserts the honest one is BELOW the field default rather than
+taking either on trust.
+
+**The frozen benchmark moves, so it was re-measured rather than left describing
+code that no longer runs** — the rule the min-R:R and POC-retest slices already
+follow. `docs/FROZEN_BENCHMARK.md` and `benchmark/majors_1h/result.json` carry
+the re-run at this commit.
+
+**Filed with its measurement, not changed: the ladder's R and the entry gate's R
+are different units.** `net_reward_risk` builds its denominator as
+`risk_px + entry_fee + stop_fee`, so a stop-out there is exactly -1.0R and the
+unit is fee-inclusive; `PartialTPState.initial_risk` is the bare price distance,
+so `tp1_r_multiple = 1.5` fires at 1.5 GROSS R. Moving the ladder onto the
+fee-inclusive unit changes when the stages TRIGGER rather than where the stop
+sits, which is a strategy decision with a benchmark cost, not a wording fix. The
+two siblings in the same function stay filed too: a position too small to split
+marks TP1 done and moves the stop with nothing closed, and a rebuilt ladder sizes
+TP2 off the quantity left after TP1 rather than the entry's.
+(`tests/test_the_breakeven_lock_is_breakeven_after_fees.py`.)
+
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
 is documented as "the engine's single shared exchange read"; it stored the
@@ -14176,7 +14255,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 235 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 236 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -14988,9 +15067,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **444 of 1126** reach for source text through `source_scan`, `code_only`
+Driven, **445 of 1127** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 444 is a FLOOR and the honest shape is
+source scan that rule does not see, so 445 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
