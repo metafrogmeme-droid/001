@@ -28,7 +28,7 @@ const { safeErrorText } = require('../lib/safe_error');
 // The public /track page's own arithmetic. Imported rather than re-derived:
 // M9 was these two surfaces answering the same question differently while a
 // comment here promised they shared one source of truth.
-const { classifyPnls, outcomeOf } = require('./track');
+const { classifyPnls, outcomeOf, recordCoverage } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
 const { publicSignal } = require('../lib/public_signal');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
@@ -507,6 +507,9 @@ const TOOLS = {
         // profit_factor is gross-win / gross-loss — a RATIO, so it carries the
         // performance signal net_pnl_usd used to, without the dollar figure.
         profit_factor: grossLoss > 0 ? Math.round(grossWin / grossLoss * 100) / 100 : null,
+        // The same window the public page states: the newest closes the bot
+        // last sent, not necessarily its whole history.
+        coverage: recordCoverage(trades),
         recent_trades: trades.slice(-10).reverse().map(t => ({
           symbol: t.symbol, direction: t.direction,
           // Outcome, not amount — and four of them. `flat` is its own answer

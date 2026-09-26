@@ -142,7 +142,8 @@ class TestTheDashboardPayloadCarriesTheUnknown:
             lambda equity, positions, closed_trades:
                 captured.update(closed_trades=closed_trades))
         executor = types.SimpleNamespace(
-            open_positions=[], closed_positions=[closed_pos], user_id=7)
+            open_positions=[], closed_positions=[closed_pos], user_id=7,
+            closed_trades_read_failed=False)
         stub = types.SimpleNamespace(
             live_executor=executor,
             resolve_display_equity_sync=lambda: (100.0, "live"))
@@ -157,7 +158,8 @@ class TestTheDashboardPayloadCarriesTheUnknown:
             signal_type="momentum", stop_loss=95.0, take_profit=110.0,
             opened_at=datetime(2026, 9, 8, 11, tzinfo=UTC),
             closed_at=datetime(2026, 9, 8, 12, tzinfo=UTC),
-            close_price=close_price, pnl_usd=pnl, status="closed")
+            close_price=close_price, pnl_usd=pnl, status="closed",
+            close_reason="TP HIT")
 
     def test_an_unpriced_close_travels_as_none(self, monkeypatch):
         row = self._capture(monkeypatch, self._pos(None, None))

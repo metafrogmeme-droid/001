@@ -43,9 +43,23 @@ ORPHAN_PREFIXES: tuple[str, ...] = ("TI-adopted", "TI-injected")
 NON_TRADE_CLOSE_REASONS: frozenset[str] = NON_FILL_CLOSE_REASONS
 
 
+def _field(trade: Any, name: str) -> Any:
+    """One field of a closed trade, whether it is an object or a dict.
+
+    `getattr` on a dict answers its default for every key, so the rule read
+    a dict as a trade with no id and no reason and counted it, whatever it
+    held. The live website sync and the scan payload both hand it dicts (the
+    engine's rows, and the closed-trade file), so on those two paths the
+    rule had never run.
+    """
+    if isinstance(trade, dict):
+        return trade.get(name)
+    return getattr(trade, name, None)
+
+
 def is_adopted(trade: Any) -> bool:
     """Was this position adopted or injected rather than opened by a decision?"""
-    tid = str(getattr(trade, "trade_id", "") or "")
+    tid = str(_field(trade, "trade_id") or "")
     return any(tid.startswith(p) for p in ORPHAN_PREFIXES)
 
 
@@ -58,7 +72,7 @@ def is_countable(trade: Any) -> bool:
     """
     if is_adopted(trade):
         return False
-    reason = str(getattr(trade, "close_reason", "") or "").strip().lower()
+    reason = str(_field(trade, "close_reason") or "").strip().lower()
     return reason not in NON_TRADE_CLOSE_REASONS
 
 

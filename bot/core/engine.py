@@ -1693,16 +1693,18 @@ class RuneClawEngine:
             logger.debug("Live website sync skipped: %s", _sync_exc)
 
     def _sync_live_state_to_website(self) -> None:
-        """Push the live executor's real open positions, recent closed trades,
-        and equity to the website dashboard (fire-and-forget, fail-open).
+        """Push the agent's live record to the website (fire-and-forget).
 
-        Mirrors _on_trade_close_composite's paper sync, but sources from the
-        actual LiveExecutor instead of the paper portfolio -- so a live user's
-        dashboard reflects their real Bitget account, not simulated state.
+        `/api/bot/sync` REPLACES the agent's rows with what is sent here: the
+        open positions, the newest closes (`countable` drops what is not a
+        trade) and the equity. A closed-trade record that could not be read
+        in full is not sent at all (`record_unreadable`).
         """
-        from bot.utils.website_sync import sync_in_background
+        from bot.utils.website_sync import record_unreadable, sync_in_background
 
         executor = self.live_executor
+        if record_unreadable(executor):
+            return
 
         def _open_dict(pos) -> dict:
             return {
@@ -1719,18 +1721,16 @@ class RuneClawEngine:
 
         def _closed_dict(pos) -> dict:
             d = _open_dict(pos)
-            # `or 0` here said an unreadable close broke even, on the dashboard
-            # a live user reads. `LivePosition.pnl_usd` is Optional and
-            # live_executor writes None deliberately (`pos.pnl_usd = None if
-            # net_pnl is None else ...`), and the website's `winStats` already
-            # counts unpriced closes as their own outcome — so this line was
-            # the only thing standing between an honest producer and an honest
-            # reader. Six lines below, the equity field says the same rule in
-            # words: "in LIVE mode with an empty balance cache this must send
-            # None (website renders 'unavailable')".
+            # None, not `or 0`, for a close nobody priced: live_executor writes
+            # None on purpose and the website's `winStats` counts an unpriced
+            # close as its own outcome, so `or 0` here published it as a
+            # measured break-even. The equity below follows the same rule.
             d["exit_price"] = pos.close_price
             d["pnl"] = pos.pnl_usd
             d["closed_at"] = pos.closed_at
+            # Read by `countable` (orphans, unfilled orders); not on the wire.
+            d["trade_id"] = pos.trade_id
+            d["close_reason"] = pos.close_reason
             return d
 
         positions = [_open_dict(p) for p in executor.open_positions]

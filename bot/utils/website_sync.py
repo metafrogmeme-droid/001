@@ -326,6 +326,34 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
     return False
 
 
+# The files already said to be unreadable, so the warning is said once per
+# file rather than on every open and close that tries to sync.
+_UNREADABLE_SAID: set = set()
+
+
+def record_unreadable(executor) -> bool:
+    """Is the executor's closed-trade record unreadable, whole or in part?
+
+    `/api/bot/sync` REPLACES the agent's rows with what it is sent. A record
+    the executor could not read in full (`closed_trades_read_failed`) holds an
+    empty or partial list, and sending it would make the website delete every
+    trade it holds and publish that list as the whole history. So the caller
+    sends nothing until the file reads: the website keeps its last copy, and
+    that copy's age says how old it is. Sending the positions and equity
+    without the trades is not an option, because `sync.js` deletes the trades
+    on every push whatever it is sent, and an older website does too.
+    """
+    if not executor.closed_trades_read_failed:
+        return False
+    key = str(getattr(executor, "_closed_trades_file", "") or "")
+    if key not in _UNREADABLE_SAID:
+        _UNREADABLE_SAID.add(key)
+        log.warning("Website sync skipped: the closed-trade record could not "
+                    "be read in full, so it is not published as the agent's "
+                    "record. The website keeps its last copy until it reads.")
+    return True
+
+
 def sync_in_background(equity: Optional[float],
                        positions: list, closed_trades: list) -> None:
     """Non-blocking `sync_portfolio`: runs in a background thread."""

@@ -38,12 +38,14 @@ def _live_pos(trade_id, symbol, status="open", pnl=None, close_price=None):
         opened_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
         closed_at=datetime(2026, 6, 30, 13, 0, tzinfo=UTC) if status == "closed" else None,
         close_price=close_price, pnl_usd=pnl, status=status,
+        close_reason="TP HIT" if status == "closed" else None,
     )
 
 
 def _stub_engine_for_sync(open_positions, closed_positions, equity=326.55, user_id=None):
     executor = types.SimpleNamespace(
         open_positions=open_positions, closed_positions=closed_positions,
+        closed_trades_read_failed=False,
         user_id=user_id,
     )
     stub = types.SimpleNamespace(

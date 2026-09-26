@@ -70,6 +70,7 @@ def _fetch_live_exchange_data() -> Optional[dict]:
     import os
     from bot.config import CONFIG
     from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
+    from bot.utils.trade_filter import countable
 
     result: dict = {
         "equity": 0, "net_pnl": None, "win_rate": None,
@@ -104,6 +105,10 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             closed_trades = []
             result["closed_record_unreadable"] = True
 
+    # Only what counts as a trade, by the rule the website sync applies: the
+    # file also holds never-filled orders (booked at pnl 0.0) and adopted
+    # orphans, and the count, net and win rate below are published.
+    closed_trades = countable(closed_trades)
     total = len(closed_trades)
     # Both figures come from the SAME reader, so they agree about which rows
     # were legible. The executor writes `pnl_usd`; this file used to look for
