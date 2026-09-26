@@ -13381,8 +13381,12 @@ is why it survived being looked at.
 **`round(atr, 6)` IS AN ABSOLUTE GRID ON A RELATIVE QUANTITY, and that is the
 ordinary half.** The analyzer recorded its ATR to six DECIMAL PLACES, so an
 asset priced below a cent cannot have one. Driven over a perfectly healthy 1%
-range: SUI at $1.17 records `0.01171`, PEPE at $0.0000112 records **`0.0`**,
-SHIB at $0.0000091 records **`0.0`**. A recorded `0.0` then makes
+range, on the four prices the suite drives: `$1.171` records `0.01171` and
+`$63,000` records `630.025`, while `$0.0000112` and `$0.0000091` both record
+**`0.0`**. The PRICES are the measurement and no coin is named beside them: a
+ticker's price is a market fact this document cannot pin, and a label that
+drifts out of date beside a figure that does not is the shape where the next
+reader trusts the wrong half. A recorded `0.0` then makes
 `stop_loss == entry`, which `TradeIdea`'s directional-sanity validator
 REFUSES — so every sub-cent asset was silently incapable of producing a setup,
 and nothing said why. That is `_fmt_price`'s own lesson (it keeps eight places
@@ -13429,6 +13433,82 @@ ruff held after three growths of my own were fixed rather than recorded — an
 import below a module-level `def` (`E402`), the two operands the inline ratio
 left orphaned (`F841`), and two import blocks my own insertions unsorted
 (`I001`).
+
+**AND THE RULE THAT WAS MEANT TO STOP A SIXTH COPY MISSED THREE OF THE FIVE
+SURFACES IT WAS WRITTEN FOR, AND TWO OF THE THREE WAYS TO ASK.** `test_no_surface_spells_its_own_blend_fallback`
+walked `handler_sources()` for `getattr(x, "blended_confidence_raw")`, and its
+own failure message reads *"a surface reads the raw blend itself instead of
+asking `displayed_confidence()`"* — a claim about every surface, from a walk of
+`bot/skills/`. Driven, `handler_sources()` is 16 files and **three of the five
+surfaces the slice had just repaired are not among them**:
+`bot/core/proactive_monitor.py`, `bot/formatters/signal_card.py` and
+`bot/risk/risk_engine.py`. Fixed and not ratcheted, so a re-spelled fallback in
+any of the three goes unreported. That is `command_gates.py`'s own lesson —
+COVERAGE OF A SPELLING IS NOT COVERAGE OF THE GUARD — with the SCOPE as the
+spelling, written in the same commit as the fix it was standing over.
+
+**AND `getattr` IS ONE OF THREE WAYS TO ASK.** A plain attribute read
+(`idea.blended_confidence_raw`) is invisible to it, and so is a project-local
+accessor — which is the honesty gate's own recorded defect, where `_attr` made
+*"the single most expensive instance in the tree invisible to the gate written
+to find it"*. A read is an attribute LOAD of that name, or ANY call carrying it
+as a constant argument, so `_get(idea, "blended_confidence_raw")` is caught by
+the shape rather than by a list of function names.
+
+**A RECORDER IS NOT A READER, and that distinction is what lets one rule cover
+the whole tree with no baseline.** `engine.py` writes the field into a decision
+row three times and `flight_recorder.py` seals it once; each is the value bound
+to its OWN name, and handing a field back verbatim is the opposite of
+re-deriving what it means. So an expression inside a keyword argument or a dict
+entry of the same name is excused AT ANY DEPTH, because
+`_round(_get(idea, "blended_confidence_raw"), 4)` wraps the read two calls
+deep. Driven over `bot/`: **zero** readers outside one module and four
+recorders, all four correctly classified, so there is nothing to forgive.
+
+**ONE MODULE READS THE FIELD AND IT IS THE ONE THAT DEFINES IT.** The first
+draft of the exclusion list named two — the display leaf as well as the
+calibrator — and driven, `signal_confidence.py` contains no read at all: it
+asks `pre_calibration_confidence`, which is where *"the question is whether the
+figure is PRESENT, not what number stands in for it"* is decided. **An
+exemption for a file that does not need one is the next reader's false
+acquittal**, so the list is one entry, and that entry must still HOLD a read or
+it fails as stale — the `known_failures.txt` rule.
+
+**AND THE RULE PARSES RAW SOURCE, WHICH IS THIS FILE'S OWN "STRIP COMMENTS
+FIRST" POINTING THE OTHER WAY.** An AST walk cannot see a comment at all, and a
+docstring is a bare string constant carrying no `Attribute` or `Call` node, so
+`code_only` buys an AST rule nothing — and it COSTS, because it blanks
+docstrings and a class whose body is only one no longer parses. Driven over
+`bot/`, **11 files** are unparseable after `code_only`
+(`bot/core/live_executor.py` and `bot/utils/audit_chain.py` among them), so a
+whole-tree rule that stripped first would have to swallow a `SyntaxError` for
+each: that many files silently unchecked, inside the widening that exists to
+remove a blind spot. The count is pinned against a live measurement rather than
+restated, and the six OTHER guards that spell `ast.parse(code_only(…))` were
+checked — every one is on a NAMED file or an `inspect.getsource`, and
+`_RR_SITES` does not include `live_executor.py`, so none of them raises today.
+
+**Ten mutations, each killed on the first round — and planning the round is
+what found the gap.** The scope test's first draft built a `rglob` of its own,
+so the mutation that narrows the rule's walk straight back to
+`handler_sources()` changed no verdict: on a healthy tree there is no offender
+anywhere, and a guard deriving its expectation from anything but the thing it
+guards moves with it and can see nothing. One `_surfaces()` now, and the scope
+test reads it. The round also asked for a plant the corpus lacked — the blend
+handed to a DIFFERENT field (`Row(confidence=getattr(idea, "blended…"))`) —
+which is the only input that separates *excused because it is written BACK to
+this field* from *excused because it sits in some keyword*, and the only one
+that kills an excusal ignoring the name. And the `ast.Load` check is EQUIVALENT
+on the real tree, because nothing in `bot/` assigns the attribute, so it is
+driven on a planted producer instead.
+
+**Recorded, not changed: the four recorders' `or 0.0` cannot fire.**
+`blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0`
+is the tabulated absent-is-zero shape on the field a curve is fitted on, and
+the one reader that matters refuses it: `pre_calibration_confidence` ends
+`float(raw) if raw > 0.0 else None`, so such a row answers `None`, is counted
+`no_blend` and is left out of the fit — which is the rule that chapter already
+states. *Don't fix what cannot fire.*
 (`tests/test_one_signal_one_confidence.py`,
 `tests/test_a_collapsed_setup_prints_no_ratio.py`,
 `bot/core/signal_confidence.py`, `bot/core/signal_levels.py`.)

@@ -15,8 +15,10 @@ the caption is the one the handler really composes.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import pathlib
+import re
 import types
 
 import pytest
@@ -29,6 +31,7 @@ from bot.core.signal_confidence import (
 )
 from bot.utils.models import Direction, TradeIdea
 from tests.png_text import capture_text
+from tests.source_scan import code_only
 
 # The live figures: SUI at $1.171, blend 0.70, the curve's output 0.31.
 BLEND = 0.70
@@ -188,11 +191,9 @@ class TestTheCheckLine:
         assert confidence_for_floor(_idea(confidence=0.64)) == pytest.approx(0.64)
 
     def test_the_engine_prints_the_figure_it_compared(self):
-        import ast
         import inspect
 
         from bot.risk.risk_engine import RiskEngine
-        from tests.source_scan import code_only
 
         src = code_only(inspect.getsource(RiskEngine))
         tree = ast.parse(src)
@@ -214,36 +215,238 @@ class TestTheCheckLine:
         assert not bad, f"check line quotes a figure it did not compare: {bad}"
 
 
+# ---------------------------------------------------------------------------
+# The rule: one reading, every surface.
+#
+# The first version of this walked `handler_sources()` -- the 16 Telegram
+# handler files -- and looked for `getattr(x, "blended_confidence_raw")`. That
+# was two things short of the claim read off it, and both are shapes this repo
+# already records.
+#
+# SCOPE. Three of the five surfaces the slice repaired are not handler files:
+# `bot/core/proactive_monitor.py`, `bot/formatters/signal_card.py` and
+# `bot/risk/risk_engine.py`. The rule reported clean because of where it
+# looked, which is the `command_gates.py` lesson (COVERAGE OF A SPELLING IS NOT
+# COVERAGE OF THE GUARD) with the scope as the spelling.
+#
+# SPELLING. `getattr` is one of three ways to ask. A plain attribute read
+# (`idea.blended_confidence_raw`) is invisible to it, and so is a project-local
+# accessor -- which is the honesty gate's own recorded defect, where `_attr`
+# made "the single most expensive instance in the tree invisible to the gate
+# written to find it". So a READ is an attribute load of that name, or ANY call
+# carrying it as a constant argument.
+#
+# A RECORDER IS NOT A READER, and that distinction is what lets the rule cover
+# the whole tree with ONE exclusion and no baseline. `engine.py` writes the field into a
+# decision row three times and `flight_recorder.py` seals it once; each is the
+# value bound to its OWN name, and writing a field verbatim is the opposite of
+# re-deriving what it means. So an expression inside a keyword argument or a
+# dict entry of the same name is excused, at any depth, because
+# `_round(_get(idea, "blended_confidence_raw"), 4)` wraps the read two calls
+# deep.
+# ---------------------------------------------------------------------------
+
+FIELD = "blended_confidence_raw"
+
+#: ONE module in the tree reads the raw field, and it is the one that DEFINES
+#: what the field means: `pre_calibration_confidence` is where "the question is
+#: whether the figure is PRESENT, not what number stands in for it" is decided.
+#:
+#: The display leaf needs no entry at all, which is worth stating because the
+#: first draft excused it: `signal_confidence.py` asks that function rather than
+#: the field, so it passes the rule on its own merits -- and an exemption for a
+#: file that does not need one is the next reader's false acquittal. The entry
+#: below must still hold a read, or it is stale (the `known_failures.txt` rule).
+FIELD_DEFINITION = ("bot/learning/confidence_calibration.py",)
+
+
+def _surfaces():
+    """Every surface the rule walks. ONE definition, because the scope test
+    below asserts what this returns: its first draft built a `rglob` of its own
+    and so passed against a rule narrowed straight back to `handler_sources()`
+    -- a guard deriving its expectation from anything but the thing it guards
+    moves with it and can see nothing."""
+    return sorted(pathlib.Path("bot").rglob("*.py"))
+
+
+def _recorded_values(tree):
+    """Every node whose subtree is a value being WRITTEN to this same name."""
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == FIELD:
+            out.append(node.value)
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == FIELD:
+                    out.append(value)
+    return out
+
+
+def _blend_reads(src: str):
+    """Lines that ASK an object for the raw blend, in any of the three
+    spellings, excluding the ones that hand it straight back to its own name.
+
+    Parsed RAW, and that is deliberate rather than an omission of the repo's
+    "strip comments first" rule. An AST walk cannot see a comment at all, and a
+    docstring is a bare string constant carrying no Attribute or Call node, so
+    `code_only` buys this rule nothing -- and it COSTS: it blanks docstrings,
+    so a class whose body is only one no longer parses. Driven over `bot/`,
+    11 files are unparseable after `code_only` -- `bot/core/live_executor.py`
+    and `bot/utils/audit_chain.py` among them -- so a whole-tree rule that
+    stripped first would have to swallow a SyntaxError for each: 11 files
+    silently unchecked, which is the blind spot this rule was widened to
+    remove. The count is pinned against a live measurement below, because a
+    number in prose is the part that rots first."""
+    tree = ast.parse(src)
+    excused = {id(d) for v in _recorded_values(tree) for d in ast.walk(v)}
+    out = []
+    for node in ast.walk(tree):
+        is_read = (
+            isinstance(node, ast.Attribute)
+            and node.attr == FIELD
+            and isinstance(node.ctx, ast.Load)
+        ) or (
+            isinstance(node, ast.Call)
+            and any(isinstance(a, ast.Constant) and a.value == FIELD
+                    for a in node.args)
+        )
+        if is_read and id(node) not in excused:
+            out.append(node.lineno)
+    return out
+
+
 class TestEveryReaderAsksIt:
-    """No sixth hand-written copy of the question."""
+    """No sixth hand-written copy of the question, on any surface."""
 
-    def test_no_surface_spells_its_own_blend_fallback(self):
-        import ast
-
-        from tests.source_scan import code_only, handler_sources
-
-        # The one legitimate reader of the raw field is the leaf itself and
-        # the calibrator that defines it; a card or a gate that re-spells the
-        # `raw if raw is not None else confidence` shape is a second answer.
-        offenders = []
-        for path in handler_sources():
-            if str(path).endswith(("signal_confidence.py",
-                                   "confidence_calibration.py")):
+    def test_no_surface_reads_the_blend_itself(self):
+        offenders = {}
+        for path in _surfaces():
+            if str(path) in FIELD_DEFINITION:
                 continue
-            tree = ast.parse(code_only(pathlib.Path(path).read_text()))
-            for node in ast.walk(tree):
-                if (isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Name)
-                        and node.func.id == "getattr"
-                        and len(node.args) >= 2
-                        and isinstance(node.args[1], ast.Constant)
-                        and node.args[1].value == "blended_confidence_raw"):
-                    offenders.append(path)
+            lines = _blend_reads(path.read_text())
+            if lines:
+                offenders[str(path)] = lines
         assert not offenders, (
             "a surface reads the raw blend itself instead of asking "
-            f"displayed_confidence(): {sorted(set(offenders))}"
+            f"displayed_confidence(): {offenders}"
         )
 
+    def test_the_scope_is_every_surface_not_the_handler_files(self):
+        """The assertion that would have failed before this was widened.
+
+        `handler_sources()` is 16 files under `bot/skills/`, and three of the
+        five surfaces this slice repaired are not among them. Pinning the
+        membership rather than the count, because a count can be right while
+        the set is wrong -- and reading the rule's OWN walk, so narrowing it
+        fails here."""
+        from tests.source_scan import handler_sources
+
+        walked = {str(p) for p in _surfaces()}
+        handlers = {str(p) for p in handler_sources()}
+        for missed in ("bot/core/proactive_monitor.py",
+                       "bot/formatters/signal_card.py",
+                       "bot/risk/risk_engine.py"):
+            assert missed in walked, f"the rule no longer walks {missed}"
+            assert not any(h.endswith(missed) for h in handlers), (
+                f"{missed} is a handler file now, so this test's premise has "
+                "changed -- re-read the scope argument above"
+            )
+
+    def test_the_one_excused_module_still_reads_it(self):
+        """A stale exemption is the thing that hides the next copy."""
+        for path in FIELD_DEFINITION:
+            assert _blend_reads(pathlib.Path(path).read_text()), (
+                f"{path} is excused from the rule and no longer reads the "
+                "field: delete the entry in the same commit"
+            )
+
+    @pytest.mark.parametrize(
+        "spelling,src",
+        [
+            ("getattr, the monitor's own float(... or 0.0)",
+             'def f(idea):\n'
+             '    raw = getattr(idea, "blended_confidence_raw", None)\n'
+             '    return float((raw if raw is not None else idea.confidence) or 0.0)\n'),
+            ("a plain attribute read",
+             'def f(idea):\n'
+             '    return idea.blended_confidence_raw or idea.confidence\n'),
+            ("a project-local accessor",
+             'def f(idea):\n'
+             '    return _attr(idea, "blended_confidence_raw", 0.0)\n'),
+            # The input that separates "excused because it is written BACK to
+            # this field" from "excused because it sits in some keyword": the
+            # mutation round added it, and it is the only plant that kills an
+            # excusal which ignores the NAME.
+            ("the blend handed to a DIFFERENT field",
+             'def f(idea):\n'
+             '    return Row(confidence=getattr(\n'
+             '        idea, "blended_confidence_raw", None))\n'),
+        ],
+    )
+    def test_the_rule_flags_each_spelling_the_slice_removed(self, spelling, src):
+        assert _blend_reads(src), spelling
+
+    @pytest.mark.parametrize(
+        "shape,src",
+        [
+            ("a keyword argument of the same name",
+             'def f(idea):\n'
+             '    return Row(blended_confidence_raw=getattr(\n'
+             '        idea, "blended_confidence_raw", None) or 0.0)\n'),
+            ("a dict entry of the same name, two calls deep",
+             'def f(idea):\n'
+             '    return {"blended_confidence_raw":\n'
+             '            _round(_get(idea, "blended_confidence_raw"), 4)}\n'),
+            ("a field declaration",
+             'class R:\n    blended_confidence_raw: float = 0.0\n'),
+            ("the honest reader",
+             'def f(idea):\n    return displayed_confidence(idea).pct()\n'),
+            ("a producer ASSIGNING the field",
+             'def f(idea, blend):\n    idea.blended_confidence_raw = blend\n'),
+        ],
+    )
+    def test_the_rule_leaves_a_recorder_alone(self, shape, src):
+        assert not _blend_reads(src), shape
+
+    def test_the_rule_reads_code_and_not_prose(self):
+        """A comment and a docstring both name the field; neither is a read.
+
+        The AST is why, and it is a stronger guarantee than stripping: a
+        comment is not in the tree, and a docstring is a string constant with
+        no Attribute or Call inside it. This chapter's own prose names the
+        field a dozen times."""
+        assert not _blend_reads(
+            "def f(idea):\n"
+            '    """And idea.blended_confidence_raw in a docstring."""\n'
+            "    # blended_confidence_raw is the blend the curve is fitted on\n"
+            "    return displayed_confidence(idea).value\n"
+        )
+
+    def test_the_reason_for_parsing_raw_is_the_one_measured(self):
+        """`_blend_reads`' docstring counts the files `code_only` breaks, and a
+        number in prose is the part that rots first -- so it is read back out
+        and compared to a live measurement rather than trusted."""
+        unparseable = set()
+        for path in sorted(pathlib.Path("bot").rglob("*.py")):
+            try:
+                ast.parse(code_only(path.read_text()))
+            except SyntaxError:
+                unparseable.add(path.stem)
+        assert unparseable, (
+            "code_only() now parses every bot/ file: the raw parse above is "
+            "still correct, but this reason for it has gone -- re-read it"
+        )
+        claimed = {int(n) for n in re.findall(
+            r"(\d+) files are unparseable", _blend_reads.__doc__)}
+        assert claimed == {len(unparseable)}, (
+            "the docstring's count of files code_only() breaks is stale: "
+            f"claims {claimed}, measured {len(unparseable)} "
+            f"({sorted(unparseable)})"
+        )
+        for example in ("live_executor", "audit_chain"):
+            assert example in unparseable, (
+                f"the docstring names {example} as an example and it parses"
+            )
 
 def _signal_engine(idea):
     """The engine's pending book with the ownership reading the real engine
