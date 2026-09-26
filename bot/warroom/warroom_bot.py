@@ -519,6 +519,15 @@ def _money_or_unread(v: Any) -> str:
     return "unread" if v is None else f"${v:+.2f}"
 
 
+def _sign_icon(pnl: Optional[float]) -> str:
+    """The colour of ONE figure. Best and Worst were painted green and red by
+    position, so a day of one +$5.00 trade showed it red as the day's Worst,
+    and a losing day's Best wore green. Unknown is muted."""
+    if pnl is None:
+        return _NEU
+    return _OK if pnl > 0 else _BAD if pnl < 0 else _NEU
+
+
 def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     trades = data.get("trades", 0)
     wins = data.get("wins", 0)
@@ -538,6 +547,11 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
     worst_t = data.get("worst_trade", "N/A")
     worst_p = data.get("worst_pnl")
     risk_s = data.get("risk_status") or "Unknown"
+    # A close with no readable time is not today's and not yesterday's; the
+    # day's figures leave it out and say how many.
+    _untimed = data.get("untimed") or 0
+    untimed_note = (f" · <i>{_untimed} close(s) with no recorded time "
+                    f"left out</i>" if _untimed else "")
     _rl = str(risk_s).lower()
     risk_icon = (_OK if _rl == "healthy" else _WARN if _rl == "warning"
                  else _NEU if _rl == "unknown" else _BAD)
@@ -579,6 +593,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
 
     text = (
         f"{_header(chr(0x1F4D3), 'DAILY REPORT')}\n"
+        f"   <i>Today, UTC</i>{untimed_note}\n"
         f"   {_pnl_arrow(net if net is not None else 0.0)} "
         f"Net PnL: {_pill(net_txt)}\n\n"
         # ── Trade summary ──
@@ -599,9 +614,9 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         # the same scorable-rows check -- so printing "N/A unread" would say
         # the same absence twice.
         f"{_kv('Best', best_t if best_p is None else f'{best_t} ${best_p:+.2f}')}"
-        f"  {_OK}\n"
+        f"  {_sign_icon(best_p)}\n"
         f"{_kv('Worst', worst_t if worst_p is None else f'{worst_t} ${worst_p:+.2f}')}"
-        f"  {_BAD}"
+        f"  {_sign_icon(worst_p)}"
         "</pre>\n\n"
         # ── Risk ──
         f"{_SHIELD} <b>Risk Status</b>\n"

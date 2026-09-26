@@ -12427,6 +12427,28 @@ was missing, not because of the order. Moved below the figures, it dies on the
 ordering assertion itself.
 (`tests/test_the_performance_card_survives_what_it_could_not_read.py`.)
 
+**THE DAILY REPORT WAS THE ALL-TIME RECORD, AND THE PUBLIC CHANNELS WERE SENT
+IT AS THE DAY'S.** Both branches of `/daily_report` counted every close ever
+recorded, under a heading that says DAILY and a comment that says *"The day's
+closes"*. The public post forwarded the same figures. Driven with one close
+today (+$5) and two older ones, the card read Total 3, Net +$35.00, and Best
++$50.00 (a close from thirty days ago). The public post read *"Trades: 3 |
+W/L: 2/1 | Win Rate: 67%"* for a day with one winning trade.
+`closes_on_utc_day` is the day now: the current UTC day, taken from each
+close's recorded time, with the card saying so. A close whose time cannot be
+read is not filed as today's. It is counted apart, and the card names how many
+it left out. The ten suites that already drove this card passed before the
+change and after it, so none of them asserted a count the day could move.
+
+**And Best and Worst were coloured by position.** A day whose only trade made
++$5 showed it red as the day's Worst, and a losing day's Best wore green.
+Colour is a claim, so each icon follows its own figure: muted for unread or
+flat.
+
+Fourteen mutations, each killed on the first round. The case a flat figure
+needed (neither colour) was added before the round ran.
+(`tests/test_the_daily_report_is_the_days.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13718,7 +13740,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1101** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1102** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -67,6 +67,36 @@ def _caller_dd_status(engine, user_id) -> dict:
     return (risk.drawdown_status() or {}) if risk is not None else {}
 
 
+def closes_on_utc_day(rows, now) -> tuple[list, int]:
+    """The closes of ``now``'s UTC day, and how many carry no readable time.
+
+    `/daily_report` counted every close ever recorded under a heading that
+    says DAILY, and forwarded the same figures to the public channels as the
+    day's. A close whose time cannot be read cannot be placed in a day: it is
+    counted apart and never filed as today's.
+    """
+    from datetime import datetime as _dt
+
+    from bot.compat import UTC as _UTC
+    start = now.astimezone(_UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    today, untimed = [], 0
+    for row in rows:
+        at = getattr(row, "closed_at", None)
+        if isinstance(at, str):
+            try:
+                at = _dt.fromisoformat(at)
+            except ValueError:
+                at = None
+        if not isinstance(at, _dt):
+            untimed += 1
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=_UTC)
+        if at >= start:
+            today.append(row)
+    return today, untimed
+
+
 def _unpriced_tag(stats: dict) -> str:
     """" (+N unpriced)" for a W/L line, or "" when everything scored.
 
@@ -1183,11 +1213,16 @@ class PortfolioCommands:
             if executor is None:
                 await self._send(update, no_live_account_line(live_account_absence(user_id)))
                 return
+            from datetime import datetime as _dt_daily
+
+            from bot.compat import UTC as _UTC_daily
             from bot.utils.trade_filter import NON_TRADE_CLOSE_REASONS as _non_trade_reasons_daily
-            closed = [t for t in executor.closed_positions
-                       if not any(getattr(t, "trade_id", "").startswith(p)
-                                  for p in _ORPHAN_PREFIXES)
-                       and getattr(t, "close_reason", "") not in _non_trade_reasons_daily]
+            closed, untimed = closes_on_utc_day(
+                [t for t in executor.closed_positions
+                 if not any(getattr(t, "trade_id", "").startswith(p)
+                            for p in _ORPHAN_PREFIXES)
+                 and getattr(t, "close_reason", "") not in _non_trade_reasons_daily],
+                _dt_daily.now(_UTC_daily))
             today_trades = len(closed)
             _ws = _win_stats(closed)
             wins = _ws["wins"]
@@ -1242,7 +1277,11 @@ class PortfolioCommands:
             dd, risk_status = live_risk_status(_dd_st)
         else:
             portfolio = self.engine.user_portfolios.get(user_id)
-            trades = portfolio.trade_history
+            from datetime import datetime as _dt_daily
+
+            from bot.compat import UTC as _UTC_daily
+            trades, untimed = closes_on_utc_day(portfolio.trade_history,
+                                                _dt_daily.now(_UTC_daily))
             today_trades = len(trades)
             # The PAPER twin of the live branch above, and it carried the same
             # two defects in a different shape: `t.pnl > 0` raises rather than
@@ -1282,6 +1321,7 @@ class PortfolioCommands:
             "worst_trade": worst_trade, "worst_pnl": worst_pnl,
             "risk_status": risk_status, "drawdown_pct": dd,
             "unscored": unscored,
+            "untimed": untimed,
         }
         rendered = wr_daily_report(data)
         await self._send(update, rendered["text"])
