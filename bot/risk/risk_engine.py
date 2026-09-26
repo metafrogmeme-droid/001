@@ -2412,10 +2412,16 @@ class RiskEngine:
                 # was the flag's ONLY reader while three gates in engine.py
                 # applied the flat global first, so it decided a question that
                 # had already been answered.
-                from bot.risk.confidence_floor import min_confidence_for
-                min_conf = min_confidence_for(idea)
-                if idea.confidence < min_conf:
-                    failed.append(f"CONFIDENCE: {idea.confidence} < {min_conf} minimum")
+                from bot.risk.confidence_floor import (
+                    clears_confidence_floor, min_confidence_for,
+                )
+                # Change 1: use clears_confidence_floor(), which reads
+                # blended_confidence_raw when calibration is on. idea.confidence
+                # is calibrated here; comparing it against a raw floor would
+                # reject everything (calibrated ceiling ~0.56 < raw floor 0.60).
+                if not clears_confidence_floor(idea):
+                    _floor = min_confidence_for(idea)
+                    failed.append(f"CONFIDENCE: {idea.confidence} < {_floor} minimum")
                 else:
                     passed.append(f"CONFIDENCE: {idea.confidence} OK")
             except Exception as exc:
@@ -3204,7 +3210,7 @@ class RiskEngine:
         if win_rate >= 1.0:
             # Perfect win rate — still cap at config limit
             cap = CONFIG.risk.max_position_pct / 100.0
-            return min(0.5 * confidence, cap)
+            return min(0.5, cap)
 
         # Kelly fraction: f* = (p * b - q) / b
         # where p = win_rate, q = 1 - p, b = avg_win / avg_loss
@@ -3215,8 +3221,12 @@ class RiskEngine:
         if kelly_f <= 0:
             return 0.0  # Negative edge — don't bet
 
-        # Half-Kelly for safety, scaled by confidence
-        half_kelly = kelly_f * 0.5 * confidence
+        # Half-Kelly for safety. Change 1: dropped * confidence. Confidence
+        # is a calibrated probability; multiplying Kelly by it double-counts
+        # edge (Kelly already encodes win_rate). Removed with calibration
+        # rollout. The confidence param is kept in the signature for callers
+        # that pass it; it has no effect on the result.
+        half_kelly = kelly_f * 0.5
         cap = CONFIG.risk.max_position_pct / 100.0
         return min(max(half_kelly, 0.0), cap)
 

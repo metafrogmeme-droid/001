@@ -9132,7 +9132,14 @@ class RuneClawEngine:
         answered cal(cal(raw)): driven on a curve fitted to outcomes that won at
         their own confidence, a raw 0.95 went on the idea as 0.87 and reached
         this bar as 0.825, refused although the measured win rate cleared it."""
-        raw = float(getattr(idea, "confidence", 0.0) or 0.0)
+        # Change 1: read the pre-calibration blend. When calibration is on,
+        # idea.confidence is the calibrated value (~0.18-0.56); the threshold
+        # (0.85) lives on the raw scale. blended_confidence_raw is None for
+        # manual tickets (which have no analyzer path), so fall back to
+        # idea.confidence in that case — manual tickets are not auto-confirmed
+        # anyway (auto_confirm_refusal blocks them), so the value is unused.
+        _raw_val = getattr(idea, "blended_confidence_raw", None)
+        raw = float((_raw_val if _raw_val is not None else getattr(idea, "confidence", 0.0)) or 0.0)
         try:
             if not getattr(CONFIG, "auto_confirm_use_calibrated", False):
                 return raw

@@ -1337,8 +1337,14 @@ class TradingCommands:
         # Filter to only show ideas above the display threshold (default 70%)
         from bot.config import CONFIG
         _display_min = CONFIG.risk.signal_display_min_confidence
+        # Change 1: compare raw confidence against the display threshold.
+        # When CONFIDENCE_CALIBRATION_ENABLED is on, idea.confidence is the
+        # calibrated value (~0.18-0.56); _display_min lives on the raw scale.
+        def _raw_conf(i: object) -> float:
+            v = getattr(i, "blended_confidence_raw", None)
+            return float((v if v is not None else getattr(i, "confidence", 0.0)) or 0.0)
         all_pending = list(self.engine.pending_ideas)
-        pending = [i for i in all_pending if i.confidence >= _display_min]
+        pending = [i for i in all_pending if _raw_conf(i) >= _display_min]
 
         # If nothing clears the display threshold but the BACKGROUND loop already
         # found lower-confidence setups (full analysis), show those instantly
@@ -1410,7 +1416,7 @@ class TradingCommands:
                     asyncio.shield(_scan),
                     timeout=CONFIG.interactive_scan_timeout_sec,
                 )
-                pending = [i for i in self.engine.pending_ideas if i.confidence >= _display_min]
+                pending = [i for i in self.engine.pending_ideas if _raw_conf(i) >= _display_min]
                 if not pending:
                     sig_count = result.get("signals", 0)
                     auto_count = result.get("auto_confirmed", 0)
@@ -1424,7 +1430,7 @@ class TradingCommands:
                     await self._send(update, msg)
                     return
             except asyncio.TimeoutError:
-                pending = [i for i in self.engine.pending_ideas if i.confidence >= _display_min]
+                pending = [i for i in self.engine.pending_ideas if _raw_conf(i) >= _display_min]
                 if not pending:
                     await self._send(update,
                         "⏳ <b>Scan is taking longer than usual.</b> Try "
@@ -1540,7 +1546,7 @@ class TradingCommands:
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
-                        f"R:R 1:{rr:.1f} | Conf <b>{idea.confidence:.0%}</b>"
+                        f"R:R 1:{rr:.1f} | Conf <b>{_raw_conf(idea):.0%}</b>"
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )

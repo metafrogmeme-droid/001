@@ -3662,7 +3662,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                      else str(new_idea.direction))
                 st = getattr(new_idea, "strategy_type", "").upper()
                 st_str = f" [{st}]" if st else ""
-                cap = f"<b>{pair} {d}</b>{st_str} | Conf {new_idea.confidence * 100:.0f}%"
+                # Change 1: display raw confidence. When calibration is on,
+                # idea.confidence is calibrated (~18%); showing that to users
+                # looks like a bug. blended_confidence_raw is None for manual
+                # tickets, which fall back to idea.confidence (correct).
+                _disp_conf = getattr(new_idea, "blended_confidence_raw", None)
+                if _disp_conf is None:
+                    _disp_conf = new_idea.confidence
+                cap = f"<b>{pair} {d}</b>{st_str} | Conf {_disp_conf * 100:.0f}%"
                 card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
         except Exception:
             pass

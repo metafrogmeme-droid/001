@@ -1811,7 +1811,12 @@ class Analyzer:
                 and getattr(getattr(mode_config, "mode", None), "value", "")
                 not in ("", "CONSERVATIVE")):
             min_conf = max(min_conf, getattr(mode_config, "min_confidence", 0.0))
-        if blended_confidence < min_conf:
+        # Change 1: compare on raw scale. By this point blended_confidence has
+        # been overwritten with the calibrated value (ceiling ~0.56); the floor
+        # (min_conf) lives on the raw scale. Use _blended_confidence_raw, set
+        # just before the calibration block at :1695.
+        _conf_for_floor = _blended_confidence_raw
+        if _conf_for_floor < min_conf:
             thesis_src = thesis.get("source", "unknown")
             self._last_rejection_diag = {"at": time.time(),
                 "symbol": signal.symbol,
@@ -1827,7 +1832,7 @@ class Analyzer:
                 "counter_trend_penalty": round(counter_trend_penalty, 3),
                 "source": thesis_src,
                 "reason": (
-                    f"Score {blended_confidence:.0%} < {min_conf:.0%} threshold"
+                    f"Score {_conf_for_floor:.0%} < {min_conf:.0%} threshold"
                     + (f" (regime {regime.value} penalty -{regime_confidence_penalty:.0%})" if regime_confidence_penalty > 0 else "")
                     + (" (counter-trend penalty)" if counter_trend_penalty < 1.0 else "")
                 ),

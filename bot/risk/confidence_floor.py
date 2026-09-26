@@ -56,6 +56,27 @@ def min_confidence_for(idea) -> float:
         return flat
 
 
+def _raw_confidence(idea) -> float | None:
+    """Raw (uncalibrated) confidence for gate purposes.
+
+    When calibration is enabled, idea.confidence is the calibrated value and
+    the MIN_CONFIDENCE / SCALP_MIN floors are defined on the raw scale (they
+    sit below the curve's first knot and cannot be faithfully translated).
+    Use blended_confidence_raw when it is present; fall back to confidence so
+    the function works identically when calibration is off or the field is
+    absent (e.g. manual tickets, tests).
+    """
+    if CONFIG.analyzer.confidence_calibration_enabled:
+        raw = getattr(idea, "blended_confidence_raw", None)
+        if raw is not None:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                pass
+    conf = getattr(idea, "confidence", None)
+    return None if conf is None else float(conf)
+
+
 def clears_confidence_floor(idea) -> bool:
     """Does `idea` clear its floor?
 
@@ -63,11 +84,17 @@ def clears_confidence_floor(idea) -> bool:
     is a real, measured reading of a worthless setup and must be COMPARED, not
     treated as absent. An idea with no confidence at all is a different thing
     and does not clear — an unmeasured setup is not a passing one.
+
+    The floor (MIN_CONFIDENCE / SCALP_MIN) lives on the raw confidence scale.
+    When calibration is on, idea.confidence is calibrated; comparing it against
+    a raw floor produces a units mismatch. _raw_confidence() returns the right
+    reading: blended_confidence_raw when calibration is active, idea.confidence
+    otherwise. See Change 1 notes in docs/CALIBRATION_ROLLOUT.md.
     """
-    conf = getattr(idea, "confidence", None)
+    conf = _raw_confidence(idea)
     if conf is None:
         return False
     try:
-        return float(conf) >= min_confidence_for(idea)
+        return conf >= min_confidence_for(idea)
     except (TypeError, ValueError):
         return False

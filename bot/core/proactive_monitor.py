@@ -3352,7 +3352,14 @@ class ProactiveMonitor:
                 self._remember_once(self._alerted_signals, key)
                 # Only higher-conviction ideas message the operator; lower ones
                 # (0.60-0.70) still queue and trade, they just don't ping Telegram.
-                if float(getattr(idea, "confidence", 0.0) or 0.0) >= min_alert_conf:
+                # Change 1: gate on raw confidence — min_alert_conf (0.70) lives
+                # on the raw scale; idea.confidence is calibrated when
+                # CONFIDENCE_CALIBRATION_ENABLED is on.
+                _raw_val = getattr(idea, "blended_confidence_raw", None)
+                _conf_for_alert = float(
+                    (_raw_val if _raw_val is not None else getattr(idea, "confidence", 0.0)) or 0.0
+                )
+                if _conf_for_alert >= min_alert_conf:
                     d = "\U0001f7e2 LONG" if idea.direction.value == "LONG" else "\U0001f534 SHORT"
                     risk_amt = abs(idea.entry_price - idea.stop_loss)
                     reward_amt = abs(idea.take_profit - idea.entry_price)
@@ -3366,7 +3373,7 @@ class ProactiveMonitor:
                             f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n"
                             "────────────────\n"
                             f"- Direction: {d}\n"
-                            f"- Confidence: <code>{idea.confidence:.0%}</code>\n"
+                            f"- Confidence: <code>{_conf_for_alert:.0%}</code>\n"
                             f"- Entry: <code>${idea.entry_price:,.2f}</code>\n"
                             f"- Stop Loss: <code>${idea.stop_loss:,.2f}</code>\n"
                             f"- Take Profit: <code>${idea.take_profit:,.2f}</code>\n"
