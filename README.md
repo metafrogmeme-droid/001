@@ -472,7 +472,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/dashboard` | open the web dashboard |
 | `/link` | link this Telegram to your website account — /link <token> |
 | `/unlink` | disconnect this Telegram from your website account |
-| `/me` | your account: plan, portfolio and settings |
+| `/me` | your account: email, plan and settings |
 | `/sync` | why the dashboard needs no push — it reads your account when it loads |
 | `/connect` | link your own exchange account |
 | `/exchange` | your linked-account status (never shows keys) |
