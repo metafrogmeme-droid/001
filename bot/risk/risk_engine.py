@@ -1302,6 +1302,14 @@ class RiskEngine:
             risk_log.warning("person-level daily loss unreadable: %s", exc)
             return None
 
+    def book_snapshot(self):
+        """A snapshot of the paper book this engine's gates read.
+
+        For a reader outside the engine that has to describe the SAME book the
+        gates did (the confirm path's self-critique), rather than guess again
+        which book that is."""
+        return self._portfolio.snapshot()
+
     def make_reader(self) -> None:
         """Write nothing the bot owns: no state file, no ladder ledger row.
 

@@ -12077,6 +12077,40 @@ a comment. They had been re-derived once already, with no guard, and a remap
 keeps what a citation points at. All three basis citations are derived from
 the code now (`test_the_basis_citations_are_the_lines_they_name`).
 
+**THE SELF-CRITIQUE COUNTED EVERYBODY'S PRACTICE POSITIONS AS THE HEAT ON A
+LIVE TRADE.** Before every confirm, `TradeCritique` argues the bear case. One
+of its concerns is heat: four or more open positions and "the portfolio is
+hot", which takes 0.03 off the idea's confidence and counts toward a HALT. It
+counted `user_portfolios.combined_snapshot()`: every user's PRACTICE book,
+summed, in live mode too. Driven through the real confirm path:
+
+- A live trade on a FLAT live book, while one user's practice book held seven
+  positions, was critiqued as hot. The engine's own auto-confirm at 0.62 fell
+  to 0.59, under the 0.60 floor, and was REJECTED.
+- A live book holding four positions, with no practice books, was critiqued
+  as holding none.
+
+This is the "live gates read the paper book" defect the risk engine was cured
+of, one gate further down the same confirm, and it had a second wrong axis:
+the sum was over every user, so one person's practice book moved every other
+person's live confirm.
+
+**The critique counts what the risk re-check just read.** `_critique_book` is
+the one reading. Live, it is the re-check's own open count for the account
+this order executes on (`_LiveRecheck.open_count`). A live confirm reaches the
+critique only after the re-check read that account's equity, and the count is
+read beside it, so it is a number there. Paper, it is the book the re-check
+engine's gates read (`RiskEngine.book_snapshot`). A practice fill is
+critiqued against the caller's own practice book, never the sum.
+
+**Six mutations, each killed on the first round.** Planning the round found
+one fixture gap before it ran. The per-user paper test held no positions on
+the operator engine's book, so reading the shared engine instead of the
+caller's would have agreed with the right answer. The operator's book holds
+three there now. Removing the long line took one E501 off the ruff ratchet,
+which was re-recorded in the same commit.
+(`tests/test_the_critique_counts_the_book_the_trade_opens_on.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13368,7 +13402,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1093** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1094** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

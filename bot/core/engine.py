@@ -1409,6 +1409,27 @@ class RuneClawEngine:
                             _live_executor_mod.held_rows(ex.open_positions),
                             account=_executor_account(ex))
 
+    @staticmethod
+    def _critique_book(recheck_engine, rc: "_LiveRecheck"):
+        """The book the confirm path's self-critique counts: the one the risk
+        re-check just read.
+
+        The critique's heat check ("N open positions, portfolio is hot") read
+        `user_portfolios.combined_snapshot()`: every user's PRACTICE book,
+        summed, in live mode too. So a live trade on a flat book lost 0.03 of
+        confidence to somebody else's practice positions, and an auto-confirm
+        that fell under the floor for it was rejected; and four real live
+        positions never made the book "hot". Live, the count is the re-check's
+        own count for the account this order executes on. A live confirm only
+        reaches the critique after the re-check read that account's equity,
+        and the count is read beside it, so it is a number here. Paper, it is
+        the book the re-check's engine gates read.
+        """
+        if CONFIG.is_live():
+            from types import SimpleNamespace
+            return SimpleNamespace(open_positions=rc.open_count)
+        return recheck_engine.book_snapshot()
+
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
 
@@ -7969,7 +7990,7 @@ class RuneClawEngine:
         try:
             from bot.core.critique import TradeCritique
             critique = TradeCritique()
-            snapshot = self.user_portfolios.combined_snapshot() if self.user_portfolios.all_portfolios() else self.portfolio.snapshot()
+            snapshot = self._critique_book(recheck_engine, _rc)
             macro_ctx_for_critique = self.macro_provider.get_context(symbol=idea.asset)
             critique_result = critique.evaluate(idea, recheck, snapshot, macro_ctx_for_critique)
 
