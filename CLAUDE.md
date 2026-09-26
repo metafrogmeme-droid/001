@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 713 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 711 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -11265,6 +11265,172 @@ condensed, because `docs/INCOME_MAP.md` cites `engine.py` lines below it.
 `tests/test_the_live_record_publishes_only_trades.py`,
 `app/test/track_record_states_its_window.test.js`.)
 
+**THE PUBLIC MIND-STREAM TOLD EVERY OPERATOR CLOSE IN DOLLARS, UNDER TWO
+COMMENTS SAYING THAT WAS ALREADY PUBLIC.** Every close was emitted to the agent
+feed as *"Closed BTC/USDT -$41.20"* with `data: {"pnl": -41.2}`, and both the
+emitting comment and `agent_feed`'s module docstring justified it the same way:
+realized P&L *"is already public on the track-record page"*. It is not.
+`routes/track.js` is percent, ratio and count, and indexes its curve to 100 so
+no account size escapes. That is the `/api/reports` parity sentence (*"already
+public on /track"*) one feed over, and it reached five doors: the stored ring,
+the unauthenticated `/api/stream`, every push subscriber, `GET
+/api/feed/recent` and the MCP tool `get_agent_feed`.
+
+**The producer states the return on margin, and says when it cannot.**
+`agent_feed.close_event` prints `realized_margin_return_pct`, the figure the
+public close line already prints "on margin", from the margin
+`position_size_basis` recorded, never the notional. A close whose margin was
+never recorded carries no figure and its body says so. A close nobody priced
+still emits nothing, which was already the behaviour. A measured break-even is
+severity `info` now, not `success`: colour is a claim.
+
+**The receiver scrubs too, because the ring holds rows written before the
+producer changed.** `lib/public_feed.publicFeedEvent` runs at the ingest and at
+both readers, and reuses the flight scrubber rather than writing a second copy
+of it: `data` loses every amount key, a title loses every dollar figure, and the
+bodies of the three event types that carry PRICES (`trade_open`, `sl_move`,
+`thesis`) lose only a SIGNED figure, which is the shape of a P&L and never of a
+price. The ingest logs the event type it had to correct, so a producer that
+regresses names itself. Two pins moved with the contract:
+`agent_feed.test.js` asserted `'Closed BTC +$1.23'` and `push.test.js` the
+dollar push title. Both were the defect written down as a requirement.
+
+**Thirty mutations, each killed.** One was first reported killed by a HANG:
+the SSE fixture never destroyed its response, so a mutation that broke the
+stream timed the suite out rather than failing an assertion. A kill for a reason
+unrelated to the rule is not a kill; the fixture destroys its stream now and the
+mutation was driven again and dies on the assertion.
+(`tests/test_the_public_feed_carries_no_dollar.py`,
+`app/test/public_feed_carries_no_dollar.test.js`.)
+
+**THE ANONYMOUS SCAN DROPPED THE NOTIONAL AND KEPT THE TWO NUMBERS THAT
+MULTIPLY INTO IT.** `GET /api/bot/sync/scan` serves `scanFor(false, scan)` to
+anyone. Its scrub took `notional`, `margin` and `unrealized_pnl` off every
+open-position row and left `contracts` beside `entry_price` and `leverage`.
+Driven on the venue readout's BTC row (0.0158 contracts at 63,000, 5x):
+contracts times entry gave back the notional, **$995.40**, and notional over
+leverage the margin, **$199.08**, to the cent. A scrub that removes a figure
+and publishes its factors has removed nothing.
+
+The anonymous view drops every position-size key now (`contracts`, `quantity`,
+`qty` and any compound of them), walking lists and nested objects. The symbol,
+side, entry and leverage stay: none of them says anything about the account's
+size alone. The operator's view is untouched, and the disclosure line names
+position sizes beside equity and dollar P&L.
+
+**The rule is unanchored, and the mutation round is what said so.** The first
+draft anchored it to the three exact names, and removing the anchors changed no
+verdict, because no fixture carried a compound. The executor spells a size a
+dozen more ways (`filled_qty`, `remaining_qty`, `closed_qty`), so the anchored
+rule was the narrow one. The fixture plants `filled_qty` now, the rule matches
+unanchored as `DOLLAR_KEY` does, and the round was re-run: ten mutations, each
+killed. (`app/test/public_scan_carries_no_position_size.test.js`.)
+
+**"THE CALLER TREATS THAT AS UNKNOWN" WAS TRUE WHILE THE CACHE WAS FRESH.**
+With the live balance cache stale, the scan's venue readout went two ways, and
+both published a measured account from no read:
+
+- the readout RAISED, or was SKIPPED (every scan after a `/venue` switch away
+  from Bitget), and `_file_only_result` returned the realized record with the
+  defaults still under it: `equity: 0`, `open_count: 0`,
+  `live_unavailable: False`, and the slot chip read **Open Positions: 0/5** in
+  green. Its docstring said *"Equity stays 0 here and the caller treats that as
+  unknown"*; the caller did so only while the cache answered;
+- the balance was read and the POSITIONS fetch failed: `open_count` was
+  `len([])` of the list the failed read left behind, the same green `0/5`.
+
+**The words already existed and a flag walked past them.** `open_positions_rule`
+already renders `Open Positions: unread/5` with no verdict, and `_slot_count`
+already refused a book nobody read, keyed on `live_data_loaded`. That flag says
+the readout RETURNED, not that it read anything, so both paths reached the
+chip as readings. The file-only result sets the balance and the count to
+`None`, the success path counts the book only when the positions read
+succeeded, and `live_unavailable` is keyed on whether a BALANCE was read. A
+flat book the venue answered for is still `0`, a measured `$0.00` balance is
+still a reading, and the realized record the trade file supports is published
+as before. The log line says `unread` rather than handing `None` to `%.2f`.
+
+**The website then coerced the honest `None` back to zero, under a comment
+that said the producer never sends one.** Both summary writers in `sync.js`
+built `open_count: cb.open_count || 0`, the cold path under *"deliberately left
+alone ... only ever raises it from a real read"*. The summary is served to
+anonymous callers, so `0 open positions` there was a public claim about the
+operator's book. Both keep `null` now (`?? null`), and a counted `0` stays `0`.
+
+**One marker was deliberately NOT set, and the reason is a false sentence one
+file over.** The file-only result could have set `open_positions_unread`, and
+the scan folds that into `record_unreadable`, which the engine card renders as
+*"The closed-trade record could not be read"*: false, when the record read
+perfectly and the book was the unread half. That conflation is pre-existing and
+filed; widening its reach would have made the defect the ordinary case.
+
+**Twelve mutations, each killed on the first round.** A mid-loop partial
+positions list was measured and is unreachable with ccxt-parsed rows, so no
+line was added to clear one: a line no input reaches is a claim that there is a
+check. The JS honesty ratchet improved (`routes/sync.js` or-zero 7 -> 5) and
+was re-recorded in the same commit.
+(`tests/test_the_scan_says_when_it_read_no_balance_or_book.py`,
+`app/test/sync_summary_unread_book_is_not_flat.test.js`.)
+
+**EVERY CLOSED ROW ON THE SCAN PAYLOAD PUBLISHED AN EXIT OF ZERO.** The
+executor records a close's exit as `close_price` (`closed_trade_row`). The scan
+built each recent closed row with
+`float(t.get("exit_price", t.get("exit", 0)) or 0)`, which knows the paper
+book's two spellings and not that one. Driven through `_fetch_live_exchange_data`
+and `_build_scan_payload` on rows the executor itself wrote: `(100.0, 0.0)` for
+a close at 110, and `(0.0, 0.0)` for an adopted position whose entry the venue
+never stated. The filed note said the `or 0` published an unread exit as zero;
+the drive said worse: it published EVERY exit as zero, because the field was
+read under the other book's name. *A field name is not a quantity*, one reader
+over.
+
+The row reads both vocabularies now, the executor's name winning when a row
+carries both and the first name PRESENT deciding, which is `_first_attr`'s rule
+for the chat prompt's closed-trade line over the same record. Every price goes
+through `price_on_record`: an unread, zero, negative, NaN or junk price is
+`None`, never `0.0`. No website renderer reads these rows (the dashboard's
+trade table reads the trades table the portfolio sync writes), so the defect's
+only reader was the payload itself, served to anonymous callers.
+
+**Ten mutations, each killed on the first round.** One is recorded rather than
+run: `_first_present`'s absent-case `return None` answered as `0` is an
+equivalent mutant, because `price_on_record` refuses a zero. The honesty ratchet
+improved (`scan_skill.py` or-zero 23 -> 21) and was re-recorded in the same
+commit. (`tests/test_the_scan_publishes_the_exit_the_executor_recorded.py`.)
+
+**Filed, with their measurements, and not done.**
+
+- The autonomous scan push (`engine.py`, `_build_scan_payload([], self)`)
+  sends an EMPTY `entry_cards` and `symbols` every cycle, and
+  `POST /api/bot/sync/scan` replaces `latestScan` wholesale, so the last manual
+  `/scan`'s cards are wiped within a cycle. The ingest already carries the
+  deep-scan block forward under a TTL (`DEEPSCAN_TTL_MS`); the same carry for
+  the cards is the likely shape, and whether a stale card may stand beside a
+  fresh regime is a product decision, not a wiring line.
+- `equity_throttle_state`'s `except` fallback publishes `OFF` / `1.0`, which
+  would be an all-clear from a failed read. Refuted as unreachable: the body
+  reads a frozen config and a deque of floats only the recorder writes,
+  `rolling_profit_factor` cannot raise on floats, and
+  `equity_throttle_multiplier` catches its own. *Don't fix what cannot fire.*
+- `record_unreadable` is `closed_record_unreadable OR open_positions_unread`,
+  and the engine card renders it as *"The closed-trade record could not be
+  read"*. When the marks or the book were the unread half, that sentence names
+  the wrong source.
+
+**Seven of the map's thirteen citations into `app/routes/mcp.js` pointed at the
+wrong line, and a remap could only carry them forward.** Remapping the map for
+this slice's line shifts landed `get_rwa_radar` on a database call,
+`get_meme_radar` on the RWA tool's description, `run_what_if` inside another
+tool's result, and `scan_transaction`, `xray_transaction` and
+`scan_token_safety` each seven lines above their definitions. Every one was
+already wrong before the shift, and none sat on a blank line, so the probe
+could not see it. A tool citation names a tool, so each is that tool's
+definition now, and `test_every_mcp_tool_citation_is_that_tools_definition`
+requires every `mcp.js:N` citation, bare `:N` continuations included, to land
+on the definition of a tool its own paragraph names. On the uncorrected map it
+reports all seven. Its rule is also driven on a planted map, because the real
+one is correct.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -12556,7 +12722,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1071** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1074** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

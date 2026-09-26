@@ -176,7 +176,7 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:5813-5871 confirms and executes any idea at or above
+Autonomously: engine.py:5807-5865 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,8 +280,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6671) — its
-result is handed to analyzer.analyze at :6803 as `basis` CONTEXT that votes on
+(engine.py:6665) — its
+result is handed to analyzer.analyze at :6797 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -347,10 +347,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:242) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5813-5871
+trade gate whose whole enforcing set /enforcing lists. engine.py:5807-5865
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2474) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8741): the paper book's in paper mode, both
+realized win rate (engine.py:8735): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1345,7 +1345,7 @@ Contract Studio runs scan_security_flags (contract_studio.py:115) — a
 deterministic Solidity rule set (tx.origin auth, selfdestruct, delegatecall,
 unchecked low-level call, block.timestamp, …) over the model's own output. MCP
 exposes scan_transaction, xray_transaction and scan_token_safety to external
-agents (mcp.js:108, :159, :779).
+agents (mcp.js:116, :167, :792).
 
 *Gap.* Every one of these is a FLAG, never a verdict, and the code says so at the
 boundary: AUDIT_DISCLAIMER (contract_studio.py:29) — 'Heuristic flags only …
@@ -1431,7 +1431,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7454-7491
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7448-7485
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1456,8 +1456,8 @@ per-IP limited) and get 31 read tools. The ones carrying `computesOnInput` run
 over input the caller supplies rather than over RUNECLAW's data —
 scan_transaction (prompt-injection/drain/approval/address-poisoning flags),
 xray_transaction (calldata decoded to the known selector set, UNKNOWN outside
-it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:115,
-:166, :224, :251, :302) — the 'safety checks for YOUR agent'
+it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:116,
+:167, :225, :252, :303) — the 'safety checks for YOUR agent'
 developers.html:55 advertises. The MARKER is the list, here as everywhere: this
 paragraph named four of the five and cited four of the five lines, because
 xray_transaction joined the family and no prose moved. Mint an rcarena_
@@ -1683,7 +1683,7 @@ bot/skills/telegram_handler.py:1008, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
-snapshot"); MCP tool get_rwa_radar (app/routes/mcp.js:645); implementation
+snapshot"); MCP tool get_rwa_radar (app/routes/mcp.js:658); implementation
 app/lib/rwa.js; operator studies scripts/research/rwa_funding.py and
 rwa_session_gap.py (both have __main__ guards and LEFT
 tests/unreachable_baseline.txt).
@@ -1696,7 +1696,7 @@ meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
 (app/routes/market.js:181, public; dashboard.js:1545); web chat intercept
-'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:653);
+'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:666);
 app/lib/meme.js.
 
 **On-chain flow radar (exchange flows / whale accumulation)**
@@ -1731,7 +1731,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8011
+bot/core/stock_trading.py, also read by bot/core/engine.py:8005
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -1755,7 +1755,7 @@ deciding to follow the engine at all.
 *Where.* Web chat intercept row 2 'replay' (app/routes/chat.js); GET
 /api/replay?stake=&days= (app/routes/replay.js; dashboard.js:4024 and :7514
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
-(app/routes/mcp.js:712).
+(app/routes/mcp.js:725).
 
 **Trade co-pilot**
 
@@ -1974,7 +1974,7 @@ only.
 *Where.* GET /api/sentry (app/routes/sentry.js, JWT → gateway /sentry,
 bot/web/user_gateway.py) → dashboard.js:3855 panel #c-sentry; public /sentinel
 page (server.js:463) and GET /api/market/sentinel (market.js:245); MCP
-get_systemic_risk (mcp.js:432).
+get_systemic_risk (mcp.js:440).
 
 **Per-user watchlist**
 
