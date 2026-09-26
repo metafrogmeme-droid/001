@@ -163,7 +163,7 @@
   "llm_status_title": "<b>ESTADO DEL LLM</b>",
   "llm_tiers_title": "<b>Enrutado LLM multinivel</b>",
   "llm_update_failed": "<b>ACTUALIZACIÓN DEL LLM FALLIDA</b>\n\n{msg}",
-  "me_account": "<b>Tu cuenta de RUNECLAW</b>\n\nCorreo:   <code>{email}</code>\nPlan:     <code>{plan}</code>\nCapital:  <code>${equity}</code>\nP&amp;L abierto: <code>${pnl}</code>\nOperaciones: <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Notificaciones: <code>{notif}</code>",
+  "me_account": "<b>Tu cuenta de RUNECLAW</b>\n\nCorreo:   <code>{email}</code>\nPlan:     <code>{plan}</code>\n\nLLM: <code>{llm}</code> | Notificaciones: <code>{notif}</code>\n\nTu saldo y tus operaciones no se guardan con esta cuenta. Tu panel los lee del bot cada vez que se carga: {url}/dashboard",
   "mode_live": "🔥 Real",
   "mode_paper": "📝 Paper",
   "no_open_positions": "No hay posiciones abiertas.",

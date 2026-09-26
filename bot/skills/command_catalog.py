@@ -37,7 +37,7 @@ GROUPS: List[Group] = [
         # four working commands, undocumented and outside "exact, forever".
         ("link", "link this Telegram to your website account — /link <token>"),
         ("unlink", "disconnect this Telegram from your website account"),
-        ("me", "your account: plan, portfolio and settings"),
+        ("me", "your account: email, plan and settings"),
         ("sync", "why the dashboard needs no push — it reads your account when it loads"),
         ("connect", "link your own exchange account"),
         ("exchange", "your linked-account status (never shows keys)"),
@@ -394,7 +394,7 @@ DESC_ZH: Dict[str, str] = {
     "start": "註冊並查看目前狀態", "help": "本指令總覽", "dashboard": "開啟網頁儀表板",
     "link": "將此 Telegram 連結到你的網站帳戶 — /link <token>",
     "unlink": "解除此 Telegram 與網站帳戶的連結",
-    "me": "你的帳戶：方案、投資組合與設定",
+    "me": "你的帳戶：電郵、方案與設定",
     "sync": "說明儀表板為何不需推送 — 它載入時會直接讀取你的帳號",
     "duel": "搶在代理之前判斷行情 — 免費、無賭注",
     "leaderboard": "已驗證排行榜 — 僅比率與次數，可重新驗算",

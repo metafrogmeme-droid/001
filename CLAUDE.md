@@ -11180,8 +11180,8 @@ set `BOT_USER_ID` to something other than 1 will refuse an older bot's agent
 pushes (they named `1`) until the bot is redeployed; the website then shows
 the last synced record rather than a wrong one. And an older bot's /link by
 the operator's own website account still names the operator's id and is
-accepted, so the bot redeploy is what closes that case. `/me` still prints
-equity from the same unwritten table, which is filed rather than fixed here.
+accepted, so the bot redeploy is what closes that case. `/me` printed
+equity from the same unwritten table; that is fixed in the next chapter.
 
 **The one legitimate sender is driven, not stubbed.** The operator's paper
 close mirrors the agent's book from a callback built inside the engine's
@@ -11199,6 +11199,22 @@ its line count, because `docs/INCOME_MAP.md` cites `engine.py` lines below
 it, and the first draft moved one of them by a line.
 (`tests/test_a_linked_users_sync_does_not_touch_the_agents_record.py`,
 `app/test/a_bot_push_naming_another_account_is_refused.test.js`.)
+
+**`/me` PRINTED `EQUITY $10000.00 · OPEN P&L $0.00 · TRADES 0` FOR EVERY
+ACCOUNT, FROM THE SAME TABLE.** The chapter above filed it. Driven on a real
+database: a freshly linked account's `/me` read those three figures, and the
+bridge's `GET /auth/me` answered `equity: 10000.0`. Nothing writes a figure to
+`user_portfolio`: its three inserts write the column defaults, and
+`save_user_portfolio`'s one caller had no caller. The card also labelled the
+daily P&L column "Open P&L". It shows the email, plan and settings now, and
+says the balance and trades are not stored with this account and that the
+dashboard reads them from the bot, in fourteen languages. The command list's
+row stopped promising a portfolio. The two readers, `UserContext.portfolio`
+and its `equity` property, are deleted, and so are `get_user_portfolio` and
+`save_user_portfolio`. The bridge's `/auth/me` returns user fields only, as its
+express twin does. The table stays, because deployed databases hold it and the
+purge must still reach it. Eight mutations, each killed.
+(`tests/test_me_shows_no_figure_nobody_recorded.py`.)
 
 **A CLOSED-TRADE FILE THE BOT COULD NOT READ WAS PUBLISHED AS THE AGENT'S
 WHOLE HISTORY.** `/api/bot/sync` replaces the operator's rows: `sync.js`
@@ -13860,7 +13876,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1107** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1108** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

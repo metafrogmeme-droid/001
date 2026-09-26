@@ -163,7 +163,7 @@
   "llm_status_title": "<b>LLM स्थिति</b>",
   "llm_tiers_title": "<b>बहु-स्तरीय LLM रूटिंग</b>",
   "llm_update_failed": "<b>LLM अपडेट विफल</b>\n\n{msg}",
-  "me_account": "<b>आपका RUNECLAW खाता</b>\n\nईमेल:    <code>{email}</code>\nप्लान:    <code>{plan}</code>\nइक्विटी:  <code>${equity}</code>\nखुला P&amp;L: <code>${pnl}</code>\nट्रेड:    <code>{trades}</code>\n\nLLM: <code>{llm}</code> | सूचनाएँ: <code>{notif}</code>",
+  "me_account": "<b>आपका RUNECLAW खाता</b>\n\nईमेल:    <code>{email}</code>\nप्लान:    <code>{plan}</code>\n\nLLM: <code>{llm}</code> | सूचनाएँ: <code>{notif}</code>\n\nआपका बैलेंस और ट्रेड इस खाते के साथ सहेजे नहीं जाते। आपका डैशबोर्ड हर बार लोड होने पर उन्हें बॉट से पढ़ता है: {url}/dashboard",
   "mode_live": "🔥 लाइव",
   "mode_paper": "📝 पेपर",
   "no_open_positions": "कोई खुली पोज़िशन नहीं।",
