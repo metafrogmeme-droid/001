@@ -85,6 +85,28 @@ class TestConfidenceFloor:
         finally:
             p.stop()
 
+    def test_a_flag_on_the_blend_is_not_a_confidence(self):
+        """`float(True)` is 1.0, which cleared every floor on an idea whose
+        confidence (0.23) does not. The blend is read through the calibrator's
+        own reading, which answers None for a bool, so the idea is judged on
+        what it has."""
+        from bot.risk.confidence_floor import _raw_confidence, clears_confidence_floor
+        p = _cal_enabled_patch()
+        try:
+            idea = _make_idea(raw=True, calibrated=0.23)
+            assert _raw_confidence(idea) == 0.23
+            assert clears_confidence_floor(idea) is False
+        finally:
+            p.stop()
+
+    def test_a_confidence_that_is_not_a_number_does_not_clear(self):
+        from bot.risk.confidence_floor import clears_confidence_floor
+        p = _cal_enabled_patch()
+        try:
+            assert clears_confidence_floor(_make_idea(raw=None, calibrated="high")) is False
+        finally:
+            p.stop()
+
     def test_calibrated_alone_would_be_wrong(self):
         """Calibrated 0.23 < floor 0.60: the old (broken) comparison rejects
         a valid trade. This test documents the failure mode that Change 1 fixed.
@@ -151,6 +173,18 @@ class TestAutoConfirmGateValue:
             eng = self._engine(self._cal())
             val = eng._auto_confirm_gate_value(idea)
             assert val == 0.67, f"expected 0.67 (raw), got {val}"
+        finally:
+            p_cfg.stop()
+
+    def test_a_flag_on_the_blend_does_not_put_one_on_the_bar(self):
+        """`float(True)` put a 1.0 on the auto-confirm bar, which clears any
+        threshold, for an idea whose own confidence is 0.23."""
+        p_cfg = patch("bot.core.engine.CONFIG")
+        m = p_cfg.start()
+        m.auto_confirm_use_calibrated = False
+        try:
+            idea = _make_idea(raw=True, calibrated=0.23)
+            assert self._engine(self._cal())._auto_confirm_gate_value(idea) == 0.23
         finally:
             p_cfg.stop()
 

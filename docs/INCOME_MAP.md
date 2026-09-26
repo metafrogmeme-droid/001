@@ -183,7 +183,7 @@ RUNTIME.auto_confirm_threshold with no human tap.
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2423-2424), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:3930), which requires
+additionally needs _can_trade_live (telegram_handler.py:4878), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4846`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4969`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.

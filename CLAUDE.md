@@ -7549,6 +7549,26 @@ citations moving. The check reads each field's own contiguous comment block
 now.
 (`tests/test_a_strategy_trail_distance_is_what_the_trail_reads.py`.)
 
+**MAIN WAS RED ON TEN TESTS, AND TWO OF THEM WERE A FLAG READ AS A
+CONFIDENCE.** Calibration Change 1 turned the curve on and moved every
+confidence gate to the pre-calibration blend. Two of its reads took the blend
+with `float()`: the auto-confirm bar and the floor's `_raw_confidence`. A
+`True` there is `1.0`, which clears any bar and any floor, for an idea whose
+own confidence was 0.23. `pre_calibration_confidence` already answered this
+(a bool is a flag, an unset 0.0 is not a figure), and the calibrator's join
+asks it, so both gates ask it now; the bar also stopped calibrating the blend
+twice under two names. The floor's fallback raised on a confidence that was
+not a number, which the gate used to refuse. The other seven were a test file
+for a vision refusal whose code was never committed: an image sent to a chat
+whose candidates cannot see was dropped, and a text model answered the prompt
+about the picture by asking for the picture. `_llm_chat` refuses before any
+model is called, names the missing capability, audits the drop, and gives the
+web its door in words. Seven mutations, each killed. And two map citations
+into the handler already pointed at unrelated lines; both are derived from
+their functions now.
+(`tests/test_chat_vision_unavailable.py`,
+`tests/test_calibration_change1_gates.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A

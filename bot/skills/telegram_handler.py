@@ -2905,6 +2905,31 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # their own language.
             return _chat_ret(public_fallback(_ui), None, return_meta)
 
+        # AN IMAGE NOTHING CAN READ IS REFUSED, BEFORE ANY MODEL IS PAID FOR.
+        # `_vision_ok` below attaches images only to the operator's Anthropic
+        # candidate; every other candidate gets the text alone, and the text
+        # is a PROMPT ABOUT A PICTURE. A text model answers it by asking for
+        # the image the user had just sent, which reads as a failed upload
+        # (tests/test_chat_vision_unavailable.py records the 2026-09-05 case).
+        # The door is keyed by surface: the web cannot run a slash command.
+        _sees = is_admin and not public  # the same rule `_vision_ok` applies
+        if images and not any(c.provider == LLMProvider.ANTHROPIC and _sees
+                              for _, c in configs_to_try):
+            audit(system_log,
+                  "Chat image refused: no candidate for this caller has vision",
+                  action="chat_vision_unavailable", result="REFUSED",
+                  level=logging.WARNING,
+                  data={"surface": surface, "images": len(images),
+                        "candidates": [c.provider.value for _, c in configs_to_try]})
+            _door = ("/analyze BTC" if surface == "telegram"
+                     else '"analyze BTC" typed as words')
+            return _chat_ret(
+                "I can't read images here: the model answering this chat has "
+                "no vision, so your image never reached it and nothing was "
+                f"read from it. For a chart read, name the asset instead "
+                f"({_door}) and I will read its candles myself.",
+                None, return_meta)
+
         # Budget guard: refuse to spend once the shared daily LLM budget is
         # exhausted, mirroring analyzer.py's guard for trade-thesis calls.
         # Chat previously had NO budget check at all -- every free-text

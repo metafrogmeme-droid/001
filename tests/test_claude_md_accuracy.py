@@ -1441,3 +1441,22 @@ def test_the_basis_citations_are_the_lines_they_name():
     assert (f"constructed at engine.py:{ctor} and fetched in `_analyze_signal`'s "
             f"context gather (engine.py:{fetch}) — its result is handed to "
             f"analyzer.analyze at :{hand} as `basis`") in flat
+
+
+def test_the_handler_citations_are_the_functions_they_name():
+    """Two map citations into the Telegram handler pointed at unrelated lines:
+    `_can_trade_live` at a `_remember_routed` call and `_is_admin_id` at an
+    `if not delivered:`. Neither was blank, so the probe could not see them,
+    and a remap would have carried both to the same wrong lines."""
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
+
+    def def_line(name):
+        hits = [i + 1 for i, ln in enumerate(src.splitlines())
+                if ln.startswith(f"    def {name}(")]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    assert f"_can_trade_live (telegram_handler.py:{def_line('_can_trade_live')})" in doc
+    assert (f"`_is_admin_id`\n  (`bot/skills/telegram_handler.py:{def_line('_is_admin_id')}`)"
+            in doc)

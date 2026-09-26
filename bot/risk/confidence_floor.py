@@ -67,18 +67,21 @@ def _raw_confidence(idea) -> float | None:
     absent (e.g. manual tickets, tests).
     """
     if CONFIG.analyzer.confidence_calibration_enabled:
-        raw = getattr(idea, "blended_confidence_raw", None)
+        # The one reading of the blend, which the auto-confirm bar and the
+        # calibrator's join ask too: a bool is a flag, not a confidence, and
+        # `float(True)` would read it as a 1.0 that clears every floor.
+        from bot.learning.confidence_calibration import pre_calibration_confidence
+        raw = pre_calibration_confidence(idea)
         if raw is not None:
-            try:
-                return float(raw)
-            except (TypeError, ValueError):
-                pass
+            return raw
     conf = getattr(idea, "confidence", None)
     if conf is None:
         return None
     try:
         return float(conf)
     except (TypeError, ValueError):
+        # A confidence that is not a number is not a reading, and it does not
+        # clear: this raised out of the gate before.
         return None
 
 
