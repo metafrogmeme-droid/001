@@ -1191,8 +1191,9 @@ class BacktestEngine:
         convention the single-exit path uses. A runner stop hit is caught by the
         stop check on a subsequent bar, consistent with how the legacy trailing
         path defers stop fills. The live ladder also asks again for a stage's
-        stop lock the venue refused; a stop move here always lands, so there is
-        nothing to ask again."""
+        stop lock the venue refused, and trails the runner from the price
+        rather than the best, the one level a retried move can rest at; a stop
+        move here always lands, so the two readings agree."""
         cfg = CONFIG.partial_tp
         state = bt_meta["ptp_state"]
         is_long = pos.direction == Direction.LONG

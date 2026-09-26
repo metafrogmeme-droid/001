@@ -18,14 +18,16 @@ Three defects in the partial take-profit ladder, all driven through the real
   until the stop reaches it.
 - **Every pass reset what the ladder had done.** The executor saves the ladder
   after each pass and reads it back at the start of the next, and the read ran
-  `__post_init__`, which reset the runner's best price, its stop and its
-  remaining quantity. So the runner trailed from the current price, not the
-  best one: a move the venue refused at the peak was retried from wherever the
-  price had fallen to. `PartialTPState.from_record` restores what it recorded.
+  `__post_init__`, which put the runner's best price, its stop and its
+  remaining quantity back to the entry's. `PartialTPState.from_record`
+  restores what it recorded. The survey read the reset as the runner trailing
+  from the price instead of the best; driven, that is the one level a retried
+  move can rest at, so the runner trails from the price on purpose now.
 
 The ladder's view of the stop and the size is the book's (`pos.stop_loss`,
 `pos.quantity`), read at the start of each pass and the stop written back at
-the end, so the record never holds a move the venue refused.
+the end, so the record never holds a move the venue refused. A stop is asked
+for only where it can rest: below the price for a long, above it for a short.
 """
 from __future__ import annotations
 
@@ -264,14 +266,16 @@ def test_a_record_an_older_build_wrote_is_read_against_the_book():
     assert ex.moves == [pytest.approx(ENTRY * 1.001)]
 
 
-# ── the runner trails from its best price ───────────────────────────────
+# ── the runner, and a stop the price is already through ────────────────
 
 @pytest.mark.parametrize("direction, tp1, tp2, peak, after", [
     ("LONG", 116.0, 126.0, 130.0, 128.0),
     ("SHORT", 84.0, 74.0, 70.0, 72.0),
 ])
-def test_a_runner_move_refused_at_the_peak_is_retried_from_the_peak(
+def test_a_runner_move_refused_at_the_peak_is_retried_where_it_can_rest(
         direction, tp1, tp2, peak, after):
+    # Off the best, the retry would be 128.4 over a price of 128: a sell stop
+    # above the market, which the venue refuses or fills at once.
     pos = _pos(direction)
     ex = _executor(pos)
     x = _exchange(_filled(0.5), _filled(0.3))
@@ -280,9 +284,61 @@ def test_a_runner_move_refused_at_the_peak_is_retried_from_the_peak(
     ex._venue_accepts = [False, True]
     _run(ex, x, pos, peak)                   # the move at the peak is refused
     _run(ex, x, pos, after)
-    want = peak - TRAIL if direction == "LONG" else peak + TRAIL
+    want = after - TRAIL if direction == "LONG" else after + TRAIL
+    assert ex.moves[-1] == pytest.approx(want)
     assert pos.stop_loss == pytest.approx(want)
     assert pos.partial_tp_state["runner_trail_best"] == pytest.approx(peak)
+
+
+@pytest.mark.parametrize("direction, tp1, through, back, lock", [
+    ("LONG", 116.0, 99.9, 105.0, ENTRY * 1.001),
+    ("SHORT", 84.0, 100.1, 95.0, ENTRY * 0.999),
+])
+def test_a_lock_the_price_is_through_waits_for_the_price(direction, tp1, through, back, lock):
+    pos = _pos(direction)
+    ex = _executor(pos)
+    ex._venue_accepts = [False]
+    x = _exchange(_filled(0.5))
+    _run(ex, x, pos, tp1)                    # the breakeven move is refused
+    _run(ex, x, pos, through)
+    _run(ex, x, pos, through)
+    assert len(ex.moves) == 1, "no stop is asked for on the far side of the price"
+    _run(ex, x, pos, back)
+    assert ex.moves[-1] == pytest.approx(lock) and pos.stop_loss == pytest.approx(lock)
+
+
+def test_a_lock_the_price_is_through_does_not_hold_back_a_trail():
+    pos = _pos()
+    ex = _executor(pos)
+    x = _exchange(_filled(0.5), _filled(0.3))
+    _run(ex, x, pos, 116.0)                  # TP1: breakeven lands
+    ex._venue_accepts = [False, False, True]
+    _run(ex, x, pos, 125.5)                  # TP2's lock and the trail both refused
+    _run(ex, x, pos, 109.0)                  # under TP2's lock at 110
+    assert ex.moves[-1] == pytest.approx(109.0 - TRAIL)
+    assert pos.stop_loss == pytest.approx(109.0 - TRAIL)
+
+
+@pytest.mark.parametrize("direction, tp1, through, back, lock", [
+    ("LONG", 116.0, 99.5, 104.0, ENTRY * 1.001),
+    ("SHORT", 84.0, 100.5, 96.0, ENTRY * 0.999),
+])
+def test_a_late_fill_does_not_ask_for_a_stop_the_price_is_through(
+        direction, tp1, through, back, lock):
+    pos = _pos(direction)
+    original = pos.stop_loss
+    ex = _executor(pos)
+    x = _exchange({"id": "O1"})
+    x.fetch_order = AsyncMock(side_effect=[
+        {"status": "open", "filled": 0}, {"status": "open", "filled": 0},
+        {"status": "closed", "filled": 0.5, "average": tp1}])
+    _run(ex, x, pos, tp1)                    # TP1's fill goes unread
+    assert pos.partial_tp_state["pending"]["order_id"] == "O1"
+    _run(ex, x, pos, through)                # read now, the price through breakeven
+    assert pos.quantity == pytest.approx(0.5)
+    assert ex.moves == [] and pos.stop_loss == original
+    _run(ex, x, pos, back)
+    assert ex.moves == [pytest.approx(lock)]
 
 
 # ── from_record ─────────────────────────────────────────────────────────

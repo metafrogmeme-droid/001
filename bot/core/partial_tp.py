@@ -69,12 +69,11 @@ class PartialTPState:
         The executor saves the ladder after every pass and reads it back at
         the start of the next, so a restart is not the only reload: every
         tick is one. Rebuilding it through the constructor ran `__post_init__`
-        over the saved dict and reset the runner's best price to the entry,
-        its stop to the entry-time stop and its remaining quantity to the
-        original, so the runner trailed from the current price rather than the
-        best one, and a move the venue refused at the peak was retried from
-        wherever the price had fallen to. Keys this build does not know are
-        dropped; a recorded value that is not a finite number is not restored.
+        over the saved dict and put the runner's best price back to the entry
+        (so the runner's audit printed the current price as its best) and the
+        stop and the remaining size back to the entry's. Keys this build does
+        not know are dropped; a recorded value that is not a finite number is
+        not restored.
         """
         known = {f.name for f in fields(cls)}
         st = cls(**{k: v for k, v in record.items() if k in known})
@@ -264,11 +263,15 @@ def check_partial_tp(
 
     # A stage's lock the stop has not reached is asked for again. When the
     # stage fired on this call, current_sl already sits at its lock and this
-    # asks nothing. The runner builds on the lock rather than moving twice.
+    # asks nothing. It is asked only while it can rest on the venue: with the
+    # price already through it, a stop there is refused or fills at once, so
+    # it waits for the price to come back. The runner builds on the lock
+    # rather than moving twice.
     lock = stage_lock(state)
-    if lock is not None and not (lock > state.current_sl if is_long
-                                 else lock < state.current_sl):
-        lock = None                  # the stop already holds it
+    if lock is not None and not (
+            (state.current_sl < lock < current_price) if is_long
+            else (current_price < lock < state.current_sl)):
+        lock = None      # the stop already holds it, or the price is through it
 
     # Runner: aggressive trailing stop for remaining position
     if state.tp2_hit and state.remaining_qty > 0:
@@ -278,7 +281,11 @@ def check_partial_tp(
         if is_long:
             if current_price > state.runner_trail_best:
                 state.runner_trail_best = current_price
-            trail_sl = state.runner_trail_best - trail_dist
+            # Trailed from the price, not the best. The stop only ratchets, so
+            # the two agree whenever every move lands; after a move the venue
+            # refused at the peak, a level off the best sits above a price that
+            # has already fallen through it, where no stop can rest.
+            trail_sl = current_price - trail_dist
             new_sl = max(trail_sl, floor)  # never lower SL
 
             if new_sl > state.current_sl:
@@ -301,7 +308,7 @@ def check_partial_tp(
         else:
             if current_price < state.runner_trail_best:
                 state.runner_trail_best = current_price
-            trail_sl = state.runner_trail_best + trail_dist
+            trail_sl = current_price + trail_dist
             new_sl = min(trail_sl, floor)  # never raise SL for shorts
 
             if new_sl < state.current_sl:

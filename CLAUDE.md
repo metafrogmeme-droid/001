@@ -7451,25 +7451,38 @@ take-profit ladder, each driven through the real `_run_partial_tp`:
 - **Every pass reset what the ladder had done.** The executor saves the ladder
   after each pass and reads it back at the start of the next, so a restart is
   not the only reload: every tick is one. The read ran `__post_init__`, which
-  reset the runner's best price to the entry, its stop and its remaining
-  quantity, so the runner trailed from the current price rather than the best
-  one. Driven: a move refused at a peak of 130 was retried from 128 and landed
-  at 126.4 where the peak put it at 128.4. `PartialTPState.from_record`
-  restores what a record holds, and a rule over `bot/` refuses a reload through
-  the constructor.
+  put the runner's best price, its stop and its remaining size back to the
+  entry's. `PartialTPState.from_record` restores what a record holds, and a
+  rule over `bot/` refuses a reload through the constructor.
 
-**Restoring the record exposed what the reset had been hiding.** A stage
-proposes its stop and takes its slice off the remaining quantity before the
-venue answers. With the reset, both came back every pass; restored, a refused
-TP1 followed by a TP1 that lands left TP2 nothing to close and the runner
-nothing to trail. So the ladder reads the stop and the size from the book
-(`pos.stop_loss`, `pos.quantity`) at the start of every pass and writes the
-book's stop back at the end: a record never holds a move the venue refused,
-and a record an older build wrote is read against the book.
+**Restoring the record exposed what the reset had been hiding, twice.** A
+stage proposes its stop and takes its slice off the remaining quantity before
+the venue answers. With the reset, both came back every pass; restored, a
+refused TP1 followed by a TP1 that lands left TP2 nothing to close and the
+runner nothing to trail. So the ladder reads the stop and the size from the
+book (`pos.stop_loss`, `pos.quantity`) at the start of every pass and writes
+the book's stop back at the end: a record never holds a move the venue
+refused, and a record an older build wrote is read against the book.
 
-**Twenty-five mutations, each killed on the first round.** The backtest keeps
-its own copy of the ladder and is unchanged, because a backtest stop move
-always lands; its docstring says so. The survey's other ladder findings are
+**And the survey's reading of the reset was the part to keep.** It filed the
+runner trailing from the current price instead of its best as a defect: a
+move refused at a peak of 130 was retried at 126.4, from a price of 128,
+where the peak said 128.4. The first draft of this fix restored the best and
+asked for 128.4. That is a sell stop above a price of 128, which the venue
+refuses or fills at once, and the mock that accepted it was the only reason
+the drive looked right. The stop only ratchets, so trailing from the price
+and from the best agree whenever every move lands; after a refusal only the
+price-based level can rest. The runner trails from the price on purpose now,
+the best is recorded for its audit line, and every stop the ladder asks for
+must rest on the venue: below the price for a long, above it for a short. A
+lock the price is already through waits for the price to come back, and a
+late fill read with the price through its stage's stop does not ask for it.
+
+**Thirty-two mutations, each killed; the one that survived the first round
+was the corpus.** Reading the rest rule one way for both sides passed, because
+the late-fill drive was long only. The backtest keeps its own copy of the
+ladder and is unchanged, because a backtest stop move always lands; its
+docstring says so. The survey's other ladder findings are
 filed with their measurements: a position too small to split marks TP1 done
 and moves the stop with nothing closed, the breakeven buffer (0.1% of price)
 sits under a taker round trip at the default rate (0.12%), and a rebuilt

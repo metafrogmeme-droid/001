@@ -8376,6 +8376,12 @@ class LiveExecutor:
             exchange actually accepting the tighter stop)."""
             return bool(new_sl > pos.stop_loss if is_long else new_sl < pos.stop_loss)
 
+        def _rests(level: float) -> bool:
+            """A stop at `level` can rest on the venue: under the price for a
+            long, over it for a short. One the price is already through is
+            refused, or fills at once."""
+            return level < price if is_long else level > price
+
         def _ratchet_sl(new_sl: float) -> bool:
             """Raise (LONG) / lower (SHORT) the stop only — never loosen it."""
             if _would_tighten(new_sl):
@@ -8414,7 +8420,11 @@ class LiveExecutor:
                             "stage": stage, "qty_closed": late_qty,
                             "remaining": pos.quantity, "late_read": True})
                 _late_sl = pend.get("new_sl")
-                if isinstance(_late_sl, (int, float)) and _late_sl and _would_tighten(_late_sl):
+                # A fill read passes later, and the price may be through the
+                # stage's stop by then; the lock below asks for it again once
+                # it can rest.
+                if (isinstance(_late_sl, (int, float)) and _late_sl
+                        and _would_tighten(_late_sl) and _rests(_late_sl)):
                     ok = False
                     try:
                         ok = await self._update_exchange_sl(exchange, pos, _late_sl)
