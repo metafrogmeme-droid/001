@@ -37,6 +37,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+#: What a card says when the executor's closed-trade record could not be read
+#: in full. An unreadable store arrives as an empty or PARTIAL list, and a
+#: total over it printed as whole is a partial total presented as the record.
+#: One sentence, so two cards cannot say it two ways.
+CLOSED_RECORD_UNREAD = ("Closed-trade records could not be read — "
+                        "figures here are incomplete, not zero.")
+
 
 def _num(value: Any) -> float | None:
     """A real number, or None. Bools are not numbers.

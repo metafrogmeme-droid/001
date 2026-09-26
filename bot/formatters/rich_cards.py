@@ -1004,8 +1004,8 @@ def render_live_portfolio_summary(equity: Optional[float], open_count: int,
         # An unreadable store is not an empty one. Saying "no closed trades
         # recorded" over a failed read is the 503-as-"No venues found" shape:
         # a confident negative standing in for a missing measurement.
-        lines.append("<i>Closed-trade records could not be read — "
-                     "figures here are incomplete, not zero.</i>")
+        from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD
+        lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
     elif total_closed <= 0:
         # Says which absence it is. A bare em-dash reads as a render fault;
         # "no closed trades recorded" is the actual state of the book.

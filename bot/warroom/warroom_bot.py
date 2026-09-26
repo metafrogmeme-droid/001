@@ -396,7 +396,10 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     best = data.get("best_pair") or _DASH
     worst = data.get("worst_pair") or _DASH
     adopted_count = data.get("adopted_count", 0)
-    adopted_pnl = data.get("adopted_pnl", 0.0)
+    adopted_pnl = data.get("adopted_pnl")
+    # Said above the figures it qualifies: a win rate and an all-time total
+    # over a partial record read as the record's.
+    record_note = data.get("record_note") or ""
 
     # The gauge is drawn at zero when the rate is unknown, but it is LABELLED
     # n/a — an empty ring next to "n/a" reads as "no reading", while an empty
@@ -425,8 +428,9 @@ def render_performance(data: Dict[str, Any]) -> Dict[str, Any]:
     text = (
         f"{_header(chr(0x1F4CA), 'PERFORMANCE')}\n"
         f"   {_pnl_arrow(today)} {_pill(_money(today, sign=True))} today\n\n"
+        + (f"\u26a0\ufe0f <i>{html.escape(record_note)}</i>\n\n" if record_note else "")
         # ── PnL card ──
-        f"\U0001f4b0 <b>Returns</b>\n"
+        + f"\U0001f4b0 <b>Returns</b>\n"
         "<pre>"
         f"{_kv('Today', _money(today, sign=True))}  {_pnl_arrow(today)}\n"
         f"{_kv('7-Day', _money(week, sign=True))}  {_pnl_arrow(week)}\n"

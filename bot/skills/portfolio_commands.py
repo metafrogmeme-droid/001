@@ -39,7 +39,7 @@ from bot.core.trade_gate import caller_risk, entry_gate
 from bot.skills.chat_runtime import live_account_absence, no_live_account_line
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
-from bot.utils.logger import audit, system_log
+from bot.utils.logger import system_log
 from bot.utils.trade_filter import ORPHAN_PREFIXES as _ORPHAN_PREFIXES
 from bot.utils.win_rate import pnl_stats as _pnl_stats
 from bot.utils.win_rate import trade_pnl as _trade_pnl
@@ -966,52 +966,15 @@ class PortfolioCommands:
                 return
             live_closed = executor.closed_positions
 
-            # ── Exchange trade history fallback ──
-            # If local closed_trades is empty, try to fetch recent trades
-            # from the exchange to capture trades closed outside the bot
-            if not live_closed:
-                try:
-                    exchange = await executor._get_exchange()
-                    # Fetch recent closed orders across major pairs
-                    import time as _time
-                    since_ms = int((_time.time() - 7 * 86400) * 1000)  # last 7 days
-                    ex_trades = await exchange.fetch_my_trades(symbol=None, since=since_ms, limit=50)
-                    if ex_trades:
-                        from bot.core.live_executor import LivePosition
-                        # Group trades by order to reconstruct PnL
-                        _trade_pnl_map: dict[str, float] = {}
-                        _trade_sym_map: dict[str, str] = {}
-                        for t in ex_trades:
-                            oid = t.get("order", t.get("id", "unknown"))
-                            info = t.get("info", {})
-                            pnl = float(info.get("profit", 0) or 0)
-                            _trade_pnl_map[oid] = _trade_pnl_map.get(oid, 0) + pnl
-                            _trade_sym_map[oid] = t.get("symbol", "UNKNOWN")
-                        # Create synthetic LivePosition entries for display
-                        for oid, pnl in _trade_pnl_map.items():
-                            if pnl == 0:
-                                continue  # skip zero-PnL (likely open leg)
-                            sym = _trade_sym_map.get(oid, "UNKNOWN")
-                            lp = LivePosition(
-                                trade_id=f"EX-{oid}",
-                                symbol=sym,
-                                side="long",
-                                entry_price=0,
-                                qty=0,
-                                cost_usd=0,
-                                leverage=1,
-                                sl_price=None,
-                                tp_price=None,
-                            )
-                            lp.status = "closed"
-                            lp.pnl_usd = pnl
-                            live_closed.append(lp)
-                        if live_closed:
-                            audit(system_log, f"Performance: loaded {len(live_closed)} trades from exchange history",
-                                  action="perf_exchange_fallback", result="OK")
-                except Exception as exc:
-                    audit(system_log, f"Performance exchange fallback error: {exc}",
-                          action="perf_exchange_fallback", result="ERROR")
+            # An "exchange trade history fallback" stood here, for a record
+            # that was empty: it asked `fetch_my_trades(symbol=None)`, which
+            # Bitget's ccxt client refuses before sending anything
+            # (ArgumentsRequired), and then built each row as
+            # `LivePosition(side=..., qty=..., sl_price=...)`, none of which
+            # are fields. It raised every time it ran and audited an ERROR on
+            # every /performance of an empty record. It never loaded a trade,
+            # so deleting it changes no card.
+            record_partial = bool(getattr(executor, "closed_trades_read_failed", False))
 
             # ── Separate adopted/injected vs user-initiated trades ──
             # Exclude: TI-adopted (orphan positions), TI-injected (diagnostic artifacts),
@@ -1025,7 +988,7 @@ class PortfolioCommands:
             # Third copy of the same parenthetical (see /balance and
             # /portfolio). The win rate six lines below was carefully made to
             # pass None through; this total beside it was not.
-            from bot.formatters.realized_totals import realized_totals
+            from bot.formatters.realized_totals import CLOSED_RECORD_UNREAD, realized_totals
             adopted_pnl = realized_totals(adopted_trades)["net"]
 
             total_trades = len(user_trades)
@@ -1144,7 +1107,11 @@ class PortfolioCommands:
                 "best_pair": best_pair,
                 "worst_pair": worst_pair,
                 "adopted_count": len(adopted_trades),
-                "adopted_pnl": round(adopted_pnl, 2),
+                # None when adopted closes exist and none could be priced, the
+                # ordinary case for an orphan whose entry the venue never
+                # stated. `round(None, 2)` raised and the caller got no card.
+                "adopted_pnl": None if adopted_pnl is None else round(adopted_pnl, 2),
+                "record_note": CLOSED_RECORD_UNREAD if record_partial else "",
             }
         else:
             portfolio = self.engine.user_portfolios.get(user_id)

@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 711 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 708 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -12393,6 +12393,40 @@ added before it ran.
 > code it loaded does not.
 (`tests/test_an_unstated_fill_profit_is_not_a_break_even.py`.)
 
+**`/performance` HAD THREE WAYS TO SAY SOMETHING FALSE OR NOTHING, AND ONE OF
+THEM HAD NEVER RUN.** A search for other readers of a fill's `profit` field,
+the sibling sweep of the close-path fix above, found its exchange-history
+fallback. When the caller's closed record was empty, it asked Bitget's ccxt
+client for `fetch_my_trades(symbol=None)`, which is refused before anything is
+sent (`ArgumentsRequired`, driven offline against the pinned ccxt). It then
+built each row as `LivePosition(side=..., qty=..., sl_price=...)`, and none of
+those are fields. So it raised every time it ran, audited an ERROR on every
+`/performance` of an empty record, and never loaded a trade. mypy had been
+recording the four bad arguments as `call-arg` backlog the whole time. It is
+deleted rather than repaired: a repair would publish external fills, with no
+entry or direction, as the bot's record, and that is a product decision, not a
+wiring line. The mypy ratchet fell 559 → 555 and the honesty ratchet 711 → 708,
+and both were re-recorded in the same commit.
+
+**Reading that card for the fallback found the two that fire.** An adopted
+close the venue never priced, which is the ordinary case for an orphan whose
+entry was not stated (the unread-entry chapter), makes
+`realized_totals(adopted)["net"]` `None`. The handler did `round(None, 2)`,
+so the caller got no card at all. The renderer had drawn a `None` there as a
+dash all along. And the card never asked `closed_trades_read_failed`, so a
+record holding rows the executor could not read printed its win rate and
+all-time total as the whole record. The portfolio card beside it already said
+*"Closed-trade records could not be read — figures here are incomplete, not
+zero."*, so that sentence is `CLOSED_RECORD_UNREAD` in `realized_totals.py`
+now and both cards read it. `warroom_bot.py` imports nothing from `bot`, so the
+handler hands the sentence in and the renderer stays a leaf.
+
+Eight mutations, each killed. One was re-aimed before it counted: "the note is
+read after the figures" first *deleted* the line, and it died because the note
+was missing, not because of the order. Moved below the figures, it dies on the
+ordering assertion itself.
+(`tests/test_the_performance_card_survives_what_it_could_not_read.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13684,7 +13718,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1100** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1101** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
