@@ -755,6 +755,9 @@ class RiskEngine:
             with self._lock:
                 self._last_unpriced_close_time = self._now()
                 self._last_close_time = self._now()
+                # Saved, as the loss path saves `_last_loss_time`: a wait kept
+                # in memory only is lifted by a restart inside it.
+                self._save_state()
         except Exception as exc:
             risk_log.debug("note_unpriced_close skipped: %s", exc)
 
@@ -4306,6 +4309,28 @@ class RiskEngine:
         except Exception:
             return
 
+    def _restore_unpriced_close(self, data: dict) -> None:
+        """Restore when this account last closed a position nobody could
+        price, so a restart inside the post-loss wait does not lift it.
+
+        Not one of `_STATE_FIELDS`, for the reason `_restore_governor_clear`
+        gives: an unreadable value there fails the whole state closed (the
+        breaker tripped) over a field whose worst case is one 120s wait. So a
+        value that is not a finite number is ignored (no stamp: no wait), and
+        a time in the future is read as now: a future stamp would refuse the
+        account's entries for as long as the skew, and now is the latest time
+        a close before this restart can have happened, so the account waits
+        one full period and no longer.
+        """
+        try:
+            val = data.get("last_unpriced_close_time")
+            if (not isinstance(val, (int, float)) or isinstance(val, bool)
+                    or not math.isfinite(val)):
+                return
+            self._last_unpriced_close_time = min(float(val), self._now())
+        except Exception:
+            return
+
     def _load_state(self) -> None:
         """Restore safety state from disk.
         Fix 3 (fail-closed persistence):
@@ -4334,6 +4359,7 @@ class RiskEngine:
             self._restore_live_daily(data)
             self._restore_live_peak(data)
             self._restore_governor_clear(data)
+            self._restore_unpriced_close(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
                       action="state_restore", result="LOADED")
@@ -4475,6 +4501,10 @@ class RiskEngine:
             # closes before it no longer count toward the governor, and a
             # restart must not bring the pause back from them.
             "governor_cleared_at": self._governor_cleared_at,
+            # A close nobody could price starts the post-loss wait
+            # (`note_unpriced_close`), and it is a stamp of its own beside
+            # `last_loss_time` because an unpriced close is not a loss.
+            "last_unpriced_close_time": self._last_unpriced_close_time,
             "saved_at": datetime.now(UTC).isoformat(),
         }
 
@@ -4542,6 +4572,7 @@ class RiskEngine:
         self._restore_live_daily(data)
         self._restore_live_peak(data)
         self._restore_governor_clear(data)
+        self._restore_unpriced_close(data)
         if self._circuit_open:
             audit(risk_log, "Circuit breaker state restored from combined state: ACTIVE",
                   action="state_restore", result="LOADED")
