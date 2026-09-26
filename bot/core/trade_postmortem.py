@@ -39,6 +39,7 @@ import re
 from typing import Any, Optional
 
 from bot.core.live_executor import position_size_basis
+from bot.core.position_telemetry import entered_at
 from bot.core.trade_journal import r_multiple_for
 from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
 from bot.utils.leveraged_return import realized_margin_return_pct
@@ -218,7 +219,7 @@ def journal_entry_for(journal: Any, pos: Any, *, user_id: str = "") -> Any:
 
 
 def _hold_hours(pos: Any) -> Optional[float]:
-    o, c = getattr(pos, "opened_at", None), getattr(pos, "closed_at", None)
+    o, c = entered_at(pos), getattr(pos, "closed_at", None)
     try:
         if o is None or c is None:
             return None

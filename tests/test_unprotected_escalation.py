@@ -149,7 +149,7 @@ class TestWiring:
         # The reference point was `src.index("SAFEGUARD 2")` — the grace
         # block's comment banner. Anchored on the grace window's own constant
         # instead, so the ordering claim rests on the code it is about.
-        grace = src.index('_grace_ref = getattr(pos, "filled_at", None)')
+        grace = src.index("_grace_ref = entered_at(pos)")
         assert src.index("unprotected_cleared") < grace, (
             "the unprotected flag is cleared after the grace block, so a "
             "position can carry a stale escalation through it")

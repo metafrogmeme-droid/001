@@ -41,6 +41,7 @@ from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
+from bot.core.position_telemetry import entered_at
 from bot.core.ws_feed import BitgetWSFeed
 from bot.compliance.compliance_engine import ComplianceEngine, Permission, default_demo_profile
 from bot.learning.orchestrator import LearningOrchestrator
@@ -1577,7 +1578,7 @@ class RuneClawEngine:
         try:
             _jpnl = getattr(pos, "pnl_usd", None)
             if _jpnl is not None:
-                _opened = getattr(pos, "opened_at", None)
+                _opened = entered_at(pos)
                 _closed = getattr(pos, "closed_at", None)
                 _hold = ((_closed - _opened).total_seconds() / 3600.0
                          if _opened and _closed else 0.0)
@@ -1755,7 +1756,9 @@ class RuneClawEngine:
                 "pattern": pos.signal_type,
                 "stop_loss": pos.stop_loss,
                 "take_profit": pos.take_profit,
-                "opened_at": pos.opened_at,
+                # When the POSITION opened: a limit entry that rested before
+                # it filled was not held while it rested.
+                "opened_at": entered_at(pos),
             }
 
         def _closed_dict(pos) -> dict:
@@ -8832,7 +8835,7 @@ class RuneClawEngine:
                 if price <= 0 or pos.entry_price <= 0:
                     continue
 
-                hold_h = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600.0
+                hold_h = (datetime.now(UTC) - entered_at(pos)).total_seconds() / 3600.0
                 candles_held = int(hold_h)  # 1H candles
                 # R-multiple denominator is the INITIAL risk taken at entry, not
                 # the live ratcheted stop: a winner whose stop has trailed to

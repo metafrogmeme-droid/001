@@ -2646,7 +2646,9 @@ def _live_position_row(pos) -> dict:
         unprotected = sl_order == "manual"
     sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
-    opened = getattr(pos, "opened_at", None)
+    from bot.core.position_telemetry import entered_at
+    # When the POSITION opened, which for a limit entry is its fill.
+    opened = entered_at(pos)
     return {
         "symbol": getattr(pos, "symbol", ""),
         "pair": str(getattr(pos, "symbol", "")).split("/")[0],

@@ -50,6 +50,7 @@ from bot.core.open_orders import (
     synth_order_from_tracked,
 )
 from bot.core.position_telemetry import (
+    entered_at,
     format_level,
     format_rr,
     live_rr,
@@ -966,8 +967,8 @@ class TradingCommands:
                     pnl_pct = _leveraged_return_pct(
                         p.entry_price, cur, p.direction, lev)
                 hold = ""
-                if getattr(p, "opened_at", None):
-                    mins = int((now - p.opened_at).total_seconds() // 60)
+                if entered_at(p):
+                    mins = int((now - entered_at(p)).total_seconds() // 60)
                     hold = f"{mins}m" if mins < 60 else f"{mins // 60}h {mins % 60}m"
                 sl_pct = (abs(cur - p.stop_loss) / cur * 100) if (cur and cur > 0 and p.stop_loss > 0) else 0
                 tp_pct = (abs(p.take_profit - cur) / cur * 100) if (cur and cur > 0 and p.take_profit > 0) else 0
@@ -1696,7 +1697,7 @@ class TradingCommands:
                     else:
                         pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
                     from datetime import datetime, timezone
-                    hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
+                    hold_h = (datetime.now(timezone.utc) - entered_at(pos)).total_seconds() / 3600
                     # MARGIN AND NOTIONAL, SEPARATELY. `cost_usd if > 0 else
                     # entry * qty` put the margin and a quantity twenty times
                     # larger under one name, and `notional / cost` then read

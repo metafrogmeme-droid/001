@@ -62,7 +62,7 @@ from bot.core.trade_costs import (
     exit_rate_pct,
 )
 from bot.core.time_exits import in_profit_after_fees, thesis_recorded
-from bot.core.position_telemetry import price_on_record
+from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, first_reading,
     flatten_outcome, order_status, pending_cancel_verdict, position_presence,
@@ -437,6 +437,23 @@ _CLOSED_TRADES_FILE = os.path.join(
 _MAX_CLOSED_TRADES = 500  # Cap closed trade history
 
 
+def _iso_or_none(when: Any) -> Optional[str]:
+    """A datetime as ISO text for a saved row, or None."""
+    return when.isoformat() if isinstance(when, datetime) else None
+
+
+def _datetime_or_none(raw: Any) -> Optional[datetime]:
+    """A saved ISO time back as an aware datetime, or None when there is none
+    or it will not read. A bad value costs this one marker, never the row."""
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else when.replace(tzinfo=UTC)
+
+
 def closed_trade_row(pos) -> dict:
     """One closed trade, as it is written to `closed_trades.json`.
 
@@ -462,6 +479,7 @@ def closed_trade_row(pos) -> dict:
         "gross_pnl": pos.gross_pnl,
         "commission": pos.commission,
         "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
+        "filled_at": _iso_or_none(getattr(pos, "filled_at", None)),
         "closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
         "status": "closed",
         "close_reason": pos.close_reason,
@@ -509,7 +527,7 @@ def money(v) -> str:
     return text
 
 
-def close_pnl_line(net_pnl, pnl_pct, pnl_pct_margin, leverage, commission):
+def close_pnl_line(net_pnl, pnl_pct, leverage, commission, *, margin_usd):
     """The money line of a close card, tri-state on every field.
 
     Pure, so the rendering can be driven straight at the unreadable case
@@ -521,19 +539,29 @@ def close_pnl_line(net_pnl, pnl_pct, pnl_pct_margin, leverage, commission):
     percentage taken against a price of zero, which is not break-even but
     -100%, the largest loss the arithmetic can express, printed as if
     somebody had measured it.
+
+    THE PERCENT ON MARGIN IS NET, LIKE THE DOLLARS BESIDE IT. It printed
+    `close_pct`'s margin figure, the price move times the leverage, which
+    carries no fees. A DOT limit entry at 5x read
+    `PnL: -$0.3182 (-0.82% margin / -0.16% notional, 5×) | Fees: $0.10`: net
+    dollars beside a gross percent under one label, where the realized return
+    on margin was about -1.2%. The public post fell back to this text and
+    published the -0.82%. The margin figure is `realized_margin_return_pct`
+    over the margin on record, unread without one; the price move is labelled
+    as the move. ``margin_usd`` is keyword-only because the old fifth
+    positional argument was the commission.
     """
     lev = int(leverage or 1)
     if net_pnl is None:
         pnl_str = UNREAD
     else:
         pnl_str = f"+${net_pnl:.4f}" if net_pnl >= 0 else f"-${abs(net_pnl):.4f}"
-    if pnl_pct is None:
-        pct_str = f"{UNREAD}, {lev}×" if lev > 1 else UNREAD
-    elif lev > 1:
-        pct_str = (f"{pnl_pct_margin:+.2f}% margin / {pnl_pct:+.2f}% notional, "
-                   f"{lev}×")
-    else:
-        pct_str = f"{pnl_pct:+.2f}%"
+    net_margin = realized_margin_return_pct(net_pnl, margin_usd)
+    margin_part = UNREAD if net_margin is None else f"{net_margin:+.2f}%"
+    move_part = UNREAD if pnl_pct is None else f"{pnl_pct:+.2f}%"
+    pct_str = f"{margin_part} on margin after fees / {move_part} move"
+    if lev > 1:
+        pct_str += f", {lev}×"
     fee_str = UNREAD if commission is None else f"${commission:.2f}"
     return pnl_str, pct_str, fee_str
 
@@ -813,6 +841,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
         setattr(pos, "unprotected", True)
     if pdata.get("close_interrupted") is True:
         setattr(pos, "close_interrupted", True)
+    filled = _datetime_or_none(pdata.get("filled_at"))
+    if filled is not None:
+        setattr(pos, "filled_at", filled)
 
 
 def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
@@ -8694,7 +8725,7 @@ class LiveExecutor:
                     # `filled_at` and the gate prefers it. Without this, opened_at
                     # (placement time) was always >90s stale by fill time and the
                     # grace machinery NEVER engaged for limit fills.
-                    _grace_ref = getattr(pos, "filled_at", None) or pos.opened_at
+                    _grace_ref = entered_at(pos)
                     age_secs = (datetime.now(UTC) - _grace_ref).total_seconds() if _grace_ref else 999
                     if age_secs < 90:
                         # ── SAFEGUARD 3: Wait for SL/TP confirmation ──
@@ -9035,7 +9066,7 @@ class LiveExecutor:
                     # strategy_type is the dataclass default, and adopted
                     # positions are never force-closed (see time_exits.py).
                     if CONFIG.time_stop.enabled and thesis_recorded(pos):
-                        hold_hours = (datetime.now(UTC) - pos.opened_at).total_seconds() / 3600
+                        hold_hours = (datetime.now(UTC) - entered_at(pos)).total_seconds() / 3600
                         # Get strategy-type-aware thresholds
                         pos_strategy = getattr(pos, 'strategy_type', 'intraday')
                         close_threshold = CONFIG.strategy_types.get_time_close_hours(pos_strategy)
@@ -9261,7 +9292,9 @@ class LiveExecutor:
                 return pos.sl_order_id, pos.tp_order_id, (
                     f"🚨 URGENT: {pos.symbol} is LIVE with NO stop-loss and the "
                     f"safety close FAILED. Close this position MANUALLY on the "
-                    f"exchange NOW.\n{close_msg or ''}")
+                    f"exchange NOW."
+                    f"{refusal_suffix(self._last_sltp_reason(pos.symbol))}"
+                    f"\n{close_msg or ''}")
             if _outcome == "kept_open":
                 # close_position did not complete the close and kept the
                 # position (or its remainder) tracked; its own line says
@@ -9281,10 +9314,14 @@ class LiveExecutor:
                     f"and the safety close did not complete — close_position kept it "
                     f"tracked; its own line below says what it kept, and "
                     f"{stop_replacement_note(pos.stop_loss, pos.take_profit, pos.direction)}. "
-                    f"Review it on the exchange NOW.\n{close_msg}")
+                    f"Review it on the exchange NOW."
+                    f"{refusal_suffix(self._last_sltp_reason(pos.symbol))}"
+                    f"\n{close_msg}")
             return pos.sl_order_id, pos.tp_order_id, (
                 f"⚠️ ENTRY ABORTED: {pos.symbol} filled but the stop-loss could "
-                f"not be placed — position CLOSED for safety.\n{close_msg}")
+                f"not be placed — position CLOSED for safety."
+                f"{refusal_suffix(self._last_sltp_reason(pos.symbol))}"
+                f"\n{close_msg}")
         return sl_id, tp_id, None
 
     async def _check_pending_limit(self, exchange: "ccxt.Exchange",
@@ -11456,7 +11493,7 @@ class LiveExecutor:
             pnl_pct, pnl_pct_margin = close_pct(
                 fill_price if exit_price_known else None,
                 _entry_px, pos.direction, lev)
-            hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
+            hold_secs = (pos.closed_at - entered_at(pos)).total_seconds() if pos.closed_at and entered_at(pos) else 0
             if hold_secs < 3600:
                 hold_str = f"{hold_secs / 60:.0f}m"
             elif hold_secs < 86400:
@@ -11464,7 +11501,8 @@ class LiveExecutor:
             else:
                 hold_str = f"{hold_secs / 86400:.1f}d"
             pnl_str, pnl_pct_str, fee_str = close_pnl_line(
-                net_pnl, pnl_pct, pnl_pct_margin, lev, commission)
+                net_pnl, pnl_pct, lev, commission,
+                margin_usd=position_size_basis(pos)[0])
 
             # Close verification status
             if close_confirmed:
@@ -11933,6 +11971,7 @@ class LiveExecutor:
                 close_type = (entry.get("closeType") or "").lower()
                 reason = self._close_reason_from_type(
                     pos, close_type, close_price, final_pnl)
+                _reason_inferred = reason is None
                 if reason is None:
                     # closeType carried no mechanism (bare market
                     # close / unclassified). Fall back to price
@@ -11951,6 +11990,11 @@ class LiveExecutor:
                     "pnl": final_pnl,
                     "fees": total_fees,
                     "reason": reason,
+                    # Whether the venue NAMED the mechanism or the reason was
+                    # guessed from where the exit sits against the levels. A
+                    # guess is right for a close the venue made and wrong for
+                    # one the bot made (_handle_already_closed_position).
+                    "reason_inferred": _reason_inferred,
                     "source": ("bitget_position_history" if final_pnl is not None
                                else "bitget_position_history_local_pnl"),
                     "leverage": hist_leverage,
@@ -12068,13 +12112,17 @@ class LiveExecutor:
         return 0.0
 
     def _fill_by_order_id(self, pos: LivePosition, trades: list) -> tuple[Optional[dict], str]:
-        """The fills that ARE the stop or the target order, by id."""
-        if not (pos.sl_order_id or pos.tp_order_id):
+        """The fills that ARE the stop or the target order, by id.
+
+        Only an id ON RECORD matches. A position whose stop was never placed
+        has ``sl_order_id`` None, and ``t.get("order") in (None, tp_id)``
+        matched a fill carrying no order id, which the branch below then read
+        as our stop filling: ``SL HIT (exchange)``, a measured reason, on a
+        position with no stop."""
+        ids = {i for i in (pos.sl_order_id, pos.tp_order_id) if i}
+        if not ids:
             return None, "no stop/target order ids on record"
-        relevant = [
-            t for t in trades
-            if t.get("order") in (pos.sl_order_id, pos.tp_order_id)
-        ]
+        relevant = [t for t in trades if t.get("order") in ids]
         if not relevant:
             return None, "no fill carries the stop/target order id"
         fill_price = float(relevant[-1].get("price", 0) or 0)
@@ -12098,7 +12146,9 @@ class LiveExecutor:
                 "(inferred)", "(exchange, combined TPSL)")
         elif matched_order == pos.tp_order_id:
             reason = "TP HIT (exchange)"
-        elif matched_order == pos.sl_order_id:
+        else:
+            # ``relevant`` holds only fills of an id on record, so a fill
+            # that is not the target's is the stop's.
             reason = stop_exit_label(
                 pos.direction == "LONG", pos.entry_price,
                 pos.stop_loss, fill_price,
@@ -12106,10 +12156,6 @@ class LiveExecutor:
                      and pos.trailing_state.get("trailing_active")),
                 total_profit,
             ) + " (exchange)"
-        else:
-            # Close-side fill not tied to our SL/TP order IDs --
-            # infer from price before conceding unknown.
-            reason = self._infer_close_reason(pos, fill_price)
         stated = total_profit != 0
         return {
             "close_price": fill_price,
@@ -12121,6 +12167,7 @@ class LiveExecutor:
             "pnl": total_profit if stated else None,
             "fees": total_fees,
             "reason": reason,
+            "reason_inferred": False,
             "source": "exchange_fill_sltp" if stated else "exchange_fill_sltp_local_pnl",
             "pnl_is_net": False,
         }, ""
@@ -12168,6 +12215,7 @@ class LiveExecutor:
             # Unrecognized close-side fill -- infer from the
             # fill price before conceding unknown.
             "reason": self._infer_close_reason(pos, fill_price),
+            "reason_inferred": True,
             "source": "exchange_fill_recent" if stated else "exchange_fill_recent_local_pnl",
             # Gross, close-side fee only -- see exchange_fill_sltp note.
             "pnl_is_net": False,
@@ -12209,6 +12257,7 @@ class LiveExecutor:
                             "pnl": None,  # Not available from orders
                             "fees": 0.0,
                             "reason": reason,
+                            "reason_inferred": False,
                             "source": "closed_order",
                         }
             outcomes.append(lookup_unmatched(
@@ -12503,6 +12552,15 @@ class LiveExecutor:
         if close_data and close_data["close_price"] > 0:
             est_exit = close_data["close_price"]
             reason = close_data["reason"]
+            if bot_closed and bot_reason and close_data.get("reason_inferred"):
+                # The venue's record priced the close and did not say what
+                # closed it, so the lookup guessed from where the exit sits.
+                # This call closed it, for a stated reason. A safety flatten
+                # (`sl_placement_failed`) that reached this handler through
+                # the flash close was booked as "CLOSED (unknown)", and parity
+                # then counted the abort as a strategy trade. A mechanism the
+                # venue NAMED still wins.
+                reason = bot_reason
             fill_source = close_data["source"]
             _confirmed = True                   # the venue's own record of it
             exchange_reported_pnl = close_data["pnl"]  # may be None for closed_order source
@@ -12608,10 +12666,10 @@ class LiveExecutor:
         # measured 0% (`... if pos.entry_price else 0`) for an entry it had
         # no price for.
         pnl_pct, pnl_pct_margin = close_pct(est_exit, _entry_px, pos.direction, lev)
-        pnl_str, pnl_pct_str, fee_str = close_pnl_line(
-            net_pnl, pnl_pct, pnl_pct_margin, lev, commission)
         _margin_usd, _notional_usd = position_size_basis(pos)
-        hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
+        pnl_str, pnl_pct_str, fee_str = close_pnl_line(
+            net_pnl, pnl_pct, lev, commission, margin_usd=_margin_usd)
+        hold_secs = (pos.closed_at - entered_at(pos)).total_seconds() if pos.closed_at and entered_at(pos) else 0
         if hold_secs < 3600:
             hold_str = f"{hold_secs / 60:.0f}m"
         elif hold_secs < 86400:
@@ -13204,6 +13262,10 @@ class LiveExecutor:
                     "partial_tp_state": pos.partial_tp_state,
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
+                    # When a limit entry FILLED (opened_at is when it was
+                    # placed). Unsaved, a restart put every hold and time
+                    # exit back on the placement clock.
+                    "filled_at": _iso_or_none(getattr(pos, "filled_at", None)),
                     # THE STRATEGY THAT SIZED THE EXIT RULES. Neither key was
                     # written, and `_load_positions` built every record with
                     # the dataclass defaults — so one restart turned a scalp
@@ -13579,6 +13641,9 @@ class LiveExecutor:
             signal_type=item.get("signal_type") or "momentum_confluence",
         )
         pos.venue_recorded = item.get("venue") or None
+        filled = _datetime_or_none(item.get("filled_at"))
+        if filled is not None:
+            setattr(pos, "filled_at", filled)
         return pos
 
     def _load_closed_trades(self) -> None:
@@ -13954,9 +14019,9 @@ class LiveExecutor:
                                 pos.leverage or 1)
                             _margin_usd, _notional_usd = position_size_basis(pos)
                             pnl_str, _pct_str, _fee_str = close_pnl_line(
-                                net_pnl, pnl_pct, pnl_pct_margin,
-                                pos.leverage or 1, commission)
-                            hold_secs = (pos.closed_at - pos.opened_at).total_seconds() if pos.closed_at and pos.opened_at else 0
+                                net_pnl, pnl_pct, pos.leverage or 1, commission,
+                                margin_usd=_margin_usd)
+                            hold_secs = (pos.closed_at - entered_at(pos)).total_seconds() if pos.closed_at and entered_at(pos) else 0
                             if hold_secs < 3600:
                                 hold_str = f"{hold_secs / 60:.0f}m"
                             elif hold_secs < 86400:

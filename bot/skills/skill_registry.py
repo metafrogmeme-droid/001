@@ -27,6 +27,7 @@ from bot.core.live_executor import (
 from bot.core.live_readiness import mode_label
 from bot.utils.leveraged_return import position_leverage
 from bot.core.position_telemetry import (
+    entered_at,
     format_level,
     format_rr,
     live_rr,
@@ -420,7 +421,7 @@ def status_position_row(pos: Any, mark: Optional[float],
 
     # Hold time
     from datetime import timezone
-    hold_secs = ((now or datetime.now(timezone.utc)) - pos.opened_at).total_seconds()
+    hold_secs = ((now or datetime.now(timezone.utc)) - entered_at(pos)).total_seconds()
     if hold_secs < 3600:
         hold_str = f"{hold_secs / 60:.0f}m"
     elif hold_secs < 86400:

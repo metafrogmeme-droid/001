@@ -12171,6 +12171,117 @@ because the grep read only unindented lines: `risk_engine.py`'s traversal
 fallback, anchored downstream. That and `backup.py`'s prefix constant, which
 is compared and never opened, are baseline rows with their reasons.
 
+**A LIMIT-FILL ABORT CARD NAMED NO CAUSE, BOOKED A GUESS AS THE REASON,
+PRINTED A GROSS PERCENT BESIDE NET DOLLARS, AND TIMED THE HOLD FROM WHEN THE
+ORDER WAS PLACED.** Reported from the live bot on 2026-09-26, private and
+public:
+
+    ⚠️ ENTRY ABORTED: DOT/USDT filled but the stop-loss could not be placed —
+    position CLOSED for safety.
+    CLOSED LONG DOT/USDT (CLOSED (unknown))
+    Entry: $1.2190 → Exit: $1.2170
+    PnL: -$0.3182 (-0.82% margin / -0.16% notional, 5×) | Fees: $0.10 | Hold: 55m
+    Fill source: exchange_fill_recent_local_pnl
+
+Four things on it were wrong, and each had a fix one path over.
+
+**No cause.** The market entry's three abort cards append the venue's refusal
+(`refusal_suffix(self._last_sltp_reason(...))`, the abort-card chapter). The
+limit-fill ladder, `_reattempt_post_fill_sl`, builds the same three cards
+(URGENT, KEPT OPEN, ENTRY ABORTED) and never got the line. So the one card an
+operator reads to decide what to fix gave no cause for a limit entry, the
+entry type that rests longest before the stop is placed. All three carry it
+now, and an unrecorded cause says so.
+
+**"CLOSED (unknown)" over a close the bot made.** The bot flattened the
+position for `sl_placement_failed`. The flatten reached
+`_handle_already_closed_position`, which asks the venue's record for the exit
+price and took the record's REASON too. None of the record's stages named a
+mechanism, so the lookup guessed from where the exit sat against the levels
+and answered "CLOSED (unknown)". The fix that kept a bot close's own reason
+reached the ticker branch only. Parity then counted the abort as a strategy
+trade. Each stage now says whether its reason is a guess (`reason_inferred`):
+a history row with a bare `closeType`, and any close-side fill not tied to our
+orders, are guesses; our stop or target order filling is not. A bot close
+keeps its own reason over a guess. A mechanism the venue named still wins,
+and a close the venue made before the bot's close landed (`bot_closed`
+False) keeps the venue's reading, because the bot's reason is not what closed
+it.
+
+**A gross percent beside net dollars.** `-0.82% margin` was `close_pct`'s
+figure: the price move times the leverage, with no fees. Net of the $0.10 in
+fees, $0.3182 on $26.57 of margin is **-1.20%**. The public post falls back to
+the private text for an abort (`close_card_is_wrong`), so the public channel
+published the -0.82%. `close_pnl_line` prints `realized_margin_return_pct`
+over the margin on record, unread without one, and calls the other figure what
+it is: `-1.20% on margin after fees / -0.16% move, 5×`. `margin_usd` is
+keyword-only, because the old fifth positional argument was the commission,
+and a call written for the old shape must raise rather than read a fee as a
+margin. The three close cards (the bot's own close, the flash close, the
+reconcile) each pass their margin, and each is driven.
+
+**A hold counted from placement.** `opened_at` is when the ORDER was placed,
+and a limit order rests for up to `LIMIT_ORDER_EXPIRE_SEC` (4h by default)
+before it fills. The fill paths had always stamped `filled_at`, and only the
+90-second grace gate read it. The 55m was counted from placement; the ladder
+that closed the position runs at the fill. The same clock ran everything else
+that counts time on a position:
+
+- the executor's time stop and the engine's five time exits, so a scalp limit
+  that rested two hours was time-stopped at the first monitor pass after it
+  filled;
+- the unprotected-age and time alerts;
+- every hold and age on a card (the ACTIVE POSITIONS rows, /positions,
+  /livepositions, the Details card, the three close cards);
+- the time-exit line;
+- the journal's hold, the post-mortem's, the web positions row and the
+  website's trade record.
+
+`filled_at` was never saved either, so a restart put every limit entry back on
+the placement clock. `position_telemetry.entered_at` is the one reading (the
+fill when one is recorded, placement otherwise), every one of those readers
+asks it, and both rows (open and closed) save and restore `filled_at`. A saved
+time that will not read is dropped on its own and never costs the row.
+
+**The class is a ratchet, and its count is exact.** Every read of `opened_at`
+in `bot/` outside `entered_at` is a row in `tests/opened_at_reads_baseline.txt`,
+keyed by function, with a count and a reason: a resting order's age and
+expiry, the paper book (a paper fill is immediate), serialisation, a record's
+identity. Two-way, and the count must match, so a new hold computed inside a
+listed function is not acquitted by the reads already there. Its branches are
+driven on planted source, and the first probe for it missed the reads through
+a local (`_opened = pos_match.opened_at`, then subtracted three hundred lines
+later), which is why the rule counts reads rather than subtractions.
+
+**Two guards pinned the old spelling**, `getattr(pos, "filled_at", None) or
+pos.opened_at`, and broke on the move while the property held: the grace-gate
+pin and the unprotected-escalation ordering pin. The first now drives what
+`entered_at` answers; the second anchors on the new line.
+
+**Thirty-eight mutations, each killed. Two of the first round's thirty-six
+survived, and each was worth more than the mutation.** The already-closed
+card, which is the one the DOT close was built by, dropped its margin and the
+suite stayed green: the assertion read `on margin after fees`, which the card
+prints over `unread` too, so it was satisfied by the label. It asserts the
+figure now. The other was filed as an equivalent mutant:
+`_fill_by_order_id`'s `else`, which read a fill "not tied to our order ids"
+as a guess, looked unreachable because the fills it reads are filtered to the
+stop and target ids. Writing down why it was unreachable is what showed it was
+not. The filter was `t.get("order") in (pos.sl_order_id, pos.tp_order_id)`,
+and a position whose stop was never placed has `sl_order_id` None, so a fill
+carrying no order id matched it. Driven: `SL HIT (exchange)`, a measured
+reason, on a position with no stop (the abort case), and a measured reason
+overrides the bot's own. Only an id on record matches now. The `else` is
+deleted, which retires that mutation, and three more were driven against the
+new match.
+
+**Filed, not changed.** The public abort post still carries the private card's
+`Fill source:` line, which is the executor's vocabulary rather than a reader's.
+Whether an execution abort should be published on the public channel at all
+is a product decision.
+(`tests/test_an_abort_card_says_why_and_what_it_cost.py`,
+`tests/test_a_limit_entry_is_timed_from_its_fill.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13462,7 +13573,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1095** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1097** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

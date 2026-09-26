@@ -2479,7 +2479,8 @@ class ProactiveMonitor:
                 for pos in (getattr(ex, "open_positions", []) or []):
                     if getattr(pos, "status", "") != "open":
                         continue
-                    opened_at = getattr(pos, "opened_at", None)
+                    from bot.core.position_telemetry import entered_at
+                    opened_at = entered_at(pos)
                     age = (now - opened_at).total_seconds() if opened_at else 1e9
                     has_sl = bool(getattr(pos, "sl_order_id", None))
                     marked = bool(getattr(pos, "unprotected", False))
@@ -3800,7 +3801,8 @@ class ProactiveMonitor:
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
             for owner, pos in all_positions:
-                opened_at = getattr(pos, 'opened_at', None)
+                from bot.core.position_telemetry import entered_at
+                opened_at = entered_at(pos)
                 if not opened_at:
                     continue
 
