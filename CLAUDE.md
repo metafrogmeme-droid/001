@@ -12010,6 +12010,13 @@ dies too, because the pass right after the invalidation must visit the
 rebuilt book.
 (`tests/test_an_invalidated_executor_is_rebuilt_before_the_monitor_runs.py`.)
 
+**And the next slice's neighbouring suites caught this one before the full
+gate did.** `test_chat_prompt_describes_only_the_callers_book.py` drives
+`invalidate_user_executor` with a hand-written `SimpleNamespace` in place of
+the engine, which had no rebind queue, so it raised. None of this slice's
+runs included that file. The stand-in carries the queue now, and the test
+asserts the user is queued and another user is not.
+
 **THE PER-PERSON POSITION CAP COUNTED A PRACTICE BOOK NOBODY HAD TRADED.**
 `docs/MULTI_VENUE_RISK_SPLIT.md` records the decision: caps per PERSON,
 because "two venues each with their own max 5 is ten positions against one
@@ -12110,6 +12117,59 @@ caller's would have agreed with the right answer. The operator's book holds
 three there now. Removing the long line took one E501 off the ruff ratchet,
 which was re-recorded in the same commit.
 (`tests/test_the_critique_counts_the_book_the_trade_opens_on.py`.)
+
+**THE PRACTICE BOOKS WERE RESTORED FROM THE WORKING DIRECTORY, AND THE
+OPERATOR'S OWN PAPER BOOK WAS RESTORED AS A USER.** `MultiUserPortfolio`
+restores every user's practice book at boot by globbing
+`data/portfolio_*.json`. The glob was relative, so it was resolved against the
+process's working directory, while every book is written through `state_path`
+to the repo root. That is the 2026-08-19 DB_PATH incident `bot/utils/paths.py`
+records, in a module the anchoring did not reach. Driven: a practice book
+holding a BTC position at $9,500, a restart from another directory, and the
+restore found nobody. The next practice fill created a fresh $10,000 book and
+saved it over the old one, with no conflict file, and the backup held the same
+replacement. The documented deploy paths set the working directory (the unit
+files and the launcher both do), so this was latent there, as DB_PATH was.
+
+The same glob matched the operator's paper book. `PORTFOLIO_STATE_FILE`
+defaults to `data/portfolio_state.json`, which `portfolio_*.json` matches.
+Driven: it was restored as a practice user named `state`, holding the
+operator's position. The combined state file (C2-34) replaced that file and
+the migration does not delete it, so it survives on any box that ran before
+the migration. There the stop
+sweep closed its positions and rewrote the operator's file (driven: its
+revision went from 1 to 2). Read, not driven: the dashboard pusher, when one
+is configured, publishes every restored book as a trader, and every combined
+snapshot sums it.
+
+**One reading of where the books live, and the operator's file is skipped by
+PATH.** `_book_dir` anchors `DATA_DIR`, and the restore and `get()` both read
+it. The operator's book is recognised by its resolved configured path, not by
+its name, and both sides are resolved. `deploy.sh` symlinks `data/` to a
+persistent store, so the glob hands back a path through the link while the
+configured file resolves to the store. Comparing either side unresolved would
+read the operator's book as somebody else's again, on exactly the deployed box.
+
+**Eight mutations, each killed on the first round.** Planning the round found
+two gaps before it ran. `get()` and the restore reading one directory is only
+visible when `DATA_DIR` moves, and the symlinked `data/` is the only input
+that separates a resolved comparison from an unresolved one. Both are tests.
+The rest of the tree's relative `data/` constants were checked; every other
+one already goes through `state_path`.
+(`tests/test_the_practice_books_restore_from_the_repo_root.py`.)
+
+**The guard written for this exact defect could not see it, and its baseline
+excused the other half.** `test_durable_paths_are_not_cwd_dependent.py`
+flags every `"data/..."` literal, and needs the slash. `DATA_DIR = "data"`
+has none, so the restore glob built from it was invisible, while a baseline
+row excused the WRITE side (`"data/portfolio_{user_id}.json"`, handed to a
+constructor that anchors it). The full gate found the row stale once the fix
+removed that literal. A bare `"data"` is mostly a JSON key, so the new rule
+is one shape rather than every occurrence: a name bound to the directory. On
+its first run it found a third site the grep that scoped this slice missed,
+because the grep read only unindented lines: `risk_engine.py`'s traversal
+fallback, anchored downstream. That and `backup.py`'s prefix constant, which
+is compared and never opened, are baseline rows with their reasons.
 
 ## Public-surface rules
 
@@ -13402,7 +13462,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1094** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1095** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

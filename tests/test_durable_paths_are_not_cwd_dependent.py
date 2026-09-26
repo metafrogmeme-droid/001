@@ -284,6 +284,17 @@ _LITERAL = re.compile(r'["\'](?:data|logs)/[^"\']*["\']')
 _ANCHORED = re.compile(
     r'(?:env_)?state_path\(\s*(?:["\'][A-Z_]+["\']\s*,\s*)?[frbFRB]*["\'](?:data|logs)/[^"\']*["\']')
 
+#: A bare ``"data"`` bound to a module-level name. `_LITERAL` needs the slash,
+#: so a directory constant joined into a path later was invisible to it:
+#: `multi_portfolio`'s ``DATA_DIR = "data"`` fed a practice-book restore glob
+#: resolved against the working directory while the baseline excused its
+#: WRITE side (a ``"data/portfolio_..."`` literal handed to an anchoring
+#: constructor). A bare ``"data"`` anywhere is mostly a JSON key, so this is
+#: the one shape rather than every occurrence: a name bound to the directory.
+_DIR_CONSTANT = re.compile(
+    r'^[ \t]*[A-Za-z_]\w*[ \t]*(?::[ \t]*\w+[ \t]*)?=[ \t]*["\'](?:data|logs)["\']',
+    re.M)
+
 BASELINE = ROOT / "tests" / "durable_path_baseline.txt"
 
 
@@ -300,15 +311,41 @@ def _baseline() -> set[tuple[str, str]]:
     return out
 
 
-def _found() -> set[tuple[str, str]]:
+def _scan(src: str) -> set[str]:
+    """Every durable-path finding in one module's source."""
     from tests.source_scan import code_only
 
+    code = _ANCHORED.sub("", code_only(src))
+    return ({m.group(0) for m in _LITERAL.finditer(code)}
+            | {m.group(0).strip() for m in _DIR_CONSTANT.finditer(code)})
+
+
+def _found() -> set[tuple[str, str]]:
     found = set()
     for path in sorted((ROOT / "bot").rglob("*.py")):
-        src = _ANCHORED.sub("", code_only(path.read_text(encoding="utf-8")))
-        for m in _LITERAL.finditer(src):
-            found.add((str(path.relative_to(ROOT)), m.group(0)))
+        for lit in _scan(path.read_text(encoding="utf-8")):
+            found.add((str(path.relative_to(ROOT)), lit))
     return found
+
+
+@pytest.mark.parametrize("src, finding", [
+    ('DATA_DIR = "data"\n', 'DATA_DIR = "data"'),
+    ("LOG_DIR: str = 'logs'\n", "LOG_DIR: str = 'logs'"),
+    ('    _ROOT = "data"\n', '_ROOT = "data"'),
+])
+def test_a_directory_constant_is_a_finding(src, finding):
+    assert finding in _scan(src)
+
+
+@pytest.mark.parametrize("src", [
+    'payload = {"data": rows}\n',
+    'rows = resp.get("data")\n',
+    'DATA_DIR = state_path("data")\n',
+    'kind = "database"\n',
+    'if head == "data":\n    pass\n',
+])
+def test_a_json_key_or_an_anchored_directory_is_not(src):
+    assert not _scan(src)
 
 
 def test_no_module_resolves_durable_state_against_the_cwd():
