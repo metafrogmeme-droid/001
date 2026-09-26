@@ -6127,6 +6127,111 @@ away and no order went out. Eleventh time the full gate has refused a slice on
 a test outside its own suites.
 (`tests/test_a_stage_that_closed_nothing_did_not_fire.py`.)
 
+**"NO QUALIFYING SETUPS IN THE LAST SCAN — THE GATE IS DOING ITS JOB" IS WHAT AN
+EMPTY CYCLE PUSH SAYS.** The dashboard's setups panel had one empty state and
+one sentence for it, and that sentence was false three ways. The third is the
+expensive one.
+
+**ONE: IT FIRED WHEN NO SCAN HAD RUN.** The autonomous cycle calls
+`_push_scan_summary_to_website`, which calls `_build_scan_payload([], engine)`
+for the circuit-breaker block and the regime — its own docstring says the rest
+"would stay placeholder". Driven, that payload carried `entry_cards: []` and
+`symbols: {}`, and `app/routes/sync.js` replaces the stored scan WHOLESALE, so
+the last manual `/scan`'s cards were wiped within a cycle and the panel reported
+the absence as a risk control working. The deep-scan block beside it has been
+carried forward against exactly this since it was written; the entry cards were
+the same sentence one block over, and nobody had said it.
+
+**TWO: THE GATE WAS NEVER CONSULTED.** `entry_cards` is filtered by
+`r["score"] >= SETUP_SCORE_FLOOR` — the SCANNER's own score — and the risk gate
+runs at CONFIRM time, which the panel's own footer already says
+("Confirmations run through its risk gate"). So the panel named a control that
+had not run, two lines above a true sentence about where that control does run.
+That is the `/vault` hint shape pointed at a PANEL: a card naming a control that
+did nothing, which the next reader trusts because the footer beside it is right.
+
+**THREE: A FAILED READ RENDERED AS THE GATE WORKING.** The card loop skips a
+candidate whose ATR it could not read — and before `record_atr` kept significant
+digits, **every sub-cent asset recorded `0.0`**, so a universe of cheap assets
+produced zero cards and the panel called that discipline. It skips a candidate
+whose direction it could not read too, the same shape one field over. Those two
+are counted APART, because their remedies differ (a venue that priced nothing, a
+move nobody could read) and folding them sends a reader to the wrong one — the
+scan partial's own rule about errors and a time budget.
+
+**OMITTED, NOT SENT EMPTY, and that distinction is the whole fix.** An empty
+list is a scan that found nothing, which is a READING; an absent block is a push
+that scanned nothing. `scanned=False` omits both blocks, so the ingest can carry
+the last real scan's forward — with the age of the SCAN that produced them, not
+of the push that carried them. There is deliberately **no `scanned` field on the
+wire**: a field this build always sets to one value is a field nobody reads, and
+the PRESENCE of the reading is the fact.
+
+**NO TTL IN THE INGEST, deliberately.** The panel already bounds how old a scan
+may be before it says so, and it reads that bound from the page's own "Last
+scan" row rather than declaring a second one — a second threshold in the ingest
+would be a second answer about when a setup is out of date. What the route
+preserves is the FACT and its AGE; the panel decides what to say.
+
+**THE READING TRAVELS WITH THE CARDS IT DESCRIBES.** `entry_cards_read` carries
+what was scanned, what cleared the floor, what was shown, and the two read
+failures — and it is omitted on a summary push for the same reason the cards
+are. Sent there it would REPLACE the last real scan's reading while the ingest
+carried that scan's cards forward: the counts and the list describing two
+different scans, on one payload. The counts CLOSE over what was considered
+(`cards + no_atr + no_direction == considered`), driven rather than asserted of
+the code, because a taxonomy that does not close is the
+`analysed = attempts - gave_up` shape one loop over.
+
+**SIX FACTS, AND NOT ONE OF THEM NAMES THE GATE.**
+`app/public/js/entry-cards-model.js` answers `cards`, `no_scan`,
+`nothing_read`, `below_floor`, `unpriced` and `unknown`. `unknown` is the
+deploy window made honest: an older bot always sent `entry_cards` and never sent
+why, so its empty list cannot be told from a scan that found nothing, and
+`app/` and `bot/` are different deploy targets — the panel says exactly that
+rather than guessing. The renderer spells no key and picks no colour: an absence
+is muted, a stale scan is a `warn`, and the floor and the freshness bound are
+read rather than restated.
+
+**THE PANEL'S BODY IS A SEAM BECAUSE THE DEFECT WAS INVISIBLE FROM ITS SOURCE.**
+`cards = scan?.entry_cards || []` reads an omitted block, an empty list and a
+wiped list identically, so no reading of that line can tell them apart — and the
+body was a `renderPanel` callback inside a 6k-line function, which is a renderer
+no test can run (#999's card exactly). `ecPanelHtml` is module-level and marked,
+and its first drive bought two assertions nothing else in the tree could make: a
+duration reaching the card in raw milliseconds, and a card symbol reaching the
+page as markup.
+
+**Thirty-six mutations, each killed — and the one that survived the first round
+had no product input that could tell it from the fix.** `hasOwnProperty` against
+truthiness changed no verdict anywhere, because `[]` and `{}` are both truthy in
+JS: every block the producer sends is truthy and every block it omits is
+`undefined`. The input that separates them is an explicit `null`, which is a
+STATEMENT rather than an absence — carrying the last scan's cards over it would
+publish setups the newest push had denied — so that is a test now and the
+mutation dies. One was REFUSED rather than counted: the footer anchor's
+indentation had moved when the block was dedented into a module-level function,
+so it matched zero times, and a driver that took that for a kill would have
+reported coverage of the line it never edited.
+
+> **And `code_only` cost two guards their own parse, in the direction this file
+> does not warn about.** `_build_scan_payload`'s body OPENS with a docstring, so
+> the stripped copy is a `def` with an empty body and no longer parses; and
+> `inspect.cleandoc` computes its margin from lines 2+, so on a function whose
+> signature WRAPS it dedents the body out from under the `def` as well. An AST
+> walk cannot see a comment in any case, so both reads take raw source and
+> `textwrap.dedent`. "Strip comments first" is this file's own advice and here it
+> was the wrong instrument twice.
+
+> **And my own fixture could not produce the state it named.** A destructuring
+> default fires for `undefined`, so `renderer({ model: undefined })` handed the
+> test the REAL model back and the "a missing model throws" assertion was
+> measuring nothing. `null` is the value that skips a default.
+(`tests/test_an_empty_cycle_push_is_not_a_scan_that_found_nothing.py`,
+`app/test/entry_cards_model.test.js`,
+`app/test/entry_cards_panel_makes_no_gate_claim.test.js`,
+`app/test/scan_ingest_carries_the_cards_forward.test.js`.)
+
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
 is documented as "the engine's single shared exchange read"; it stored the
@@ -15156,9 +15261,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **446 of 1128** reach for source text through `source_scan`, `code_only`
+Driven, **447 of 1129** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 446 is a FLOOR and the honest shape is
+source scan that rule does not see, so 447 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

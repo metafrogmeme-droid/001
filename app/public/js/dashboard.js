@@ -3003,6 +3003,74 @@
     return out;
   }
 
+  // ── the entry cards: renderer start ─────────────────────────
+  // The entry-cards panel's words, the same shape: every key the model can
+  // emit is resolved here and the renderer spells none of its own. `{ago}` is
+  // a DURATION in ms from the model, rendered in this page's own words.
+  function ecWords() {
+    const W = (window.EntryCardsModel && window.EntryCardsModel.W) || {};
+    const out = {};
+    for (const k of Object.keys(W)) out[W[k].key] = T(W[k].key, W[k].en);
+    return out;
+  }
+
+  function ecAgo(ms) {
+    const s = Math.floor(Math.max(0, +ms || 0) / 1000);
+    return s < 5400 ? Math.max(1, Math.floor(s / 60)) + 'm'
+      : s < 172800 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
+  }
+
+  function ecSay(WORDS, n) {
+    if (!n || !n.w) return '';
+    let s = String((WORDS && WORDS[n.w.key]) || n.w.en);
+    const p = n.params || {};
+    for (const k of Object.keys(p)) {
+      let v = p[k];
+      if (k === 'ago') v = ecAgo(v);
+      else if (k === 'at') v = new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      s = s.split('{' + k + '}').join(String(v));
+    }
+    return s;
+  }
+
+  // WHY there are no setups comes from the producer (`entry_cards_read`),
+  // never from this panel. Its old empty state read "No qualifying setups in
+  // the last scan — the gate is doing its job", which was false three ways:
+  // it fired when the bot's cycle SUMMARY push (no scan at all) wiped the
+  // last /scan's cards; the filter is the SCANNER's score floor, not the risk
+  // gate, which runs at confirm time as this panel's own footer says; and a
+  // candidate the loop skipped for an unreadable ATR is a FAILED READ, which
+  // before `record_atr` kept significant digits was every sub-cent asset.
+  //
+  // Module-level and marked so it can be DRIVEN: a renderer reachable only
+  // through a renderPanel callback inside a 6k-line function is a renderer
+  // no test can run, which is #999's card exactly.
+  function ecPanelHtml(scan, now) {
+    const EC = window.EntryCardsModel;
+    // A missing model is a script that did not load, not an absence of
+    // setups: the panel must not fall back to a sentence about the market.
+    if (!EC) throw new Error('entry-cards-model.js did not load');
+    const WORDS = ecWords();
+    if (EC.state(scan) !== 'cards') {
+      return `<p class="muted">${esc(ecSay(WORDS, EC.why(scan)))}</p>`;
+    }
+    const cards = EC.cardList(scan);
+    const notes = EC.note(scan, now);
+    return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
+      <thead><tr><th>Setup</th><th class="r">Entry</th><th class="r">Stop / TP1</th><th class="r">R:R</th><th>Trigger</th></tr></thead>
+      <tbody>${cards.slice(0, 8).map(c => `
+        <tr>
+          <td data-label="Setup">${dirChip(c.direction)} <b>${esc(c.symbol)}</b></td>
+          <td data-label="Entry" class="r num">${fmtPrice(parseFloat(c.entry))}</td>
+          <td data-label="Stop / TP1" class="r num muted">${fmtPrice(parseFloat(c.stop_loss))} / ${fmtPrice(parseFloat(c.tp1))}</td>
+          <td data-label="R:R" class="r num">${esc(c.rr)}</td>
+          <td data-label="Trigger" class="muted small">${esc(c.trigger || '')}</td>
+        </tr>`).join('')}</tbody></table></div>
+      ${notes.map(n => `<p class="${n.stale ? 'warn' : 'muted'} small mt-2">${esc(ecSay(WORDS, n))}</p>`).join('')}
+      <p class="muted small mt-2">${esc(WORDS['dd.ec_footer'] || '')}</p>`;
+  }
+  // ── the entry cards: renderer end ───────────────────────────
+
   /**
    * Paint the chart read into `id`. ALWAYS writes: a failed read must clear
    * the previous symbol's verdict rather than leave it standing beside the
@@ -5259,21 +5327,11 @@
     }
     // end analyzeBudgetCopy
 
-    renderPanel(C('ecards'), async () => {
-      const cards = scan?.entry_cards || [];
-      if (!cards.length) return null;
-      return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
-        <thead><tr><th>Setup</th><th class="r">Entry</th><th class="r">Stop / TP1</th><th class="r">R:R</th><th>Trigger</th></tr></thead>
-        <tbody>${cards.slice(0, 8).map(c => `
-          <tr>
-            <td data-label="Setup">${dirChip(c.direction)} <b>${esc(c.symbol)}</b></td>
-            <td data-label="Entry" class="r num">${fmtPrice(parseFloat(c.entry))}</td>
-            <td data-label="Stop / TP1" class="r num muted">${fmtPrice(parseFloat(c.stop_loss))} / ${fmtPrice(parseFloat(c.tp1))}</td>
-            <td data-label="R:R" class="r num">${esc(c.rr)}</td>
-            <td data-label="Trigger" class="muted small">${esc(c.trigger || '')}</td>
-          </tr>`).join('')}</tbody></table></div>
-        <p class="muted small mt-2">The engine's own candidates — not personal advice. Confirmations run through its risk gate.</p>`;
-    }, { empty: { icon: 'icon-target', text: 'No qualifying setups in the last scan — the gate is doing its job.' } });
+    // ── entry cards ─────────────────────────────────────────
+    // The whole body is `ecPanelHtml`, a module-level seam. There is
+    // deliberately no `empty:` option: "there are no setups" is a SENTENCE
+    // the producer states, not an icon this panel picks.
+    renderPanel(C('ecards'), async () => ecPanelHtml(scan, Date.now()));
 
     renderPanel(C('eshadow'), async () => {
       const sb = scan?.features?.shadow_book;

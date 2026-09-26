@@ -2287,7 +2287,12 @@ class RuneClawEngine:
         from bot.skills.scan_skill import _build_scan_payload
         from bot.utils.website_sync import sync_scan_in_background
 
-        payload = _build_scan_payload([], self)
+        # `scanned=False`: this push ran NO scan, so the entry cards and the
+        # per-symbol tags are omitted rather than sent empty. Sent empty, the
+        # ingest's wholesale replace wiped the last manual /scan's cards within
+        # a cycle and the panel read the absence as the risk gate screening
+        # setups out -- a claim about a control this push never consulted.
+        payload = _build_scan_payload([], self, scanned=False)
         btc_sig = next(
             (s for s in (signals or []) if normalize_symbol(getattr(s, "symbol", "")).startswith("BTC")),
             None,

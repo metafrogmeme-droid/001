@@ -475,8 +475,19 @@ def open_positions_rule(count: Optional[int], cap: Optional[float]) -> dict:
     return {"label": f"Open Positions: {count}/{cap_txt}", "active": active}
 
 
+#: A result scores at least this to be a setup worth a card. It is the
+#: SCANNER's own score, and nothing about the risk gate: that runs at confirm
+#: time, which the card's own footer says.
+SETUP_SCORE_FLOOR = 0.4
+
+#: How many of the setups above that floor get a card. A bounded list printed
+#: with no total reads as the total, so the count travels with it.
+ENTRY_CARDS_SHOWN = 8
+
+
 def _build_scan_payload(results: list[dict], engine=None,
-                        deepscan_hits: "list[dict] | None" = None) -> dict:
+                        deepscan_hits: "list[dict] | None" = None,
+                        *, scanned: bool = True) -> dict:
     """Convert raw scan results into the website dashboard schema and push.
 
     Transforms _scan_symbol() dicts into the format expected by the War Room:
@@ -485,6 +496,26 @@ def _build_scan_payload(results: list[dict], engine=None,
     ``deepscan_hits`` (only passed by the /deepscan path) adds a ``deepscan``
     block carrying the full per-symbol chart+candle pattern breakdown so the
     website can render the same card as Telegram. Absent for regular scans.
+
+    ``scanned=False`` IS THE AUTONOMOUS CYCLE'S SUMMARY PUSH, which calls this
+    with no results at all to refresh the circuit-breaker block and the regime
+    (`_push_scan_summary_to_website`, whose own docstring says the rest would
+    "stay placeholder"). It then sent ``entry_cards: []`` and ``symbols: {}``,
+    and the ingest replaces the stored scan wholesale -- so the last manual
+    `/scan`'s cards were wiped within a cycle and the panel printed "No
+    qualifying setups in the last scan -- the gate is doing its job": a claim
+    about the RISK GATE, assembled from a payload that ran no scan. Those two
+    blocks are OMITTED here rather than sent empty, because an empty list is a
+    scan that found nothing and this is not a scan.
+
+    ``entry_cards_read`` is why there are no cards, which the panel had to
+    guess. It rides on every payload: the count that was scanned, the count
+    above `SETUP_SCORE_FLOOR`, the count shown, and the two READ FAILURES the
+    loop below skips a candidate for -- an ATR it could not read and a
+    direction it could not read. A candidate dropped for an unreadable ATR is
+    a failed read, not a gate: before `record_atr` kept significant digits,
+    every sub-cent asset recorded `0.0` and was skipped here, and the panel
+    reported that as a risk control working.
     """
     from bot.config import CONFIG
 
@@ -759,14 +790,16 @@ def _build_scan_payload(results: list[dict], engine=None,
 
     # ── Entry cards (top setups only) ──
     entry_cards = []
-    setups = [r for r in results if r["score"] >= 0.4]
-    for r in setups[:8]:
+    setups = [r for r in results if r["score"] >= SETUP_SCORE_FLOOR]
+    no_atr = no_direction = 0
+    for r in setups[:ENTRY_CARDS_SHOWN]:
         price = r["price"]
         # No card off a volatility nobody measured. A 2%-of-price "ATR" stood
         # in for a missing one, so /pro_scan's rows (which measure no ATR)
         # were sealed as calls with levels no scan computed.
         atr = _num(r.get("atr"))
         if atr is None or atr <= 0:
+            no_atr += 1
             continue
 
         # The ENTRY must be the same number Telegram publishes. The scan
@@ -782,6 +815,7 @@ def _build_scan_payload(results: list[dict], engine=None,
         # card, it is a trade plan with the stop on the wrong side. There is
         # no honest card to build without a direction, so no card is built.
         if r["dir"] not in ("LONG", "SHORT"):
+            no_direction += 1
             continue
         if r["dir"] == "LONG":
             entry = round(price - atr * 0.3, 8)
@@ -871,8 +905,32 @@ def _build_scan_payload(results: list[dict], engine=None,
             "strategy_mode": _current_strategy_mode(),
             "backstop": _bs,
         },
-        "symbols": symbols,
-        "entry_cards": entry_cards,
+        # OMITTED, NOT SENT EMPTY, when no scan ran. An empty list is a scan
+        # that found nothing; an absent block is a push that scanned nothing,
+        # and the ingest carries the last real scan's blocks forward rather
+        # than letting a summary push wipe them.
+        **({"symbols": symbols, "entry_cards": entry_cards} if scanned else {}),
+        # WHY there are no cards, so no reader has to guess. It describes THE
+        # SCAN THAT PRODUCED THE CARDS BESIDE IT, so it travels with them: a
+        # summary push emits none, and the ingest carries the last real scan's
+        # three blocks forward together. Its own reading here would have
+        # replaced the real one while the cards were carried forward, which is
+        # the counts and the list describing two different scans.
+        #
+        # Its PRESENCE is the fact that a scan ran; there is no `scanned` field,
+        # because a field this build always sets to one value is a field nobody
+        # reads. The counts are the scanner's own floor and the two READ
+        # FAILURES the card loop skips a candidate for.
+        **({"entry_cards_read": {
+            "results": len(results),
+            "above_floor": len(setups),
+            "considered": min(len(setups), ENTRY_CARDS_SHOWN),
+            "cards": len(entry_cards),
+            "no_atr": no_atr,
+            "no_direction": no_direction,
+            "floor": SETUP_SCORE_FLOOR,
+            "shown_max": ENTRY_CARDS_SHOWN,
+        }} if scanned else {}),
         "key_call": key_call,
         "features": _build_features_block(engine),
         "timestamp": now.strftime("%Y-%m-%d %H:%M UTC"),

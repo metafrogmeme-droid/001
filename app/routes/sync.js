@@ -949,9 +949,37 @@ router.post('/scan', async (req, res) => {
       const age = Date.now() - new Date(deepscan.received_at).getTime();
       if (!(age >= 0 && age < DEEPSCAN_TTL_MS)) deepscan = null;
     }
+    // THE SAME SENTENCE APPLIES WORD FOR WORD TO THE ENTRY CARDS. The bot's
+    // autonomous cycle pushes a SUMMARY every cycle -- circuit breaker and
+    // regime, no scan -- and the wholesale replace below wiped the last manual
+    // /scan's cards within a cycle. The panel then printed "No qualifying
+    // setups in the last scan", a claim about the risk gate assembled from a
+    // payload that ran no scan. The producer now OMITS the two blocks when it
+    // scanned nothing (an empty list is a scan that found nothing, which is a
+    // different fact), so they are carried forward here with the time of the
+    // scan that produced them.
+    //
+    // NO TTL, deliberately: the panel already has a freshness bound for a
+    // scan, and a second one here would be a second answer about when a card
+    // is old. What is preserved is the FACT and its AGE; the panel decides
+    // what to say and says it.
+    const scanBlocks = {};
+    for (const key of ['entry_cards', 'symbols', 'entry_cards_read']) {
+      if (Object.prototype.hasOwnProperty.call(incoming, key)) continue;
+      if (latestScan && Object.prototype.hasOwnProperty.call(latestScan, key)) {
+        scanBlocks[key] = latestScan[key];
+      }
+    }
+    // The age of the SCAN those blocks came from, not of this push. Carried
+    // forward with them, and stamped fresh whenever a real scan supplies them.
+    const scanAt = Object.prototype.hasOwnProperty.call(incoming, 'entry_cards')
+      ? new Date().toISOString()
+      : (latestScan && latestScan.scan_at) || null;
     latestScan = {
       ...incoming,
+      ...scanBlocks,
       ...(deepscan ? { deepscan } : {}),
+      ...(scanAt ? { scan_at: scanAt } : {}),
       received_at: new Date().toISOString(),
     };
     // Persist to DB so it survives cold starts

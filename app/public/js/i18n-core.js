@@ -856,6 +856,17 @@
     "dd.cr_swings_from": { en: "read from {n} swing(s) each side" },
     "dd.cr_session_vw": { en: "session VWAP" },
     "dd.cr_window_vw": { en: "full-window VWAP — this session traded no volume" },
+    "dd.ec_no_scan": { en: "No scan on record yet — the engine pushes its cycle summary without one." },
+    "dd.ec_nothing_read": { en: "The last scan read no symbols, so it found no candidates." },
+    "dd.ec_below_floor": { en: "The last scan read {results} symbol(s) and none scored above {floor} — that is the scanner’s own floor, not the risk gate." },
+    "dd.ec_unpriced": { en: "{above} candidate(s) cleared the scanner’s floor and none could be priced: {noAtr} with no readable volatility, {noDir} with no readable direction. That is a failed read, not a gate." },
+    "dd.ec_unknown": { en: "Why there are no setups is not on record — this bot build does not report it." },
+    "dd.ec_from_scan": { en: "From the scan at {at}." },
+    "dd.ec_old": { en: "From the scan at {at}, {ago} ago — prices have moved since." },
+    "dd.ec_undated": { en: "The scan these came from is not dated." },
+    "dd.ec_partial": { en: "Showing {cards} of {above} candidate(s) above the floor." },
+    "dd.ec_dropped": { en: "{n} could not be priced and is not shown." },
+    "dd.ec_footer": { en: "The engine’s own candidates — not personal advice. Confirmations run through its risk gate." },
     "dd.et_k_agent_s": { en: "the agent’s record" },
     "dd.et_k_agent_l": { en: "Deepest fall from peak on the agent’s published track record — not your account." },
     "dd.et_k_closed_s": { en: "your closed trades" },
@@ -2139,7 +2150,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"82ec03b4","zh":"4896382f","pt":"72404dcd","fr":"77a2d59c","de":"cfa254c0","nl":"61126125","ja":"8b8e8de7","ko":"80b6c656","ru":"9004ce04","tr":"c6b440c9","it":"ea2c392c","hi":"f2fabd98","ar":"ba9eb01d"};
+  var CHUNKS = {"es":"d2a455cf","zh":"1f9b5a88","pt":"c135c2ae","fr":"a90021ed","de":"63a3edaf","nl":"89b09fed","ja":"7d5957ea","ko":"286930d8","ru":"a80ca489","tr":"2c7c41ab","it":"0246686b","hi":"3389ec26","ar":"665eddcf"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
