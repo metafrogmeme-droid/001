@@ -9139,7 +9139,9 @@ class RuneClawEngine:
         # idea.confidence in that case — manual tickets are not auto-confirmed
         # anyway (auto_confirm_refusal blocks them), so the value is unused.
         _raw_val = getattr(idea, "blended_confidence_raw", None)
-        raw = float((_raw_val if _raw_val is not None else getattr(idea, "confidence", 0.0)) or 0.0)
+        _valid_raw = isinstance(_raw_val, float) and _raw_val > 0
+        _conf = getattr(idea, "confidence", None)
+        raw = _raw_val if _valid_raw else (float(_conf) if _conf is not None else 0.0)
         try:
             if not getattr(CONFIG, "auto_confirm_use_calibrated", False):
                 return raw
