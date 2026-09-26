@@ -8009,6 +8009,17 @@ two `alerts_monitor.py` citations in `docs/INCOME_MAP.md` moved with a difflib
 map of unchanged lines, and the generated safety-flags block was regenerated.
 (`tests/test_the_time_stop_alert_reads_the_plan.py`.)
 
+**A MERGE KEPT A STALE TOTAL, AND NO GATE COMPARED THE TWO.** Integrating
+that slice onto the scan-card slice merged the honesty baseline with no
+conflict: each side had lowered a different per-file count and each had
+recorded 696, so git kept both decrements and one total. The counts summed to
+695 under a total of 696. The gate compares per-file counts, which were right,
+so it was green. `test_claude_md_accuracy` compares the figure this file
+quotes with the recorded total, and those agreed, so the prose quoted a number
+the tree did not have. A recorded total is now required to equal the sum of
+its counts, in all three baselines.
+(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14558,7 +14569,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1121** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1122** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
