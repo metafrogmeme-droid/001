@@ -15,7 +15,18 @@ red team, the web app's parse check, its npm advisory ratchet, its suite, the
 marketing site's build, its npm advisory ratchet, its published-output honesty
 tests, the check that the committed site is the built site, the Anchor
 workspace's typecheck, its npm advisory ratchet, and guard reachability.
-~14 minutes.
+
+**It takes about 45 minutes, and this line said ~14 for long enough to be
+worth a rule.** Driven on 2026-09-26, two independent full runs summed their
+own per-gate timings to 44.7 and 44.4 minutes, of which the test gate alone
+was 37.9 and 37.8. The figure a reader uses to decide whether to run the
+thing at all had rotted to a third of the truth, on the one paragraph whose
+job is to get it run -- and it rotted silently, because
+`test_claude_md_accuracy.py` pins some forty numbers in this file and no test
+can pin this one: measuring it means running it. So it is stated the way a
+benchmark is, with its date and its basis, and a reader who finds it stale
+should re-measure rather than trust it. The CI job that runs the same suite
+is the number that IS derivable, and `ci.yml` carries it.
 
 That "for free" is literal and has now been collected seven times: the app parse
 gate and the npm ratchet were added to `ci.yml` for M3 and appeared in the local
