@@ -11415,7 +11415,7 @@ commit. (`tests/test_the_scan_publishes_the_exit_the_executor_recorded.py`.)
 - `record_unreadable` is `closed_record_unreadable OR open_positions_unread`,
   and the engine card renders it as *"The closed-trade record could not be
   read"*. When the marks or the book were the unread half, that sentence names
-  the wrong source.
+  the wrong source. (Fixed: see the chapter on the engine card's open book.)
 
 **Seven of the map's thirteen citations into `app/routes/mcp.js` pointed at the
 wrong line, and a remap could only carry them forward.** Remapping the map for
@@ -12313,6 +12313,42 @@ fixture list, because autouse binds on the decorator and not the name. Four
 mutations, each killed on the first round: `autouse=False`, no restore, the
 value saved after the yield, the comparison inverted.
 (`tests/test_a_test_that_switches_logging_off_hands_it_back.py`.)
+
+**THE ENGINE CARD BLAMED THE CLOSED-TRADE RECORD FOR A MARK THE VENUE
+OMITTED.** The scan payload's `record_unreadable` was
+`closed_record_unreadable OR open_positions_unread`, and the card has one
+sentence for it: *"The closed-trade record could not be read — these are not
+zeros."* So a position fetch that failed, or a position the venue did not mark,
+was reported as a failed read of a record that had read fine. The fold was
+deliberate and its reason stands: without a flag the card shows a dash for net
+P&L and says nothing about why. The fix keeps the flag and names the source.
+`open_book_unread` is the open book's own flag, and the card has a sentence
+for each case. When net P&L is blanked because it includes the open book, the
+card says so. When the bot's fallback publishes the closed record's net beside
+a book it could not mark, the card says that net counts closed trades only.
+
+**Setting the flag on every branch found a flat book published from no
+read.** When the venue readout fails on a bot with no closed trades, the
+readout returns nothing, and with the balance cache stale nothing stood in. So
+the open count's initial `0` went out as the account's book, and the public
+summary read *0 open positions*. The chapter above headed *"THE CALLER
+TREATS THAT AS UNKNOWN"* fixed exactly this for the readout that returns the
+realized record, and the one that returns nothing was left over. It is `None` now, with the flag. The four branches that do not
+read the book all say so:
+
+- a failed positions fetch or a missing mark;
+- the trade-file-only result;
+- the cache fallback, whose rows come from the executor's own book and carry
+  no mark;
+- no readout at all.
+
+A readout that returned with no balance still read the positions, and keeps
+its count. That case was added before the mutation round, because the round's
+"fires on every unavailable account" mutation would otherwise have survived.
+Twelve mutations, each killed on the first round: eight on the producer, four
+on the card.
+(`tests/test_the_engine_card_names_the_source_it_could_not_read.py`,
+`app/test/engine_card_names_the_unread_source.test.js`.)
 
 ## Public-surface rules
 
@@ -13605,7 +13641,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1098** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1099** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

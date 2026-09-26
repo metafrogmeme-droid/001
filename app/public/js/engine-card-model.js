@@ -94,6 +94,16 @@
     const unpriced = num(c.unpriced_trades);
     if (c.record_unreadable) {
       note = 'The closed-trade record could not be read — these are not zeros.';
+    } else if (c.open_book_unread === true && haveTrades && net === null) {
+      // Its own sentence. The bot folded an unread position or mark into
+      // `record_unreadable`, so this card blamed the closed-trade record,
+      // which had read fine; net P&L includes the open book, so it is the
+      // cell the open book blanks.
+      note = 'The open book could not be fully read, and net P&L includes it, so it is not shown.';
+    } else if (c.open_book_unread === true && showNet) {
+      // The bot's fallback publishes the closed record's net when the venue
+      // readout failed, beside a book it could not mark.
+      note = 'The open book could not be read, so this net P&L counts closed trades only.';
     } else if (unpriced !== null && unpriced > 0 && haveTrades) {
       note = `${unpriced} of ${trades} closes carry no recorded P&L.`;
     } else if (haveTrades && (!showNet || !showRate)) {
