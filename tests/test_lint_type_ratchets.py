@@ -78,7 +78,15 @@ def test_the_gate_and_its_baseline_both_exist(name, script, baseline):
 
 
 def _load_gate(script: Path):
-    """Import a gate module by path, without running it."""
+    """Import a gate module by path, without running it.
+
+    With its own directory on the path, as running it as a script puts it:
+    both gates `import toolchain`, and run alone this file failed six of its
+    ten cases on that import. It passed in a full run only because an earlier
+    test had put `scripts/` there.
+    """
+    if str(script.parent) not in sys.path:
+        sys.path.insert(0, str(script.parent))
     spec = importlib.util.spec_from_file_location(script.stem, script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

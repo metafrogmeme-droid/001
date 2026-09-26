@@ -166,7 +166,9 @@ ADMIN_ONLY = {
 #: point. The operator's LIVE book is the operator's (`audience="admin"`); the
 #: shared PAPER book keeps the fan-out it has always had ("all"); a person's
 #: book names the person (`user_id`), which `_recipients_for` answers before
-#: it reads either. See `ProactiveMonitor._position_walk`.
+#: it reads either. See `ProactiveMonitor._position_walk`. The two time-stop
+#: types walk the live books alone, so their "all" constructor always carries
+#: a `user_id`: no shared paper book reaches them.
 BY_BOOK = {"SL_PROXIMITY", "TP_PROXIMITY", "TIME_STOP_WARN",
            "TIME_STOP_CLOSE", "NEWS_STANDDOWN"}
 

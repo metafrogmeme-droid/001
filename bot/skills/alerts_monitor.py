@@ -29,6 +29,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.order_state import close_did_not_happen
 from bot.marketing.public_text import close_outcome, public_close_line
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import _redact_string, audit, system_log
@@ -379,7 +380,13 @@ class AlertsMonitor:
             of this card is a second answer about what a close looks like.
             `close_slot` is the last-close record of the book that CLOSED the
             trade, never assumed to be the operator's.
+
+            A message reporting a close that did NOT happen (`order_state`'s
+            reading, the one the card guard and the engine's audit take) is
+            headed "Not closed", recorded under that word, and never posted
+            publicly.
             """
+            kept_open = close_did_not_happen(msg)
             try:
                 # Try to render a styled PNG close card. The decision of
                 # WHETHER this message may wear a card is `close_card_for`,
@@ -446,6 +453,16 @@ class AlertsMonitor:
                                     else (1.0 if "+$" in msg
                                           else -1.0 if "-$" in msg else None))
                     emoji, heading = humanize_close_reason(reason, pnl_for_sign)
+                    # A CLOSE THAT DID NOT HAPPEN IS NOT HEADED "CLOSED". A
+                    # rejected flatten, a close kept OPEN, a position with no
+                    # stop: the message reaches this renderer because the
+                    # operator must read it, and it has no record, so the
+                    # heading fell to the generic "⚪ Closed" (or "❌ Closed"
+                    # off a "-$" in the text) above "the position is still
+                    # OPEN". The reading is `order_state`'s, the one the card
+                    # guard and the engine's audit already take.
+                    if kept_open:
+                        emoji, heading = "\u26a0\ufe0f", "Not closed"
                     sym = close_data.get("symbol", "") if close_data else ""
                     direction = close_data.get("direction", "") if close_data else ""
                     if sym and direction:
@@ -454,12 +471,19 @@ class AlertsMonitor:
                         card = f"{emoji} <b>{heading}</b>\n\n"
                     for line in msg.strip().split("\n"):
                         card += f"{html.escape(line)}\n"
-                    await _notify_chats(chat_ids, "TRADE_CLOSED",
-                                        card.strip())
+                    # The record's word too: "[TRADE_CLOSED] Not closed ...
+                    # still OPEN" would hand the model two answers.
+                    await _notify_chats(
+                        chat_ids, "NOT_CLOSED" if kept_open else "TRADE_CLOSED",
+                        card.strip())
             except Exception as exc:
                 system_log.debug("Close notify send failed: %s", exc)
 
-            if not public:
+            # Not a trade result: the public channels carry the agent's
+            # closes, and a close that did not happen is an operator matter.
+            # It was posted as "TRADE CLOSED #TradeResult", an unprotected
+            # position's "No exchange stop-loss could be placed" included.
+            if not public or kept_open:
                 return
 
             # Forward trade close to marketing channels — those groups are

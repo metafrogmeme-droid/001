@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 696 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 695 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7887,6 +7887,128 @@ path).
 `tests/test_the_analyze_ladder_keeps_sub_dollar_precision.py`,
 `tests/test_a_null_candle_is_a_missing_series.py`.)
 
+**THE TIME-STOP ALERT READ FOUR HOURS NOTHING ELSE READ, AND TOLD HOLDERS TO
+CLOSE BY HAND A POSITION THE BOT CLOSES BY ITSELF.** The previous chapter filed
+it, and driven it was wider than filed. `_check_time_stops` judged "intraday or
+swing" off the stop distance (under 2% was intraday) and warned and "closed" on
+`TIME_STOP_{INTRA,SWING}_{WARN,CLOSE}_H`, which no other code read. The
+executor's time stop closes on the strategy table, four smart exits in the
+engine can close earlier, and `bot/core/time_exits.py` is the one reading of
+all five. Driven on a live operator position:
+
+- a swing trade with a 1.5% stop, 5h old: CRITICAL "NOT in profit — AUTO-CLOSE
+  recommended", when the first rule that can close it is at 48h;
+- a swing trade on the default momentum signal, 30h old: the same CRITICAL,
+  from 24h on, about a position the 16h hard limit had already closed;
+- a scalp at 2.0h, which the executor closes at 2h: "Auto-close in: 2.0h ...
+  Position will be flagged for close at 4h";
+- a swing trade 50h old, up +0.05% gross, which is under its round trip in
+  fees, so the executor closes it: no alert, because "in profit" was gross;
+- an adopted position with no recorded strategy, which no time exit touches
+  (the operator's decision of 2026-09-24), and a practice position, which no
+  time exit reads: CRITICAL "AUTO-CLOSE recommended".
+
+Every CLOSE alert ended "/liveclose <trade_id> — close it manually". The bot
+closes it by itself, `/liveclose` is admin-only, and a per-user owner was told
+to run it about their own account.
+
+**The alert is the third reader of `time_exits` now.** The plan is `plan_for`,
+the reading is `clock_reading` (the hold, the R and the fee-aware profit test
+the time stop takes, now shared with the card), and there are two verdicts.
+`due_exit` is the first rule past its hour whose condition holds, which is the
+rule the exit code closes on; a test drives it against the exit code's own
+check functions over the card suite's grid. `next_exit` is the first rule not
+yet at its hour that would close the position if the reading held. A rule
+whose reading was not taken is neither: "unread" is not "would close". The
+card's status and both verdicts ask one condition, `closes_at_reading`, so the
+alert cannot call a rule due that the card calls armed. What it says:
+
+- **due** (TIME_STOP_CLOSE, CRITICAL): "TIME EXIT DUE", the hold, the strategy
+  and signal type, entry, mark, the R and the fee reading, then "The bot closes
+  it at market by itself on this rule: after 8h if under 1R (due now)", the
+  card's own time-exit line, and `/positions`. No manual door.
+- **warn** (TIME_STOP_WARN, WARNING): from the strategy table's warn hour (the
+  one the executor's time stop reads), "As it stands, the bot closes it at
+  market by itself on this rule: after 48h unless in profit after fees (in
+  12h)", and the card's line.
+- **no_thesis, off, practice**, and the shared paper book: nothing. No time
+  exit this module describes runs on them, and an alert about a close nothing
+  will make is the defect. The shared paper book is time-exited by the paper
+  loop's own copy of the smart exits, which `time_exits` does not describe,
+  and nothing in this build writes that book. `untracked` never reaches the
+  walk, which reads tracked rows.
+
+**What the warn hour cannot do is stated.** The smart exits have no warn hours
+anything reads, so a smart exit that comes due before the strategy's warn hour
+gets the due notice and no warning: a swing momentum trade under 1R hears
+nothing before its 8h rule, because swing warns from 12h. Before this, the
+warning it could get was the heuristic's, about hours no rule closes on. The
+signal table's `warn_hours` and `min_hours` are read
+by nothing (`signal_hold_hours` reads `max_hours`); filed, not wired, because
+wiring them is a decision about when to warn, not a correction.
+
+**The four TIME_STOP_* hours are deleted, and so are LIMIT_EXPIRE_INTRA_H and
+LIMIT_EXPIRE_SWING_H** beside them, which nothing read at all: a setting an
+operator changes and nothing reads. None was in `.env.example`, the risk
+manifest or any doc. A test derives the class's fields and requires a reader
+outside `config.py` for each. `audit/env_diff.md` is a dated snapshot and still
+lists them, as it lists `TRAILING_ATR_MULT`.
+
+**THE MORNING BRIEF COUNTED A RESTING ORDER AS AN OPEN POSITION, AND IN LIVE
+MODE IT COULD PRINT A PAPER ONE.** It read `open_positions`, which is open and
+`pending_fill`: one filled position and two resting limit orders read
+"Carrying 3 open position(s)", and the wrap "Still open: 3". Driving it found
+two more. A live book with nothing in it fell through to the shared PAPER book,
+so a position an older build left there was reported as the operator's live
+position. And its side printed as "DIREC": `str()` of the direction enum, cut
+at five characters. `_operator_book_rows` answers `(positions,
+resting_orders)`: the operator's executor in live mode, split by status; the
+shared paper book in paper mode; None when the book could not be read, which
+prints "unread", never 0. Both digests list positions and resting orders
+apart, name six of each and count the rest.
+
+**A CLOSE THAT DID NOT HAPPEN WAS HEADED "CLOSED", SENT TO THE MODEL AS
+"TRADE_CLOSED", AND POSTED PUBLICLY AS A TRADE RESULT.** The engine hands a
+kept-open message to the close callback on purpose (the operator must read
+it), and `close_card_for` already refuses it a card. The text fallback then
+headed it `humanize_close_reason("", sign)`: "⚪ Closed" over "Smart-exit close
+FAILED ... the position is still OPEN", and "❌ Closed" when the text carried a
+"-$". Driven through the real `start_monitor`, the same message also went to
+the public channels as "⚪ TRADE CLOSED #TradeResult", an unprotected
+position's "No exchange stop-loss could be placed" included. `_deliver_close`
+asks `close_did_not_happen` once, the reading the card guard and the engine's
+`NOT_CLOSED` audit take: the heading is "⚠️ Not closed", the transcript record
+is `NOT_CLOSED`, and nothing is posted publicly. That last is a decision: the
+public channels carry the agent's closes, and a close that did not happen is an
+operator matter. The owner door shares the renderer.
+
+**Two tests had pinned the defect as the contract.** The ownership suite drove
+the shared paper book's time-stop fan-out and a practice book's time-stop
+alert; both drive what the alert now reads (nothing for the paper book, a
+per-user LIVE book for the scoping).
+
+**Forty-three mutations, each killed on the first round**, and the reason read
+for eighteen of them rather than counted: each died on the assertion written
+for it. Planning the round is what shaped the corpus. Telling `>=` from `>` at
+the warn hour needs a fixture exactly ON the hour, which the wall clock cannot
+give, so the monitor's clock is frozen in the suite. Warning off a reading
+with the fee half dropped changes nothing for a swing trade, whose first rule
+is an R rule, so a scalp is warned about the executor's own 2h time stop. Two
+defensive branches in the name formatter (an empty symbol, an empty side) had
+no input that reaches them, and were deleted rather than mutated.
+
+The ratchets moved with this slice and were re-recorded in it: honesty 696 to
+695 (with the figure its paragraph quotes), ruff's E501 1167 to 1166 and
+mypy's var-annotated 512 to 511. Running the ratchets' own suite alone found the `import toolchain`
+order-dependence the bridge chapter recorded, a second time:
+`tests/test_lint_type_ratchets.py` loaded both gates by path and failed six of
+its ten cases alone, passing in a full run only because an earlier test had
+put `scripts/` on the path. Its loader puts it there now. The test-file total in "Writing tests that
+scan source" moved to 1121 with this slice's test. Fourteen `config.py` and
+two `alerts_monitor.py` citations in `docs/INCOME_MAP.md` moved with a difflib
+map of unchanged lines, and the generated safety-flags block was regenerated.
+(`tests/test_the_time_stop_alert_reads_the_plan.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14436,7 +14558,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1120** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1121** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

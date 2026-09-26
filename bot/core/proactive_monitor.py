@@ -248,6 +248,22 @@ def _pos_side(pos) -> str:
     return str(getattr(d, "value", d) or "").upper()
 
 
+#: How many rows a digest names before it counts the rest.
+BOOK_NAMES_SHOWN = 6
+
+
+def _book_names(rows: list) -> str:
+    """``BTC LONG, ETH SHORT`` for a digest line, escaped, naming at most
+    ``BOOK_NAMES_SHOWN`` rows and counting the rest: a bounded list printed
+    without its total reads as the total."""
+    bits = []
+    for p in rows[:BOOK_NAMES_SHOWN]:
+        sym = _pos_asset(p).replace("/USDT", "").replace(":USDT", "")
+        bits.append(f"{sym} {_pos_side(p)}")
+    more = len(rows) - len(bits)
+    return _html.escape(", ".join(bits)) + (f" and {more} more" if more > 0 else "")
+
+
 def _signal_buttons(idea) -> tuple:
     """``(buttons, door_sentence)`` for an engine idea's NEW SIGNAL card.
 
@@ -1278,6 +1294,34 @@ class ProactiveMonitor:
             "known. It is not written over.", kind, period, detail)
         return False
 
+    def _operator_book_rows(self) -> Optional[tuple[list, list]]:
+        """``(positions, resting_orders)`` in the operator's book, or None when
+        it could not be read.
+
+        The digests counted ``open_positions``, which is open AND
+        ``pending_fill``: one filled position and two resting limit orders read
+        "Carrying 3 open position(s)". And a LIVE book with nothing in it fell
+        through to the shared PAPER book, so a position an older build left
+        there was reported as the operator's live position, its side printed
+        as ``DIREC`` (``str()`` of the direction enum, cut at five).
+
+        LIVE: the operator's executor, split by status. PAPER: the shared
+        paper book, which holds no resting orders. A book that is not there,
+        or whose read raised, is None: a count of zero is a reading.
+        """
+        e = self.engine
+        try:
+            if CONFIG.is_live():
+                rows = list(e.live_executor.open_positions)
+            else:
+                rows = list(e.portfolio.open_positions)
+        except Exception:
+            return None
+
+        def _resting(p) -> bool:
+            return getattr(p, "status", "open") == "pending_fill"
+        return [p for p in rows if not _resting(p)], [p for p in rows if _resting(p)]
+
     def _digest_body(self, kind: str) -> str:
         """Compact, truthful engine digest. Everything best-effort — a field
         we can't read is omitted, never invented."""
@@ -1289,22 +1333,8 @@ class ProactiveMonitor:
             mode = "?"
         state = str(getattr(e, "state", "") or "").replace("EngineState.", "")
 
-        # Open positions (operator book; live executor first).
-        positions = []
-        try:
-            ex = getattr(e, "live_executor", None)
-            if ex is not None and getattr(ex, "open_positions", None):
-                positions = list(ex.open_positions)
-            elif getattr(e, "portfolio", None) is not None:
-                positions = list(e.portfolio.open_positions)
-        except Exception:
-            pass
-        pos_bits = []
-        for p in positions[:6]:
-            sym = str(getattr(p, "symbol", getattr(p, "asset", "?")))
-            sym = sym.replace("/USDT", "").replace(":USDT", "")
-            side = str(getattr(p, "direction", getattr(p, "side", "")))[:5].upper()
-            pos_bits.append(f"{sym} {side}")
+        # The operator's book: positions and resting orders apart, or None.
+        book = self._operator_book_rows()
 
         # EQUITY WAS READ FROM A KEY NOTHING WRITES. `cache["equity"]` --
         # fetch_balance writes `total`/`free`/`used` -- so the line never
@@ -1336,11 +1366,20 @@ class ProactiveMonitor:
             lines.append(f"Mode <b>{mode}</b>" + (f" · engine <code>{_html.escape(state)}</code>" if state else ""))
             if equity_bit:
                 lines.append(equity_bit)
-            lines.append(
-                f"Carrying <b>{len(positions)}</b> open position(s)"
-                + (f": {_html.escape(', '.join(pos_bits))}" if pos_bits else "")
-                + " — managing SL/TP and scanning the universe for setups "
-                  "at or above the auto-trade confidence gate.")
+            if book is None:
+                lines.append("Open positions <code>unread</code> — the "
+                             "operator's book could not be read.")
+            else:
+                filled, resting = book
+                lines.append(
+                    f"Carrying <b>{len(filled)}</b> open position(s)"
+                    + (f": {_book_names(filled)}" if filled else "")
+                    + " — managing SL/TP and scanning the universe for setups "
+                      "at or above the auto-trade confidence gate.")
+                if resting:
+                    lines.append(
+                        f"<b>{len(resting)}</b> resting limit order(s), not yet "
+                        f"filled: {_book_names(resting)}")
             lines.append("<i>/status for detail · /whynot SYMBOL to see why "
                          "something isn't being traded.</i>")
         else:
@@ -1390,9 +1429,18 @@ class ProactiveMonitor:
                     lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
             except Exception:
                 pass
-            lines.append(
-                f"Still open: <b>{len(positions)}</b>"
-                + (f" — {_html.escape(', '.join(pos_bits))}" if pos_bits else ""))
+            if book is None:
+                lines.append("Still open: <code>unread</code> — the "
+                             "operator's book could not be read.")
+            else:
+                filled, resting = book
+                lines.append(
+                    f"Still open: <b>{len(filled)}</b>"
+                    + (f" — {_book_names(filled)}" if filled else ""))
+                if resting:
+                    lines.append(
+                        f"Resting limit orders: <b>{len(resting)}</b> — "
+                        f"{_book_names(resting)}")
             lines.append("<i>/daily_report for the full report · "
                          "/yield checks what idle cash could earn.</i>")
         return "\n\n".join(lines)
@@ -3669,10 +3717,15 @@ class ProactiveMonitor:
             logger.debug("_check_sl_tp_proximity error: %s", exc)
         return alerts
 
-    def _position_walk(self) -> list:
+    def _position_walk(self, *, live_only: bool = False) -> list:
         """``(owner, operator_book, pos)`` for every open position the monitor
         watches, each WITH ITS OWNER. The one walk the proximity, time-stop and
         news checks share.
+
+        ``live_only``: the live executors' rows and nothing else -- no practice
+        book and no shared paper book, and so nothing at all in paper mode.
+        The time-stop alert asks for it: the time exits it describes run on
+        the live books alone (`time_exits`).
 
         PAPER, as it always was: every per-user book with its uid, or -- when
         there are none -- the SHARED book with owner None, which the product
@@ -3712,6 +3765,8 @@ class ProactiveMonitor:
                     if getattr(pos, "status", "open") != "open":
                         continue
                     rows.append((owner, is_op, pos))
+        if live_only:
+            return rows
         up = getattr(self.engine, "user_portfolios", None)
         if up is not None and up.all_portfolios():
             for uid in up.all_portfolios():
@@ -4015,83 +4070,111 @@ class ProactiveMonitor:
     # ── Time Stops (Rules 6/17) ──────────────────────────────────
 
     def _check_time_stops(self) -> list[Alert]:
-        """Alert when positions exceed time limits without profit."""
-        alerts = []
-        if not CONFIG.time_stop.enabled:
-            return alerts
+        """Tell a holder what the clock is about to do to a live position.
 
+        THE THIRD READER OF `time_exits`. This alert judged "intraday or swing"
+        off the stop distance (under 2% intraday) and warned and "closed" on
+        four TIME_STOP_* hours that nothing else read, while the executor's
+        time stop closes on the strategy table and four smart exits can close
+        earlier. Driven: a swing trade with a 1.5% stop was CRITICAL "AUTO-CLOSE
+        recommended" at 5h when nothing would close it before 48h; a scalp the
+        executor closes at 2h was told "Auto-close in 2.0h ... at 4h"; a close
+        up a sub-fee fraction read as in profit and got no alert before the
+        executor closed it; an adopted position with no recorded strategy (no
+        time exit applies, 2026-09-24) and a practice position (no time exit
+        reads one) were told to close by hand with `/liveclose`, a command
+        that is admin-only, for a close the bot makes by itself.
+
+        Now the plan is `plan_for`, the reading is `clock_reading` (the fee-aware
+        profit test the time stop takes), and the two verdicts are the plan's:
+
+        * DUE (`due_exit`): a rule past its hour whose condition holds -- the
+          one the exit code closes the position on. TIME_STOP_CLOSE says the
+          bot closes it by itself, names the rule, and names no manual door.
+        * WARN (`next_exit`): from the strategy table's warn hour, the first
+          rule not yet at its hour that would close the position if the
+          reading held. TIME_STOP_WARN names the rule and how long is left.
+
+        A plan that is not armed (no recorded strategy, time stops off) runs
+        no time exit, so nothing is said about one. Only the live books are
+        walked: the practice books have no time exit, and the shared paper
+        book's (the paper loop's own copy of the smart exits) is not a plan
+        `time_exits` describes -- nothing in this build writes that book.
+        """
+        from bot.core.position_telemetry import price_on_record
+        from bot.core.time_exits import (
+            clock_reading,
+            due_exit,
+            exit_phrase,
+            next_exit,
+            plan_for,
+            time_exit_line,
+            warn_hour,
+        )
+
+        alerts: list[Alert] = []
         try:
             # Each position with its OWNER — see `_position_walk`, and the
             # same walk in `_check_sl_tp_proximity` for why the uid may not be
-            # dropped, why the shared book's owner is None and why the
-            # operator's live book is an audience rather than a person.
-            all_positions = self._position_walk()
-
-            if not all_positions:
-                return alerts
-
+            # dropped and why the operator's live book is an audience rather
+            # than a person.
+            all_positions = self._position_walk(live_only=True)
             now = datetime.now(UTC)
-            cfg = CONFIG.time_stop
-
-            # Get current prices (staleness-bounded, as in the SL/TP monitor) so
-            # a frozen WS price can't trigger a time-stop/SL-proximity alert.
+            # Staleness-bounded, as in the SL/TP monitor, so a frozen WS price
+            # cannot drive a verdict about a rule's condition.
             ws_prices = {}
             if self.engine.ws_feed.is_connected():
                 ws_prices = self.engine.ws_feed.get_prices(
                     max_age_sec=getattr(CONFIG.execution, "ws_max_tick_age_sec", 0)) or {}
 
             for owner, operator_book, pos in all_positions:
-                from bot.core.position_telemetry import entered_at
-                opened_at = entered_at(pos)
-                if not opened_at:
-                    continue
+                plan = plan_for(pos, CONFIG.time_stop, CONFIG.strategy_types)
                 asset = _pos_asset(pos)
-
-                # Calculate age in hours
-                age_hours = (now - opened_at).total_seconds() / 3600.0
-
-                # Determine trade type from SL distance: tight SL = intraday, wide = swing
-                # Heuristic: if SL distance < 2% = intraday, else swing
-                sl_pct = abs(pos.entry_price - pos.stop_loss) / pos.entry_price if pos.entry_price > 0 and pos.stop_loss > 0 else 0
-                is_intraday = sl_pct < 0.02
-                warn_hours = cfg.intraday_warn_hours if is_intraday else cfg.swing_warn_hours
-                close_hours = cfg.intraday_close_hours if is_intraday else cfg.swing_close_hours
-                trade_type = "intraday" if is_intraday else "swing"
-
-                # Check if position is in profit
-                current_price = ws_prices.get(asset) or 0
-                if current_price <= 0:
+                # No fresh mark, no verdict: the exit code needs one too.
+                mark = price_on_record(ws_prices.get(asset))
+                if mark is None:
                     continue
-                if _pos_side(pos) == "LONG":
-                    in_profit = current_price > pos.entry_price
-                else:
-                    in_profit = current_price < pos.entry_price
+                held_h, r_now, fee_clear = clock_reading(pos, mark, now)
+                due = due_exit(plan, held_h, r_now, fee_clear)
+                rule = due
+                if due is None and held_h is not None and held_h >= warn_hour(
+                        pos, CONFIG.strategy_types):
+                    rule = next_exit(plan, held_h, r_now, fee_clear)
+                if rule is None:
+                    continue
 
-                if in_profit:
-                    continue  # Time stops only apply to positions NOT in profit
-
-                base = asset.split('/')[0] if '/' in asset else asset
-
-                # Force close check
-                if age_hours >= close_hours:
+                entry = price_on_record(getattr(pos, "entry_price", None))
+                reading = []
+                if r_now is not None:
+                    reading.append(f"{r_now:+.2f}R")
+                if fee_clear is not None:
+                    reading.append("in profit after fees" if fee_clear
+                                   else "not in profit after fees")
+                phrase = _html.escape(exit_phrase(rule, held_h, r_now, fee_clear))
+                rules_line = _html.escape(time_exit_line(
+                    plan, held_h=held_h, r_now=r_now, fee_clear=fee_clear))
+                # The two fields the rules are keyed on, so "after 8h" has a
+                # reason on the card: a swing trade on a momentum signal.
+                thesis = _html.escape(" · ".join(
+                    str(getattr(pos, k, "") or "")
+                    for k in ("strategy_type", "signal_type")))
+                head = (
+                    "────────────────\n"
+                    f"- Held: <code>{held_h:.1f}h</code> · {thesis}\n"
+                    f"- Entry: <code>{_fmt_price(entry)}</code>\n"
+                    f"- Current: <code>{_fmt_price(mark)}</code>\n"
+                    + (f"- Now: <code>{' · '.join(reading)}</code>\n" if reading else "")
+                    + "────────────────\n")
+                if due is not None:
                     key = f"time_close_{pos.trade_id}"
-                    title = f"Time Stop: {asset}"
+                    title = f"Time Exit Due: {asset}"
                     body = (
-                        f"\u23f0 <b>TIME STOP — {asset}</b>\n"
-                        "────────────────\n"
-                        f"- Type: <code>{trade_type}</code>\n"
-                        f"- Open: <code>{age_hours:.1f}h</code> (limit: {close_hours:.0f}h)\n"
-                        f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                        f"- Current: <code>${current_price:,.4f}</code>\n"
-                        f"- Status: <b>NOT in profit — AUTO-CLOSE recommended</b>\n"
-                        "────────────────\n"
-                        # /close does not exist, and /liveclose takes a
-                        # TRADE ID, not a symbol — so "/close BTC" was
-                        # wrong twice over on an alert recommending a
-                        # close. Name the two steps that work.
-                        f"\U0001f449 /positions — find {base}'s trade ID\n"
-                        "\U0001f449 /liveclose &lt;trade_id&gt; — close it manually\n"
-                        "\U0001f449 /positions — review all open trades"
+                        f"\u23f0 <b>TIME EXIT DUE — {_html.escape(asset)}</b>\n"
+                        + head
+                        + "The bot closes it at market by itself on this "
+                          f"rule: <b>{phrase}</b>.\n"
+                        f"{rules_line}\n"
+                        "\U0001f449 /positions — review open trades"
                     )
                     if operator_book:
                         alerts.append(Alert(
@@ -4104,22 +4187,15 @@ class ProactiveMonitor:
                             user_id=owner,
                             severity="CRITICAL", title=title, body=body,
                             dedup_key=key))
-                # Warning check
-                elif age_hours >= warn_hours:
+                else:
                     key = f"time_warn_{pos.trade_id}"
-                    remaining = close_hours - age_hours
                     title = f"Time Warning: {asset}"
                     body = (
-                        f"\u23f3 <b>TIME WARNING — {asset}</b>\n"
-                        "────────────────\n"
-                        f"- Type: <code>{trade_type}</code>\n"
-                        f"- Open: <code>{age_hours:.1f}h</code>\n"
-                        f"- Auto-close in: <code>{remaining:.1f}h</code>\n"
-                        f"- Entry: <code>${pos.entry_price:,.4f}</code>\n"
-                        f"- Current: <code>${current_price:,.4f}</code>\n"
-                        f"- Status: NOT in profit\n"
-                        "────────────────\n"
-                        f"Position will be flagged for close at {close_hours:.0f}h if not profitable."
+                        f"\u23f3 <b>TIME WARNING — {_html.escape(asset)}</b>\n"
+                        + head
+                        + "As it stands, the bot closes it at market by "
+                          f"itself on this rule: <b>{phrase}</b>.\n"
+                        f"{rules_line}"
                     )
                     if operator_book:
                         alerts.append(Alert(

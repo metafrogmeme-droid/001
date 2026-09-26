@@ -2166,14 +2166,13 @@ class LimitOrderConfig:
 
 @dataclass(frozen=True)
 class TimeStopConfig:
-    """Rules 6/17: Time-based position auto-close."""
+    """Rules 6/17: Time-based position auto-close.
+
+    The hours are the strategy table's (``StrategyTypeConfig``'s
+    ``*_time_close_hours`` / ``*_time_warn_hours``) and the smart exits' own
+    tables; ``bot/core/time_exits.py`` is the one reading of all of them.
+    """
     enabled: bool = _env_bool("TIME_STOP_ENABLED", True)
-    intraday_warn_hours: float = _env_float("TIME_STOP_INTRA_WARN_H", 2.0)
-    intraday_close_hours: float = _env_float("TIME_STOP_INTRA_CLOSE_H", 4.0)
-    swing_warn_hours: float = _env_float("TIME_STOP_SWING_WARN_H", 12.0)
-    swing_close_hours: float = _env_float("TIME_STOP_SWING_CLOSE_H", 24.0)
-    limit_expire_intraday_hours: float = _env_float("LIMIT_EXPIRE_INTRA_H", 4.0)
-    limit_expire_swing_hours: float = _env_float("LIMIT_EXPIRE_SWING_H", 48.0)
     # Auto-close LIVE positions on smart-exit triggers (time stop, signal-hold
     # limit, VWAP-reversion done/failed, volume-signal decay). Default ON
     # (runbook stage 1): without it a live position whose thesis has
