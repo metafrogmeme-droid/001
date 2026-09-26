@@ -7720,15 +7720,15 @@ class RuneClawEngine:
             self._transition(AgentState.IDLE, f"re-check rejected {trade_id}")
             # Seal rejection to audit chain (Guardian Flight Recorder: seal the
             # full provenance so a rejection is as explainable as an execution).
-            self.audit_chain.seal_decision(DecisionRecord(
+            seal_note = _seal_on_chain("DECISION", trade_id, lambda: self.audit_chain.seal_decision(DecisionRecord(
                 decision_id=trade_id, symbol=idea.asset,
                 idea=_flight_idea(idea),
                 risk=_flight_risk(recheck),
                 outcome="REJECTED_ON_RECHECK", is_paper=not CONFIG.is_live(),
-            ))
+            )))
             self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
             self._sync_flight_records()
-            return f"Trade REJECTED on re-check: {recheck.reason}"
+            return f"Trade REJECTED on re-check: {recheck.reason}{seal_note}"
 
         # Adversarial self-critique gate (fail-open: errors = proceed with warning)
         try:
@@ -7739,15 +7739,15 @@ class RuneClawEngine:
             critique_result = critique.evaluate(idea, recheck, snapshot, macro_ctx_for_critique)
 
             if critique_result.verdict == "HALT":
-                self.audit_chain.append("CRITIQUE_HALT", {
+                seal_note = _seal_on_chain("CRITIQUE_HALT", trade_id, lambda: self.audit_chain.append("CRITIQUE_HALT", {
                     "trade_id": trade_id, "asset": idea.asset,
                     "bear_case": critique_result.bear_case,
                     "concerns": critique_result.concerns,
                     "confidence_adjustment": critique_result.confidence_adjustment,
-                })
+                }))
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique halted {trade_id}")
-                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}"
+                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}{seal_note}"
             # Apply critique confidence adjustment
             if critique_result.confidence_adjustment != 0:
                 idea.confidence = max(0.0, min(1.0, idea.confidence + critique_result.confidence_adjustment))
@@ -7852,14 +7852,14 @@ class RuneClawEngine:
             approval_token=approval_token,
         )
         if not compliance_decision.granted:
-            self.audit_chain.append("AUTH_DENIED", {
+            seal_note = _seal_on_chain("AUTH_DENIED", trade_id, lambda: self.audit_chain.append("AUTH_DENIED", {
                 "trade_id": trade_id, "asset": idea.asset,
                 "reasons": compliance_decision.reasons,
                 "locks_failed": compliance_decision.locks_failed,
-            }, actor=self.compliance_profile.subject_id)
+            }, actor=self.compliance_profile.subject_id))
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"compliance denied {trade_id}")
-            return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}"
+            return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}{seal_note}"
 
         # ── Per-user PAPER (sim) opt-in ──────────────────────────────────────
         # A user who has opted into practice mode (and the feature is enabled)
@@ -8285,9 +8285,9 @@ class RuneClawEngine:
         _fail_reason = str(result)[:200] if live_failed else ""
 
         # Seal decision to tamper-evident audit chain (Guardian Flight Recorder:
-        # provenance-complete idea/risk — votes, model/prompt version, and the
-        # explainability slice — so every executed decision is fully auditable).
-        self.audit_chain.seal_decision(DecisionRecord(
+        # provenance-complete idea/risk). The order is placed by now, so a seal
+        # that fails is said on the answer and logged, never raised over it.
+        seal_note = _seal_on_chain("DECISION", trade_id, lambda: self.audit_chain.seal_decision(DecisionRecord(
             decision_id=trade_id, symbol=idea.asset,
             idea=_flight_idea(idea),
             risk=_flight_risk(recheck, size_usd=size_usd),
@@ -8295,7 +8295,7 @@ class RuneClawEngine:
             compliance={"granted": True, "locks_passed": compliance_decision.locks_passed},
             outcome="EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED",
             is_paper=False,
-        ))
+        )))
         self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
         self._sync_flight_records()
         # Learning: log accepted trade decision
@@ -8328,7 +8328,7 @@ class RuneClawEngine:
         self._transition(
             AgentState.IDLE,
             "live trade executed" if not live_failed else "live execution failed")
-        return result
+        return result + seal_note
 
     def reject_trade(self, trade_id: str) -> str:
         """Human explicitly rejects a pending idea."""
@@ -9518,3 +9518,41 @@ class RuneClawEngine:
             )
 
         return signals
+
+
+def _seal_on_chain(record: str, trade_id: str, write: Callable[[], Any]) -> str:
+    """Write one confirm-path record to the audit chain, and answer what the
+    confirmer must be told when it could not be written: "" when it sealed.
+
+    THE ORDER WAS PLACED BEFORE THE RECORD. `_confirm_trade_inner` seals the
+    decision after `execute()` has filled, and the seal had no guard, so a
+    chain that could not be appended to (a write cut short at its end made
+    every later append raise; a full disk) raised out of `confirm_trade` over
+    an open position: the Confirm button printed "Trade execution failed",
+    auto-confirm skipped the notification, and the learner and the state
+    transition written after the seal never ran. A refusal's record was the
+    same shape -- and the critique HALT's sat inside a handler that reads any
+    exception as "the critique could not complete", which in paper mode lets
+    the halted trade proceed.
+
+    What happened stands; a record that could not be written changes none of
+    it. The failure is logged at ERROR with the driver's text (scrubbed), and the
+    confirmer is told with the exception's CLASS only, because the answer
+    reaches a chat.
+    """
+    try:
+        write()
+        return ""
+    except Exception as exc:
+        from bot.utils.secret_shapes import scrub_diagnostic
+        audit(trade_log,
+              f"AUDIT CHAIN: the {record} record for {trade_id} was NOT sealed "
+              f"({type(exc).__name__}: {scrub_diagnostic(str(exc))[:200]}). "
+              "What the confirm reported stands; this outcome is missing from "
+              "the tamper-evident chain.",
+              action="audit_seal", result="SEAL_FAILED", level=logging.ERROR,
+              data={"trade_id": trade_id, "record": record,
+                    "error": type(exc).__name__})
+        return ("\n\n⚠️ This decision was NOT written to the audit "
+                f"chain ({type(exc).__name__}). What is reported above stands; "
+                "the missing record is logged for the operator.")
