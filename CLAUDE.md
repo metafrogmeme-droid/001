@@ -11570,6 +11570,164 @@ had done so since before this round. It sits on a non-blank line, so the probe
 could not see it. The slice's agent noticed it while checking its own shifts.
 `test_the_risk_engine_citation_is_the_class` now derives it from the class line.
 
+**A CLOSE THAT WAS CANCELLED LEFT ITS POSITION "CLOSING" FOR GOOD, AFTER ITS
+STOPS HAD BEEN CANCELLED.** `close_position` sets the row "closing", saves,
+and then awaits the venue: the stop and target cancels, the market close, the
+reads after it. Every revert in `_close_position_inner` sits under
+`except Exception`, and `asyncio.CancelledError` is a BaseException. Three
+ordinary caps cancel that work: the per-phase cap and the whole-tick cap on
+the monitor, and the maintenance cap on a web flatten. Driven through the real
+positions phase with the close order parked at the cap, both stop legs were
+cancelled on the venue and then the cap fired. The row stayed "closing".
+`open_positions` does not list it, the monitor and reconcile skip it, and
+`close_position` refuses it as already closing, so nothing watched a position
+whose stops were gone until the next restart. The pending_fill cancel path
+had the same gap.
+
+`close_position` now catches the cancellation, puts the row back, and
+re-raises it. A `CloseFlight` on the row records how far the close got: the
+stops the cancel pass removed, the leg whose cancel was in flight, and whether
+the close order was sent. The row becomes what the loader already makes of a
+row it finds "closing" at startup. If anything reached the venue, it is open
+and held for reconcile, which asks the venue before any path sends another
+close. If nothing did, it is simply open again. A limit cancel that was cut
+off goes back to "pending_fill", which the pending check re-reads every tick.
+The removed stops are cleared from the record, and a cleared stop marks the
+position unprotected, because a stop id the venue no longer holds reads as
+protection to every reader. `close_interrupted` is saved with the row, so the
+reconcile that finds the venue flat announces the close: a row recovered at
+startup stays quiet because its close was probably announced before the
+process died, and this one was announced to nobody. The handler never raises,
+because it runs while a cancellation is unwinding and an exception there
+would replace the cancellation the caller is owed.
+
+**AN EMERGENCY STOP WAS ACKNOWLEDGED AS DONE OVER THAT ROW.**
+`close_all_positions` is what the web Emergency Stop, `/emergency_stop` and
+`/closeall` call, and it closed rows that were open or pending_fill. Driven:
+the first web poll's flatten was cancelled at its maintenance cap mid-close,
+and the second poll found only the "closing" row and answered "No open
+positions to close." The web ack read that sentence as a close:
+`ok: True, closed: 1`, over a position still open with its stops cancelled.
+The flatten closes "closing" rows now. `close_position` waits on the
+in-flight close's lock and then answers what is there. When that close
+finished the row while the flatten waited, the answer is read off the book
+(the row is closed, or gone) instead of the "not found or already closed"
+sentence every flatten reader counts as still open. An empty book answers
+`NOTHING_TO_CLOSE`, `flatten_closed_count` does not count it, and an account
+that held nothing is acked with nothing closed.
+
+**A FAILING TICK LOOP READ THE STOPS ONCE EVERY TEN MINUTES.** The analyze
+phase has `fatal=True` on purpose, so a phase timeout fails the tick and the
+loop backs off before the next one. Driven with the analyze phase timing out
+at its 300s cap every tick, the SL/TP monitor ran once every 605s: the phase,
+the 300s backoff, the scan. `_sleep_watching_stops` cuts the backoff into
+steps of the normal scan interval and runs the monitor after each one, which
+is the rate a healthy loop already reads positions at. Driven again, the
+longest unwatched gap is 365s. The steps are counted, so the total wait is
+still the backoff, and the stall watchdog's due time is stamped before every
+step and every pass (a pass may take up to the per-phase cap). The pass says
+it is a backoff pass, and it clears the failed tick's own "monitored" flag
+first, so a check made before the failure cannot stand in for it.
+
+Two more fell out of driving the loop. The backoff was
+`base * 2 ** failures`, which raises OverflowError once 1024 failures have
+been counted (at least 85 hours of backoffs at the cap); that left `run()`,
+which `bot.main` reports as an engine crash. The exponent is bounded now. And
+the monitor-liveness watchdog ran only after a successful tick, so during a
+failure streak, the stretch the monitor exists to report, nothing checked
+that the monitor was alive. It runs on the failure path too, under the same
+throttle. The healthcheck ping stays on the success path, because an external
+dead-man's switch fed by failing ticks cannot alarm on them.
+
+**A SHUTDOWN RAN A FULL MONITOR PASS ON ITS WAY OUT.** `_tick_guarded` ran
+the backstop in its `finally`, on every exit, including the cancellation
+`bot.main`'s SIGTERM handler sends. A backstop pass can cancel stops and send
+market closes, and starting one while a supervisor counts down to SIGKILL is
+how a close is cut between cancelling a stop and flattening. A cancelled tick
+runs no backstop now. The stops resting on the venue stay where they are, and
+the next boot's monitor and reconcile take the book up. A hard-timeout
+cancellation reaches the `finally` as a TimeoutError, and still runs it.
+
+**THE NIGHTLY SELF-AUDIT ASKED THE MODEL AGAIN ON EVERY TICK OF ITS HOUR.**
+The audit is due inside its UTC hour until `last_run_ts` says it ran, and that
+stamp is written only by a run that finished. Driven with a model that
+failed: forty ticks 90s apart in the hour spawned forty runs and fifty model
+calls, and a restart inside the hour started again. A scheduled attempt is
+recorded before the run starts, and the next one waits fifteen minutes, so
+the hour holds at most four. The attempt time is written to the state file
+beside `last_run_ts`, so a restart inside the hour does not reset it
+(driven: no attempt in the rest of the hour after a restart). It is also
+kept in memory, so a state file that cannot be written does not turn the
+bound off, and the newer of the two stamps decides. An operator's
+`/audit run` calls `run()` directly and is neither limited nor counted.
+
+**`/latest_signal`'s timeout could cancel a live order half-placed.** It ran
+`force_scan` under `asyncio.wait_for`, and `force_scan` auto-confirms what
+clears the bar, so the timeout could cancel `LiveExecutor.execute`. Read, not
+driven against a venue: `execute` awaits the venue between submitting the
+entry order and recording the position, and again before the stop is placed.
+The scan is shielded now. The tap stops waiting at its timeout and says so,
+and the scan finishes in the background with its ideas pending for the next
+tap. A done callback retrieves its outcome and logs a failure by class name
+only, because a driver message can carry a URL or a request.
+
+**Recorded, not changed.** In the pending cancel's fill branch, the row is set
+"open" and then awaits the stop placement. A cancel there leaves the row open
+in memory, which is right (it is a filled position), and "closing" on disk,
+from the save at the start of the close. A restart holds that row for
+reconcile, which asks the venue; that is the safe direction, so it is left.
+The handler checks that the row is still "closing" for exactly this case: the
+flight is still on the row, and without the check a filled position would be
+put back to "pending_fill".
+
+**Sixty-five mutations, each killed. Thirteen survived the first round, and
+every one was a fixture that could not tell.**
+
+- The close order as the only thing that reached the venue (two mutations).
+  Every fixture cancelled at the close order after both stops were
+  cancelled, so the removed stops alone held the row for reconcile. A row
+  with no stop resting separates them.
+- The leg whose cancel was in flight, left recorded after its cancel. No
+  fixture had a cancel the venue refused.
+- The two halves of the flatten's rewrite (two mutations). Every in-flight
+  close in the corpus both closed the row and deleted it. A save that fails
+  keeps a closed row in the book, because the prune runs after the write, and
+  the already-gone limit branch deletes a row whose status still reads
+  "closing".
+- The handler's audit row, its warning-rate event and its log level (three
+  mutations). Nothing read them.
+- The handler's own `except` narrowed. Nothing made a step of the handler
+  fail.
+- The handler acting on a row that is not "closing". The fill-during-cancel
+  branch above reaches it.
+- The self-audit reading the older of its two stamps. Every fixture had one
+  stamp or two equal ones; a state file that became unwritable after one
+  attempt separates them.
+- The tap's callback reading a cancelled scan, and logging a scan that
+  succeeded (two mutations). No fixture cancelled the background scan or read
+  the log after a success.
+
+Two lines were deleted before the round ran, because no input could reach
+them: a `step >= total` clause in `_sleep_watching_stops` that the loop below
+it already handles with one sleep and no pass, and a float parse of two
+values the only caller computes as floats.
+
+The honesty gate caught one line of mine. The backoff's stamp read the phase
+cap as `float(getattr(..., 0.0) or 0.0)` and then `max(cap, 0.0)`, copied
+from the two readers of the same field elsewhere in `engine.py`. The field is
+clamped to [0, 3600] where it is declared, so neither guard can fire; the
+stamp reads the field directly now.
+
+Two existing pins asserted spellings the fix changed while their properties
+held: `test_audit_fixes_batch_4.py` pinned the web ack's
+`len(_msgs) - len(_failed)`, and `test_tick_stall_false_alarm.py` pinned the
+backoff's inline stamp. Each pins the new seam now.
+(`tests/test_a_cancelled_close_is_not_left_closing.py`,
+`tests/test_a_flatten_does_not_skip_a_close_in_flight.py`,
+`tests/test_a_failing_tick_loop_still_watches_the_stops.py`,
+`tests/test_a_failed_self_audit_does_not_retry_every_tick.py`,
+`tests/test_a_tap_timeout_does_not_cancel_the_scan.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -12861,7 +13019,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1081** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1086** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
