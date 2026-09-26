@@ -11134,6 +11134,42 @@ fixture: the order-keeping test listed the names alphabetically, so a sort
 changed nothing until the fixture's order was not sorted.
 (`tests/test_a_venue_read_clears_what_adoption_could_not_read.py`.)
 
+**A LEVEL NOBODY STATED WAS READ AS ALREADY HIT, AND THE BOT CLOSED AN
+OPERATOR'S OWN ORDER A MINUTE AFTER IT FILLED.** The per-tick static SL/TP
+check in `check_positions` compared the price with `pos.stop_loss` and
+`pos.take_profit` and had no `> 0` guard. A LONG's `price >= take_profit` is
+true when the target is 0, and a SHORT's `price >= stop_loss` is true when the
+stop is 0. Adoption writes `stop_loss=0, take_profit=0` for a limit order it
+finds on the venue: one placed by hand, or the bot's own whose record was lost.
+The fill places no stop (side-sanity refuses 0/0), and the next tick closed the
+position at market as `TP HIT` (LONG) or `SL HIT` (SHORT). Driven through the
+real `check_positions`, from the fill to the tick after. The same drive found a
+third case the survey did not list: a SHORT with a stated target and no stop
+was stopped out before its target could be reached, because the stop arm ran
+first.
+
+**The guarded reading already existed and said it was the mirror.**
+`_local_stop_breached`, the grace sub-loop's reading, had the guards and a
+docstring calling itself a "pure mirror of the per-tick static SL/TP check
+(kept in lock-step with it)". The per-tick check had lost the guards, and
+`test_grace_window_guard.py::test_zero_levels_never_breach` pinned
+"unset SL/TP (0.0) must never read as an instant hit" on the helper alone.
+The per-tick check asks the helper now, so there is one reading, and a test
+refuses a price-against-level comparison written back into `check_positions`.
+An unstated level now leaves the position open and unprotected, and the
+unprotected-position alerts are what report it. The bot does not close it.
+
+The paper book's `check_stops` has the same unguarded comparison. It is
+recorded and not changed: a paper position opens from an idea the risk gate
+sized off its stop distance, and no producer in the tree hands it a zero level.
+
+**Eight mutations: six killed and two equivalent.** Dropping the `> 0` guard
+on a LONG's stop or a SHORT's target changes nothing, because the helper
+returns first for a price at or below zero, and only such a price could reach
+either level at 0. The guards stay, so the rule reads the same on all four
+arms, and the early return they depend on is pinned instead: dropping it dies.
+(`tests/test_an_unstated_level_is_never_hit.py`.)
+
 **ANY LINKED USER'S /link WIPED THE AGENT'S PUBLISHED RECORD, AND THE ROUTE
 CALLED THAT "SERVER-ENFORCED".** `cmd_link` pushed
 `sync_in_background(user_id, portfolio.get("equity", 800), [], [])` after
@@ -13876,9 +13912,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1108** reach for source text through `source_scan`, `code_only`
+Driven, **440 of 1109** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 439 is a FLOOR and the honest shape is
+source scan that rule does not see, so 440 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

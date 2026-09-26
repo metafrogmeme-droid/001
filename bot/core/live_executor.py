@@ -8418,9 +8418,11 @@ class LiveExecutor:
     def _local_stop_breached(self, pos, price: float) -> tuple[bool, str]:
         """Whether `price` has hit `pos`'s local stop or target.
 
-        Pure mirror of the per-tick static SL/TP check (kept in lock-step with
-        it) so the grace sub-loop and the monitor agree on what "breached"
-        means. Guards stop_loss/take_profit > 0 so an unset level (0.0) can
+        The one reading of "breached": the grace sub-loop and the per-tick
+        static check in `check_positions` both ask it. It used to describe
+        itself as a mirror "kept in lock-step" with the per-tick check, which
+        had lost the guards below, so an unset level read as hit there and not
+        here. Guards stop_loss/take_profit > 0 so an unset level (0.0) can
         never be read as an instant TP/SL hit.
         """
         if price <= 0:
@@ -9105,29 +9107,13 @@ class LiveExecutor:
                                          pos.symbol, pos_strategy, hold_hours, remaining)
 
                     # ── Static SL/TP check ──
-                    should_close = False
-                    reason = ""
-
-                    _trail_on = bool(pos.trailing_state
-                                     and pos.trailing_state.get("trailing_active"))
-                    if pos.direction == "LONG":
-                        if price <= pos.stop_loss:
-                            should_close = True
-                            reason = stop_exit_label(True, pos.entry_price,
-                                                     pos.stop_loss, exit_price=price,
-                                                     trailing_active=_trail_on)
-                        elif price >= pos.take_profit:
-                            should_close = True
-                            reason = "TP HIT"
-                    else:  # SHORT
-                        if price >= pos.stop_loss:
-                            should_close = True
-                            reason = stop_exit_label(False, pos.entry_price,
-                                                     pos.stop_loss, exit_price=price,
-                                                     trailing_active=_trail_on)
-                        elif price <= pos.take_profit:
-                            should_close = True
-                            reason = "TP HIT"
+                    # One reading with the grace sub-loop. This copy had no
+                    # `> 0` guards, so a level the venue never stated (0.0,
+                    # which adoption writes for an order placed by hand) read
+                    # as already hit: a LONG's TP, a SHORT's SL. An adopted
+                    # limit order was market-closed as "TP HIT" or "SL HIT"
+                    # on the first tick after it filled.
+                    should_close, reason = self._local_stop_breached(pos, price)
 
                     if should_close:
                         # Close manually if no exchange SL/TP, or if SL/TP exists but
