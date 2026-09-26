@@ -77,7 +77,7 @@ import time
 from collections import deque
 from datetime import datetime
 from bot.compat import UTC
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, TypeGuard
 
 if TYPE_CHECKING:
     # Import only for type-checking so the forward-ref annotations on __init__
@@ -251,6 +251,19 @@ _UNMAPPED_GROUP = "UNMAPPED_ALT"
 _NOT_ENFORCED = "live book; not enforced: LIVE_BOOK_RISK_GATES_ENABLED is off"
 
 
+def _sane_peak(val: object) -> TypeGuard[float]:
+    """A restorable equity high-water mark: a positive finite number that is
+    not absurd. A tampered 10^12 would pin the drawdown near 100% forever."""
+    return (isinstance(val, (int, float)) and not isinstance(val, bool)
+            and 0 < float(val) < 1e12)
+
+
+def _is_account_key(val: object) -> TypeGuard[str]:
+    """An account name as `_select_live_account` records one: a venue id."""
+    return (isinstance(val, str) and len(val) <= 32 and val.isascii()
+            and val == val.lower() and val.replace("_", "").isalnum())
+
+
 class RiskEngine:
     """
     Pre-trade and post-trade risk checks.
@@ -281,6 +294,9 @@ class RiskEngine:
     #: with it so the two align from their NEWEST end (`_governor_closes`).
     #: None until the first close is stamped; built lazily by `_close_stamps`.
     _realized_stamps: "Optional[deque[Optional[float]]]" = None
+    #: Whose live peak `_live_equity_peak` is (`_select_live_account`). A class
+    #: default for the `__new__` reason above: `drawdown_status` reads it.
+    _live_peak_account: str = ""
 
     def __init__(self, portfolio: "PortfolioTracker", state_file: Optional[str] = None,  # noqa: F821
                  macro_calendar: Optional["MacroCalendar"] = None,  # noqa: F821
@@ -375,6 +391,14 @@ class RiskEngine:
         # peak back to 0.0 — the restore ran, audited PEAK_RESTORED, and had
         # no effect. Init-after-load is invisible in review; a test caught it.
         self._live_equity_peak: float = 0.0  # high-water mark for live drawdown
+        # WHOSE high-water mark `_live_equity_peak` is: the account (venue)
+        # whose equity set it, and the peaks of the accounts not being read
+        # right now (`_select_live_account`). One number for every account let
+        # a /venue switch compare the new account's balance to the old one's
+        # peak: driven, bitget at $1,000 then bybit at $300 read
+        # "DRAWDOWN: 70.0% >= 7.0%" and tripped the breaker on a move of zero.
+        self._live_peak_account: str = ""
+        self._live_equity_peaks: dict[str, float] = {}
         # LIVE daily-loss accumulator. Its comment used to read "in-memory
         # (rebuild after restart is safe — a fresh day starts flat)". A fresh
         # DAY starts flat; a restart is not a fresh day. Lose 4.5% against a
@@ -1360,7 +1384,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "") -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -1376,11 +1400,15 @@ class RiskEngine:
         correlation caps, the two exposure caps and correlation sizing read
         the book the trade joins, and the paper tracker holds nothing a live
         fill wrote. None there is a book nobody handed in, never a flat one.
+        Pass live_account= (the venue the live equity was read from): the
+        live drawdown is measured against THAT account's high-water mark, and
+        an account never seen before starts its own. Unnamed keeps whichever
+        account the peak was last measured on.
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "") -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -2117,6 +2145,7 @@ class RiskEngine:
             # high-water mark (updated each live evaluation), not the paper
             # snapshot which never moves in pure-live mode (audit CRITICAL).
             if live_equity is not None and live_equity > 0:
+                self._select_live_account(live_account)
                 # Remember it so the OPERATOR-FACING reporter can show the
                 # same number this gate enforces. Without it drawdown_status()
                 # had no live equity to work from and fell back to the paper
@@ -4490,6 +4519,12 @@ class RiskEngine:
             # restart without a "first restart writes, second restores" lag.
             "live_equity_peak": (float(self._live_equity_peak)
                                  if self._live_equity_peak > 0 else None),
+            # Whose peak that is, and the peaks of the accounts not being read
+            # (`_select_live_account`). Written and restored with it, behind
+            # the same flag: a peak restored without its account is compared
+            # to whichever account is read first.
+            "live_peak_account": self._live_peak_account or None,
+            "live_equity_peaks": dict(self._live_equity_peaks),
             # The day's realized LIVE loss, and the UTC day it belongs to. The
             # day is written alongside deliberately: restoring the number
             # without it would carry yesterday's loss into today and trip the
@@ -4684,12 +4719,25 @@ class RiskEngine:
             if not CONFIG.risk.persist_live_drawdown_peak:
                 return
             val = data.get("live_equity_peak")
-            if isinstance(val, (int, float)) and 0 < float(val) < 1e12:
+            if _sane_peak(val):
                 self._live_equity_peak = float(val)
                 audit(risk_log,
                       "Live drawdown peak restored across restart",
                       action="state_restore", result="PEAK_RESTORED",
                       data={"peak": float(val)})
+            # Whose peak it is, and the others. A value that is not an
+            # account name, or a peak that is not sane, is dropped on its own:
+            # an unreadable account is "not attributed yet", which the first
+            # named account adopts, and never a reason to fail the restore.
+            acct = data.get("live_peak_account")
+            if _is_account_key(acct):
+                self._live_peak_account = acct
+            # A value that is not a map raises on `.items()`, and the
+            # `except` below restores nothing from it.
+            self._live_equity_peaks = {
+                a: float(v) for a, v in data.get("live_equity_peaks", {}).items()
+                if _is_account_key(a) and a != self._live_peak_account
+                and _sane_peak(v)}
         except Exception:
             pass
 
@@ -4724,6 +4772,46 @@ class RiskEngine:
             return False, 0.0
         margin_pct = position_usd / sizing_equity * 100
         return (margin_pct < max_position_pct + 1e-9), margin_pct
+
+    def _select_live_account(self, account: str) -> None:
+        """Make ``_live_equity_peak`` the high-water mark of ``account``.
+
+        A drawdown is one account's equity against THAT account's own peak.
+        The operator's /venue switch replaces the executor under the same
+        engine, and a per-user engine serves every venue its person trades,
+        so an unnamed peak compared the new account's balance to the old
+        account's high: driven, bitget at $1,000 then bybit at $300 read
+        70% and tripped the breaker, and switching back after a real loss on
+        the second account would have been measured against the wrong high
+        as well. The account being left keeps its peak, and returning to it
+        resumes that peak rather than re-seeding one, because a drawdown it
+        carried when it was left is still its drawdown.
+
+        Unnamed (``""``) changes nothing: the callers that do not know the
+        account keep reading whichever peak is current. A peak with no owner
+        yet (a fresh engine, or one restored from a build that did not
+        record the account) becomes the first named account's, which is what
+        every evaluation compared it to before accounts were named.
+        """
+        acct = str(account or "").strip().lower()
+        if not acct or acct == self._live_peak_account:
+            return
+        if not self._live_peak_account:
+            self._live_peak_account = acct
+            return
+        left = self._live_peak_account
+        self._live_equity_peaks[left] = self._live_equity_peak
+        resumed = self._live_equity_peaks.pop(acct, 0.0)
+        self._live_equity_peak = resumed
+        self._live_peak_account = acct
+        audit(risk_log,
+              f"Live drawdown now measured on {acct} "
+              + (f"(its peak ${resumed:,.2f} resumed)" if resumed > 0
+                 else "(no peak on record: it starts from this reading)")
+              + f"; {left}'s peak is kept for when it is read again",
+              action="live_peak_account", result="SWITCHED",
+              data={"from": left, "to": acct,
+                    "resumed_peak": resumed if resumed > 0 else None})
 
     def _drawdown_transfer_hint(self, live_equity) -> str:
         """A suffix for the drawdown trip reason when the drop looks like a
@@ -4808,6 +4896,9 @@ class RiskEngine:
             # balance during an auth blip) kept current-drawdown pinned above the
             # cap, so the breaker re-tripped on the very next evaluate() and a
             # manual /resume never stuck — the "still halted after reset" report.
+            # The ACCOUNT being read is re-seeded; another account's peak is
+            # kept for when that account is read again, because nothing the
+            # operator confirmed here was about it.
             self._live_equity_peak = 0.0
             self._last_live_equity = None
             # ALSO clear the DAILY-LOSS condition, for the same reason: a manual
@@ -4879,6 +4970,8 @@ class RiskEngine:
                 "person_drawdown_pct": person_dd,
                 "live_equity_peak": (float(self._live_equity_peak)
                                      if self._live_equity_peak > 0 else None),
+                # Whose peak: the account the live figure was measured on.
+                "live_peak_account": self._live_peak_account or None,
                 "max_drawdown_pct": float(state.max_drawdown_pct),
                 "effective_limit_pct": float(self._effective_max_drawdown_pct()),
                 "config_live_limit_pct": float(CONFIG.risk.live_max_drawdown_pct),

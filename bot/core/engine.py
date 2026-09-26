@@ -641,6 +641,14 @@ def give_up_cost_s(gave_up: Optional[int]) -> Optional[float]:
         return None
 
 
+def _executor_account(ex) -> str:
+    """The account a live executor trades: its venue id, or "" unread."""
+    try:
+        return str(ex._venue.id or "").strip().lower()
+    except Exception:
+        return ""
+
+
 class _LiveRecheck(NamedTuple):
     """What one pre-execution re-check read about one account. NAMED, because
     positions are how readers drift.
@@ -658,6 +666,10 @@ class _LiveRecheck(NamedTuple):
     # The positions on that account as the risk gates read them
     # (`live_executor.held_rows`), or None: not live.
     book: Optional[tuple] = None
+    # WHICH account (the executor's venue) the equity above was read from, so
+    # the live drawdown is measured against that account's own peak. "" is
+    # "not named", which keeps whichever peak the engine last measured.
+    account: str = ""
 
 
 class RuneClawEngine:
@@ -1375,7 +1387,8 @@ class RuneClawEngine:
             return _LiveRecheck(live_eq, live_open,
                                 size_bounds.available_from_balance(_bal),
                                 _live_executor_mod.held_rows(
-                                    self.live_executor.open_positions))
+                                    self.live_executor.open_positions),
+                                account=_executor_account(self.live_executor))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
@@ -1383,7 +1396,8 @@ class RuneClawEngine:
         live_open = len(ex.open_positions)
         return _LiveRecheck(live_eq, live_open,
                             size_bounds.available_from_balance(bal or {}),
-                            _live_executor_mod.held_rows(ex.open_positions))
+                            _live_executor_mod.held_rows(ex.open_positions),
+                            account=_executor_account(ex))
 
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
@@ -7147,7 +7161,7 @@ class RuneClawEngine:
         # holds nothing a live fill wrote).
         live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
                      if CONFIG.is_live() else None)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "")
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -7802,7 +7816,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book, live_account=_rc.account)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.

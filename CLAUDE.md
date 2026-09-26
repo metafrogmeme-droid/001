@@ -11908,6 +11908,86 @@ That is the stricter reading and it is sound: the watch list is saved through
 `atomic_write_json`, so an empty file is never this module's own output, and
 the operator is still enrolled for that run.
 
+**A DRAWDOWN IS ONE ACCOUNT'S EQUITY AGAINST THAT ACCOUNT'S PEAK, AND A
+`/venue` SWITCH HANDED THE GATE A DIFFERENT ACCOUNT.** The live drawdown gate
+compares the equity it is given with one high-water mark,
+`_live_equity_peak`, and the engine gives it whichever account it is trading
+now. Two ordinary actions change that account under the same risk engine:
+
+- The operator's `/venue` replaces the executor. `switch_venue` refuses only
+  while a position is open, and nothing in it touched the risk engine's peak.
+- A per-user engine serves every venue its person trades, and `/connect` of a
+  second venue makes that venue the active one (`set_venue` sets `active`).
+
+Driven through the real `switch_venue`: bitget at $1,000, then bybit at $300,
+read `DRAWDOWN: 70.0% >= 7.0% (this venue)` and tripped the breaker on a move
+of zero. The trip card's transfer hint told the operator to look for a
+withdrawal. Switching to a larger account instead raised the peak to that
+account's balance, and switching back then tripped. The line said "this
+venue" while it compared two.
+
+**The peak belongs to the account it was measured on.**
+`RiskEngine._select_live_account` keeps the current account's peak in
+`_live_equity_peak` and the others in `_live_equity_peaks`. Returning to an
+account resumes its peak rather than re-seeding one, because re-seeding would
+forget a drawdown the account still carries: 5% down on bitget, a switch away
+and back, and it could lose another 7% from there. An account never seen
+before starts from its first reading, as the first-ever evaluation did. A
+peak with no owner (a fresh engine, or one restored from a build that did not
+record the account) becomes the first named account's, which is what every
+evaluation compared it to before. An unnamed evaluation changes nothing.
+The engine names the account at both live evaluations (the tick and the
+confirm-time recheck, through `_LiveRecheck.account`), and a rule over the
+tree requires every `.evaluate(...)` that hands a live equity to name one; a
+literal `""` names none. `/resume` re-seeds the account in front of the
+operator and keeps the others, because nothing it confirmed was about them.
+The accounts are saved with the peak and restored behind the same
+`PERSIST_LIVE_DRAWDOWN_PEAK` flag. An account name or a peak that does not
+read is dropped on its own and never fails the restore closed, because the
+worst case of a lost peak is a re-seed.
+
+**Filed, with what was driven.** The per-person caps under per-user live
+(`set_person_totals_fn`) sum `user_portfolios.venue_readings`, which are the
+PAPER practice books. Driven with `PER_USER_LIVE_ENABLED` on: the person
+totals read `open_positions=0, equity_usd=10000.0` for a person holding live
+positions on two venues, and the gate printed `OPEN_POSITIONS: 3 OK` from the
+active venue's count alone. So the cross-venue cap
+`docs/MULTI_VENUE_RISK_SPLIT.md` records as decided ("caps and drawdown per
+person") binds nothing live. The practice book can only tighten it (a
+practice position counts against the live cap; a practice drawdown would
+halt every venue). The fix needs each venue's live balance and a
+per-field completeness reading the aggregator does not have, so it is a
+decision about how the caps read venues the person is not trading on now. No
+caller passes a venue to `risk_for`, so the per-venue breakers that document
+describes are one engine per person in practice. Separately,
+`risk_engine`'s authority bridge (`_spent = 0.0` on a failed ledger read)
+cannot fire: nothing binds an envelope to a `RiskEngine`, and its setters are
+on the unreachable-methods baseline. Fix it before wiring it.
+
+**Twenty-nine mutations, each killed.** Round one ran 31 and four survived:
+two were fixtures and two were checks no input could reach.
+
+- An adoption that fell through to the switch branch changed nothing but
+  wrote an audit of a switch from bybit to bybit, a false statement that no
+  test read. The adoption test reads the audit now.
+- Reading an account's peak with `get` instead of `pop` left a second copy of
+  it in the others' store: two answers about one account, and no test held
+  the invariant. One does now.
+- A map check on the restored peaks is caught by the restore's own `except`
+  either way, and a filter that kept zero peaks out of the save file matched
+  a filter the restore already applies. Both are deleted.
+
+Planning the round deleted three more such lines before it ran: a reset of
+the last equity on a switch, which the next line of the evaluation
+overwrites; a guard against stashing a zero peak, since a zero pops back as
+the same zero; and a length check that an empty string already fails.
+The drive also ran two engines in one process with the repo's own `data/`
+directory, because `state_path` anchors on the repo and ignores the working
+directory. A real `/venue` switch in one test then left
+`data/venue_override.json` naming bybit, so the next test's engine started on
+bybit. The suite keeps the override in its own directory now.
+(`tests/test_the_live_drawdown_peak_belongs_to_its_account.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13199,7 +13279,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1090** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1091** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
