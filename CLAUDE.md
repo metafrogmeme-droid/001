@@ -11988,6 +11988,37 @@ directory. A real `/venue` switch in one test then left
 bybit. The suite keeps the override in its own directory now.
 (`tests/test_the_live_drawdown_peak_belongs_to_its_account.py`.)
 
+**A KEY OR CONTROL CHANGE DROPPED A USER'S OPEN POSITIONS FROM THE MONITOR.**
+`invalidate_user_executor` pops every executor a user holds, so the next
+order is built from the current keys. It runs on `/connect`, on
+`/disconnect`, on the website's credential pull, and on every website control
+change: margin cap, pause, venue selection. The monitoring and reconciliation
+loops walk `_user_executors` and nothing else (`_all_live_executors`), so the
+user's open positions left them with the executor. Only three things rebuilt
+one: the user's next trade, a card view (the active venue only), or a restart
+(every other venue). Driven: a user's book checked once, one website control
+change, then three monitor passes checked it zero times, with no executor held
+for the user. A stop resting on the venue still fires, but the bot did not
+notice the close, trail, time-exit or re-arm anything, or feed the breakers.
+
+**The next monitor pass rebuilds what was dropped.** Invalidation queues the
+user (a set, because the website's pull runs on a worker thread), and
+`_check_open_positions` calls `_rebind_invalidated_executors` before it walks
+the executors. That is the rebuild a restart already does: the active venue's
+executor, then every other venue whose saved book holds a position
+(`_rehydrate_other_venue_books`). A rebuild that raises is retried on the next
+pass and warned about once, and a venue's book that could not be rebuilt is
+named at WARNING, because those positions are not being monitored. With
+per-user live off the queue is dropped, since no per-user executor trades.
+
+**Fourteen mutations, each killed. One first-round kill was for the wrong
+reason.** Deleting the line that queues the user left an empty `if` body,
+which is a syntax error, so the suite errored at collection. Re-aimed as
+`pass`, it dies on the drive. Moving the rebuild after the executor walk
+dies too, because the pass right after the invalidation must visit the
+rebuilt book.
+(`tests/test_an_invalidated_executor_is_rebuilt_before_the_monitor_runs.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13279,7 +13310,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1091** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1092** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

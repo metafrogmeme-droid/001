@@ -679,6 +679,10 @@ class RuneClawEngine:
     The engine never executes a trade without explicit human confirmation.
     """
 
+    #: Set in `__init__`; None on an engine a test builds with `__new__`, which
+    #: then queues and rebuilds nothing.
+    _executors_to_rebind: Optional[set] = None
+
     def __init__(self) -> None:
         self.portfolio = PortfolioTracker()
         self.scanner = MarketScanner()
@@ -808,6 +812,12 @@ class RuneClawEngine:
         # telegram user_id, each bound to that user's OWN linked Bitget account.
         # Empty + unused while the flag is off, so the operator path is unchanged.
         self._user_executors: dict[str, LiveExecutor] = {}
+        # Users whose executors `invalidate_user_executor` dropped, waiting for
+        # the next monitor pass to rebuild them (`_rebind_invalidated_executors`).
+        # A set, because the website's pull adds to it from a worker thread and
+        # the monitor takes from it on the loop.
+        self._executors_to_rebind = set()
+        self._rebind_warned: set[str] = set()
         # Read-only per-user executors for the /livebalance VIEW only, keyed by
         # telegram user_id. Viewing your own linked account is read-only and must
         # work as soon as you /connect — independent of PER_USER_LIVE_ENABLED
@@ -2688,6 +2698,14 @@ class RuneClawEngine:
         # with a fresh-looking age — as this user's equity for up to 900s.
         self._user_live_balance_cache.pop(uid, None)
         self._user_live_balance_cache_ts.pop(uid, None)
+        # AND THE OPEN POSITIONS THOSE EXECUTORS HELD STOPPED BEING MONITORED.
+        # The monitoring and reconciliation loops walk `_user_executors` and
+        # nothing else (`_all_live_executors`), and only the next trade, a card
+        # view (the active venue) or a restart rebuilt one. Driven: after one
+        # website control change, three monitor passes checked that user's
+        # open book zero times. The next monitor pass rebuilds them.
+        if self._executors_to_rebind is not None:
+            self._executors_to_rebind.add(uid)
 
     async def switch_venue(self, venue_id: str) -> str:
         """Hot-swap the shared operator executor onto another trading venue.
@@ -3378,6 +3396,48 @@ class RuneClawEngine:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
+
+    def _rebind_invalidated_executors(self) -> list:
+        """Rebuild the executors `invalidate_user_executor` dropped.
+
+        The same rebuild a restart does (`_rehydrate_user_executors`): the
+        active venue's executor, and every other venue whose saved book holds
+        a position. Returns what could not be rebuilt, ``venue/user`` for a
+        venue's book and ``user`` for a user whose active venue raised, and
+        says so, because those positions are not being monitored. A user
+        whose rebuild raised is tried again on the next pass.
+        """
+        pending = self._executors_to_rebind
+        if not pending:
+            return []
+        if not getattr(CONFIG, "per_user_live_enabled", False):
+            # No per-user executor trades, so none is monitored either.
+            pending.clear()
+            return []
+        missing: list = []
+        for uid in sorted(pending):
+            pending.discard(uid)
+            try:
+                self._executor_for(uid)
+            except Exception as exc:
+                pending.add(uid)
+                missing.append(uid)
+                if uid not in self._rebind_warned:
+                    self._rebind_warned.add(uid)
+                    logger.warning("Rebuilding the executor for %s failed, "
+                                   "retried next pass: %s", uid, exc)
+                continue
+            self._rebind_warned.discard(uid)
+            missing += self._rehydrate_other_venue_books([uid])
+        unbuilt = [m for m in missing if "/" in m]
+        if unbuilt:
+            audit(system_log,
+                  f"{len(unbuilt)} live book(s) could not be rebuilt after the "
+                  f"user's keys or controls changed — those positions are NOT "
+                  f"being monitored: {', '.join(unbuilt)}",
+                  action="per_user_rebind", result="WARNING",
+                  level=logging.WARNING)
+        return missing
 
     def _rehydrate_other_venue_books(self, ids) -> list:
         """Build the executor for every NON-active venue that holds a saved book.
@@ -9064,6 +9124,9 @@ class RuneClawEngine:
 
         # Also check live positions if in live mode
         if CONFIG.is_live():
+            # An executor dropped by a /connect, a /disconnect or a website
+            # control change is rebuilt before the loops below walk them.
+            self._rebind_invalidated_executors()
             # SL/TP self-heal: re-place any stop that went missing DURING
             # operation (adopted-unprotected, cancelled SL, deferred-then-filled).
             # verify_and_fix_sltp is idempotent; throttled so it isn't run every
