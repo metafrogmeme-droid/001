@@ -132,6 +132,33 @@ def aggregate(readings) -> PersonTotals:
     )
 
 
+def position_totals(readings) -> PersonTotals:
+    """The person's open positions across their LIVE venues, and nothing else.
+
+    The live books count positions and hold no equity or daily P&L a
+    per-person total could honestly sum: a venue's balance is read only when
+    it is traded (`get_user_live_equity`), and every close on every venue
+    already lands in the one engine that serves the person. So the equity and
+    the daily P&L are ``None``, which the drawdown and daily-loss readers take
+    as "no person-level figure" and fall back to that engine's own, and a
+    venue whose position count could not be read is in ``unreadable``, which
+    makes the count a FLOOR exactly as in `aggregate`.
+    """
+    positions = 0
+    read = 0
+    missing: list = []
+    for r in readings or []:
+        venue = str(getattr(r, "venue", "") or "?")
+        n = getattr(r, "open_positions", None)
+        if n is None:
+            missing.append(venue)
+            continue
+        positions += int(n)
+        read += 1
+    return PersonTotals(open_positions=positions, venues_read=read,
+                        unreadable=tuple(missing))
+
+
 def person_daily_loss_pct(totals: PersonTotals) -> Optional[float]:
     """Today's loss as a percentage of the person's TOTAL equity, or ``None``.
 

@@ -591,9 +591,13 @@ class TestCaches:
         e = NS(_user_executors={"555": object(), "bybit/555": object(), "777": object()},
                _balance_view_executors={"555": object()},
                _user_live_balance_cache={"555": {"total": 96.5}, "777": {"total": 1.0}},
-               _user_live_balance_cache_ts={"555": _NOW, "777": _NOW})
+               _user_live_balance_cache_ts={"555": _NOW, "777": _NOW},
+               _executors_to_rebind=set())
         RuneClawEngine.invalidate_user_executor.__get__(e)("555")
         assert "555" not in e._user_executors and "bybit/555" not in e._user_executors
+        # ...and queues the user, so the next monitor pass rebuilds the
+        # executors whose open positions it would otherwise stop watching.
+        assert "555" in e._executors_to_rebind and "777" not in e._executors_to_rebind
         assert "555" not in e._balance_view_executors
         assert "555" not in e._user_live_balance_cache and "555" not in e._user_live_balance_cache_ts
         assert e._user_live_balance_cache == {"777": {"total": 1.0}} and "777" in e._user_executors

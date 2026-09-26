@@ -641,6 +641,14 @@ def give_up_cost_s(gave_up: Optional[int]) -> Optional[float]:
         return None
 
 
+def _executor_account(ex) -> str:
+    """The account a live executor trades: its venue id, or "" unread."""
+    try:
+        return str(ex._venue.id or "").strip().lower()
+    except Exception:
+        return ""
+
+
 class _LiveRecheck(NamedTuple):
     """What one pre-execution re-check read about one account. NAMED, because
     positions are how readers drift.
@@ -658,6 +666,10 @@ class _LiveRecheck(NamedTuple):
     # The positions on that account as the risk gates read them
     # (`live_executor.held_rows`), or None: not live.
     book: Optional[tuple] = None
+    # WHICH account (the executor's venue) the equity above was read from, so
+    # the live drawdown is measured against that account's own peak. "" is
+    # "not named", which keeps whichever peak the engine last measured.
+    account: str = ""
 
 
 class RuneClawEngine:
@@ -666,6 +678,10 @@ class RuneClawEngine:
     Uses a formal FSM via AgentState for every lifecycle transition.
     The engine never executes a trade without explicit human confirmation.
     """
+
+    #: Set in `__init__`; None on an engine a test builds with `__new__`, which
+    #: then queues and rebuilds nothing.
+    _executors_to_rebind: Optional[set] = None
 
     def __init__(self) -> None:
         self.portfolio = PortfolioTracker()
@@ -796,6 +812,12 @@ class RuneClawEngine:
         # telegram user_id, each bound to that user's OWN linked Bitget account.
         # Empty + unused while the flag is off, so the operator path is unchanged.
         self._user_executors: dict[str, LiveExecutor] = {}
+        # Users whose executors `invalidate_user_executor` dropped, waiting for
+        # the next monitor pass to rebuild them (`_rebind_invalidated_executors`).
+        # A set, because the website's pull adds to it from a worker thread and
+        # the monitor takes from it on the loop.
+        self._executors_to_rebind = set()
+        self._rebind_warned: set[str] = set()
         # Read-only per-user executors for the /livebalance VIEW only, keyed by
         # telegram user_id. Viewing your own linked account is read-only and must
         # work as soon as you /connect — independent of PER_USER_LIVE_ENABLED
@@ -1375,7 +1397,8 @@ class RuneClawEngine:
             return _LiveRecheck(live_eq, live_open,
                                 size_bounds.available_from_balance(_bal),
                                 _live_executor_mod.held_rows(
-                                    self.live_executor.open_positions))
+                                    self.live_executor.open_positions),
+                                account=_executor_account(self.live_executor))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
@@ -1383,7 +1406,29 @@ class RuneClawEngine:
         live_open = len(ex.open_positions)
         return _LiveRecheck(live_eq, live_open,
                             size_bounds.available_from_balance(bal or {}),
-                            _live_executor_mod.held_rows(ex.open_positions))
+                            _live_executor_mod.held_rows(ex.open_positions),
+                            account=_executor_account(ex))
+
+    @staticmethod
+    def _critique_book(recheck_engine, rc: "_LiveRecheck"):
+        """The book the confirm path's self-critique counts: the one the risk
+        re-check just read.
+
+        The critique's heat check ("N open positions, portfolio is hot") read
+        `user_portfolios.combined_snapshot()`: every user's PRACTICE book,
+        summed, in live mode too. So a live trade on a flat book lost 0.03 of
+        confidence to somebody else's practice positions, and an auto-confirm
+        that fell under the floor for it was rejected; and four real live
+        positions never made the book "hot". Live, the count is the re-check's
+        own count for the account this order executes on. A live confirm only
+        reaches the critique after the re-check read that account's equity,
+        and the count is read beside it, so it is a number here. Paper, it is
+        the book the re-check's engine gates read.
+        """
+        if CONFIG.is_live():
+            from types import SimpleNamespace
+            return SimpleNamespace(open_positions=rc.open_count)
+        return recheck_engine.book_snapshot()
 
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
@@ -2674,6 +2719,14 @@ class RuneClawEngine:
         # with a fresh-looking age — as this user's equity for up to 900s.
         self._user_live_balance_cache.pop(uid, None)
         self._user_live_balance_cache_ts.pop(uid, None)
+        # AND THE OPEN POSITIONS THOSE EXECUTORS HELD STOPPED BEING MONITORED.
+        # The monitoring and reconciliation loops walk `_user_executors` and
+        # nothing else (`_all_live_executors`), and only the next trade, a card
+        # view (the active venue) or a restart rebuilt one. Driven: after one
+        # website control change, three monitor passes checked that user's
+        # open book zero times. The next monitor pass rebuilds them.
+        if self._executors_to_rebind is not None:
+            self._executors_to_rebind.add(uid)
 
     async def switch_venue(self, venue_id: str) -> str:
         """Hot-swap the shared operator executor onto another trading venue.
@@ -2899,7 +2952,14 @@ class RuneClawEngine:
             # loose for exactly as long as nobody noticed. With one book the
             # total equals that book, so this is a no-op until it is not.
             def _totals(_uid=str(user_id)):
-                from bot.risk.venue_aggregate import aggregate
+                from bot.risk.venue_aggregate import aggregate, position_totals
+                # LIVE, the person's money is on their live venues. The paper
+                # books below are practice: driven, a person holding three
+                # live positions on bitget and three on bybit against a cap of
+                # five read "OPEN_POSITIONS: 3 OK", counted off a practice
+                # book of $10,000 and no positions.
+                if CONFIG.is_live():
+                    return position_totals(self._live_person_readings(_uid))
                 return aggregate(self.user_portfolios.venue_readings(_uid))
             eng.set_person_totals_fn(_totals)
             # Drawdown is per person and measured off ONE shared peak, so this
@@ -3364,6 +3424,101 @@ class RuneClawEngine:
             audit(system_log,
                   f"Rehydrated {built} of {len(ids)} per-user executor(s) at startup",
                   action="per_user_rehydrate", result="OK")
+
+    def _live_person_readings(self, user_id: str) -> list:
+        """One reading per venue this person trades live: its open positions.
+
+        Counted off the executor that holds the venue's book (open and
+        resting, `open_positions`). A linked venue with no executor is
+        counted off its saved book: nothing saved is zero, and a saved book
+        that holds a row is a count nobody read (`None`), because the
+        executor that would load it is not built, so the total is a floor.
+        A credential store that could not list the venues makes the whole
+        set unknown, since the missing venue could be any of them.
+
+        A linked name is NOT passed through `normalize_venue`: that answers
+        ``''`` for a venue this build does not know, and ``''`` is the
+        default venue's path, so the unknown venue would be counted off
+        bitget's book. `executor_state_dir` refuses an unknown name instead,
+        which reads here as a count nobody read.
+        """
+        from bot.core.live_executor import saved_book_holds_positions
+        from bot.core.venue_key import executor_state_dir
+        from bot.risk.venue_aggregate import VenueReading
+        uid = str(user_id)
+        held: dict = {}
+        for key, executor in list(self._user_executors.items()):
+            owner = key.split("/", 1)[1] if "/" in key else key
+            if owner == uid:
+                held[_executor_account(executor)] = executor
+        try:
+            from bot.core.exchange_credentials import get_credential_store
+            linked = {str(v).strip().lower()
+                      for v in get_credential_store().list_venues(uid)}
+        except Exception as exc:
+            logger.warning("Person-level positions: venues for %s could not "
+                           "be listed: %s", uid, exc)
+            return [*(VenueReading(venue=v, open_positions=len(ex.open_positions))
+                      for v, ex in sorted(held.items())),
+                    VenueReading(venue="linked venues",
+                                 unreadable_reason="venues_unlisted")]
+        readings: list = []
+        for venue in sorted(linked | set(held)):
+            ex = held.get(venue)
+            if ex is not None:
+                readings.append(VenueReading(
+                    venue=venue, open_positions=len(ex.open_positions)))
+                continue
+            try:
+                holds = saved_book_holds_positions(uid, executor_state_dir(venue))
+            except Exception:
+                holds = True
+            readings.append(
+                VenueReading(venue=venue, unreadable_reason="book_not_loaded")
+                if holds else VenueReading(venue=venue, open_positions=0))
+        return readings
+
+    def _rebind_invalidated_executors(self) -> list:
+        """Rebuild the executors `invalidate_user_executor` dropped.
+
+        The same rebuild a restart does (`_rehydrate_user_executors`): the
+        active venue's executor, and every other venue whose saved book holds
+        a position. Returns what could not be rebuilt, ``venue/user`` for a
+        venue's book and ``user`` for a user whose active venue raised, and
+        says so, because those positions are not being monitored. A user
+        whose rebuild raised is tried again on the next pass.
+        """
+        pending = self._executors_to_rebind
+        if not pending:
+            return []
+        if not getattr(CONFIG, "per_user_live_enabled", False):
+            # No per-user executor trades, so none is monitored either.
+            pending.clear()
+            return []
+        missing: list = []
+        for uid in sorted(pending):
+            pending.discard(uid)
+            try:
+                self._executor_for(uid)
+            except Exception as exc:
+                pending.add(uid)
+                missing.append(uid)
+                if uid not in self._rebind_warned:
+                    self._rebind_warned.add(uid)
+                    logger.warning("Rebuilding the executor for %s failed, "
+                                   "retried next pass: %s", uid, exc)
+                continue
+            self._rebind_warned.discard(uid)
+            missing += self._rehydrate_other_venue_books([uid])
+        unbuilt = [m for m in missing if "/" in m]
+        if unbuilt:
+            audit(system_log,
+                  f"{len(unbuilt)} live book(s) could not be rebuilt after the "
+                  f"user's keys or controls changed — those positions are NOT "
+                  f"being monitored: {', '.join(unbuilt)}",
+                  action="per_user_rebind", result="WARNING",
+                  level=logging.WARNING)
+        return missing
 
     def _rehydrate_other_venue_books(self, ids) -> list:
         """Build the executor for every NON-active venue that holds a saved book.
@@ -7147,7 +7302,7 @@ class RuneClawEngine:
         # holds nothing a live fill wrote).
         live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
                      if CONFIG.is_live() else None)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "")
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -7802,7 +7957,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book, live_account=_rc.account)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.
@@ -7835,7 +7990,7 @@ class RuneClawEngine:
         try:
             from bot.core.critique import TradeCritique
             critique = TradeCritique()
-            snapshot = self.user_portfolios.combined_snapshot() if self.user_portfolios.all_portfolios() else self.portfolio.snapshot()
+            snapshot = self._critique_book(recheck_engine, _rc)
             macro_ctx_for_critique = self.macro_provider.get_context(symbol=idea.asset)
             critique_result = critique.evaluate(idea, recheck, snapshot, macro_ctx_for_critique)
 
@@ -9050,6 +9205,9 @@ class RuneClawEngine:
 
         # Also check live positions if in live mode
         if CONFIG.is_live():
+            # An executor dropped by a /connect, a /disconnect or a website
+            # control change is rebuilt before the loops below walk them.
+            self._rebind_invalidated_executors()
             # SL/TP self-heal: re-place any stop that went missing DURING
             # operation (adopted-unprotected, cancelled SL, deferred-then-filled).
             # verify_and_fix_sltp is idempotent; throttled so it isn't run every

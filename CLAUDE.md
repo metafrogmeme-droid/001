@@ -11908,6 +11908,269 @@ That is the stricter reading and it is sound: the watch list is saved through
 `atomic_write_json`, so an empty file is never this module's own output, and
 the operator is still enrolled for that run.
 
+**A DRAWDOWN IS ONE ACCOUNT'S EQUITY AGAINST THAT ACCOUNT'S PEAK, AND A
+`/venue` SWITCH HANDED THE GATE A DIFFERENT ACCOUNT.** The live drawdown gate
+compares the equity it is given with one high-water mark,
+`_live_equity_peak`, and the engine gives it whichever account it is trading
+now. Two ordinary actions change that account under the same risk engine:
+
+- The operator's `/venue` replaces the executor. `switch_venue` refuses only
+  while a position is open, and nothing in it touched the risk engine's peak.
+- A per-user engine serves every venue its person trades, and `/connect` of a
+  second venue makes that venue the active one (`set_venue` sets `active`).
+
+Driven through the real `switch_venue`: bitget at $1,000, then bybit at $300,
+read `DRAWDOWN: 70.0% >= 7.0% (this venue)` and tripped the breaker on a move
+of zero. The trip card's transfer hint told the operator to look for a
+withdrawal. Switching to a larger account instead raised the peak to that
+account's balance, and switching back then tripped. The line said "this
+venue" while it compared two.
+
+**The peak belongs to the account it was measured on.**
+`RiskEngine._select_live_account` keeps the current account's peak in
+`_live_equity_peak` and the others in `_live_equity_peaks`. Returning to an
+account resumes its peak rather than re-seeding one, because re-seeding would
+forget a drawdown the account still carries: 5% down on bitget, a switch away
+and back, and it could lose another 7% from there. An account never seen
+before starts from its first reading, as the first-ever evaluation did. A
+peak with no owner (a fresh engine, or one restored from a build that did not
+record the account) becomes the first named account's, which is what every
+evaluation compared it to before. An unnamed evaluation changes nothing.
+The engine names the account at both live evaluations (the tick and the
+confirm-time recheck, through `_LiveRecheck.account`), and a rule over the
+tree requires every `.evaluate(...)` that hands a live equity to name one; a
+literal `""` names none. `/resume` re-seeds the account in front of the
+operator and keeps the others, because nothing it confirmed was about them.
+The accounts are saved with the peak and restored behind the same
+`PERSIST_LIVE_DRAWDOWN_PEAK` flag. An account name or a peak that does not
+read is dropped on its own and never fails the restore closed, because the
+worst case of a lost peak is a re-seed.
+
+**Filed, with what was driven.** No caller passes a venue to `risk_for`, so
+the per-venue breakers `docs/MULTI_VENUE_RISK_SPLIT.md` describes are one
+engine per person in practice. (This paragraph also filed the per-person
+caps as reading the practice books; the chapter after the next one fixes
+that.) Separately,
+`risk_engine`'s authority bridge (`_spent = 0.0` on a failed ledger read)
+cannot fire: nothing binds an envelope to a `RiskEngine`, and its setters are
+on the unreachable-methods baseline. Fix it before wiring it.
+
+**Twenty-nine mutations, each killed.** Round one ran 31 and four survived:
+two were fixtures and two were checks no input could reach.
+
+- An adoption that fell through to the switch branch changed nothing but
+  wrote an audit of a switch from bybit to bybit, a false statement that no
+  test read. The adoption test reads the audit now.
+- Reading an account's peak with `get` instead of `pop` left a second copy of
+  it in the others' store: two answers about one account, and no test held
+  the invariant. One does now.
+- A map check on the restored peaks is caught by the restore's own `except`
+  either way, and a filter that kept zero peaks out of the save file matched
+  a filter the restore already applies. Both are deleted.
+
+Planning the round deleted three more such lines before it ran: a reset of
+the last equity on a switch, which the next line of the evaluation
+overwrites; a guard against stashing a zero peak, since a zero pops back as
+the same zero; and a length check that an empty string already fails.
+The drive also ran two engines in one process with the repo's own `data/`
+directory, because `state_path` anchors on the repo and ignores the working
+directory. A real `/venue` switch in one test then left
+`data/venue_override.json` naming bybit, so the next test's engine started on
+bybit. The suite keeps the override in its own directory now.
+(`tests/test_the_live_drawdown_peak_belongs_to_its_account.py`.)
+
+**A KEY OR CONTROL CHANGE DROPPED A USER'S OPEN POSITIONS FROM THE MONITOR.**
+`invalidate_user_executor` pops every executor a user holds, so the next
+order is built from the current keys. It runs on `/connect`, on
+`/disconnect`, on the website's credential pull, and on every website control
+change: margin cap, pause, venue selection. The monitoring and reconciliation
+loops walk `_user_executors` and nothing else (`_all_live_executors`), so the
+user's open positions left them with the executor. Only three things rebuilt
+one: the user's next trade, a card view (the active venue only), or a restart
+(every other venue). Driven: a user's book checked once, one website control
+change, then three monitor passes checked it zero times, with no executor held
+for the user. A stop resting on the venue still fires, but the bot did not
+notice the close, trail, time-exit or re-arm anything, or feed the breakers.
+
+**The next monitor pass rebuilds what was dropped.** Invalidation queues the
+user (a set, because the website's pull runs on a worker thread), and
+`_check_open_positions` calls `_rebind_invalidated_executors` before it walks
+the executors. That is the rebuild a restart already does: the active venue's
+executor, then every other venue whose saved book holds a position
+(`_rehydrate_other_venue_books`). A rebuild that raises is retried on the next
+pass and warned about once, and a venue's book that could not be rebuilt is
+named at WARNING, because those positions are not being monitored. With
+per-user live off the queue is dropped, since no per-user executor trades.
+
+**Fourteen mutations, each killed. One first-round kill was for the wrong
+reason.** Deleting the line that queues the user left an empty `if` body,
+which is a syntax error, so the suite errored at collection. Re-aimed as
+`pass`, it dies on the drive. Moving the rebuild after the executor walk
+dies too, because the pass right after the invalidation must visit the
+rebuilt book.
+(`tests/test_an_invalidated_executor_is_rebuilt_before_the_monitor_runs.py`.)
+
+**And the next slice's neighbouring suites caught this one before the full
+gate did.** `test_chat_prompt_describes_only_the_callers_book.py` drives
+`invalidate_user_executor` with a hand-written `SimpleNamespace` in place of
+the engine, which had no rebind queue, so it raised. None of this slice's
+runs included that file. The stand-in carries the queue now, and the test
+asserts the user is queued and another user is not.
+
+**THE PER-PERSON POSITION CAP COUNTED A PRACTICE BOOK NOBODY HAD TRADED.**
+`docs/MULTI_VENUE_RISK_SPLIT.md` records the decision: caps per PERSON,
+because "two venues each with their own max 5 is ten positions against one
+person's money". A per-user engine reads its person totals through
+`set_person_totals_fn`, and that function summed
+`user_portfolios.venue_readings`, which are the PAPER practice books. Driven
+with per-user live on, a person holding three live positions on bitget and
+three on bybit, against a cap of five: the totals read `open_positions=0,
+equity_usd=10000.0`, and the gate printed `OPEN_POSITIONS: 3 OK` off the
+active venue's count. The cross-venue cap bound nothing live. The one thing
+the practice book could do was tighten it: a practice position counted
+against the live cap, and a practice drawdown could halt the person's live
+trading.
+
+**Live, the count is read off the person's live books.**
+`_live_person_readings` builds one reading per venue: each executor this
+engine holds for the person, plus each venue the credential store lists as
+linked. `venue_aggregate.position_totals` sums them. A linked venue with no
+executor loaded is read from its saved book: nothing saved counts zero, and a
+saved book holding positions is a count nobody read. The total is then a
+FLOOR, and the cap refuses it by name, in the aggregator's existing words. A
+credential store that cannot list the venues makes the set of venues unknown,
+so it refuses too. Paper mode keeps the practice books, because there they
+are the book.
+
+**Equity and daily P&L are not summed live, and the reason is what the
+engine already reads.** A venue's balance is read only when that venue is
+traded, so a person-level equity would need a live read of every venue the
+person is not trading on now. `position_totals` leaves both `None`, which the
+gates read as "no person-level figure" and fall back to their own: the
+drawdown of the account being traded (the peaks chapter above) and the
+engine's live daily accumulator, which already records every priced close the
+person makes. An incomplete reading still refuses the daily-loss and drawdown
+gates as well as the cap, which is the aggregator's rule: a partial signed
+total has no bound either way.
+`docs/MULTI_VENUE_RISK_SPLIT.md` said all three figures were counted per
+person; it carries a dated correction saying what each one is in live mode.
+
+**Two traps in the first draft, each found by reading the helper it
+called.**
+
+- `normalize_venue` answers `''` for a venue this build does not know, and
+  `''` is the default venue's path. A linked venue under an unknown name
+  would have been counted off bitget's saved book. The name is only
+  lower-cased now. `executor_state_dir` refuses an unknown one, which reads
+  as a count nobody read.
+- The loop skipped an executor whose venue id could not be read, so its
+  positions went uncounted: an undercount, the direction that lets a trade
+  through. It is counted under the empty name.
+
+**Stated limit.** A linked venue whose stored name this build does not know
+makes every trade for that person refuse, with the venue named, until the
+record changes. That is reachable only through a stored name outside
+`known_venues()`.
+
+**Seventeen mutations, each killed.** One anchor was refused for matching
+twice (the owner test sits in two loops) and was re-anchored on the line after
+it.
+(`tests/test_the_person_cap_counts_the_live_books.py`.)
+
+**The remap for this slice carried two map citations that had drifted
+again.** The basis paragraph cited the context gather one line short, on the
+market-cap fetch, and the hand-off to `analyzer.analyze` 136 lines short, on
+a comment. They had been re-derived once already, with no guard, and a remap
+keeps what a citation points at. All three basis citations are derived from
+the code now (`test_the_basis_citations_are_the_lines_they_name`).
+
+**THE SELF-CRITIQUE COUNTED EVERYBODY'S PRACTICE POSITIONS AS THE HEAT ON A
+LIVE TRADE.** Before every confirm, `TradeCritique` argues the bear case. One
+of its concerns is heat: four or more open positions and "the portfolio is
+hot", which takes 0.03 off the idea's confidence and counts toward a HALT. It
+counted `user_portfolios.combined_snapshot()`: every user's PRACTICE book,
+summed, in live mode too. Driven through the real confirm path:
+
+- A live trade on a FLAT live book, while one user's practice book held seven
+  positions, was critiqued as hot. The engine's own auto-confirm at 0.62 fell
+  to 0.59, under the 0.60 floor, and was REJECTED.
+- A live book holding four positions, with no practice books, was critiqued
+  as holding none.
+
+This is the "live gates read the paper book" defect the risk engine was cured
+of, one gate further down the same confirm, and it had a second wrong axis:
+the sum was over every user, so one person's practice book moved every other
+person's live confirm.
+
+**The critique counts what the risk re-check just read.** `_critique_book` is
+the one reading. Live, it is the re-check's own open count for the account
+this order executes on (`_LiveRecheck.open_count`). A live confirm reaches the
+critique only after the re-check read that account's equity, and the count is
+read beside it, so it is a number there. Paper, it is the book the re-check
+engine's gates read (`RiskEngine.book_snapshot`). A practice fill is
+critiqued against the caller's own practice book, never the sum.
+
+**Six mutations, each killed on the first round.** Planning the round found
+one fixture gap before it ran. The per-user paper test held no positions on
+the operator engine's book, so reading the shared engine instead of the
+caller's would have agreed with the right answer. The operator's book holds
+three there now. Removing the long line took one E501 off the ruff ratchet,
+which was re-recorded in the same commit.
+(`tests/test_the_critique_counts_the_book_the_trade_opens_on.py`.)
+
+**THE PRACTICE BOOKS WERE RESTORED FROM THE WORKING DIRECTORY, AND THE
+OPERATOR'S OWN PAPER BOOK WAS RESTORED AS A USER.** `MultiUserPortfolio`
+restores every user's practice book at boot by globbing
+`data/portfolio_*.json`. The glob was relative, so it was resolved against the
+process's working directory, while every book is written through `state_path`
+to the repo root. That is the 2026-08-19 DB_PATH incident `bot/utils/paths.py`
+records, in a module the anchoring did not reach. Driven: a practice book
+holding a BTC position at $9,500, a restart from another directory, and the
+restore found nobody. The next practice fill created a fresh $10,000 book and
+saved it over the old one, with no conflict file, and the backup held the same
+replacement. The documented deploy paths set the working directory (the unit
+files and the launcher both do), so this was latent there, as DB_PATH was.
+
+The same glob matched the operator's paper book. `PORTFOLIO_STATE_FILE`
+defaults to `data/portfolio_state.json`, which `portfolio_*.json` matches.
+Driven: it was restored as a practice user named `state`, holding the
+operator's position. The combined state file (C2-34) replaced that file and
+the migration does not delete it, so it survives on any box that ran before
+the migration. There the stop
+sweep closed its positions and rewrote the operator's file (driven: its
+revision went from 1 to 2). Read, not driven: the dashboard pusher, when one
+is configured, publishes every restored book as a trader, and every combined
+snapshot sums it.
+
+**One reading of where the books live, and the operator's file is skipped by
+PATH.** `_book_dir` anchors `DATA_DIR`, and the restore and `get()` both read
+it. The operator's book is recognised by its resolved configured path, not by
+its name, and both sides are resolved. `deploy.sh` symlinks `data/` to a
+persistent store, so the glob hands back a path through the link while the
+configured file resolves to the store. Comparing either side unresolved would
+read the operator's book as somebody else's again, on exactly the deployed box.
+
+**Eight mutations, each killed on the first round.** Planning the round found
+two gaps before it ran. `get()` and the restore reading one directory is only
+visible when `DATA_DIR` moves, and the symlinked `data/` is the only input
+that separates a resolved comparison from an unresolved one. Both are tests.
+The rest of the tree's relative `data/` constants were checked; every other
+one already goes through `state_path`.
+(`tests/test_the_practice_books_restore_from_the_repo_root.py`.)
+
+**The guard written for this exact defect could not see it, and its baseline
+excused the other half.** `test_durable_paths_are_not_cwd_dependent.py`
+flags every `"data/..."` literal, and needs the slash. `DATA_DIR = "data"`
+has none, so the restore glob built from it was invisible, while a baseline
+row excused the WRITE side (`"data/portfolio_{user_id}.json"`, handed to a
+constructor that anchors it). The full gate found the row stale once the fix
+removed that literal. A bare `"data"` is mostly a JSON key, so the new rule
+is one shape rather than every occurrence: a name bound to the directory. On
+its first run it found a third site the grep that scoped this slice missed,
+because the grep read only unindented lines: `risk_engine.py`'s traversal
+fallback, anchored downstream. That and `backup.py`'s prefix constant, which
+is compared and never opened, are baseline rows with their reasons.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -13199,7 +13462,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **439 of 1090** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1095** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

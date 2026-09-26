@@ -16,13 +16,43 @@ import re
 import threading
 from typing import Optional, Callable
 
+from bot.config import CONFIG
 from bot.risk.portfolio import PortfolioTracker, TrailingStopConfig
 from bot.utils.models import PortfolioState, TradeExecution
+from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.multi_portfolio")
 
 DEFAULT_PAPER_BALANCE = 10_000.0
 DATA_DIR = "data"
+
+
+def _book_dir() -> str:
+    """Where the default-venue books live: ``data/`` under the repo root.
+
+    The restore globbed a RELATIVE ``data/``, resolved against the working
+    directory, while every book is written through `state_path` to the repo
+    root. A restart from anywhere else restored nobody, and the next practice
+    fill replaced a user's book (its positions, its balance) with a fresh one:
+    the 2026-08-19 DB_PATH incident `bot/utils/paths.py` records, in a module
+    that anchoring did not reach. The restore and `get()` both read this.
+    """
+    return str(state_path(DATA_DIR))
+
+
+def _operator_book() -> Optional[str]:
+    """The operator's own paper book, by resolved path, or None.
+
+    ``PORTFOLIO_STATE_FILE`` defaults to ``data/portfolio_state.json``, which
+    the ``portfolio_*.json`` pattern matches: restored, the operator's paper
+    book became a practice user named ``state``. Its positions were then
+    stop-swept, published as a trader and summed into every combined snapshot,
+    and the sweep wrote into the operator's file.
+    """
+    try:
+        return os.path.realpath(str(state_path(CONFIG.portfolio_state_file)))
+    except Exception:
+        return None
 
 
 def _written_beside_a_book(raw_user_id: str, path: str) -> bool:
@@ -100,9 +130,15 @@ class MultiUserPortfolio:
 
     def _load_existing(self) -> None:
         """Scan data/ for existing portfolio_*.json files and load them."""
-        pattern = os.path.join(DATA_DIR, "portfolio_*.json")
+        pattern = os.path.join(_book_dir(), "portfolio_*.json")
+        operator_book = _operator_book()
         for path in glob.glob(pattern):
             filename = os.path.basename(path)
+            if operator_book and os.path.realpath(path) == operator_book:
+                log.info("Not restoring %s as a user's practice book: it is "
+                         "the operator's own paper book (PORTFOLIO_STATE_FILE).",
+                         path)
+                continue
             # Extract user_id from "portfolio_{user_id}.json"
             if not filename.startswith("portfolio_") or not filename.endswith(".json"):
                 continue
@@ -229,7 +265,8 @@ class MultiUserPortfolio:
                     self._portfolios[user_id] = PortfolioTracker(
                         initial_balance=self._default_balance,
                         on_trade_close=self._make_close_cb(user_id),
-                        state_file=f"data/portfolio_{user_id}.json",
+                        state_file=os.path.join(
+                            _book_dir(), f"portfolio_{user_id}.json"),
                         trailing_config=self._trailing_config,
                     )
                     log.info("Created portfolio for user %s (balance=$%.2f)",

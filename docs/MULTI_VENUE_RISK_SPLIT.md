@@ -144,6 +144,31 @@ whichever is easier to code.
 > they are under one, so `cap_verdict` refuses on an incomplete reading even
 > when the number looks fine, and names the venue it could not read. Allowing
 > there is how a timeout quietly raises a limit.
+>
+> **CORRECTED, 2026-09-26: what "counted per person" means in LIVE mode.**
+> The person totals were summed from `user_portfolios.venue_readings`, which
+> are the PAPER practice books, in live mode too. So none of the three
+> per-person figures described a person's live money: a person with three
+> live positions on each of two venues, against a cap of five, read
+> `OPEN_POSITIONS: 3 OK`. Live, today:
+>
+> - **Open positions** are counted per person off the live books
+>   (`RuneClawEngine._live_person_readings`), with the floor rule above: a
+>   linked venue whose saved book holds positions and has no executor loaded
+>   is a count nobody read, and the cap refuses.
+> - **Daily loss** is not summed across venues. No caller passes a venue to
+>   `risk_for`, so a person has ONE risk engine, and its live daily
+>   accumulator already records every priced close the person makes on any
+>   venue. It is taken over the equity of the account being traded, which
+>   overstates the percentage when the person holds money elsewhere, in the
+>   direction that refuses.
+> - **Drawdown** is the drawdown of the account being traded, against that
+>   account's own peak (`RiskEngine._select_live_account`). A person-level
+>   drawdown on total equity is not measured live: it needs a balance read of
+>   every venue the person is not trading on now.
+>
+> The same fact means breakers are per person in practice, not per venue.
+> Paper mode is unchanged: there the practice books are the book.
 
 ## 4. The one real blocker
 
