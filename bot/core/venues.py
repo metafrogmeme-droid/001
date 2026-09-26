@@ -9,18 +9,23 @@ first-class object so a second perps venue can plug in WITHOUT touching
 Bitget behavior.
 
 Design rules (in order of importance):
-  1. ZERO Bitget drift. Every BitgetVenue method reproduces the exact
-     params/symbols the executor sent before this module existed —
-     including the identity `order_symbol` (Bitget resolves spot-form
-     symbols on the swap exchange today; do not "fix" that).
+  1. ZERO Bitget drift in the PARAMS. Every BitgetVenue method reproduces
+     the exact params the executor sent before this module existed. The
+     SYMBOL is the one deliberate exception: `order_symbol` used to be the
+     identity on Bitget, on the belief that Bitget resolves a spot-form
+     symbol on the swap exchange, and driven against the pinned ccxt it
+     does not (see `Venue.order_symbol`).
   2. The bot's INTERNAL canonical symbol stays "BASE/USDT" everywhere
      (ideas, risk engine, blacklists, learning). Venues translate only at
      the exchange boundary. normalize_symbol()/display_symbol() already
      strip any quote/settle suffix, so USDC symbols round-trip cleanly.
-  3. Per-user executors take the venue the credential store recorded.
-     `exchange_credentials` is multi-venue (Bitget key/secret/passphrase;
-     Hyperliquid wallet_address + agent_private_key). A per-user executor
-     whose caller does not name a venue stays Bitget.
+  3. Per-user executors take the venue the credential store recorded —
+     when that venue is in `PER_USER_EXECUTION_VENUES`, the ones whose order
+     shapes have been driven. `exchange_credentials` is multi-venue (Bitget
+     key/secret/passphrase; Hyperliquid wallet_address + agent_private_key),
+     and every venue it stores can be linked and read; only the listed ones
+     get an executor. A LiveExecutor constructed without a venue named is
+     Bitget.
 
 Selection: VENUE env var ("bitget" default). Hyperliquid is USDC-margined
 perps (one-way only, no hedge mode, no UTA), authenticated with a wallet
@@ -115,12 +120,42 @@ def hyperliquid_key_role(private_key: str, wallet_address: str) -> str:
         return "master"
     return "agent"
 
+def hyperliquid_key_refusal(role: str) -> Optional[str]:
+    """The sentence a ``master`` or ``rejected`` key role is refused with, or None.
+
+    One sentence per role, read by the client constructor and by the /connect
+    probe, so the key that is refused at the first order is refused in the
+    same words at the door. Neither quotes any part of the key.
+    """
+    if role == "master":
+        return ("Hyperliquid trading uses an agent wallet key. This key "
+                "controls the master wallet itself, so it was refused. "
+                "Nothing was sent.")
+    if role == "rejected":
+        return ("Hyperliquid refused that private key: it is not a "
+                "well-formed signing key. Nothing about the key is "
+                "repeated here.")
+    return None
+
+
 # Runtime venue override — set by the admin /venue command, survives
 # restarts, and takes precedence over the VENUE env var so switching
 # venues never requires editing .env. Removing the file (or /venue clear)
 # reverts to the env-configured venue.
 _STATE_DIR = os.environ.get("RUNECLAW_STATE_DIR", "data")
 VENUE_OVERRIDE_FILE = os.path.join(_STATE_DIR, "venue_override.json")
+
+
+def ccxt_margin_mode(mode: str) -> str:
+    """The configured margin mode in ccxt's spelling, "cross" or "isolated".
+
+    `MARGIN_MODE` accepts Bitget's "crossed" too, and ccxt reads that word
+    differently per venue: its Hyperliquid `set_leverage` is cross only for
+    exactly "cross", so "crossed" went out ISOLATED, and its Bybit
+    `set_margin_mode` refuses it. The Bitget path is not routed through here:
+    what it sends is left exactly as it was.
+    """
+    return "cross" if str(mode or "").strip().lower() in ("cross", "crossed") else "isolated"
 
 
 class Venue:
@@ -159,16 +194,38 @@ class Venue:
         return f"{base}/{self.quote}:{self.quote}"
 
     def order_symbol(self, symbol: str) -> str:
-        """Symbol to hand ccxt order/position calls. Bitget: IDENTITY —
-        the executor historically passes spot-form symbols and Bitget's
-        swap-default exchange resolves them; changing that would alter
-        live behavior. Non-Bitget venues map to their perp symbol."""
-        return symbol
+        """Symbol to hand ccxt order and position calls: the venue's PERP.
+
+        Every venue trades perps only (`TRADE_MODE` accepts "futures" and
+        nothing else), and a position the bot opened records the spot form
+        ("BTC/USDT"). ccxt resolves that to whatever market carries the name,
+        whatever `defaultType` says: the SPOT market on Bybit and on Bitget,
+        no market at all on Hyperliquid.
+
+        On Bitget this was the identity, on the belief that Bitget's
+        swap-default client resolves a spot-form symbol to the perp. Driven
+        against the pinned ccxt 4.5.56 with UTA markets loaded, it does not:
+        a position read asks `category=SPOT` and returns no row, so the close
+        verification read flat over a held position; a ticker read asks the
+        spot book, and on a perp-only asset (NATGAS) raises BadSymbol on every
+        read; `amount_to_precision` and `price_to_precision` round on the SPOT
+        grid, which for a sub-cent token is finer than the perp's and is the
+        45115 rejection the entry path was already fixed for. Orders reached
+        the perp only because their params carry `productType`, and a cancel
+        carries no category at all, so those two are unchanged by the mapping.
+        """
+        return self.swap_symbol(symbol)
 
     # ── param dialects ────────────────────────────────────────────
     def futures_params(self, **extra: Any) -> dict:
         """Product-scoping params merged into fetch/order calls."""
         return dict(extra)
+
+    def order_read_params(self) -> dict:
+        """Params every ``fetch_order`` on this venue needs before ccxt will
+        send it. Empty on most venues; the executor merges it into every
+        order read through one seam (``LiveExecutor._fetch_order``)."""
+        return {}
 
     def entry_params(self, margin_mode: str, leverage: int) -> dict:
         """Params for the entry create_order call."""
@@ -397,16 +454,9 @@ class HyperliquidVenue(Venue):
         # both proceed — refusing unconfirmed would make this venue
         # unusable wherever eth-account is not installed.
         role = hyperliquid_key_role(priv, wallet)
-        if role == "master":
-            raise RuntimeError(
-                "Hyperliquid trading uses an agent wallet key. This key "
-                "controls the master wallet itself, so it was refused. "
-                "Nothing was sent.")
-        if role == "rejected":
-            raise RuntimeError(
-                "Hyperliquid refused that private key: it is not a "
-                "well-formed signing key. Nothing about the key is "
-                "repeated here.")
+        refusal = hyperliquid_key_refusal(role)
+        if refusal:
+            raise RuntimeError(refusal)
         exchange = ccxt.hyperliquid({
             "aiohttp_trust_env": True,
             "walletAddress": wallet,
@@ -446,10 +496,6 @@ class HyperliquidVenue(Venue):
         if coin is not None:
             return f"{coin}/{self.quote}:{self.quote}"
         return super().swap_symbol(symbol)
-
-    def order_symbol(self, symbol: str) -> str:
-        # Internal symbols are USDT-quoted; Hyperliquid perps are USDC.
-        return self.swap_symbol(symbol)
 
     def entry_params(self, margin_mode: str, leverage: int) -> dict:
         # Margin mode + leverage are set per symbol via set_leverage()
@@ -493,8 +539,9 @@ class ParadexVenue(Venue):
     strongest Proof-of-PnL trust tier (onchain_public). ccxt handles the StarkEx
     onboarding from the wallet key.
 
-    NOTE: connectable + read-only-checkable here; must pass the /venue preflight
-    against a real account before being enabled for auto-trade."""
+    Connectable and read-only-checkable here, and NOT an order path: its order
+    shapes have never been driven, so no per-user executor is built for it
+    (`PER_USER_EXECUTION_VENUES`)."""
 
     id = "paradex"
     display_name = "Paradex (DEX)"
@@ -534,9 +581,6 @@ class ParadexVenue(Venue):
 
     def has_operator_credentials(self, cfg: Any) -> bool:
         return False   # per-user connect venue; the operator trades Bitget
-
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
 
     def trigger_params(self, kind: str, trigger_price: float) -> dict:
         if kind == "tp":
@@ -625,9 +669,15 @@ class BybitVenue(Venue):
         return bool(getattr(cfg, "bybit_api_key", "")
                     and getattr(cfg, "bybit_api_secret", ""))
 
-    def order_symbol(self, symbol: str) -> str:
-        # Bybit resolves "BTC/USDT" to the SPOT market — always perp form.
-        return self.swap_symbol(symbol)
+    def order_read_params(self) -> dict:
+        # ccxt 4.5.56 refuses EVERY fetch_order on a unified account (every
+        # Bybit account is one now) with ArgumentsRequired, before sending
+        # anything, unless the caller says it knows the endpoint answers only
+        # the last 500 orders. Driven: without this key, zero requests and a
+        # raise; with it, one request to /v5/order/realtime. The bot reads
+        # back its own orders seconds to hours after placing them, well inside
+        # that window.
+        return {"acknowledged": True}
 
     def leverage_params(self, margin_mode: str) -> dict:
         # v5 set-leverage takes buyLeverage/sellLeverage (ccxt fills them
@@ -707,9 +757,6 @@ class BingxVenue(Venue):
         return bool(getattr(cfg, "bingx_api_key", "")
                     and getattr(cfg, "bingx_api_secret", ""))
 
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
-
     def leverage_params(self, margin_mode: str) -> dict:
         # One-way mode: BingX requires side=BOTH on set-leverage.
         return {"marginMode": margin_mode, "side": "BOTH"}
@@ -733,9 +780,16 @@ class _KeySecretPerpVenue(Venue):
     mapping — the same shape BingX uses. Concrete venues set ``id``,
     ``display_name``, ``ccxt_id``, ``needs_passphrase`` and any quirks.
 
-    NOTE: these adapters are ccxt-native and unit-tested for symbol/param shape,
-    but each MUST pass the existing /venue preflight against a real account before
-    being enabled for auto-trade — same bar Bybit/BingX cleared."""
+    NOT AN ORDER PATH. These adapters are ccxt-native and unit-tested for
+    symbol/param shape, and that is all: OKX, Gate and KuCoin count a perp
+    order in CONTRACTS where the executor sends a quantity in COINS. Driven
+    with ccxt's own request builders on fabricated markets, 3000 DOGE went out
+    as sz=3000 on OKX (contract 1000 DOGE: 3,000,000 DOGE), size=3000 on Gate
+    (10 DOGE: 30,000) and size=3000 at leverage 1 on KuCoin (100 DOGE:
+    300,000); BTC, lot 1, was refused outright. No per-user executor is built
+    for them (`PER_USER_EXECUTION_VENUES`, checked where the engine builds
+    one): a linked account reads its balance, and no order routes there until
+    the adapter converts sizes and has been driven against a real account."""
 
     ccxt_id: str = ""
     needs_passphrase: bool = False
@@ -787,9 +841,6 @@ class _KeySecretPerpVenue(Venue):
 
     def has_operator_credentials(self, cfg: Any) -> bool:
         return False   # per-user connect venues; the operator trades Bitget
-
-    def order_symbol(self, symbol: str) -> str:
-        return self.swap_symbol(symbol)
 
     def trigger_params(self, kind: str, trigger_price: float) -> dict:
         if kind == "tp":
@@ -845,6 +896,35 @@ _VENUES: dict[str, Venue] = {
 
 def valid_venue_ids() -> list[str]:
     return sorted(_VENUES)
+
+
+#: The venues a per-user EXECUTOR may be built for: the ones whose entry,
+#: stop, close and size unit have been driven against ccxt's own request
+#: builders. Every venue in `_VENUES` can be linked and read; only these
+#: place orders. An allow-list rather than a flag per class, so a venue added
+#: tomorrow is refused until somebody drives it and writes it in here.
+PER_USER_EXECUTION_VENUES = frozenset({"bitget", "bybit", "bingx", "hyperliquid"})
+
+
+def per_user_execution_refusal(venue_id: Optional[str]) -> Optional[str]:
+    """None when a per-user executor may trade ``venue_id``; else why not.
+
+    The sentence names the venue and says what the bot does instead. It
+    promises no date: the gate lifts when the adapter is driven, and that is
+    not a thing this sentence can schedule. It says nothing about what THIS
+    message did — the connect card stores keys, a refused confirm places
+    nothing — so each caller adds that half.
+    """
+    vid = str(venue_id or "").strip().lower()
+    if vid in PER_USER_EXECUTION_VENUES:
+        return None
+    v = _VENUES.get(vid)
+    label = v.display_name if v is not None else (vid or "that venue")
+    reason = (" — it counts perp orders in contracts where this bot sends coins"
+              if isinstance(v, _KeySecretPerpVenue) else "")
+    return (f"{label} is linked for balances only. Its order path has not been "
+            f"driven against a real account{reason}, so this bot places no "
+            f"order there.")
 
 
 def get_venue_override() -> Optional[str]:

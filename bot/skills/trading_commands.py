@@ -425,7 +425,20 @@ class TradingCommands:
         _tg_id = self._get_tg_id(update)
         args = [a.lower() for a in (ctx.args or [])]
         if args[:1] in (["off"], ["clear"], ["reset"]):
-            if _store.clear(_tg_id):
+            # A clear that could not read the file, or whose write did not
+            # land, left the selection armed. "Nothing to clear" over either
+            # is a false answer about a veto that is still on disk.
+            try:
+                _cleared = _store.clear(_tg_id)
+            except _store.StoreUnreadable:
+                await self._reply(update, _store.UNREAD_SENTENCE)
+                return
+            except OSError:
+                await self._reply(update,
+                    "⚠️ Your strategy could not be cleared — the write "
+                    "did not land. It is still set; try again.")
+                return
+            if _cleared:
                 await self._reply(update,
                     "\U0001f513 Strategy cleared — your confirms are ungated again.")
             else:
@@ -439,7 +452,11 @@ class TradingCommands:
                 await self._reply(update,
                     f"Unknown strategy \u2014 pick one of: {_names} (or /mystrategy off).")
                 return
-            _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
+            try:
+                _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
+            except _store.StoreUnreadable:
+                await self._reply(update, _store.UNREAD_SENTENCE)
+                return
             if _stored is None:
                 await self._reply(update,
                     "Could not save the selection \u2014 nothing changed. Try again.")
@@ -465,14 +482,22 @@ class TradingCommands:
             _lines.append("/mystrategy off clears it any time \u2014 revocable is the point.")
             await self._reply(update, "\n".join(_lines))
             return
-        _cur = _store.get(_tg_id)
+        try:
+            _cur = _store.get(_tg_id)
+            _unread = False
+        except _store.StoreUnreadable:
+            _cur, _unread = None, True
         _lines = ["\u2694\ufe0f <b>Your bot, your strategy</b>"]
         for _k in sorted(_RS.PRESETS):
             _c = _RS.PRESETS[_k]
             _mark = " \u2b05 <b>yours</b>" if _k == _cur else ""
             _lines.append(f"{_c.get('icon', '')} <code>/mystrategy {html.escape(_k)}</code> "
                           f"\u2014 {html.escape(_c.get('desc', ''))}{_mark}")
-        _lines.append("" if _cur else "\nNone selected \u2014 your confirms run ungated.")
+        if _unread:
+            # Not "none selected": nobody read the file to say so.
+            _lines.append("\n" + _store.UNREAD_SENTENCE)
+        else:
+            _lines.append("" if _cur else "\nNone selected \u2014 your confirms run ungated.")
         _lines.append("A selection is a tighten-only veto on YOUR confirms; "
                       "the operator loop keeps its own stance. /mystrategy off clears.")
         await self._reply(update, "\n".join(x for x in _lines if x))
@@ -563,8 +588,12 @@ class TradingCommands:
                 # print as "0 open" beside a venue that may hold positions.
                 pass
 
+        try:
+            selected = store.raw_selection(tg_id)
+        except Exception:
+            selected = None     # the card says it could not be read
         await self._send(update, venue_card(
-            connected=conn, selected=store.raw_selection(tg_id),
+            connected=conn, selected=selected,
             dropped=rd.get("dropped") or (), mode=rd.get("mode") or "off",
             enforce_available=ENFORCE_IMPLEMENTED, positions=pos))
 
@@ -1260,17 +1289,37 @@ class TradingCommands:
             # Operator: reset the shared engine AND every per-user risk engine,
             # so resuming after a global halt clears every account's breaker.
             self.engine.reset_circuit_breaker_all()
+            # The governor's PAUSE too, on the same engines (operator decision,
+            # 2026-09-26): the reset does not touch it, and a /reset that left
+            # every entry refused behind a "reset" card was the other half of
+            # the 2026-09-25 report.
+            gov_cleared = self._clear_governors_shared()
         else:
             # This caller's own engine, and only theirs. The operator's breaker
             # — and every other user's — is untouched.
             risk.reset_circuit_breaker()
+            gov_cleared = self._clear_governor(risk)
+        own_gov = gov_cleared.get("")
         lang = self._lang(update)
         if was_active:
             msg = f"\U0001f7e2 {t('reset_cb_done', lang)}"
         elif streak_before >= 3:
             msg = f"\U0001f7e2 {t('reset_streak_cleared', lang, n=streak_before)}"
-        else:
+        elif own_gov is None and not gov_cleared:
             msg = f"\U0001f7e1 {t('reset_nothing', lang, n=streak_before)}"
+        else:
+            msg = ""
+        # "Nothing to reset" is a claim, and it is false of a reset that
+        # cleared a governor pause; so the pause gets its own sentence and the
+        # nothing-card is printed only when there was nothing at all.
+        if own_gov is not None:
+            msg += ("\n\n" if msg else "\U0001f7e2 ") + t(
+                "reset_gov_cleared", lang, wins=own_gov["wins"],
+                n=own_gov["samples"], min=own_gov["min_samples"])
+        others = len(gov_cleared) - (1 if own_gov is not None else 0)
+        if others > 0:
+            msg += ("\n\n" if msg else "\U0001f7e2 ") + t(
+                "reset_gov_cleared_others", lang, k=others)
         # The card must not let a personal reset read as a global one. Same rule
         # as every other surface here: the scope of a claim is part of the claim.
         if scope == "own":
@@ -1344,9 +1393,21 @@ class TradingCommands:
                 # Lightweight: skip the order-flow + multi-timeframe fetches so a
                 # tap returns in seconds even under exchange throttling (the full
                 # pipeline still runs in the background loop for auto-trading).
+                #
+                # The scan is SHIELDED from this timeout. force_scan
+                # auto-confirms what clears the bar, so when the timeout ran
+                # out it could be inside confirm_trade -> LiveExecutor.execute,
+                # and wait_for's cancel landed there: between an entry order
+                # the venue had filled and the stop placed for it, or before
+                # the position was recorded at all. The tap stops WAITING at
+                # the timeout; the scan finishes in the background and its
+                # ideas are pending for the next tap, which is what the
+                # timeout sentence below already tells the user.
+                _scan = asyncio.ensure_future(self.engine.force_scan(
+                    max_symbols=CONFIG.interactive_scan_count, lightweight=True))
+                _scan.add_done_callback(_note_background_scan)
                 result = await asyncio.wait_for(
-                    self.engine.force_scan(
-                        max_symbols=CONFIG.interactive_scan_count, lightweight=True),
+                    asyncio.shield(_scan),
                     timeout=CONFIG.interactive_scan_timeout_sec,
                 )
                 pending = [i for i in self.engine.pending_ideas if i.confidence >= _display_min]
@@ -2088,6 +2149,10 @@ class TradingCommands:
             await self._refuse_shared_control(update, "resume")
             return
         risk.reset_circuit_breaker()
+        # And the governor's PAUSE on the same engine (operator decision,
+        # 2026-09-26: start fresh). Before the gate is read below, so the card
+        # reads the gate the clear left.
+        _gov = self._clear_governor(risk).get("")
         # Honest resume: if the daily-loss/drawdown condition still holds, the
         # breaker re-trips on the next evaluation — warn instead of showing a
         # clean CLEAR that the next status card contradicts with "Paused".
@@ -2101,11 +2166,36 @@ class TradingCommands:
         # ENABLED" was printed over entries still being refused (live, 13:59
         # on 2026-09-03). Read AFTER the reset, through the seam.
         _gate = self._resume_gate_state(risk)
-        rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate)
+        rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate,
+                             governor_cleared=_gov)
         await self._send(update, rendered["text"])
         audit(system_log, "Bot resumed via /resume", action="resume", result="OK",
               data={"retrip_warning": _retrip or None, "scope": scope,
-                    "gate_after_reset": _gate})
+                    "gate_after_reset": _gate,
+                    "governor_cleared": _gov is not None})
+
+    @staticmethod
+    def _clear_governor(risk) -> dict:
+        """Clear one engine's governor PAUSE: ``{"": counts}`` when it was
+        paused and is not now, ``{}`` otherwise. A clear that raises is
+        logged and cleared nothing, so the card falls back to what the gate
+        says; the resume or reset around it goes ahead either way."""
+        try:
+            info = risk.clear_governor_pause()
+        except Exception as exc:
+            system_log.warning("governor clear failed: %s", type(exc).__name__)
+            return {}
+        return {} if info is None else {"": info}
+
+    def _clear_governors_shared(self) -> dict:
+        """The operator's clear: the shared engine (key "") and every per-user
+        engine (keyed by user id), as `engine.clear_governor_pauses` walks
+        them. ``{}`` when the walk itself raised."""
+        try:
+            return dict(self.engine.clear_governor_pauses())
+        except Exception as exc:
+            system_log.warning("governor clear failed: %s", type(exc).__name__)
+            return {}
 
     @staticmethod
     def _resume_gate_state(risk) -> Optional[str]:
@@ -2134,3 +2224,20 @@ class TradingCommands:
              InlineKeyboardButton("\u21a9\ufe0f Cancel", callback_data="emergency_cancel")],
         ])
         await self._send(update, rendered["text"], reply_markup=kb)
+
+
+def _note_background_scan(task: "asyncio.Future") -> None:
+    """Retrieve the outcome of an interactive scan nobody may be awaiting.
+
+    `/latest_signal` stops waiting at its timeout and leaves the scan running
+    (see the shield there). A scan that then fails has no caller to raise to,
+    and an exception nobody retrieves is reported by asyncio as "never
+    retrieved" at garbage collection, long after and far from its cause. The
+    class name is logged, never the text: a driver message can carry a URL
+    or a request.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("Interactive scan failed: %s", type(exc).__name__)

@@ -98,10 +98,15 @@ test('ingest rebroadcasts each event as an SSE activity event', async () => {
     r.on('error', reject);
   });
 
+  // The close is told in percent of margin, which is what the bot's producer
+  // sends (agent_feed.close_event). This used to pin 'Closed BTC +$1.23' as
+  // the payload riding the stream: a dollar P&L on the unauthenticated
+  // stream, recorded as the contract. public_feed_carries_no_dollar.test.js
+  // drives what happens to a dollar figure now.
   const posted = await req('POST', '/api/bot/sync/events', {
     botSecret: process.env.BOT_SYNC_SECRET,
     body: { events: [{ event_type: 'trade_close', severity: 'success',
-      symbol: 'BTC/USDT:USDT', title: 'Closed BTC +$1.23' }] },
+      symbol: 'BTC/USDT:USDT', title: 'Closed BTC +6.25% on margin' }] },
   });
   assert.strictEqual(posted.status, 200);
 
@@ -110,5 +115,5 @@ test('ingest rebroadcasts each event as an SSE activity event', async () => {
   sse.destroy();
   const raw = chunks.join('');
   assert.ok(raw.includes('event: activity'), 'activity event on the stream');
-  assert.ok(raw.includes('Closed BTC +$1.23'), 'payload rides the stream');
+  assert.ok(raw.includes('Closed BTC +6.25% on margin'), 'payload rides the stream');
 });

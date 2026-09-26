@@ -22,7 +22,6 @@ Discipline:
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 from typing import Any, Optional
 
@@ -30,6 +29,7 @@ from bot.proofofpnl import csf
 from bot.proofofpnl.assemble import is_public_safe
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import UNREADABLE, StoreUnreadable, read_json_store
 from bot.utils.paths import env_state_path, state_path
 
 PUBLICATION_FORMAT = "runeclaw.proofofpnl.publication.v0"
@@ -126,12 +126,25 @@ class PublicationStore:
             return False
 
     def read(self) -> Optional[dict]:
-        try:
-            with self._lock, open(self._path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            return data if isinstance(data, dict) else None
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return None
+        """The latest publication, or None when none has been written.
+
+        RAISES :class:`StoreUnreadable` for a file that is there and will not
+        read. It answered None for that too, and both public readers turned
+        None into a claim: /proof said "No Proof-of-PnL statement has been
+        published yet" and the agent directory answered 404 ``unknown_agent``,
+        which the relay caches and the website calls a measured absence, both
+        about a file nobody could read. Each reader answers "unavailable" for
+        the raise now, which is the true sentence.
+
+        `write` still replaces the file without reading it, and that is right
+        for this store: a publication is sealed whole from a bundle, never
+        merged into what was stored, so the next publish over an unreadable
+        file loses nothing a read would have kept."""
+        with self._lock:
+            r = read_json_store(self._path)
+        if r.state == UNREADABLE:
+            raise StoreUnreadable(self._path, r.detail)
+        return r.data or None
 
 
 _STORE: Optional[PublicationStore] = None

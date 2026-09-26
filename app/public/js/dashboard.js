@@ -3518,6 +3518,7 @@
         };
         const checks = d.live_checklist || {};
         const labels = { feature_enabled: 'Operator enabled live web trading', bot_is_live: 'Bot in live mode',
+          routes_to_own_account: 'Operator enabled per-user live accounts',
           user_opted_in: 'You enabled live for your account', has_own_keys: 'Your own exchange keys connected',
           envelope_enforcing: 'Authority Envelope in enforce mode' };
         const list = Object.keys(labels).map(k =>
@@ -3571,8 +3572,27 @@
     });
     document.getElementById('c-authority').addEventListener('click', async (e) => {
       const mb = e.target.closest('[data-authmode]');
-      if (mb) { await authPost('/mode', { mode: mb.dataset.authmode }); drawAuthority(); toast(`Authority mode: ${mb.dataset.authmode}`); return; }
-      if (e.target.closest('#authRevoke')) { await authPost('/revoke', {}); drawAuthority(); toast(T('dd.t_authority_revoked', 'Authority revoked.')); }
+      // A toast is a claim. Both used to fire whatever the bot answered, so a
+      // revoke whose write did not land — which the bot now answers as a 500
+      // saying it will come back on restart — still read "Authority revoked."
+      if (mb) {
+        const r = await authPost('/mode', { mode: mb.dataset.authmode });
+        drawAuthority();
+        toast(r.ok && r.data && r.data.ok === true
+          ? `Authority mode: ${mb.dataset.authmode}`
+          : ((r.data && r.data.detail) || 'Mode change failed — nothing was saved.'));
+        return;
+      }
+      if (e.target.closest('#authRevoke')) {
+        const r = await authPost('/revoke', {});
+        drawAuthority();
+        const d = r.data || {};
+        toast(r.ok && d.revoked === true && d.persisted !== false
+          ? T('dd.t_authority_revoked', 'Authority revoked.')
+          : (d.detail || (r.ok && d.revoked === false
+            ? 'No authority envelope was bound — nothing to revoke.'
+            : 'Revoke failed — the envelope may still be active.')));
+      }
     });
     drawAuthority();
 
@@ -3848,18 +3868,39 @@
     document.getElementById('tradeModalConfirm').onclick = async () => {
       msg.textContent = 'Executing…';
       const r = await RC.postWithStepUp('/api/trade/confirm', { trade_id: pt.trade_id }, { timeoutMs: 35000 });
-      if (!r.ok) {
+      // A 200 SAYS THE REQUEST WAS HANDLED, NOT THAT A TRADE WAS PLACED. This
+      // closed on a green "Trade confirmed." for every answer the bot can give,
+      // the risk gate's refusal included. TradeConfirmModel reads the bot's own
+      // `placed`; with the model absent the answer is shown and nothing is
+      // claimed either way.
+      const TC = window.TradeConfirmModel;
+      const out = TC ? TC.outcome(r) : { kind: r.ok ? 'unread' : 'failed', text: (r.data && r.data.result_html) || '' };
+      if (out.kind === 'failed') {
         const reason = r.data?.error === 'live_not_enabled'
           ? `Live trading not enabled: ${r.data?.detail || 'your toggle + operator approval needed'}.`
           : (r.data?.detail || r.data?.error || 'Confirm failed.');
         msg.innerHTML = `<span class="neg">${esc(reason)}</span>`;
         return;
       }
+      if (out.kind === 'refused') {
+        // The modal stays open and the Confirm button stays usable: most
+        // refusals leave the idea pending, and the person may fix what was
+        // refused (or Cancel it) from here. No portfolio refresh -- nothing
+        // on the book moved.
+        msg.innerHTML = `<span class="neg"><b>${esc(T('dd.t_trade_refused', 'Nothing was placed.'))}</b> ${sanitizeBotHtml(out.text)}</span>`;
+        return;
+      }
+      if (out.kind === 'unread') {
+        msg.innerHTML = `<span class="muted">${esc(T('dd.t_trade_unread', 'The bot answered without saying whether anything was placed — check your positions.'))}</span> ${sanitizeBotHtml(out.text)}`;
+        cache.portfolio = null;
+        document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
+        return;
+      }
       close();
       toast(T('dd.t_trade_confirmed', 'Trade confirmed.'), 'up');
       cache.portfolio = null;
       document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));
-      if (onDone) onDone(r.data.result_html);
+      if (onDone) onDone(out.text);
     };
     document.getElementById('tradeModalCancel').onclick = async () => {
       await fetchJSON('/api/trade/cancel', { method: 'POST', body: { trade_id: pt.trade_id } }).catch(() => {});
@@ -9780,9 +9821,10 @@
 
   // ── Admin testnet live signer console (WEB3-LIVE-EXEC slice 2) ──────────
   // Drives the bot's testnet-only signer from the web. Every real gate lives
-  // bot-side (triple default-OFF flags, admin re-check, testnet-only, enforcing
-  // envelope, authorize()); this panel only shows status and forwards the resolved
-  // transfer. No private key ever reaches the browser — the panel shows the
+  // bot-side (the feature + signing switches, both default ON; the operator's
+  // key + library; admin re-check, testnet-only, enforcing envelope, and
+  // authorize() on the value the bot prices itself); this panel only shows
+  // status and forwards the resolved transfer. No private key ever reaches the browser — the panel shows the
   // PUBLIC signer address and presence booleans only.
   // CROSS-2 guided yield-execution PREVIEW (admin-only, read-only). Enter a
   // stables move + a recallable destination; the bot runs the triple-gate
@@ -9991,9 +10033,10 @@
         if (!prepared || prepared.network !== network) { msg('Run Prepare first (fetches the nonce).'); return; }
         if (!confirm(`Sign & broadcast on ${network} (TESTNET):\n\n${amt} ETH → ${to}\nnonce ${prepared.nonce}\n\nThis sends a real testnet transaction.`)) return;
         const btn = e.target.closest('#sgn-send'); btn.disabled = true; msg('Signing…');
+        // No amount_usd and no asset: the bot prices value_wei in the network's
+        // own coin at a mark it reads, and asks the envelope about THAT.
         const body = { network, to, value_wei: valueWei, nonce: prepared.nonce, gas: prepared.gas,
-                       max_fee_wei: prepared.max_fee_wei, max_priority_wei: prepared.max_priority_wei,
-                       amount_usd: null, asset: 'ETH' };
+                       max_fee_wei: prepared.max_fee_wei, max_priority_wei: prepared.max_priority_wei };
         const r = await fetchJSON('/api/web3/sign', { method: 'POST', body, timeoutMs: 30000 }).catch(() => null);
         btn.disabled = false;
         const out = panel.querySelector('#sgn-out');
@@ -10008,13 +10051,20 @@
         const txCell = (d.explorer_url && /^https:\/\//.test(d.explorer_url))
           ? `<a href="${esc(d.explorer_url)}" target="_blank" rel="noopener">${esc(d.tx_hash || 'view on explorer')} ↗</a>`
           : (d.tx_hash ? esc(d.tx_hash) : '—');
-        out.innerHTML = `<div class="small" style="border:1px solid var(--up,#31c48d);border-radius:10px;padding:10px">
-          <div><strong>${d.broadcast ? 'Broadcast' : 'Signed'}</strong> on ${esc(d.network || network)} ${d.testnet ? '(testnet)' : ''}</div>
+        // Colour is a claim. Green says the transaction reached the chain; a
+        // signed transaction whose broadcast failed has NOT, so it is muted and
+        // says so, with the RPC's own note beneath.
+        const box = d.broadcast ? 'var(--up,#31c48d)' : 'var(--line-2,#313950)';
+        const size = (d.notional_usd != null && isFinite(+d.notional_usd))
+          ? ` · ≈ $${(+d.notional_usd).toFixed(2)}${d.asset ? ' in ' + esc(d.asset) : ''}` : '';
+        out.innerHTML = `<div class="small" style="border:1px solid ${box};border-radius:10px;padding:10px">
+          <div><strong>${d.broadcast ? 'Broadcast' : 'Signed — NOT broadcast'}</strong> on ${esc(d.network || network)} ${d.testnet ? '(testnet)' : ''}${size}</div>
           <div class="muted" style="margin-top:4px;word-break:break-all">tx ${txCell}</div>
-          ${d.note ? `<div class="muted" style="margin-top:4px">${esc(d.note)}</div>` : ''}</div>`;
+          ${d.note ? `<div class="muted" style="margin-top:4px">${esc(d.note)}</div>` : ''}
+          ${d.amount_basis ? `<div class="muted" style="margin-top:4px">${esc(d.amount_basis)}</div>` : ''}</div>`;
         prepared = null;                      // consumed — force a fresh nonce next time
-        msg(d.broadcast ? 'Broadcast to testnet.' : 'Signed.');
-        toast(d.broadcast ? 'Testnet transaction broadcast.' : 'Transaction signed.');
+        msg(d.broadcast ? 'Broadcast to testnet.' : 'Signed, not broadcast — nothing reached the chain.');
+        toast(d.broadcast ? 'Testnet transaction broadcast.' : 'Signed, not broadcast.');
         return;
       }
     });

@@ -20,9 +20,11 @@ breaker. Three outcomes, and only one of them is a reading:
   unreadable  -- a file that will not parse, or a block that is not a risk
                  state. Never "not halted".
 
-What it cannot see is said rather than guessed at: the warning-rate breaker
-and the venue-authentication halt are held in the bot's memory and never
-saved, so no reader in another process can know them.
+What it cannot see is said rather than guessed at: the warning-rate breaker,
+the venue-authentication halt and the live-performance governor's pause are
+held in the bot's memory and never saved, so no reader in another process can
+know them. (The governor's window is rebuilt from the closed-trade record at
+the bot's boot; that is the bot reading its own record, not a saved verdict.)
 """
 
 from __future__ import annotations
@@ -31,9 +33,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-#: The two gates that exist only in the running bot's memory. Named once, so
+#: The gates that exist only in the running bot's memory. Named once, so
 #: every surface that has to say what it could not read says the same thing.
-UNSAVED_GATES = "the warning-rate breaker and the venue-authentication halt"
+UNSAVED_GATES = ("the warning-rate breaker, the venue-authentication halt and "
+                 "the live-performance governor's pause")
 
 
 def read_persisted_breaker(path: Any) -> dict:

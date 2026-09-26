@@ -203,9 +203,19 @@ def unlink_telegram_on_website(user_id: int, chat_id: str) -> Optional[bool]:
     return bool(result.get("ok") and result.get("unlinked"))
 
 
-def sync_portfolio(user_id: int, equity: float,
+def sync_portfolio(equity: Optional[float],
                    positions: list, closed_trades: list) -> bool:
-    """Full sync: replace all website data for a user with current bot state."""
+    """Replace the website's copy of the AGENT's record with the bot's.
+
+    THE AGENT'S RECORD, AND NOBODY ELSE'S. `/api/bot/sync` writes the
+    operator's rows -- the ones the public track record, the portfolio summary
+    and the operator's dashboard read -- whatever the payload says, so this
+    sends no user id: the website decides whose rows the agent's record is
+    (`BOT_USER_ID`), and refuses a payload that names another account. The
+    per-user callers that used to send one (/link and /sync) pushed a $10,000
+    default from a table nothing writes, and each push replaced the agent's
+    published history with an empty list.
+    """
     open_list = []
     for p in positions:
         open_list.append({
@@ -258,14 +268,13 @@ def sync_portfolio(user_id: int, equity: float,
     # duplicate. Retrying only closes the gap sooner than the next scheduled
     # push would.
     result = _post("/api/bot/sync", {
-        "user_id": user_id,
         "equity": equity,
         "positions": open_list,
         "closed_trades": closed_list,
     }, retries=2)
 
     if result and result.get("ok"):
-        log.info(f"Synced to website: user={user_id} equity={equity} "
+        log.info(f"Synced the agent's record to the website: equity={equity} "
                  f"open={len(open_list)} closed={len(closed_list)}")
         return True
     return False
@@ -317,12 +326,40 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
     return False
 
 
-def sync_in_background(user_id: int, equity: float,
+# The files already said to be unreadable, so the warning is said once per
+# file rather than on every open and close that tries to sync.
+_UNREADABLE_SAID: set = set()
+
+
+def record_unreadable(executor) -> bool:
+    """Is the executor's closed-trade record unreadable, whole or in part?
+
+    `/api/bot/sync` REPLACES the agent's rows with what it is sent. A record
+    the executor could not read in full (`closed_trades_read_failed`) holds an
+    empty or partial list, and sending it would make the website delete every
+    trade it holds and publish that list as the whole history. So the caller
+    sends nothing until the file reads: the website keeps its last copy, and
+    that copy's age says how old it is. Sending the positions and equity
+    without the trades is not an option, because `sync.js` deletes the trades
+    on every push whatever it is sent, and an older website does too.
+    """
+    if not executor.closed_trades_read_failed:
+        return False
+    key = str(getattr(executor, "_closed_trades_file", "") or "")
+    if key not in _UNREADABLE_SAID:
+        _UNREADABLE_SAID.add(key)
+        log.warning("Website sync skipped: the closed-trade record could not "
+                    "be read in full, so it is not published as the agent's "
+                    "record. The website keeps its last copy until it reads.")
+    return True
+
+
+def sync_in_background(equity: Optional[float],
                        positions: list, closed_trades: list) -> None:
-    """Non-blocking sync: runs in a background thread."""
+    """Non-blocking `sync_portfolio`: runs in a background thread."""
     t = threading.Thread(
         target=sync_portfolio,
-        args=(user_id, equity, positions, closed_trades),
+        args=(equity, positions, closed_trades),
         daemon=True,
     )
     t.start()

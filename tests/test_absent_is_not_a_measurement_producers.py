@@ -142,7 +142,7 @@ def test_a_fresh_process_asks_the_venue_rather_than_reading_the_seed(monkeypatch
 
     async def _fetch(engine):
         asked.append(1)
-        return [{"symbol": "BTC/USDT"}, {"symbol": "ETH/USDT"}]
+        return es.ExchangeBook([{"symbol": "BTC/USDT"}, {"symbol": "ETH/USDT"}], [])
     monkeypatch.setattr(es, "_fetch_exchange_positions", _fetch)
 
     n = asyncio.run(es.get_exchange_position_count(NS()))
@@ -161,7 +161,7 @@ def test_a_half_filled_cache_is_not_served_either(monkeypatch):
 
     async def _fetch(engine):
         asked.append(1)
-        return [{"symbol": "BTC/USDT"}]
+        return es.ExchangeBook([{"symbol": "BTC/USDT"}], [])
     monkeypatch.setattr(es, "_fetch_exchange_positions", _fetch)
 
     n = asyncio.run(es.get_exchange_position_count(NS()))

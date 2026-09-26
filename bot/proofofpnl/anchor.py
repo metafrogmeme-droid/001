@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.proofofpnl import csf
+from bot.utils.json_store import StoreUnreadable, load_json_store, update_json_store
 from bot.utils.paths import env_state_path
 
 BASE_CHAIN_ID = 8453
@@ -233,20 +234,30 @@ def confirm_anchor(tx_hash: str, agent_address: str, pubkey_hex: str) -> tuple[b
         # From the transaction's destination, never from the environment.
         "mode": mode,
     }
-    state = read_anchor_state()
-    state[str(record["chain_id"])] = record
+    # ONE read-modify-write of the file as it is (`bot/utils/json_store.py`).
+    # The old pair read a file that would not parse as `{}` and wrote this
+    # chain's record over it with `write_text`, which is not atomic either:
+    # every other chain's anchor went with the next confirm.
+    def _put(state: dict) -> None:
+        state[str(record["chain_id"])] = record
+
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    try:
+        update_json_store(path, _put, indent=2, sort_keys=True)
+    except StoreUnreadable as exc:
+        return False, [
+            f"the anchor record file could not be read ({exc.detail}); this "
+            "anchor checked out but was NOT recorded, and nothing was written "
+            "over the file"]
     return True, []
 
 
 def read_anchor_state() -> dict:
-    try:
-        data = json.loads(_state_path().read_text())
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    """Every recorded anchor, ``{}`` when none has been recorded. RAISES
+    :class:`StoreUnreadable` for a file that is there and will not read: "no
+    anchor recorded" is a reading, and nobody read the file to make it."""
+    return load_json_store(_state_path())
 
 
 def anchor_for_card(agent_address: str, pubkey_hex: str, card_hash: str,
@@ -254,8 +265,13 @@ def anchor_for_card(agent_address: str, pubkey_hex: str, card_hash: str,
     """The card's anchor section. VERIFIED only while a recorded on-chain
     commitment matches the card's CURRENT identity; a rotated key or address
     reads STALE — honesty over continuity. No record → the caller's
-    UNVERIFIED plan, unchanged."""
-    state = read_anchor_state()
+    UNVERIFIED plan, unchanged. An unreadable record claims nothing either:
+    the same UNVERIFIED plan, because VERIFIED is a public claim and it may
+    only be made from a record that was read."""
+    try:
+        state = read_anchor_state()
+    except StoreUnreadable:
+        return unverified_plan
     if not state:
         return unverified_plan
     current = identity_commitment(agent_address, pubkey_hex)

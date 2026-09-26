@@ -544,7 +544,10 @@ def _stub_the_other_stores(monkeypatch, tmp_path):
     monkeypatch.setattr(models, "purge_user_data", lambda uid: {"notes": "none"})
     monkeypatch.setattr(models, "get_db", lambda: _Ctx())
     auth = uas.UserAuthorityStore(str(tmp_path / "auth.json"))
-    auth._envelopes["web:7"] = {"mode": "enforce", "revoked": False}
+    # Bound through the store, so it is ON DISK: a write reads the file and
+    # applies one change to it, so an envelope planted in memory alone is one
+    # the file never held.
+    auth.bind("web:7", {"envelope_id": "env-7", "mode": "enforce", "revoked": False})
     monkeypatch.setattr(uas, "get_user_authority_store", lambda: auth)
     return auth
 

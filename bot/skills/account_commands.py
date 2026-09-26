@@ -289,11 +289,16 @@ class AccountCommands:
                 cmd = "/connect" if v == "bitget" else f"/connect {v}"
                 return f"<b>{_venue_label(v)}</b> — <code>{cmd} {fields}</code>"
             lines = "\n".join(_usage(v) for v in valid_venue_ids())
+            from bot.core.venues import PER_USER_EXECUTION_VENUES
+            _balances_only = ", ".join(_venue_label(v) for v in valid_venue_ids()
+                                       if v not in PER_USER_EXECUTION_VENUES)
             await self._send(update,
                 "<b>Link your own exchange account</b>\n\n" + lines + "\n\n"
                 "• Bitget keys need USDT-M futures (read + trade); Bybit/BingX "
                 "must be in ONE-WAY mode; Hyperliquid uses an <b>agent</b> "
                 "(API) wallet key — never your main wallet key.\n"
+                + (f"• {html.escape(_balances_only)}: linked for balances only — "
+                   "no order routes there from this bot.\n" if _balances_only else "") +
                 "• Keys are <b>encrypted at rest</b> and never logged.\n"
                 "• This message is deleted immediately after you send it.\n"
                 "• Use <code>/exchange</code> to check status, "
@@ -346,11 +351,17 @@ class AccountCommands:
         audit(system_log, f"User linked own {label} account via /connect",
               action="connect", result="OK",
               data={"user": tg_id, "venue": venue, "fingerprint": store.fingerprint(tg_id)})
+        from bot.core.venues import per_user_execution_refusal
         from bot.guardian.authority_preflight import withdraw_notice
+        # A venue linked for balances only says so on the card that links it:
+        # the keys are stored and readable, and no order will ever route there
+        # until its adapter is driven — no date promised.
+        _orders_line = per_user_execution_refusal(venue)
         await self._send(update,
             f"🟢 <b>{label} account linked</b>\n\n"
             f"Key: <code>{store.fingerprint(tg_id)}</code>\n"
             f"Balance: {html.escape(detail)}\n\n"
+            + (f"⚠️ {html.escape(_orders_line)}\n\n" if _orders_line else "") +
             f"{withdraw_notice(scope.get('withdraw'))}\n\n"
             "Your keys are encrypted at rest. Per-user live trading is not yet "
             "enabled — you'll be notified when it goes live. Use "
@@ -637,9 +648,19 @@ class AccountCommands:
         unprotected."""
         if not self._is_admin(update):
             return
-        from bot.core.secrets_vault import vault_status
+        from bot.core.secrets_vault import vault_file_state, vault_status
         status = vault_status()
         if not status:
+            _vstate, _vdetail = vault_file_state()
+            if _vstate == "unreadable":
+                import html as _html
+                await self._send(update,
+                    f"🔴 Vault file could not be read ({_html.escape(_vdetail)})"
+                    " — nothing was restored from it at boot and nothing will "
+                    "be written over it. Restore it from a copy, or move it "
+                    "aside to start a fresh vault; a secret set now lives for "
+                    "this process only.")
+                return
             await self._send(update,
                 "🔴 Vault unavailable (disabled or crypto missing) — secrets "
                 "will NOT survive a redeploy.")

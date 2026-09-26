@@ -401,7 +401,9 @@ class EngineOpsCommands:
                 lines.append(
                     f"{icon} <code>{acct[:10]}</code> {g['status']} "
                     f"(×{g['multiplier']:.2f} · win {g['win_rate']*100:.0f}% · "
-                    f"net ${g['net_pnl']:,.0f} · n={g['samples']})")
+                    f"net ${g['net_pnl']:,.0f} · n={g['samples']}"
+                    + (" since cleared" if g.get("cleared_at") is not None else "")
+                    + ")")
         # 🎛 Continuous equity throttle — same quiet-unless-acting rule.
         pf_throttled = []
         for r in rows:
@@ -551,8 +553,10 @@ class EngineOpsCommands:
         the live trading venue at runtime. No .env edit, no restart: the
         switch preflights the target venue with a read-only balance call,
         hot-swaps the operator executor, and persists the choice across
-        restarts. Blocked while positions are open. Per-user (/connect)
-        executors always stay on Bitget.
+        restarts. Blocked while positions are open. It moves the OPERATOR's
+        executor only: a per-user (/connect) executor trades the venue its
+        user linked, where an executor is built for that venue at all
+        (`PER_USER_EXECUTION_VENUES`).
         """
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
@@ -642,7 +646,8 @@ class EngineOpsCommands:
                          f"• Min order notional: ${target.min_notional_usd:.0f}\n"
                          f"• Persisted — survives restarts. "
                          f"<code>/venue {active.id}</code> switches back.\n"
-                         f"• Per-user /connect accounts remain on Bitget.")
+                         f"• This moves the operator's account only. Per-user "
+                         f"/connect accounts trade the venue each user linked.")
 
     async def _cmd_audit(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /audit — show the last nightly self-audit report;
@@ -746,7 +751,19 @@ class EngineOpsCommands:
             from bot.core.leverage import resolve_user_leverage
             _tg_id = self._get_tg_id(update)
             if args[:1] == ["reset"]:
-                _lev_store.clear(_tg_id)
+                # A clear that could not read the file, or whose write did not
+                # land, left the preference where it was. "Cleared" over that is
+                # the one false answer, so each gets its own sentence.
+                try:
+                    _lev_store.clear(_tg_id)
+                except _lev_store.StoreUnreadable:
+                    await self._reply(update, _lev_store.UNREAD_SENTENCE)
+                    return
+                except OSError:
+                    await self._reply(update,
+                        "⚠️ Your leverage preference could not be cleared — the "
+                        "write did not land. Nothing was changed; try again.")
+                    return
                 try:
                     _ex = self.engine._user_executors.get(str(_tg_id))
                     if _ex is not None:
@@ -763,11 +780,20 @@ class EngineOpsCommands:
                 except ValueError:
                     await self._reply(update, "Usage: /leverage set <n>")
                     return
-                _stored = _lev_store.set_pref(_tg_id, _val)
-                if _stored is None:
+                if _val < _lev_store.TIGHTEST_PREF:
                     await self._reply(update,
                         "Couldn't save that — use a whole number ≥ 1, "
                         "e.g. <code>/leverage set 3</code>.")
+                    return
+                try:
+                    _stored = _lev_store.set_pref(_tg_id, _val)
+                except _lev_store.StoreUnreadable:
+                    await self._reply(update, _lev_store.UNREAD_SENTENCE)
+                    return
+                if _stored is None:
+                    await self._reply(update,
+                        "⚠️ Your leverage preference could not be saved — the "
+                        "write did not land. Nothing was changed; try again.")
                     return
                 try:
                     _ex = self.engine._user_executors.get(str(_tg_id))

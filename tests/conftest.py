@@ -78,6 +78,12 @@ _STATE_GLOBS = (
     "data/risk_state_*.json",
     "data/risk_state_*.json.bak",
     "data/risk_state_*.json.tmp",
+    # The paper book's backup, which is written on EVERY save now (the first
+    # one included), and a damaged book copied aside before a recovery
+    # replaces it (bot/risk/portfolio.py). Listed in the same commit as that
+    # change, for the reason the paragraph above gives.
+    "data/portfolio_*.json.bak",
+    "data/portfolio_*.json.unreadable-*",
 )
 _STATE_DIRS = (
     "data/learning",

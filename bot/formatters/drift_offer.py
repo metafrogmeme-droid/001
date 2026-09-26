@@ -171,6 +171,20 @@ def flatten_account_ok(messages: Any) -> bool:
     return not flatten_failed_messages(messages)
 
 
+def flatten_closed_count(messages: Any) -> int:
+    """How many positions a flatten CLOSED.
+
+    ``close_all_positions`` answers an empty book with one message, which
+    reads as "closed" (nothing is left open) and is not a close: counting it
+    reported "1 closed" for an account that held nothing.
+    """
+    from bot.core.order_state import NOTHING_TO_CLOSE
+
+    texts = [str(m) for m in (messages or [])]
+    failed = flatten_failed_messages(texts)
+    return sum(1 for t in texts if t != NOTHING_TO_CLOSE) - len(failed)
+
+
 def flatten_headline(accounts: Any) -> str:
     """The emergency card's one-line count of what is actually flat.
 

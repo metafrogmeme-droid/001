@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Solana takibi kaldırıldı."],
   ["dd.t_lock_rolled", "Kilit bitiş tarihi değişti (gece yarısı devri) — güncel koşullar yeniden gösteriliyor."],
   ["dd.t_trade_confirmed", "İşlem onaylandı."],
+  ["dd.t_trade_refused", "Hiçbir şey iletilmedi."],
+  ["dd.t_trade_unread", "Bot yanıt verdi ama bir şey iletilip iletilmediğini söylemedi — pozisyonlarınızı kontrol edin."],
   ["dd.t_trade_update", "Motordan işlem güncellemesi."],
   ["dd.t_need_coin", "Önce bir coin yaz."],
   ["dd.t_need_symbol", "Önce bir sembol yaz."],

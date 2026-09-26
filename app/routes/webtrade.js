@@ -106,12 +106,21 @@ router.post('/confirm', tradeLimit, async (req, res) => {
       `SELECT totp_enabled, totp_secret FROM users WHERE id = ?`, [req.user.user_id]);
     const urow = urows[0] || {};
     if (urow.totp_enabled) {
-      let liveCapable = true;   // fail SAFE: a gateway hiccup requires the code
+      // PAPER ONLY ON THE PROBE'S OWN EXPLICIT WORD. The comment on this line
+      // used to promise that "a gateway hiccup requires the code" while the
+      // expression below it read `lm.status === 200 && ... live_allowed` as the
+      // condition for LIVE — so every hiccup that answered at all (a 429 from
+      // the gateway's own limiter, a 503, a 500 with a JSON body, a 200 that
+      // carried no `live_allowed`) came out NOT live-capable and the live
+      // confirm skipped the code. Only a thrown fetch kept the promise. The one
+      // answer that may skip the step-up is a 200 saying `live_allowed: false`;
+      // an answer nobody could read is not evidence the account is paper.
+      let liveCapable = true;
       try {
         const lm = await gateway.getGateway(
           `/trade/live_mode?telegram_id=${encodeURIComponent(ident.id)}`, 8000);
-        liveCapable = !!(lm && lm.status === 200 && lm.data && lm.data.live_allowed);
-      } catch (_) { /* keep liveCapable = true (fail safe) */ }
+        liveCapable = !(lm && lm.status === 200 && lm.data && lm.data.live_allowed === false);
+      } catch (_) { /* keep liveCapable = true: no answer requires the code */ }
       if (liveCapable) {
         const blk = stepUpBlock(urow.totp_enabled, urow.totp_secret,
           (req.body || {}).totp_code,

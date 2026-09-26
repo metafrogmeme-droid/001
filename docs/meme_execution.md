@@ -20,10 +20,19 @@ clears, in order (all fail-closed — a missing input denies):
 
 1. **`MEME_TRADING_ENABLED`** — master feature flag, **default OFF**.
 2. **Authority Envelope** — the human-set, revocable authority must authorize
-   this trade (passed in as `envelope_authorized`; wired to
-   `bot/guardian/authority.authorize` at the call site).
+   this trade. `bot/core/meme_preflight.envelope_decision` asks
+   `bot/guardian/authority.authorize` about THIS buy — venue `solana:jupiter`,
+   market type `swap`, the size, against the day's recorded spend — and hands
+   `plan_swap` the decision and its reasons (`envelope_authorized`,
+   `envelope_reasons`). An envelope's symbol lists are tickers and the preflight
+   holds only a mint, so an envelope with a symbol list refuses every meme buy by
+   name rather than checking a blocklist against a name it does not have; and an
+   envelope authored on the web is compiled against the CEX venue list, which
+   does not hold `solana:jupiter`, so it cannot authorize the venue either.
 3. **Meme-buy safety gate** (`bot/core/meme_gate`) — rug/honeypot verdict +
-   liquidity/age/exit-ability + sizing.
+   liquidity/age/exit-ability + sizing. Its `risk_tier` check reads a
+   `radar_risk` that **no caller supplies today**, so it fails closed on every
+   buy: no buy plan can pass until a producer for it exists.
 
 **Sells are exits** and are *never* blocked by the safety gate — being able to
 dump a rug is itself the safety property. Sells still require the flag +

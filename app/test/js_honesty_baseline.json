@@ -6,7 +6,7 @@
     "lib",
     "routes"
   ],
-  "total": 149,
+  "total": 147,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
@@ -17,7 +17,7 @@
       "lib/solana.js": 3,
       "lib/wallet.js": 5,
       "routes/signals.js": 2,
-      "routes/sync.js": 7,
+      "routes/sync.js": 5,
       "routes/wallet.js": 2
     },
     "or-zero-compare": {

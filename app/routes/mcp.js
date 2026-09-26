@@ -28,8 +28,9 @@ const { safeErrorText } = require('../lib/safe_error');
 // The public /track page's own arithmetic. Imported rather than re-derived:
 // M9 was these two surfaces answering the same question differently while a
 // comment here promised they shared one source of truth.
-const { classifyPnls, outcomeOf } = require('./track');
+const { classifyPnls, outcomeOf, recordCoverage } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
+const { publicFeedEvent } = require('../lib/public_feed');
 const { publicSignal } = require('../lib/public_signal');
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The module itself as well as the two names above: ask_runeclaw reads
@@ -507,6 +508,9 @@ const TOOLS = {
         // profit_factor is gross-win / gross-loss — a RATIO, so it carries the
         // performance signal net_pnl_usd used to, without the dollar figure.
         profit_factor: grossLoss > 0 ? Math.round(grossWin / grossLoss * 100) / 100 : null,
+        // The same window the public page states: the newest closes the bot
+        // last sent, not necessarily its whole history.
+        coverage: recordCoverage(trades),
         recent_trades: trades.slice(-10).reverse().map(t => ({
           symbol: t.symbol, direction: t.direction,
           // Outcome, not amount — and four of them. `flat` is its own answer
@@ -645,7 +649,9 @@ const TOOLS = {
       const [rows] = await pool.execute(
         `SELECT event_type, severity, symbol, title, body, created_at
            FROM agent_events ORDER BY id DESC LIMIT ${limit}`, []);
-      return { events: rows };
+      // The ring holds rows written before the ingest scrubbed them, so the
+      // public shape is applied here too (no dollar amount of the account).
+      return { events: rows.map(publicFeedEvent) };
     },
   },
 

@@ -23,7 +23,7 @@
     "link": "koppel deze Telegram aan je website-account — /link <token>",
     "unlink": "ontkoppel deze Telegram van je website-account",
     "me": "je account: abonnement, portfolio en instellingen",
-    "sync": "stuur je portfolio nu naar het websitedashboard",
+    "sync": "waarom het dashboard geen push nodig heeft: het leest je account bij het laden",
     "connect": "koppel je eigen exchange-account",
     "exchange": "status van je gekoppelde account (toont nooit sleutels)",
     "livebalance": "je echte exchange-saldo (je eigen account, alleen-lezen)",

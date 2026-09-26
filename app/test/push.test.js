@@ -115,9 +115,13 @@ test('bot event ingest pushes trades + warnings, never scans; 410 prunes', async
   });
   await settle();
   const titles = sends.map(s => s.payload.title).sort();
+  // The close is still pushed, and its dollar P&L is not: a push reaches
+  // every subscriber, so it carries what the public feed carries. This used
+  // to pin 'RUNECLAW — Closed SOL +$2.41', the operator's dollar result sent
+  // to every phone, as the contract (public_feed_carries_no_dollar.test.js).
   assert.deepStrictEqual(titles, [
     'RUNECLAW — Circuit breaker tripped',
-    'RUNECLAW — Closed SOL +$2.41',
+    'RUNECLAW — Closed SOL ⋯',
   ]);
   assert.ok(sends.every(s => s.payload.url === '/dashboard#feed'));
 

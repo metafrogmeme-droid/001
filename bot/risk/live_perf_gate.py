@@ -35,6 +35,7 @@ start) and the word must not claim the record was read.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 #: The governor is switched off. Nothing here is applied to sizing.
@@ -87,3 +88,52 @@ def governor_verdict(*,
     if mult < 1.0:
         return mult, REDUCE
     return mult, OK
+
+
+def _wait_words(seconds: float) -> str:
+    """A wait on a card: "13.2h" or "45m", rounded UP so a card never says a
+    probe is due before it is."""
+    if seconds >= 3600:
+        return f"{math.ceil(seconds / 360.0) / 10:.1f}h"
+    return f"{max(1, math.ceil(seconds / 60.0))}m"
+
+
+def probe_clause(probe_in_seconds: Optional[float], probe_hours: float,
+                 open_count: Optional[int] = None) -> str:
+    """What ends a PAUSE, as a clause to append to the refusal: "" never.
+
+    A pause with no way out was the defect (a paused book opens nothing, so
+    its window cannot change), and a refusal that names the pause and not the
+    way out sends the operator looking for a switch. Four outcomes, because
+    they have four remedies: probing is switched off; no close is on record
+    to time a probe from; a position is still open, and the probe waits for
+    it; or the probe is due in a stated time. A probe that is due never
+    reaches this clause: `evaluate` lets it through and `trading_blocked_by`
+    names no pause for it. ``open_count`` None is a caller
+    that cannot count the book (a property), and the clause then says the
+    probe also needs a flat book rather than guessing that it has one.
+    """
+    if probe_hours <= 0:
+        # No slash command named: this clause reaches the website's scan chip,
+        # where a Telegram command is a door painted on a wall.
+        return "; probing is off (LIVE_PERF_PROBE_HOURS is 0), so this lifts only when an operator clears it"
+    if probe_in_seconds is None:
+        return "; no close is on record to time a probe entry from"
+    if open_count is not None and open_count != 0:
+        return "; a probe entry waits until no position is open"
+    flat = "" if open_count == 0 else " with no position open"
+    return f"; a probe entry is allowed in {_wait_words(probe_in_seconds)}{flat}"
+
+
+def pause_reason(samples: int, win_rate: float,
+                 probe_in_seconds: Optional[float], probe_hours: float) -> str:
+    """The governor's PAUSE in `RiskEngine.trading_blocked_by`'s vocabulary.
+
+    Counts only, never a dollar figure: this string reaches the unauthenticated
+    /health payload and the website's scan chip, where the public-surface rule
+    allows a count and a ratio and no account money. The prefix is the token a
+    card branches on (`warroom_bot.resume_gate_line`).
+    """
+    wins = int(round(win_rate * samples))
+    return (f"live_perf_pause: {wins} of the last {samples} closes won, net negative"
+            + probe_clause(probe_in_seconds, probe_hours, None))

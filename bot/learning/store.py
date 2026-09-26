@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
 from typing import Optional, Type, TypeVar
 
 from pydantic import BaseModel
+
+from bot.utils.json_store import UNREADABLE, StoreUnreadable, read_json_store, update_json_store
 
 from .models import (
     DecisionMemory,
@@ -96,32 +97,40 @@ class LearningStore:
         return records
 
     # ── Overwrite (JSON) ───────────────────────────────────────────
+    #
+    # Each write is ONE read-modify-write of the file as it is on disk
+    # (`bot/utils/json_store.py`). The old pair read a file that would not
+    # parse as `{}` and then wrote the one entry being recorded over it, so a
+    # corrupt scorecard file lost every other strategy's scorecard to the next
+    # evaluation, and the prompt registry every other version to the next one
+    # recorded. A file that is there and will not read is left as it is now.
 
-    def _write_json(self, key: str, data: dict | list) -> None:
-        """Atomic overwrite of a JSON file (for scorecard, prompts, backlog)."""
+    def _update_json(self, key: str, shape: type, change) -> None:
+        """Apply ``change`` to the file, or leave an unreadable one alone.
+        Never raises: every caller records as a side effect of other work."""
         path = self._files[key]
-        tmp = None
         try:
-            fd, tmp = tempfile.mkstemp(dir=self._dir, suffix=".tmp")
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
-            os.replace(tmp, path)
-        except Exception as e:
+            update_json_store(path, change, shape=shape, indent=2, default=str)
+        except StoreUnreadable as exc:
+            logger.error("%s could not be read (%s) — the new entry was NOT "
+                         "written over it", path, exc.detail)
+        except OSError as e:
             logger.error("Failed to write %s: %s", path, e)
-            if tmp and os.path.exists(tmp):
-                os.unlink(tmp)
 
-    def _read_json(self, key: str) -> dict | list:
-        """Read a JSON file."""
+    def _read_json(self, key: str, shape: type = dict) -> dict | list:
+        """A JSON file for a READER, ``shape()`` for a fresh start.
+
+        An unreadable file is ALSO answered as ``shape()`` here, with an
+        error logged, and that is a stated choice rather than the defect:
+        these readers rank strategies and list prompt versions and proposals,
+        nothing here decides money, and the writes above no longer put that
+        empty answer back over the file."""
         path = self._files[key]
-        if not path.exists():
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error("Failed to read %s: %s", path, e)
-            return {}
+        r = read_json_store(path, shape=shape)
+        if r.state == UNREADABLE:
+            logger.error("Failed to read %s: %s", path, r.detail)
+        data: dict | list = r.data if r.data is not None else shape()
+        return data
 
     # ── Public API: Decision Memory ────────────────────────────────
 
@@ -147,11 +156,12 @@ class LearningStore:
     # ── Public API: Strategy Scorecard ─────────────────────────────
 
     def update_scorecard(self, scorecard: StrategyScorecard) -> None:
-        data = self._read_json("scorecard")
-        if not isinstance(data, dict):
-            data = {}
-        data[scorecard.strategy_name] = json.loads(scorecard.model_dump_json())
-        self._write_json("scorecard", data)
+        row = json.loads(scorecard.model_dump_json())
+
+        def _put(data: dict) -> None:
+            data[scorecard.strategy_name] = row
+
+        self._update_json("scorecard", dict, _put)
 
     def get_scorecards(self) -> dict[str, StrategyScorecard]:
         data = self._read_json("scorecard")
@@ -179,11 +189,12 @@ class LearningStore:
     # ── Public API: Prompt Versions ────────────────────────────────
 
     def record_prompt_version(self, pv: PromptVersion) -> None:
-        data = self._read_json("prompts")
-        if not isinstance(data, dict):
-            data = {}
-        data[pv.version_id] = json.loads(pv.model_dump_json())
-        self._write_json("prompts", data)
+        row = json.loads(pv.model_dump_json())
+
+        def _put(data: dict) -> None:
+            data[pv.version_id] = row
+
+        self._update_json("prompts", dict, _put)
 
     def get_prompt_versions(self) -> dict[str, PromptVersion]:
         data = self._read_json("prompts")
@@ -217,15 +228,37 @@ class LearningStore:
     # ── Public API: Improvement Backlog ────────────────────────────
 
     def record_proposal(self, proposal: ImprovementProposal) -> None:
-        data = self._read_json("backlog")
-        if not isinstance(data, list):
-            data = []
-        data.append(json.loads(proposal.model_dump_json()))
-        self._write_json("backlog", data)
+        row = json.loads(proposal.model_dump_json())
+
+        def _put(data: list) -> None:
+            data.append(row)
+
+        self._update_json("backlog", list, _put)
         logger.info("Proposal recorded: %s class=%s", proposal.audit_id, proposal.classification)
 
+    def set_proposal_statuses(self, statuses: dict[str, str]) -> None:
+        """Set the status of the named proposals in the file AS IT IS.
+
+        The orchestrator used to read the backlog through `get_proposals`
+        (which drops a row it cannot validate, and answered an unreadable
+        file as ``[]``) and write that list back whole: a malformed row was
+        erased by the next status change, and an unreadable backlog by the
+        next run. Every row but the named ones is kept byte for byte now."""
+        def _set(data: list) -> bool:
+            changed = False
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                want = statuses.get(str(row.get("audit_id")))
+                if want is not None and row.get("status") != want:
+                    row["status"] = want
+                    changed = True
+            return changed
+
+        self._update_json("backlog", list, _set)
+
     def get_proposals(self, status: Optional[str] = None) -> list[ImprovementProposal]:
-        data = self._read_json("backlog")
+        data = self._read_json("backlog", list)
         if not isinstance(data, list):
             return []
         result = []

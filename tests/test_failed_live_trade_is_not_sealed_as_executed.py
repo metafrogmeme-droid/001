@@ -56,10 +56,17 @@ class TestTheChain:
         block = _block()
         assert block.count("self.audit_chain.seal_decision(") == 1
         i = block.index("self.audit_chain.seal_decision(")
-        # ...and it sits at the OUTER indent, outside `if not live_failed:`,
-        # which is correct for a call that now reports both outcomes.
+        # ...and the STATEMENT that makes it sits at the OUTER indent, outside
+        # `if not live_failed:`, which is correct for a call that now reports
+        # both outcomes. The seal is written through `_seal_on_chain` (a seal
+        # that fails is said on the answer, never raised over an open
+        # position), so the call is inside that statement's lambda; what is
+        # pinned is the indent of the line that holds it.
         line_start = block.rindex("\n", 0, i) + 1
-        assert i - line_start == 8, "seal_decision moved out of the outer block"
+        line = block[line_start:block.index("\n", i)]
+        indent = len(line) - len(line.lstrip(" "))
+        assert indent == 8, "seal_decision moved out of the outer block"
+        assert line.lstrip().startswith("seal_note = _seal_on_chain(")
 
     def test_the_failure_outcome_is_not_named_a_rejection(self):
         # guardian/flight_recorder files any outcome starting with REJECTED as

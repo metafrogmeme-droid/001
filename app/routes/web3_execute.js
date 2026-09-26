@@ -4,9 +4,9 @@
  * The first, safest slice toward live on-chain execution: it returns a DRY-RUN
  * PREVIEW of an on-chain action and NEVER signs or broadcasts. The bot gateway
  * re-checks admin server-side (a forged JWT can't reach it), runs the web3
- * execution gate (default-OFF flag, testnet-first) and the Authority Envelope
- * authorize() before producing the preview. Real signing/broadcast ships in a
- * later, separately-gated, still admin-only, still envelope-enforced slice.
+ * execution gate (WEB3_LIVE_EXEC_ENABLED, default ON, testnet-first) and the
+ * Authority Envelope authorize() before producing the preview. Signing and
+ * broadcast go through POST /api/web3/sign below, never through this route.
  */
 
 'use strict';
@@ -54,10 +54,15 @@ router.post('/execute', async (req, res) => {
  * The first slice that actually SIGNS + broadcasts an on-chain transaction — a
  * native-value transfer to an envelope-allowlisted destination, on a testnet
  * only. The bot gateway is authoritative: it re-checks admin, runs the signing
- * gate (its own default-OFF flag + a configured key + the eth-account library +
- * an enforcing envelope), runs authorize(), signs, and broadcasts to the
- * configured testnet RPC. The signing key never leaves the bot; the web layer
- * only forwards the resolved identity and the transfer parameters.
+ * gate (its own WEB3_LIVE_EXEC_SIGN_ENABLED switch, default ON + a configured
+ * key + the eth-account library + an enforcing envelope), prices the value it
+ * will sign, runs authorize(), signs, and broadcasts to the configured testnet
+ * RPC. The signing key never leaves the bot; the web layer only forwards the
+ * resolved identity and the transfer parameters.
+ *
+ * No `amount_usd` and no `asset` are forwarded: the bot prices `value_wei` at
+ * the network's own coin and reads its own mark. Those two fields used to be
+ * what the envelope was asked about while a different `value_wei` was signed.
  */
 router.post('/sign', async (req, res) => {
   try {
@@ -76,8 +81,6 @@ router.post('/sign', async (req, res) => {
       // Prepared EIP-1559 fees from /web3/sign/prepare (optional; bot defaults otherwise).
       max_fee_wei: b.max_fee_wei,
       max_priority_wei: b.max_priority_wei,
-      amount_usd: b.amount_usd,
-      asset: String(b.asset || 'ETH'),
     }, 20000);
     return gateway.relay(res, r);
   } catch (err) {

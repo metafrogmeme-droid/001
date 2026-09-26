@@ -581,19 +581,24 @@ class ProactiveMonitor:
         """
         self._admin_fn = admin_fn
 
-    def enable_chat(self, chat_id: str) -> None:
-        """Enable proactive alerts for a chat."""
+    def enable_chat(self, chat_id: str) -> bool:
+        """Enable proactive alerts for a chat. True when the change was
+        written to the saved watch list; False when it holds in memory only
+        (see `_save_enabled_chats`)."""
         self._enabled_chats.add(str(chat_id))
-        self._save_enabled_chats()
+        saved = self._save_enabled_chats()
         audit(system_log, f"Proactive alerts enabled for chat {chat_id}",
-              action="watch_on", data={"chat_id": chat_id})
+              action="watch_on", data={"chat_id": chat_id, "saved": saved})
+        return saved
 
-    def disable_chat(self, chat_id: str) -> None:
-        """Disable proactive alerts for a chat."""
+    def disable_chat(self, chat_id: str) -> bool:
+        """Disable proactive alerts for a chat. True when written, as for
+        `enable_chat`."""
         self._enabled_chats.discard(str(chat_id))
-        self._save_enabled_chats()
+        saved = self._save_enabled_chats()
         audit(system_log, f"Proactive alerts disabled for chat {chat_id}",
-              action="watch_off", data={"chat_id": chat_id})
+              action="watch_off", data={"chat_id": chat_id, "saved": saved})
+        return saved
 
     # ── Watch-list persistence + admin auto-enroll ────────────────
     # The watch list was in-memory only, so every restart silenced CRITICAL
@@ -618,6 +623,21 @@ class ProactiveMonitor:
         except Exception:
             return str(state_path("data/proactive_watch.json"))
 
+    @property
+    def watch_list_unreadable(self) -> bool:
+        """True when the saved watch list existed at startup and could not be
+        read, so the set in memory is not the list and nothing is written over
+        the file this run."""
+        return self._watch_read_failed
+
+    #: True when the saved watch list was there and could not be read. AN
+    #: UNREADABLE LIST IS NOT AN EMPTY ONE: the load used to swallow the
+    #: failure at DEBUG and leave the set empty, so every chat that had run
+    #: /watch on stopped getting alerts, the operator was not auto-enrolled
+    #: (a file existed), and the next /watch on saved that one chat over the
+    #: file, erasing everybody else for good.
+    _watch_read_failed: bool = False
+
     def _load_enabled_chats(self) -> None:
         import json
         import os
@@ -627,25 +647,49 @@ class ProactiveMonitor:
         # emptied the list (file present but empty -> respect their choice, do
         # NOT re-enroll on every restart).
         self._watch_state_existed = os.path.exists(path)
+        if not self._watch_state_existed:
+            return
         try:
-            if not self._watch_state_existed:
-                return
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
-            chats = data.get("enabled_chats", []) if isinstance(data, dict) else data
-            if isinstance(chats, list):
-                self._enabled_chats = {str(c) for c in chats if c not in (None, "")}
+            chats = data.get("enabled_chats") if isinstance(data, dict) else data
+            if not isinstance(chats, list):
+                # Not the shape this module writes: a list nobody can read,
+                # never an empty one.
+                raise ValueError("no list of chats in the file")
+            self._enabled_chats = {str(c) for c in chats if c not in (None, "")}
         except Exception as exc:
-            logger.debug("proactive watch-list load skipped: %s", exc)
+            self._watch_read_failed = True
+            audit(system_log,
+                  f"PROACTIVE WATCH LIST UNREADABLE ({type(exc).__name__}): "
+                  f"{os.path.basename(path)} could not be read, so who was "
+                  f"watching is unknown. The file is left as it was and will "
+                  f"not be written over this run; /watch changes hold until "
+                  f"restart.",
+                  action="watch_load", result="UNREADABLE", level=logging.ERROR,
+                  data={"error": type(exc).__name__})
 
-    def _save_enabled_chats(self) -> None:
+    def _save_enabled_chats(self) -> bool:
+        """Write the watch list. True when the write landed.
+
+        Not while the saved list could not be read: writing this process's
+        set over it would erase every chat the file named, and the set is not
+        the list -- it is whatever this process added since. The change holds
+        in memory until restart and the file stays as it was.
+        """
+        if self._watch_read_failed:
+            logger.warning("proactive watch list NOT written: the saved list could "
+                           "not be read at startup and is left as it was")
+            return False
         path = self._watch_state_path()
         try:
             atomic_write_json(
                 path, {"enabled_chats": sorted(self._enabled_chats)},
                 indent=None)
+            return True
         except Exception as exc:
-            logger.debug("proactive watch-list save skipped: %s", exc)
+            logger.warning("proactive watch-list save failed: %s", exc)
+            return False
 
     def _maybe_auto_enroll_admin(self) -> None:
         """When nobody is watching on a FRESH deploy, enroll the operator chat
@@ -655,8 +699,11 @@ class ProactiveMonitor:
         if self._enabled_chats:
             return
         # Operator has interacted before (file present) — respect their empty
-        # list instead of re-enrolling every restart.
-        if getattr(self, "_watch_state_existed", False):
+        # list instead of re-enrolling every restart. Unless the file could
+        # not be READ: then nobody knows who was watching, and the operator is
+        # enrolled for this process so CRITICAL alerts reach someone. The save
+        # below refuses while the read failed, so this is not written over it.
+        if getattr(self, "_watch_state_existed", False) and not self._watch_read_failed:
             return
         try:
             from bot.config import CONFIG
@@ -665,11 +712,12 @@ class ProactiveMonitor:
             admin = str(CONFIG.telegram.chat_id or "").strip()
             if admin:
                 self._enabled_chats.add(admin)
-                self._save_enabled_chats()
+                saved = self._save_enabled_chats()
+                why = ("empty watch list on startup" if saved else
+                       "the saved watch list could not be read; this run only")
                 audit(system_log,
-                      f"Proactive alerts auto-enrolled operator chat {admin} "
-                      f"(empty watch list on startup)",
-                      action="watch_auto_enroll", data={"chat_id": admin})
+                      f"Proactive alerts auto-enrolled operator chat {admin} ({why})",
+                      action="watch_auto_enroll", data={"chat_id": admin, "saved": saved})
         except Exception as exc:
             logger.debug("proactive admin auto-enroll skipped: %s", exc)
 

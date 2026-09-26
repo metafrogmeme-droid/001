@@ -21,13 +21,12 @@ ranks whatever sealed, public-safe publications have been registered.
 """
 from __future__ import annotations
 
-import json
 import threading
 from typing import Any, Iterable, Optional
 
 from bot.proofofpnl.publish import verify_publication
 
-from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import load_json_store, update_json_store
 from bot.utils.paths import env_state_path, state_path
 
 HANDLE_MAX = 20
@@ -131,19 +130,23 @@ class LeaderboardRegistry:
         self._lock = threading.RLock()
 
     def _read_raw(self) -> dict:
-        try:
-            with open(self._path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return {}
+        """The registry, ``{}`` for a fresh start. RAISES
+        :class:`StoreUnreadable` for a file that will not read: an empty
+        board is "nobody qualified", and nobody read the file to say so.
+        ``_leaderboard_payload`` answers that raise with a 503; it used to be
+        unreachable, because this read folded every failure into ``{}``."""
+        return load_json_store(self._path)
 
-    def _write_raw(self, data: dict) -> bool:
+    def _update(self, change) -> bool:
+        """Apply ONE change to the file as it is on disk, never a map held
+        here. A file that will not read raises StoreUnreadable and nothing is
+        written; the old read-``{}``-then-save put one handle over every other
+        member's row. False for a write that did not land."""
         try:
-            atomic_write_json(self._path, data, separators=(",", ":"))
-            return True
+            update_json_store(self._path, change, separators=(",", ":"))
         except OSError:
             return False
+        return True
 
     def put(self, handle: str, publication: dict) -> bool:
         """Register/refresh a member's latest publication. Refuses a bad handle
@@ -154,20 +157,25 @@ class LeaderboardRegistry:
         ok, _ = verify_publication(publication)
         if not ok:
             return False
-        with self._lock:
-            data = self._read_raw()
+        def _put(data: dict) -> bool:
             data[h] = publication
-            return self._write_raw(data)
+            return True
+
+        with self._lock:
+            return self._update(_put)
 
     def remove(self, handle: str) -> bool:
         """Opt-out — drop a member from the board."""
         h = str(handle or "").strip()
-        with self._lock:
-            data = self._read_raw()
-            if h in data:
-                del data[h]
-                return self._write_raw(data)
+
+        def _drop(data: dict) -> bool:
+            if h not in data:
+                return False
+            del data[h]
             return True
+
+        with self._lock:
+            return self._update(_drop)
 
     def all_entries(self) -> list[dict]:
         """Every registered member as ``{handle, publication}`` — ready for

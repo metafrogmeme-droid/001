@@ -30,6 +30,23 @@ if TYPE_CHECKING:
     from bot.utils.user_store import UserStore
 
 
+def _watch_not_saved(monitor, saved) -> str:
+    """The sentence under a /watch change the saved list did not take.
+
+    `saved` is the monitor's own answer; only a literal False says the change
+    missed the file (anything else, a stand-in included, adds nothing). The two
+    causes are two remedies: a list that could not be READ at startup is left
+    as it was on purpose, a write that failed is a disk to look at."""
+    if saved is not False:
+        return ""
+    if getattr(monitor, "watch_list_unreadable", False) is True:
+        return ("\n\n⚠️ The saved watch list could not be read when the bot "
+                "started, so it was left as it was and this change was not written "
+                "to it: it holds until the bot restarts.")
+    return ("\n\n⚠️ This change could not be saved to the watch list, so it "
+            "holds until the bot restarts.")
+
+
 class AgentCommands:
     """Posture, notes and watchlists. Host contract below; methods after."""
 
@@ -205,7 +222,7 @@ class AgentCommands:
         action = args[0].lower() if args else "status"
 
         if action == "on":
-            self.monitor.enable_chat(tg_id)
+            saved = self.monitor.enable_chat(tg_id)
             await self._send(update,
                 "\U0001f514 <b>PROACTIVE ALERTS ON</b>\n\n"
                 "I'll push alerts for:\n"
@@ -214,19 +231,27 @@ class AgentCommands:
                 "\u2022 Black-swan anomaly detections\n"
                 "\u2022 New trade signals pending confirmation\n"
                 "\u2022 Engine state changes (halt/cooldown)\n\n"
-                "Use <code>/watch off</code> to disable.")
+                "Use <code>/watch off</code> to disable."
+                + _watch_not_saved(self.monitor, saved))
         elif action == "off":
-            self.monitor.disable_chat(tg_id)
+            saved = self.monitor.disable_chat(tg_id)
             await self._send(update,
                 "\U0001f515 <b>PROACTIVE ALERTS OFF</b>\n\n"
                 "You won't receive unsolicited alerts.\n"
-                "Use <code>/watch on</code> to re-enable.")
+                "Use <code>/watch on</code> to re-enable."
+                + _watch_not_saved(self.monitor, saved))
         else:
             enabled = self.monitor.is_enabled(tg_id)
             status = "\U0001f7e2 ON" if enabled else "\U0001f534 OFF"
+            # A count over a list nobody could read is the chats enabled since
+            # startup, not the watch list: said, rather than printed as whole.
+            partial = ("\n\u26a0\ufe0f The saved watch list could not be read at "
+                       "startup, so this count is only the chats enabled since."
+                       if getattr(self.monitor, "watch_list_unreadable", False) is True
+                       else "")
             await self._send(update,
                 f"\U0001f514 <b>WATCH STATUS</b>: {status}\n\n"
-                f"Active watchers: {self.monitor.enabled_chat_count}\n\n"
+                f"Active watchers: {self.monitor.enabled_chat_count}{partial}\n\n"
                 f"Use <code>/watch on</code> or <code>/watch off</code> to toggle.")
 
     async def _cmd_share(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

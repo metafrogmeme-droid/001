@@ -8,11 +8,14 @@ import os
 import tempfile
 from contextlib import contextmanager
 
+import pytest
+
 from bot.config import CONFIG
 from bot.guardian import authority as auth
 from bot.guardian.authority_ledger import AuthoritySpendLedger, prune, window_sum
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
+from bot.utils.json_store import StoreUnreadable
 from bot.utils.models import Direction, TradeIdea
 
 _ATR = 2600.0
@@ -79,11 +82,18 @@ def test_persistence_round_trip_and_corrupt_failsafe():
     # a fresh ledger on the same file sees the persisted spend
     led2 = AuthoritySpendLedger(state_file=path)
     assert led2.spent("k", now) == 250.0
-    # a corrupt file fails safe to empty (never raises)
+    # A corrupt file is NOT an empty ledger. This used to assert `== 0.0`
+    # ("fails safe to empty"), and $0 spent is the one answer a daily cap reads
+    # as the whole allowance left. It raises now, every caller refuses a
+    # spend nobody could read, and the file is left for somebody to look at.
     with open(path, "w", encoding="utf-8") as f:
         f.write("{ not json")
     led3 = AuthoritySpendLedger(state_file=path)
-    assert led3.spent("k", now) == 0.0
+    with pytest.raises(StoreUnreadable):
+        led3.spent("k", now)
+    with pytest.raises(StoreUnreadable):
+        led3.record("other", 10, now, ref="t2")
+    assert open(path, encoding="utf-8").read() == "{ not json"
 
 
 # ── engine integration: the daily cap now bites ───────────────────────

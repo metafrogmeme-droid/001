@@ -124,11 +124,13 @@ class TestCancelSymbolRouting:
         assert not bare, f"bare-symbol cancels remain: {bare}"
         assert "cancel_order" in src and "order_symbol(pos.symbol)" in src
 
-    def test_order_symbol_identity_on_bitget(self):
-        # zero-regression proof: Bitget order_symbol is identity, so the
-        # rewrite is a no-op on the production venue.
+    def test_order_symbol_maps_to_perp_on_bitget(self):
+        # This was "Bitget order_symbol is identity, so the rewrite is a no-op
+        # on the production venue". The identity was the defect: "BTC/USDT" is
+        # Bitget's SPOT market (tests/test_bitget_reads_the_perp.py). A cancel
+        # sends no category, so the rewrite is still a no-op for the cancel.
         v = get_venue("bitget")
-        assert v.order_symbol("BTC/USDT") == "BTC/USDT"
+        assert v.order_symbol("BTC/USDT") == "BTC/USDT:USDT"
         assert v.order_symbol("BTC/USDT:USDT") == "BTC/USDT:USDT"
 
     def test_order_symbol_maps_to_perp_on_bybit(self):

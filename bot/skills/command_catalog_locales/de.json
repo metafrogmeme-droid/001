@@ -23,7 +23,7 @@
     "link": "dieses Telegram mit deinem Website-Konto verknüpfen — /link <token>",
     "unlink": "dieses Telegram von deinem Website-Konto trennen",
     "me": "dein Konto: Tarif, Portfolio und Einstellungen",
-    "sync": "dein Portfolio jetzt ins Website-Dashboard übertragen",
+    "sync": "warum das Dashboard keine Übertragung braucht: es liest dein Konto beim Laden",
     "connect": "dein eigenes Börsenkonto verknüpfen",
     "exchange": "Status deines verknüpften Kontos (zeigt nie Schlüssel)",
     "livebalance": "dein echtes Börsenguthaben (eigenes Konto, nur lesend)",

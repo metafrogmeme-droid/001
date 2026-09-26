@@ -85,8 +85,13 @@ class TestWhatSurvivesNormalization:
 
 class TestUnreadableIsNotANewUser:
     def test_a_corrupt_file_reads_as_no_context_not_as_no_history(self, tmp_path):
+        """The NOTE is omitted, and the reading underneath it says it could
+        not read: `get` answering None would be "this person has no history",
+        which nobody read the file to say."""
+        from bot.utils.json_store import StoreUnreadable
         (tmp_path / "mem.json").write_text("{not json", encoding="utf-8")
-        assert ums.get("u1") is None
+        with pytest.raises(StoreUnreadable):
+            ums.get("u1")
         assert ums.note_for("u1") == "", (
             "an unreadable store rendered a sentence about the user")
 
@@ -102,7 +107,10 @@ class TestUnreadableIsNotANewUser:
     def test_a_write_failure_never_raises_into_the_dispatch(self, monkeypatch):
         def boom(*_a, **_k):
             raise OSError("disk full")
-        monkeypatch.setattr(ums, "atomic_write_json", boom)
+        # The store writes through the one read-modify-write every JSON
+        # store shares, so the write is planted there.
+        from bot.utils import json_store as _js
+        monkeypatch.setattr(_js, "atomic_write_json", boom)
         assert ums.observe("u1", "analyze_asset", {"symbol": "BTC"}) is None
 
 

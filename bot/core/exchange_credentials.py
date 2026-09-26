@@ -956,11 +956,44 @@ async def _hyperliquid_balance_probe(wallet_address: str, agent_private_key: str
 async def validate_hyperliquid_credentials(
     wallet_address: str, agent_private_key: str, sandbox: bool = False
 ) -> tuple[bool, str]:
-    """Functionally validate Hyperliquid credentials with a READ-ONLY balance
-    fetch. Returns (ok, detail) — a short free USDC summary on success or a
-    trimmed error on failure. Proves the agent key authenticates for the wallet
-    before we store it and before any order is placed. Never places an order."""
-    return await _hyperliquid_balance_probe(wallet_address, agent_private_key, sandbox)
+    """Validate Hyperliquid credentials before they are stored. Returns
+    ``(ok, detail)``; never places an order.
+
+    WHAT THE BALANCE PROBE PROVES IS THE WALLET, NOT THE KEY. Hyperliquid's
+    balance is a public read keyed on the wallet address; the agent key is
+    not signed with at all. This docstring used to say the probe "proves the
+    agent key authenticates for the wallet", and driven, a key above the
+    curve order (0xff…ff, which cannot sign anything) came back
+    ``(True, "123.00 USDC free")`` and was encrypted and stored, to fail at
+    the first signed action — a stop, on the money path. A MASTER key was
+    stored the same way and refused only when a client was built.
+
+    So the key's ROLE is read first (`hyperliquid_key_role`), three outcomes
+    in the /setsigner shape:
+
+      * confirmed — the signing library derived the key's address and it is
+        a different account from the wallet: an agent key;
+      * well-formed but unconfirmed — the arithmetic says it can sign, and no
+        library is installed to say WHICH account it signs for (the CI
+        install); stored, and the detail says so rather than implying a check
+        that did not happen;
+      * rejected — not a signing key, or the wallet's own master key, refused
+        in the words the client constructor uses, quoting none of the key.
+
+    That the key AUTHENTICATES for this wallet is proven only at the first
+    signed action; nothing here can prove it without placing something.
+    """
+    from bot.core.venues import hyperliquid_key_refusal, hyperliquid_key_role
+    role = hyperliquid_key_role(agent_private_key, wallet_address)
+    refusal = hyperliquid_key_refusal(role)
+    if refusal:
+        return False, refusal
+    ok, detail = await _hyperliquid_balance_probe(wallet_address, agent_private_key, sandbox)
+    if ok and role == "unconfirmed":
+        detail = (f"{detail}. The key is well-formed; no signing library is "
+                  f"installed here to confirm which account it signs for, so the "
+                  f"first order is where that is proven")
+    return ok, detail
 
 
 async def _keysecret_balance_probe(exchange_id: str, api_key: str,

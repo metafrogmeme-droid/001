@@ -1352,3 +1352,65 @@ def test_the_supervision_claims_are_the_units_own_settings(unit):
         "`systemctl status` reads active after 200 crashes on the strength of "
         "that line, and NRestarts being the number that separates them."
     )
+
+
+def _mcp_citation_errors(doc: str, mcp_lines: list[str]) -> list[str]:
+    """Every `mcp.js:N` citation, and each bare `:N` continuing it, must land
+    on the definition of a tool its own paragraph names before the citation.
+
+    Seven of the map's thirteen citations into `app/routes/mcp.js` had drifted
+    onto a database call, a neighbouring tool's description and a line inside
+    another tool's handler. None was blank, so the blank-line probe could not
+    see them, and a difflib remap carries a wrong target forward faithfully.
+    A tool citation names a tool, so the tool's definition is the answer.
+    """
+    errors = []
+    for para in re.split(r"\n\s*\n", doc):
+        flat = " ".join(para.split())
+        for mo in re.finditer(r"mcp\.js:(\d+)((?:,\s*:\d+)*)", flat):
+            nums = [int(mo.group(1))] + [int(n) for n in re.findall(r":(\d+)", mo.group(2))]
+            before = flat[:mo.start()]
+            for n in nums:
+                line = mcp_lines[n - 1] if 0 < n <= len(mcp_lines) else ""
+                d = re.fullmatch(r"  (\w+): \{", line)
+                if d is None:
+                    errors.append(f"mcp.js:{n} is not a tool definition: {line.strip()!r}")
+                elif d.group(1) not in before:
+                    errors.append(f"mcp.js:{n} defines {d.group(1)}, which the sentence does not name")
+    return errors
+
+
+def test_every_mcp_tool_citation_is_that_tools_definition():
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    mcp = (ROOT / "app" / "routes" / "mcp.js").read_text(encoding="utf-8").splitlines()
+    assert "mcp.js:" in doc, "the map cites no MCP tool; this guard reads nothing"
+    assert _mcp_citation_errors(doc, mcp) == []
+
+
+def test_the_mcp_citation_rule_refuses_what_it_exists_to_refuse():
+    """Driven on a planted map, because the real one is correct and a rule no
+    input reaches is a claim that there is a check."""
+    mcp = ["// header", "  get_rwa_radar: {", "    description: 'x',",
+           "  get_meme_radar: {"]
+    ok = "MCP tool get_rwa_radar (mcp.js:2), then get_meme_radar (mcp.js:4)."
+    assert _mcp_citation_errors(ok, mcp) == []
+    # a line inside a tool, and a continuation on a non-definition
+    assert _mcp_citation_errors("get_rwa_radar (mcp.js:3)", mcp)
+    assert _mcp_citation_errors("get_rwa_radar (mcp.js:2, :3)", mcp)
+    # the right shape, the wrong tool
+    assert _mcp_citation_errors("MCP get_meme_radar (mcp.js:2)", mcp)
+    # named, but in another paragraph
+    assert _mcp_citation_errors("get_rwa_radar\n\n(mcp.js:2)", mcp)
+    # out of range reads as no definition, never as an index error
+    assert _mcp_citation_errors("get_rwa_radar (mcp.js:99)", mcp)
+
+
+def test_the_risk_engine_citation_is_the_class():
+    """The map cited `RiskEngine` at a line of the symbol-to-sector table
+    above it: twelve lines short, and on a non-blank line the probe cannot
+    see. A citation that names a class is that class's own line."""
+    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    src = (ROOT / "bot" / "risk" / "risk_engine.py").read_text(encoding="utf-8")
+    line = next(i + 1 for i, ln in enumerate(src.splitlines())
+                if ln.startswith("class RiskEngine"))
+    assert doc.count(f"RiskEngine (bot/risk/risk_engine.py:{line})") == 1

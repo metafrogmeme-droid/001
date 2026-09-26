@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Suivi Solana supprimé."],
   ["dd.t_lock_rolled", "La date de fin du blocage a changé (passage à minuit) — réaffichage des conditions en direct."],
   ["dd.t_trade_confirmed", "Transaction confirmée."],
+  ["dd.t_trade_refused", "Rien n’a été placé."],
+  ["dd.t_trade_unread", "Le bot a répondu sans dire si quelque chose a été placé — vérifiez vos positions."],
   ["dd.t_trade_update", "Mise à jour de transaction depuis le moteur."],
   ["dd.t_need_coin", "Saisissez d’abord une pièce."],
   ["dd.t_need_symbol", "Saisissez d’abord un symbole."],

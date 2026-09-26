@@ -16,6 +16,7 @@ const { pool, withTransaction } = require('../db');
 // where it belongs: on the one route that actually reads a web session.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
+const { publicFeedEvent } = require('../lib/public_feed');
 const { isOperator } = require('../lib/operator_view');
 const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
@@ -137,6 +138,30 @@ const DEEPSCAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
  * the connection chip keeps working — the standing test that /scan must stay
  * reachable is honoured, because breaking the panel was never the fix.
  */
+// A key naming a position's SIZE. The scrub drops every key naming an
+// amount (`notional`, `margin`, `unrealized_pnl`), and each position row kept
+// `contracts` beside `entry_price` and `leverage`: contracts x entry is the
+// notional and notional / leverage the margin, so the two figures the scrub
+// dropped were one multiplication away, to the cent. The entry, the side and
+// the leverage stay; they say nothing about the account's size on their own.
+// `quantity` and `qty` are the executor's and the Guardian's names for the
+// same field, so a row built from either is covered by default. Unanchored,
+// as `DOLLAR_KEY` is, because the executor spells a size a dozen more ways
+// (`filled_qty`, `remaining_qty`, `closed_qty`) and a row that carries one
+// tomorrow should lose it without anybody editing this line.
+const POSITION_SIZE_KEY = /(contracts|quantity|qty)/;
+
+function dropSizes(value) {
+  if (Array.isArray(value)) return value.map(dropSizes);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const k of Object.keys(value)) {
+    if (POSITION_SIZE_KEY.test(k)) continue;
+    out[k] = dropSizes(value[k]);
+  }
+  return out;
+}
+
 function scanFor(operator, scan) {
   // `=== true`: a request object passed here by habit is truthy, and would
   // have served the raw payload. Only the operator check's own answer opens it.
@@ -147,9 +172,9 @@ function scanFor(operator, scan) {
     out[k] = scan[k];
   }
   // The one section that is an ACCOUNT read rather than a market read.
-  if (scan.circuit_breaker) out.circuit_breaker = scrub(scan.circuit_breaker);
+  if (scan.circuit_breaker) out.circuit_breaker = dropSizes(scrub(scan.circuit_breaker));
   out.disclosure = 'Public view — market data, counts and rates. Account '
-    + 'equity and dollar P&L are shown to the operator only.';
+    + 'equity, dollar P&L and position sizes are shown to the operator only.';
   return out;
 }
 
@@ -221,13 +246,13 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
       // `live_unavailable` false — and published $0.00 as the account balance,
       // the one figure the comment above swears never to coerce. Same rule,
       // same object, one line short of applied.
-      // `open_count` is deliberately left alone: `_build_scan_payload` starts it
-      // at 0 and only ever raises it from a real read, unlike `cb_equity` /
-      // `cb_net_pnl` / `cb_win_rate`, which that function made explicitly None
-      // for exactly this reason. Nulling a field the producer never sends null
-      // buys no case and costs a real refactor.
+      // `open_count` was left as `|| 0` here under a comment saying the producer
+      // "only ever raises it from a real read". It did not: a positions fetch
+      // that failed, and every scan whose venue readout failed or was skipped,
+      // sent 0 for a book nobody had looked at. The producer sends null for
+      // those now, and `?? null` keeps it null; a counted 0 still arrives as 0.
       equity: cb.live_unavailable ? null : (cb.equity ?? null),
-      open_count: cb.open_count || 0,
+      open_count: cb.open_count ?? null,
       // The equity null was honoured here and the two figures beside it were
       // not — `?? null` rather than `|| 0`, so a bot that says "we could not
       // price this record" is not overruled by the ingest. `|| 0` also ate a
@@ -316,6 +341,42 @@ function botAuth(req, res, next) {
 router.use(botAuth);
 
 /**
+ * The account a bot push NAMES, when it names one other than the operator's.
+ *
+ * `/` and `/trade-event` write the OPERATOR's rows -- the agent's record, the
+ * one the public track record and the portfolio summary publish -- and the id
+ * is server-enforced. That enforcement IGNORED the id a payload carried
+ * rather than refusing it, so a push that was about somebody else was applied
+ * to the agent's record anyway. Driven: the bot's /link sent
+ * `{user_id: 77, equity: 10000, positions: [], closed_trades: []}` for a
+ * freshly linked user, and this route deleted the operator's three closes and
+ * whole equity curve and stamped $10,000 as the agent's equity.
+ *
+ * A payload naming NO account is the agent's record: the bot sends none for
+ * it and leaves the operator's id to this file. One naming the operator, as a
+ * number or a numeric string, is accepted too: older bot builds named `1` for
+ * the agent's own push, which is this file's default operator id. A
+ * deployment that set BOT_USER_ID to another id refuses those older pushes
+ * until the bot is redeployed, which is the safe direction. Anything else --
+ * another id, `true`, an object -- is not the operator, and is refused.
+ */
+function namesAnotherAccount(body) {
+  const named = body ? body.user_id : undefined;
+  if (named === undefined || named === null) return null;
+  const numeric = typeof named === 'number' || typeof named === 'string';
+  return numeric && Number(named) === AUTHORIZED_BOT_USER_ID ? null : String(named);
+}
+
+function refuseAnotherAccount(req, res) {
+  const named = namesAnotherAccount(req.body);
+  if (named === null) return false;
+  console.warn(`Bot sync refused: the payload names account ${JSON.stringify(named.slice(0, 40))}, and this `
+    + 'route writes only the agent\'s record. Nothing was written.');
+  res.status(409).json({ ok: false, error: 'not_the_agent_record' });
+  return true;
+}
+
+/**
  * POST /api/bot/sync
  * Body: {
  *   equity: number,
@@ -323,11 +384,14 @@ router.use(botAuth);
  *   closed_trades: [{ symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at }]
  * }
  *
- * Replaces all trade data for the authorized bot user. user_id is server-enforced, not client-supplied.
+ * Replaces the agent's record: the authorized bot user's trades. That id is
+ * server-enforced, and a payload naming any OTHER account is refused
+ * (`refuseAnotherAccount`), never applied to the agent's rows.
  */
 router.post('/', async (req, res) => {
   try {
-    const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced, ignores any client-supplied user_id
+    if (refuseAnotherAccount(req, res)) return;
+    const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced; a payload naming another account is refused above
     const { equity, positions, closed_trades } = req.body;
     // Truthful equity: the bot sends a real number, or null/absent when the
     // LIVE balance can't be read (bot-side resolve_display_equity ->
@@ -491,6 +555,7 @@ function _seenEvent(id) {
 
 router.post('/trade-event', async (req, res) => {
   try {
+    if (refuseAnotherAccount(req, res)) return;
     const user_id = AUTHORIZED_BOT_USER_ID; // Server-enforced
     const { event, trade, equity, event_id } = req.body;
     if (!event || !trade) {
@@ -777,19 +842,40 @@ router.post('/events', async (req, res) => {
       return res.status(400).json({ error: 'events array required' });
     }
     let inserted = 0;
-    for (const ev of events) {
-      const title = String(ev?.title || '').slice(0, 300);
+    for (const raw of events) {
+      if (!raw || typeof raw !== 'object') continue;
+      const type = FEED_TYPES.has(raw.event_type) ? raw.event_type : 'info';
+      // EVERY READER OF THIS FEED IS PUBLIC (the landing page, the
+      // unauthenticated /api/stream, a web push to every subscriber, the MCP
+      // tool), so the event is made public HERE, before it is stored,
+      // streamed or pushed. The bot's close event used to carry the
+      // operator's dollar P&L in its title and data, and this route stored
+      // and rebroadcast it verbatim. `publicFeedEvent` is the one reading;
+      // the read routes apply it too, for rows stored before it existed.
+      const ev = publicFeedEvent({
+        event_type: type,
+        title: String(raw.title || ''),
+        body: String(raw.body || ''),
+        data: raw.data,
+      });
+      if (ev.title !== String(raw.title || '') || ev.body !== String(raw.body || '')
+          || JSON.stringify(ev.data) !== JSON.stringify(raw.data)) {
+        // A producer composed private text for a public feed. The scrub keeps
+        // the feed working; this line is how the producer gets found.
+        console.warn(`agent feed: removed a dollar amount from a ${type} event`
+          + ' before publishing it');
+      }
+      const title = ev.title.slice(0, 300);
       if (!title) continue;
-      const type = FEED_TYPES.has(ev.event_type) ? ev.event_type : 'info';
-      const severity = FEED_SEVERITIES.has(ev.severity) ? ev.severity : 'info';
-      const symbol = String(ev.symbol || '').slice(0, 32);
-      const body = String(ev.body || '').slice(0, 600);
+      const severity = FEED_SEVERITIES.has(raw.severity) ? raw.severity : 'info';
+      const symbol = String(raw.symbol || '').slice(0, 32);
+      const body = ev.body.slice(0, 600);
       let dataJson = null;
       try {
         dataJson = ev.data && typeof ev.data === 'object'
           ? JSON.stringify(ev.data).slice(0, 2000) : null;
       } catch (e) { dataJson = null; }
-      const ts = ev.ts ? new Date(ev.ts) : new Date();
+      const ts = raw.ts ? new Date(raw.ts) : new Date();
       const at = isNaN(ts.getTime()) ? new Date() : ts;
       // Per-event fail-soft WITH the real driver error logged: one bad row
       // must not abort the batch, and a silent 500 to the bot's
@@ -893,7 +979,8 @@ router.post('/scan', async (req, res) => {
         // together, because fixing one and leaving the other is how this pair
         // survived the first pass.
         equity: cb.live_unavailable ? null : (cb.equity ?? null),
-        open_count: cb.open_count || 0,
+        // `?? null`, as on the GET path: an unread book is not a flat one.
+        open_count: cb.open_count ?? null,
         // Same contract as the GET path above, and it matters more here for
         // the same reason the equity comment gives: this ingest runs on every
         // scan sync and stamps over whatever the cold path carefully set.

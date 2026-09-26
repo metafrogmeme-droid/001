@@ -40,9 +40,48 @@ def _base_envelope() -> dict:
        venue_universe=["bitget", "bybit", "hyperliquid"])
 
 
+def _exfil_envelope() -> dict:
+    """A grant that DOES opt into outflows — to one cold-wallet address — so the
+    attacks below reach the notional and symbol ceilings rather than stopping at
+    the default-deny. $1k per action, $5k a day, PEPE blocklisted.
+
+    Every one of these used to come back ``allow``: the withdraw/transfer branch
+    returned after the destination check and never read a ceiling, and every
+    on-chain producer in the bot asks as a ``transfer``."""
+    return auth.compile_envelope({
+        "label": "redteam outflow",
+        "mode": "enforce",
+        "allowed_venues": ["bitget"],
+        "max_notional_per_trade_usd": 1000,
+        "max_notional_daily_usd": 5000,
+        "symbol_blocklist": ["PEPE"],
+        "withdraw_allowed": True,
+        "withdraw_allowlist": ["0xCOLDWALLET"],
+        "expiry_ts": _NOW + 10_000,
+    }, engine_caps={"max_notional_per_trade_usd": 2000,
+                    "max_notional_daily_usd": 10000},
+       venue_universe=["bitget", "bybit", "hyperliquid"])
+
+
+def _daily_only_envelope() -> dict:
+    """Only a daily ceiling, and an allowlisted outflow — the shape under which
+    an UNKNOWN notional used to count as $0 toward the day."""
+    return auth.compile_envelope({
+        "label": "redteam daily-only",
+        "mode": "enforce",
+        "allowed_venues": ["bitget"],
+        "max_notional_daily_usd": 5000,
+        "withdraw_allowed": True,
+        "withdraw_allowlist": ["0xCOLDWALLET"],
+        "expiry_ts": _NOW + 10_000,
+    }, venue_universe=["bitget", "bybit", "hyperliquid"])
+
+
 def _scenarios() -> list[dict]:
     env = _base_envelope()
     revoked = auth.revoke(env)
+    out_env = _exfil_envelope()
+    daily_env = _daily_only_envelope()
     return [
         {
             "name": "withdraw_to_attacker",
@@ -148,6 +187,71 @@ def _scenarios() -> list[dict]:
             "action": {"kind": "trade", "venue": "bitget", "market_type": "swap",
                        "asset": "BTC", "notional_usd": 50_000},
             "expected": "deny",
+        },
+        {
+            "name": "transfer_over_per_trade_cap",
+            "category": "over_spend",
+            "description": ("A transfer to the ONE allowlisted address, 10x the per-action "
+                            "cap. An allowlisted destination is not a licence to move "
+                            "any amount."),
+            "envelope": out_env,
+            "action": {"kind": "transfer", "dest": "0xcoldwallet", "asset": "ETH",
+                       "notional_usd": 10_000},
+            "expected": "deny",
+        },
+        {
+            "name": "transfer_daily_drain_last_leg",
+            "category": "over_spend",
+            "description": "An in-cap transfer to the allowlisted address that pushes the "
+                           "day past the daily ceiling.",
+            "envelope": out_env,
+            "action": {"kind": "transfer", "dest": "0xcoldwallet", "asset": "ETH",
+                       "notional_usd": 800},
+            "spent_today_usd": 4500,   # 4500 + 800 = 5300 > 5000
+            "expected": "deny",
+        },
+        {
+            "name": "transfer_blocklisted_asset",
+            "category": "scope_escape",
+            "description": "An in-cap transfer of a blocklisted asset to the allowlisted "
+                           "address.",
+            "envelope": out_env,
+            "action": {"kind": "transfer", "dest": "0xcoldwallet", "asset": "PEPE",
+                       "notional_usd": 100},
+            "expected": "deny",
+        },
+        {
+            "name": "transfer_unknown_notional_daily_cap",
+            "category": "over_spend",
+            "description": ("A transfer that states no size, under a daily-only ceiling "
+                            "the day has nearly used. Unknown is not $0."),
+            "envelope": daily_env,
+            "action": {"kind": "transfer", "dest": "0xcoldwallet", "asset": "ETH"},
+            "spent_today_usd": 4999,
+            "expected": "deny",
+        },
+        {
+            "name": "trade_unknown_notional_daily_cap",
+            "category": "over_spend",
+            "description": ("An auto-sized trade (no notional stated) under a daily-only "
+                            "ceiling the day has nearly used. Unknown is not $0."),
+            "envelope": daily_env,
+            "action": {"kind": "trade", "venue": "bitget", "market_type": "swap",
+                       "asset": "BTC"},
+            "spent_today_usd": 4999,
+            "expected": "deny",
+        },
+        {
+            "name": "control_in_bounds_transfer",
+            "category": "control",
+            "description": ("An in-bounds transfer to the allowlisted address — MUST be "
+                            "allowed, so the outflow ceilings are proved to be ceilings "
+                            "and not a deny-everything."),
+            "envelope": out_env,
+            "action": {"kind": "transfer", "dest": "0xcoldwallet", "asset": "ETH",
+                       "notional_usd": 500},
+            "spent_today_usd": 0,
+            "expected": "allow",
         },
         {
             "name": "control_in_bounds_trade",

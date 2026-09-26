@@ -47,6 +47,7 @@ from bot.core.live_executor import (
     leverage_went_unverified,
     position_read_needs_another_look,
 )
+from bot.core.venues import get_venue
 
 
 class _Counting:
@@ -143,6 +144,7 @@ def _probe(exchange, max_attempts=3, delay=0):
     ones would pin nothing.
     """
     ex = LiveExecutor.__new__(LiveExecutor)
+    ex._venue = get_venue("bitget")  # the read asks the venue for the market's spelling
     return asyncio.run(LiveExecutor._verify_position_exists(
         ex, exchange, "APT/USDT:USDT", "LONG",
         max_attempts=max_attempts, delay=delay))
@@ -396,6 +398,7 @@ class TestItAsksTheRightNumberOfTimes:
 
         monkeypatch.setattr(le.asyncio, "sleep", _record)
         ex = LiveExecutor.__new__(LiveExecutor)
+        ex._venue = get_venue("bitget")
         got = asyncio.run(LiveExecutor._verify_position_exists(
             ex, _Raises(), "APT/USDT:USDT", "LONG",
             max_attempts=2, delay=-5))
@@ -414,6 +417,7 @@ class TestItAsksTheRightNumberOfTimes:
 
         monkeypatch.setattr(le.asyncio, "sleep", _record)
         ex = LiveExecutor.__new__(LiveExecutor)
+        ex._venue = get_venue("bitget")
         asyncio.run(LiveExecutor._verify_position_exists(
             ex, _Raises(), "APT/USDT:USDT", "LONG",
             max_attempts=3, delay=0.25))
@@ -430,6 +434,7 @@ class TestItAsksTheRightNumberOfTimes:
 
         monkeypatch.setattr(le.asyncio, "sleep", _record)
         ex = LiveExecutor.__new__(LiveExecutor)
+        ex._venue = get_venue("bitget")
         asyncio.run(LiveExecutor._verify_position_exists(
             ex, _Holds(), "APT/USDT:USDT", "LONG",
             max_attempts=3, delay=0.25))

@@ -30,13 +30,13 @@ cryptography is unavailable, or there is simply nothing to seed or restore
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import FRESH, UNREADABLE, StoreUnreadable, read_json_store
 
 log = logging.getLogger("runeclaw.secrets_vault")
 
@@ -156,18 +156,26 @@ def _load_vault(cipher) -> tuple[dict[str, str], dict[str, str]]:
     over one stale key. Carrying the opaque bytes through is what keeps the
     readable entries working AND keeps the unreadable ones recoverable — restore
     the master key and they come back.
+
+    AND THE WHOLE-FILE CASE WAS STILL THE ERASURE. The paragraph above says a
+    file that fails to parse deserves the `_load_failed` treatment, and this
+    function answered ``({}, {})`` for exactly that file -- a truncated vault,
+    or one that parses and is not a map -- so both write paths saved what they
+    had over it. Driven: a vault holding BITGET_API_KEY and BITGET_API_SECRET,
+    truncated, then one boot with TELEGRAM_BOT_TOKEN in the environment, and
+    the file held TELEGRAM_BOT_TOKEN alone. A file that is there and will not
+    read RAISES :class:`StoreUnreadable` now (`bot/utils/json_store.py`), and
+    each caller refuses to write over it and says so.
     """
     p = Path(_vault_file())
-    if not p.exists():
-        return {}, {}
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, ValueError):
-        log.error("secrets vault file unreadable — ignoring it")
+    r = read_json_store(p)
+    if r.state == UNREADABLE:
+        raise StoreUnreadable(p, r.detail)
+    if r.state == FRESH:
         return {}, {}
     out: dict[str, str] = {}
     opaque: dict[str, str] = {}
-    for k, ct in (raw.items() if isinstance(raw, dict) else []):
+    for k, ct in r.data.items():
         try:
             out[k] = cipher.decrypt(str(ct).encode()).decode()
         except Exception:
@@ -243,6 +251,13 @@ def store_secrets(mapping: dict[str, str]) -> list[str]:
         _save_vault(cipher, persisted, opaque)
         log.info("secrets vault: stored %d operator secret(s): %s",
                  len(stored), ", ".join(stored))
+    except StoreUnreadable as exc:
+        # The vault file is there and will not read. Saving now would put the
+        # one secret being entered over every secret in it.
+        log.error("secrets vault: the vault file could not be read (%s) — %d "
+                  "secret(s) are live for THIS process and were NOT written "
+                  "over it. Restore the file from a copy, or move it aside to "
+                  "start a fresh vault.", exc.detail, len(stored))
     except Exception as exc:  # pragma: no cover - persistence is best-effort
         log.error("secrets vault: store_secrets persist failed (%s) — secrets are "
                   "live for this process but not saved", exc)
@@ -288,18 +303,36 @@ def vault_status() -> dict[str, dict]:
                 "state": ("readable" if stored.get(k)
                           else "unreadable" if k in opaque else "absent"),
             }
+    except StoreUnreadable as exc:
+        # Not "disabled or crypto missing", which is what an empty map tells
+        # the card: `vault_file_state` is how the card says which.
+        log.error("secrets vault: status could not read the vault file (%s)",
+                  exc.detail)
     except Exception as exc:  # pragma: no cover - status must never raise
         log.debug("secrets vault: status failed: %s", exc)
     return out
 
 
-def seed_and_restore() -> dict[str, list[str]]:
+def vault_file_state() -> tuple[str, str]:
+    """``(state, detail)`` of the vault FILE: ``fresh``, ``read`` or
+    ``unreadable`` with the exception's class. Names nothing inside it.
+
+    `vault_status` answers an empty map both for a vault that is switched off
+    and for a vault file that will not read, and the /vault card printed
+    "disabled or crypto missing" for both -- a cause, named, for the one of
+    the two it is not."""
+    r = read_json_store(Path(_vault_file()))
+    return r.state, r.detail
+
+
+def seed_and_restore() -> dict[str, Any]:
     """Mirror present env secrets into the vault; restore absent ones from it.
 
     Returns ``{"seeded": [...], "restored": [...]}`` (key NAMES only — never
-    values) for logging/tests. No-op + no files created when disabled, crypto is
+    values) for logging/tests, plus ``"vault": "unreadable"`` when the vault
+    file was there and would not read. No-op + no files created when disabled, crypto is
     absent, or there is nothing to do. Never raises."""
-    summary: dict[str, list[str]] = {"seeded": [], "restored": [], "unreadable": []}
+    summary: dict[str, Any] = {"seeded": [], "restored": [], "unreadable": []}
     try:
         if not _enabled():
             return summary
@@ -313,7 +346,20 @@ def seed_and_restore() -> dict[str, list[str]]:
         cipher = _cipher()
         if cipher is None:
             return summary
-        stored, opaque = _load_vault(cipher)
+        try:
+            stored, opaque = _load_vault(cipher)
+        except StoreUnreadable as exc:
+            # Nothing restored, and nothing written: a boot that saved the
+            # environment's values here would erase every secret the file
+            # holds, which is how this boot came to need them.
+            log.critical(
+                "SECRETS VAULT file could not be read (%s) — nothing was "
+                "restored from it and nothing was written over it. Restore it "
+                "from a copy, or move it aside to start a fresh vault; any "
+                "secret missing from the environment is NOT back.",
+                exc.detail)
+            summary["vault"] = "unreadable"
+            return summary
         changed = False
         for k in keys:
             env_val = os.environ.get(k, "").strip()

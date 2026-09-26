@@ -11,20 +11,33 @@ in-memory queue; a lazily-started daemon thread flushes every few seconds.
 A dead website, a slow network, or a bug anywhere in here must NEVER touch
 the trading path — every public entry point swallows its own exceptions.
 
-Privacy contract: the feed is PUBLIC (it powers the landing page). Only
-OPERATOR-account activity may be emitted (callers guard per-user paths), and
-events must not carry balances/equity/position sizes. Realized PnL on closed
-trades is fine — it is already published on the public track-record page.
+Privacy contract: the feed is PUBLIC (it powers the landing page, the
+unauthenticated SSE stream, web push and an MCP tool). Only OPERATOR-account
+activity may be emitted (callers guard per-user paths), and events must carry
+no dollar amount of the account: no balance, equity, position size or P&L.
+Prices are public market facts and may appear. A closed trade is told in
+percent of its margin (`close_event`).
+
+This paragraph used to say realized P&L in dollars was fine because "it is
+already published on the public track-record page". It is not:
+`app/routes/track.js` states that the public track record is percent, ratio
+and count only, and indexes its equity curve to 100 so no account size
+escapes. The false reason is what let every operator close publish its dollar
+result to anonymous readers.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
 from collections import deque
 from datetime import UTC, datetime
+from typing import Any, Optional
+
+from bot.utils.leveraged_return import realized_margin_return_pct
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +57,62 @@ BODY_MAX = 500
 def _enabled() -> bool:
     return os.getenv("AGENT_FEED_ENABLED", "true").strip().lower() not in (
         "0", "false", "no", "off")
+
+
+def _finite(value: object) -> Optional[float]:
+    try:
+        f = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def close_event(symbol: object, pnl_usd: object, margin_usd: object,
+                reason: object = "") -> Optional[dict[str, Any]]:
+    """The public ``trade_close`` event for an operator close, or None.
+
+    The figure is the return on margin, net of fees
+    (`realized_margin_return_pct`), which is the same reading the public close
+    line prints as "on margin" (`public_text.public_close_line` reads it as
+    `pnl_pct_margin_net`), so the feed and the channel state one number. The
+    dollar P&L is read for its sign and never sent.
+
+    Three outcomes:
+
+    * P&L and margin read: "Closed BTC/USDT -20.60% on margin".
+    * P&L read, margin not recorded (an adopted position the venue did not
+      size): "Closed BTC/USDT" with no figure, and the body says the return
+      was not recorded. A percent computed some other way would be a second
+      answer, and a 0.00% would read as a measured break-even.
+    * P&L not read: None. An unpriced close was never announced on the feed
+      and still is not; whether it should be is a decision about the public
+      page, not a wording fix.
+
+    The severity follows the sign: a measured break-even is "info", neither a
+    success nor a loss.
+    """
+    sym = str(symbol or "")
+    pnl = _finite(pnl_usd)
+    if not sym or pnl is None:
+        return None
+    why = str(reason or "")
+    ret = realized_margin_return_pct(pnl, margin_usd)
+    if ret is None:
+        title = f"Closed {sym}"
+        unread = "return on margin not recorded"
+        body = f"Exit: {why} · {unread}" if why else unread.capitalize()
+    else:
+        title = f"Closed {sym} {ret:+.2f}% on margin"
+        body = f"Exit: {why}" if why else ""
+    severity = "success" if pnl > 0 else "warning" if pnl < 0 else "info"
+    return {
+        "title": title,
+        "body": body,
+        "symbol": sym,
+        "severity": severity,
+        "data": {"return_on_margin_pct": None if ret is None else round(ret, 2),
+                 "reason": why},
+    }
 
 
 class AgentFeed:

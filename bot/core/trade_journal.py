@@ -17,10 +17,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
+from bot.utils.atomic_write import atomic_write_json
 from bot.utils.paths import state_path
 from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
 
@@ -223,10 +225,19 @@ class TradeJournal:
         self._entries: list[JournalEntry] = []
         self._journal_file = str(state_path(journal_file))
         self._max_entries = 1000
-        #: True when the file was there and could not be read. An absent file
-        #: is a fresh journal; a file that raised left the list empty or
-        #: partial, and a reader must not print that as "no trades".
+        #: True when the file was there and could not be read, whole or in
+        #: part. An absent file is a fresh journal; a file that raised left
+        #: the list empty or partial, and a reader must not print that as
+        #: "no trades".
         self.read_failed = False
+        #: Rows of the file this build could not read, kept verbatim and
+        #: written back on every save. The next close must not erase history
+        #: this process could not parse -- the executor's closed-trade record
+        #: already keeps its own that way.
+        self._unreadable_rows: list = []
+        #: A file that would not parse at all, copied aside ONCE before the
+        #: first write over it.
+        self._file_to_preserve = False
         self._load()
 
     def closed_entries(self) -> list[JournalEntry]:
@@ -537,10 +548,35 @@ class TradeJournal:
 
         return tags
     def _save(self) -> None:
-        """Persist journal to disk."""
+        """Persist journal to disk.
+
+        A FAILED READ MUST NOT BE WRITTEN OVER. This wrote the in-memory list
+        with open("w") whatever the load had managed: one row missing a key
+        stopped the load at that row, and the next close wrote the rows above
+        it over the file, so 50 rows with the third unreadable became 3 after
+        one trade. A file that would not parse at all loaded as nothing and
+        became one row. Rows it could not read are written back verbatim, a
+        file it could not parse is copied aside before the first write over
+        it (and nothing is written when that copy fails: a close missing from
+        the journal is a smaller loss than the journal the close would
+        erase), and the write is atomic.
+        """
         try:
             os.makedirs(os.path.dirname(self._journal_file) or ".", exist_ok=True)
-            data = []
+            if self._file_to_preserve:
+                src = self._journal_file
+                if os.path.exists(src):
+                    keep = f"{src}.unreadable-{int(time.time())}"
+                    shutil.copy2(src, keep)
+                    logger.warning("Trade journal this build could not read kept as "
+                                   "%s before the first write over it",
+                                   os.path.basename(keep))
+                self._file_to_preserve = False
+            # Rows this build could not read, verbatim. No reader here depends
+            # on where they sit (the loader skips them wherever they are); they
+            # go first because they are older than every close this process
+            # records, which is all that is known of their age.
+            data = list(self._unreadable_rows)
             for e in self._entries[-KEEPS:]:
                 data.append({
                     "trade_id": e.trade_id, "symbol": e.symbol,
@@ -556,48 +592,80 @@ class TradeJournal:
                     "venue": e.venue, "uid": e.user_id,
                     "qty": e.quantity,
                 })
-            with open(self._journal_file, "w") as f:
-                json.dump(data, f)
+            # Compact, as it always was; atomic, as it was not.
+            atomic_write_json(self._journal_file, data, separators=(", ", ": "))
         except Exception as exc:
-            logger.debug("Journal save failed: %s", exc)
+            # WARNING, not DEBUG: a journal write that did not land is a close
+            # missing from the record, and at DEBUG nobody would ever see it.
+            logger.warning("Journal save failed: %s", exc)
+
+    @staticmethod
+    def _row_to_entry(d: dict) -> "JournalEntry":
+        """One saved row as an entry. Raises on a row it cannot read; the
+        loader keeps such a row verbatim rather than dropping it."""
+        return JournalEntry(
+            trade_id=d["trade_id"], symbol=d["symbol"],
+            direction=d["direction"], strategy_type=d.get("strategy_type", "swing"),
+            entry_price=d["entry"], exit_price=d["exit"],
+            stop_loss=d["sl"], take_profit=d["tp"],
+            pnl=d["pnl"], pnl_pct=d.get("pnl_pct", 0),
+            # `.get("r_mult")` with NO default. `_save` writes JSON
+            # null for a close that had no stop on record, and an
+            # entry written before this field became Optional simply
+            # lacks the key — both are "no R", and defaulting them to
+            # 0 puts a measured break-even into the average on the way
+            # back off disk. The same shape the writer just lost.
+            # An entry recorded before sizes were journaled carries an
+            # R computed over the PRICE distance (and negated for a
+            # short): known-wrong, not unknown-but-plausible. It loads
+            # as None, and the review counts it as unscored.
+            r_multiple=(d.get("r_mult") if d.get("qty") is not None else None),
+            holding_hours=d.get("hold_hrs", 0),
+            regime=d.get("regime", ""), session=d.get("session", ""),
+            volatility=d.get("vol", ""), confidence=d.get("conf", 0),
+            signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),
+            lessons=d.get("lessons", []), tags=d.get("tags", []),
+            timestamp=d.get("ts", 0),
+            # Absent on every entry written before venues existed, and
+            # those really are Bitget — a back-fill of a fact.
+            venue=d.get("venue", "bitget"),
+            user_id=str(d.get("uid", "") or ""),
+            quantity=d.get("qty"),
+        )
+
     def _load(self) -> None:
-        """Load journal from disk."""
+        """Load journal from disk, row by row.
+
+        ONE ROW, NOT THE REST. This stopped at the first row it could not
+        read and kept only the rows above it; `_save` then wrote that partial
+        list over the file. A row that will not read is kept verbatim now,
+        and a file that will not parse is marked to be copied aside before
+        anything writes over it.
+        """
+        if not os.path.exists(self._journal_file):
+            return
         try:
-            if not os.path.exists(self._journal_file):
-                return
             with open(self._journal_file) as f:
                 data = json.load(f)
-            for d in data:
-                self._entries.append(JournalEntry(
-                    trade_id=d["trade_id"], symbol=d["symbol"],
-                    direction=d["direction"], strategy_type=d.get("strategy_type", "swing"),
-                    entry_price=d["entry"], exit_price=d["exit"],
-                    stop_loss=d["sl"], take_profit=d["tp"],
-                    pnl=d["pnl"], pnl_pct=d.get("pnl_pct", 0),
-                    # `.get("r_mult")` with NO default. `_save` writes JSON
-                    # null for a close that had no stop on record, and an
-                    # entry written before this field became Optional simply
-                    # lacks the key — both are "no R", and defaulting them to
-                    # 0 puts a measured break-even into the average on the way
-                    # back off disk. The same shape the writer just lost.
-                    # An entry recorded before sizes were journaled carries an
-                    # R computed over the PRICE distance (and negated for a
-                    # short): known-wrong, not unknown-but-plausible. It loads
-                    # as None, and the review counts it as unscored.
-                    r_multiple=(d.get("r_mult") if d.get("qty") is not None else None),
-                    holding_hours=d.get("hold_hrs", 0),
-                    regime=d.get("regime", ""), session=d.get("session", ""),
-                    volatility=d.get("vol", ""), confidence=d.get("conf", 0),
-                    signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),
-                    lessons=d.get("lessons", []), tags=d.get("tags", []),
-                    timestamp=d.get("ts", 0),
-                    # Absent on every entry written before venues existed, and
-                    # those really are Bitget — a back-fill of a fact.
-                    venue=d.get("venue", "bitget"),
-                    user_id=str(d.get("uid", "") or ""),
-                    quantity=d.get("qty"),
-                ))
-            logger.info("Loaded %d journal entries", len(self._entries))
         except Exception as exc:
             self.read_failed = True
+            self._file_to_preserve = True
             logger.warning("Journal load failed: %s", exc)
+            return
+        if not isinstance(data, list):
+            self.read_failed = True
+            self._file_to_preserve = True
+            logger.warning("Journal load failed: the file is not a list of rows")
+            return
+        for d in data:
+            try:
+                self._entries.append(self._row_to_entry(d))
+            except Exception as row_exc:
+                self._unreadable_rows.append(d)
+                self.read_failed = True
+                logger.warning("Unreadable journal row kept verbatim: %s", row_exc)
+        if self._unreadable_rows:
+            logger.warning("%d journal row(s) could not be read; they are kept "
+                           "on disk as they were and the journal is partial",
+                           len(self._unreadable_rows))
+        logger.info("Loaded %d journal entries", len(self._entries))

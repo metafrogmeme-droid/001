@@ -202,7 +202,7 @@ class TestTheDayIsRestoredOnTheProductionPath:
         assert r2.live_daily_pnl_today() == -412.55
         assert r2._consecutive_losses == 3
 
-    def test_both_loaders_call_all_three_restore_helpers(self):
+    def test_both_loaders_call_every_restore_helper(self):
         # The asymmetry is what this slice removes, and a source read is the
         # honest instrument: the claim is that neither loader can drift from
         # the other again, which no single drive can state.
@@ -216,7 +216,15 @@ class TestTheDayIsRestoredOnTheProductionPath:
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                 and n.func.attr.startswith("_restore")
             }
-        want = {"_restore_dd_override", "_restore_live_daily", "_restore_live_peak"}
+        # DERIVED from the helpers the class defines: this said "all three"
+        # and hand-listed them, so the fourth (`_restore_governor_clear`)
+        # failed it for being called rather than for being missed. The claim
+        # is that no restore helper reaches one loader and not the other, so
+        # the set is every `_restore_*` there is, and three are named as a
+        # floor so a rename cannot empty it.
+        want = {n for n in vars(RiskEngine) if n.startswith("_restore")}
+        assert {"_restore_dd_override", "_restore_live_daily",
+                "_restore_live_peak"} <= want
         assert seen["_load_state"] == want
         assert seen["_load_from_state_dict"] == want
 

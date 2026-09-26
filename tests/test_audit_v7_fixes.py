@@ -105,14 +105,36 @@ class TestLeverageAttribute:
         assert hasattr(CONFIG.exchange, "default_leverage")
         assert not hasattr(CONFIG.exchange, "leverage")
 
-    def test_adopt_limit_orders_source_uses_default_leverage(self):
-        # Guard against the exact regression: the adoption path must reference
-        # default_leverage, never the non-existent `leverage` attribute.
-        import inspect
+    def test_adopt_limit_orders_runs_and_adopts(self, monkeypatch, tmp_path):
+        # The F-5 defect was that adoption RAISED (a non-existent
+        # `CONFIG.exchange.leverage`) inside its broad except, so it silently
+        # never ran. The claim is that it runs, so it is driven: an external
+        # limit order on the venue becomes a tracked pending_fill record, and
+        # the "failed" warning is never logged. (This used to pin the source
+        # line naming `default_leverage` -- which adoption no longer reads at
+        # all: the venue states no leverage for an unfilled order, so it is
+        # recorded unread; tests/test_an_adopted_limit_order_records_no_guessed_leverage.py.)
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from bot.config import CONFIG
         import bot.core.live_executor as le
-        src = inspect.getsource(le.LiveExecutor.adopt_exchange_limit_orders)
-        assert "CONFIG.exchange.default_leverage" in src
-        assert "CONFIG.exchange.leverage" not in src
+        monkeypatch.setattr(type(CONFIG), "is_live", lambda self: True)
+        ex = le.LiveExecutor(state_dir=str(tmp_path))
+        ex._save_positions = MagicMock()
+        venue = AsyncMock()
+        venue.fetch_open_orders = AsyncMock(return_value=[{
+            "id": "9981234567", "symbol": "SOL/USDT:USDT", "type": "limit",
+            "side": "buy", "price": 140.0, "amount": 10.0,
+            "timestamp": 1_600_000_000_000, "datetime": "",
+            "info": {"clientOid": "app-1", "marginMode": "crossed"}}])
+        ex._get_exchange = AsyncMock(return_value=venue)
+        warned = []
+        monkeypatch.setattr(le.logger, "warning",
+                            lambda msg, *a, **k: warned.append(msg % a if a else msg))
+        adopted = asyncio.run(ex.adopt_exchange_limit_orders())
+        assert adopted == ["SOL/USDT:USDT"]
+        assert [p.status for p in ex._positions.values()] == ["pending_fill"]
+        assert not any("adopt_exchange_limit_orders() failed" in w for w in warned), warned
 
 
 # ── F-6: non-finite price rejection ──────────────────────────────────

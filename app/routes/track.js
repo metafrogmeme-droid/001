@@ -77,6 +77,28 @@ let cache = null;          // { at: ms, payload }
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
+// What a record published from these rows covers. `/api/bot/sync` REPLACES
+// the operator's closed trades with the newest closes the bot sends (it keeps
+// more than it sends), and REPLACES the equity curve with the one reading it
+// sends. So every figure below describes that window, and how much older
+// history the bot holds cannot be read on this side. The payload says what
+// it covers rather than letting a reader take the window for the whole
+// record; a curve is passed only by a caller that publishes equity figures.
+function recordCoverage(trades, curve) {
+  const out = {
+    basis: 'latest_bot_sync',
+    closes: trades.length,
+    note: 'Covers the closes the bot sent in its most recent sync: its newest '
+      + 'closes, not necessarily its whole history.',
+  };
+  if (curve !== undefined) {
+    out.equity_since = curve.length ? new Date(curve[0].t).toISOString() : null;
+    out.note += ' The return, drawdown and equity curve cover only the equity '
+      + 'readings recorded since equity_since.';
+  }
+  return out;
+}
+
 // Capital-basis-aware drawdown/segmentation — shared with the per-user
 // portfolio equity curve (routes/trades.js). See lib/equity_basis.js for
 // the capital-event rationale (the "98.7% drawdown" bug class).
@@ -250,6 +272,7 @@ router.get('/track-record', async (req, res) => {
       monthly: monthlyOut,
       equity_curve_idx: curveIdx,
       capital_events: Math.max(0, segments.length - 1),
+      coverage: recordCoverage(trades, curve),
       // The strip was the one place in this file still using `|| 0`, while the
       // headline stats and the monthly block both separate unpriced rows —
       // so a visitor reconciling the strip against the unpriced count found
@@ -330,6 +353,7 @@ router.get('/replay-trade', async (req, res) => {
 module.exports = router;
 module.exports.classifyPnls = classifyPnls;
 module.exports.outcomeOf = outcomeOf;
+module.exports.recordCoverage = recordCoverage;
 // Pure helpers, exported for tests.
 module.exports.maxDrawdownPct = maxDrawdownPct;
 module.exports.segmentByCapitalEvents = segmentByCapitalEvents;

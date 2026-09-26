@@ -1,0 +1,32 @@
+# JSON stores whose loader turns a failed read into an empty map, in a scope
+# that also writes the whole file back. Each row is a place where the next
+# write can save that empty map over a file that held somebody's data.
+#
+# Read by tests/test_no_json_store_writes_over_a_failed_read.py, both ways:
+# a site the rule finds that is not listed here is a hard failure, AND a
+# listed site the rule no longer finds is a hard failure too. That is the
+# known_failures.txt rule: a row kept after its reason is gone would sit in
+# front of the next real one.
+#
+# Format:  <path>::<Qualname>  <reason>
+# (two spaces separate the key from the reason; a row with no reason fails)
+#
+# The cure is bot/utils/json_store.py: a missing or empty file is a fresh
+# start, a file that will not read is UNREADABLE and is never written over,
+# and `update_json_store` re-reads the file and applies one change to what it
+# read. The stores converted to it are not listed here. Each row below was
+# read before it was written, and none of them is a quiet acquittal: where a
+# row describes a real loss, it says so and it is FILED.
+
+bot/core/catalog_watch.py::CatalogWatch._load  ONE OPERATOR-WIDE SET, NOT A PER-PERSON MAP. An unreadable catalog_seen.json reseeds from the venue's current catalog, which is the module's own first-run behaviour, so no listing is re-announced. What the next save loses is the queued new-listing alerts (`pending`, up to 100) and the dashboard's recent list (20): a listing that appeared while the file was unreadable is never announced. FILED.
+bot/core/live_executor.py::LiveExecutor._load_positions  A RESTART CACHE OVER A BOOK THE VENUE HOLDS, WITH ITS OWN BACKUP. An unreadable main file falls back to the .bak of the last non-empty save, and those rows wait for reconcile, which asks the venue. With both unreadable the book starts empty and reconcile and adoption rebuild it from the venue, so no position is lost; what the next save loses is the recorded provenance (stops placed, the take-profit ladder, the strategy) of positions adoption then re-reads as untracked. Keeping an unreadable main aside before the first save over it is FILED.
+bot/core/self_audit.py::SelfAudit._load_state  EVERY SAVE REPLACES BOTH KEYS. The file holds the last run's time and report, and `_save_state` writes a new dict built from this run, never merged with what was read, so a readable file loses the same keys on the same save. An unreadable one makes `due()` read no last run, which costs at most one extra nightly audit.
+bot/core/shadow_book.py::ShadowBook._load  AN IN-MEMORY LEDGER SAVED WHOLE. The counterfactual book of gate-rejected trades is loaded once and every record/resolve saves `self._trades` over the file, so an unreadable file makes the next rejection erase the whole record the self-audit's costliest-gate line reads. Converting it means a load-failure state its readers can see (the card must not say "no rejections"), not a wiring line. FILED.
+bot/core/slippage.py::SlippageTracker._load_state  AN IN-MEMORY RECORD SAVED WHOLE, NON-ATOMICALLY. A row missing a key raises mid-loop, so the load is PARTIAL, and `_save_state` writes what was loaded plus the new fill with `open(..., "w")`. The record feeds the `/slippage` stats card and the proactive monitor's SLIPPAGE_HIGH alert (`should_reject` has no caller in the executor, so it gates no order). FILED with the partial read and the non-atomic write.
+bot/core/smart_exits.py::AdaptiveLimitDistance._load  AN IN-MEMORY HISTORY SAVED WHOLE, NON-ATOMICALLY. The per-symbol fill offsets behind the adaptive limit distance; an unreadable file answers the 0.15% default for every symbol and the next record saves one symbol's history over the rest with `open(..., "w")`. FILED.
+bot/core/validation_gate.py::BacktestValidationGate._load  FAILS CLOSED, AND THE ERASURE COSTS A RE-VALIDATION. An unreadable store reads every strategy as NEVER_TESTED, logged at WARNING, and `has_any_records` answers False so a caller that displays or enforces can tell an empty store from a store of failures. The next validation saves one strategy's record over the file, so every other strategy must be re-validated. FILED.
+bot/guardian/review_queue.py::ReviewQueue._load  AN IN-MEMORY QUEUE SAVED WHOLE. An unreadable queue restarts `seq` at 0, so new proposals take ids the old file already used, and the next record saves the new queue over every proposal still awaiting human review. FILED.
+bot/learning/confidence_calibration.py::ConfidenceCalibrator.load  A DERIVED ARTEFACT. Every save writes a whole fit computed from the learning store's decisions, never a merge into what was read, so an unreadable file loses nothing the next refit does not rebuild. `load` answers None, which its readers take as "no curve fitted" (identity); it is logged at WARNING.
+bot/learning/voter_weights.py::VoterWeightLearner.load  A DERIVED ARTEFACT, the same shape as the calibrator: each save writes a fit computed from the recorded decisions, and `load` answering None reads as "not fitted", so nothing is weighted from a file nobody read.
+bot/marketing/channel_forwarder.py::ChannelForwarder._load_config  AN IN-MEMORY SET SAVED WHOLE. An unreadable config forwards to no channel, and the next change saves the in-memory set over every configured channel: `/channel add`, `/channel remove`, `/channel on|off`, or a message the bot receives in a new group (`detect_group` adds it). Operator-wide; it decides who receives the public posts. FILED.
+bot/nlp/conversation_store.py::ConversationStore._load  A JSONL LOG WHOSE COMPACTION REWRITES FROM MEMORY. Appends never read the file, but a line the loader could not parse is skipped, and the next compaction (past COMPACT_THRESHOLD_LINES) rewrites the file from memory without it. A per-line refusal kept verbatim, as the closed-trade record now does, is FILED.

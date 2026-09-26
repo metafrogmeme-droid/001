@@ -172,6 +172,12 @@ class TestTheSweepKeepsWhatItCannotPrice:
 
     @staticmethod
     def _run(monkeypatch, close_price_answer):
+        # PAPER MODE, stated rather than inherited from the environment: the
+        # ghost sweep is the paper book's, and in live mode the sync does not
+        # read that book at all
+        # (tests/test_the_live_sync_leaves_the_paper_book_alone.py).
+        from bot.config import CONFIG
+        monkeypatch.setattr(type(CONFIG), "is_live", lambda self: False)
         closed: list = []
         trade = _trade()
 
@@ -198,7 +204,7 @@ class TestTheSweepKeepsWhatItCannotPrice:
         monkeypatch.setattr(xs, "_get_actual_close_price", _fake_price)
         # No positions on the venue: the local one is a ghost.
         async def _no_positions(_engine):
-            return []
+            return xs.ExchangeBook([], [])
         monkeypatch.setattr(xs, "_fetch_exchange_positions", _no_positions)
 
         msgs = asyncio.run(xs.sync_portfolio_with_exchange(engine))

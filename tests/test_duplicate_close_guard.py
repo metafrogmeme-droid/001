@@ -19,6 +19,8 @@ def _executor():
     ex = LiveExecutor.__new__(LiveExecutor)
     ex._closed_trades = []
     ex._positions = {}
+    # The deferral set every real executor carries; suppression clears it.
+    ex._recovered_from_closing = set()
     # _suppress_duplicate_record calls _save_positions; keep tests disk-free.
     ex._save_positions = lambda: None
     ex._save_closed_trades = lambda: None
@@ -26,12 +28,18 @@ def _executor():
 
 
 def _pos(trade_id="TI-orig", symbol="BTC/USDT:USDT", direction="SHORT",
-         entry=63105.0, status="open", closed_at=None, pnl=None):
+         entry=63105.0, status="open", closed_at=None, pnl=None, opened_at=None):
+    # OPENED BEFORE THE BOOKED CLOSE, by default. A duplicate is a second
+    # record of one exchange position, minted while it is still open, so it
+    # carries that position's open time; the dataclass default (now) put
+    # every twin here AFTER the close it duplicates, which is the shape of a
+    # genuine re-entry instead.
     return LivePosition(
         trade_id=trade_id, symbol=symbol, direction=direction,
         entry_price=entry, quantity=0.0015, cost_usd=9.47,
         stop_loss=63231.0, take_profit=59000.0, leverage=10,
         status=status, closed_at=closed_at, pnl_usd=pnl,
+        opened_at=opened_at or datetime.now(UTC) - timedelta(hours=1),
     )
 
 
@@ -93,7 +101,8 @@ def test_old_booking_outside_window_not_duplicate():
     ex._closed_trades.append(_pos(
         trade_id="TI-orig", status="closed",
         closed_at=datetime.now(UTC) - timedelta(hours=3)))
-    later = _pos(trade_id="TI-new")
+    # Opened before that close too, so the WINDOW is the only thing deciding.
+    later = _pos(trade_id="TI-new", opened_at=datetime.now(UTC) - timedelta(hours=4))
     assert ex._is_duplicate_close_booking(later) is False
 
 

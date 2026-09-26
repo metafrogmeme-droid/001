@@ -877,6 +877,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>Circuit breaker reset</b>\n\nTrading resumed.",
         "zh": "<b>熔斷已重設</b>\n\n交易已恢復。",
     },
+    "reset_gov_cleared": {
+        "en": ("<b>Governor pause cleared</b>\n\nIt had paused on {wins} wins in the "
+               "last {n} closes. It now counts only closes from here, at full size "
+               "until {min} are on record."),
+        "zh": ("<b>績效調節器暫停已清除</b>\n\n暫停時最近 {n} 筆平倉中只有 {wins} 筆獲利。"
+               "現在只計算此後的平倉，累積到 {min} 筆之前以全額倉位交易。"),
+    },
+    "reset_gov_cleared_others": {
+        "en": "The governor pause was also cleared on {k} other account(s).",
+        "zh": "另有 {k} 個帳戶的調節器暫停也已清除。",
+    },
     "reset_streak_cleared": {
         "en": "<b>Streak cleared</b>  {n} → 0",
         "zh": "<b>連敗已清除</b>  {n} → 0",
@@ -1321,12 +1332,15 @@ _STRINGS: dict[str, dict[str, str]] = {
     # commands it named were refused on the next tap. Say what linking is for,
     # and keep bot access as the separate thing it is.
     "link_success": {
+        # "/sync pushes an update" was dropped: /sync pushed a $10,000 default
+        # from a table nothing writes onto the AGENT's published record, and
+        # pushes nothing now (see `cmd_sync`).
         "en": "Linked.\n\nAccount: {email}\nPlan: {plan}\n\nYour dashboard at {url} now"
-              " mirrors this chat. /me shows the account, /sync pushes an update.\n\n"
+              " mirrors this chat. /me shows the account.\n\n"
               "Bot commands are separate — if /scan says you're not approved,"
               " that's the operator's allowlist, not this link.",
         "zh": "已連結。\n\n帳號: {email}\n方案: {plan}\n\n你在 {url} 的儀表板現在會同步這個對話。"
-              "/me 查看帳號，/sync 推送更新。\n\n"
+              "/me 查看帳號。\n\n"
               "機器人指令是另一回事 — 如果 /scan 顯示尚未通過審核，那是操作員的白名單，與這個連結無關。",
     },
     "unlink_partial_unknown": {
@@ -1356,13 +1370,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>Your RUNECLAW Account</b>\n\nEmail:    <code>{email}</code>\nPlan:     <code>{plan}</code>\nEquity:   <code>${equity}</code>\nOpen P&amp;L: <code>${pnl}</code>\nTrades:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | Notifications: <code>{notif}</code>",
         "zh": "<b>你的 RUNECLAW 帳號</b>\n\n電郵:    <code>{email}</code>\n方案:     <code>{plan}</code>\n權益:   <code>${equity}</code>\n未實現損益: <code>${pnl}</code>\n交易數:   <code>{trades}</code>\n\nLLM: <code>{llm}</code> | 通知: <code>{notif}</code>",
     },
-    "sync_success": {
-        "en": "Dashboard synced.\nEquity: ${equity}\nOpen positions: {positions}\nClosed trades: {trades}\n\nView at: {url}/dashboard",
-        "zh": "儀表板已同步。\n權益: ${equity}\n持倉數: {positions}\n已平倉交易: {trades}\n\n檢視: {url}/dashboard",
-    },
-    "sync_failed": {
-        "en": "Sync failed. Please try again in a moment.",
-        "zh": "同步失敗，請稍後再試。",
+    # /sync pushes nothing. It used to answer "Dashboard synced. Equity:
+    # $10000.00" over a push of `user_portfolio`'s defaults onto the AGENT's
+    # record; the caller's own dashboard reads their account from the bot
+    # when it loads, so there is no copy to update and none was sent.
+    "sync_nothing_to_push": {
+        "en": "Nothing to push. Your dashboard asks the bot for your account each"
+              " time it loads, so there is no separate copy to update — nothing"
+              " was sent.\n\nView it at: {url}/dashboard",
+        "zh": "沒有需要推送的內容。你的儀表板每次載入時都會直接向機器人讀取你的帳號，"
+              "所以沒有另一份副本需要更新 — 這次沒有傳送任何資料。\n\n檢視: {url}/dashboard",
     },
     # ── /scan <venue> (bot/core/venue_scan.py) — three outcomes, not two ──
     "venue_scan_ack": {

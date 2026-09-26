@@ -518,6 +518,8 @@
   ["dd.t_sol_removed", "Solana のウォッチを解除しました。"],
   ["dd.t_lock_rolled", "ロック終了日が変わりました（日付変更）。最新の条件を再表示します。"],
   ["dd.t_trade_confirmed", "取引が確定しました。"],
+  ["dd.t_trade_refused", "何も発注されていません。"],
+  ["dd.t_trade_unread", "ボットは応答しましたが、発注されたかどうかは示していません。ポジションを確認してください。"],
   ["dd.t_trade_update", "エンジンからの取引更新です。"],
   ["dd.t_need_coin", "先にコインを入力してください。"],
   ["dd.t_need_symbol", "先にシンボルを入力してください。"],

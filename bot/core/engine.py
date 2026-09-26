@@ -762,7 +762,9 @@ class RuneClawEngine:
                 _closed_record = self.live_executor.closed_positions
                 _seeded = self.risk.seed_realized_window(
                     _live_executor_mod.realized_close_pnls(_closed_record),
-                    returns=_live_executor_mod.realized_close_returns(_closed_record))
+                    returns=_live_executor_mod.realized_close_returns(_closed_record),
+                    last_close_at=_live_executor_mod.realized_close_last_at(_closed_record),
+                    stamps=_live_executor_mod.realized_close_stamps(_closed_record))
                 if _seeded:
                     system_log.info(
                         "Live-performance window seeded from %d recorded closes", _seeded)
@@ -838,7 +840,7 @@ class RuneClawEngine:
                 from bot.utils.website_sync import sync_in_background
                 state = self.portfolio.snapshot()
                 sync_in_background(
-                    user_id=1,  # default user; multi-user resolves via telegram handler
+                    # the agent's record: no user id (see `sync_portfolio`)
                     equity=state.equity_usd,
                     positions=list(self.portfolio.open_positions),
                     closed_trades=list(self.portfolio._history[-50:]),
@@ -1293,6 +1295,9 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return None
         ex = self._executor_for(user_id)
+        if ex is None:
+            # A venue no executor is built for: no account to size against.
+            return None
         # Operator path: per-user off, or auto/unattended, or the user has no
         # own keys (executor fell back to operator). Decided by EXECUTOR
         # IDENTITY, not by `_is_operator_user`: an operator who linked their
@@ -1344,6 +1349,9 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             return _LiveRecheck(None, None, None)
         ex = self._executor_for(user_id)
+        if ex is None:
+            # No executor for this caller's venue: nothing was read.
+            return _LiveRecheck(None, None, None)
         # Executor identity decides, as in get_user_live_equity: the recheck
         # sizes and counts against the account the order will EXECUTE on.
         per_user = (
@@ -1655,23 +1663,17 @@ class RuneClawEngine:
 
         # Public mind-stream: operator-account closes only (user_id "" is the
         # operator executor; per-user closes carry that user's id and stay
-        # private). Realized PnL is already public on the track-record page.
+        # private). The feed is served to anonymous readers, so the close is
+        # told in percent of margin and never in dollars (`close_event`).
         try:
-            from bot.core.agent_feed import FEED
+            from bot.core.agent_feed import FEED, close_event
             if not user_id:
-                _fpnl = getattr(pos, "pnl_usd", None)
-                _fsym = getattr(pos, "symbol", "")
-                if _fpnl is not None and _fsym:
-                    _fpnl = float(_fpnl)
-                    _freason = str(getattr(pos, "close_reason", "") or "")
-                    FEED.emit(
-                        "trade_close",
-                        f"Closed {_fsym} "
-                        f"{'+' if _fpnl >= 0 else '-'}${abs(_fpnl):,.2f}",
-                        body=f"Exit: {_freason}" if _freason else "",
-                        symbol=_fsym,
-                        severity="success" if _fpnl >= 0 else "warning",
-                        data={"pnl": round(_fpnl, 2), "reason": _freason})
+                _fev = close_event(
+                    getattr(pos, "symbol", ""), getattr(pos, "pnl_usd", None),
+                    _live_executor_mod.position_size_basis(pos)[0],
+                    getattr(pos, "close_reason", ""))
+                if _fev is not None:
+                    FEED.emit("trade_close", **_fev)
         except Exception as _feed_exc:
             logger.debug("Agent feed close event skipped: %s", _feed_exc)
 
@@ -1685,16 +1687,18 @@ class RuneClawEngine:
             logger.debug("Live website sync skipped: %s", _sync_exc)
 
     def _sync_live_state_to_website(self) -> None:
-        """Push the live executor's real open positions, recent closed trades,
-        and equity to the website dashboard (fire-and-forget, fail-open).
+        """Push the agent's live record to the website (fire-and-forget).
 
-        Mirrors _on_trade_close_composite's paper sync, but sources from the
-        actual LiveExecutor instead of the paper portfolio -- so a live user's
-        dashboard reflects their real Bitget account, not simulated state.
+        `/api/bot/sync` REPLACES the agent's rows with what is sent here: the
+        open positions, the newest closes (`countable` drops what is not a
+        trade) and the equity. A closed-trade record that could not be read
+        in full is not sent at all (`record_unreadable`).
         """
-        from bot.utils.website_sync import sync_in_background
+        from bot.utils.website_sync import record_unreadable, sync_in_background
 
         executor = self.live_executor
+        if record_unreadable(executor):
+            return
 
         def _open_dict(pos) -> dict:
             return {
@@ -1711,18 +1715,16 @@ class RuneClawEngine:
 
         def _closed_dict(pos) -> dict:
             d = _open_dict(pos)
-            # `or 0` here said an unreadable close broke even, on the dashboard
-            # a live user reads. `LivePosition.pnl_usd` is Optional and
-            # live_executor writes None deliberately (`pos.pnl_usd = None if
-            # net_pnl is None else ...`), and the website's `winStats` already
-            # counts unpriced closes as their own outcome — so this line was
-            # the only thing standing between an honest producer and an honest
-            # reader. Six lines below, the equity field says the same rule in
-            # words: "in LIVE mode with an empty balance cache this must send
-            # None (website renders 'unavailable')".
+            # None, not `or 0`, for a close nobody priced: live_executor writes
+            # None on purpose and the website's `winStats` counts an unpriced
+            # close as its own outcome, so `or 0` here published it as a
+            # measured break-even. The equity below follows the same rule.
             d["exit_price"] = pos.close_price
             d["pnl"] = pos.pnl_usd
             d["closed_at"] = pos.closed_at
+            # Read by `countable` (orphans, unfilled orders); not on the wire.
+            d["trade_id"] = pos.trade_id
+            d["close_reason"] = pos.close_reason
             return d
 
         positions = [_open_dict(p) for p in executor.open_positions]
@@ -1731,8 +1733,8 @@ class RuneClawEngine:
         # send None (website renders "unavailable"), never the paper baseline
         # that get_effective_equity() silently falls back to.
         equity, _eq_src = self.resolve_display_equity_sync()
-        user_id = getattr(executor, "user_id", None) or 1
-        sync_in_background(user_id, equity, positions, closed)
+        # No user id: the AGENT's record, and the website decides whose rows.
+        sync_in_background(equity, positions, closed)
 
     def _intent_engine_caps(self) -> dict:
         """The authoritative engine caps a compiled policy is clamped against
@@ -2404,6 +2406,21 @@ class RuneClawEngine:
                 # checks for None and refuses.
                 return None
             creds, venue = creds_v, _rv
+        # ONLY A DRIVEN VENUE GETS AN EXECUTOR. /connect stores keys for every
+        # venue `exchange_credentials` knows, and this used to build an
+        # executor for whichever one the store recorded — OKX, Gate and KuCoin
+        # among them, whose adapters send a COIN quantity where those venues
+        # count CONTRACTS (3000 DOGE went out as 3,000,000 on OKX). None here,
+        # for the named ask and the unnamed one alike: the unnamed ask's
+        # fallback is the OPERATOR's executor, and a user's order placed on the
+        # operator's account because their own venue was refused is the one
+        # answer that cannot be right. Checked before the cache, so no executor
+        # built by an older process outlives the rule.
+        from bot.core.venues import per_user_execution_refusal
+        _refusal = per_user_execution_refusal(venue)
+        if _refusal:
+            self._note_execution_refusal(user_id, venue, _refusal)
+            return None
         key = f"{_rv}/{user_id}" if _rv else str(user_id)
         ex = self._user_executors.get(key)
         # Rebuild if absent or the user's credentials changed (e.g. re-/connect,
@@ -2443,16 +2460,53 @@ class RuneClawEngine:
             # Record realized slippage into the shared tracker (no-op until set).
             ex._slippage_tracker = getattr(self, "slippage", None)
             # NB3: apply this user's pinned leverage (reduce-only vs the operator
-            # cap; None → operator default). Best-effort — never blocks binding.
+            # cap; None → operator default). Never blocks binding. A store that
+            # could not be read binds UNREAD, never None: None is the operator
+            # default, the LOOSEST a reduce-only preference resolves to, and
+            # the executor that held it kept it for its whole life. UNREAD is
+            # read again at order time and sized at the tightest a preference
+            # can be while it still cannot be read.
+            from bot.core import user_leverage_store as _lev_store
             try:
-                from bot.core import user_leverage_store as _lev_store
                 ex._user_leverage_pref = _lev_store.get(user_id)
             except Exception:
-                ex._user_leverage_pref = None
+                ex._user_leverage_pref = _lev_store.UNREAD
             self._user_executors[key] = ex
             audit(system_log, f"Per-user live executor bound for user {user_id}",
                   action="per_user_executor", result="BOUND", data={"user": key})
         return ex
+
+    def _note_execution_refusal(self, user_id: str, venue: str, sentence: str) -> None:
+        """Remember why ``user_id`` has no executor, and audit it ONCE per venue.
+
+        `_executor_for` is asked on every confirm, every balance read and every
+        rehydrate, and one sentence repeated on each is how a log stops being
+        read. The sentence is kept for `execution_refusal`, so the confirm that
+        is refused says the venue's reason rather than a re-check crash.
+        """
+        refusals = self.__dict__.setdefault("_execution_refusals", {})
+        said = self.__dict__.setdefault("_execution_refusals_said", set())
+        refusals[str(user_id)] = f"{sentence} Nothing was placed."
+        if (str(user_id), str(venue)) in said:
+            return
+        said.add((str(user_id), str(venue)))
+        audit(system_log,
+              f"No per-user executor for user {user_id} on {venue}: {sentence}",
+              action="per_user_executor", result="REFUSED",
+              level=logging.WARNING,
+              data={"user": str(user_id), "venue": str(venue)})
+
+    def execution_refusal(self, user_id: str = "") -> Optional[str]:
+        """Why this caller's live order has no account to go to, or None.
+
+        Asks `_executor_for` — the one place the rule is applied — and hands
+        back the sentence it recorded when it answered None.
+        """
+        if self._executor_for(user_id) is not None:
+            return None
+        refusals = self.__dict__.get("_execution_refusals", {})
+        return refusals.get(str(user_id)) or (
+            "no account of yours this bot can place an order on. Nothing was placed.")
 
     def _move_legacy_executor_book(self, user_id: str, venue: str) -> None:
         """Move ``user_id``'s pre-split executor book to ``venue``'s directory.
@@ -2629,7 +2683,9 @@ class RuneClawEngine:
         pending entry is open — position records carry venue-native
         symbols and the monitoring/close paths would route them to the
         wrong exchange. The override is persisted (data/venue_override.json)
-        so the choice survives restarts; per-user executors stay Bitget.
+        so the choice survives restarts. It moves the OPERATOR's executor only:
+        a per-user executor trades the venue its user linked, when that venue
+        is one an executor is built for (`PER_USER_EXECUTION_VENUES`).
 
         Every consumer reads self.live_executor live (no captured refs —
         verified), so replacing the attribute plus re-running the four
@@ -3233,6 +3289,23 @@ class RuneClawEngine:
                 logger.error("Resume: user %s risk engine reset failed: %s", uid, exc)
         return reset
 
+    def clear_governor_pauses(self) -> dict[str, dict]:
+        """Clear the live-performance governor's PAUSE on the shared engine and
+        every per-user one, as the operator's /reset does for the breakers.
+        Keyed by account: "" is the shared engine, otherwise the user id; an
+        engine that was not paused is absent. Fail-open per engine, so one
+        engine that raises costs the others nothing."""
+        cleared: dict[str, dict] = {}
+        for key, eng in [("", self.risk)] + list(self._user_risk.items()):
+            try:
+                info = eng.clear_governor_pause()
+            except Exception as exc:
+                logger.error("Governor clear failed for %s: %s", key or "shared", exc)
+                continue
+            if info is not None:
+                cleared[str(key)] = info
+        return cleared
+
     def _rehydrate_user_executors(self) -> None:
         """Rebuild per-user executors for all linked users at startup so their
         PERSISTED live positions resume being monitored after a restart (per-user
@@ -3820,6 +3893,7 @@ class RuneClawEngine:
         # state where positions may be unmonitored. Now we back off and escalate.
         _consecutive_failures = 0
         _BACKOFF_CAP_S = 300.0
+        _BACKOFF_EXP_MAX = 32
         while self._running:
             try:
                 await self._tick_guarded()
@@ -3938,11 +4012,26 @@ class RuneClawEngine:
                         action="tick", result="CRITICAL_CONSECUTIVE_FAILURES",
                         data={"consecutive_failures": _consecutive_failures},
                     )
+                # The reciprocal watchdog over the proactive monitor ran on a
+                # SUCCESSFUL tick only, so during a failure streak -- the
+                # stretch the monitor exists to report -- nothing checked
+                # that the monitor was alive. Throttled and fail-open, like
+                # its call on the success path. The healthcheck ping stays
+                # on the success path alone: an external dead-man's switch
+                # that is fed by failing ticks cannot alarm on them.
+                await self._with_maintenance_cap(
+                    self._maybe_check_monitor_liveness(), "monitor liveness")
                 # Exponential backoff (2x per failure, capped) instead of a tight retry loop.
+                # The exponent is bounded before the multiply: `base * 2**n`
+                # converts the int to a float and raises OverflowError once n
+                # reaches 1024 (at least 85 hours of backoffs at the cap). That
+                # raised out of this handler and out of run(), which
+                # `bot.main` reports as an engine crash and restarts. Every
+                # exponent past the bound gives the cap anyway.
                 base = self._compute_smart_scan_interval()
-                backoff = min(base * (2 ** _consecutive_failures), _BACKOFF_CAP_S)
-                self._next_tick_due_ts = time.monotonic() + backoff
-                await asyncio.sleep(backoff)
+                backoff = min(base * (2 ** min(_consecutive_failures, _BACKOFF_EXP_MAX)),
+                              _BACKOFF_CAP_S)
+                await self._sleep_watching_stops(backoff, base)
                 continue
             _sleep_s = self._compute_smart_scan_interval()
             # Stamp the plan BEFORE parking: the stall watchdog treats time
@@ -3959,29 +4048,91 @@ class RuneClawEngine:
         degraded alerts) and the loop recovers without a human restart. The
         cap is deliberately far above any legitimate tick (default 900s,
         1.5x the TICK_STALL threshold, so the stall alert with its stack
-        diagnosis still fires first). 0 disables the guard entirely."""
+        diagnosis still fires first). 0 disables the guard entirely.
+
+        A CANCELLED tick gets no backstop. The engine task is cancelled for
+        one reason, a stop request (`bot.main`'s SIGTERM handler), and the
+        `finally` below used to run a full SL/TP monitor pass on the way
+        out, which can cancel stops and send market closes. Starting that at
+        the moment a supervisor is counting down to SIGKILL is how a close
+        is cut between cancelling a position's stop and flattening it. The
+        stops resting on the venue stay where they are, and the next boot's
+        monitor and reconcile take the book up from there. A hard-timeout
+        cancellation is not this case: `wait_for` turns it into a
+        TimeoutError, and the backstop still runs."""
         cap = float(getattr(CONFIG.monitoring, "tick_hard_timeout_sec", 0.0) or 0.0)
-        if cap <= 0:
-            try:
-                await self._tick()
-            finally:
-                await self._backstop_position_monitor()
-            return
+        stopping = False
         try:
-            await asyncio.wait_for(self._tick(), timeout=cap)
-        except asyncio.TimeoutError:
-            audit(
-                system_log,
-                f"Tick exceeded the {cap:.0f}s hard timeout — cancelled the "
-                f"parked await to recover the loop (see the TICK_STALL stack "
-                f"diagnosis in the log for where it hung)",
-                action="tick", result="HARD_TIMEOUT",
-            )
+            if cap <= 0:
+                await self._tick()
+                return
+            try:
+                await asyncio.wait_for(self._tick(), timeout=cap)
+            except asyncio.TimeoutError:
+                audit(
+                    system_log,
+                    f"Tick exceeded the {cap:.0f}s hard timeout — cancelled the "
+                    f"parked await to recover the loop (see the TICK_STALL stack "
+                    f"diagnosis in the log for where it hung)",
+                    action="tick", result="HARD_TIMEOUT",
+                )
+                raise
+        except asyncio.CancelledError:
+            stopping = True
             raise
         finally:
-            await self._backstop_position_monitor()
+            if not stopping:
+                await self._backstop_position_monitor()
 
-    async def _backstop_position_monitor(self) -> None:
+    async def _sleep_watching_stops(self, total: float, step: float) -> None:
+        """Wait out a failure backoff without leaving the stops unwatched.
+
+        The backoff exists so a persistent failure does not retry the scan and
+        the analysis in a tight loop against the venue and the model. It also
+        stopped the SL/TP monitor: after a failed tick the loop slept up to
+        `_BACKOFF_CAP_S` with nothing watching the book. Driven with the
+        analyze phase timing out at its 300s cap every tick, the monitor ran
+        once every 605s (the 300s phase, the 300s sleep, the scan) where a
+        slow but successful tick leaves a gap of one scan interval plus the
+        tick.
+
+        So the sleep is cut into steps of the normal scan interval and the
+        monitor runs after each one. That is the rate a healthy loop already
+        reads positions at, so the backoff still spares the venue and the
+        model everything a failing tick costs and adds nothing a healthy loop
+        does not already do.
+
+        The steps are COUNTED rather than read off the clock, so the total
+        sleep is the backoff and a monitor pass adds its own duration to the
+        wait. The stall watchdog reads `_next_tick_due_ts`, so it is stamped
+        before every step and before every pass: a pass may take up to the
+        per-phase cap, and a declared wait that a bounded pass overruns would
+        page TICK_STALL over a loop that is doing its job. With the cap
+        disabled a pass is unbounded, and one that hangs past the declared
+        wait is a hang, which is what the watchdog should say.
+        """
+        if not step > 0:
+            # A scan interval of 0 gives no step: one plain sleep, the old
+            # behaviour. A step as long as the whole wait needs no branch of
+            # its own: the loop below makes one sleep and no pass.
+            self._next_tick_due_ts = time.monotonic() + total
+            await asyncio.sleep(total)
+            return
+        left = total
+        while left > 0:
+            chunk = min(step, left)
+            self._next_tick_due_ts = time.monotonic() + left
+            await asyncio.sleep(chunk)
+            left -= chunk
+            if left <= 0:
+                return
+            # The phase cap is clamped to [0, 3600] where it is declared, so
+            # it is never None and never negative; 0 means no cap.
+            cap = float(CONFIG.monitoring.tick_phase_timeout_sec)
+            self._next_tick_due_ts = time.monotonic() + left + cap
+            await self._backstop_position_monitor(during_backoff=True)
+
+    async def _backstop_position_monitor(self, *, during_backoff: bool = False) -> None:
         """Watch the stops even when the tick died before reaching them.
 
         WHY. _check_open_positions is the SL/TP monitor, and its call site
@@ -4011,13 +4162,19 @@ class RuneClawEngine:
         check below: `fatal=False` returns None on a timeout, so "did not
         raise" and "watched the stops" are different facts and only one of
         them is the good news.
+
+        `during_backoff` is the pass `_sleep_watching_stops` runs between
+        failed ticks. The tick's own flag describes a check made before the
+        failure, so it is cleared first; the pass is new evidence or none.
         """
-        if getattr(self, "_positions_monitored_tick", False):
+        if during_backoff:
+            self._positions_monitored_tick = False
+        elif getattr(self, "_positions_monitored_tick", False):
             self._record_position_watch("tick")
             return
+        what = "positions (backoff)" if during_backoff else "positions (backstop)"
         try:
-            await self._phase(self._check_open_positions(),
-                              "positions (backstop)", fatal=False)
+            await self._phase(self._check_open_positions(), what, fatal=False)
         except asyncio.CancelledError:
             # Shutdown, not a verdict. Recording "unwatched" here would put a
             # red line on /positions for every clean stop of the process.
@@ -4039,17 +4196,17 @@ class RuneClawEngine:
         # `_check_open_positions` sets the flag at its END, which is the only
         # thing in the process that can tell the two apart. Three outcomes,
         # not two.
+        why = ("The tick loop is backing off after a failed tick"
+               if during_backoff else "Tick ended before its position check")
         if getattr(self, "_positions_monitored_tick", False):
             audit(system_log,
-                  "Tick ended before its position check — ran the SL/TP "
-                  "monitor as a backstop",
+                  f"{why} — ran the SL/TP monitor as a backstop",
                   action="positions_backstop", result="RAN")
             self._record_position_watch("backstop")
         else:
             audit(system_log,
-                  "Tick ended before its position check AND the backstop "
-                  "SL/TP monitor did not complete — open positions are "
-                  "unwatched for this tick",
+                  f"{why} AND the backstop SL/TP monitor did not complete — "
+                  f"open positions are unwatched for this pass",
                   action="positions_backstop", result="INCOMPLETE")
             self._record_position_watch("incomplete")
 
@@ -5183,8 +5340,8 @@ class RuneClawEngine:
     async def _maybe_check_monitor_liveness(self) -> None:
         """Reciprocal watchdog: the proactive monitor delivers every internal
         safety alert, yet nothing watched IT — a dead monitor task silently
-        ended all alerting while trading continued. Each successful tick now
-        checks the monitor's heartbeat; on staleness it audits CRITICAL,
+        ended all alerting while trading continued. Every tick, failed or
+        not, checks the monitor's heartbeat; on staleness it audits CRITICAL,
         notifies the operator through a monitor-independent callback, and
         restarts the (same) monitor object's task when it died. Throttled to
         the check interval so a permanently-dead monitor alerts once per
@@ -5386,6 +5543,16 @@ class RuneClawEngine:
                     continue
                 try:
                     ex = self._executor_for(tg)
+                    if ex is None:
+                        # Their venue has no executor, so this bot placed
+                        # nothing there to flatten; said, not assumed.
+                        audit(system_log,
+                              f"Web emergency-stop from user {tg}: "
+                              f"{self.execution_refusal(tg)}",
+                              action="web_flatten", result="REFUSED",
+                              data={"user": tg})
+                        acks.append({"user_id": uid, "ok": True, "closed": 0})
+                        continue
                     # Never flatten the shared operator account for a
                     # non-operator, whether or not per-user live is on.
                     if ex is self.live_executor and not self._is_operator_user(tg):
@@ -5398,7 +5565,7 @@ class RuneClawEngine:
                               data={"user": tg})
                         acks.append({"user_id": uid, "ok": True, "closed": 0})
                         continue
-                    from bot.formatters.drift_offer import flatten_failed_messages
+                    from bot.formatters.drift_offer import flatten_closed_count, flatten_failed_messages
                     _msgs = list(await ex.close_all_positions(
                         reason="web_emergency_stop"))
                     # `ok` used to be the literal True and `closed` the LENGTH
@@ -5411,7 +5578,7 @@ class RuneClawEngine:
                     # that is still open. Same claim as the Telegram card, one
                     # surface over.
                     _failed = flatten_failed_messages(_msgs)
-                    _closed = len(_msgs) - len(_failed)
+                    _closed = flatten_closed_count(_msgs)
                     audit(system_log,
                           f"Web emergency-stop flatten for user {tg}: {_closed} closed"
                           + (f", {len(_failed)} FAILED — row left pending for retry"
@@ -7369,15 +7536,27 @@ class RuneClawEngine:
         # Per-user chosen strategy — a tighten-only veto on THIS user's
         # confirms ("your bot, your strategy"). Applies only to explicit
         # user confirms; the operator auto-loop stays governed by the global
-        # stance. An armed selection that cannot be evaluated fails CLOSED —
-        # unlike a missing preferences file, which simply means "no
-        # selection" (see user_strategy_store's header for the split).
+        # stance. An armed selection that cannot be evaluated fails CLOSED,
+        # and so does a selections file that cannot be READ: it may hold an
+        # armed selection, and reading it as "none" skipped the veto the
+        # person chose. A MISSING file is a fresh start and means no selection
+        # (see user_strategy_store's header for the split).
         if user_id and user_id != "auto":
+            from bot.core import strategy_gate, user_strategy_store
             try:
-                from bot.core import strategy_gate, user_strategy_store
                 _sel = user_strategy_store.get_entry(user_id)
-            except Exception:
-                _sel = None
+            except Exception as _exc:
+                audit(trade_log,
+                      f"Strategy-gate REFUSED {idea.asset} for user {user_id}: "
+                      f"the stored strategy selections could not be read "
+                      f"({type(_exc).__name__})",
+                      action="user_strategy_gate", result="UNREAD",
+                      level=logging.WARNING,
+                      data={"trade_id": trade_id})
+                return ("\U0001f6e1 Your chosen strategy could not be read — the "
+                        "stored selections did not open, so confirms are "
+                        "refused until they can be (fail closed). Nothing was "
+                        "placed.")
             _skey = _sel if isinstance(_sel, str) else (
                 _sel.get("slug") if isinstance(_sel, dict) else None)
             if _sel:
@@ -7577,6 +7756,16 @@ class RuneClawEngine:
         if current_price > 0:
             idea = idea.model_copy(update={"timestamp": datetime.now(UTC)})
 
+        # A caller whose linked venue has no executor is refused HERE, in the
+        # venue's own words. Left to the re-check below, the same None surfaced
+        # as "re-check failed (error logged)" off an AttributeError.
+        if CONFIG.is_live():
+            _no_venue = self.execution_refusal(user_id)
+            if _no_venue:
+                self._pending_pyramid.pop(trade_id, None)
+                self._transition(AgentState.IDLE, f"no executor for {trade_id}")
+                return f"Trade REJECTED: {_no_venue}"
+
         # Re-check risk (portfolio state may have changed -- new positions, daily PnL, drawdown.
         # HONEST LIMITATION: price drift is now checked above (F-05 fix).
         # Stale-data check #12 guards against time drift (>300s = reject).
@@ -7632,15 +7821,15 @@ class RuneClawEngine:
             self._transition(AgentState.IDLE, f"re-check rejected {trade_id}")
             # Seal rejection to audit chain (Guardian Flight Recorder: seal the
             # full provenance so a rejection is as explainable as an execution).
-            self.audit_chain.seal_decision(DecisionRecord(
+            seal_note = _seal_on_chain("DECISION", trade_id, lambda: self.audit_chain.seal_decision(DecisionRecord(
                 decision_id=trade_id, symbol=idea.asset,
                 idea=_flight_idea(idea),
                 risk=_flight_risk(recheck),
                 outcome="REJECTED_ON_RECHECK", is_paper=not CONFIG.is_live(),
-            ))
+            )))
             self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
             self._sync_flight_records()
-            return f"Trade REJECTED on re-check: {recheck.reason}"
+            return f"Trade REJECTED on re-check: {recheck.reason}{seal_note}"
 
         # Adversarial self-critique gate (fail-open: errors = proceed with warning)
         try:
@@ -7651,15 +7840,15 @@ class RuneClawEngine:
             critique_result = critique.evaluate(idea, recheck, snapshot, macro_ctx_for_critique)
 
             if critique_result.verdict == "HALT":
-                self.audit_chain.append("CRITIQUE_HALT", {
+                seal_note = _seal_on_chain("CRITIQUE_HALT", trade_id, lambda: self.audit_chain.append("CRITIQUE_HALT", {
                     "trade_id": trade_id, "asset": idea.asset,
                     "bear_case": critique_result.bear_case,
                     "concerns": critique_result.concerns,
                     "confidence_adjustment": critique_result.confidence_adjustment,
-                })
+                }))
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique halted {trade_id}")
-                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}"
+                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}{seal_note}"
             # Apply critique confidence adjustment
             if critique_result.confidence_adjustment != 0:
                 idea.confidence = max(0.0, min(1.0, idea.confidence + critique_result.confidence_adjustment))
@@ -7764,14 +7953,14 @@ class RuneClawEngine:
             approval_token=approval_token,
         )
         if not compliance_decision.granted:
-            self.audit_chain.append("AUTH_DENIED", {
+            seal_note = _seal_on_chain("AUTH_DENIED", trade_id, lambda: self.audit_chain.append("AUTH_DENIED", {
                 "trade_id": trade_id, "asset": idea.asset,
                 "reasons": compliance_decision.reasons,
                 "locks_failed": compliance_decision.locks_failed,
-            }, actor=self.compliance_profile.subject_id)
+            }, actor=self.compliance_profile.subject_id))
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"compliance denied {trade_id}")
-            return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}"
+            return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}{seal_note}"
 
         # ── Per-user PAPER (sim) opt-in ──────────────────────────────────────
         # A user who has opted into practice mode (and the feature is enabled)
@@ -8197,9 +8386,9 @@ class RuneClawEngine:
         _fail_reason = str(result)[:200] if live_failed else ""
 
         # Seal decision to tamper-evident audit chain (Guardian Flight Recorder:
-        # provenance-complete idea/risk — votes, model/prompt version, and the
-        # explainability slice — so every executed decision is fully auditable).
-        self.audit_chain.seal_decision(DecisionRecord(
+        # provenance-complete idea/risk). The order is placed by now, so a seal
+        # that fails is said on the answer and logged, never raised over it.
+        seal_note = _seal_on_chain("DECISION", trade_id, lambda: self.audit_chain.seal_decision(DecisionRecord(
             decision_id=trade_id, symbol=idea.asset,
             idea=_flight_idea(idea),
             risk=_flight_risk(recheck, size_usd=size_usd),
@@ -8207,7 +8396,7 @@ class RuneClawEngine:
             compliance={"granted": True, "locks_passed": compliance_decision.locks_passed},
             outcome="EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED",
             is_paper=False,
-        ))
+        )))
         self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
         self._sync_flight_records()
         # Learning: log accepted trade decision
@@ -8240,7 +8429,7 @@ class RuneClawEngine:
         self._transition(
             AgentState.IDLE,
             "live trade executed" if not live_failed else "live execution failed")
-        return result
+        return result + seal_note
 
     def reject_trade(self, trade_id: str) -> str:
         """Human explicitly rejects a pending idea."""
@@ -9430,3 +9619,41 @@ class RuneClawEngine:
             )
 
         return signals
+
+
+def _seal_on_chain(record: str, trade_id: str, write: Callable[[], Any]) -> str:
+    """Write one confirm-path record to the audit chain, and answer what the
+    confirmer must be told when it could not be written: "" when it sealed.
+
+    THE ORDER WAS PLACED BEFORE THE RECORD. `_confirm_trade_inner` seals the
+    decision after `execute()` has filled, and the seal had no guard, so a
+    chain that could not be appended to (a write cut short at its end made
+    every later append raise; a full disk) raised out of `confirm_trade` over
+    an open position: the Confirm button printed "Trade execution failed",
+    auto-confirm skipped the notification, and the learner and the state
+    transition written after the seal never ran. A refusal's record was the
+    same shape -- and the critique HALT's sat inside a handler that reads any
+    exception as "the critique could not complete", which in paper mode lets
+    the halted trade proceed.
+
+    What happened stands; a record that could not be written changes none of
+    it. The failure is logged at ERROR with the driver's text (scrubbed), and the
+    confirmer is told with the exception's CLASS only, because the answer
+    reaches a chat.
+    """
+    try:
+        write()
+        return ""
+    except Exception as exc:
+        from bot.utils.secret_shapes import scrub_diagnostic
+        audit(trade_log,
+              f"AUDIT CHAIN: the {record} record for {trade_id} was NOT sealed "
+              f"({type(exc).__name__}: {scrub_diagnostic(str(exc))[:200]}). "
+              "What the confirm reported stands; this outcome is missing from "
+              "the tamper-evident chain.",
+              action="audit_seal", result="SEAL_FAILED", level=logging.ERROR,
+              data={"trade_id": trade_id, "record": record,
+                    "error": type(exc).__name__})
+        return ("\n\n⚠️ This decision was NOT written to the audit "
+                f"chain ({type(exc).__name__}). What is reported above stands; "
+                "the missing record is logged for the operator.")

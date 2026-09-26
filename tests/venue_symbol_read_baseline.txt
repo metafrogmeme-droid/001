@@ -1,0 +1,45 @@
+# ccxt calls that hand a venue a symbol the venue mapping did not produce,
+# each with the reason it is right. Read by
+# tests/test_a_read_back_asks_the_venue_in_its_own_spelling.py through
+# tests/venue_symbol_reads.py.
+#
+#   key | count | reason
+#
+# Two-way, the known_failures.txt rule: a site not listed here fails, and a row
+# whose site is gone or whose count moved fails too. A new bare read belongs in
+# `self._venue.order_symbol(...)` (or `_fetch_order` for an order read), not in
+# this file; a row is for a site whose spelling is right for a reason the walk
+# cannot see.
+
+# ── The entry path. `execute` binds `symbol` three times: the recorded asset for
+# the futures-market check, then `swap_symbol(idea.asset)` in futures mode (the
+# only mode `has_futures` lets through), and the recorded asset in spot mode,
+# where the spot symbol IS that venue's spelling. The walk reads a name with
+# one unmapped binding as bare and cannot see which binding reaches the call.
+bot/core/live_executor.py: execute.fetch_ticker(symbol) | 2 | entry path: swap_symbol(idea.asset) in futures mode; the spot branch trades the spot symbol, which is that venue's spelling
+bot/core/live_executor.py: execute.fetch_my_trades(symbol) | 1 | entry path: swap_symbol(idea.asset) in futures mode; the spot branch trades the spot symbol, which is that venue's spelling
+bot/core/live_executor.py: _entry_market_gate.fetch_ticker(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _exchange_minimum_gate.amount_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _recalculate_limit_entry.amount_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _round_limit_price_to_tick.price_to_precision(symbol) <- execute(symbol) | 1 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _submit_entry_order.price_to_precision(symbol) <- execute(symbol) | 2 | entry path: execute's symbol (see above)
+bot/core/live_executor.py: _create_order_idempotent.create_order(symbol) <- _submit_entry_order(**) | 2 | entry order: create_kwargs carries _submit_entry_order's symbol, which is execute's (see above); the walk cannot see into a ** hand-off
+
+# ── Bitget's v3 channel (UTA accounts, `supports_native_triggers`). Both sites
+# try the perp spelling FIRST and fall back to the recorded one on purpose, for
+# a market-precision lookup. The fallback is the only way the recorded spelling
+# is read there, and only when the perp spelling answered nothing.
+bot/core/live_executor.py: _round_price_to_market.price_to_precision(symbol) <- _place_sl_tp(sym) | 2 | Bitget v3 stop placement only: loops the perp spelling then the spot one for a tick grid, by design
+bot/core/live_executor.py: _round_price_to_market.market(symbol) <- _place_sl_tp(sym) | 2 | Bitget v3 stop placement only: loops the perp spelling then the spot one for a tick grid, by design
+bot/core/live_executor.py: _round_price_to_market.price_to_precision(symbol) <- _update_exchange_sl(pos.symbol) | 1 | Bitget v3 stop move only: the recorded spelling is the second try after swap_symbol(pos.symbol) answered nothing
+bot/core/live_executor.py: _round_price_to_market.market(symbol) <- _update_exchange_sl(pos.symbol) | 1 | Bitget v3 stop move only: the recorded spelling is the second try after swap_symbol(pos.symbol) answered nothing
+
+# ── The venue's own spelling. Adoption reads a position row the venue itself
+# returned and lists that symbol's orders under the symbol the row carries.
+bot/core/live_executor.py: adopt_exchange_positions.fetch_open_orders(raw_sym) | 1 | the venue's own spelling, read off the position row it returned
+
+# ── /orders. `read_open_orders` — the one production caller — hands the
+# executor's `_fetch_order`, which maps and adds the venue's read params; this
+# bare read is the default for a caller holding no executor (the handler
+# wrapper the desync tests drive with Bitget-shaped stubs).
+bot/core/open_orders.py: resolve_desync_orders.fetch_order(p.symbol) outside _fetch_order | 1 | default reader only; read_open_orders passes the executor's _fetch_order as read_order

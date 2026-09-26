@@ -38,12 +38,14 @@ def _live_pos(trade_id, symbol, status="open", pnl=None, close_price=None):
         opened_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
         closed_at=datetime(2026, 6, 30, 13, 0, tzinfo=UTC) if status == "closed" else None,
         close_price=close_price, pnl_usd=pnl, status=status,
+        close_reason="TP HIT" if status == "closed" else None,
     )
 
 
 def _stub_engine_for_sync(open_positions, closed_positions, equity=326.55, user_id=None):
     executor = types.SimpleNamespace(
         open_positions=open_positions, closed_positions=closed_positions,
+        closed_trades_read_failed=False,
         user_id=user_id,
     )
     stub = types.SimpleNamespace(
@@ -59,8 +61,7 @@ class TestSyncLiveStateToWebsite:
         captured = {}
         import bot.utils.website_sync as ws
 
-        def _fake_sync_in_background(user_id, equity, positions, closed_trades):
-            captured["user_id"] = user_id
+        def _fake_sync_in_background(equity, positions, closed_trades):
             captured["equity"] = equity
             captured["positions"] = positions
             captured["closed_trades"] = closed_trades
@@ -73,7 +74,6 @@ class TestSyncLiveStateToWebsite:
 
         RuneClawEngine._sync_live_state_to_website(stub)
 
-        assert captured["user_id"] == 7
         assert captured["equity"] == 326.55
         assert len(captured["positions"]) == 1
         assert captured["positions"][0]["asset"] == "HYPE/USDT:USDT"
@@ -83,22 +83,30 @@ class TestSyncLiveStateToWebsite:
         assert captured["closed_trades"][0]["exit_price"] == 63.6
         assert captured["closed_trades"][0]["pnl"] == 0.09
 
-    def test_defaults_to_user_id_1_when_executor_has_none(self, monkeypatch):
+    def test_the_push_names_no_account_whatever_the_executor_carries(self, monkeypatch):
+        # The push is the AGENT's record and `/api/bot/sync` decides whose rows
+        # that is (BOT_USER_ID). It used to send `executor.user_id or 1`, and a
+        # route that applied every push to the operator's rows whatever id it
+        # carried is how a linked user's /link wiped the agent's history.
         import bot.utils.website_sync as ws
-        captured = {}
+        seen = []
         monkeypatch.setattr(
             ws, "sync_in_background",
-            lambda user_id, equity, positions, closed_trades: captured.update(user_id=user_id))
-        stub = _stub_engine_for_sync([], [], user_id=None)
-        RuneClawEngine._sync_live_state_to_website(stub)
-        assert captured["user_id"] == 1
+            lambda *a, **kw: seen.append((a, kw)))
+        for uid in (None, 7):
+            RuneClawEngine._sync_live_state_to_website(
+                _stub_engine_for_sync([], [], user_id=uid))
+        assert len(seen) == 2
+        for args, kw in seen:
+            assert len(args) == 3 and "user_id" not in kw, (args, kw)
+            assert args == (326.55, [], []), args
 
     def test_only_last_50_closed_trades_are_sent(self, monkeypatch):
         import bot.utils.website_sync as ws
         captured = {}
         monkeypatch.setattr(
             ws, "sync_in_background",
-            lambda user_id, equity, positions, closed_trades: captured.update(closed=closed_trades))
+            lambda equity, positions, closed_trades: captured.update(closed=closed_trades))
         closed = [_live_pos(f"TI-{i}", "BTC/USDT", status="closed", pnl=1.0, close_price=100.0)
                   for i in range(75)]
         stub = _stub_engine_for_sync([], closed)
@@ -199,7 +207,7 @@ def test_live_unavailable_equity_syncs_none_not_paper(monkeypatch):
     import bot.utils.website_sync as ws
     monkeypatch.setattr(
         ws, "sync_in_background",
-        lambda user_id, equity, positions, closed_trades: captured.update(equity=equity))
+        lambda equity, positions, closed_trades: captured.update(equity=equity))
     stub = _stub_engine_for_sync([], [], equity=None, user_id=7)
     RuneClawEngine._sync_live_state_to_website(stub)
     assert captured["equity"] is None

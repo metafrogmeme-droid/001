@@ -23,7 +23,7 @@
     "link": "ligar este Telegram à sua conta do site — /link <token>",
     "unlink": "desligar este Telegram da sua conta do site",
     "me": "a sua conta: plano, carteira e definições",
-    "sync": "enviar a sua carteira para o painel do site agora",
+    "sync": "porque o painel não precisa de envio: lê a sua conta quando carrega",
     "connect": "ligar a sua própria conta de exchange",
     "exchange": "estado da sua conta ligada (nunca mostra chaves)",
     "livebalance": "o seu saldo real na exchange (a sua conta, só leitura)",

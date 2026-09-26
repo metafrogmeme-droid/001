@@ -10,11 +10,19 @@ State is a tiny JSON file ({uid: {"day": "YYYY-MM-DD", "n": int}}), written
 atomically. Counting is per UTC day and resets automatically when the day rolls.
 Deliberately simple and dependency-free — this is a soft product limit, not a
 security control, so an approximate count that never crashes chat is the goal.
+
+A file that is there and will not read is NOT an empty one. The reader folded
+it into ``{}``, so the next question anybody asked saved one user's count over
+every other user's, and every free user got a fresh day. It raises
+:class:`StoreUnreadable` now (`bot/utils/json_store.py`) and nothing is written
+over it. The question is still ALLOWED and not counted -- `unmetered()`'s
+answer: this is a soft limit, and refusing every free user's chat over a file
+fault would make a spend fence into an outage.
 """
 
 from __future__ import annotations
 
-import json
+import logging
 import os
 import threading
 from datetime import datetime, timedelta, timezone
@@ -23,6 +31,9 @@ from bot.utils.paths import env_state_path
 from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import StoreUnreadable, load_json_store
+
+log = logging.getLogger("runeclaw.chat_quota")
 
 # Free users get this many AI questions per UTC day. Operator-overridable so the
 # limit can be tuned to the funded budget without a code change.
@@ -84,14 +95,21 @@ def seconds_until_reset() -> int:
 
 
 def _load() -> dict:
-    try:
-        if _STORE_PATH.exists():
-            with open(_STORE_PATH, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
-    return {}
+    """The counts, ``{}`` for a fresh start. RAISES :class:`StoreUnreadable`
+    for a file that is there and will not read, so no caller can save a
+    one-user map over it."""
+    return load_json_store(_STORE_PATH)
+
+
+def _unread(limit: Optional[int], exc: StoreUnreadable) -> dict:
+    """Allowed and NOT counted, because the count could not be read: the
+    `unmetered()` answer, marked with why. Nothing is written."""
+    log.warning("free-chat quota file could not be read (%s) — this question "
+                "is allowed and not counted; the file is not written over",
+                exc.detail)
+    return {"allowed": True, "exempt": False, "limit": limit,
+            "used": None, "remaining": None, "reset_in_seconds": None,
+            "unmetered": True, "unread": exc.detail}
 
 
 def _save(data: dict) -> None:
@@ -118,8 +136,11 @@ def status(uid: str, tier: Optional[str] = None) -> dict:
         return {"exempt": True, "limit": None, "used": 0, "remaining": None,
                 "reset_in_seconds": None}
     limit = free_daily_limit()
-    with _LOCK:
-        used = _entry_used(_load(), str(uid), _today())
+    try:
+        with _LOCK:
+            used = _entry_used(_load(), str(uid), _today())
+    except StoreUnreadable as exc:
+        return {k: v for k, v in _unread(limit, exc).items() if k != "allowed"}
     return {"exempt": False, "limit": limit, "used": used,
             "remaining": max(0, limit - used),
             "reset_in_seconds": seconds_until_reset()}
@@ -192,7 +213,14 @@ def refund(uid: str, tier: Optional[str] = None) -> None:
     day = _today()
     key = str(uid)
     with _LOCK:
-        data = _load()
+        try:
+            data = _load()
+        except StoreUnreadable as exc:
+            # Nothing was counted against an unreadable file, so there is
+            # nothing to give back -- and nothing to write over it.
+            log.warning("free-chat quota file could not be read (%s) — "
+                        "refund skipped", exc.detail)
+            return
         used = _entry_used(data, key, day)
         if used <= 0:
             return
@@ -215,7 +243,10 @@ def consume(uid: str, tier: Optional[str] = None) -> dict:
     day = _today()
     key = str(uid)
     with _LOCK:
-        data = _load()
+        try:
+            data = _load()
+        except StoreUnreadable as exc:
+            return _unread(limit, exc)
         used = _entry_used(data, key, day)
         if used >= limit:
             return {"allowed": False, "exempt": False, "limit": limit,

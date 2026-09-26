@@ -192,7 +192,9 @@ def _env_secret_any(*keys: str, default: str = "") -> str:
     return default
 
 
-def _env_choice(key: str, default: str, allowed: tuple[str, ...]) -> str:
+def _env_choice(key: str, default: str, allowed: tuple[str, ...],
+                consequence: str = "would silently treat it as 'not futures' and skip "
+                                   "the leverage and market-existence checks") -> str:
     """A setting whose wrong value would silently change behaviour, validated.
 
     TRADE_MODE is why this exists. It was read raw, and every consumer asked
@@ -217,8 +219,7 @@ def _env_choice(key: str, default: str, allowed: tuple[str, ...]) -> str:
             f"FATAL: {key}={raw!r} is not supported. "
             f"Valid values: {', '.join(sorted(allowed))}. "
             f"Refusing to start rather than run with a setting whose consumers "
-            f"would silently treat it as 'not futures' and skip the leverage "
-            f"and market-existence checks."
+            f"{consequence}."
         )
     return raw
 
@@ -775,6 +776,15 @@ class RiskLimits:
     live_perf_pause_winrate: float = _env_float_bounded("LIVE_PERF_PAUSE_WINRATE", 0.25, 0.0, 1.0)
     # Size multiplier applied while in the reduce zone.
     live_perf_reduce_mult: float = _env_float_bounded("LIVE_PERF_REDUCE_MULT", 0.5, 0.05, 1.0)
+    # Hours after the last close before a PAUSED governor lets ONE probe entry
+    # through, with no position open, at the reduce size (default 24; the
+    # loss-streak probe's period). A pause opens nothing, so its window cannot
+    # change on a flat book and, with the window seeded at boot, a restart does
+    # not lift it either: without this the pause is permanent. The probe's
+    # close enters the window, which leaves PAUSE on its own if it recovers and
+    # re-arms the wait if not. 0 turns probing off (the pause then lifts only
+    # by hand: /resume, /reset). Operator decisions, 2026-09-25 and -26.
+    live_perf_probe_hours: float = _env_float_bounded("LIVE_PERF_PROBE_HOURS", 24.0, 0.0, 720.0)
     # Fable-5 round 2 — CONTINUOUS equity-curve throttle. Scales size off the
     # rolling profit factor of the most recent closed trades: PF >= pf_full →
     # full size, PF <= pf_floor → floor_mult, linear ramp between. Unlike the
@@ -888,8 +898,14 @@ class ExchangeConfig:
     dynamic_leverage_enabled: bool = _env_bool("DYNAMIC_LEVERAGE_ENABLED", False)
     min_leverage: int = int(_env_float_bounded("MIN_LEVERAGE", 2, 1, 125))
     max_leverage: int = int(_env_float_bounded("MAX_LEVERAGE", 10, 1, 125))
-    # Margin mode: "isolated" mandatory (GetClaw rule: prevents runaway losses on gap-risk assets)
-    margin_mode: str = _env("MARGIN_MODE", "isolated")
+    # Margin mode: "isolated" by default (GetClaw rule: prevents runaway losses on gap-risk assets).
+    # Validated, because it was read raw and every venue reads a spelling of
+    # its own: ccxt's Hyperliquid call is cross only for exactly "cross" (so
+    # Bitget's "crossed" went out ISOLATED), and its Bybit call refuses
+    # "crossed". The non-Bitget path translates through `ccxt_margin_mode`.
+    margin_mode: str = _env_choice(
+        "MARGIN_MODE", "isolated", ("isolated", "cross", "crossed"),
+        "would read it as a margin mode it does not name, and on a live account")
     # Exchange-minimum round-up (operator-requested). When a risk-sized order
     # falls just below the venue's minimum amount step / min-notional (common on
     # a small account meeting a high-priced asset — the XPT incident), round the

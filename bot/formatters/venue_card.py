@@ -37,7 +37,8 @@ def venue_card(*, connected, selected, dropped, mode: str,
     """The /venues card as HTML for Telegram.
 
     ``connected``  venues with usable credentials
-    ``selected``   what the user chose (RAW — including any now disconnected)
+    ``selected``   what the user chose (RAW — including any now disconnected),
+                   or None when the stored selection could not be read
     ``dropped``    selected but no longer connected
     ``mode``       off | shadow | enforce
     ``positions``  optional ``{venue: open_count}``; a venue with open
@@ -45,6 +46,7 @@ def venue_card(*, connected, selected, dropped, mode: str,
                    user discovering it from a refusal.
     """
     conn = [str(v).lower() for v in (connected or [])]
+    unread = selected is None
     sel = [str(v).lower() for v in (selected or [])]
     gone = {str(v).lower() for v in (dropped or [])}
     live = [v for v in sel if v not in gone]
@@ -53,7 +55,12 @@ def venue_card(*, connected, selected, dropped, mode: str,
     lines = ["\U0001f3e6 <b>YOUR TRADING VENUES</b>", "────────────────"]
 
     # ── What is actually in force. FIRST, always. ────────────────────────
-    if not sel:
+    if unread:
+        # Not "you have not chosen any": nobody read the file to say so.
+        lines.append("⚠️ Your venue selection could not be read, so trading "
+                     "uses your <b>single connected venue</b> until it can be, "
+                     "and no selection can be changed meanwhile.")
+    elif not sel:
         lines.append("You have not chosen any venues, so trading uses your "
                      "<b>single connected venue</b> — the default.")
     elif mode == "off":

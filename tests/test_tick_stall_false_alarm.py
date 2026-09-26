@@ -74,10 +74,15 @@ class TestEngineStamps:
     def test_run_stamps_the_plan_before_both_sleeps(self):
         from bot.core.engine import RuneClawEngine
         src = inspect.getsource(RuneClawEngine.run)
-        assert src.count("self._next_tick_due_ts = time.monotonic() +") == 2
-        # The stamp must come BEFORE the park, on both paths.
-        for chunk in ("+ backoff\n", "+ _sleep_s\n"):
-            assert chunk in src.replace("        ", "")  # indentation-agnostic
+        # The success path stamps inline, BEFORE its park.
+        assert src.count("self._next_tick_due_ts = time.monotonic() +") == 1
+        assert "+ _sleep_s\n" in src.replace("        ", "")  # indentation-agnostic
+        # The failure path's wait is `_sleep_watching_stops`, which stamps
+        # before every step and every monitor pass between them. That is
+        # DRIVEN on a virtual clock in
+        # test_a_failing_tick_loop_still_watches_the_stops.py; this pins that
+        # the backoff goes through it.
+        assert "await self._sleep_watching_stops(backoff, base)" in src
 
     def test_init_declares_the_stamp_none(self):
         from bot.core.engine import RuneClawEngine

@@ -29,7 +29,8 @@ def wired(monkeypatch, tmp_path):
     import types
     # feature switch ON, bot live ON
     monkeypatch.setenv("WEB_LIVE_TRADING_ENABLED", "1")
-    monkeypatch.setattr(adm, "CONFIG", types.SimpleNamespace(is_live=lambda: True))
+    monkeypatch.setattr(adm, "CONFIG", types.SimpleNamespace(
+        is_live=lambda: True, per_user_live_enabled=True))
     # own keys present
     monkeypatch.setattr(
         "bot.core.exchange_credentials.get_credential_store",

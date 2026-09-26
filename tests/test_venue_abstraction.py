@@ -47,10 +47,13 @@ def test_bitget_swap_symbol_matches_old_idioms():
     assert BG.swap_symbol("XAU/USDT") == "XAU/USDT:USDT"
 
 
-def test_bitget_order_symbol_is_identity():
-    # The executor historically passes spot-form symbols to create_order on
-    # the swap-default exchange — the venue layer must NOT "fix" that.
-    assert BG.order_symbol("BTC/USDT") == "BTC/USDT"
+def test_bitget_order_symbol_is_the_perp():
+    # This said the venue layer must NOT "fix" the spot-form symbol, on the
+    # belief that Bitget's swap-default client resolves it to the perp. Driven
+    # against the pinned ccxt it resolves to the SPOT market, so every read
+    # that carried no product param asked the spot book
+    # (tests/test_bitget_reads_the_perp.py). Every venue now maps the same way.
+    assert BG.order_symbol("BTC/USDT") == "BTC/USDT:USDT"
     assert BG.order_symbol("BTC/USDT:USDT") == "BTC/USDT:USDT"
 
 
@@ -335,11 +338,13 @@ def test_executor_defaults_to_bitget_venue(tmp_path):
     assert ex._venue.id == "bitget"
 
 
-def test_per_user_executor_is_always_bitget(tmp_path, monkeypatch):
-    """A per-user executor whose caller does not name a venue stays
-    Bitget, even when the operator's selector is Hyperliquid. The
-    credential store records the venue; this constructor call does not
-    pass it."""
+def test_an_executor_constructed_without_a_venue_is_bitget(tmp_path, monkeypatch):
+    """What this measures is the CONSTRUCTOR: a per-user executor built
+    without a venue named is Bitget, even when the operator's selector is
+    Hyperliquid. It used to be named as though per-user accounts were
+    always Bitget, which the engine's resolver contradicts — it builds each
+    user's executor on the venue the credential store recorded
+    (tests/test_multi_venue_executor_routing.py)."""
     import bot.core.live_executor as le
     monkeypatch.setattr(
         le, "get_venue",

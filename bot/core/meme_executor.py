@@ -53,6 +53,7 @@ def plan_swap(*, intent: Optional[dict] = None,
               radar_risk: Optional[dict] = None,
               market: Optional[dict] = None,
               envelope_authorized: Optional[bool] = None,
+              envelope_reasons: Optional[list] = None,
               feature_on: Optional[bool] = None,
               gate_params: Optional[dict] = None,
               env: Optional[dict] = None) -> dict:
@@ -92,10 +93,13 @@ def plan_swap(*, intent: Optional[dict] = None,
     add("feature_enabled", feat,
         "MEME_TRADING_ENABLED" + (" on" if feat else " OFF (default)"))
 
-    # 2. Human-set Authority Envelope authorizes this trade.
+    # 2. Human-set Authority Envelope authorizes this trade — the caller asks
+    #    `authority.authorize()` about THIS buy and hands over the decision and
+    #    its reasons, which the detail carries rather than a generic sentence.
     add("envelope_authorized", envelope_authorized is True,
         "authorized by envelope" if envelope_authorized is True
-        else "no envelope authority (fail-closed)")
+        else ("; ".join(str(r) for r in envelope_reasons) if envelope_reasons
+              else "no envelope authority (fail-closed)"))
 
     # 3. Safety gate — BUYS only. Sells are exits and must never be blocked.
     gate = None

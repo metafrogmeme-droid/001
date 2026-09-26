@@ -200,7 +200,11 @@ def _render(node):
 
 # Answers that are not a literal, each with why it is not read here.
 PASSED_THROUGH = {
-    "result": "the executor's own answer, read by execution_indicates_failure",
+    "result + seal_note": (
+        "the executor's own answer, read by execution_indicates_failure, with "
+        "the note that its audit record could not be sealed appended (empty "
+        "when it sealed); the note is driven both ways in "
+        "test_a_seal_failure_does_not_unplace_a_trade.py"),
     "await self._confirm_trade_inner(trade_id, user_id)": "the inner path, walked below",
     "await self._simulate_paper_fill(idea, recheck, user_id, trade_id)":
         "the practice fill, walked below",

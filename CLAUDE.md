@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 725 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 711 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -5896,6 +5896,20 @@ walked past it. A rule now covers the class: `bot/web/` places no order through
 `_executor_for`, so a call to it there can only be a read, and none is allowed.
 (`tests/test_the_web_positions_panel_reads_the_callers_book.py`.)
 
+**That rule's premise was one use short, and the full gate said so.** The
+web-live gate later needed the one question that belongs to the order-placement
+reading: which account would this ORDER run on, so the operator's can be
+refused. It calls `_executor_for` and compares the answer by identity (`is
+None`, `is engine.live_executor`) and opens nothing. The rule flagged it, in a
+suite none of that slice's runs included: the full gate refusing a slice on
+a test outside it, once more. A call whose answer is bound to a name
+read only in `is`/`is not` comparisons is exempt now, the operator-account
+ratchet's own "an identity comparison is not a read"; an attribute, an argument
+or an `==` still counts. Six mutations, each killed. Two survived the first
+round, both fixtures: the tuple row put the call inside a tuple on the value
+side, so it never reached the target check, and every planted snippet had one
+function, so scoping the uses to the module changed nothing.
+
 **A RESTART SOLD THE RUNNER TWICE, BECAUSE THE LADDER WAS NEVER WRITTEN DOWN.**
 `pos.partial_tp_state` records which take-profit stages have fired and the
 entry-time 1R they are measured in, and `_save_positions` never wrote it. Every
@@ -6996,8 +7010,10 @@ stated reason: there the unreadable case is the ORDINARY payload shape and
 refusing it would abort every trade, where here it takes a specific, visible,
 fixable condition. Refusing also has to TERMINATE, and it does: `/liveclose` is
 a door that exists, and adoption never re-reads a position it already tracks
-(`if (sym, side) in tracked: continue`), so the figure never arrives on its own
-and a sentence that said "wait" would be a door painted on a wall.
+(`if (sym, side) in tracked: continue`), so outside one case the figure never
+arrives on its own and a sentence that said "wait" would be a door painted on a
+wall. The one case is Bitget's leverage sync, which derives the margin when the
+leverage was unread too and the entry is on record (the adoption-marker chapter).
 
 **Two sentences, because "a floor" and "no floor" are different facts.** A
 partial book quotes what was read and says it is a floor over N of M. A book
@@ -10514,6 +10530,1384 @@ raise the bar, the newest ten are wins), and it is planted.
 `tests/test_a_classic_stop_is_cancelled_in_the_plan_table.py`,
 `tests/test_the_adaptive_threshold_reads_the_record_of_its_mode.py`.)
 
+**THE GOVERNOR PAUSED LIVE TRADING, EVERY CARD SAID "ACTIVE", AND NOTHING
+COULD EVER LIFT IT.** Reported from the live bot on 2026-09-25 with a
+screenshot. At 18:54 UTC a scan card rejected NEAR/USDT LONG with
+*"LIVE_PERF_GOVERNOR: trading paused"*, under a header reading *"Actions — tap
+to execute"*. Six minutes later `/start` answered *"🟢 Active | LIVE"*.
+Two defects, one under the other.
+
+**The pause refused every idea and was not in the list of things that refuse
+every idea.** `RiskEngine.trading_blocked_by` exists for exactly this. Its own
+docstring says it covers the gates in `evaluate()` that reject regardless of
+the idea, and `trade_gate.entry_gate` builds every status surface on it:
+`/start`, `/status`, `/risk`, `/resume`, the chat prompt and the website chip.
+It named the circuit breaker, the warning-rate breaker and the loss-streak
+latch. The governor's PAUSE and the equity-curve pause were missing, so all
+of those surfaces said entries were open while every entry was refused. That
+is the `trade_gate` header's own sentence, *"a gate with five conditions and
+six renderings of it will disagree with itself"*, with a sixth condition
+nobody added. The reason carries counts and no dollar figure
+(`live_perf_pause: 4 of the last 20 closes won, net negative; …`), because it
+reaches the unauthenticated `/health` payload.
+
+**And the pause was a permanent latch, which the loss-streak gate's own
+comment had already named.** The governor scores the last 20 live closes. A
+pause opens nothing, so on a flat book the window never changes. Since the
+window is seeded from the closed-trade record at boot (the restart chapter),
+a restart does not lift it either, and the only reset had one caller, the red
+team. Twelve hundred lines down the same method, the loss-streak latch
+carries the comment *"without a probe path this gate is a permanent latch"*
+and a 24-hour probe. The governor never got one.
+
+**The operator decided the exit (2026-09-25): a probe after 24 hours.**
+After `LIVE_PERF_PROBE_HOURS` (default 24) since the last close, with no
+position open, ONE entry goes through at the reduce size. Its close enters
+the window. A window that recovers leaves PAUSE on its own; one that does not
+re-arms the wait from that close. The two probes share one reading,
+`_probe_cooled` (cooled off and flat), each with its own clock. The
+governor's clock is the newest close, priced or not, because a probe that
+closed unpriced taught the window nothing and must not be followed at once.
+It is seeded at boot from the same record as the window
+(`realized_close_last_at`), so a restart does not restart the wait. No close
+on record means no probe, and the refusal says so. Every refusal names what
+ends it: the time left, the open position it waits for, or that probing is
+switched off.
+
+**The scan card offered a door the gate would refuse.** It built a ✅ per
+setup without asking anything. It now asks the caller's `entry_gate` and,
+when the gate is blocked, sends the gate's sentence with no buttons.
+`scan_action_rows` is the pure seam. Both send paths (image card and text
+fallback) are driven through the real `_scan_batch`, because the refusal's
+send condition is new code in that handler and a scan of the helper could not
+see it.
+
+**What the probe does NOT do, stated.** It is sized like a REDUCE entry, so
+under the shipped cap policy (`PRE_CAP_TIGHTENS_CAP` empty) the notional cap
+takes the x0.50 back wherever the cap binds. On a small account that is most
+trades, and the size trace says so. A property cannot count the book, so
+while a probe is due but a position is still open, `trading_blocked_by` names
+no pause and the card reads Active. The gate still refuses those entries
+until the book is flat. This is the loss-streak probe's documented edge,
+inherited. The frozen benchmark was re-run on the change: `majors_1h`'s
+walk-forward is identical line for line, because in those folds the streak
+circuit breaker holds alongside the governor, so the probe never changes a
+trade there.
+
+**Thirty-two mutations, each killed; two survived the first round and both
+were the corpus.** No fixture set the equity-curve pause. The probe's x0.50
+changed nothing on a fixture whose size sat on the notional cap, which takes
+a pre-cap reduction back. A 20% stop sizes under the cap, and there the
+probe's $300 against $600 is the halving measured.
+(`tests/test_a_governor_pause_says_so_and_can_end.py`.)
+
+**A PAUSE CAN ALSO BE CLEARED BY HAND NOW, AND "CLEARED" HAD TO MEAN
+SOMETHING THAT SURVIVES A BOOT.** The operator asked for a manual way out
+beside the probe and decided what it means (2026-09-26): start fresh. After a
+clear the governor ignores every close before it and trades at full size
+until `live_perf_min_samples` new closes are on record, then scores those as
+usual and may pause again. Kelly, the VaR proxy, the equity throttle and the
+adaptive auto-confirm bar keep the full record, so the window is not wiped:
+`_governor_closes` is the window read after the clear, and
+`live_perf_inputs` is its one reader. `/resume` and `/reset` both clear, each
+on the engines it already resets (the operator's `/reset` walks every
+per-user engine through `engine.clear_governor_pauses`), and each card says
+what it cleared, in counts.
+
+**The window is rebuilt at boot, so the clear is a TIME and every close
+carries one.** A count of closes at the clear would not survive the seed.
+`_realized_stamps` is appended in lockstep with the window and read from its
+newest end, `live_executor.realized_close_stamps` hands the boot seed the
+record's close times beside the P&Ls, and `governor_cleared_at` is in the
+saved risk state. A close with no time on record reads as before the clear,
+because the record sorts an undated close oldest. The saved time is restored
+by a helper of its own and not through `_STATE_FIELDS`: an unreadable field
+there fails the whole state closed and trips the breaker, and the safe reading
+of a bad clear time is simply "never cleared", which scores the whole window.
+A time in the future is refused for the same reason: it would read every
+close up to it as cleared and keep the governor at full size until then.
+
+**Only a PAUSE is cleared.** A REDUCE is a size cut nobody asked to lift, and
+`/resume` is typed after every halt. And `reset_circuit_breaker()` does not
+clear it: the backtest and the red team call that, and every benchmark fold
+the governor paused in would have changed.
+
+**Three sentences the clear made false, found by reading what it touched.**
+The resume card said *"/resume does not clear it"* under a governor pause. It
+now says `/resume` tried and could not, which is the only way a pause is
+still on the card after a resume. `probe_clause` said a pause with probing
+off *"lifts only when the settings change"*. It now says an operator clears
+it, and names no slash command, because that clause reaches the website's scan
+chip. `/reset` printed *"Nothing to reset"* whenever the breaker was closed
+and the streak under three. It is printed now only when nothing was cleared.
+
+**The probe slice had left a flag out of the risk manifest, and this slice's
+suites found it.** `LIVE_PERF_PROBE_HOURS` reached `RiskLimits` and never
+`config/risk_manifest.yaml`, whose defaults test compares every field. None of
+that slice's suites ran it, and the full gate would have refused the push. The
+runbook paragraph beside it also said the governor needs "default 10" closes
+(it is 5) and that the LLM weight cap "auto-lifts the moment calibration is
+enabled", which stopped being true when the cap moved to lifting only once a
+fitted curve is applied. Both are corrected.
+
+**Thirty-five mutations, each killed on the first round.** Two lines were
+deleted before the round rather than pinned: a `clear()` of the stamps in the
+seed and in `reset_performance_window`. Read from the newest end, stamps left
+over from before an emptied window pair with nothing, so neither clear changed
+any outcome. And the guard that both loaders call every restore helper had
+hand-listed the three it knew, so it failed on the fourth for being called
+rather than for being missed; it derives the set from the class now.
+(`tests/test_resume_and_reset_clear_the_governor_pause.py`.)
+
+**THE WEB'S CONFIRM ANSWERED EVERY REFUSAL 200, AUDITED IT OK, AND THE PAGE
+TOASTED IT GREEN.** The Telegram Confirm button was cured of this, with
+`placed_nothing` as the one reading, and the website's door never asked it.
+`handle_trade_confirm` relayed every sentence
+`confirm_trade` can write as `{result_html}` with an audit line reading
+`result="OK"`, and both browser surfaces read the 200 as a trade. Driven over
+six refusals (the risk gate, the duplicate skip, "Paper trading is disabled",
+the chosen strategy, the simulation veto, no linked account): six 200s, six
+`OK` audits, and on the dashboard a closed modal, a green **"Trade
+confirmed."**, a nulled portfolio cache and an `rc:portfolio-changed` event
+over an order that did not exist; the chat card printed the refusal as the
+execution. The handler reads `placed_nothing` now, audits `REFUSED` with the
+refusal's first line (no markup, no dollar figure, secret shapes scrubbed), and
+answers `placed` beside the text; the status stays 200 for an older page.
+
+**The handler also dropped the proposer entry on every answer**, and most
+refusals leave the idea PENDING: a price drift, the strategy gate, the risk
+re-check, an order the venue refused (C-05 pops the idea only after a
+successful execution). Confirm and Cancel both check that map, so a refused
+idea could be neither retried nor cancelled by the person who proposed it until
+the TTL swept it. The entry goes when the idea leaves the book, and nothing
+else decides it.
+
+**ONE READING IN THE BROWSER TOO.** `TradeConfirmModel.outcome` has four
+answers: failed, refused (`placed === false`), placed, and unread (a `placed`
+that is not a boolean, which paints neither colour). An ABSENT `placed` is an
+older bot and keeps the old behaviour, flagged `legacy`: `app/` and `bot/`
+deploy separately, and refusing every confirm until the bot box redeployed would
+take the one-tap paper flow away from everybody. On a refusal
+the modal stays open with the sentence and the Confirm button live, and the chat
+card gives both buttons back. The guard plants the model with a refusal over
+`placed: true` and requires each surface to obey it, because a surface that
+re-reads `placed` itself agrees with every honest fixture.
+
+**THE WEB-LIVE GATE DECIDED WHO MAY TRADE AND NEVER ASKED WHOSE ACCOUNT.**
+`web_live_gate` opens live trading "on THEIR OWN connected exchange keys", from
+five inputs. None of them is whether the bot builds per-user executors. With
+`PER_USER_LIVE_ENABLED` at its shipped default, `_executor_for` answers the
+operator's executor for every caller. Driven with every other input satisfied,
+the gate said "all preconditions met", the confirm was forwarded, and the resolver
+answered `engine.live_executor`. It is latent while `WEB_LIVE_TRADING_ENABLED`
+stays off. `routes_to_own_account` is a sixth precondition, asked third so the
+operator's condition is named first. Both sourcing sites ask one reading of it (`is True`, so a stand-in
+config or a mock fails closed). **The flag says what SHOULD happen, so the
+handler also asks what WOULD.** The resolver still falls back to the operator
+for a user whose keys it cannot use. An executor that is the operator's, or
+none, or a resolver that raises is a 403, asked BEFORE the envelope authorizes,
+because authorizing records the order's notional against the 24h cap.
+
+**AND THE 2FA STEP-UP FAILED OPEN ON EVERY ANSWER IT COULD READ.**
+`webtrade.js` said *"fail SAFE: a gateway hiccup requires the code"* above
+`liveCapable = !!(... status === 200 && ... live_allowed)`. Driven with 2FA
+enrolled and no code sent, a 429, a 503, a 500 and a 200 with no field were
+each forwarded to the confirm. Only a thrown fetch kept the promise. The one
+answer that skips the code is now a 200 saying `live_allowed: false`.
+
+**Recorded, not changed.** `_authorize_web_live_trade` records the notional
+before `confirm_trade` runs, so a refused web-live confirm still spends the 24h
+cap. The ledger is idempotent by trade id, so a retry does not double it, and
+it errs strict; it belongs to the slice that owns the authority code.
+
+**Forty-seven mutations, each killed on the first round, and the three
+findings came from PLANNING the round, before it ran.** The first draft popped
+the proposer entry on `placed` as well as on an idea gone from the book, and
+refused an engine whose operator executor was `None`. Neither could change a
+verdict (every placement already takes the idea off the book; a missing operator
+executor cannot be the one an order resolves to), so both are deleted: a line no
+input can reach is a claim that there is a check.
+And the step-up table had no non-200 answer carrying `live_allowed: false`, so
+dropping the status check would have survived; the row was added before the
+round ran. The identity check moved after the envelope dies only on the
+assertion that nothing reached the spend ledger.
+(`tests/test_a_refused_web_confirm_is_not_a_confirmed_trade.py`,
+`tests/test_the_web_live_gate_needs_the_users_own_account.py`,
+`app/test/trade_confirm_reads_placed.test.js`,
+`app/test/webtrade_stepup_probe_fails_safe.test.js`.)
+
+**THE ENVELOPE'S CEILINGS BOUND EVERY TRADE AND NO TRANSFER, AND EVERY ON-CHAIN
+PRODUCER ASKS AS A TRANSFER.** `authorize` returned from its withdraw/transfer
+branch right after the destination check, so the per-trade cap, the daily cap
+and the symbol lists were read for a `trade` and for nothing else. Driven under
+an envelope capped at $1 a trade and $2 a day, ETH blocklisted and the
+destination allowlisted: a transfer of $1,000,000 of ETH, on a day already
+$1,000,000 in, came back `allow` with one check made. The testnet signer, the
+execution preview and the yield plan's first leg all ask as a `transfer`, so
+the envelope capped none of them. `_bounds` is the one copy both branches read,
+proved by planting it and reading every kind, because a byte-identical second
+copy agrees with every fixture.
+
+**The trade branch held the other half: an unknown notional was $0 under a
+daily cap.** `n = notional if notional is not None else 0.0`, so $99 spent
+against $100 let an auto-sized web order of any size through, and
+`_authorize_web_live_trade` then recorded nothing, because the ledger records
+only a notional it has. `_bounds` refuses an unknown or negative notional under
+EITHER ceiling, a day's spend nobody could read under the daily one, and an
+unnamed asset under a symbol list. A measured $0 still passes. Six red-team
+rows, five of which the old code let through.
+
+**`/web3/sign` authorized one number and signed another.** The envelope was
+asked about a client `amount_usd`, which the shipped dashboard always sends as
+`null`, and a client `asset`; whatever `value_wei` the client sent was signed;
+the day's spend was the literal 0.0 and nothing was recorded. Driven with the
+key planted through the signer's resolver, **1000 test ETH were signed and
+broadcast against a $1/$2 envelope, twice**. The second request said
+`asset: USDC, amount_usd: 0.5`, which walked past an ETH blocklist.
+`onchain_value` prices the signed `value_wei` at a mark the bot reads, in the
+network's own coin: a new `native` column on every network row, which is
+required, like `min_tx_gas`. 0 wei is a measured $0 and asks no venue. An
+unpriced mark is refused by name, never $0. The day comes from the ONE ledger
+(`authority_ledger.user_spend_ledger`) that the web-live gate, the sentry, the
+yield preview and the meme preflight read. The transfer is recorded before the
+signature, and a spend that cannot be recorded is not signed. **A testnet coin
+has no market price, so it is priced at the mainnet mark of the same coin**:
+the caps describe exposure habits, and refusing every capped testnet transfer
+would make the caps untestable exactly where they are rehearsed. The review row
+says so.
+
+**The meme preflight's "authorized by envelope" was `is_enforcing()`.** An
+enforcing envelope capped at $1, BONK blocklisted and bitget its only venue,
+"authorized" a $250 buy that `authorize()` denied for three reasons, while the
+doc said it was wired to `authorize` at the call site. It is, now. Three things
+it still cannot do are stated in the module rather than papered over. No
+producer supplies `radar_risk`, so `risk_tier` fails closed on every buy. A mint
+is not a ticker, so an envelope with a symbol list refuses by name rather than
+checking a blocklist against a name it does not have. A web-authored envelope
+cannot name `solana:jupiter`. A meme buy plan cannot pass today.
+
+**The kill-switch answered `revoked` over a write that did not land.**
+`_save` swallowed the OSError. `revoke()` returned True, the web said
+`{"ok": true, "revoked": true}`, and a restart came back ENFORCING. The writers
+return False now and keep the change in memory, because this process stays
+revoked. `_held_in_memory` is the one reading that tells "nothing to change"
+from "changed, not persisted". The revoke, mode, apply and tighten routes say
+*in memory only — not persisted*, the purge says `error`, and the dashboard's
+toasts read the answer.
+
+**An explicit `{}` was the process environment.** `(env or os.environ)` in six
+readers made `signer_key_present({})` True on any box whose env held a key, so
+two guards that pass `{}` to mean "no key" were measuring the box. The refusal
+text and two handler docstrings called the default-ON switches default-OFF,
+and the gate still opened "NO on-chain execution infrastructure (no signer)"
+beside a module that signs. Each sentence is pinned against its reader, called
+with `env={}`. The panel painted a signed-not-broadcast result green; colour is
+a claim, and it is muted now.
+
+**Forty-six mutations, each killed, none refused. The two survivors of the first round were
+the corpus.** Every wire-field fixture carried an ETH blocklist, so taking the
+notional from the body again changed no verdict until a $1 cap met `amount_usd:
+0.5` over 1000 ETH. Nothing drove the execution preview, so its spend could go
+back to 0.0 unseen.
+
+Filed: `risk_engine`'s authority bridge reads a failed ledger as `_spent = 0.0`;
+the ledger's own `_load` reads a corrupt file as empty; TOTP step-up on
+`/web3/sign`; `envelope_guard.js`'s loss/drawdown; and the INCOME_MAP
+contract-studio paragraph, whose citations sit about 200 lines from what they
+name.
+(`tests/test_the_envelope_caps_bind_an_on_chain_transfer.py`,
+`tests/test_a_sign_request_is_authorized_on_what_it_signs.py`,
+`tests/test_a_revoke_that_did_not_land_says_so.py`,
+`tests/test_an_empty_env_is_not_the_process_env.py`.)
+
+**AN ENTRY PRICE THAT IS NOT ON RECORD WAS PRICED AS ZERO, ON ALL THREE CLOSE
+PATHS.** Adoption writes `entry_price = 0.0` for an entry the venue did not
+state, and every close path did `(exit - pos.entry_price) * pos.quantity`
+on it. Driven: an adopted SOL position of 10 contracts closed at 150 booked
+**+1,500.00 for a LONG and -1,500.00 for a SHORT on every path**, the whole
+exit notional as the result, under `Entry: $0.0000`, and the 25227 card
+printed a measured `(+0.00%)`. `entry_on_record` is one reading
+(`price_on_record` asked of the entry; the value decides, not the marker).
+With no venue P&L, a read exit over an unread entry is UNPRICED on every path,
+with `+entry_unread` after the exit's own source word (so a ticker exit still
+counts as one), `Entry: unread` and a `close_entry_unread` warning-rate event.
+A venue P&L still prices it; a GROSS one takes its entry fee from the notional
+its own gross and exit imply, and with no basis the fee and net are unknown. Beside it, the history stage read an ABSENT profit
+field as a gross of 0.0, so a -$50 stop-out went on the record at `$0.00`. It
+answers `pnl: None` with a `*_local_pnl` source; a present "0" is a
+measurement.
+
+**A DUPLICATE-CLOSE SIGNATURE IS NOT A VENUE READ, and the sweep acted on it
+alone.** `check_positions` suppressed any record matching a booked close
+(symbol, direction, entry within 0.05%, closed within two hours) without asking
+the venue, under a docstring saying "a real re-entry fills at a different
+price". Driven: a SOL long re-entered
+at 150 thirty minutes after one was booked, with the venue holding it, came out
+`duplicate_suppressed` and untracked. A record opened AFTER the booked close
+is not its duplicate now, and a match defers the row to reconcile through the
+set `awaiting_reconcile` reads. Reconcile suppresses it when the venue is
+flat, keeps it while the book is unreadable, and marks it venue-held when the
+venue holds it. **A deferral alone would have been its own defect**: the sweep
+runs first every tick and would re-defer the released row forever. **The old suite's fixture could not produce the state it
+named**: every twin took the default open time (now), which is the shape of a
+real re-entry.
+
+**THE LIVE EXCHANGE SYNC CLOSED THE PAPER BOOK AGAINST THE LIVE VENUE.** Both
+callers of `sync_portfolio_with_exchange` sit under `CONFIG.is_live()`. Its
+Phase 1 ghost-closed each paper position the venue did not list, at a venue
+price, through a callback feeding the live operator engine's
+`record_trade_result`. Driven: a stale paper ETH long at 2,000 and a 2,500
+ticker handed **621.62** to the live streak feed. Phase 2 read the same book as
+tracked, so that long hid a real untracked ETH long from adoption. In live mode
+the sync reads no paper book, and says so once per process.
+
+**A ROW WITH NO READABLE SIZE VANISHED, AND ONE SPELLED "n/a" TOOK THE LIST
+WITH IT.** `abs(float(p.get("contracts", 0) or 0)) > 0` dropped a null size as
+flat and raised on text. A venue listing three rows gave the slot cap **0**,
+from the local book it fell back to. `_fetch_exchange_positions` answers an
+`ExchangeBook`: the count holds an unreadable row as a position and audits it,
+and the orphan pass names it. And `invalidate_position_count_cache` wrote
+`0.0` against `time.monotonic()`, the trap this module's header records. At
+monotonic 5.0 an invalidated count of 1 was served while the venue held 3. It
+writes None.
+
+**AN ADOPTED LIMIT ORDER CARRIED A GUESSED LEVERAGE UNDER "REAL EXCHANGE DATA
+ONLY".** The venue states none for an unfilled order, and adoption wrote the
+config default and a derived margin (`5x / $280.00`, scored 1 of 1 by
+`committed_margin`). Both are recorded unread now, and **making it honest broke
+two readers.** The fill paths' `raw_cost / pos.leverage if pos.leverage > 1
+else raw_cost` would have written the 1,400 notional as the margin
+(`margin_at_fill` now). And a reclaimed order's guard read that default back
+as "genuinely what set_leverage applied", which was false whenever an override,
+a preference, the ladder or the margin-risk cap set another.
+`_intended_fill_leverage` is one reading for all three fill guards, two of
+which read the raw field. It checks a reclaimed fill against the standard
+leverage, the ceiling every placement starts from.
+
+**Forty-seven mutations, each killed, and all five fixtures they asked for were
+the corpus's.** Two came from reading the plan first. A naive-to-aware
+comparison RAISES, and the signature's own `except` answers False, which is
+right for a re-entry and wrong for a duplicate. So only a naive twin opened
+BEFORE the close can test the UTC reading. The drift fallback's guard had no
+drive. Three survived round one. Reconcile's audit row printed `pnl`,
+the working figure, as the exit notional. The gross-P&L entry fee was driven
+on reconcile only. And the raw-field guard agrees with the one reading for
+every adopted order, so only a reclaimed fill separates them.
+
+**Filed, not changed.** An undetected hold mode (`_hedge_mode is None`, until
+the first order after a restart) is read three ways: reconcile as one-way,
+`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. The exposure cap refuses
+new orders while an adopted resting limit's margin is unread (its recorded
+rule). The post-fill sync does not clear `adoption_unread`. The `*_local_pnl`
+closes estimate fees the history row stated. The paper ghost sweep has no
+production caller; in paper mode it would close every paper position.
+(`tests/test_an_unread_entry_is_an_unpriced_close.py`,
+`tests/test_a_signature_match_asks_the_venue_before_suppressing.py`,
+`tests/test_the_live_sync_leaves_the_paper_book_alone.py`,
+`tests/test_an_unreadable_position_row_is_counted_not_dropped.py`,
+`tests/test_an_adopted_limit_order_records_no_guessed_leverage.py`.)
+
+**THE VENUE MAPPING REACHED THE ORDERS AND NOT THE READS THAT SAY WHAT THEY
+DID.** A position records the bot's spot spelling, `BTC/USDT`. Every order and
+cancel went out on `self._venue.order_symbol(pos.symbol)`, and the reads that
+decide what those orders did asked about `pos.symbol` itself. On Bybit that
+names the SPOT market; on Hyperliquid it names no market at all. Driven with
+real ccxt 4.5.56 objects, fabricated markets and the transport stubbed, the
+Bybit venue holding LONG 0.01 of the perp:
+
+    close verification, recorded spelling  ->  confirmed=True   (position/list?category=spot)
+    close verification, venue spelling     ->  position_still_open, remaining 0.01 (category=linear)
+    close_position                         ->  "CLOSED LONG BTC/USDT", priced off the SPOT ticker
+
+On Hyperliquid every read raised BadSymbol: a close the venue confirmed read
+"CLOSE UNVERIFIED" and placed two NEW reduce-only trigger orders on a flat book,
+and the per-tick ticker raised every tick.
+
+**The rule found the one the list missed, and it was an ORDER.** The drift
+fallback's market order went out on `pos.symbol`. On Bybit that is a SPOT market
+buy. The survey that named eleven read sites did not name it. A walk over every
+ccxt call that takes a symbol did. `tests/venue_symbol_reads.py` classifies each
+argument as mapped, carried (a parameter, resolved through every caller in the
+file, recursively) or bare. A bare site fails unless
+`tests/venue_symbol_read_baseline.txt` records it WITH a reason, and the rule is
+two-way. On the base commit it reported 108 site-caller pairs under 55 keys. It
+reports 19 under 14 now, each with a reason: execute's own `symbol`, Bitget's v3
+channel, a row the venue itself returned, and /orders' default reader. Its
+branches are driven on planted trees.
+
+**ccxt refuses every Bybit `fetch_order` on a unified account unless the call
+carries `acknowledged`, and it refuses before sending anything.** Driven: zero
+requests, ArgumentsRequired. A filled Bybit limit entry was never seen
+filling, got no stop, and after eight hours was force-closed `stale_pending` at
+`pnl_usd = 0.0` over a live, unprotected position.
+`_fetch_order` is the one seam for an order read. It maps the symbol and merges
+`Venue.order_read_params()` (Bybit: `acknowledged`) under the caller's params,
+and it passes params only when there are some, so a Bitget read is the call it
+always was. The same drive now reads LIMIT FILLED in one request and places the
+stop and the target. `rows_for_side` compares the market a row names
+(`normalize_symbol`, now in a leaf), not its spelling.
+
+**The v3 sync asked the MODULE's venue.** `_fetch_v3_positions_raw` is a
+staticmethod, and it read `get_venue()`, which is the operator's selector. Under
+a Hyperliquid operator, a per-user Bitget executor read nothing and audited
+"exchange reports NO positions" every sync. The reverse was worse and was not
+in the survey. Under a Bitget operator, a per-user Hyperliquid executor has no
+api_key, so `for_account` fell back to the OPERATOR's keys. It read the
+operator's Bitget book and rewrote its own position's leverage 3 -> 20 and
+margin $200 -> $30. The venue id is a required argument now.
+
+**Four venues linked and got an executor they could not trade.** OKX, Gate and
+KuCoin count a perp order in CONTRACTS, and their adapters sent COINS. 3000
+DOGE went out as 3,000,000 on OKX, 30,000 on Gate and 300,000 at leverage 1 on
+KuCoin. BTC, with a lot of 1, was refused outright. The minimum gate on an OKX
+market said "Bitget requires >= $60000.00", reading one contract as one coin.
+`PER_USER_EXECUTION_VENUES` holds bitget, bybit, bingx and hyperliquid. It is
+checked where `_executor_for` builds an executor, and a refused venue answers
+None, never the operator's executor. The confirm is refused in the venue's own
+words before the re-check, which had read the same None as "re-check failed".
+The card that links such a venue says no order routes there, and promises no
+date. **The contract-size conversion is FILED with those three multipliers**,
+along with the gate's coin-for-contract minimum.
+
+**The Hyperliquid /connect probe proved the wallet, not the key.** Hyperliquid's
+balance is a public read. Both `0xff…ff`, which cannot sign, and the wallet's
+own master key came back `(True, "123.00 USDC free")` and were stored. The probe
+now reads `hyperliquid_key_role` first, and gives three outcomes in the
+/setsigner shape: confirmed, well-formed but unconfirmed, and rejected, in the
+constructor's own words. Two surfaces said per-user accounts "remain on Bitget";
+the resolver has never done that.
+
+**Forty-two mutations: forty-one killed and one equivalent.** The rule caught
+every read-site mutation. Re-run with the rule deselected, eight of sixteen died
+on a drive; two of those needed drives added in the round (the Hyperliquid fill
+lookup and the partial close's grid, where ccxt ROUNDS to 0.01235 and did not
+truncate as the first fixture assumed). The equivalent mutant is the sync's
+venue argument. The early return above it has already answered every
+non-Bitget venue, so the argument is always "bitget" there, and a literal would
+be the module-answer shape one hop out.
+
+**FILED, and the sharpest: Bitget was blind the same way** (fixed in the next
+chapter). The mapping was the identity on Bitget, by design, and with UTA markets
+loaded `BTC/USDT` is Bitget's SPOT market. Driven: the endpoint is the same, and
+ccxt's own post-filter drops the swap row. So the close verification read
+`confirmed=True` over a held LONG 0.01, and the per-tick monitor read
+`category=SPOT` tickers. The slice kept Bitget byte-identical, as it was scoped
+to. Hyperliquid's margin-mode spelling (Bitget's "crossed" reads as isolated
+there) was noted, not changed (fixed two chapters on).
+(`tests/test_a_read_back_asks_the_venue_in_its_own_spelling.py`,
+`tests/test_a_per_user_executor_is_built_only_for_a_driven_venue.py`,
+`tests/test_the_hyperliquid_probe_refuses_a_key_that_cannot_sign.py`.)
+
+**THE ONE VENUE THE BOT TRADES ON WAS THE ONE THE MAPPING SKIPPED, UNDER A RULE
+THAT SAID NOT TO FIX IT.** `venues.py` opened with *"including the identity
+`order_symbol` (Bitget resolves spot-form symbols on the swap exchange today; do
+not "fix" that)"*. Driven against the pinned ccxt 4.5.56 with UTA markets
+loaded, it does not: `market("BTC/USDT")` is the spot market whatever
+`defaultType` says. A position the bot opened records that spelling, so every
+Bitget read that carried no product param asked the spot book:
+
+- the close verification read `category=SPOT`, found no row, and booked the
+  close CONFIRMED while the venue still held the perp;
+- the limit-fill leverage guard (`_guard_fill_leverage`) read the same empty
+  book, so an over-levered limit fill was never flattened;
+- the ticker read asked the spot book, and on an asset listed only as a perp
+  (NATGAS, which the bot has traded live) raised BadSymbol on every read;
+- `/orders`' per-symbol retry listed spot orders;
+- `amount_to_precision` and `price_to_precision` used the SPOT grid. For a
+  sub-cent token that grid is finer than the perp's, so the classic stop, the
+  stop move and the partial close could produce a price or quantity off the
+  perp grid: the 45115 rejection the entry path was already fixed for.
+
+**Orders reached the perp all along, and that is why the fix is safe.** Their
+params carry `productType`, which ccxt sends as the category, and a cancel
+carries no category at all. So an order on the grid and a cancel send the same
+bytes in either spelling, and a test pins that. The default `order_symbol` is
+the perp mapping now, and the four venue overrides that repeated it are
+deleted, so a venue added later cannot inherit the spot spelling. Every other
+venue maps exactly as before.
+
+**The drive found a raise the zero branch could never catch.** `_partial_close`
+rounds the quantity and returns "nothing to send" when it rounds to zero. ccxt
+does not answer "0" for an amount below the grid; it raises `InvalidOrder`.
+That was swallowed, the unrounded amount went to an order ccxt refused for the
+same reason, and the raise left the take-profit ladder on every tick. It reads
+as nothing to send now, which is the ladder's existing path for a zero quantity.
+
+**And the merged branch carried a failure neither slice had run.** Slice A's
+drift-fallback test built its venue as a two-attribute stand-in, and slice B's
+fallback now asks the venue for its order-read params, so the fallback refused
+the market order before the guard the test is about. Each slice's suites were
+green; the broad executor run for this change is what said so, before the full
+gate would have. It uses the real Bitget venue now, as its sibling does.
+
+**Twelve mutations, each killed.** Six die on drives alone. The other six die on
+slice B's structural rule, which reports any ccxt call handed an unmapped
+symbol; that covers the ticker, the two stop roundings and the order read,
+which the drives do not reach on Bitget.
+(`tests/test_bitget_reads_the_perp.py`.)
+
+**"CROSSED" WAS BITGET'S WORD FOR CROSS MARGIN, AND HYPERLIQUID READ IT AS
+ISOLATED.** `MARGIN_MODE` was read raw, and each consumer compared it to a
+spelling of its own. The Bitget path turns "cross" into "crossed" and accepts
+either. The non-Bitget path handed the raw word to ccxt, and driven against the
+pinned ccxt 4.5.56:
+
+- Hyperliquid's `set_leverage` sets `isCross = marginMode == 'cross'`, so
+  "crossed" sent `isCross: false` and opened an ISOLATED position on an
+  account configured for cross.
+- Bybit's `set_margin_mode` accepts isolated, cross and portfolio, and refuses
+  "crossed" before sending anything. The executor logs that refusal at debug,
+  so the account stayed in whatever mode it was already in.
+- BingX takes either spelling.
+
+Hyperliquid is one of `PER_USER_EXECUTION_VENUES`, and the operator's own venue
+can be set to it. **The one reader that checked the mode already knew both
+spellings.** The mismatch alarm below the two set calls translated the word
+(`_want = "cross" if ... in ("cross", "crossed")`); the two calls that SET the
+mode did not. `ccxt_margin_mode` is that translation, done once at the top of
+`_ensure_leverage_generic`, and the set calls, the leverage retry and the alarm
+all read it.
+
+**What Bitget receives is unchanged, on purpose.** ccxt's Bitget client passes
+the order's `marginMode` through raw on a unified account and maps it on a
+classic one, and what Bitget's unified endpoint does with each spelling cannot
+be checked from here. So no Bitget request changes, and a test pins that both
+the order params and the margin-mode call carry the configured word.
+
+**The setting refuses to start on a word it does not implement.** It is an
+`_env_choice` now, the TRADE_MODE rule: isolated, cross or crossed, read
+case-insensitively, and anything else refuses boot with a sentence naming the
+margin mode. `_env_choice` took TRADE_MODE's consequence as a literal, so the
+consequence is a parameter, with TRADE_MODE's sentence as the default and a
+test that it still prints it. **This can refuse a deploy**: a production `.env`
+carrying any other value (a typo, `isolated_margin`) stops the bot at boot
+where it used to run with a mode no venue call understood. The old comment above
+the field called isolated "mandatory" while the code accepted any value; it
+says "by default" now.
+
+**Eleven mutations, each killed.** The one that survived the first round was a
+corpus gap: no fixture drove the leverage retry, so sending the raw word there
+changed nothing until a venue reporting 3x against a 5x target made the retry
+run.
+(`tests/test_margin_mode_reaches_each_venue_in_its_spelling.py`.)
+
+**THE MODEL WAS TOLD A FIELD WAS NEVER STATED, BESIDE THE VALUE THE VENUE HAD
+STATED FOR IT.** Adoption names each field the venue did not report in
+`adoption_unread`, and the chat model's evidence row reads that list back as
+*"the venue did not state margin, leverage at adoption — do not estimate
+them"*. On Bitget the leverage sync runs at boot and every five minutes. It
+writes the venue's leverage onto every open position whose record differs, and
+derives the margin from it when the entry is on record. Nothing took either
+name off the list. Driven on an adopted BTC long with the margin and leverage
+unread and a 20x sync:
+
+    margin $30.00, lev 20x, ... the venue did not state margin, leverage at
+    adoption — do not estimate them
+
+The row made two claims about one field, and the false one was the
+instruction not to use the figure. `clear_unread` takes a name off the list,
+and each writer calls it with the fields it actually wrote. The sync clears
+the leverage always and the margin only when it derived one, so an adopted
+position whose entry is unread keeps "entry_price, margin" after a sync reads
+its leverage. The close reconcile clears the leverage it reads, which the
+unpriced-close audit records. An emptied list restores as no marker.
+
+**The fill paths were checked and left alone.** An adopted limit order records
+leverage 0, so a fill writes `margin_at_fill`'s 0.0 and the margin is still
+unread. The sync that follows every fill is what fills it, and it clears the
+name. A clear at the fill would be a line no input can reach. One fill path
+did not use `margin_at_fill`: the fill during a cancel divided by
+`pos.leverage or 1`, so an adopted limit order that filled while the bot was
+cancelling it recorded its NOTIONAL as its margin, twenty times too much at
+20x, under a marker still saying no margin was stated. It asks `margin_at_fill`
+now.
+
+**And the refusal it feeds said the figure never arrives.** The exposure cap
+refuses while a margin is unread, and its comment (and the committed-margin
+chapter) said adoption never re-reads a position, so the figure never arrives
+on its own. The sync is the exception: when the leverage was unread too and the
+entry is on record, the margin arrives within five minutes and the refusal
+lifts. Both now say so.
+
+**Eleven mutations, each killed.** The one that survived the first round was a
+fixture: the order-keeping test listed the names alphabetically, so a sort
+changed nothing until the fixture's order was not sorted.
+(`tests/test_a_venue_read_clears_what_adoption_could_not_read.py`.)
+
+**ANY LINKED USER'S /link WIPED THE AGENT'S PUBLISHED RECORD, AND THE ROUTE
+CALLED THAT "SERVER-ENFORCED".** `cmd_link` pushed
+`sync_in_background(user_id, portfolio.get("equity", 800), [], [])` after
+every successful link, ungated, and `cmd_sync` (`@require_registered` only)
+pushed `sync_portfolio(uc.user_id, ...)`. Both read `user_portfolio`, and
+nothing in the tree writes a figure to that table: its two inserts write the
+column defaults, and `save_user_portfolio`'s one caller
+(`UserContext.save_portfolio`) has no caller. So the payload was always equity 10,000, no positions,
+no closes. `app/routes/sync.js` enforced the operator's id by IGNORING the
+one the payload carried, which meant a push about somebody else was applied
+to the agent's rows. Driven on the in-memory website with the real route:
+
+    operator sync  -> 200, 3 closes, equity 250
+    user 77 /link  -> 200, DELETE FROM trades WHERE user_id = 1,
+                          DELETE FROM equity_snapshots WHERE user_id = 1,
+                          INSERT equity_snapshots (1, 10000, ...)
+
+The public track record went to `trades: 0`. The user was told "Dashboard
+synced. Equity: $10000.00"; their own account received nothing.
+
+**There was never anything to push.** A linked user's dashboard asks the bot
+for their account each time it loads (`app/routes/portfolio.js` reads the
+gateway by Telegram id), so /link sends nothing now and /sync says so: no
+figure, no "synced", and "nothing was sent". The link card no longer promises
+that /sync pushes an update, in fourteen languages. `sync_portfolio` and
+`sync_in_background` take no account at all, because the push is the agent's
+record and the website decides whose rows those are (`BOT_USER_ID`). A
+parameter is a door, and the one caller that held a user id would hand it to
+the one route that writes the agent's rows.
+
+**The route refuses rather than ignores.** `POST /` and `/trade-event`
+answer 409 `not_the_agent_record` and write nothing for a payload that names
+another account. An absent id is the agent's record (what the bot sends
+now). The operator's own id, as a number or a numeric string, is accepted
+too: older bot builds named `1` for the agent's push. `true` and `[1]` are
+`1` to `Number()`, so a non-numeric id is refused by type first. The refusal
+is logged with the named id JSON-quoted and cut at 40 characters, so a
+newline in it cannot split the log line. Refusing is also what protects the
+deploy window: `app/` and `bot/` deploy separately, and an older bot's /link
+push is refused by a new website.
+
+**Deliberately not changed, and one deploy cost stated.** A deployment that
+set `BOT_USER_ID` to something other than 1 will refuse an older bot's agent
+pushes (they named `1`) until the bot is redeployed; the website then shows
+the last synced record rather than a wrong one. And an older bot's /link by
+the operator's own website account still names the operator's id and is
+accepted, so the bot redeploy is what closes that case. `/me` still prints
+equity from the same unwritten table, which is filed rather than fixed here.
+
+**The one legitimate sender is driven, not stubbed.** The operator's paper
+close mirrors the agent's book from a callback built inside the engine's
+`__init__`. Once the sender took no account, a leftover `user_id=1` there
+would raise inside that callback's own `except`, which logs and moves on:
+the agent's record would silently stop being mirrored. A stub that accepts
+anything cannot see that, so the test builds the real engine and records the
+push with the sender's real signature.
+
+**Twenty-two mutations, each killed. One first-round kill was for the wrong
+reason.** Adding `user_id=None` between two positional parameters of
+`sync_portfolio` is a SyntaxError, so it "died" at collection. Re-aimed as a
+trailing keyword, it dies on the signature test. The engine edit also kept
+its line count, because `docs/INCOME_MAP.md` cites `engine.py` lines below
+it, and the first draft moved one of them by a line.
+(`tests/test_a_linked_users_sync_does_not_touch_the_agents_record.py`,
+`app/test/a_bot_push_naming_another_account_is_refused.test.js`.)
+
+**A CLOSED-TRADE FILE THE BOT COULD NOT READ WAS PUBLISHED AS THE AGENT'S
+WHOLE HISTORY.** `/api/bot/sync` replaces the operator's rows: `sync.js`
+deletes every operator trade on every push and inserts the list it is sent.
+When the closed-trade file will not parse, or holds a row the loader cannot
+read, `LiveExecutor` says so (`closed_trades_read_failed`) and holds an empty
+or partial list. `_sync_live_state_to_website` never asked, and it runs at
+boot and on every open and close. Driven with a real executor over a planted
+file: a file that would not parse was pushed as `closed_trades: []`, and a
+file with one bad row of three was pushed as the other two. The website would
+have deleted every trade it held and published what was left as the record.
+
+**Nothing is pushed until the file reads.** `website_sync.record_unreadable`
+is the check, and the engine asks it before building anything. The website
+keeps its last copy, and that copy's age says how old it is. Sending the
+positions and equity without the trades was not an option: `sync.js` deletes
+the trades on every push whatever it is sent, and so does every website
+already deployed, while `app/` and `bot/` deploy separately. The warning is
+said once per file, because the sync runs on every open and close. A file
+that is simply absent is a bot that has closed nothing, and is still pushed as
+an empty list.
+
+**THE RULE FOR WHAT COUNTS AS A TRADE HAD NEVER RUN ON THE LIVE PATH.**
+`sync_portfolio` filters with `trade_filter.countable` before anything reaches
+the website, whose schema stores neither `trade_id` nor `close_reason`. The
+live sync handed it dicts with neither key, and the rule read them with
+`getattr`, which a dict answers with the default for every key. Driven: a
+limit order that never filled (`stale_pending`, pnl 0.0) and an adopted
+orphan's stop-out were both sent, so the public track record counted the
+unfilled order as a flat trade in its win rate and the orphan's loss in its
+profit factor. The scan payload read the closed-trade file, dicts again,
+through no filter at all. The rule reads a dict's keys now (`_field`), the
+live rows carry the two fields (they never reach the wire; a test pins the
+payload's shape), and the scan payload's count, net and win rate go through
+the same rule. `test_the_sync_sends_only_countable_trades` had pinned that
+the filter was CALLED, which it was, on rows it could not read.
+
+**THE PUBLIC RECORD NOW SAYS WHAT WINDOW IT COVERS, AND WHAT WINDOW TO KEEP
+IS FILED AS A DECISION.** Measured: the executor keeps up to 500 closes and the
+sync sends the newest 50, filtered after the slice, so ten never-filled
+orders among the newest 50 publish 40. Every sync with an equity reading also
+deletes the operator's equity curve and starts it again from that reading.
+So `/api/public/track-record`'s count, win rate, profit factor, monthly
+buckets and first trade cover at most the last 50 closes, and its drawdown,
+return and curve cover only the time since the last push, and nothing said
+so. The payload and the MCP `get_track_record` tool carry a `coverage` block
+now (`recordCoverage`, one function in `track.js`): the basis, the count of
+closes, where the equity curve starts, and a sentence saying these are the
+bot's newest closes, not necessarily its whole history. What is sent and
+kept is unchanged: sending the whole record, appending snapshots instead of
+replacing them, or disclosing the bot's own total are product decisions.
+
+**Twenty-seven mutations, each killed on the first round.** Two were shaped by
+planning the round rather than by running it. The curve's start taken from
+its newest point would have survived a fixture holding one snapshot, because
+after a sync the first point is the last; a reading written after the sync is
+in the fixture now. And keying the warning by nothing instead of by file
+first died on the said-once test for the wrong reason (an earlier test's
+warning had already used the one key); a test with two unreadable files
+measures it directly. The engine's line count is unchanged: the rationale
+moved into `website_sync`, and a nine-line comment above the P&L field was
+condensed, because `docs/INCOME_MAP.md` cites `engine.py` lines below it.
+(`tests/test_an_unreadable_record_is_not_published_as_the_whole.py`,
+`tests/test_the_live_record_publishes_only_trades.py`,
+`app/test/track_record_states_its_window.test.js`.)
+
+**THE PUBLIC MIND-STREAM TOLD EVERY OPERATOR CLOSE IN DOLLARS, UNDER TWO
+COMMENTS SAYING THAT WAS ALREADY PUBLIC.** Every close was emitted to the agent
+feed as *"Closed BTC/USDT -$41.20"* with `data: {"pnl": -41.2}`, and both the
+emitting comment and `agent_feed`'s module docstring justified it the same way:
+realized P&L *"is already public on the track-record page"*. It is not.
+`routes/track.js` is percent, ratio and count, and indexes its curve to 100 so
+no account size escapes. That is the `/api/reports` parity sentence (*"already
+public on /track"*) one feed over, and it reached five doors: the stored ring,
+the unauthenticated `/api/stream`, every push subscriber, `GET
+/api/feed/recent` and the MCP tool `get_agent_feed`.
+
+**The producer states the return on margin, and says when it cannot.**
+`agent_feed.close_event` prints `realized_margin_return_pct`, the figure the
+public close line already prints "on margin", from the margin
+`position_size_basis` recorded, never the notional. A close whose margin was
+never recorded carries no figure and its body says so. A close nobody priced
+still emits nothing, which was already the behaviour. A measured break-even is
+severity `info` now, not `success`: colour is a claim.
+
+**The receiver scrubs too, because the ring holds rows written before the
+producer changed.** `lib/public_feed.publicFeedEvent` runs at the ingest and at
+both readers, and reuses the flight scrubber rather than writing a second copy
+of it: `data` loses every amount key, a title loses every dollar figure, and the
+bodies of the three event types that carry PRICES (`trade_open`, `sl_move`,
+`thesis`) lose only a SIGNED figure, which is the shape of a P&L and never of a
+price. The ingest logs the event type it had to correct, so a producer that
+regresses names itself. Two pins moved with the contract:
+`agent_feed.test.js` asserted `'Closed BTC +$1.23'` and `push.test.js` the
+dollar push title. Both were the defect written down as a requirement.
+
+**Thirty mutations, each killed.** One was first reported killed by a HANG:
+the SSE fixture never destroyed its response, so a mutation that broke the
+stream timed the suite out rather than failing an assertion. A kill for a reason
+unrelated to the rule is not a kill; the fixture destroys its stream now and the
+mutation was driven again and dies on the assertion.
+(`tests/test_the_public_feed_carries_no_dollar.py`,
+`app/test/public_feed_carries_no_dollar.test.js`.)
+
+**THE ANONYMOUS SCAN DROPPED THE NOTIONAL AND KEPT THE TWO NUMBERS THAT
+MULTIPLY INTO IT.** `GET /api/bot/sync/scan` serves `scanFor(false, scan)` to
+anyone. Its scrub took `notional`, `margin` and `unrealized_pnl` off every
+open-position row and left `contracts` beside `entry_price` and `leverage`.
+Driven on the venue readout's BTC row (0.0158 contracts at 63,000, 5x):
+contracts times entry gave back the notional, **$995.40**, and notional over
+leverage the margin, **$199.08**, to the cent. A scrub that removes a figure
+and publishes its factors has removed nothing.
+
+The anonymous view drops every position-size key now (`contracts`, `quantity`,
+`qty` and any compound of them), walking lists and nested objects. The symbol,
+side, entry and leverage stay: none of them says anything about the account's
+size alone. The operator's view is untouched, and the disclosure line names
+position sizes beside equity and dollar P&L.
+
+**The rule is unanchored, and the mutation round is what said so.** The first
+draft anchored it to the three exact names, and removing the anchors changed no
+verdict, because no fixture carried a compound. The executor spells a size a
+dozen more ways (`filled_qty`, `remaining_qty`, `closed_qty`), so the anchored
+rule was the narrow one. The fixture plants `filled_qty` now, the rule matches
+unanchored as `DOLLAR_KEY` does, and the round was re-run: ten mutations, each
+killed. (`app/test/public_scan_carries_no_position_size.test.js`.)
+
+**"THE CALLER TREATS THAT AS UNKNOWN" WAS TRUE WHILE THE CACHE WAS FRESH.**
+With the live balance cache stale, the scan's venue readout went two ways, and
+both published a measured account from no read:
+
+- the readout RAISED, or was SKIPPED (every scan after a `/venue` switch away
+  from Bitget), and `_file_only_result` returned the realized record with the
+  defaults still under it: `equity: 0`, `open_count: 0`,
+  `live_unavailable: False`, and the slot chip read **Open Positions: 0/5** in
+  green. Its docstring said *"Equity stays 0 here and the caller treats that as
+  unknown"*; the caller did so only while the cache answered;
+- the balance was read and the POSITIONS fetch failed: `open_count` was
+  `len([])` of the list the failed read left behind, the same green `0/5`.
+
+**The words already existed and a flag walked past them.** `open_positions_rule`
+already renders `Open Positions: unread/5` with no verdict, and `_slot_count`
+already refused a book nobody read, keyed on `live_data_loaded`. That flag says
+the readout RETURNED, not that it read anything, so both paths reached the
+chip as readings. The file-only result sets the balance and the count to
+`None`, the success path counts the book only when the positions read
+succeeded, and `live_unavailable` is keyed on whether a BALANCE was read. A
+flat book the venue answered for is still `0`, a measured `$0.00` balance is
+still a reading, and the realized record the trade file supports is published
+as before. The log line says `unread` rather than handing `None` to `%.2f`.
+
+**The website then coerced the honest `None` back to zero, under a comment
+that said the producer never sends one.** Both summary writers in `sync.js`
+built `open_count: cb.open_count || 0`, the cold path under *"deliberately left
+alone ... only ever raises it from a real read"*. The summary is served to
+anonymous callers, so `0 open positions` there was a public claim about the
+operator's book. Both keep `null` now (`?? null`), and a counted `0` stays `0`.
+
+**One marker was deliberately NOT set, and the reason is a false sentence one
+file over.** The file-only result could have set `open_positions_unread`, and
+the scan folds that into `record_unreadable`, which the engine card renders as
+*"The closed-trade record could not be read"*: false, when the record read
+perfectly and the book was the unread half. That conflation is pre-existing and
+filed; widening its reach would have made the defect the ordinary case.
+
+**Twelve mutations, each killed on the first round.** A mid-loop partial
+positions list was measured and is unreachable with ccxt-parsed rows, so no
+line was added to clear one: a line no input reaches is a claim that there is a
+check. The JS honesty ratchet improved (`routes/sync.js` or-zero 7 -> 5) and
+was re-recorded in the same commit.
+(`tests/test_the_scan_says_when_it_read_no_balance_or_book.py`,
+`app/test/sync_summary_unread_book_is_not_flat.test.js`.)
+
+**EVERY CLOSED ROW ON THE SCAN PAYLOAD PUBLISHED AN EXIT OF ZERO.** The
+executor records a close's exit as `close_price` (`closed_trade_row`). The scan
+built each recent closed row with
+`float(t.get("exit_price", t.get("exit", 0)) or 0)`, which knows the paper
+book's two spellings and not that one. Driven through `_fetch_live_exchange_data`
+and `_build_scan_payload` on rows the executor itself wrote: `(100.0, 0.0)` for
+a close at 110, and `(0.0, 0.0)` for an adopted position whose entry the venue
+never stated. The filed note said the `or 0` published an unread exit as zero;
+the drive said worse: it published EVERY exit as zero, because the field was
+read under the other book's name. *A field name is not a quantity*, one reader
+over.
+
+The row reads both vocabularies now, the executor's name winning when a row
+carries both and the first name PRESENT deciding, which is `_first_attr`'s rule
+for the chat prompt's closed-trade line over the same record. Every price goes
+through `price_on_record`: an unread, zero, negative, NaN or junk price is
+`None`, never `0.0`. No website renderer reads these rows (the dashboard's
+trade table reads the trades table the portfolio sync writes), so the defect's
+only reader was the payload itself, served to anonymous callers.
+
+**Ten mutations, each killed on the first round.** One is recorded rather than
+run: `_first_present`'s absent-case `return None` answered as `0` is an
+equivalent mutant, because `price_on_record` refuses a zero. The honesty ratchet
+improved (`scan_skill.py` or-zero 23 -> 21) and was re-recorded in the same
+commit. (`tests/test_the_scan_publishes_the_exit_the_executor_recorded.py`.)
+
+**Filed, with their measurements, and not done.**
+
+- The autonomous scan push (`engine.py`, `_build_scan_payload([], self)`)
+  sends an EMPTY `entry_cards` and `symbols` every cycle, and
+  `POST /api/bot/sync/scan` replaces `latestScan` wholesale, so the last manual
+  `/scan`'s cards are wiped within a cycle. The ingest already carries the
+  deep-scan block forward under a TTL (`DEEPSCAN_TTL_MS`); the same carry for
+  the cards is the likely shape, and whether a stale card may stand beside a
+  fresh regime is a product decision, not a wiring line.
+- `equity_throttle_state`'s `except` fallback publishes `OFF` / `1.0`, which
+  would be an all-clear from a failed read. Refuted as unreachable: the body
+  reads a frozen config and a deque of floats only the recorder writes,
+  `rolling_profit_factor` cannot raise on floats, and
+  `equity_throttle_multiplier` catches its own. *Don't fix what cannot fire.*
+- `record_unreadable` is `closed_record_unreadable OR open_positions_unread`,
+  and the engine card renders it as *"The closed-trade record could not be
+  read"*. When the marks or the book were the unread half, that sentence names
+  the wrong source.
+
+**Seven of the map's thirteen citations into `app/routes/mcp.js` pointed at the
+wrong line, and a remap could only carry them forward.** Remapping the map for
+this slice's line shifts landed `get_rwa_radar` on a database call,
+`get_meme_radar` on the RWA tool's description, `run_what_if` inside another
+tool's result, and `scan_transaction`, `xray_transaction` and
+`scan_token_safety` each seven lines above their definitions. Every one was
+already wrong before the shift, and none sat on a blank line, so the probe
+could not see it. A tool citation names a tool, so each is that tool's
+definition now, and `test_every_mcp_tool_citation_is_that_tools_definition`
+requires every `mcp.js:N` citation, bare `:N` continuations included, to land
+on the definition of a tool its own paragraph names. On the uncorrected map it
+reports all seven. Its rule is also driven on a planted map, because the real
+one is correct.
+
+**FIVE RECORDS WERE ERASED OR BROKEN BY THE READ BEFORE THEM, AND EACH READ
+SAID NOTHING LOUDER THAN DEBUG.** A persistence survey named them; each was
+driven before anything changed, and each had the same shape: a read that
+could not finish was read as a read that found little, and the next write
+replaced the file with what was left.
+
+**A torn audit-chain line broke every later append, and one of those appends
+is the seal after a live fill.** The chain read its tail with
+`json.loads(lines[-1])`, so a write cut short at the end of
+`logs/audit_chain.jsonl` made every later append raise. Driven: two entries, a
+partial third line, and three appends in a row each raised *"Unterminated
+string"*. The engine sealed the decision AFTER `execute()` had placed the
+order, with no guard, so the raise came out of `confirm_trade` over an open
+position: the Confirm button printed *"Trade execution failed"*, auto-confirm
+skipped its notification, and the learner and the IDLE transition never ran.
+The critique HALT's record sat inside a handler that reads any exception as
+*"the critique could not complete"*, which in paper mode lets the halted trade
+go ahead. The chain is tamper-EVIDENT, so the fragment is never removed or
+rewritten: the next append links to the last whole entry and writes a
+`CHAIN_TORN_TAIL` marker naming each fragment's sha256 and length, `verify()`
+reports the torn line once instead of every entry after it, and a tail of more
+non-entries than a cut-short write can leave is refused
+(`AuditChainUnreadable`) rather than guessed across. Every confirm-path record
+is written through `_seal_on_chain`: what happened stands, the failure is
+logged at ERROR (scrubbed), and the answer says the record was not sealed,
+naming the exception CLASS only, because it reaches a chat.
+
+**The trade journal kept the rows above the first one it could not read, and
+the next close wrote them over the file.** Driven: 50 rows with the third
+missing `sl` loaded 2, and one `record_trade` left 3 rows on disk; a file cut
+short loaded 0 and one close left 1. `read_failed` was set and `_save` never
+asked it. The journal takes the executor's closed-trade rule now: rows are
+read one by one, a row it cannot read is kept verbatim and written back on
+every save, a file that will not parse is copied aside once before the first
+write over it, and nothing is written when that copy fails, because a close
+missing from the journal is a smaller loss than the journal the close would
+erase. The write is atomic, and a failed one is said at WARNING.
+
+**An unreadable watch list read as nobody watching, and the next `/watch on`
+made that true.** Driven: a list of three cut short read as `[]`, and
+`/watch on 4004` left `{"enabled_chats": ["4004"]}`. Every chat that had asked
+for CRITICAL alerts stopped getting them, and the operator was not
+auto-enrolled either, because the file existed. A list this module did not
+write is unreadable now: said at ERROR, never written over this run, and the
+operator is enrolled for this run only, so a CRITICAL alert reaches somebody
+while nobody knows who was watching. `/watch on` and `/watch off` say when a
+change was not saved, in two sentences for the two causes (a list that could
+not be read is left alone on purpose; a write that failed is a disk to look
+at), and `/watch status` says its count is only the chats enabled since.
+
+**The wait after a close nobody could price was lifted by a restart inside
+it.** `note_unpriced_close` stamped a field the export did not write and the
+writer did not save. Driven: stamp, restart, `None`. It is saved and restored
+on both loaders now, by a helper of its own and not through `_STATE_FIELDS`,
+for the reason `_restore_governor_clear` gives: an unreadable value there
+fails the whole state closed over a field whose worst case is one 120s wait.
+A value that is not a finite number is ignored, and a stamp in the future is
+read as now, so the account waits one period and not for the skew.
+
+**One malformed conversation line kept the bot from starting.** The store is
+built in the Telegram handler's constructor, and its loader caught `KeyError`
+and `JSONDecodeError`. A line that is not an object raised `TypeError`, and a
+user turn with null content raised `AttributeError` in the mention reader.
+Both escaped. An assistant turn with null content loaded as a Message whose
+content was `None` and reached the model as a turn. A row this store did not
+write is unreadable now: skipped, counted at WARNING, and kept verbatim,
+because compaction rewrites the file from memory and would otherwise be what
+erased it. A deletion still takes the user's own unreadable lines, through the
+one `_line_owner` reading the loader and the purge share.
+
+**A PAPER BOOK RECOVERED FROM ITS BACKUP REOPENED A CLOSED POSITION, AND
+NOTHING SAVED AFTER THE RECOVERY SURVIVED THE NEXT RESTART.** The practice
+books keep a `.json.bak`, and the backup was a copy of the PREVIOUS file taken
+before each write, so a recovery landed one save behind. Driven: a book whose
+last save was a close, primary damaged, came back with the position open (open
+0 -> 1, balance 1009.87 -> 900, history 1 -> 0). Then every save after the
+recovery was refused as a CONFLICT, because the damaged primary reads as
+unreadable and the stale-write guard refuses an unreadable file. The state was
+parked in `portfolio_<u>.conflict-<pid>.json`, and the next restart recovered
+the same backup: everything since the recovery lost, every time. The backup
+is written after the primary now and holds the same state. The damaged file a
+recovery was made past is copied aside once (named so no pattern restores it)
+and then replaced; a file that cannot be copied aside, or that changed since
+the recovery, is still refused. The revision written is past both the
+backup's and the damaged file's own.
+
+**AND THE PARKED FILE CAME BACK AS A PERSON.** `portfolio_*.json` matches
+`portfolio_777.conflict-4242.json`, so the registry restored the sidecar as a
+phantom user `777conflict-4242`, and the stop sweep closed its parked
+positions, writing into the file that was kept so that nothing was lost. Not
+in the survey; found by reading what the fix's own refusal wrote. A dotted
+name is not restored as a book now, because `_sanitize` strips every dot and
+no book's name carries one, and the skip is said.
+
+**What is deliberately not changed.** The paper book's fee and state model is
+untouched. The shared helper for the "a failed read of a per-user JSON store
+is read as empty" class belongs to the slice that owns that class, and none
+of its stores is touched here. The journal's two readers of `read_failed`
+still say the record is unknown when any row was unreadable, as before.
+
+**Filed, with what was driven and what was only read.** DRIVEN:
+`data/portfolio_state.json`, the operator's default `PORTFOLIO_STATE_FILE`,
+matches the same glob and is restored by `MultiUserPortfolio` as a per-user
+book named `state`. READ, not driven: `combined_state.json` gets a `.bak` that
+nothing reads, and a combined file that will not parse falls back to
+individual files that have not been written since the migration. And
+`test_backtest_validity._run_once` leaves `logging.disable(logging.WARNING)`
+set for the rest of the session, which is why a WARNING-level assertion in a
+later file (`test_audit_v7_followups::test_risk_audit_logs_leverage_and_notional`)
+fails only in a grouped run; the new paper-book suite lifts it for its own
+tests rather than depending on order.
+
+**Eighty-five mutations: eighty-four killed and one equivalent. Six
+survived the first round of eighty-six, and not one was a defect in the
+code.** Four were fixtures that could not tell the difference. The audit
+chain read a bool `sequence` as an entry, and no tail line carried one.
+Any whole entry could acknowledge a fragment, and no fixture forged one
+that was not the marker. The `/watch` reply read a monitor answering
+`None` as "not saved", and the only stand-in answered a mock. And a
+recovered paper book's licence to replace its damaged file was never
+shown to be spent by the save that used it, so a second damaged write
+after that save could have been replaced too. Each is planted now and
+each mutation dies. The fifth was a line of mine no input could reach:
+the conversation loader refused a line that is not an object by name,
+and `entry["user_id"]` already raises `TypeError` on every other value
+JSON can hold, so the check is deleted and the comment says why. The
+sixth is recorded rather than counted: the journal writes the rows it
+could not read ahead of the ones it can, and no reader depends on where
+they sit, so putting them after changes nothing. The comment above it
+had claimed the order mattered, and says it does not now. The whole-tree
+mypy ratchet improved by one (`assignment` 55 -> 54) and was re-recorded
+in the commit that lowered it.
+
+**And the map's `RiskEngine` citation was twelve lines short.** It cited
+`risk_engine.py:242`, a row of the symbol-to-sector table above the class, and
+had done so since before this round. It sits on a non-blank line, so the probe
+could not see it. The slice's agent noticed it while checking its own shifts.
+`test_the_risk_engine_citation_is_the_class` now derives it from the class line.
+
+**A CLOSE THAT WAS CANCELLED LEFT ITS POSITION "CLOSING" FOR GOOD, AFTER ITS
+STOPS HAD BEEN CANCELLED.** `close_position` sets the row "closing", saves,
+and then awaits the venue: the stop and target cancels, the market close, the
+reads after it. Every revert in `_close_position_inner` sits under
+`except Exception`, and `asyncio.CancelledError` is a BaseException. Three
+ordinary caps cancel that work: the per-phase cap and the whole-tick cap on
+the monitor, and the maintenance cap on a web flatten. Driven through the real
+positions phase with the close order parked at the cap, both stop legs were
+cancelled on the venue and then the cap fired. The row stayed "closing".
+`open_positions` does not list it, the monitor and reconcile skip it, and
+`close_position` refuses it as already closing, so nothing watched a position
+whose stops were gone until the next restart. The pending_fill cancel path
+had the same gap.
+
+`close_position` now catches the cancellation, puts the row back, and
+re-raises it. A `CloseFlight` on the row records how far the close got: the
+stops the cancel pass removed, the leg whose cancel was in flight, and whether
+the close order was sent. The row becomes what the loader already makes of a
+row it finds "closing" at startup. If anything reached the venue, it is open
+and held for reconcile, which asks the venue before any path sends another
+close. If nothing did, it is simply open again. A limit cancel that was cut
+off goes back to "pending_fill", which the pending check re-reads every tick.
+The removed stops are cleared from the record, and a cleared stop marks the
+position unprotected, because a stop id the venue no longer holds reads as
+protection to every reader. `close_interrupted` is saved with the row, so the
+reconcile that finds the venue flat announces the close: a row recovered at
+startup stays quiet because its close was probably announced before the
+process died, and this one was announced to nobody. The handler never raises,
+because it runs while a cancellation is unwinding and an exception there
+would replace the cancellation the caller is owed.
+
+**AN EMERGENCY STOP WAS ACKNOWLEDGED AS DONE OVER THAT ROW.**
+`close_all_positions` is what the web Emergency Stop, `/emergency_stop` and
+`/closeall` call, and it closed rows that were open or pending_fill. Driven:
+the first web poll's flatten was cancelled at its maintenance cap mid-close,
+and the second poll found only the "closing" row and answered "No open
+positions to close." The web ack read that sentence as a close:
+`ok: True, closed: 1`, over a position still open with its stops cancelled.
+The flatten closes "closing" rows now. `close_position` waits on the
+in-flight close's lock and then answers what is there. When that close
+finished the row while the flatten waited, the answer is read off the book
+(the row is closed, or gone) instead of the "not found or already closed"
+sentence every flatten reader counts as still open. An empty book answers
+`NOTHING_TO_CLOSE`, `flatten_closed_count` does not count it, and an account
+that held nothing is acked with nothing closed.
+
+**A FAILING TICK LOOP READ THE STOPS ONCE EVERY TEN MINUTES.** The analyze
+phase has `fatal=True` on purpose, so a phase timeout fails the tick and the
+loop backs off before the next one. Driven with the analyze phase timing out
+at its 300s cap every tick, the SL/TP monitor ran once every 605s: the phase,
+the 300s backoff, the scan. `_sleep_watching_stops` cuts the backoff into
+steps of the normal scan interval and runs the monitor after each one, which
+is the rate a healthy loop already reads positions at. Driven again, the
+longest unwatched gap is 365s. The steps are counted, so the total wait is
+still the backoff, and the stall watchdog's due time is stamped before every
+step and every pass (a pass may take up to the per-phase cap). The pass says
+it is a backoff pass, and it clears the failed tick's own "monitored" flag
+first, so a check made before the failure cannot stand in for it.
+
+Two more fell out of driving the loop. The backoff was
+`base * 2 ** failures`, which raises OverflowError once 1024 failures have
+been counted (at least 85 hours of backoffs at the cap); that left `run()`,
+which `bot.main` reports as an engine crash. The exponent is bounded now. And
+the monitor-liveness watchdog ran only after a successful tick, so during a
+failure streak, the stretch the monitor exists to report, nothing checked
+that the monitor was alive. It runs on the failure path too, under the same
+throttle. The healthcheck ping stays on the success path, because an external
+dead-man's switch fed by failing ticks cannot alarm on them.
+
+**A SHUTDOWN RAN A FULL MONITOR PASS ON ITS WAY OUT.** `_tick_guarded` ran
+the backstop in its `finally`, on every exit, including the cancellation
+`bot.main`'s SIGTERM handler sends. A backstop pass can cancel stops and send
+market closes, and starting one while a supervisor counts down to SIGKILL is
+how a close is cut between cancelling a stop and flattening. A cancelled tick
+runs no backstop now. The stops resting on the venue stay where they are, and
+the next boot's monitor and reconcile take the book up. A hard-timeout
+cancellation reaches the `finally` as a TimeoutError, and still runs it.
+
+**THE NIGHTLY SELF-AUDIT ASKED THE MODEL AGAIN ON EVERY TICK OF ITS HOUR.**
+The audit is due inside its UTC hour until `last_run_ts` says it ran, and that
+stamp is written only by a run that finished. Driven with a model that
+failed: forty ticks 90s apart in the hour spawned forty runs and fifty model
+calls, and a restart inside the hour started again. A scheduled attempt is
+recorded before the run starts, and the next one waits fifteen minutes, so
+the hour holds at most four. The attempt time is written to the state file
+beside `last_run_ts`, so a restart inside the hour does not reset it
+(driven: no attempt in the rest of the hour after a restart). It is also
+kept in memory, so a state file that cannot be written does not turn the
+bound off, and the newer of the two stamps decides. An operator's
+`/audit run` calls `run()` directly and is neither limited nor counted.
+
+**`/latest_signal`'s timeout could cancel a live order half-placed.** It ran
+`force_scan` under `asyncio.wait_for`, and `force_scan` auto-confirms what
+clears the bar, so the timeout could cancel `LiveExecutor.execute`. Read, not
+driven against a venue: `execute` awaits the venue between submitting the
+entry order and recording the position, and again before the stop is placed.
+The scan is shielded now. The tap stops waiting at its timeout and says so,
+and the scan finishes in the background with its ideas pending for the next
+tap. A done callback retrieves its outcome and logs a failure by class name
+only, because a driver message can carry a URL or a request.
+
+**Recorded, not changed.** In the pending cancel's fill branch, the row is set
+"open" and then awaits the stop placement. A cancel there leaves the row open
+in memory, which is right (it is a filled position), and "closing" on disk,
+from the save at the start of the close. A restart holds that row for
+reconcile, which asks the venue; that is the safe direction, so it is left.
+The handler checks that the row is still "closing" for exactly this case: the
+flight is still on the row, and without the check a filled position would be
+put back to "pending_fill".
+
+**Sixty-five mutations, each killed. Thirteen survived the first round, and
+every one was a fixture that could not tell.**
+
+- The close order as the only thing that reached the venue (two mutations).
+  Every fixture cancelled at the close order after both stops were
+  cancelled, so the removed stops alone held the row for reconcile. A row
+  with no stop resting separates them.
+- The leg whose cancel was in flight, left recorded after its cancel. No
+  fixture had a cancel the venue refused.
+- The two halves of the flatten's rewrite (two mutations). Every in-flight
+  close in the corpus both closed the row and deleted it. A save that fails
+  keeps a closed row in the book, because the prune runs after the write, and
+  the already-gone limit branch deletes a row whose status still reads
+  "closing".
+- The handler's audit row, its warning-rate event and its log level (three
+  mutations). Nothing read them.
+- The handler's own `except` narrowed. Nothing made a step of the handler
+  fail.
+- The handler acting on a row that is not "closing". The fill-during-cancel
+  branch above reaches it.
+- The self-audit reading the older of its two stamps. Every fixture had one
+  stamp or two equal ones; a state file that became unwritable after one
+  attempt separates them.
+- The tap's callback reading a cancelled scan, and logging a scan that
+  succeeded (two mutations). No fixture cancelled the background scan or read
+  the log after a success.
+
+Two lines were deleted before the round ran, because no input could reach
+them: a `step >= total` clause in `_sleep_watching_stops` that the loop below
+it already handles with one sleep and no pass, and a float parse of two
+values the only caller computes as floats.
+
+The honesty gate caught one line of mine. The backoff's stamp read the phase
+cap as `float(getattr(..., 0.0) or 0.0)` and then `max(cap, 0.0)`, copied
+from the two readers of the same field elsewhere in `engine.py`. The field is
+clamped to [0, 3600] where it is declared, so neither guard can fire; the
+stamp reads the field directly now.
+
+Two existing pins asserted spellings the fix changed while their properties
+held: `test_audit_fixes_batch_4.py` pinned the web ack's
+`len(_msgs) - len(_failed)`, and `test_tick_stall_false_alarm.py` pinned the
+backoff's inline stamp. Each pins the new seam now.
+(`tests/test_a_cancelled_close_is_not_left_closing.py`,
+`tests/test_a_flatten_does_not_skip_a_close_in_flight.py`,
+`tests/test_a_failing_tick_loop_still_watches_the_stops.py`,
+`tests/test_a_failed_self_audit_does_not_retry_every_tick.py`,
+`tests/test_a_tap_timeout_does_not_cancel_the_scan.py`.)
+
+**A FILE THAT IS THERE AND WILL NOT READ IS NOT AN EMPTY ONE, AND FIFTEEN
+STORES READ IT AS EMPTY AND THEN SAVED OVER IT.** Twenty-eight functions in
+`bot/` read a JSON file inside a `try` whose handler answered `{}`, and wrote
+the whole file back from the same scope. A MISSING file is a fresh start. A
+file that is there and did not read holds every other user's row, and the next
+write replaced it with the one row the writer knew about. Driven on the base
+commit, each through one failed read and one ordinary write:
+
+| store | before | after one write |
+|---|---|---|
+| per-user leverage | users 111, 222, 333 | `{"444": 5}` |
+| per-user strategy | three selections | `{"444": "conservative"}` |
+| authority ledger | three users' 24h spend | 333's alone, and a replayed ref records again |
+| per-person equity peak | two peaks | one; after a restart the other person's drawdown reads `0.0` |
+| per-user authority envelopes | three bindings | `{"222": …}` |
+| secrets vault (file truncated) | `BITGET_API_KEY`, `BITGET_API_SECRET` | one boot later: `TELEGRAM_BOT_TOKEN` alone |
+
+The vault is the sharpest. `store_secrets` already kept an entry it could not
+DECRYPT (the chapter above records that); a FILE that would not parse loaded
+as an empty vault, and `seed_and_restore` runs on every boot and saves whenever
+any managed env value is present. One boot erased the exchange keys, from a
+file with no `.bak`, and the log said only "secrets vault file unreadable —
+ignoring it".
+
+**The readers failed in the flattering direction every time**, which is what
+made the erasure quiet: an unread leverage preference was `None`, the operator
+default and the LOOSEST a reduce-only preference resolves to, and the engine
+stored that on the executor at bind for the executor's whole life; an unread
+strategy file was "no selection", so the confirm path skipped the tighten-only
+veto the person had armed; an unread ledger was $0 spent against a daily cap;
+an unread peak was "no drawdown"; an unread venue selection was single-venue.
+And both preference stores' `clear()` wrote with `open(…, "w")`: driven on a
+full disk, `clear(222)` answered False and left `{"111"` on disk.
+
+**ONE READING, THREE STATES.** `bot/utils/json_store.py`:
+
+- `read_json_store(path, *, shape=dict, check=None) -> StoreRead(state, data, detail)`.
+  `fresh` is a missing OR empty file; `read` is a file that parsed and is
+  `shape` and passes the store's own `check`; `unreadable` is anything else
+  (an OSError other than missing, a parse error, the wrong shape, a `check`
+  reason). `detail` is the exception's CLASS, never its text. Nothing the file
+  holds makes it raise.
+- `load_json_store(...)` answers the data, `shape()` for a fresh start, and
+  raises `StoreUnreadable` (a `RuntimeError`, not an `OSError`, carrying
+  `.path` and `.detail`) for an unreadable file.
+- `update_json_store(path, change, *, shape=dict, check=None, **json_kwargs)
+  -> (data, written)` is the one write the shape allows. It READS THE FILE
+  AGAIN, raises `StoreUnreadable` without calling `change` or writing, writes
+  nothing when `change` answers `False`, and replaces the file through
+  `atomic_write_json`, whose `OSError` is the caller's. A write that starts
+  from the file cannot erase what the file held, whatever a copy in memory
+  believes, so the stores that keep one adopt what was written. The in-process
+  lock stays the caller's; two processes interleaving a read-modify-write
+  still lose the key they both changed, and nothing else.
+
+A missing file is a fresh start and an EMPTY one is too, because nothing in it
+can be erased; `RiskEngine._load_state` already answers an empty file that way.
+
+**WHAT A READER GETS IS DECIDED BESIDE THE READER, NOT IN THE HELPER**, because
+it depends on what the store means:
+
+- **Leverage.** The bind stores `UNREAD`, never `None`. The executor reads the
+  store again at order time and sizes at `TIGHTEST_PREF` (1x) while it still
+  cannot, saying so once. `/leverage` says the file did not read.
+- **Strategy.** The confirm is refused (🛡, audited `UNREAD`), because an
+  unread file may hold an armed selection. `/mystrategy` says it could not be
+  read, and a clear that could not read or did not land says the selection is
+  still set.
+- **Equity peak.** An unread peak is `None`, "not measurable", never `0.0`.
+  The merge keeps the MAX of the file's peak and this one's.
+- **Authority ledger.** `spent`, `record` and `remaining` raise; the daily cap
+  refuses. The merge adds the rows memory lacks rather than writing memory
+  over the file.
+- **Venue selection.** `raw_selection` raises; `set_selection` answers
+  `(False, UNREAD_REFUSAL)`; the `/venues` card says the selection could not
+  be read; the control pull's ack is `null`, not "cleared".
+- **Authority envelopes.** Reads and writes raise; the gateway answers 503; a
+  change that did not land is held in memory and the route says so.
+- **Memory, profile.** `get` raises; the prompt's note is empty rather than a
+  profile nobody read.
+- **Leaderboard, seasons.** The public route answers 503 rather than an empty
+  board.
+- **Secrets vault.** Nothing is restored from it and nothing is written over
+  it, at CRITICAL; `/vault` names the unreadable file (`vault_file_state`)
+  rather than "disabled or crypto missing".
+- **Anchor record, publication.** A confirm refuses to record; the `/anchor`
+  card says the record could not be read; `anchor_for_card` answers
+  UNVERIFIED; `/proof` says unavailable, the agent card 503.
+- **Learning store.** Writers never write over it; readers answer `shape()`
+  with an ERROR log. It is not money, and a refused read there would stop the
+  refit rather than protect anything.
+- **Free-chat quota. The one store that fails OPEN, and it says so.** An
+  unreadable count allows the question, counts nothing, writes nothing, and
+  marks the answer `unmetered: True, unread: <class>`. It is a soft product
+  limit, and refusing every free user's chat over a file fault would turn a
+  spend fence into an outage.
+
+**THE RULE IS STRUCTURAL, AND IT WAS DRIVEN ON PLANTED SOURCE BEFORE THE REAL
+TREE.** `tests/test_no_json_store_writes_over_a_failed_read.py` walks `bot/`
+for a LOADER (a `try` around `json.load`, `json.loads` or `load_json_store`
+whose handler swallows: it raises nothing, returns or sets only an empty value,
+calls only a logger) and a WRITER (`atomic_write_json`, `json.dump`, or
+`json.dumps` handed to a write not in append mode), paired when they are
+methods of one class or module functions one call chain reaches. A site not in
+`tests/json_store_baseline.txt` fails, a listed site the rule no longer finds
+fails, and a row with no reason fails. Twenty-eight sites on the base commit;
+fifteen converted; thirteen baselined, each read and each with its reason. On
+the base tree the real-tree test fails and the thirty-five planted cases pass.
+
+**Its blind spots are stated and pinned, and the first draft of that list was
+wrong about one.** A class nested in a class, a def or class under a
+module-level `if` or `try`, and a read or write through a helper in another
+module are not seen; driven over `bot/` with each read, none holds a site
+today. The draft docstring also listed a def nested in a function. The planted
+test for it found the rule reading it and charging it to the outer function,
+so the sentence went.
+
+**WHAT WAS NOT CHANGED, AND WHY.** The thirteen baselined rows:
+
+- Four are not defects of this shape: the self-audit (every save replaces both
+  keys whatever was read), the calibrator and the voter weights (derived fits
+  rewritten whole from the decisions), and the proactive watch list, which
+  slice B1 owns.
+- Two lose something bounded: the catalog watch (queued new-listing alerts),
+  and the executor's positions (a restart cache the venue rebuilds, though
+  provenance is lost).
+- Seven are real and FILED: the shadow book, the review queue (its `seq`
+  restarts and reuses ids), slippage (a PARTIAL load and a non-atomic save),
+  the adaptive limit distance (non-atomic), the validation gate, the channel
+  forwarder, and the conversation store (its compaction drops lines it could
+  not parse).
+
+Each of those needs a load-failure state its readers can see, not a wiring
+line. The publication writer stays unconditional on purpose: it is a snapshot
+the bot builds whole.
+
+**Sixty-nine mutations, each killed. Six survived the first round and every
+one was the corpus.** The peak merge replacing the file's peaks survived until
+a fixture held a HIGHER peak on disk than in memory. The ledger keeping only
+this process's book needed two ledgers on one file. A ledger book that is a
+list, and a venue selection that is a list, needed a file of the right JSON
+kind with the wrong shape inside. The `/venues` card handed no venues needed
+the handler driven rather than the card. The learning status change breaking
+on a non-dict row needed that row planted. All six die now. One kill was
+reported by the driver for the wrong line: "the card ignores an unreadable
+file" printed a log line as its failure. Re-applied by hand, it dies on
+`test_the_card_says_the_file_did_not_read_not_disabled`.
+
+**The type ratchet found three `Any` returns from the helper, and the cure was
+the helper's signature, not casts.** `load_json_store` answered `Any` for
+every store, so seven callers returned it untyped. It is overloaded now: the
+default answers `dict`, and `shape=T` answers `T`. The executor's preference
+field holds an `int`, `None` or `UNREAD`, and says so. mypy fell 568 → 565
+(`assignment` 55 → 53, `no-any-return` 97 → 96) and was re-recorded. The
+honesty ratchet held at 713. Ruff's `I001` reads 598 against a baseline of 597
+on this branch and identically on the base commit it started from, so that +1
+is not this slice's and was not re-recorded.
+
+**And the helper's own docstring claimed more than it checked.** It said
+`read_json_store` "never raises", and a store's `check` is called outside its
+`try`. Every check in the tree reads only `dict.get` and `isinstance` on a
+value already of `shape`, so none can raise, and a `try` there would be a line
+no input reaches. The docstring says that instead.
+(`tests/test_an_unreadable_store_is_not_an_empty_one.py`,
+`tests/test_a_reader_of_an_unreadable_store_fails_closed.py`,
+`tests/test_the_vault_and_three_more_stores_keep_an_unreadable_file.py`,
+`tests/test_no_json_store_writes_over_a_failed_read.py`,
+`bot/utils/json_store.py`.)
+
+**The ratchet's one owned-elsewhere row was settled at merge, as the row said
+it would be.** The watch list was baselined "owned by the persistence slice,
+checked against `json_store` at merge", and that slice rewrote the loader in
+the same round. Merged, the rule finds no site there and the two-way rule
+refused the stale row, so it is deleted. Read against the helper, the loader
+refuses what the helper refuses and never writes over a failed read. It
+differs in one case: an empty file is unreadable there and a fresh start here.
+That is the stricter reading and it is sound: the watch list is saved through
+`atomic_write_json`, so an empty file is never this module's own output, and
+the operator is still enrolled for that run.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -11805,9 +13199,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **438 of 1049** reach for source text through `source_scan`, `code_only`
+Driven, **439 of 1090** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 438 is a FLOOR and the honest shape is
+source scan that rule does not see, so 439 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

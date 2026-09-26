@@ -38,8 +38,9 @@ ENVELOPE_VERSION = 1
 VALID_MODES = ("off", "shadow", "enforce")
 
 # Action kinds an agent (or a human) can ask to perform through a credential.
-# Only ``trade`` is ever fund-*bounded* rather than fund-*moving-out*; withdraw and
-# transfer move value OUT of the account and are denied unless doubly opted in.
+# ``trade`` keeps value inside the account; withdraw and transfer move it OUT and
+# are denied unless doubly opted in — and, once opted in, are bounded by the same
+# symbol scope and notional ceilings a trade is (``_bounds``, one copy).
 _TRADE_KINDS = ("trade",)
 _EXFIL_KINDS = ("withdraw", "transfer")
 # A deploy creates a contract on-chain (Contract Studio testnet deploy). It moves
@@ -235,6 +236,77 @@ def revoke(env: dict) -> dict:
 
 # ── authorize: deterministic, FAIL-CLOSED decision ────────────────────
 
+def _notional(action: dict) -> Optional[float]:
+    """The action's notional in USD, or None when it is not a reading.
+
+    ``0.0`` IS a reading — a contract call that moves no value is a measured
+    zero. A NEGATIVE figure is not: no action spends a negative amount, and
+    ``spent + (-1e6)`` would open a daily cap by exactly the amount asked."""
+    n = _num(action.get("notional_usd"))
+    return n if (n is not None and n >= 0) else None
+
+
+def _bounds(envelope: dict, action: dict, kind: str, spent_today_usd: Any,
+            result: dict) -> None:
+    """Symbol scope + the per-trade and daily notional ceilings — ONE copy.
+
+    Read by the trade branch and by the withdraw/transfer branch alike, so a
+    ceiling can never bind one kind of value movement and not the other again.
+    Appends to ``result["reasons"]``; never allows anything by itself.
+
+    UNKNOWN IS NEVER ZERO here, in three places:
+
+      * a notional nobody could state is refused under ANY ceiling — the
+        per-trade cap AND the daily cap. The daily check used to read an
+        unknown notional as ``0.0``, so $99 spent against a $100 cap let an
+        order of any size through;
+      * a day's spend nobody could read is refused under the daily cap, for
+        the same reason from the other side of the sum;
+      * an asset nobody named is refused under a symbol list, because a
+        blocklist cannot be checked against a name that is not there.
+    """
+    reasons: list[str] = result["reasons"]
+
+    asset = _base_symbol(action.get("asset"))
+    allow = envelope.get("symbol_allowlist") or []
+    block = envelope.get("symbol_blocklist") or []
+    if (allow or block) and not asset:
+        result["checked"] += 1
+        reasons.append(f"{kind} asset is not named — cannot check it against "
+                       "the authority's symbol list")
+    elif asset:
+        if allow:
+            result["checked"] += 1
+            if asset not in allow:
+                reasons.append(f"{asset} is not in the authorized symbol set ({', '.join(allow)})")
+        if block and asset in block:
+            result["checked"] += 1
+            reasons.append(f"{asset} is on the authority's blocklist")
+
+    notional = _notional(action)
+    per_trade = _num(envelope.get("max_notional_per_trade_usd"))
+    if per_trade is not None:
+        result["checked"] += 1
+        if notional is None:
+            reasons.append(f"{kind} notional is unknown — cannot authorize against the per-trade cap")
+        elif notional > per_trade + 1e-9:
+            reasons.append(f"{kind} notional ${notional:,.2f} exceeds per-trade cap ${per_trade:,.2f}")
+
+    daily = _num(envelope.get("max_notional_daily_usd"))
+    if daily is not None:
+        result["checked"] += 1
+        spent = _num(spent_today_usd)
+        if notional is None:
+            reasons.append(f"{kind} notional is unknown — cannot authorize against the daily cap")
+        elif spent is None:
+            reasons.append("the day's spend under this authority could not be read — "
+                           "cannot authorize against the daily cap")
+        elif spent + notional > daily + 1e-9:
+            reasons.append(
+                f"daily notional ${spent + notional:,.2f} would exceed the daily cap "
+                f"${daily:,.2f} (already spent ${spent:,.2f})")
+
+
 def authorize(envelope: Optional[dict], action: dict, *,
               now_ts: int, spent_today_usd: Any = 0.0) -> dict:
     """Decide whether ``action`` is within ``envelope``. FAIL-CLOSED.
@@ -243,7 +315,8 @@ def authorize(envelope: Optional[dict], action: dict, *,
     where ``kind`` ∈ {trade, withdraw, transfer}. ``now_ts`` is the caller's clock
     (ms or s epoch — compared only against ``expiry_ts`` in the same unit).
     ``spent_today_usd`` is the rolling 24h notional the caller has already spent
-    under this authority (the module holds no state).
+    under this authority (the module holds no state). ``None`` means the caller
+    could not read it, and is refused under a daily cap rather than read as 0.
 
     Returns ``{decision, reasons, envelope_id, hash, kind, checked}`` where
     ``decision`` is ``"allow"`` only when there are zero deny reasons.
@@ -277,7 +350,16 @@ def authorize(envelope: Optional[dict], action: dict, *,
     kind = result["kind"]
 
     # 2) Withdraw / transfer: OUT-of-account value movement. Denied unless the
-    #    envelope doubly opted in AND the destination is allowlisted.
+    #    envelope doubly opted in AND the destination is allowlisted — and then
+    #    bounded by the SAME symbol scope and notional ceilings a trade is.
+    #
+    #    This branch used to return right after the destination check, so the
+    #    per-trade cap, the daily cap and the symbol lists bound every trade and
+    #    no transfer at all: a $1,000,000 transfer of a blocklisted asset, on a
+    #    day already $1,000,000 past a $2 daily cap, came back ``allow``. Every
+    #    on-chain producer (the testnet signer, the execution preview, the yield
+    #    plan's first leg) asks as a ``transfer``, so the envelope capped none of
+    #    them. `_bounds` is the one copy both branches read.
     if kind in _EXFIL_KINDS:
         result["checked"] += 1
         if not envelope.get("withdraw_allowed"):
@@ -290,6 +372,7 @@ def authorize(envelope: Optional[dict], action: dict, *,
                 reasons.append(f"{kind} requires a destination")
             elif dest not in allowlist:
                 reasons.append(f"{kind} destination {dest} is not on the withdraw allowlist")
+        _bounds(envelope, action, kind, spent_today_usd, result)
         result["decision"] = "allow" if not reasons else "deny"
         return result
 
@@ -323,36 +406,7 @@ def authorize(envelope: Optional[dict], action: dict, *,
             elif mt not in mtypes:
                 reasons.append(f"market type '{mt}' is not authorized ({', '.join(mtypes)})")
 
-        asset = _base_symbol(action.get("asset"))
-        allow = envelope.get("symbol_allowlist") or []
-        block = envelope.get("symbol_blocklist") or []
-        if asset:
-            if allow:
-                result["checked"] += 1
-                if asset not in allow:
-                    reasons.append(f"{asset} is not in the authorized symbol set ({', '.join(allow)})")
-            if block and asset in block:
-                result["checked"] += 1
-                reasons.append(f"{asset} is on the authority's blocklist")
-
-        notional = _num(action.get("notional_usd"))
-        per_trade = _num(envelope.get("max_notional_per_trade_usd"))
-        if per_trade is not None:
-            result["checked"] += 1
-            if notional is None:
-                reasons.append("trade notional is unknown — cannot authorize against the per-trade cap")
-            elif notional > per_trade + 1e-9:
-                reasons.append(f"trade notional ${notional:,.2f} exceeds per-trade cap ${per_trade:,.2f}")
-
-        daily = _num(envelope.get("max_notional_daily_usd"))
-        if daily is not None:
-            result["checked"] += 1
-            spent = _num(spent_today_usd) or 0.0
-            n = notional if notional is not None else 0.0
-            if spent + n > daily + 1e-9:
-                reasons.append(
-                    f"daily notional ${spent + n:,.2f} would exceed the daily cap "
-                    f"${daily:,.2f} (already spent ${spent:,.2f})")
+        _bounds(envelope, action, kind, spent_today_usd, result)
 
         result["decision"] = "allow" if not reasons else "deny"
         return result

@@ -324,13 +324,16 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t("link_other_account", _user_lang(chat_id)))
         return
 
-    # Initial sync: push current portfolio state to website
-    try:
-        from bot.utils.website_sync import sync_in_background
-        portfolio = get_user_portfolio(user_id)
-        sync_in_background(user_id, portfolio.get("equity", 800), [], [])
-    except Exception as exc:
-        log.warning(f"Initial sync failed: {exc}")
+    # NOTHING IS PUSHED ON A LINK. An "initial sync" used to go out here:
+    # `sync_in_background(user_id, portfolio.get("equity", 800), [], [])`,
+    # built from `user_portfolio`, a table nothing writes -- so it was always
+    # the column default, $10,000, no positions, no closes. The endpoint it
+    # went to is the AGENT's record (`app/routes/sync.js` applies every push
+    # to the operator's rows whatever id it carries), so any linked user's
+    # /link deleted the agent's published trade history and equity curve and
+    # stamped a $10,000 paper default as the operator's equity. The linker's
+    # own dashboard reads their account from the bot when it loads
+    # (`app/routes/portfolio.js`), so there was never anything to push.
 
     await update.message.reply_text(
         t("link_success", _user_lang(chat_id), email=email, plan=plan,
@@ -406,21 +409,20 @@ async def cmd_me(update: Update, context: ContextTypes.DEFAULT_TYPE,
 @require_registered
 async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE,
                    uc: UserContext) -> None:
-    """Manually sync portfolio data to the website dashboard."""
-    try:
-        from bot.utils.website_sync import sync_portfolio
-        pf = uc.portfolio
-        positions = pf.get("positions", [])
-        history = pf.get("trade_history", [])
-        success = sync_portfolio(uc.user_id, pf["equity"], positions, history)
-        if success:
-            await update.message.reply_text(
-                t("sync_success", _user_lang(str(update.effective_chat.id)),
-                  equity=f"{pf['equity']:.2f}", positions=len(positions),
-                  trades=len(history), url=REGISTER_URL))
-        else:
-            await update.message.reply_text(t("sync_failed", _user_lang(str(update.effective_chat.id))))
-    except Exception as exc:
-        log.error(f"Sync command error: {exc}")
-        await update.message.reply_text(t("sync_failed", _user_lang(str(update.effective_chat.id))))
+    """Say that there is nothing to push, and push nothing.
+
+    This used to call `sync_portfolio(uc.user_id, pf["equity"], positions,
+    history)` and answer "Dashboard synced. Equity: $10000.00". Both halves
+    were false. `uc.portfolio` is `user_portfolio`, which nothing writes, so
+    the figures were the table's defaults; and `/api/bot/sync` is the AGENT's
+    record, applied to the operator's rows whatever user id it names -- so a
+    /sync by any linked user replaced the agent's published trade history
+    with an empty list and its equity curve with that $10,000. The caller's
+    own account received nothing. Their dashboard asks the bot for their
+    account each time it loads (`app/routes/portfolio.js`), so the honest
+    answer is that there is no separate copy to update.
+    """
+    await update.message.reply_text(
+        t("sync_nothing_to_push", _user_lang(str(update.effective_chat.id)),
+          url=REGISTER_URL))
 

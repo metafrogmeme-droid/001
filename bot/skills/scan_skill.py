@@ -12,6 +12,7 @@ from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.candles import drop_forming_candle
+from bot.core.position_telemetry import price_on_record
 from bot.formatters.drift_offer import (
     STOP_PCT,
     TARGET_PCT,
@@ -58,6 +59,21 @@ def _closed_trades_file() -> Optional[str]:
         return None
 
 
+def _first_present(row: dict, *keys: str):
+    """The value of the first of ``keys`` the row carries, or None.
+
+    The executor and the paper book name the same field differently
+    (``close_price`` / ``exit_price``). The first name PRESENT is the reading,
+    even when its value is None: a row that says its close price was not read
+    is not priced off another field. That is `_first_attr`'s rule for the
+    chat prompt's closed-trade line, over the same record.
+    """
+    for k in keys:
+        if k in row:
+            return row[k]
+    return None
+
+
 def _fetch_live_exchange_data() -> Optional[dict]:
     """Fetch real account balance, positions, and trade history from Bitget.
     Returns dict with equity, net_pnl, win_rate, total_trades, open_count,
@@ -70,6 +86,7 @@ def _fetch_live_exchange_data() -> Optional[dict]:
     import os
     from bot.config import CONFIG
     from bot.utils.win_rate import pnl_stats, trade_pnl, win_stats
+    from bot.utils.trade_filter import countable
 
     result: dict = {
         "equity": 0, "net_pnl": None, "win_rate": None,
@@ -104,6 +121,10 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             closed_trades = []
             result["closed_record_unreadable"] = True
 
+    # Only what counts as a trade, by the rule the website sync applies: the
+    # file also holds never-filled orders (booked at pnl 0.0) and adopted
+    # orphans, and the count, net and win rate below are published.
+    closed_trades = countable(closed_trades)
     total = len(closed_trades)
     # Both figures come from the SAME reader, so they agree about which rows
     # were legible. The executor writes `pnl_usd`; this file used to look for
@@ -121,8 +142,13 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         result["closed_trades"].append({
             "symbol": t.get("symbol", ""),
             "direction": t.get("direction", t.get("side", "")),
-            "entry_price": float(t.get("entry_price", t.get("entry", 0)) or 0),
-            "exit_price": float(t.get("exit_price", t.get("exit", 0)) or 0),
+            # The executor records the exit as `close_price` (closed_trade_row)
+            # and this row read `exit_price`/`exit` only, `or 0`, so every
+            # row published an exit of 0.0; the same `or 0` made an adopted
+            # entry nobody stated a measured $0. A price of zero is a level
+            # nobody stated: an unread price is None here, never 0.0.
+            "entry_price": price_on_record(_first_present(t, "entry_price", "entry")),
+            "exit_price": price_on_record(_first_present(t, "close_price", "exit_price", "exit")),
             "pnl": _p,                       # None, not 0 — see the module note
             "closed_at": t.get("closed_at", t.get("timestamp", "")),
         })
@@ -259,7 +285,11 @@ def _fetch_live_exchange_data() -> Optional[dict]:
                              else round(realized_pnl + unrealized_pnl, 2))
         result["win_rate"] = None if win_rate is None else round(win_rate, 1)
         result["total_trades"] = total
-        result["open_count"] = len(open_pos)
+        # A positions read that failed is not an empty book. `len(open_pos)`
+        # counted the `positions = []` the failed read left behind, and the
+        # payload's slot chip then read "Open Positions: 0/5" in green over a
+        # book nobody had looked at. None travels, as the equity does.
+        result["open_count"] = len(open_pos) if positions_read else None
 
         log.info("Live data: equity=%s, realized=%s, %d trades (%d wins, "
                  "%d unpriced), %d open",
@@ -279,11 +309,19 @@ def _fetch_live_exchange_data() -> Optional[dict]:
 def _file_only_result(result: dict, total: int, realized_pnl, win_rate):
     """The exchange leg failed; publish what the trade file alone supports.
 
-    Equity stays 0 here and the caller treats that as "unknown" — the point of
-    this path is the realized record, which does not need the exchange.
+    The trade file supports the realized record and nothing about the account
+    as it stands, so the equity and the open-position count are None here.
+    This docstring used to say "Equity stays 0 here and the caller treats that
+    as unknown", and the caller did so only while the engine's balance cache
+    was fresh: with the cache stale, the 0 and the default open count of 0
+    were published as the live account's balance and a flat book, and the
+    slot chip read "Open Positions: 0/5" in green. Every /venue switch away
+    from Bitget takes this path on every scan.
     """
     if total <= 0 and not result.get("closed_record_unreadable"):
         return None
+    result["equity"] = None
+    result["open_count"] = None
     result["net_pnl"] = None if realized_pnl is None else round(realized_pnl, 2)
     result["win_rate"] = None if win_rate is None else round(win_rate, 1)
     result["total_trades"] = total
@@ -511,8 +549,10 @@ def _build_scan_payload(results: list[dict], engine=None,
                     live_data.get("closed_record_unreadable")
                     or live_data.get("open_positions_unread"))
                 live_data_loaded = True
-                log.info("Live exchange data loaded: equity=$%.2f, %d trades, %d open",
-                         cb_equity, cb_total_trades, cb_open_count)
+                log.info("Live exchange data loaded: equity=%s, %d trades, %s open",
+                         "unread" if cb_equity is None else f"${cb_equity:.2f}",
+                         cb_total_trades,
+                         "unread" if cb_open_count is None else cb_open_count)
         except Exception as exc:
             log.warning("Failed to fetch live exchange data: %s", exc)
 
@@ -570,11 +610,17 @@ def _build_scan_payload(results: list[dict], engine=None,
         except Exception as exc:
             log.debug("Engine balance-cache fallback failed: %s", exc)
 
-    if _live_mode and not live_data_loaded:
+    if _live_mode and (not live_data_loaded or cb_equity is None):
         # Live mode but the exchange balance could not be read. Do NOT
         # masquerade the $10k paper baseline as the live account (that made the
         # website show paper while the real account was live) — flag it
         # unavailable so the dashboard shows the truth.
+        #
+        # `live_data_loaded` says the readout RETURNED, not that it read a
+        # balance: the file-only result returns the realized record with no
+        # balance at all, and a readout whose fetch answered with no USDT
+        # total returns None for it. With the cache stale neither reaches a
+        # balance, and the flag stayed False over an equity nobody read.
         live_unavailable = True
         cb_equity = None
         log.warning("Live telemetry: exchange balance unavailable — marking the "
@@ -1056,6 +1102,37 @@ def _scan_verify_links(payload: dict) -> dict:
     return out
 
 
+def scan_action_rows(top_setups: list[dict], gate: dict) -> tuple[str, list]:
+    """The scan card's actions: ``(header, rows)``, each row a list of
+    ``(label, callback_data)``.
+
+    On 2026-09-25 this card offered "Actions — tap to execute" with a ✅ per
+    setup while the live-performance governor was refusing every entry, so the
+    tap was answered "Risk: REJECTED" and nothing else could have happened.
+    The buttons are offered only when the caller's entry gate (`entry_gate`,
+    the one reading every status surface asks) is not BLOCKED; when it is,
+    the header is the gate's own sentence and there are no buttons. An
+    UNREAD gate still offers them: the risk gate decides at the tap, and a
+    status that could not be read is not a refusal.
+    """
+    import html as _html
+
+    from bot.core.trade_gate import gate_sentence
+
+    if gate.get("blocked"):
+        return ("\u26d4 <b>No actions</b> — " + _html.escape(gate_sentence(gate))
+                + " Nothing on this card can be placed until that changes.", [])
+    rows = []
+    for r in top_setups:
+        sym_short = r["sym"].replace("/USDT", "")
+        rows.append([
+            (f"\u2705 {sym_short}", f"scan_confirm:{r['sym']}:{r['dir']}:{r['price']}"),
+            ("Limit", f"scan_limit:{r['sym']}:{r['dir']}:{r['price']}"),
+            ("Skip", f"scan_reject:{r['sym']}"),
+        ])
+    return "\u2694\ufe0f <b>Actions</b> — tap to execute", rows
+
+
 def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | None = None) -> None:
     """Push the scan payload to the website (scan + signal stream).
 
@@ -1439,17 +1516,13 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
                             f"\U0001f916 <b>AI Summary:</b>\n{summary}")
 
     # ── Build per-setup action buttons (max 6 rows) ──
-    buttons = []
-    for r in top_setups:
-        sym_short = r["sym"].replace("/USDT", "")
-        buttons.append([
-            InlineKeyboardButton(f"\u2705 {sym_short}",
-                                 callback_data=f"scan_confirm:{r['sym']}:{r['dir']}:{r['price']}"),
-            InlineKeyboardButton("Limit",
-                                 callback_data=f"scan_limit:{r['sym']}:{r['dir']}:{r['price']}"),
-            InlineKeyboardButton("Skip",
-                                 callback_data=f"scan_reject:{r['sym']}"),
-        ])
+    # Asked of the caller's own entry gate first: a button whose only possible
+    # answer is a refusal is a door painted on a wall (scan_action_rows).
+    from bot.core.trade_gate import entry_gate
+    _caller = str(update.effective_user.id) if update.effective_user else ""
+    btn_text, rows = scan_action_rows(top_setups, entry_gate(engine, _caller))
+    buttons = [[InlineKeyboardButton(label, callback_data=data) for label, data in row]
+               for row in rows]
 
     kb = InlineKeyboardMarkup(buttons) if buttons else None
 
@@ -1460,17 +1533,20 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await msg.delete()
         except Exception:
             pass
-        btn_text = "\u2694\ufe0f <b>Actions</b> — tap to execute"
         if ai and results:
             summary = await _ai_summary(results[:15])
             btn_text += f"\n\n\U0001f916 <b>AI:</b> {summary}"
         chat_id = update.effective_chat.id if update.effective_chat else None
-        if chat_id and kb:
+        # A refusal is sent although it carries no buttons: it is the reason
+        # there are none, and without it the card simply has no actions.
+        if chat_id and (kb or top_setups):
             await context.bot.send_message(
                 chat_id=chat_id, text=btn_text,
                 parse_mode="HTML", reply_markup=kb)
     else:
         # Fallback: plain text with buttons (no Pillow or card failed)
+        if top_setups and not buttons:
+            text += "\n\n" + btn_text
         await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
     # Push scan data to website dashboard

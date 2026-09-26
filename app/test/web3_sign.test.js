@@ -3,8 +3,9 @@
  * WEB3-LIVE-EXEC slice 2 — the /api/web3/sign relay (admin-only, testnet-only).
  *
  * The route is a thin admin-authed relay to the bot gateway, which owns the
- * signing key, the triple-gated default-OFF signing gate, the testnet-only
- * enforcement, and the envelope authorize(). Source-asserted: the route is
+ * signing key, the signing gate (its switches default ON; the key, library and
+ * enforcing envelope are what arm it), the testnet-only enforcement, the
+ * pricing of what is signed, and the envelope authorize(). Source-asserted: the route is
  * auth-gated, forwards the resolved identity + transfer params, and never
  * carries a private key or a broadcast flag over the wire.
  */
@@ -36,4 +37,15 @@ test('the sign relay forwards only the transfer parameters', () => {
   assert.match(route, /value_wei:/);
   assert.match(route, /nonce:/);
   assert.match(route, /to: String\(b\.to/);
+});
+
+test('the relay forwards no dollar size and no asset — the bot prices what it signs', () => {
+  // The envelope used to be asked about a client `amount_usd` (always null
+  // from the dashboard) and a client `asset`, while a different `value_wei`
+  // was signed. The bot reads both itself now; forwarding them is a field
+  // written on the wire and read by nobody.
+  const sign = route.slice(route.indexOf("router.post('/sign'"));
+  const body = sign.slice(0, sign.indexOf('}, 20000)'));
+  assert.ok(!/amount_usd/.test(body), 'amount_usd is not forwarded');
+  assert.ok(!/\basset\s*:/.test(body), 'asset is not forwarded');
 });

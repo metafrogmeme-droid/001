@@ -101,7 +101,7 @@ def reconcile_open_orders(exchange_orders, tracked_pending, per_symbol_orders):
     return [synth_order_from_tracked(p) for p in tracked_pending], True
 
 
-async def resolve_desync_orders(exchange, tracked_pending):
+async def resolve_desync_orders(exchange, tracked_pending, read_order=None):
     """Resolve an open-orders desync definitively instead of guessing.
 
     When fetch_open_orders (account-wide AND per-symbol) shows nothing but
@@ -115,6 +115,13 @@ async def resolve_desync_orders(exchange, tracked_pending):
     Returns ``(notes, synth_orders)``: human-readable resolution lines, and
     ccxt-shaped dicts for records that still merit rendering as open (order
     genuinely resting, or status unverifiable).
+
+    ``read_order(order_id, symbol)`` is how one order is read back. The
+    executor's own (`LiveExecutor._fetch_order`) maps the recorded symbol to
+    the venue's market and adds the venue's read params — on Bybit the bare
+    read asks the SPOT market and ccxt refuses it outright on a unified
+    account. `read_open_orders` hands it; the bare exchange read is only the
+    default for a caller that holds no executor.
     """
     notes: list = []
     synths: list = []
@@ -126,7 +133,10 @@ async def resolve_desync_orders(exchange, tracked_pending):
         status = None
         if oid:
             try:
-                order = await exchange.fetch_order(oid, p.symbol)
+                if read_order is not None:
+                    order = await read_order(oid, p.symbol)
+                else:
+                    order = await exchange.fetch_order(oid, p.symbol)
                 status = (order.get("status") or "").lower()
             except Exception:
                 status = None
@@ -285,7 +295,12 @@ async def read_open_orders(executor, *, now: Optional[datetime] = None,
         seen_ids: set = set()
         for p in tracked_pending:
             try:
-                per = await exchange.fetch_open_orders(p.symbol)
+                # The venue's spelling: the recorded symbol is the bot's spot
+                # form, which on Bybit lists the SPOT book, where the bot's
+                # own perp limits never rest.
+                if venue is None:
+                    raise RuntimeError("no venue to spell the symbol in")
+                per = await exchange.fetch_open_orders(venue.order_symbol(p.symbol))
             except Exception:
                 per = []
             for o in (per or []):
@@ -300,7 +315,11 @@ async def read_open_orders(executor, *, now: Optional[datetime] = None,
         # Don't guess ("may have filled or been cancelled — verify on the
         # venue"): fetch each tracked order by id and say what happened.
         # Filled/cancelled orders drop out — they are not open.
-        notes, orders = await resolve_desync_orders(exchange, tracked_pending)
+        _fetch = getattr(executor, "_fetch_order", None)
+        _read = ((lambda oid, sym: _fetch(exchange, oid, sym))
+                 if callable(_fetch) else None)
+        notes, orders = await resolve_desync_orders(exchange, tracked_pending,
+                                                    read_order=_read)
 
     rows = [classify_order(o, now=now, expire_sec=expire_sec) for o in orders]
 

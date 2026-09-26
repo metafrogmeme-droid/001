@@ -112,7 +112,7 @@ def main() -> int:
     for s in report["scenarios"]:
         by_cat.setdefault(s["category"], []).append(s)
 
-    print(f"AUTHORITY RED TEAM — {total} custody attacks against the live "
+    print(f"AUTHORITY RED TEAM — {total} custody scenarios against the live "
           f"authorize()\n")
     for cat in sorted(by_cat):
         rows = by_cat[cat]
@@ -129,8 +129,9 @@ def main() -> int:
         print(f"✗ {report['failed']} of {total} custody scenarios were handled "
               f"wrongly ({report['pass_rate']}% correct)")
         return 1
-    print(f"✓ all {total} custody attacks were denied, and the in-bounds "
-          "control action was allowed")
+    controls = sum(1 for s in report["scenarios"] if s["category"] == "control")
+    print(f"✓ all {total - controls} custody attacks were denied, and the "
+          f"{controls} in-bounds control action(s) allowed")
     return 0
 
 

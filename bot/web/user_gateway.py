@@ -46,6 +46,7 @@ from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from bot.skills.telegram_handler import TelegramHandler
 
+from bot.core.confirm_result import placed_nothing
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -66,7 +67,6 @@ from bot.skills.skill_permissions import (
 from bot.utils.i18n import t, ui_lang
 from bot.utils.logger import audit, system_log
 from bot.utils.outbound import reply_safe
-from bot.utils.paths import env_state_path
 
 # Fail-closed: gateway refuses all requests unless the operator configured a
 # strong shared secret on both sides (bot + Express).
@@ -1593,9 +1593,10 @@ async def handle_contract_deploy(request: web.Request) -> web.Response:
     """Contract Studio slice 5 — admin-only, TESTNET-ONLY one-click deploy of a
     compiled contract's init bytecode. This is a contract-CREATION sign+broadcast
     (``to`` omitted, ``data`` = bytecode), run through the SAME fail-closed spine
-    as the value-transfer signer: triple-gated default-OFF (feature + signing +
-    key + eth-account library + an enforcing envelope), authorized through the
-    Authority Envelope as a ``deploy``, mainnet refused regardless of any flag.
+    as the value-transfer signer: the feature and signing switches (both default
+    ON, either set off hard-disables) + the operator's key + the eth-account
+    library + an enforcing envelope, authorized through the Authority Envelope
+    as a ``deploy``, mainnet refused regardless of any flag.
     NEVER returns or logs the signing key (F-15 on every error path)."""
     import time as _time
     tg_handler = request.app["tg_handler"]
@@ -1736,9 +1737,19 @@ async def handle_cross_plan(request: web.Request) -> web.Response:
     except Exception:
         envelope = None
 
+    # The day's spend under this authority, from the ONE ledger every envelope
+    # reader shares (the web-live gate records into it, the risk sentry reads
+    # it, the testnet signer records into it). It used to be the literal 0.0,
+    # so both the envelope's daily cap and the policy's were measured against a
+    # day with nothing spent. None on a failed read: both refuse it by name.
+    _now = _time.time()
+    try:
+        spent: Optional[float] = _web_live_ledger().spent(tg_id, _now)
+    except Exception:
+        spent = None
     decision = evaluate_yield_move(
         move=move, to_chain=to_chain, dest=dest, envelope=envelope,
-        now_ts=_time.time(), spent_today_usd=0.0)
+        now_ts=_now, spent_today_usd=spent)
     return web.json_response({
         "verdict": decision["verdict"],
         "gates": decision["gates"],
@@ -1747,10 +1758,12 @@ async def handle_cross_plan(request: web.Request) -> web.Response:
         "stables_only_ok": decision["stables_only_ok"],
         "horizon_days": decision["horizon_days"],
         "policy": [dict(r) for r in DEFAULT_YIELD_POLICY],
+        "supplied_by_caller": decision["supplied_by_caller"],
         "read_only": True,
         "note": ("Preview only — nothing is signed here. When the verdict is "
                  "'execute', sign the first-leg transfer through the admin "
-                 "testnet signer; bridge + deposit legs are a later slice."),
+                 "testnet signer; bridge + deposit legs are a later slice. "
+                 + decision["provenance"]),
         "intent": "cross_yield_plan",
     })
 
@@ -2062,6 +2075,7 @@ def _web_live_decision(app, tg_handler, tg_id: str):
     return web_live_gate.evaluate(
         feature_enabled=web_live_gate.feature_enabled(),
         bot_is_live=CONFIG.is_live(),
+        routes_to_own_account=web_live_gate.routes_to_own_account(CONFIG),
         user_opted_in=user_opted_in,
         has_own_keys=has_keys,
         envelope_enforcing=_web_envelope_enforcing(app, tg_id),
@@ -2072,13 +2086,13 @@ _WEB_LIVE_LEDGER = None
 
 
 def _web_live_ledger():
-    """Process-wide 24h notional spend ledger for web-live authority checks."""
+    """Process-wide 24h notional spend ledger for authority checks — the one
+    `authority_ledger.user_spend_ledger()`, so the meme preflight (which does
+    not import the gateway) reads the same day this module records."""
     global _WEB_LIVE_LEDGER
     if _WEB_LIVE_LEDGER is None:
-        from bot.guardian.authority_ledger import AuthoritySpendLedger
-        _WEB_LIVE_LEDGER = AuthoritySpendLedger(
-            state_file=str(env_state_path("WEB_LIVE_LEDGER_PATH",
-                                          "data/web_live_ledger.json")))
+        from bot.guardian.authority_ledger import user_spend_ledger
+        _WEB_LIVE_LEDGER = user_spend_ledger()
     return _WEB_LIVE_LEDGER
 
 
@@ -2134,6 +2148,31 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
     except Exception as exc:
         system_log.warning("Web-live authorization error for %s: %s", tg_id, exc)
         return False, ["authorization check failed"]
+
+
+def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
+    """None when this web id's live order would run on an account of its own,
+    else why not. FAIL-CLOSED: a resolver that raises or answers nothing is a
+    refusal, because "could not tell whose account" is not "the user's
+    account".
+
+    The web live gate's premise is that the order runs on the user's OWN keys.
+    `engine._executor_for` is what decides that, and with per-user live off --
+    or on, for a user whose keys it cannot use -- it answers
+    `engine.live_executor`, the operator's account.
+    """
+    operator = getattr(engine, "live_executor", None)
+    try:
+        ex = engine._executor_for(tg_id)
+    except Exception as exc:
+        system_log.warning("Web-live executor resolution failed for %s: %s",
+                           tg_id, type(exc).__name__)
+        return "the account this order would run on could not be resolved"
+    if ex is None:
+        return "no account of your own could be resolved for this order"
+    if ex is operator:
+        return "this order would run on the operator's account, not yours"
+    return None
 
 
 def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
@@ -2300,6 +2339,20 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
             return web.json_response(
                 {"error": "live_not_enabled", "detail": dec.reason,
                  "checklist": dec.checklist}, status=403)
+        # The gate says the order SHOULD route to the user's own account; this
+        # asks the resolver where it WOULD route. Per-user live on is not a
+        # measurement of the resolver, which still answers the operator's
+        # executor for a user whose keys it cannot use. Asked BEFORE the
+        # envelope authorizes, because authorizing records this order's
+        # notional against the 24h cap, and an order refused here places
+        # nothing.
+        why = _operator_account_refusal(engine, tg_id)
+        if why is not None:
+            audit(system_log, f"Web-live trade REFUSED: {trade_id} ({why})",
+                  action="web_live_own_account", result="REFUSED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"error": "not_own_account", "detail": why}, status=403)
         # Gate passed → this trade will route LIVE on the user's own keys. The
         # enforce-mode Authority Envelope must now authorize THIS specific order
         # (venue, symbol, notional, 24h spend). Fail-closed: any deny blocks it.
@@ -2315,10 +2368,45 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         if not tg_handler._can_trade_live(tg_id):
             return web.json_response({"error": "live_not_enabled"}, status=403)
     result = await engine.confirm_trade(trade_id, user_id=tg_id)
-    request.app["proposers"].pop(trade_id, None)
-    audit(system_log, f"Web trade confirm: {trade_id}",
-          action="web_trade_confirm", result="OK", data={"user": tg_id})
-    return web.json_response({"result_html": result})
+    # A REFUSAL IS NOT A CONFIRMED TRADE, and this handler used to answer
+    # every sentence `confirm_trade` can write with a 200 `{result_html}` and
+    # an audit line reading OK -- the risk gate's refusal, the duplicate skip,
+    # "Paper trading is disabled", the chosen-strategy refusal, the practice
+    # cooldown -- and both browser surfaces read a 200 as a trade: the modal
+    # closed on a green "Trade confirmed." and the chat card printed the
+    # refusal under nothing saying that nothing was placed. `placed_nothing`
+    # is the one reading of that sentence (the Telegram Confirm button asks
+    # it too), and `placed` rides beside the text so the browser never has
+    # to guess from a status code that only says the request was handled.
+    placed = not placed_nothing(result)
+    # The proposer entry goes when the idea does. Most refusals leave the idea
+    # pending (a price drift, the strategy gate, the risk re-check, an order
+    # the venue refused), and dropping the entry anyway left a pending idea its
+    # proposer could neither re-confirm nor CANCEL -- both doors check this
+    # map -- until the engine's TTL swept it. A placement always takes the
+    # idea off the book (C-05 in `_confirm_trade_inner`, and the practice
+    # fill), so asking the book answers both cases with one reading.
+    if trade_id not in getattr(engine, "_pending_ideas", {}):
+        request.app["proposers"].pop(trade_id, None)
+    if placed:
+        audit(system_log, f"Web trade confirm: {trade_id}",
+              action="web_trade_confirm", result="OK", data={"user": tg_id})
+    else:
+        audit(system_log, f"Web trade confirm REFUSED: {trade_id}",
+              action="web_trade_confirm", result="REFUSED",
+              data={"user": tg_id, "reason": _refusal_line(result)})
+    return web.json_response({"result_html": result, "placed": placed})
+
+
+def _refusal_line(result) -> str:
+    """The refusal's first line for the audit record: no markup, no dollar
+    figure, no secret shape, bounded. A refusal can quote a price, a drift in
+    dollars or an exception's text, and the record needs the WHY, not those."""
+    from bot.marketing.public_text import scrub_money
+    first = str(result or "").strip().split("\n", 1)[0]
+    first = re.sub(r"<[^>]+>", "", first)
+    first, _removed = scrub_money(first)
+    return reply_safe(first)[:160]
 
 
 async def handle_trade_live_mode(request: web.Request) -> web.Response:
@@ -3035,7 +3123,14 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     from bot.core import user_strategy_store
     from bot.core.strategy_gate import describe_gates
     from bot.skills.skill_registry import RunStrategySkill
-    entry = user_strategy_store.get_entry(tg_id)
+    try:
+        entry = user_strategy_store.get_entry(tg_id)
+    except user_strategy_store.StoreUnreadable:
+        # Not `selected: null`: that reads as "no strategy armed", and nobody
+        # read the file to say so. The confirm path refuses meanwhile.
+        return web.json_response(
+            {"error": "strategy_store_unreadable",
+             "detail": user_strategy_store.UNREAD_SENTENCE}, status=503)
     selected = entry if isinstance(entry, str) else None
     presets = []
     for key in sorted(RunStrategySkill.PRESETS):
@@ -3092,8 +3187,19 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     from bot.core.strategy_gate import resolve_key
     from bot.skills.skill_registry import RunStrategySkill
     raw = str(body.get("strategy") or "").strip().lower()
+    # A write refused over an unreadable file, or one that did not land, left
+    # the selection where it was; answering `selected: null` or the new key
+    # over either would be a claim about a file nothing changed.
+    _unread = web.json_response(
+        {"error": "strategy_store_unreadable",
+         "detail": user_strategy_store.UNREAD_SENTENCE}, status=503)
     if raw in ("", "off", "none", "clear"):
-        user_strategy_store.clear(tg_id)
+        try:
+            user_strategy_store.clear(tg_id)
+        except user_strategy_store.StoreUnreadable:
+            return _unread
+        except OSError:
+            return web.json_response({"error": "store_failed"}, status=500)
         audit(system_log, f"Web strategy cleared for {tg_id}",
               action="web_user_strategy", result="CLEARED")
         return web.json_response({"selected": None})
@@ -3103,8 +3209,11 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     # database. The store re-validates — a caller's projection is never
     # trusted blindly — and the snapshot is explicitly a copy, not a link.
     if str(body.get("kind") or "").lower() == "community":
-        stored = user_strategy_store.set_custom(
-            tg_id, body.get("slug"), body.get("label"), body.get("gates"))
+        try:
+            stored = user_strategy_store.set_custom(
+                tg_id, body.get("slug"), body.get("label"), body.get("gates"))
+        except user_strategy_store.StoreUnreadable:
+            return _unread
         if stored is None:
             return web.json_response({"error": "bad_snapshot"}, status=400)
         audit(system_log, f"Web community strategy armed for {tg_id}: {stored['slug']}",
@@ -3120,7 +3229,10 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
     if key is None:
         return web.json_response({"error": "unknown_strategy"}, status=404)
-    stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
+    try:
+        stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
+    except user_strategy_store.StoreUnreadable:
+        return _unread
     if stored is None:
         return web.json_response({"error": "store_failed"}, status=500)
     audit(system_log, f"Web strategy set for {tg_id}: {stored}",
@@ -3159,7 +3271,11 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
     publication (the same bundle /proof serves openly), re-verified at read
     time: the returned ``verified`` flag is a fresh hash+signature check, never
     a stored claim. 404 for any address that is not the published agent —
-    the directory only ever states what a sealed publication backs."""
+    the directory only ever states what a sealed publication backs.
+
+    A publication that could not be READ is a 503, never that 404: the relay
+    caches a 404 and the website calls ``unknown_agent`` a measured absence,
+    and nobody read the file that would say whether this agent is published."""
     addr = str(request.match_info.get("address") or "").strip().lower()
     if not _AGENT_ADDR_RE.match(addr):
         return web.json_response({"error": "invalid_address"}, status=400)
@@ -3167,8 +3283,10 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
         from bot.proofofpnl.erc8004 import human_readable, verify_card
         from bot.proofofpnl.publish import get_publication_store
         pub = get_publication_store().read()
-    except Exception:
-        pub = None
+    except Exception as exc:
+        system_log.warning("Public agent card: publication unreadable (%s)",
+                           type(exc).__name__)
+        return web.json_response({"error": "unavailable"}, status=503)
     card = ((pub or {}).get("bundle") or {}).get("identity_card")
     card_addr = str(((card or {}).get("identity") or {}).get("agent_address") or "")
     if not card or card_addr.lower() != addr:
@@ -3346,6 +3464,41 @@ def _compile_user_envelope(text: str, mode: str = "shadow"):
     return env, parsed
 
 
+def _authority_unreadable(action: str, tg_id: str) -> web.Response:
+    """The answer for an authority store that could not be read: nothing was
+    changed and nothing reads as bound. A 503 and a sentence, never the
+    "no envelope" answer, which is a claim about a file nobody read."""
+    from bot.guardian.user_authority_store import UNREAD_SENTENCE
+    audit(system_log, "Authority store could not be read — nothing changed",
+          action=action, result="UNREADABLE", data={"user": tg_id})
+    return web.json_response({"ok": False, "error": "authority_store_unreadable",
+                              "detail": UNREAD_SENTENCE}, status=503)
+
+
+def _held_in_memory(store, tg_id: str, *, envelope_id=None, mode=None,
+                    revoked=None) -> bool:
+    """Did a store write that returned False leave its change IN MEMORY?
+
+    `UserAuthorityStore`'s writers return False both for "nothing to change"
+    and for "changed in memory, and the write did not land". Only the second
+    is a change that will be undone on restart, and only the store's current
+    reading can tell them apart. Unreadable reads False — the caller then
+    answers with its ordinary refusal rather than claiming a change."""
+    try:
+        held = store.get(tg_id)
+    except Exception:
+        return False
+    if not held:
+        return False
+    if envelope_id is not None and held.get("envelope_id") != envelope_id:
+        return False
+    if mode is not None and str(held.get("mode", "")).lower() != mode:
+        return False
+    if revoked is not None and bool(held.get("revoked")) != revoked:
+        return False
+    return True
+
+
 async def handle_authority_preview(request: web.Request) -> web.Response:
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -3385,7 +3538,7 @@ async def handle_authority_apply(request: web.Request) -> web.Response:
         return web.json_response({"error": "text required"}, status=400)
     try:
         from bot.guardian.authority import human_readable
-        from bot.guardian.user_authority_store import get_user_authority_store
+        from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
         env, parsed = _compile_user_envelope(text, mode)
         if parsed["unmatched"]:
             return web.json_response(
@@ -3393,7 +3546,22 @@ async def handle_authority_apply(request: web.Request) -> web.Response:
                  "detail": "I couldn't turn that into any limits. Try phrasings "
                            "like “only majors”, “max $500 per trade”, “$2000 a "
                            "day”, “only on bitget”."}, status=400)
-        bound = get_user_authority_store().bind(tg_id, env)
+        _astore = get_user_authority_store()
+        try:
+            bound = _astore.bind(tg_id, env)
+        except StoreUnreadable:
+            return _authority_unreadable("web_authority_apply", tg_id)
+        if not bound and _held_in_memory(_astore, tg_id,
+                                         envelope_id=env.get("envelope_id")):
+            audit(system_log, f"User bound authority envelope ({mode}) "
+                  f"{env.get('envelope_id')} IN MEMORY ONLY",
+                  action="web_authority_apply", result="NOT_PERSISTED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "mode": mode, "envelope_id": env.get("envelope_id"),
+                 "detail": "Saved in memory only — not persisted; the previous "
+                           "authority comes back on restart."}, status=500)
         audit(system_log, f"User bound authority envelope ({mode}) {env.get('envelope_id')}",
               action="web_authority_apply", result=mode, data={"user": tg_id})
         return web.json_response({"ok": bound, "mode": mode,
@@ -3414,9 +3582,22 @@ async def handle_authority_mode(request: web.Request) -> web.Response:
     mode = str(body.get("mode") or "").lower()
     if mode not in ("off", "shadow", "enforce"):
         return web.json_response({"error": "bad_mode"}, status=400)
-    from bot.guardian.user_authority_store import get_user_authority_store
-    ok = get_user_authority_store().set_mode(tg_id, mode)
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
+    _astore = get_user_authority_store()
+    try:
+        ok = _astore.set_mode(tg_id, mode)
+    except StoreUnreadable:
+        return _authority_unreadable("web_authority_mode", tg_id)
     if not ok:
+        if _held_in_memory(_astore, tg_id, mode=mode):
+            audit(system_log, f"User set authority mode {mode} IN MEMORY ONLY",
+                  action="web_authority_mode", result="NOT_PERSISTED",
+                  data={"user": tg_id})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "mode": mode,
+                 "detail": f"Mode set to {mode} in memory only — not persisted; "
+                           "it reverts on restart."}, status=500)
         return web.json_response({"error": "no_envelope"}, status=404)
     audit(system_log, f"User set authority mode {mode}", action="web_authority_mode",
           result=mode, data={"user": tg_id})
@@ -3429,14 +3610,21 @@ async def handle_authority_status(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    from bot.guardian.user_authority_store import get_user_authority_store
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
     from bot.guardian.authority import human_readable
     store = get_user_authority_store()
-    env = store.get(tg_id)
+    try:
+        env = store.get(tg_id)
+        mode = store.mode(tg_id)
+    except StoreUnreadable:
+        # Not "bound: false": that is a claim about the file, and nobody read
+        # it. The panel's error state and the readiness axis's "not yet
+        # observed" are both reached from a non-200.
+        return _authority_unreadable("web_authority_status", tg_id)
     dec = _web_live_decision(request.app, tg_handler, tg_id)
     return web.json_response({
         "bound": env is not None,
-        "mode": store.mode(tg_id),
+        "mode": mode,
         "human_readable": human_readable(env) if env else "",
         "envelope_id": (env or {}).get("envelope_id", ""),
         "live_ready": dec.allowed,
@@ -3452,11 +3640,29 @@ async def handle_authority_revoke(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    from bot.guardian.user_authority_store import get_user_authority_store
-    revoked = get_user_authority_store().revoke(tg_id)
+    from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
+    _astore = get_user_authority_store()
+    try:
+        revoked = _astore.revoke(tg_id)
+    except StoreUnreadable:
+        return _authority_unreadable("web_authority_revoke", tg_id)
+    if not revoked and _held_in_memory(_astore, tg_id, revoked=True):
+        # The kill-switch's one unforgivable answer is "revoked" over a write
+        # that did not land: this process stays revoked, and the next restart
+        # reads the file and comes back ENFORCING. Say that, as a failure.
+        audit(system_log, "User revoked authority envelope IN MEMORY ONLY",
+              action="web_authority_revoke", result="NOT_PERSISTED",
+              data={"user": tg_id})
+        return web.json_response(
+            {"ok": False, "revoked": True, "persisted": False,
+             "error": "not_persisted",
+             "detail": "Revoked in memory only — not persisted; it will come "
+                       "back on restart. Revoke again once the store is "
+                       "writable."}, status=500)
     audit(system_log, "User revoked authority envelope", action="web_authority_revoke",
           result=str(bool(revoked)), data={"user": tg_id})
-    return web.json_response({"ok": True, "revoked": bool(revoked)})
+    return web.json_response({"ok": True, "revoked": bool(revoked),
+                              "persisted": bool(revoked)})
 
 
 # ── Intent Compiler authoring (OPERATOR only) ────────────────────────────────
@@ -3934,8 +4140,19 @@ async def handle_account_purge(request: web.Request) -> web.Response:
     # envelope left behind would be waiting for whoever links that id next.
     try:
         from bot.guardian.user_authority_store import get_user_authority_store
-        result["live_authority"] = (
-            "deleted" if get_user_authority_store().clear(tg_id) else "none")
+        _astore = get_user_authority_store()
+        # "none" is a claim that nothing was bound. A binding cleared in memory
+        # whose write did not land comes back on restart, so it is an error,
+        # never "deleted" and never "none".
+        _had = _astore.get(tg_id) is not None
+        if _astore.clear(tg_id):
+            result["live_authority"] = "deleted"
+        elif _had:
+            system_log.warning("purge: authority cleared in memory only for %s — "
+                               "the write did not land", tg_id)
+            result["live_authority"] = "error"
+        else:
+            result["live_authority"] = "none"
     except Exception as exc:                      # pragma: no cover - defensive
         system_log.warning("purge: authority failed for %s: %s", tg_id, exc)
         result["live_authority"] = "error"
@@ -4343,8 +4560,14 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 1 — admin-only, envelope-gated DRY-RUN PREVIEW of an
     on-chain action. It NEVER signs or broadcasts: it proves the full gate +
     Authority-Envelope authorization path and returns a preview (the way the
-    proof-of-PnL anchor dry-run does). Signing and broadcast ship in a later,
-    separately-gated slice — this handler must never call a signer or send a tx.
+    proof-of-PnL anchor dry-run does). Signing and broadcast go through the
+    separate, testnet-only signer (``handle_web3_sign``) — this handler must
+    never call a signer or send a tx.
+
+    Its notional is the CALLER's: a token swap's dollar size cannot be read here
+    without pricing arbitrary tokens, so the preview authorizes the figure it
+    was given and says so (``amount_basis``) rather than presenting it as a
+    reading. The day's spend IS read — from the one authority ledger.
 
     The on-chain action is authorized as a TRANSFER: value leaving the account to
     a destination, so the envelope must have withdraw_allowed AND the destination
@@ -4400,7 +4623,12 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
         auth_action = {"kind": "transfer",
                        "asset": action_in["to_token"] or action_in["from_token"],
                        "notional_usd": notional, "dest": action_in["dest"] or None}
-        result = authorize(env, auth_action, now_ts=_time.time(), spent_today_usd=0.0)
+        _now = _time.time()
+        try:
+            _spent: Optional[float] = _web_live_ledger().spent(tg_id, _now)
+        except Exception:
+            _spent = None           # refused by name under a daily cap, never 0
+        result = authorize(env, auth_action, now_ts=_now, spent_today_usd=_spent)
         if result.get("decision") != "allow":
             return web.json_response({"error": "authority_denied",
                                       "reasons": list(result.get("reasons") or ["not authorized"])},
@@ -4431,11 +4659,13 @@ async def handle_web3_execute(request: web.Request) -> web.Response:
         "testnet": net.get("testnet"),
         "action": action_in,
         "envelope": {"id": env_id, "mode": (_store.mode(tg_id) if _store else "off")},
-        "estimate": {"note": "on-chain route quote + gas estimate arrive with the "
-                             "signer slice; this preview proves the gate + envelope path"},
-        "note": "Preview only — RUNECLAW did not sign or broadcast anything. Real "
-                "signing ships in a later, separately-gated, still admin-only, "
-                "still envelope-enforced slice.",
+        "estimate": {"note": "no on-chain route quote or gas estimate is made for a "
+                             "preview; this proves the gate + envelope path"},
+        "amount_basis": ("supplied by the caller — the preview did not price the "
+                         "tokens it names"),
+        "note": "Preview only — RUNECLAW did not sign or broadcast anything. "
+                "Native-value transfers are signed through the separate, "
+                "testnet-only signer, which prices what it signs itself.",
     })
 
 
@@ -4475,7 +4705,7 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
         return web.json_response({"error": "target_user required"}, status=400)
     spec = body.get("tighten") if isinstance(body.get("tighten"), dict) else {}
     try:
-        from bot.guardian.user_authority_store import get_user_authority_store
+        from bot.guardian.user_authority_store import StoreUnreadable, get_user_authority_store
         from bot.guardian.review_queue import tighten_envelope, get_review_queue
         store = get_user_authority_store()
         cur = store.get(target)
@@ -4483,7 +4713,19 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
             return web.json_response({"error": "no authority envelope bound for that user"},
                                      status=404)
         new_env = tighten_envelope(cur, spec)
-        store.bind(target, new_env)
+        if not store.bind(target, new_env):
+            # Tightened in memory, not on disk: the looser envelope comes back
+            # on restart, so nothing is marked reviewed and the answer is a
+            # failure that says why.
+            audit(system_log, f"Guardian envelope TIGHTENED for {target} by admin "
+                  f"{tg_id} IN MEMORY ONLY", action="guardian_tighten",
+                  result="NOT_PERSISTED",
+                  data={"target": target, "envelope_id": new_env.get("envelope_id")})
+            return web.json_response(
+                {"ok": False, "error": "not_persisted", "persisted": False,
+                 "envelope_id": new_env.get("envelope_id"),
+                 "detail": "Tightened in memory only — not persisted; the looser "
+                           "envelope comes back on restart."}, status=500)
         reviewed = get_review_queue().mark_reviewed(target, note="envelope tightened")
         audit(system_log, f"Guardian envelope TIGHTENED for {target} by admin {tg_id}",
               action="guardian_tighten", result="OK",
@@ -4495,6 +4737,8 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
                                                "max_notional_daily_usd": new_env.get("max_notional_daily_usd"),
                                                "withdraw_allowed": new_env.get("withdraw_allowed"),
                                                "revoked": new_env.get("revoked")}})
+    except StoreUnreadable:
+        return _authority_unreadable("guardian_tighten", target)
     except Exception:
         # F-15: never leak an exception string (it can carry secrets) to the caller.
         return web.json_response({"error": "tightening failed"}, status=400)
@@ -4502,12 +4746,21 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
 
 async def handle_web3_sign(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 2 — admin-only, TESTNET-ONLY live SIGN + broadcast of
-    a native-value transfer to an envelope-allowlisted destination. Triple-gated
-    default-OFF (WEB3_LIVE_EXEC_ENABLED + WEB3_LIVE_EXEC_SIGN_ENABLED + a
-    configured signer key + the eth-account library + an enforcing envelope), and
-    still run through the Authority Envelope authorize() as a transfer. Mainnet is
-    refused here regardless of any flag. NEVER returns or logs the signing key;
-    F-15 on every error path."""
+    a native-value transfer to an envelope-allowlisted destination. Gated by
+    WEB3_LIVE_EXEC_ENABLED and WEB3_LIVE_EXEC_SIGN_ENABLED — both default ON,
+    either set off hard-disables — and, in practice, by what only the operator
+    can supply: a configured signer key, the eth-account library, and an
+    enforcing envelope. Mainnet is refused here regardless of any flag. NEVER
+    returns or logs the signing key; F-15 on every error path.
+
+    THE ENVELOPE IS ASKED ABOUT WHAT IS SIGNED. The notional is computed here
+    from the ``value_wei`` that goes into the transaction and a native-coin mark
+    this process reads (``onchain_value``); the asset is the network's own
+    coin. The wire's ``amount_usd`` and ``asset`` are IGNORED — they used to be
+    what was authorized, while a different ``value_wei`` was signed — and are
+    still accepted so an older client keeps working. The day's spend is read
+    from the one authority ledger and this transfer is recorded into it before
+    the signature is made."""
     import time as _time
     tg_handler = request.app["tg_handler"]
     body = await _json_body(request)
@@ -4517,6 +4770,7 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     if not _is_admin_id(tg_handler, tg_id):
         return web.json_response({"error": "web3 signing is admin-only"}, status=403)
 
+    from bot.web import onchain_value as _value
     from bot.web import web3_signer as _signer
     network = str(body.get("network") or "sepolia")
     dest = str(body.get("to") or body.get("dest") or "").strip()
@@ -4534,17 +4788,50 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
         return web.json_response({"error": "web3_sign_denied", "reason": decision.reason,
                                   "checklist": decision.checklist}, status=403)
 
-    # 2) The Authority Envelope authorizes THIS outflow (transfer to dest).
+    # 2) What is signed, read before anything is authorized. `value_wei` is
+    #    REQUIRED — it used to be `int(body.get("value_wei") or 0)`, parsed only
+    #    AFTER the envelope had been asked about a different number.
     try:
-        notional = float(body.get("amount_usd")) if body.get("amount_usd") is not None else None
-    except (TypeError, ValueError):
-        notional = None
+        value_wei = int(body["value_wei"])
+        nonce = int(body.get("nonce"))
+    except (KeyError, TypeError, ValueError):
+        return web.json_response({"error": "value_wei and nonce are required integers"},
+                                 status=400)
+    if value_wei < 0:
+        return web.json_response({"error": "value_wei cannot be negative"}, status=400)
+    net = decision.network or {}
+    chain_id = net.get("chain_id")
+    native = _value.native_asset(network)
+    mark: Optional[float] = None
+    mark_why = ""
+    if value_wei > 0:
+        mark, mark_why = await _value.read_native_mark(request.app["engine"], native)
+    notional = _value.notional_usd(value_wei, mark)
+    if notional is None:
+        # Unpriced is refused BY NAME. It is never $0: $0 clears every cap.
+        return web.json_response(
+            {"error": "unpriced",
+             "reason": (f"{mark_why or 'this transfer could not be priced'} — its "
+                        "dollar size is unknown, so the authority envelope cannot "
+                        "be asked about it. Nothing was signed.")},
+            status=503)
+
+    # 3) The Authority Envelope authorizes THIS outflow — the value that is
+    #    signed, in the network's own coin, against the day's recorded spend.
+    now = _time.time()
+    try:
+        ledger = _web_live_ledger()
+        spent: Optional[float] = ledger.spent(tg_id, now)
+    except Exception:
+        ledger, spent = None, None
     try:
         from bot.guardian.authority import authorize
         env = _store.get(tg_id) if _store else None
-        result = authorize(env, {"kind": "transfer", "asset": str(body.get("asset") or "ETH"),
-                                 "notional_usd": notional, "dest": dest or None},
-                           now_ts=_time.time(), spent_today_usd=0.0)
+        result = authorize(env, {"kind": "transfer", "asset": native,
+                                 "notional_usd": notional, "dest": dest or None,
+                                 "value_wei": str(value_wei), "chain_id": chain_id,
+                                 "network": network},
+                           now_ts=now, spent_today_usd=spent)
         if result.get("decision") != "allow":
             return web.json_response({"error": "authority_denied",
                                       "reasons": list(result.get("reasons") or ["not authorized"])},
@@ -4553,13 +4840,7 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"error": "authority_check_failed"}, status=403)
 
-    # 3) Sign (audited eth-account) + broadcast to the configured testnet RPC.
-    try:
-        value_wei = int(body.get("value_wei") or 0)
-        nonce = int(body.get("nonce"))
-    except (TypeError, ValueError):
-        return web.json_response({"error": "value_wei and nonce are required integers"},
-                                 status=400)
+    # 4) Sign (audited eth-account) + broadcast to the configured testnet RPC.
     # Prefer the prepared EIP-1559 fees (from /web3/sign/prepare) when present; the
     # signer falls back to its safe defaults otherwise.
     #
@@ -4601,21 +4882,47 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
              "gas_supplied": int(_sign_kw["gas"]), "gas_required": int(_est)},
             status=400)
 
+    # The spend is recorded BEFORE the signature, keyed by what makes this
+    # transaction this transaction — an exact retry dedupes, a different value
+    # on the same nonce counts again. Recording on approval can only over-count
+    # (the ledger's own stated bias); a spend that cannot be recorded is not
+    # signed, because the next request would read a day without it.
+    if notional > 0:
+        try:
+            if ledger is None:
+                raise RuntimeError("authority ledger unavailable")
+            ledger.record(tg_id, notional, now,
+                          ref=f"web3:{chain_id}:{nonce}:{value_wei}:{dest.lower()}")
+        except Exception:
+            return web.json_response(
+                {"error": "spend_unrecorded",
+                 "reason": "this transfer could not be recorded against the "
+                           "day's spend under your authority. Nothing was signed."},
+                status=503)
+
     signed = _signer.build_and_sign(network=network, to=dest, value_wei=value_wei,
                                     nonce=nonce, **_sign_kw)
     if not signed.get("ok"):
         return web.json_response({"error": "sign_failed", "reason": signed.get("error")},
                                  status=400)
-    net = decision.network or {}
-    bcast = await _signer.broadcast(signed["raw"], _signer.rpc_url_for(network),
-                                    net.get("chain_id"))
+    bcast = await _signer.broadcast(signed["raw"], _signer.rpc_url_for(network), chain_id)
 
-    # 4) Record to the Guardian review queue (fail-safe — never blocks the send).
+    # 5) Record to the Guardian review queue (fail-safe — never blocks the send).
+    #    `amount_usd` is the bot's own reading now, beside the wei it came from.
+    if value_wei == 0:
+        amount_basis = "0 wei — no value moves, a measured $0"
+    else:
+        amount_basis = (f"value_wei × the {native} mark read by the bot"
+                        + (f"; {_value.TESTNET_PRICING}" if net.get("testnet") else ""))
     try:
         from bot.guardian.review_queue import get_review_queue
         get_review_queue().record({"user_id": tg_id, "kind": "web3_sign", "network": network,
                                    "action": {"side": "transfer", "to": dest,
-                                              "amount_usd": notional,
+                                              "asset": native, "chain_id": chain_id,
+                                              "value_wei": str(value_wei),
+                                              "amount_usd": round(notional, 2),
+                                              "mark_usd": mark,
+                                              "amount_basis": amount_basis,
                                               "tx_hash": signed.get("tx_hash"),
                                               "broadcast": bool(bcast.get("ok"))},
                                    "envelope_id": env_id, "ts": _time.time()})
@@ -4624,7 +4931,9 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
 
     audit(system_log, f"Web3 SIGN (admin) testnet {network} -> {dest[:10]}",
           action="web3_sign", result="OK" if bcast.get("ok") else "SIGNED",
-          data={"network": network, "broadcast": bool(bcast.get("ok"))})
+          data={"network": network, "chain_id": chain_id, "asset": native,
+                "value_wei": str(value_wei), "notional_usd": round(notional, 2),
+                "broadcast": bool(bcast.get("ok"))})
     _txh = bcast.get("tx_hash") or signed.get("tx_hash")
     from bot.web.web3_exec_gate import explorer_tx_url as _explorer_tx_url
     return web.json_response({
@@ -4640,6 +4949,10 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
         # network/hash can't build a valid link).
         "explorer_url": _explorer_tx_url(network, _txh) if bcast.get("ok") else "",
         "envelope": {"id": env_id},
+        "asset": native,
+        "value_wei": str(value_wei),
+        "notional_usd": round(notional, 2),
+        "amount_basis": amount_basis,
         "note": bcast.get("error") or "Signed and broadcast to testnet. Testnet-only in "
                 "this slice — mainnet signing is a separate, later, separately-gated slice.",
     })
