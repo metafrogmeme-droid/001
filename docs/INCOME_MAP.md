@@ -87,7 +87,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
 only mode" (trading_commands.py:1013, :1022), and a tree-wide grep finds no spot
-create_order in bot/ at all (venues.py:283 sets defaultType 'spot' only for
+create_order in bot/ at all (venues.py:310 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :1822-1826 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:6790 (the per-strategy trailing switch read at the fill).
+bot/core/live_executor.py:6808 (the per-strategy trailing switch read at the fill).
 
 **Scalping** — **shipped**
 
@@ -167,16 +167,16 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5698 creates the entry order idempotently, :7192/:7633 attach
+live_executor.py:5716 creates the entry order idempotently, :7210/:7676 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2061, :2077, :2204); venues.py:283 selects the swap
+productType USDT-FUTURES (:2040, :2056, :2183); venues.py:310 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1070); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:5748-5806 confirms and executes any idea at or above
+Autonomously: engine.py:5813-5871 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,8 +280,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:689 and fetched in `_analyze_signal`'s context gather
-(engine.py:6606) — its
-result is handed to analyzer.analyze at :6738 as `basis` CONTEXT that votes on
+(engine.py:6671) — its
+result is handed to analyzer.analyze at :6803 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -347,10 +347,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:242) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:5748-5806
+trade gate whose whole enforcing set /enforcing lists. engine.py:5813-5871
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2467) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8666): the paper book's in paper mode, both
+realized win rate (engine.py:8741): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -388,7 +388,7 @@ elite) nominally gate behind $RCLAW, though that gate is off by default.
 READ-ONLY tracking of what you already hold, and it is genuinely wired on both
 surfaces. /livebalance fetches the caller's own linked-venue futures balance
 AND enumerates spot holdings, pricing each against a live ticker
-(account_commands.py:822; an unread holdings list is None, never [], so
+(account_commands.py:833; an unread holdings list is None, never [], so
 'nothing held' and 'nothing read' stay apart). /networth and /holdings
 aggregate CEX venues plus SIWE-linked wallet chains, one row per source, with
 an explicit error row for any source that would not read (holdings.js:1 header
@@ -1431,7 +1431,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7389-7426
+(bot/core/user_strategy_store.py:108-148), and bot/core/engine.py:7454-7491
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1731,7 +1731,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1225) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:7936
+bot/core/stock_trading.py, also read by bot/core/engine.py:8011
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
