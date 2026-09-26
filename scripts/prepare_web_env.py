@@ -14,7 +14,6 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-
 SHARED_KEYS = (
     "APP_BASE_URL",
     "BOT_SYNC_SECRET",
