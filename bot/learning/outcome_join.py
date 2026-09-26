@@ -36,11 +36,12 @@ NOT_OPENED_DECISIONS = frozenset({"EXECUTION_FAILED", "TRADE_REJECTED_FAIL_CLOSE
 #: The rule a learned fit's samples were counted under. A fit saved by a build
 #: that counted differently rests on samples the current rule does not count --
 #: before 2 that meant a manual ticket's stamp fitted as a measurement and a
-#: retried trade counted twice -- so it is refit rather than applied (see
-#: `auto_refit.refit_stale`). Raise it in the commit that changes what counts
-#: as a sample for either learner; a fit whose file carries no reading was
-#: saved before this existed.
-SAMPLE_READING = 2
+#: retried trade counted twice; before 3, a scan card's stamped 0.6 recorded
+#: as measured and fitted with no analyzer blend behind it -- so it is refit
+#: rather than applied (see `auto_refit.refit_stale`). Raise it in the commit
+#: that changes what counts as a sample for either learner; a fit whose file
+#: carries no reading was saved before this existed.
+SAMPLE_READING = 3
 
 
 def reading_of(d: Any) -> Optional[int]:

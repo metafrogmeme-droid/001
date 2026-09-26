@@ -21,6 +21,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from bot.core.ta_utils import _ema, _compute_adx
+from bot.utils.candles import ohlc_on_record
 
 
 # ── Output Model ──────────────────────────────────────────────────
@@ -201,6 +202,14 @@ def _analyze_single_tf(
     insufficient data.
     """
     if len(candles) < 30:
+        return None
+    # A series with a price the venue did not state is MISSING, not neutral.
+    # `np.array` turns a null close into NaN silently, the EMA stays NaN from
+    # that bar on, every comparison below is False, and the trend fell through
+    # to "neutral": driven, a clean daily downtrend with one null close read
+    # neutral, and the alignment gate skipped. `analyze()` refuses such a
+    # series; so does this, and the timeframe drops out like an absent one.
+    if not ohlc_on_record(candles):
         return None
 
     closes = np.array([c[4] for c in candles], dtype=float)

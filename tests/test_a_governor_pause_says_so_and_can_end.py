@@ -300,7 +300,7 @@ def test_the_bridge_says_it_cannot_see_the_governor():
 
 # ── 5. The scan card does not offer a door the gate will refuse ──────────
 
-_SETUP = [{"sym": "NEAR/USDT", "dir": "LONG", "price": 4.985}]
+_SETUP = [{"sym": "NEAR/USDT", "dir": "LONG", "price": 4.985, "idea_id": "TI-near"}]
 
 
 def test_a_blocked_gate_offers_no_buttons_and_says_why():
@@ -316,11 +316,13 @@ def test_an_open_or_unread_gate_offers_the_buttons():
     from bot.skills.scan_skill import scan_action_rows
     for gate in ({"blocked": False, "unknown": False, "reasons": []},
                  {"blocked": False, "unknown": True, "reasons": []}):
-        text, rows = scan_action_rows(_SETUP, gate)
+        text, rows = scan_action_rows(_SETUP, gate, "7")
         assert "tap to execute" in text
-        assert [d for _l, d in rows[0]] == ["scan_confirm:NEAR/USDT:LONG:4.985",
-                                            "scan_limit:NEAR/USDT:LONG:4.985",
-                                            "scan_reject:NEAR/USDT"]
+        # The row's registered idea, owner-tagged (the scan card's buttons
+        # place what the card shows: test_a_scan_button_places_what_the_card_shows).
+        assert [d for _l, d in rows[0]] == ["confirm:TI-near:7",
+                                            "setlimit:TI-near:7",
+                                            "reject:TI-near:7"]
 
 
 def test_the_refusal_escapes_what_it_quotes():
@@ -362,6 +364,7 @@ def _drive_scan(monkeypatch, risk, card_renders: bool):
     bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
     context = SimpleNamespace(bot=bot, bot_data={})
     engine = SimpleNamespace(risk=risk, _halted=False, analyzer=None,
+                             _pending_ideas={}, _pending_atr={},
                              scanner=SimpleNamespace(_get_exchange=AsyncMock()))
     assert not REAL.is_live()        # the gate's venue-auth half is live-only
     asyncio.run(scan_skill._scan_batch(update, context, engine, top_n=10,
@@ -390,7 +393,8 @@ def test_the_card_path_offers_buttons_when_the_gate_is_open(tmp_path, cfg, monke
     _msg, bot = _drive_scan(monkeypatch, healthy, True)
     (text, kb), = _sent(bot)
     assert "tap to execute" in text
-    assert kb.inline_keyboard[0][0].callback_data == "scan_confirm:NEAR/USDT:LONG:4.985"
+    data = kb.inline_keyboard[0][0].callback_data
+    assert data.startswith("confirm:TI-") and data.endswith(":7")
 
 
 def test_the_text_path_carries_the_refusal_and_no_buttons(tmp_path, cfg, monkeypatch):

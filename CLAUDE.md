@@ -783,7 +783,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 697 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 696 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7753,6 +7753,140 @@ test-file total in "Writing tests that scan source" moved to 1115 with this
 slice's test.
 (`tests/test_the_scheduled_posts_say_whose_book_they_read.py`.)
 
+**THE SCAN CARD'S ✅ PLACED A TRADE THE CARD NEVER SHOWED.** `/fullscan`
+prints each setup with a pullback entry (price ∓ 0.3·ATR), a 2.5·ATR stop and
+a 3·ATR target, and `_build_scan_payload` seals those same levels as the
+provable call. The ✅ carried `scan_confirm:<symbol>:<side>:<scan price>`, and
+the tap built a MARKET order at the scan price with a flat 3% stop and 6%
+target at a stamped confidence of 0.6. Driven through the real
+`callback_confirm_reject`: the card showed SOL/USDT LONG at 121.827, stop
+119.708 (1.7%), target 125.005 (2.6%); the tap placed 122.116, 118.452
+(3.0%), 129.443 (6.0%), market, and replied "✅ SOL/USDT LONG EXECUTED".
+`/fullscan SOL` printed the 1h analyzer's SHORT with "Risk: ✅ APPROVED" under
+a button carrying the 4h scan row's LONG, and offered the button when the
+analyzer had no idea at all.
+
+**The card registers its own trade now, and the button names it.**
+`scan_row_idea` builds the row's idea from the levels the card prints, as a
+limit (the entry is a pullback away from the price, so a market order is a
+different entry), at the row's own score. `register_scan_offers` writes it
+into `_pending_ideas` as the caller's, never through `_register_engine_idea`,
+so the auto-confirm batch, which reads ownership first, never executes it.
+The buttons are `confirm:` / `setlimit:` / `reject:` on that id with the
+owner tag, the one door with the owner check, H-18 and the drift re-offer.
+`/fullscan SYMBOL` registers the analyzer's idea and offers a button only when
+the card shows it. An old `scan_confirm:` or `scan_limit:` payload carries
+none of the levels its card showed, so it is refused with a sentence and
+places nothing, for everyone, in either mode. The card says the entry is a
+limit, and a row it does not offer is named with its reason.
+
+**The stamp cleared the confidence floor by construction.** The old button's
+0.6 sat exactly on the default 0.60 floor. The idea carries the score the card
+prints now, so a row whose score is under the floor the risk gate applies
+(`clears_confidence_floor`, the gate's own reading) is not offered, because
+its only possible answer is that refusal. Under shipped defaults nothing else
+about sizing moves: the quality-ladder flags are off, Kelly no longer reads
+confidence (Change 1), and the flat high-conviction margin is off. With
+`QUALITY_LADDER_*_ENABLED` on, a scan idea sits on the rung its score reaches
+instead of rung C for every row, and with `HIGH_CONVICTION_ENABLED` on a
+score at or over 0.70 takes the flat margin. Both are loosenings against the
+stamp, under opt-in flags, and both read a measurement where the stamp read
+nothing.
+
+**And the calibrator fitted the stamp.** A decision row recorded as measured
+kept #35's fallback to `confidence` when it carried no analyzer blend, and the
+scan button was the one producer of such a row: driven, the row the engine
+writes for a scan fill (`blended_confidence_raw` 0.0, basis "measured") came
+back as the sample `(0.6, lost)`. A scan score is not the blend either, so the
+rule is about the row: no blend, no sample, whatever its basis says, counted
+as `no_blend` and named on the readiness card. `SAMPLE_READING` is 3, so a fit
+counted under the old rule is refit.
+
+**/pro_scan graded each idea on stamps, and one input shape crashed it.** The
+idea's status and quality stamped midrange False, volume confirmed and
+structure clear; the asset's quality stamped a confidence of 0.5 and an R:R of
+1.0. Driven, one asset read "⛔ NO-TRADE ZONE, Setup Quality 0/10" and its idea
+"🎯 Execution Ready, Quality 9/10". The idea is graded off its asset's own
+readings now, the asset's quality is graded on the setup the analyzer
+returned (an asset with no setup says so instead of grading placeholders),
+and the one-glance verdict reads the best idea's asset. The RSI divided by
+`avg_loss`, and the 0.001 fallback fired only for an empty list, which it
+never is: fourteen rising closes, or a flat series, raised ZeroDivisionError
+and failed the whole scan. No loss with gains is 100, no move is 50. A null
+price, or a null volume inside the 20-bar window the VWAP and the volume ratio
+read, is an unreadable series ("candles unreadable"), where `float(None)`
+raised. A window that traded nothing has no volume ratio, where `else 1` read
+it as average.
+
+**Its website push published stamps as readings.** Every symbol went out with
+`rsi: 50.0` although the card had just computed it, `atr: 0`, and 24h dollar
+volume in millions under the name `vol_ratio`; `_build_scan_payload` then
+derived BTC's regime from the stamped RSI and built entry cards from a
+2%-of-price "ATR". Driven: the card said BTC RSI 0, the push said regime
+NEUTRAL, rsi 50.0, vol_ratio 850.0, and an entry card triggered on "RSI 50.0,
+Vol 850.0x". The push carries what the loop measured or None; the payload
+derives a regime only from a measured RSI (otherwise the gate stays 0, which
+every reader reads as not read), keeps an unmeasured volume ratio null
+(`or 1.0` also read a measured 0.0 as average), and builds no entry card off a
+volatility nobody measured.
+
+**The /analyze ladder printed a DOGE setup at two decimals.** Entry 0.1234,
+stop 0.1209, target 0.1284 printed `TP $0.13 (+$0.00)`, `IN $0.12`, `SL $0.12
+(-$0.00)`: two levels that read the same and two distances that read as
+nothing, on the web answer, the Telegram caption and the model's transcript.
+The levels, the distances and the no-setup card's price read through the
+file's own adaptive `_price`. /pro_scan's verdict block printed
+`$     $100.30` and `(-$$1.00)`, a `$` in front of `_price`'s own; that went
+in the same edit.
+
+**The null-close guard protected analyze()'s primary series only.** The
+scanner's `_scan_symbol` computed off the raw rows: a null close became NaN,
+the engine read it hands the rows to failed silently, and `price > sma50` is
+False, so a clean 4h uptrend read LONG 0.59 with every close read and SHORT
+0.5, over the 0.4 setup gate, with one null close at bar 80. The MTF
+analyzer's EMA stayed NaN from a null bar on, so a daily downtrend read
+"neutral" and the alignment gate skipped. `candles.ohlc_on_record` is the
+analyzer's check as one reading, and both readers treat a failed series as
+missing, not neutral: the scan drops the symbol (the coverage note counts it),
+the MTF drops the timeframe (its confidence falls with it). A null close on
+the forming bar costs only the mark, which `float(None)` used to raise on.
+And a volume nobody stated is sanitized to 0 by `analyze()`, which makes OBV
+constant, which `rising if > else falling` read as falling: the OBV voter cast
+-1.0 at weight 0.6. The trend is three-valued now, a flat OBV abstains, and a
+non-finite one is no reading at all.
+
+**The tests that pinned the old door as the contract moved with it.**
+The H-18 drives in `test_every_confirm_trade_door_is_gated.py` drove
+`scan_confirm:`; they drive the `confirm:` door a scan card's tap goes through
+now, and a new drive says an old payload places nothing for anyone in either
+mode. The incident regression in `test_scan_confirm_blocked_message.py` (a
+degraded-mode block announced as EXECUTED) drives the same door. The drift
+guard sees one drift site, `callback_handler`'s: `scan_skill`'s left with its
+door. `limit_input.caller_lang` lost its one caller with `scan_limit:` and is
+deleted rather than baselined. The calibration fixtures that planted a
+measured row with no blend carry the blend the analyzer writes. Five map
+citations into `skill_registry.py` (the /pro_scan swing and scalp
+configurations, the Safe Scalper preset twice, the preset table) sat on a
+docstring, a macro read, a `</pre>` append and a section comment; each is
+derived from what it names now.
+
+**Sixty-four mutations, each killed. The one that survived the first round was
+the corpus**: no fixture planted an ATR that is NaN, infinite or not a number,
+so writing the symbols row's ATR through unread changed nothing until a row
+carried one, and a NaN on the wire is not JSON. The whole-tree mypy ratchet
+then grew by two `arg-type` findings: the asset grade read its two booleans
+back out of a dict that also holds floats. They are locals now, and the
+grade's mutations were re-run against that spelling. The ratchets improved
+and were re-recorded in the same commit: ruff 1174 → 1167, honesty 697 → 696,
+mypy 553 → 512 (41 `union-attr` findings left with the deleted `scan_confirm:`
+path).
+
+(`tests/test_a_scan_button_places_what_the_card_shows.py`,
+`tests/test_a_row_without_the_blend_is_not_a_calibration_sample.py`,
+`tests/test_pro_scan_grades_and_publishes_what_it_measured.py`,
+`tests/test_the_analyze_ladder_keeps_sub_dollar_precision.py`,
+`tests/test_a_null_candle_is_a_missing_series.py`.)
+
 **A GUARD FOR THIS EXACT CLAIM ALREADY EXISTED, AND EIGHTEEN INSTANCES LIVED
 INSIDE ITS STATED LIMITS.** This file records the shape for the Guardian
 firewall — *"The comment over that scan named the wrong half as off ... A
@@ -14302,7 +14436,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1115** reach for source text through `source_scan`, `code_only`
+Driven, **441 of 1120** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 441 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

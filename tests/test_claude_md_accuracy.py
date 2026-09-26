@@ -1443,6 +1443,35 @@ def test_the_basis_citations_are_the_lines_they_name():
             f"analyzer.analyze at :{hand} as `basis`") in flat
 
 
+def test_the_pro_scan_and_preset_citations_are_the_lines_they_name():
+    """Four map citations into `skill_registry.py` sat on unrelated lines -- a
+    docstring, a macro-provider read, a `</pre>` append, a section comment --
+    under sentences naming /pro_scan's swing and scalp configurations, the
+    Safe Scalper preset and the preset table. None was blank, so the probe
+    could not see them, and a remap carried them faithfully. Each is derived
+    from what its sentence names."""
+    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    src = (ROOT / "bot" / "skills" / "skill_registry.py").read_text(encoding="utf-8")
+    lines = src.splitlines()
+
+    def line_of(text, after=0):
+        hits = [i + 1 for i, ln in enumerate(lines) if i + 1 > after and ln.strip() == text]
+        assert hits, text
+        return hits[0]
+
+    mode_cfg = line_of("MODE_CFG: dict[str, dict] = {")
+    presets = line_of("PRESETS: dict[str, dict[str, Any]] = {")
+    scalper = line_of('"safe scalper": {', presets)
+    scalper_end = next(i + 1 for i in range(scalper, len(lines)) if lines[i].strip() == "},")
+    swing = line_of('"swing": {', mode_cfg)
+    scalp = line_of('"scalp": {', mode_cfg)
+    assert f"wide SL/TP (skill_registry.py:{swing})" in doc
+    assert f"tight zones (skill_registry.py:{scalp})" in doc
+    assert f"top-3 volume — skill_registry.py:{scalper})" in doc
+    assert f"Full Scan — skill_registry.py:{presets})" in doc
+    assert f':{scalper}-{scalper_end} is the literal "safe scalper" preset dict' in doc
+
+
 def test_the_handler_citations_are_the_functions_they_name():
     """Two map citations into the Telegram handler pointed at unrelated lines:
     `_can_trade_live` at a `_remember_routed` call and `_is_admin_id` at an

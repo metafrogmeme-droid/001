@@ -8,6 +8,7 @@ than as an engine method.
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 
 # Canonical set of scan/analysis timeframes, ascending by duration. The single
@@ -117,3 +118,47 @@ def drop_forming_candle(ohlcv, timeframe: str):
         return ohlcv
     except Exception:
         return ohlcv
+
+
+def ohlc_on_record(rows) -> bool:
+    """Whether every row's open, high, low and close is a finite, positive price.
+
+    A NULL CLOSE BECOMES NaN SILENTLY: ccxt's ``safe_number`` answers None for a
+    null, missing or empty field, and ``np.array(..., dtype=float)`` turns that
+    None into NaN with no error. Every comparison against NaN is False, so a
+    heuristic reads the missing bar as whichever side its ``else`` names (the
+    scanner's ``price > sma50`` is False, so a clean uptrend read SHORT) and an
+    EMA stays NaN from that bar on (so a daily downtrend read "neutral").
+    ``Analyzer.analyze`` refuses such a series outright; this is the same
+    check, for the readers that compute off the rows themselves. A series that
+    fails it is MISSING, not neutral: the caller skips it.
+    """
+    try:
+        for row in rows:
+            if len(row) < 5:
+                return False
+            for v in row[1:5]:
+                if isinstance(v, bool):
+                    return False
+                f = float(v)
+                if f != f or f in (float("inf"), float("-inf")) or f <= 0:
+                    return False
+    except (TypeError, ValueError, IndexError):
+        return False
+    return True
+
+
+def volume_on_record(v) -> Optional[float]:
+    """A volume the row states -- finite and not negative -- or None.
+
+    ``0.0`` is kept: a bar that traded nothing is a reading. A null is not.
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")) or f < 0:
+        return None
+    return f

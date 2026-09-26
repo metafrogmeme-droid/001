@@ -20,9 +20,12 @@ from bot.learning.confidence_calibration import ConfidenceCalibrator, _pav
 def _decision(confidence, tid):
     """A decision-time record: carries confidence + paper_trade_id; trade still
     open. Recorded as a measurement, which is what the confirm path writes for
-    an idea the engine measured."""
-    return SimpleNamespace(confidence=confidence, paper_trade_id=tid,
-                           pnl_result=None, confidence_basis="measured")
+    an idea the engine measured -- and an idea the ANALYZER measured carries
+    its pre-calibration blend, the figure the curve is fitted on. A row with
+    no blend is not a sample (test_a_row_without_the_blend_is_not_a_calibration_sample)."""
+    return SimpleNamespace(confidence=confidence, blended_confidence_raw=confidence,
+                           paper_trade_id=tid, pnl_result=None,
+                           confidence_basis="measured")
 
 
 def _outcome(pnl, tid):

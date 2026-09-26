@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2222-2223), trailing ENABLED on the stage table
 every type shares (:2224), a 48h time-close with a 12h warn (:2227-2228), min
 confidence 0.50 (:2243), max risk 2% (:2249) — every one distinct from the scalp row
-above it. skill_registry.py:2004 reads those multipliers when it builds the
+above it. skill_registry.py:2011 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2519) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2759) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,8 +136,8 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2004 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :1840-1844 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2011 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :2209-2215 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1860-1869
@@ -154,9 +154,9 @@ time-close with a 1h warn (:2209-2210), min confidence 0.65 (:2241), max risk
 of movement; config.py:1617 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2502); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2743); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:1968) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2209) as a
 tighten-only veto on that user's own confirms (trading_commands.py:412); /run
 scalp and /fullscan scalp are the other two.
 
@@ -358,7 +358,7 @@ suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:1952) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:2194) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
