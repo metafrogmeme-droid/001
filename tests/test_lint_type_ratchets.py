@@ -93,6 +93,30 @@ def _load_gate(script: Path):
     return mod
 
 
+def test_a_colored_concise_line_is_counted():
+    """Ruff 0.11.13 paints concise lines, and the painted form matched nothing.
+
+    ``_CODE`` anchors on ``path:line:col: CODE``. Colour codes sit inside that
+    shape (``\\x1b[1m`` around the path, ``\\x1b[36m`` around the colons,
+    ``\\x1b[1;31m`` around the rule), so a raw match counted zero findings on
+    a tree that had 1,165 and the gate demanded a baseline update for a parser
+    bug. The strip is the reading; deleting it leaves this assertion red.
+    A summary line is not a finding.
+    """
+    mod = _load_gate(ROOT / "scripts" / "ruff_gate.py")
+    colored = (
+        "\x1b[1mapi_bridge.py\x1b[0m\x1b[36m:\x1b[0m16\x1b[36m:\x1b[0m1"
+        "\x1b[36m:\x1b[0m \x1b[1;31mI001\x1b[0m "
+        "[\x1b[36m*\x1b[0m] Import block is un-sorted or un-formatted"
+    )
+    plain = "bot/config.py:12:1: E402 Module level import not at top of file"
+    summary = "Found 1165 errors."
+    counts = mod.counts_from_output("\n".join([colored, plain, summary]))
+    assert counts["I001"] == 1
+    assert counts["E402"] == 1
+    assert sum(counts.values()) == 2
+
+
 @pytest.mark.parametrize("name,script,baseline", GATES, ids=[g[0] for g in GATES])
 def test_the_gate_exits_nonzero_when_it_reports_failure(name, script, baseline,
                                                         monkeypatch):
