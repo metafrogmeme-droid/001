@@ -26,7 +26,7 @@ help: ## Show all available targets
 install: ## Install all Python deps (bot + api_bridge)
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -r bot/requirements.txt
-	$(PYTHON) -m pip install "fastapi>=0.110" "uvicorn[standard]>=0.29"
+	$(PYTHON) -m pip install "fastapi>=0.115" "uvicorn[standard]>=0.30"
 
 # -- Code quality ------------------------------------------------------------
 lint: ## ruff + mypy
