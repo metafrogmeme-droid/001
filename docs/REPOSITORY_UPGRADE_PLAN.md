@@ -5,7 +5,7 @@
 **Public site:** https://www.humanoid-traders.com
 **Scope of this document:** a sequenced plan for aligning the website (`app/`, `site/`, `website/`) and the bot (`bot/`, `api_bridge.py`) with a 2026 AI trading platform. This file records what the tree already pins, what public support schedules say, and the order in which a later change may move those pins.
 
-This document changes no dependency, no runtime, and no trading behaviour. A later phase that bumps a pin is a separate change, re-measured against the gates named below.
+This document, as written on 2026-09-27, changes no dependency, no runtime, and no trading behaviour. A later phase that bumps a pin is a separate change, re-measured against the gates named below. Phase 3, recorded below, is that later change: it moves the resolved Express tarball in `app/package-lock.json` and leaves the declared range `^4.21.0`.
 
 ## How a claim is labelled
 
@@ -125,20 +125,20 @@ The release index was re-checked on 2026-09-27, the day of the bump. It named 24
 
 ### Website packages
 
-**REPO-VERIFIED** from `app/package.json` and `site/package.json` (ranges, not the lockfile resolutions):
+**REPO-VERIFIED** from `app/package.json` and `site/package.json` (ranges). The `app/` lock was opened for the Express resolution in Phase 3; `site/package-lock.json` was not:
 
 | Tree | Declaration |
 |---|---|
 | `app/` (`runeclaw-app`) | express `^4.21.0`, ethers `^6.17.0`, mysql2 `^3.11.0`, jsonwebtoken `^9.0.2`, bcryptjs `^2.4.3`, qrcode `^1.5.4`, web-push `^3.6.7`, playwright-core `1.56.1`, comlink `^4.4.2`, override `qs` `^6.16.0` |
 | `site/` (`runeclaw-site`) | react and react-dom `^19.2.8`, `@tanstack/react-router` `^1.170.31`, vite `^7.3.6`, typescript `^5.9.3`, tailwindcss `^4.3.3`, `@vitejs/plugin-react` `^5.2.0` |
 
-The lockfile resolutions under `app/package-lock.json` and `site/package-lock.json` were not opened for this plan. A phase that bumps either tree starts by reading the lock, not the range.
+`site/package-lock.json` was not opened. `app/package-lock.json` was opened for Express only (Phase 3). A phase that bumps either remaining tree starts by reading the lock, not the range.
 
 **REGISTRY-VERIFIED** for Express, read 2026-09-27:
 
 - The npm `latest` tag is 5.2.1.
-- The 4.x line continued: GitHub shows v4.22.2 (11 May 2026). A dist-tag `latest-4` is what publishers use to keep that line installable after `latest` moved.
-- The Express blog of 2025-03-31 says 5.1.0 became npm `latest`, that 4.x entered maintenance on 2025-04-01, and that 4.x end of life would be no sooner than 2026-10-01. The blog calls that a goal, not a commitment. 2026-10-01 is four days after this plan's date. Re-read the blog before treating 4.x as ended.
+- An earlier reading of this plan was the GitHub tag v4.22.2 (11 May 2026). npm dist-tag `latest-4` is 4.22.3, published 2026-09-14 by UlisesGascon.
+- The Express blog of 2025-03-31 says 5.1.0 became npm `latest`, that 4.x entered maintenance on 2025-04-01, and that 4.x end of life would be no sooner than 2026-10-01. The blog calls that a goal, not a commitment. 2026-10-01 is four days after this plan's date. That post was not re-read this session beyond the sentence already recorded. Re-read the blog before treating 4.x as ended.
 
 Express 5 changes path matching, the query parser, and removed APIs. The migration list belongs to the official v5 guide, read at the time of that slice. This plan does not invent that list.
 
@@ -231,14 +231,19 @@ Node:
 
 ### Phase 3 — the website, Express on its own slice
 
-`site/` stays on the majors already declared (React 19, Vite 7, TanStack Router, Tailwind 4) until a registry check on the day of a proposed bump names a reason. No target is set here.
+Executed on `cursor/phase3-express-4-22-3-1da4`, cut from `origin/main` at `a1195078` (Phase 1 merged). CI already uses the Node 24.21.0 line. Local verification runs on Node 24.21.0 / npm 11.19.0.
 
-Express, as its own change, after Phase 2's Node line is chosen and green:
+`site/` stays on the majors already declared (React 19, Vite 7, TanStack Router, Tailwind 4). No registry check this session named a reason to move them.
 
-1. Re-read the Express maintenance post. If 4.x is still maintained, the in-tree move is the current 4.22 line (4.22.2 existed on 11 May 2026), still inside `^4.21.0` if the lock already resolves there. Read `app/package-lock.json` before claiming the resolved version.
-2. Express 5.2.1 is npm `latest` and a breaking upgrade. Schedule it only after the official migration guide is applied to `app/routes` and `app/lib`, with `web-app`'s parse gate, `npm test`, and the public-surface suites (`app/test/public_no_dollars.test.js` and the honesty ratchet) in the same change. The 4.x end-of-life goal "no sooner than 2026-10-01" is a prompt to re-check, not a date this plan treats as already passed.
+**REPO-VERIFIED** from `app/package.json` and `app/package-lock.json` after the bump:
 
-Public routes stay on percent, ratio, and count. A dependency bump that changes a rendered dollar figure fails those suites on purpose.
+- The declared range stays `"express": "^4.21.0"` in `app/package.json` and in the lock root `packages[""].dependencies`.
+- `node_modules/express` resolves 4.22.2 → 4.22.3. Integrity `sha512-Bdcs4+3qlpVlx2NRn6fgX2Ue2/gGRaPeawebgclM0ERSCqDpA+owF1fdPwjJUTAJWMTuAaxjDf+hzb0/4eKvvw==`. Tarball `https://registry.npmjs.org/express/-/express-4.22.3.tgz`.
+- Express 4.22.3 declares `path-to-regexp` `~0.1.13` (was `~0.1.12`) and `qs` `~6.16.0` (was `~6.15.1`). The installed versions were already `path-to-regexp` 0.1.13 (CVE-2026-4867) and `qs` 6.16.0.
+- `qs` 6.16.0 matches `app/package.json` `overrides.qs` `^6.16.0`. The lock has no top-level `overrides` key. `body-parser` 1.20.6 still declares `qs` `~6.15.1`. The override is unchanged.
+- Express 5.2.1 remains npm `latest` and stays deferred: the official migration guide, then `app/routes` and `app/lib`, the web-app parse gate, `npm test`, and the public-surface suites (`app/test/public_no_dollars.test.js` and the honesty ratchet). A dependency bump that changes a rendered dollar figure fails those on purpose.
+- The 4.x EOL goal "no sooner than 2026-10-01" is a prompt to re-check the maintenance post, not a date this phase treats as ended.
+- Public routes stay percent, ratio, and count.
 
 ### Phase 4 — bot SDKs, behind the call path that already exists
 
@@ -285,9 +290,9 @@ The placeholder program id is expected until a value-bearing deploy, and the sta
 Phase 0   this plan                          (no pin moves)
 Phase 1   cryptography / FastAPI / uvicorn floors, compose python3
 Phase 2   Node 24.21.0 in CI and package engines; Python 3.11 stays
-Phase 3   Express, 4.22 line first; 5.x as its own migration
+Phase 3   Express lock 4.22.2 → 4.22.3 inside ^4.21.0; 5.x stays its own migration
 Phase 4   openai / anthropic SDKs after a fresh PyPI read
 Phase 5   staking, token, NFT — not in the trading-site year
 ```
 
-Phases 1 and 2 can be sequenced back to back. Phase 3 waits on the Node 24.21.0 suites; CI already uses that line. Phase 4 waits on its own PyPI read and does not share a commit with Phase 3. Phase 5 waits on a decision to hold value, which this plan does not make.
+Phases 1 and 2 can be sequenced back to back. Phase 3 is the Express lock bump above (declared range `^4.21.0`, resolved 4.22.3, path-to-regexp ~0.1.13, qs ~6.16.0; Express 5 stays its own migration), cut from `origin/main` at `a1195078`. CI already uses the Node 24.21.0 line. Local tests of Phase 3 run on Node 24.21.0 / npm 11.19.0. Phase 4 waits on its own PyPI read and does not share a commit with Phase 3. Phase 5 waits on a decision to hold value, which this plan does not make.
