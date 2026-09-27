@@ -30,6 +30,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
 from bot.core.order_state import close_did_not_happen
+from bot.core.signal_confidence import displayed_confidence
 from bot.marketing.public_text import close_outcome, public_close_line
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import _redact_string, audit, system_log
@@ -86,6 +87,17 @@ def owner_chat_id(owner) -> Optional[int]:
     """
     s = str(owner or "").strip()
     return int(s) if s.isdigit() else None
+
+
+def signal_card_caption(idea) -> str:
+    """Caption a signal image with the same confidence the image renders."""
+    pair = idea.asset.replace("/USDT", "")
+    direction = (idea.direction.value if hasattr(idea.direction, "value")
+                 else str(idea.direction))
+    strategy = getattr(idea, "strategy_type", "").upper()
+    strategy_text = f" [{strategy}]" if strategy else ""
+    return (f"<b>{pair} {direction}</b>{strategy_text} | Conf "
+            f"{displayed_confidence(idea).pct()}")
 
 
 class AlertsMonitor:
@@ -266,11 +278,7 @@ class AlertsMonitor:
                         InlineKeyboardButton(t("btn_skip", _sc_lang),
                             callback_data=f"reject:{idea.id}:{uid}"),
                     ]])
-                    pair = idea.asset.replace("/USDT", "")
-                    direction = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
-                    st = getattr(idea, 'strategy_type', '').upper()
-                    st_str = f" [{st}]" if st else ""
-                    cap = f"<b>{pair} {direction}</b>{st_str} | Conf {idea.confidence*100:.0f}%"
+                    cap = signal_card_caption(idea)
                     await _bot_ref.send_photo(
                         chat_id=int(chat_id), photo=buf,
                         caption=cap, parse_mode="HTML",

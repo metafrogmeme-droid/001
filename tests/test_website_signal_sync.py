@@ -72,6 +72,16 @@ class TestBuildSignalPayload:
         assert row["rr"] == 2.0 and row["regime"] == "RANGE"
         assert row["status"] == "NEW"
 
+    def test_uses_the_same_pre_calibration_reading_as_signal_cards(self):
+        idea = SimpleNamespace(
+            asset="SUI/USDT", direction="LONG", confidence=0.31,
+            blended_confidence_raw=0.70, entry_price=1.171,
+            stop_loss=1.1535, take_profit=1.2552, reasoning="setup")
+        row = ws.build_signal_payload("k-confidence", idea, score=0.70)
+
+        assert row["confidence"] == 0.70
+        assert row["score"] == 0.70
+
     def test_rr_computed_when_absent(self):
         idea = {"asset": "ETH/USDT", "direction": "LONG", "confidence": 0.5,
                 "entry_price": 100.0, "stop_loss": 90.0, "take_profit": 120.0}

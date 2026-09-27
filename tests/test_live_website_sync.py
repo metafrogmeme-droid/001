@@ -181,6 +181,14 @@ class TestBuildSignalSyncPayloads:
     def test_empty_list_is_empty(self):
         assert _build_signal_sync_payloads([], regime_fn=lambda a: "") == []
 
+    def test_confidence_and_score_use_the_signal_card_reading(self):
+        idea = _idea("TI-cal", "SUI/USDT", confidence=0.31)
+        idea.blended_confidence_raw = 0.70
+        row = _build_signal_sync_payloads([idea], regime_fn=lambda a: "TREND_UP")[0]
+
+        assert row["confidence"] == 0.70
+        assert row["score"] == 0.70
+
     def test_regime_fn_called_per_symbol(self):
         seen = []
         ideas = [_idea("TI-a", "BTC/USDT"), _idea("TI-b", "ETH/USDT")]

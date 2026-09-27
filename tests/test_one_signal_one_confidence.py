@@ -161,6 +161,17 @@ class TestOneMessage:
         # And the summary makes no Score claim at all.
         assert not [t for t in drawn if "Score" in t]
 
+    def test_the_proactive_caption_matches_the_card(self):
+        from bot.skills.alerts_monitor import signal_card_caption
+
+        idea = _analyzer_idea()
+        caption = signal_card_caption(idea)
+        drawn = _drawn(idea)
+
+        assert "Conf 70%" in caption
+        assert "70%" in drawn
+        assert "31%" not in caption
+
 
 class TestTheCheckLine:
     """The line quotes the figure the comparison used."""

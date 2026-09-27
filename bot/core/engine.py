@@ -156,11 +156,12 @@ def _build_signal_sync_payloads(ideas: list, regime_fn) -> list[dict]:
     can be verified without driving a full scan cycle.
     """
     from bot.utils.website_sync import build_signal_payload
+    from bot.core.signal_confidence import displayed_confidence
 
     return [
         build_signal_payload(
             idea.id, idea,
-            score=idea.confidence,
+            score=displayed_confidence(idea).value or 0.0,
             regime=regime_fn(idea.asset),
             status="NEW",
             created_at=idea.timestamp.isoformat(),

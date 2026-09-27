@@ -427,11 +427,19 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
     if rr is None:
         risk = abs(entry - sl)
         rr = (abs(tp - entry) / risk) if risk > 0 else 0.0
+    confidence = _attr(idea, "confidence", 0)
+    try:
+        from bot.core.signal_confidence import displayed_confidence
+        reading = displayed_confidence(idea)
+        if reading.measured:
+            confidence = reading.value
+    except Exception:
+        pass
     return {
         "signal_key": str(signal_key),
         "symbol": _attr(idea, "asset", "") or _attr(idea, "symbol", ""),
         "direction": direction,
-        "confidence": float(_attr(idea, "confidence", 0) or 0),
+        "confidence": float(confidence or 0),
         "score": float(score or 0),
         "pattern": _attr(idea, "pattern"),
         "regime": regime or "",
