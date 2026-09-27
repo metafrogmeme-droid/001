@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY bot/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    fastapi>=0.110 "uvicorn[standard]>=0.29"
+    fastapi>=0.115 "uvicorn[standard]>=0.30"
 
 # ── Stage 2: production image ───────────────────────────────────────────
 FROM python:3.11-slim@sha256:8f64a67710a53a55b8baa3dd37e1a5461e34676deff7a4e6b0e389a8d2a5a4c3 AS production
