@@ -186,16 +186,21 @@ class TestItIsActuallyFasterOnThePathologicalFile:
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         assert len(funcs) > 100, f"only {len(funcs)} functions — no large file left to measure on?"
 
-        # Sample the stdlib rather than running all 260 — this test must not
-        # itself take 30 seconds to prove that something took 30 seconds.
-        sample = funcs[:20]
+        # Both sides time the SAME nodes. The old comparison timed the stdlib
+        # on the first twenty (the smallest functions ast.walk yields first)
+        # and timed segment_reader on every function INCLUDING the one-time
+        # line split. Construction is ~97% of that per-node figure, so under
+        # full-suite load the ratio inverted (stdlib faster) while the lookup
+        # itself stayed two orders of magnitude ahead. The 50x bar is the
+        # lookup, measured on the whole file so the quadratic case is what
+        # the bar sees.
         t = time.perf_counter()
-        for n in sample:
+        for n in funcs:
             ast.get_source_segment(src, n)
-        stdlib_per_node = (time.perf_counter() - t) / len(sample)
+        stdlib_per_node = (time.perf_counter() - t) / len(funcs)
 
-        t = time.perf_counter()
         seg = segment_reader(src)
+        t = time.perf_counter()
         for n in funcs:
             seg(n)
         ours_per_node = (time.perf_counter() - t) / len(funcs)
