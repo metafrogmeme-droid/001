@@ -155,7 +155,9 @@ class ChannelForwarder:
             _sep = "\u2500" * 18
             # The adaptive formatter: `:,.4f` published a PEPE signal's three
             # levels as `$0.0000` each.
+            from bot.core.signal_confidence import displayed_confidence
             from bot.formatters.rich_cards import _fmt_price
+            confidence = displayed_confidence(idea).pct()
             msg = (
                 f"\U0001f4e1 <b>RUNECLAW SIGNAL</b>\n"
                 f"{_sep}\n\n"
@@ -164,7 +166,7 @@ class ChannelForwarder:
                 f"Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code> ({sl_pct:.1f}%)\n"
                 f"Take Profit: <code>{_fmt_price(idea.take_profit)}</code> ({tp_pct:.1f}%)\n"
                 f"R:R: <code>{rr:.1f}x</code>\n"
-                f"Confidence: <code>{idea.confidence:.0%}</code>\n\n"
+                f"Confidence: <code>{confidence}</code>\n\n"
                 f"{_sep}\n"
                 f"\U0001f916 AI-generated signal | {now}\n"
                 f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"

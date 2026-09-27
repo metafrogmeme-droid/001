@@ -172,6 +172,29 @@ class TestOneMessage:
         assert "70%" in drawn
         assert "31%" not in caption
 
+    def test_the_forwarded_channel_post_matches_the_card(self):
+        from bot.marketing.channel_forwarder import ChannelForwarder
+
+        idea = _analyzer_idea()
+        sent = []
+        host = types.SimpleNamespace(
+            _enabled=True,
+            _group_ids=["1"],
+            _post=lambda text: sent.append(text),
+        )
+
+        async def _post(text):
+            sent.append(text)
+
+        host._post = _post
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            ChannelForwarder.post_signal(host, idea)
+        )
+
+        assert len(sent) == 1
+        assert "Confidence: <code>70%</code>" in sent[0]
+        assert "31%" not in sent[0]
+
 
 class TestTheCheckLine:
     """The line quotes the figure the comparison used."""

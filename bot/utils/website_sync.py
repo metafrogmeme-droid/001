@@ -433,6 +433,7 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
         reading = displayed_confidence(idea)
         if reading.measured:
             confidence = reading.value
+            score = reading.value
     except Exception:
         pass
     return {
