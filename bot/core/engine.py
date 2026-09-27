@@ -155,8 +155,8 @@ def _build_signal_sync_payloads(ideas: list, regime_fn) -> list[dict]:
     opposed to the manual Telegram /scan path's separate lightweight scanner)
     can be verified without driving a full scan cycle.
     """
-    from bot.utils.website_sync import build_signal_payload
     from bot.core.signal_confidence import displayed_confidence
+    from bot.utils.website_sync import build_signal_payload
 
     return [
         build_signal_payload(
