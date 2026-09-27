@@ -115,9 +115,18 @@ async def test_an_unverifiable_fill_is_unknown_not_the_submitted_quantity():
 
 @pytest.mark.asyncio
 async def test_a_cancelled_order_closed_nothing():
+    """A cancel that filled nothing is `cancelled`, not `none`.
+
+    This pinned `none` for both, and the two are different facts with
+    different remedies: an order the venue CANCELLED went out and the stage
+    may be tried again, where `none` is nothing submitted at all -- the slice
+    that gave an unplaceable stage its own word needed them apart, or a
+    stage whose slice rounds away on this market's grid would be re-armed
+    every tick forever. The sibling below still reads `none`, because there
+    the quantity rounded away and no order was ever sent."""
     ex = _executor(_pos())
     x = _exchange({"id": "O1"}, verify={"status": "canceled", "filled": 0})
-    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "none", "O1")
+    assert await ex._partial_close(x, ex._positions["T1"], 0.5, "tp1") == (0.0, "cancelled", "O1")
 
 
 @pytest.mark.asyncio

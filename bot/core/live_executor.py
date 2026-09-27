@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from bot.compat import UTC
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, NamedTuple, Optional, cast
 
 import ccxt.async_support as ccxt
 
@@ -60,6 +60,7 @@ from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
+    round_trip_pct,
 )
 from bot.core.time_exits import in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
@@ -69,6 +70,7 @@ from bot.core.order_state import (
     read_amount, rows_for_side, stop_attached,
 )
 from bot.core.symbol_form import normalize_symbol
+from bot.core.close_funding import funding_on_row, place_funding
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 from bot.risk.held_book import HeldRow, direction_word
 
@@ -478,6 +480,12 @@ def closed_trade_row(pos) -> dict:
         "pnl_usd": pos.pnl_usd,
         "gross_pnl": pos.gross_pnl,
         "commission": pos.commission,
+        # Funding is its own field rather than folded into `commission`: it is
+        # not a fee, and a card that prints it as one tells the operator the
+        # venue charged a fee it did not. A row written before this says
+        # nothing about funding rather than zero.
+        "funding_usd": pos.funding_usd,
+        "funding_in_net": pos.funding_in_net,
         "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
         "filled_at": _iso_or_none(getattr(pos, "filled_at", None)),
         "closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
@@ -527,6 +535,30 @@ def money(v) -> str:
     return text
 
 
+class CloseAccounting(NamedTuple):
+    """The four figures a close records, and whether the net holds the funding.
+
+    A NamedTuple rather than a tuple because this row GREW: the reconcile used
+    to answer ``(gross, net, commission)`` and two call sites unpacked it
+    positionally. `_LiveRecheck` records what that costs -- six assertions
+    indexed a position where they meant a field and all six broke at once -- so
+    the next figure moves nothing a reader already reads.
+
+    ``funding_in_net`` is tri-state on purpose. True is measured (the venue's
+    own fields placed it, or this code folded it in); None says the figure's
+    funding content is not known, which is what a fill-priced close has and
+    what a card must say rather than imply. There is no False: a net this code
+    could confirm the funding was missing from is a net this code folded it
+    into, so the state cannot survive the reconcile.
+    """
+
+    gross_pnl: Optional[float]
+    net_pnl: Optional[float]
+    commission: Optional[float]
+    funding_usd: Optional[float]
+    funding_in_net: Optional[bool]
+
+
 def close_pnl_line(net_pnl, pnl_pct, leverage, commission, *, margin_usd):
     """The money line of a close card, tri-state on every field.
 
@@ -564,6 +596,39 @@ def close_pnl_line(net_pnl, pnl_pct, leverage, commission, *, margin_usd):
         pct_str += f", {lev}×"
     fee_str = UNREAD if commission is None else f"${commission:.2f}"
     return pnl_str, pct_str, fee_str
+
+
+def close_funding_text(funding_usd, funding_in_net):
+    """What a close card says about funding, or None when there is nothing.
+
+    A row is printed only where it BITES, which is the rule the committed-margin
+    note and the analyze-budget buckets already follow: a permanent
+    ``Funding: $0.00`` under every scalp is the line that trains a reader to
+    stop reading the line, and a caveat about a cost of nothing is a hedge about
+    nothing.
+
+    So a stated zero prints nothing -- the venue's own words for it are "no fees
+    have been charged" -- and an UNSTATED funding prints nothing either: a
+    fill-priced close carries no funding field, the card already names its fill
+    source, and "funding unknown" on every such close is that same dead row.
+
+    The case that must be said is the third one: the venue stated a funding, and
+    this code could not place it, so the net printed beside it is short by a
+    figure the operator can see. That sentence is the whole reason the field is
+    tri-state.
+    """
+    if funding_usd is None or funding_usd == 0.0:
+        return None
+    amount = (f"-${abs(funding_usd):.4f}" if funding_usd < 0
+              else f"+${funding_usd:.4f}")
+    if funding_in_net is True:
+        return f"Funding: {amount}"
+    # None is UNKNOWN, not absent. The first draft of this line read "(NOT in
+    # the net above)", which is a claim the tri-state was built to avoid making:
+    # the venue stated a funding and this code could not place it, so whether
+    # the net carries it is the one thing nobody knows. Found by rendering the
+    # card and reading the line, not by reading the diff.
+    return f"Funding: {amount} (whether the net above includes it is unknown)"
 
 
 def close_pct(exit_price, entry_price, direction, leverage):
@@ -812,7 +877,11 @@ def _read_partial_fill(check: dict) -> tuple[float, str]:
             # and could close the position twice; unknown holds the ladder
             # while the stop still protects the position.
             return 0.0, "unknown"
-        return (part, "filled") if part > 0 else (0.0, "none")
+        # A stated zero is the venue saying nothing filled, so the stage may be
+        # sent again -- but the order DID go out, which "none" does not say:
+        # that word means nothing was submitted at all, and the two have
+        # different causes and different remedies.
+        return (part, "filled") if part > 0 else (0.0, "cancelled")
     return 0.0, "unknown"
 
 
@@ -1579,6 +1648,13 @@ class LivePosition:
     # Fee tracking: commission deducted from PnL
     gross_pnl: Optional[float] = None
     commission: Optional[float] = None
+    # Funding: a cost the venue states on the position-history row and nothing
+    # here read, so every figure built on `pnl_usd` was short by it. Signed as
+    # the venue states it (negative = paid). `funding_in_net` is tri-state:
+    # None says the net's funding content is unknown, which is what a
+    # fill-priced or ticker-priced close has, and is not the same fact as zero.
+    funding_usd: Optional[float] = None
+    funding_in_net: Optional[bool] = None
     # Reason the position was closed (e.g. "SL", "TP", "manual", error status)
     close_reason: Optional[str] = None
     # Provenance (forensic aid — TI-a4ba8a82 was unrecoverable without it):
@@ -8221,11 +8297,24 @@ class LiveExecutor:
         "unknown" fill be RE-READ on a later pass instead of resubmitted.
         source is:
 
-            "filled"   the venue CONFIRMED this quantity filled
-            "none"     nothing was submitted (qty rounded to <= 0)
-            "refused"  the venue refused the order, so nothing was placed
-            "unknown"  the order went out, or may have, and its fill could
-                       not be read
+            "filled"    the venue CONFIRMED this quantity filled
+            "none"      nothing was SUBMITTED: the slice rounds to nothing on
+                        this market's amount grid. A position's quantity only
+                        shrinks, so this is true on every later pass too --
+                        the stage cannot be taken at this size.
+            "refused"   the venue refused the order, so nothing was placed
+            "cancelled" the order went out and the venue cancelled it having
+                        filled a STATED zero, so nothing closed and a later
+                        pass may do better
+            "unknown"   the order went out, or may have, and its fill could
+                        not be read
+
+        "none" and "cancelled" both mean nothing closed and used to be one
+        word. They are two facts: one is the position's size against the
+        market's grid, which no later pass changes, and the other is an order
+        the venue took and closed nothing with, which a later pass may. A
+        reader that folds them retries the first forever or gives up on the
+        second.
 
         It used to return the SUBMITTED quantity, and the caller subtracted
         that from ``pos.quantity`` and re-sized the exchange stop to match.
@@ -8298,9 +8387,13 @@ class LiveExecutor:
         Banks profit early to fix the realized R:R asymmetry without removing the
         exchange-side safety net."""
         import dataclasses as _dc
+
         from bot.core.partial_tp import (
-            create_partial_tp_state, check_partial_tp, PartialTPState,
+            PartialTPState,
+            check_partial_tp,
+            create_partial_tp_state,
             rebuild_ladder,
+            unplaceable_stages,
         )
 
         is_long = pos.direction == "LONG"
@@ -8367,6 +8460,15 @@ class LiveExecutor:
         # asked for again, and the size is what the fills left.
         st.current_sl = pos.stop_loss
         st.remaining_qty = pos.quantity
+        # And its view of the FEES is this runtime's, read from the position's
+        # own entry leg on every pass. TP1's lock is a breakeven stop, which is
+        # the round trip past the entry and not a hard-coded 0.1%: a market
+        # entry pays 0.1200% at the shipped rates and a limit one 0.0800%, so
+        # one constant lost a fifth of the round trip on one and over-locked the
+        # other. Set HERE, above the check, so a record written before the field
+        # is upgraded on its first pass rather than through a rebuild that would
+        # forget which stages had fired.
+        st.fee_round_trip_pct = round_trip_pct(getattr(pos, "order_type", None))
 
         def _would_tighten(new_sl: float) -> bool:
             """True iff new_sl tightens the stop (raise LONG / lower SHORT).
@@ -8494,16 +8596,24 @@ class LiveExecutor:
                                     "order_id": order_id or None,
                                     "quantity": pos.quantity, "price": price})
                         self._record_warning("partial_tp_fill_unread")
-                    elif fill_source == "refused":
-                        # Nothing was placed, so the stage did not happen: it
-                        # is re-armed, and its stop move is not made.
+                    elif fill_source in ("refused", "cancelled"):
+                        # Nothing was closed, so the stage did not happen: it
+                        # is re-armed, and its stop move is not made. A later
+                        # pass may do better, which is what separates these
+                        # two from "none". The sentence names which, because a
+                        # venue that REFUSED the order and one that took it and
+                        # cancelled it unfilled send an operator to different
+                        # places.
                         setattr(st, f"{act.stage}_hit", False)
                         setattr(st, f"{act.stage}_qty_closed", 0.0)
+                        _why = ("the venue refused the close"
+                                if fill_source == "refused" else
+                                "the venue cancelled the close having filled "
+                                "nothing")
                         audit(trade_log,
-                              f"Partial TP {act.stage} for {pos.symbol}: the venue "
-                              f"refused the close, so nothing was closed and the "
-                              f"stage is re-armed",
-                              action="partial_tp", result="REFUSED",
+                              f"Partial TP {act.stage} for {pos.symbol}: {_why}, "
+                              f"so nothing was closed and the stage is re-armed",
+                              action="partial_tp", result=fill_source.upper(),
                               level=logging.WARNING,
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
                                     "stage": act.stage, "qty_submitted": qty,
@@ -8515,6 +8625,54 @@ class LiveExecutor:
                     # second slice of a quantity the book cannot state.
                     changed = True
                     break
+                if fill_source == "none":
+                    # NOTHING WAS SUBMITTED: this slice rounds to nothing on
+                    # the market's amount grid. It was the one outcome of the
+                    # four with no audit line, and the stage was recorded as
+                    # HIT with nothing banked while its stop move went through
+                    # -- so a position whose ladder can bank nothing had its
+                    # stop pulled to breakeven at TP1's trigger, on the
+                    # premise of a slice that was never closed. It is the
+                    # ORDINARY case for an account trading at the venue's
+                    # minimum: `_exchange_minimum_gate` raises the quantity to
+                    # that minimum, and TP1's half of it is below it by
+                    # construction.
+                    #
+                    # Re-arming it would retry forever -- a position's quantity
+                    # only shrinks, so a slice that cannot be placed once
+                    # cannot be placed later -- so the stage is RECORDED as
+                    # unplaceable instead: `check_partial_tp` stops proposing
+                    # it and `stage_lock` locks no stop for it, because it
+                    # banked nothing. The rest of the ladder is untouched: a
+                    # TP2 that cannot be placed must not cost TP1's lock the
+                    # re-proposal that `stage_lock` exists for.
+                    setattr(st, f"{act.stage}_hit", False)
+                    setattr(st, f"{act.stage}_qty_closed", 0.0)
+                    st.unplaceable = tuple(
+                        sorted(set(unplaceable_stages(st)) | {act.stage}))
+                    changed = True
+                    # TWO FACTS, ONE ACTION. The GRID refusing a slice and the
+                    # BOOK having nothing left to close both mean the stage
+                    # cannot be taken, and they are not the same sentence: the
+                    # second is reachable when a TP1 fill came back larger than
+                    # its slice, which takes the book to zero inside the pass,
+                    # and telling the operator the market refused it would send
+                    # them to look at a market that answered nothing at all.
+                    _cannot = (f"its slice of {qty} rounds to nothing on this "
+                               f"market's amount grid" if qty > 0 else
+                               "there is nothing left on the book to close")
+                    audit(trade_log,
+                          f"Partial TP {act.stage} for {pos.symbol}: {_cannot} — "
+                          f"nothing was submitted and nothing was closed, so the "
+                          f"stage is off for this position and its stop move is "
+                          f"not made. The position's own stop and take-profit "
+                          f"still apply.",
+                          action="partial_tp", result="STAGE_UNPLACEABLE",
+                          level=logging.WARNING,
+                          data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                "stage": act.stage, "qty_submitted": qty,
+                                "quantity": pos.quantity, "price": price})
+                    continue
                 if act.new_sl and _would_tighten(act.new_sl):
                     # Advance the local stop ONLY after the exchange confirms the
                     # tighter level — same discipline as the trailing path, so the
@@ -10402,7 +10560,9 @@ class LiveExecutor:
     def _reconcile_exchange_close_pnl(
         exchange_pnl: float, exchange_close_fees: float, pnl_is_net: bool,
         entry_notional: Optional[float], entry_fee_pct: float,
-    ) -> tuple[float, Optional[float], Optional[float]]:
+        *, funding: Optional[float] = None,
+        funding_in_pnl: Optional[bool] = None,
+    ) -> "CloseAccounting":
         """Reconstruct (gross_pnl, net_pnl, commission) from an exchange-
         reported close, honoring whether exchange_pnl is already fee-adjusted.
 
@@ -10424,18 +10584,44 @@ class LiveExecutor:
         (``entry_fee_notional``): the venue's gross stands, and the fee total
         and the net are unknown rather than short by the entry leg.
         """
+        # FUNDING IS STRIPPED OUT FIRST, so `gross_pnl` stays the price move.
+        # With `netProfit` as the reported figure and funding inside it, the old
+        # `exchange_pnl + fees` made the recorded gross the price move PLUS the
+        # funding -- a quantity with no name, on the field every card labels as
+        # the move before fees. Removing it here is the only way the triple can
+        # close: gross - commission + funding == net.
+        #
+        # ASKED, never restated. The first draft of this slice spelled the four
+        # arms out here and left `close_funding.place_funding` with no
+        # production caller at all -- a second answer to one question AND the
+        # fifth granularity, which `test_no_new_unreachable_functions` named
+        # before the gate did.
+        placement = place_funding(exchange_pnl, funding, funding_in_pnl)
+        base = placement.base
+
         if pnl_is_net:
-            net_pnl: Optional[float] = exchange_pnl
+            net_pnl: Optional[float] = base
             commission: Optional[float] = exchange_close_fees
-            gross_pnl = exchange_pnl + exchange_close_fees
+            gross_pnl = base + exchange_close_fees
         elif entry_notional is None:
-            gross_pnl, net_pnl, commission = exchange_pnl, None, None
+            gross_pnl, net_pnl, commission = base, None, None
         else:
-            gross_pnl = exchange_pnl
+            gross_pnl = base
             estimated_entry_fee = entry_notional * entry_fee_pct / 100.0
             commission = exchange_close_fees + estimated_entry_fee
             net_pnl = gross_pnl - commission
-        return gross_pnl, net_pnl, commission
+
+        # A stated funding of ZERO reaches this with `add_to_net` set to 0.0, so
+        # it adds nothing and reads as in-net: there is no separate zero branch,
+        # because one would be a line no input can reach. An UNPRICEABLE close
+        # has no net to fold into, and that is the reconcile's own question
+        # rather than the leaf's -- the leaf is handed a figure, not a book.
+        if net_pnl is not None and placement.add_to_net is not None:
+            net_pnl = net_pnl + placement.add_to_net
+            in_net: Optional[bool] = True
+        else:
+            in_net = None
+        return CloseAccounting(gross_pnl, net_pnl, commission, funding, in_net)
 
     @staticmethod
     def _local_close_commission(entry_notional: float, exit_notional: float,
@@ -11426,8 +11612,17 @@ class LiveExecutor:
             # already-net understated total fees and reported gross PnL to
             # the user as "net".
             _pnl_is_net = False
+            # The funding this position paid over its whole life, and whether
+            # the venue's reported figure already carries it. Only the position
+            # -history stage states either; a fill or a closed order carries no
+            # funding field, so these stay None and the record says the net's
+            # funding content is unknown rather than implying it is zero.
+            _funding: Optional[float] = None
+            _funding_in: Optional[bool] = None
 
-            # Try position history first (includes funding fees — most accurate)
+            # Try position history first: its `netProfit` is the only figure any
+            # stage reports that can carry funding, and `funding_on_row` says
+            # whether this row's own arithmetic puts it there.
             try:
                 import asyncio as _aio_pnl
                 await _aio_pnl.sleep(2)  # brief delay for Bitget to finalize
@@ -11436,6 +11631,8 @@ class LiveExecutor:
                     exchange_pnl = pos_hist_data["pnl"]
                     exchange_close_fees = pos_hist_data.get("fees", 0) or 0
                     _pnl_is_net = pos_hist_data.get("pnl_is_net", False)
+                    _funding = pos_hist_data.get("funding")
+                    _funding_in = pos_hist_data.get("funding_in_pnl")
                     if pos_hist_data.get("close_price", 0) > 0:
                         fill_price = pos_hist_data["close_price"]
                         _fill_src = "bitget_position_history"
@@ -11509,12 +11706,17 @@ class LiveExecutor:
                 # The venue priced it, and the venue knows the entry even when
                 # this record does not.
                 entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
-                gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
+                _acct = self._reconcile_exchange_close_pnl(
                     exchange_pnl, exchange_close_fees, _pnl_is_net,
                     entry_notional=entry_fee_notional(
                         pos, fill_price if exit_price_known else None, exchange_pnl),
                     entry_fee_pct=entry_fee_pct,
+                    funding=_funding, funding_in_pnl=_funding_in,
                 )
+                gross_pnl, net_pnl, commission = (
+                    _acct.gross_pnl, _acct.net_pnl, _acct.commission)
+                pos.funding_usd = _acct.funding_usd
+                pos.funding_in_net = _acct.funding_in_net
             elif entry_unread:
                 gross_pnl = net_pnl = commission = None
                 self._note_entry_unread_close(pos, "live_close", _fill_src)
@@ -11665,12 +11867,15 @@ class LiveExecutor:
                 stage = close_verify.get("failure_stage", "unconfirmed")
                 verify_str = f"⚠️ {stage}"
 
+            _fund_text = close_funding_text(pos.funding_usd, pos.funding_in_net)
+            _funding_row = "" if _fund_text is None else _fund_text + "\n"
             _exit_str = f"${fill_price:,.4f}" if exit_price_known else UNREAD
             _entry_str = UNREAD if _entry_px is None else f"${_entry_px:,.4f}"
             close_msg = (
                 f"CLOSED {pos.direction} {pos.symbol} ({reason})\n"
                 f"Entry: {_entry_str} → Exit: {_exit_str}\n"
                 f"PnL: {pnl_str} ({pnl_pct_str}) | Fees: {fee_str} | Hold: {hold_str}\n"
+                f"{_funding_row}"
                 f"Verified: {verify_str}"
             )
             if entry_unread:
@@ -12081,6 +12286,13 @@ class LiveExecutor:
                 close_fee = abs(float(entry.get("closeFee", 0) or 0))
                 total_fees = open_fee + close_fee
                 net_hist = _num_or_none(entry.get("netProfit"))
+                # The funding this position paid over its life, and whether
+                # this row's own arithmetic puts it inside `netProfit`. The
+                # comment above the caller has said "includes funding fees --
+                # most accurate" since it was written; that is true of the
+                # `netProfit` branch and false of the branch below it, which
+                # derives a net from the GROSS field and flagged it net.
+                _fund = funding_on_row(entry)
                 # Leverage as the exchange applied it. Not present on every
                 # history payload; captured best-effort so the caller can
                 # reconcile a stale/config-derived pos.leverage when available.
@@ -12101,20 +12313,30 @@ class LiveExecutor:
                 # entry fee on top of fees that already include the open
                 # leg (entry-fee double-count).
                 final_pnl: Optional[float]
+                # Whether the figure this branch hands over already carries the
+                # funding. The venue's own `netProfit` is whatever the row's
+                # arithmetic said; anything derived from `pnl` (the gross field,
+                # whose UTA twin is documented "Excluding fees and funding
+                # costs") carries none, so the caller folds it in there.
+                _fund_in_pnl: Optional[bool] = None
                 if net_hist is not None and net_hist != 0:
                     final_pnl = net_hist
                     _pnl_is_net = True
+                    _fund_in_pnl = _fund.in_net
                 elif gross_hist is not None and total_fees > 0:
                     final_pnl = gross_hist - total_fees
                     _pnl_is_net = True
+                    _fund_in_pnl = False
                 elif gross_hist is not None:
                     final_pnl = gross_hist
                     _pnl_is_net = False
+                    _fund_in_pnl = False
                 elif net_hist is not None:
                     # A stated netProfit of 0 with no gross beside it: the
                     # only figure the venue gave, and a present 0.
                     final_pnl = net_hist
                     _pnl_is_net = True
+                    _fund_in_pnl = _fund.in_net
                 else:
                     # The row priced the EXIT and stated no profit at all. The
                     # caller derives the P&L from the close price with the fee
@@ -12158,6 +12380,13 @@ class LiveExecutor:
                     # netProfit was populated, or we derived net locally
                     # from the full round-trip fees above.
                     "pnl_is_net": _pnl_is_net,
+                    # Signed as the venue states it: negative is funding PAID.
+                    # None where the row said nothing, never 0.0 -- a row that
+                    # states 0 means "no fees have been charged" in the venue's
+                    # own words, and a row that states nothing is not that.
+                    "funding": _fund.usd,
+                    "funding_in_pnl": _fund_in_pnl,
+                    "funding_basis": _fund.basis,
                 }
             except Exception as e:
                 logger.debug("Bitget position history lookup failed for %s (window=%s): %s",
@@ -12781,13 +13010,19 @@ class LiveExecutor:
             # _trades paths) otherwise dropped the fees and overstated realized
             # PnL. Mirrors _close_position_inner.
             entry_fee_pct = entry_rate_pct(getattr(pos, 'order_type', None))
-            gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
+            _acct = self._reconcile_exchange_close_pnl(
                 exchange_reported_pnl,
                 float((close_data or {}).get("fees", 0.0) or 0.0),
                 bool((close_data or {}).get("pnl_is_net", False)),
                 entry_notional=entry_fee_notional(pos, est_exit, exchange_reported_pnl),
                 entry_fee_pct=entry_fee_pct,
+                funding=(close_data or {}).get("funding"),
+                funding_in_pnl=(close_data or {}).get("funding_in_pnl"),
             )
+            gross_pnl, net_pnl, commission = (
+                _acct.gross_pnl, _acct.net_pnl, _acct.commission)
+            pos.funding_usd = _acct.funding_usd
+            pos.funding_in_net = _acct.funding_in_net
         elif _entry_px is None:
             gross_pnl = net_pnl = commission = None
             self._note_entry_unread_close(pos, "live_close_25227", fill_source)
@@ -12836,11 +13071,14 @@ class LiveExecutor:
         else:
             hold_str = f"{hold_secs / 86400:.1f}d"
 
+        _fund_text = close_funding_text(pos.funding_usd, pos.funding_in_net)
+        _funding_row = "" if _fund_text is None else _fund_text + "\n"
         _entry_str = UNREAD if _entry_px is None else f"${_entry_px:,.4f}"
         close_msg = (
             f"CLOSED {pos.direction} {pos.symbol} ({reason})\n"
             f"Entry: {_entry_str} → Exit: ${est_exit:,.4f}\n"
             f"PnL: {pnl_str} ({pnl_pct_str}) | Fees: {fee_str} | Hold: {hold_str}\n"
+            f"{_funding_row}"
             f"Fill source: {pos.fill_source}"
         )
         if entry_unread:
@@ -13789,6 +14027,12 @@ class LiveExecutor:
                      else float(item["pnl_usd"])),
             gross_pnl=float(item.get("gross_pnl") or 0) if item.get("gross_pnl") is not None else None,
             commission=float(item.get("commission") or 0) if item.get("commission") is not None else None,
+            # A row written before the funding field says nothing about funding,
+            # which is what None means here -- never 0.0, or every close the bot
+            # ever booked would read as a position that crossed no settlement.
+            funding_usd=_num_or_none(item.get("funding_usd")),
+            funding_in_net=(item.get("funding_in_net")
+                            if isinstance(item.get("funding_in_net"), bool) else None),
             opened_at=opened_at,
             closed_at=closed_at,
             status="closed",
@@ -14128,14 +14372,20 @@ class LiveExecutor:
                                 # Mirrors _close_position_inner.
                                 _entry_fee_pct = entry_rate_pct(
                                     getattr(pos, 'order_type', None))
-                                gross_pnl, net_pnl, commission = self._reconcile_exchange_close_pnl(
+                                _acct = self._reconcile_exchange_close_pnl(
                                     exchange_reported_pnl,
                                     float((close_data or {}).get("fees", 0.0) or 0.0),
                                     bool((close_data or {}).get("pnl_is_net", False)),
                                     entry_notional=entry_fee_notional(
                                         pos, est_exit, exchange_reported_pnl),
                                     entry_fee_pct=_entry_fee_pct,
+                                    funding=(close_data or {}).get("funding"),
+                                    funding_in_pnl=(close_data or {}).get("funding_in_pnl"),
                                 )
+                                gross_pnl, net_pnl, commission = (
+                                    _acct.gross_pnl, _acct.net_pnl, _acct.commission)
+                                pos.funding_usd = _acct.funding_usd
+                                pos.funding_in_net = _acct.funding_in_net
                                 pnl = gross_pnl
                                 logger.info("Using exchange-reported PnL for %s: %s",
                                             pos.symbol, money(net_pnl))

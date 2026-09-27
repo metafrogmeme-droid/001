@@ -794,7 +794,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 695 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 693 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -5958,6 +5958,279 @@ continuation `:6423` sat on a blank line. The blank-line probe matches only
 sentence names now, including the bare ones.
 (`tests/test_the_partial_tp_ladder_survives_a_restart.py`.)
 
+
+**TP1's "BREAKEVEN" LOCK WAS A MEASURED LOSS, AND THE SEAM THAT PRICES A ROUND
+TRIP WAS ALREADY IN THE TREE.** The partial-TP ladder closes half the position at
+1.5R and moves the stop to breakeven, and `_tp1_lock` was
+`state.entry_price * 0.001` under a docstring reading *"breakeven, plus a small
+buffer for fees"*. A price move of x% of entry realizes x% of NOTIONAL and the
+round trip costs its own percent of notional, so the two compare directly and the
+stop that costs nothing sits exactly one round trip past the entry. Driven
+through `trade_costs.round_trip_pct`, which `partial_tp` imported nothing of:
+
+| runtime | round trip | the 0.1% lock realized |
+|---|---|---|
+| live, MARKET entry | 0.1200% | **-0.0200% of notional** |
+| live, LIMIT entry | 0.0800% | +0.0200% |
+| backtest `--honest` | 0.1200% | **-0.0200%** |
+| backtest, field default | 0.2000% | **-0.1000%** |
+
+So a market-entry runner stopped out at its lock paid a fifth of its round trip,
+with `SL->breakeven` on the audit line; and a limit entry over-locked by a
+quarter, which is *"the time stop's buffer was half again too wide for a limit
+entry"* one control over. **ONE CONSTANT FOR TWO LEG COMBINATIONS**, on the stop
+whose whole claim is that the leg costs nothing.
+
+**IT IS AN INPUT, NEVER COMPUTED IN THE LADDER, because two runtimes run this
+ladder and the module must not pick a fee model.** `PARTIAL_TP_ENABLED` defaults
+True, so the backtest scales out through the same `check_partial_tp` — the live
+executor supplies the position's own entry leg and the backtest supplies its
+`commission_pct` pair, which is the division this file already records for fees
+(`bot/risk/portfolio.py` is injected with the backtest's rate *"so the simulated
+fee matches the run being compared"*). A test fails on `partial_tp` importing
+`trade_costs`, `commission_pct` or either fee field.
+
+**THE LIVE FIGURE IS SET ON EVERY PASS, ABOVE THE CHECK, AND THAT IS WHAT MAKES
+THE FIELD SAFE TO DEFAULT.** A ladder record written before the field carries no
+fee model; the executor writes it beside `st.current_sl = pos.stop_loss`, so such
+a record is upgraded on its first pass. A REQUIRED field would raise `TypeError`
+in `from_record`, and the executor's own `except` rebuilds through the
+constructor — which resets `tp1_hit`, the exact defect the persistence chapter
+records as *"A RESTART SOLD THE RUNNER TWICE"*. So the field defaults and
+`_tp1_lock` falls back to the pre-slice constant there, which is named
+`LEGACY_FEE_BUFFER_PCT` and stated as the BACKSTOP rather than the design: no
+product input reaches it, a source assertion pins the executor's write above the
+check, and a record this build did not write behaves exactly as it always did.
+
+**ELEVEN ASSERTIONS CARRIED THE OLD LOCK AND ALL ELEVEN MOVED AT ONCE.**
+`test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py` spelled
+`ENTRY * 1.001` in nine places and `ENTRY * 0.999` in three, and the properties
+they guard — the lock is asked for once, retried after a refusal, never pulled
+back, never asked for where the price is already through it — held throughout. It
+DERIVES the lock from the fee model now, so the next rate change moves one line
+rather than eleven. The one literal that stays is the older build's own recorded
+stop, because that is what an older build wrote.
+
+**A CLAIM IN MY OWN PROSE DID NOT SURVIVE BEING DRIVEN.** The first draft said
+the backtest charges 0.2% *"at its default"*, from `BacktestConfig`'s field
+default — and `--honest`, which is how the frozen benchmark and every ratcheted
+run are taken, replaces the stale `--commission` default with
+`CONFIG.risk.taker_fee_pct` and says so in its own comment. So under `--honest`
+the two runtimes charge the SAME round trip and the old lock lost the same 0.02%
+in both; the 0.2% figure is reachable only by a plain run. Both rates are driven
+now, and the test asserts the honest one is BELOW the field default rather than
+taking either on trust.
+
+**The frozen benchmark moves, so it was re-measured rather than left describing
+code that no longer runs** — the rule the min-R:R and POC-retest slices already
+follow. `docs/FROZEN_BENCHMARK.md` and `benchmark/majors_1h/result.json` carry
+the re-run at this commit.
+
+**Filed with its measurement, not changed: the ladder's R and the entry gate's R
+are different units.** `net_reward_risk` builds its denominator as
+`risk_px + entry_fee + stop_fee`, so a stop-out there is exactly -1.0R and the
+unit is fee-inclusive; `PartialTPState.initial_risk` is the bare price distance,
+so `tp1_r_multiple = 1.5` fires at 1.5 GROSS R. Moving the ladder onto the
+fee-inclusive unit changes when the stages TRIGGER rather than where the stop
+sits, which is a strategy decision with a benchmark cost, not a wording fix. The
+sibling that stays filed is the rebuilt ladder sizing TP2 off the quantity left
+after TP1 rather than the entry's. The other one it filed — a position too small
+to split marking TP1 done and moving the stop with nothing closed — is the
+chapter below.
+(`tests/test_the_breakeven_lock_is_breakeven_after_fees.py`.)
+
+**A LADDER STAGE THAT CLOSED NOTHING WAS RECORDED AS HIT, MOVED THE STOP, AND
+AUDITED NOTHING.** `_partial_close` answers one of five words and the caller
+acted on three. The one it did not act on was "nothing closed" — the only
+outcome of the four with no audit line at all. Driven through the real
+`_run_partial_tp` on a lot-size-1 market with a position of one contract, so
+TP1's slice is 0.5:
+
+    orders sent    0        tp1_hit  True        tp1_qty_closed  0.5
+    pos.quantity   1.0      stop     90.0 -> 100.1 (breakeven + fees)
+    AUDIT LINES    []
+
+**THE ORDINARY CASE IS AN ACCOUNT TRADING AT THE VENUE'S MINIMUM.**
+`_exchange_minimum_gate` raises a small order's quantity to the venue's minimum
+lot, and TP1 closes 50% of it — below that minimum by construction. So every
+position such an account opens has a ladder that can bank nothing, fires TP1
+silently, and pulls the stop to breakeven: a ride to the target turned into a
+scratch if price comes back, on the premise of a slice that was never closed.
+Nothing on any card or in any audit said so. Driven against the pinned ccxt, a
+0.5 on an amount precision of 1 RAISES `InvalidOrder` (which `_partial_close`
+already reads as nothing to send) and a 1.4 TRUNCATES to 1.
+
+**TWO PRODUCERS OF ONE WORD, WITH DIFFERENT REMEDIES.** `_read_partial_fill`
+also answered `none` for an order the venue CANCELLED having filled a STATED
+zero — an order that went OUT. That is not "nothing was submitted": a later
+pass may fill, so it takes the re-arm treatment `refused` already had, and it
+is `cancelled` now so the audit can name which happened. The reachable case is
+ordinary: the exchange stop fires between the ladder's read and its close
+order, and a reduceOnly order with nothing left to reduce is cancelled
+unfilled. A reader that folds the two retries the grid case forever or gives up
+on the cancelled one. `refused` and `cancelled` share one branch because they
+share one ACTION, and one sentence each because a venue that refused the order
+and one that took it and closed nothing with it send an operator to different
+places.
+
+**A STAGE THE SIZE CANNOT PLACE IS RECORDED, NOT RE-ARMED.** Re-arming retries
+it on every pass forever, because a position's quantity only shrinks: a slice
+that cannot be placed once cannot be placed later. `PartialTPState.unplaceable`
+records it, `check_partial_tp` stops proposing it, and `stage_lock` locks no
+stop for it — a stage that banked nothing has nothing to lock, and without that
+second half the lock the stage skipped would be asked for again on the very
+next pass. Both readers ask `unplaceable_stages`, because a second copy of that
+judgement is a second answer about whether a stage fired; the field is READ
+rather than trusted, since `from_record` hands the constructor whatever the dict
+holds and a list of stage names this build does not know must not turn the whole
+ladder off.
+
+**AND IT DOES NOT TURN THE WHOLE LADDER OFF, which the existing `LADDER_OFF`
+mechanism would have made the one-line fix.** A TP2 whose slice rounds to
+nothing must not cost TP1's lock the re-proposal `stage_lock` was written to
+provide — that is the defect this file already records as fixed, and reaching
+for the cheap path would have reintroduced it one stage over. The runner needs
+`tp2_hit`, so a ladder whose TP1 cannot be placed proposes nothing at all and
+costs one arithmetic call a tick; what it gains is a record that says the stage
+banked nothing rather than one that says it fired.
+
+**TWO FACTS SHARE THAT ONE ACTION TOO, and the sentence was found by re-reading
+the diff rather than by the round.** The GRID refusing a slice and the BOOK
+having nothing left to close both mean the stage cannot be taken, and the first
+draft printed the grid sentence for both — so an operator whose TP1 over-filled
+to zero was told the market refused a slice on a pass where the market answered
+nothing at all. The second cause is reachable and driven: a TP1 fill larger than
+its slice takes the book to zero INSIDE the pass, which is the one door to the
+caller's `qty <= 0`, because `check_partial_tp` guards its own `close_qty > 0`
+against a `remaining_qty` the pass reads from `pos.quantity` — so an empty book
+proposes nothing and the loop never runs.
+
+**Twenty-two mutations, each killed — and the two that survived the first
+round were the guard's coverage and a redundant line of mine.** Every fixture's
+`_save_positions` was a no-op, so dropping `changed = True` left the mark in
+memory and never on DISK: a restart would re-propose the stage and record it
+again, which no assertion about the record could see. And
+`isinstance(s, str)` beside the membership test changed no verdict on any input
+— `CLOSING_STAGES` is a tuple, so `in` compares with `==` and never raises, and
+every non-string fails it anyway — so it is DELETED rather than pinned, which is
+the round saying the code claimed a check it did not make.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A PIN IN A FILE NONE OF ITS SUITES
+RAN.** `test_audit_fixes_batch_3.py::test_a_cancelled_order_closed_nothing`
+asserted `(0.0, "none", "O1")` for a cancel that filled nothing — the word this
+slice split in two — and its own name is the reason the split was needed: a
+cancel that closed nothing and a slice that was never SENT are different facts
+with different remedies, and the first may be tried again where the second
+would be re-armed every tick forever. The pin moves with the contract, and the
+sibling two tests down still reads `none`, because there the quantity rounded
+away and no order went out. Eleventh time the full gate has refused a slice on
+a test outside its own suites.
+(`tests/test_a_stage_that_closed_nothing_did_not_fire.py`.)
+
+**"NO QUALIFYING SETUPS IN THE LAST SCAN — THE GATE IS DOING ITS JOB" IS WHAT AN
+EMPTY CYCLE PUSH SAYS.** The dashboard's setups panel had one empty state and
+one sentence for it, and that sentence was false three ways. The third is the
+expensive one.
+
+**ONE: IT FIRED WHEN NO SCAN HAD RUN.** The autonomous cycle calls
+`_push_scan_summary_to_website`, which calls `_build_scan_payload([], engine)`
+for the circuit-breaker block and the regime — its own docstring says the rest
+"would stay placeholder". Driven, that payload carried `entry_cards: []` and
+`symbols: {}`, and `app/routes/sync.js` replaces the stored scan WHOLESALE, so
+the last manual `/scan`'s cards were wiped within a cycle and the panel reported
+the absence as a risk control working. The deep-scan block beside it has been
+carried forward against exactly this since it was written; the entry cards were
+the same sentence one block over, and nobody had said it.
+
+**TWO: THE GATE WAS NEVER CONSULTED.** `entry_cards` is filtered by
+`r["score"] >= SETUP_SCORE_FLOOR` — the SCANNER's own score — and the risk gate
+runs at CONFIRM time, which the panel's own footer already says
+("Confirmations run through its risk gate"). So the panel named a control that
+had not run, two lines above a true sentence about where that control does run.
+That is the `/vault` hint shape pointed at a PANEL: a card naming a control that
+did nothing, which the next reader trusts because the footer beside it is right.
+
+**THREE: A FAILED READ RENDERED AS THE GATE WORKING.** The card loop skips a
+candidate whose ATR it could not read — and before `record_atr` kept significant
+digits, **every sub-cent asset recorded `0.0`**, so a universe of cheap assets
+produced zero cards and the panel called that discipline. It skips a candidate
+whose direction it could not read too, the same shape one field over. Those two
+are counted APART, because their remedies differ (a venue that priced nothing, a
+move nobody could read) and folding them sends a reader to the wrong one — the
+scan partial's own rule about errors and a time budget.
+
+**OMITTED, NOT SENT EMPTY, and that distinction is the whole fix.** An empty
+list is a scan that found nothing, which is a READING; an absent block is a push
+that scanned nothing. `scanned=False` omits both blocks, so the ingest can carry
+the last real scan's forward — with the age of the SCAN that produced them, not
+of the push that carried them. There is deliberately **no `scanned` field on the
+wire**: a field this build always sets to one value is a field nobody reads, and
+the PRESENCE of the reading is the fact.
+
+**NO TTL IN THE INGEST, deliberately.** The panel already bounds how old a scan
+may be before it says so, and it reads that bound from the page's own "Last
+scan" row rather than declaring a second one — a second threshold in the ingest
+would be a second answer about when a setup is out of date. What the route
+preserves is the FACT and its AGE; the panel decides what to say.
+
+**THE READING TRAVELS WITH THE CARDS IT DESCRIBES.** `entry_cards_read` carries
+what was scanned, what cleared the floor, what was shown, and the two read
+failures — and it is omitted on a summary push for the same reason the cards
+are. Sent there it would REPLACE the last real scan's reading while the ingest
+carried that scan's cards forward: the counts and the list describing two
+different scans, on one payload. The counts CLOSE over what was considered
+(`cards + no_atr + no_direction == considered`), driven rather than asserted of
+the code, because a taxonomy that does not close is the
+`analysed = attempts - gave_up` shape one loop over.
+
+**SIX FACTS, AND NOT ONE OF THEM NAMES THE GATE.**
+`app/public/js/entry-cards-model.js` answers `cards`, `no_scan`,
+`nothing_read`, `below_floor`, `unpriced` and `unknown`. `unknown` is the
+deploy window made honest: an older bot always sent `entry_cards` and never sent
+why, so its empty list cannot be told from a scan that found nothing, and
+`app/` and `bot/` are different deploy targets — the panel says exactly that
+rather than guessing. The renderer spells no key and picks no colour: an absence
+is muted, a stale scan is a `warn`, and the floor and the freshness bound are
+read rather than restated.
+
+**THE PANEL'S BODY IS A SEAM BECAUSE THE DEFECT WAS INVISIBLE FROM ITS SOURCE.**
+`cards = scan?.entry_cards || []` reads an omitted block, an empty list and a
+wiped list identically, so no reading of that line can tell them apart — and the
+body was a `renderPanel` callback inside a 6k-line function, which is a renderer
+no test can run (#999's card exactly). `ecPanelHtml` is module-level and marked,
+and its first drive bought two assertions nothing else in the tree could make: a
+duration reaching the card in raw milliseconds, and a card symbol reaching the
+page as markup.
+
+**Thirty-six mutations, each killed — and the one that survived the first round
+had no product input that could tell it from the fix.** `hasOwnProperty` against
+truthiness changed no verdict anywhere, because `[]` and `{}` are both truthy in
+JS: every block the producer sends is truthy and every block it omits is
+`undefined`. The input that separates them is an explicit `null`, which is a
+STATEMENT rather than an absence — carrying the last scan's cards over it would
+publish setups the newest push had denied — so that is a test now and the
+mutation dies. One was REFUSED rather than counted: the footer anchor's
+indentation had moved when the block was dedented into a module-level function,
+so it matched zero times, and a driver that took that for a kill would have
+reported coverage of the line it never edited.
+
+> **And `code_only` cost two guards their own parse, in the direction this file
+> does not warn about.** `_build_scan_payload`'s body OPENS with a docstring, so
+> the stripped copy is a `def` with an empty body and no longer parses; and
+> `inspect.cleandoc` computes its margin from lines 2+, so on a function whose
+> signature WRAPS it dedents the body out from under the `def` as well. An AST
+> walk cannot see a comment in any case, so both reads take raw source and
+> `textwrap.dedent`. "Strip comments first" is this file's own advice and here it
+> was the wrong instrument twice.
+
+> **And my own fixture could not produce the state it named.** A destructuring
+> default fires for `undefined`, so `renderer({ model: undefined })` handed the
+> test the REAL model back and the "a missing model throws" assertion was
+> measuring nothing. `null` is the value that skips a default.
+(`tests/test_an_empty_cycle_push_is_not_a_scan_that_found_nothing.py`,
+`app/test/entry_cards_model.test.js`,
+`app/test/entry_cards_panel_makes_no_gate_claim.test.js`,
+`app/test/scan_ingest_carries_the_cards_forward.test.js`.)
 
 **A HELPER THAT READS THE WALL CLOCK IS ONLY CORRECT AT THE FETCH, and the
 engine's one shared candle read applied it after the cache.** `_cached_ohlcv`
@@ -13143,6 +13416,190 @@ added before it ran.
 > code it loaded does not.
 (`tests/test_an_unstated_fill_profit_is_not_a_break_even.py`.)
 
+**FUNDING IS A COST, THE VENUE STATES IT ON THE ROW THIS BOT ALREADY FETCHES,
+AND NOTHING READ IT.** `_close_from_history` calls
+`/api/v2/mix/position/history-position` and reads seven fields off the matched
+row — `openAvgPrice`, `closeAvgPrice`, `pnl`, `achievedProfits`, `openFee`,
+`closeFee`, `netProfit`, `leverage`. The same row carries `totalFunding`, the
+accumulated funding over the position's whole life, and a grep of `bot/` for
+funding finds only the entry-time WARN and the `funding_clock` import.
+`closed_trade_row` had `pnl_usd`, `gross_pnl` and `commission` and **no funding
+field at all**, so every figure built on that record was short by it: the
+governor's realized window, the loss streak, the cooldown, the live daily
+accumulator, the equity throttle's profit factor, parity's net, `/performance`,
+the journal's R and the public close return. The backtest chapter above states
+the rule this violates and was cured of it — *"no funding" has to be READABLE,
+because on a market that pays none it means there was nothing to charge and on
+one that does it means nobody priced it* — and the live path, which can actually
+read the number, never got that cure.
+
+**THE COMMENT OVER THE CALL SAID IT WAS HANDLED.** *"Try position history first
+(includes funding fees — most accurate)"* has stood above that lookup since it
+was written. It is true of ONE of the stage's branches and false of the one
+below it, which derives a net from the GROSS field and flagged it `_pnl_is_net
+= True`: `pnl` excludes funding and `openFee + closeFee` are fees, so that
+branch booked a "net" with no funding in it and said it was net. A comment that
+is true of the happy branch is how the other one goes unexamined.
+
+**WHICH FIGURE CONTAINS IT IS MEASURED, NOT READ OFF A DOC FOR A SIBLING
+ENDPOINT.** `docs/bitget-uta/trade.md` is vendored in this repo and settles the
+semantics of the UTA twins — `cumRealisedPnl` *"Excluding fees and funding
+costs"*, `netProfit` *"Including fees and funding costs"*, `totalFunding` *"If
+the value is zero, it indicates no fees have been charged"* — and the call this
+bot makes is the CLASSIC v2 endpoint, whose table is not in the repo. So the
+relationship is checked against each row's own fields:
+
+    funding-inclusive:  netProfit == pnl + funding - (|openFee| + |closeFee|)
+    fee-only:           netProfit == pnl - (|openFee| + |closeFee|)
+
+The two candidates differ by **exactly the funding**, which is what lets one row
+decide for itself — and it decides only when it has to. `leverage_readback`'s
+shape one field over: the value, the field it came from, and whether that field
+DECIDES, never a number without the third.
+
+**THE RECORDED GROSS WAS THE PRICE MOVE MINUS THE FUNDING, UNDER THE NAME
+GROSS.** With `netProfit` as the reported figure, `gross = exchange_pnl + fees`
+put the funding inside the gross, because the funding was already inside the
+net. Driven on one row — gross 12.50, funding paid 0.84, fees 1.22 — the old
+arithmetic recorded **11.66** as the gross where the price move is **12.50**: a
+quantity with no name, on the one field every card labels as the move before
+fees. The funding is stripped out first now, so the triple closes
+(`gross - commission + funding == net`), and the two branches converge: the
+venue's own net and a net derived from its gross land on the same figure, which
+is the correctness claim and a test.
+
+**A STATED ZERO IS A MEASUREMENT AND AN UNSTATED FUNDING IS NOT ZERO.** The
+venue's words for a zero are *"no fees have been charged"*, so it is a reading of
+no funding and it is inside every net by arithmetic — which is also why the
+undecidable case is harmless there: with funding at zero the two formulas are
+the same expression. A row that says NOTHING is the other fact entirely, and it
+is what every other stage has: a fill and a closed order carry no funding field,
+so a fill-priced close records `funding_in_net = None` — the net's funding
+content is unknown — rather than implying it is zero. There is no False on that
+field, and the reason is worth stating: a net this code could confirm the funding
+was missing from is a net this code folded it into, so the state cannot survive
+the reconcile.
+
+**THE CARD PRINTS IT ONLY WHERE IT BITES.** A permanent `Funding: $0.00` under
+every scalp is the row that trains a reader to stop reading the line, which is
+the committed-margin note's rule and the analyze-budget buckets'. So a stated
+zero prints nothing, an unstated funding prints nothing, and the case that MUST
+be said is the third: the venue stated a funding and this code could not place
+it, so the net printed beside it may be short by a figure the operator can now
+see.
+
+> **And the first draft of that sentence made the claim the tri-state exists to
+> avoid.** It read *"(NOT in the net above)"* for `funding_in_net is None` —
+> which is *unknown*, not *absent*. Found by rendering the line and reading it,
+> not by reading the diff, which is how every other instance in this file was
+> found.
+
+**Eight existing assertions broke at once, and that is the shape they were.**
+`_reconcile_exchange_close_pnl` answers a `CloseAccounting` now, because the row
+grew a funding figure and a placement flag, and three suites unpacked it
+positionally — an assertion naming a POSITION where it meant a FIELD, which is
+`_LiveRecheck`'s recorded lesson one row over. They read by name now, in one
+place per file, so the sixth field moves nothing below.
+
+**A branch no input can reach was deleted rather than pinned.** The first draft
+of the placement carried a separate `elif funding == 0.0` arm; a stated zero
+reaches the reconcile paired with `in_net=True`, takes the first arm and reads as
+in-net, so the second could never fire. A line no input can reach is a claim
+that there is a check.
+
+**AND THE LEAF WRITTEN TO HOLD THE JUDGEMENT HAD NO PRODUCTION CALLER, WHILE THE
+RECONCILE KEPT ITS OWN COPY OF IT.** `fold_funding` was written first, tested six
+ways, and imported by nothing but its own test file — and forty lines away
+`_reconcile_exchange_close_pnl` spelled the same four arms inline, sign and
+tri-state included. Two answers to one question AND the fifth granularity beside
+it, in the slice whose whole subject is that a figure must be read in one place.
+`test_no_new_unreachable_functions` named it — *"these public functions have no
+caller anywhere outside tests: `bot/core/close_funding.py:fold_funding`"* —
+before the gate reached it, which is that ratchet doing exactly what its header
+says the module ratchet cannot.
+
+**Baselining it would have been the wrong repair, and so would a wrapper.**
+Recording a seam as a deliberate unbuilt feature is the `scan_timeframes` ruling,
+and a one-line wrapper over the inline arms is `_venue_map`'s. So the leaf became
+the shape the reconcile can actually ASK: `place_funding` answers a
+`FundingPlacement(base, add_to_net)` — the figure the fee arithmetic must run on,
+and what the resulting net must gain — and every one of its four arms is reached
+by a production input, where `fold_funding`'s `already_in is True` arm was
+reachable from nothing once the reconcile did the stripping. The two fields are
+both load-bearing: `add_to_net is not None` IS the placed verdict, so there is no
+third field for a reader to find always-True.
+
+**One question stays the reconcile's, and stating which is the point.** *Is there
+a net to fold into* is answered where the book is — an unpriceable close has
+`net_pnl is None` — and the leaf is handed a figure, not a book. **And the guard
+is a DRIVE**: a byte-identical copy of those four arms agrees with every fixture
+in the file and diverges on the first edit to either, so the walk is proved by
+patching the leaf with a placement the arms could never produce and reading what
+the reconcile answers.
+
+> **And my own fresh assertion reached for a name the executor does not
+> import.** The drive patched `le.FundingPlacement`, and the executor imports
+> only `place_funding` — which is correct, since the tuple is the leaf's. *When a
+> fresh assertion fails, check whether the code or the assertion is wrong before
+> touching the code.*
+
+**Forty-seven mutations, each killed — and SIX survived the first round, of
+which four were one gap and one was a comment of mine claiming a check the code
+did not make.**
+
+**THE FOUR WERE THE CABLE.** The stage reports the funding, the reconcile places
+it, and nothing drove the WIRE between them at either real call site: dropping
+the `funding=`/`funding_in_pnl=` arguments, and dropping the two lines that write
+the placement onto the position, each survived at the close path AND at the
+25227 path. The leaf was driven, the stage was driven, the reconcile was driven,
+and the two functions that book every live close were joined by nothing a test
+could see — `capability_answer`'s `extras` shape, a socket with no cable, on the
+money path. All four are driven end to end now against a planted history row, so
+the chain is stage → reconcile → position → card with nothing stubbed between,
+and the assertion is the TRIPLE closing on the position the drive leaves behind.
+
+**AND THE COMMENT PROMISED A CHECK THAT WAS TWO SPELLINGS OF ONE NUMBER.** The
+fee loop skipped an unstated leg — `if fee is not None: fees += abs(fee)` — under
+a comment of mine reading *"a fee this row does not state is left OUT of the
+total rather than read as a fee of zero"*. It starts at `0.0`, so skipping a leg
+and adding zero for it are the same arithmetic: the mutation that replaced the
+guard with `abs(fee or 0.0)` changed no verdict anywhere, and the test named for
+that sentence measured nothing. **An equivalent mutant is the round saying the
+code claims a check it does not make**, which is this file's own rule, arriving
+on a comment I had written in the same slice. The check is real now — BOTH legs
+stated or the row is UNPLACED — the ONE-leg cases are what make it measurable,
+and a row whose net closes exactly on the close leg alone is in the corpus,
+because under the old reading that row DECIDED off half the fees.
+
+**The sixth was a fixture that could not tell.** `_fund_in_pnl = True`
+hard-coded on the `netProfit` branch survived, because every stage fixture
+planted a row whose arithmetic really did put the funding inside its net. The
+input that separates them is a netProfit row whose arithmetic closes to NEITHER
+candidate, where the honest code reports None and the mutant reports True — and
+reading it as in-net strips a funding out of a base that may never have carried
+it.
+
+**And the round asked for two fixtures before it ran.** The `achievedProfits`
+fallback — the row's second spelling of the gross — was reached by nothing, so
+deleting it changed no verdict. And the tolerance pair's own docstring claim
+(*an absolute cent alone is too tight on a large position and a relative term
+alone is too tight on a small one*) was driven by neither term, so each is a
+fixture now: a whole row scaled a thousandfold, and a net of a few cents.
+
+> **And the first of those two fixtures was a position no venue can produce.**
+> It multiplied the gross by a thousand and left the funding at 0.84 — and
+> funding is a RATE on notional, so the whole row scales. It read UNPLACED, and
+> chasing why found a coverage limit worth stating rather than a defect: the two
+> candidates are one funding apart, so a row decides only where the tolerance is
+> SMALLER than the funding, and the relative term grows with the net. A big
+> winner whose funding is under a tenth of a percent of its net therefore reads
+> UNPLACED and the card says the content is unknown. That is the conservative
+> failure rather than a fabricated figure — both of the pair's failures are
+> refusals rather than guesses — and it is driven, so the exclusion is a recorded
+> limit rather than something the next reader discovers from a card.
+(`tests/test_funding_is_a_cost_the_record_reads.py`,
+`bot/core/close_funding.py`.)
+
 **`/performance` HAD THREE WAYS TO SAY SOMETHING FALSE OR NOTHING, AND ONE OF
 THEM HAD NEVER RUN.** A search for other readers of a fill's `profit` field,
 the sibling sweep of the close-path fix above, found its exchange-history
@@ -13318,6 +13775,200 @@ Seventeen mutations: sixteen killed on the first round, and the survivor
 partly unread book, so the count could stay behind unseen; one does now.
 Ruff 1181 → 1180 and honesty 704 → 703, both re-recorded.
 (`tests/test_the_risk_card_reads_the_leverage_it_shows.py`.)
+
+**ONE MESSAGE, TWO CONFIDENCES — AND THE PICTURE AND ITS CAPTION WERE BUILT IN
+THE SAME FUNCTION.** A live SUI signal went out with a caption reading
+`Conf 70%` over an image whose CONFIDENCE cell read `31%`. Both come off one
+`TradeIdea` in one `send_photo`: `_send_idea_with_door` renders
+`signal_card_from_idea(new_idea)` and then composes its own caption twelve
+lines below, and the two read DIFFERENT QUANTITIES. Once Change 1 is on,
+`blended_confidence_raw` is the analyzer's blend — the scale every floor in
+this repo is defined on (`MIN_CONFIDENCE`, `SCALP_MIN`,
+`SIGNAL_DISPLAY_MIN_CONFIDENCE`, `min_alert_conf`) — and `confidence` is what
+the calibration curve left on the field, an estimated win rate on a different
+scale. Five surfaces printed them under one word with five hand-written
+fallbacks:
+
+    proactive_monitor.py  float((raw if raw is not None else confidence) or 0.0)
+    trading_commands.py   float(v) if v is not None else 0.0
+    telegram_handler.py   raw if raw is not None else new_idea.confidence
+    signal_card.py        idea.confidence            <- the calibrated one
+    risk_engine.py        prints idea.confidence beside a RAW floor
+
+**THE CHECK LINE WAS THE SHARPEST OF THE FIVE, because it asserts a comparison
+nobody made.** `clears_confidence_floor` compares the BLEND against the raw
+floor and the line then printed `CONFIDENCE: {idea.confidence} OK` — so a
+passing idea read `CONFIDENCE: 0.31 OK` against a `0.60` minimum: a check line
+whose own two numbers say it failed, and a refusal quoting a comparison that
+was never made. That is `SL 16.0% x 2x = 32.0% <= 30.0%` one gate over, where
+the operator was shown an inequality the code had not evaluated.
+
+**TWO OF THE FIVE READ A BOOL AS A CONFIDENCE.** `float(True)` is 1.0, which
+clears any bar and prints as 100% — the defect `pre_calibration_confidence`
+was written for, arriving at the display end. `displayed_confidence` is the
+one reading, and it has FOUR words because four things are true of an idea's
+confidence and only two are a measurement: `blend` (the analyzer's own),
+`own` (no blend, and the producer measured its own score — a scan row, a drift
+re-offer), `stamp` (`build_manual_idea` writes `confidence=1.0` on every
+hand-typed ticket, so a card printing `100%` tells the operator the bot is
+certain about an idea the operator typed), and `unread`. A stamp and an
+unreadable field get DIFFERENT words, because they are different facts: a
+figure nobody measured, and a field nobody could read.
+
+**THE ALERT GATE AND THE PRINTED FIGURE ARE ONE READING NOW**, so a signal
+cannot be admitted on one number and described with another; an idea whose
+confidence cannot be measured is not alerted on at all.
+
+**AN ATR QUANTISED ON AN ABSOLUTE GRID IS NOT A READING, AND THE RATIO BESIDE
+IT CANNOT REVEAL THAT.** The same live card printed an entry, a stop and a
+target that were the SAME number at the precision the card prints, under
+`R:R 4.8`. Driven on the analyzer's own arithmetic (`sl_mult` 1.5,
+`tp_mult` 7.2):
+
+    atr=0.0117   entry $1.1710  sl $1.1535  tp $1.2552   R:R 4.8
+    atr=1e-05    entry $1.1710  sl $1.1710  tp $1.1711   R:R 4.8
+    atr=1e-06    entry $1.1710  sl $1.1710  tp $1.1710   R:R 4.8
+
+**R:R IS THE FIGURE STRUCTURALLY INCAPABLE OF REVEALING IT.** Reward and risk
+are the same multiple of one ATR, so the ATR CANCELS: the ratio reads 4.8
+whether the stop is 1.7% away or a millionth of a percent. The most reassuring
+number on the card is the one that cannot move when the setup collapses, which
+is why it survived being looked at.
+
+**`round(atr, 6)` IS AN ABSOLUTE GRID ON A RELATIVE QUANTITY, and that is the
+ordinary half.** The analyzer recorded its ATR to six DECIMAL PLACES, so an
+asset priced below a cent cannot have one. Driven over a perfectly healthy 1%
+range, on the four prices the suite drives: `$1.171` records `0.01171` and
+`$63,000` records `630.025`, while `$0.0000112` and `$0.0000091` both record
+**`0.0`**. The PRICES are the measurement and no coin is named beside them: a
+ticker's price is a market fact this document cannot pin, and a label that
+drifts out of date beside a figure that does not is the shape where the next
+reader trusts the wrong half. A recorded `0.0` then makes
+`stop_loss == entry`, which `TradeIdea`'s directional-sanity validator
+REFUSES — so every sub-cent asset was silently incapable of producing a setup,
+and nothing said why. That is `_fmt_price`'s own lesson (it keeps eight places
+below 0.0001) one quantity over: a price distance is recorded in SIGNIFICANT
+digits, never in decimal places.
+
+**`dict.get` FIRES ITS DEFAULT FOR AN ABSENT KEY AND NEVER FOR A PRESENT
+ZERO.** Every other reader in this tree documents a recorded ATR of `0.0` as
+its own absence — the risk engine falls back to a percentage stop, `atr_pct`
+answers None, `atr_reading`'s docstring says so in as many words — and
+`indicators.get("atr", entry * 0.02)` was the ONE reader that took it as a
+measured zero. `atr_on_record` is the reading, so a recorded `0.0` takes the
+same documented path as an absent key.
+
+**WHAT A CARD MAY PRINT IS A DIFFERENT QUESTION FROM WHAT A GATE MAY DECIDE.**
+`risk_reward_ratio` decides whether a trade may open and is left exactly as it
+is; narrowing it would change what trades. `printed_rr` is what the cards ask,
+and it answers `None` when the product's own `_fmt_price` cannot tell the
+three levels apart — a MEASUREMENT rather than a guessed floor, the way
+`{:.0f}` printing "0%" for a real 0.5 is settled by asking the format string.
+`format_rr` then renders the dash it already had.
+
+> **And the first draft of the ATR rule accused four correct sites.** It
+> forbade `indicators.get("atr", <default>)` anywhere in the analyzer, and the
+> SMC block, the zone detector, the strategy classifier and the POC read each
+> write `if atr > 0:` on the next line — which IS reading a recorded zero as
+> absence. A checker with a blind spot manufactures exactly the accusation it
+> exists to prevent. The second draft asked whether the name was compared
+> anywhere in its enclosing function, which a 1,376-line `analyze()` acquits
+> on a DIFFERENT `atr > 0` twenty screens away — and the mutation round is
+> what said so, by restoring the defect and watching the rule stay green. The
+> rule is the MODELLED DEFAULT: `get("atr", 0)` is the absence spelling, and
+> `get("atr", entry * 0.02)` substitutes a made-up figure and must ask the
+> reading.
+
+**Seventeen mutations, each killed — and the two that survived the first round
+were the corpus and the rule, never the code.** The alert-bar fixture planted
+`confidence=0.20` behind the bool only after the first round: the draft used
+`confidence=0.9`, which `displayed_confidence` reads perfectly well as the
+idea's own figure, so the mutant and the fix both alerted and the test could
+not tell them apart. *A fixture that cannot produce the state it names
+measures nothing.* Ratchets: honesty 695 -> 693, re-recorded in this commit;
+ruff held after three growths of my own were fixed rather than recorded — an
+import below a module-level `def` (`E402`), the two operands the inline ratio
+left orphaned (`F841`), and two import blocks my own insertions unsorted
+(`I001`).
+
+**AND THE RULE THAT WAS MEANT TO STOP A SIXTH COPY MISSED THREE OF THE FIVE
+SURFACES IT WAS WRITTEN FOR, AND TWO OF THE THREE WAYS TO ASK.** `test_no_surface_spells_its_own_blend_fallback`
+walked `handler_sources()` for `getattr(x, "blended_confidence_raw")`, and its
+own failure message reads *"a surface reads the raw blend itself instead of
+asking `displayed_confidence()`"* — a claim about every surface, from a walk of
+`bot/skills/`. Driven, `handler_sources()` is 16 files and **three of the five
+surfaces the slice had just repaired are not among them**:
+`bot/core/proactive_monitor.py`, `bot/formatters/signal_card.py` and
+`bot/risk/risk_engine.py`. Fixed and not ratcheted, so a re-spelled fallback in
+any of the three goes unreported. That is `command_gates.py`'s own lesson —
+COVERAGE OF A SPELLING IS NOT COVERAGE OF THE GUARD — with the SCOPE as the
+spelling, written in the same commit as the fix it was standing over.
+
+**AND `getattr` IS ONE OF THREE WAYS TO ASK.** A plain attribute read
+(`idea.blended_confidence_raw`) is invisible to it, and so is a project-local
+accessor — which is the honesty gate's own recorded defect, where `_attr` made
+*"the single most expensive instance in the tree invisible to the gate written
+to find it"*. A read is an attribute LOAD of that name, or ANY call carrying it
+as a constant argument, so `_get(idea, "blended_confidence_raw")` is caught by
+the shape rather than by a list of function names.
+
+**A RECORDER IS NOT A READER, and that distinction is what lets one rule cover
+the whole tree with no baseline.** `engine.py` writes the field into a decision
+row three times and `flight_recorder.py` seals it once; each is the value bound
+to its OWN name, and handing a field back verbatim is the opposite of
+re-deriving what it means. So an expression inside a keyword argument or a dict
+entry of the same name is excused AT ANY DEPTH, because
+`_round(_get(idea, "blended_confidence_raw"), 4)` wraps the read two calls
+deep. Driven over `bot/`: **zero** readers outside one module and four
+recorders, all four correctly classified, so there is nothing to forgive.
+
+**ONE MODULE READS THE FIELD AND IT IS THE ONE THAT DEFINES IT.** The first
+draft of the exclusion list named two — the display leaf as well as the
+calibrator — and driven, `signal_confidence.py` contains no read at all: it
+asks `pre_calibration_confidence`, which is where *"the question is whether the
+figure is PRESENT, not what number stands in for it"* is decided. **An
+exemption for a file that does not need one is the next reader's false
+acquittal**, so the list is one entry, and that entry must still HOLD a read or
+it fails as stale — the `known_failures.txt` rule.
+
+**AND THE RULE PARSES RAW SOURCE, WHICH IS THIS FILE'S OWN "STRIP COMMENTS
+FIRST" POINTING THE OTHER WAY.** An AST walk cannot see a comment at all, and a
+docstring is a bare string constant carrying no `Attribute` or `Call` node, so
+`code_only` buys an AST rule nothing — and it COSTS, because it blanks
+docstrings and a class whose body is only one no longer parses. Driven over
+`bot/`, **11 files** are unparseable after `code_only`
+(`bot/core/live_executor.py` and `bot/utils/audit_chain.py` among them), so a
+whole-tree rule that stripped first would have to swallow a `SyntaxError` for
+each: that many files silently unchecked, inside the widening that exists to
+remove a blind spot. The count is pinned against a live measurement rather than
+restated, and the six OTHER guards that spell `ast.parse(code_only(…))` were
+checked — every one is on a NAMED file or an `inspect.getsource`, and
+`_RR_SITES` does not include `live_executor.py`, so none of them raises today.
+
+**Ten mutations, each killed on the first round — and planning the round is
+what found the gap.** The scope test's first draft built a `rglob` of its own,
+so the mutation that narrows the rule's walk straight back to
+`handler_sources()` changed no verdict: on a healthy tree there is no offender
+anywhere, and a guard deriving its expectation from anything but the thing it
+guards moves with it and can see nothing. One `_surfaces()` now, and the scope
+test reads it. The round also asked for a plant the corpus lacked — the blend
+handed to a DIFFERENT field (`Row(confidence=getattr(idea, "blended…"))`) —
+which is the only input that separates *excused because it is written BACK to
+this field* from *excused because it sits in some keyword*, and the only one
+that kills an excusal ignoring the name. And the `ast.Load` check is EQUIVALENT
+on the real tree, because nothing in `bot/` assigns the attribute, so it is
+driven on a planted producer instead.
+
+**Recorded, not changed: the four recorders' `or 0.0` cannot fire.**
+`blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0`
+is the tabulated absent-is-zero shape on the field a curve is fitted on, and
+the one reader that matters refuses it: `pre_calibration_confidence` ends
+`float(raw) if raw > 0.0 else None`, so such a row answers `None`, is counted
+`no_blend` and is left out of the fit — which is the rule that chapter already
+states. *Don't fix what cannot fire.*
+(`tests/test_one_signal_one_confidence.py`,
+`tests/test_a_collapsed_setup_prints_no_ratio.py`,
+`bot/core/signal_confidence.py`, `bot/core/signal_levels.py`.)
 
 ## Public-surface rules
 
@@ -13798,7 +14449,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 233 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 237 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -14610,9 +15261,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **441 of 1122** reach for source text through `source_scan`, `code_only`
+Driven, **447 of 1129** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 441 is a FLOOR and the honest shape is
+source scan that rule does not see, so 447 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -14625,6 +15276,19 @@ the sweep this paragraph forbids. Most of them should scan —
 `tests/test_trade_live_mode.py` says so in its own docstring: the behaviour is
 covered elsewhere and the file locks *wiring*. The narrow failure mode is a
 source scan **standing in for behaviour nothing else tests**.
+
+**AND THE DERIVATION IS WHAT MAKES THE TWO-BRANCH MERGE LOUD RATHER THAN
+WRONG.** Driven on 2026-09-26: two branches each added test files -- this one
+two, and main one (`tests/test_prepare_web_env.py`) -- and main left the
+sentence reading 441 of 1122 over a tree of 1123, so main's own head fails
+this guard (`AssertionError: (441, 1123)`). The merged tree is 1125, which is
+neither branch's number. That is the `tests/honesty_baseline.json` merge trap
+one ratchet over, where each side lowered a different per-file count and the
+recorded total kept one side's answer with no gate comparing the two; the
+difference is that a DERIVED count cannot be merged into agreement with
+itself. So the figure is re-measured at the REBASE rather than carried across
+it, because a number written for one branch alone is wrong for the merge, and
+a count carried over a rebase is a count nobody took.
 
 Rank candidates by what a wrong claim would cost. That list is empty now —
 `_status_lines` was the last, and it had the same shape as the other two:

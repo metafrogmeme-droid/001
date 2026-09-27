@@ -793,6 +793,18 @@ class BacktestEngine:
         if self._partial_tp_enabled:
             from bot.core.partial_tp import create_partial_tp_state
             self._open_bt_positions[idea.id]["ptp_state"] = create_partial_tp_state(
+                # The BACKTEST's own round trip, not the live rates: TP1's lock
+                # is a breakeven stop, a stop-out is a taker exit, and this
+                # engine charges `commission_pct` on both legs (through the
+                # injected `PortfolioTracker`, and inline on the scale-outs). Its
+                # fee model stays its own -- the division CLAUDE.md records.
+                # Which rate that is depends on the run: `--honest` replaces the
+                # stale --commission default with the live taker rate (0.06, a
+                # 0.12% round trip), and a plain run uses the field default
+                # (0.1, a 0.2% round trip). Against the old hard-coded 0.1%
+                # lock that is a loss of 0.02% and 0.1% of notional
+                # respectively, on every "breakeven" stop-out.
+                fee_round_trip_pct=2.0 * self.config.commission_pct,
                 trade_id=idea.id,
                 direction=idea.direction.value,
                 entry_price=adjusted_entry,

@@ -28,17 +28,21 @@ def _pos() -> LivePosition:
 
 class TestReconcileHelperContract:
     def test_gross_flag_deducts_fees(self):
-        gross, net, comm = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=5.0, exchange_close_fees=0.1, pnl_is_net=False,
             entry_notional=100.0, entry_fee_pct=0.02)
+        gross, net, comm = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert gross == pytest.approx(5.0)
         assert net < gross                 # fees actually deducted
         assert comm > 0.1                  # close fee + estimated entry fee
 
     def test_net_flag_is_used_directly(self):
-        gross, net, comm = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             exchange_pnl=4.8, exchange_close_fees=0.2, pnl_is_net=True,
             entry_notional=100.0, entry_fee_pct=0.02)
+        gross, net, comm = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert net == pytest.approx(4.8)
         assert gross == pytest.approx(5.0)
         assert comm == pytest.approx(0.2)

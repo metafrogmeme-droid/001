@@ -164,13 +164,17 @@ class TestTheEntryFeeBasis:
         assert entry_fee_notional(_adopted(entry=140.0, quantity=0.0), 150.0, 1.0) is None
 
     def test_a_gross_venue_pnl_with_no_basis_leaves_net_and_fees_unknown(self):
-        gross, net, comm = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             12.0, 0.3, False, entry_notional=None, entry_fee_pct=0.06)
+        gross, net, comm = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert (gross, net, comm) == (12.0, None, None)
 
     def test_a_net_venue_pnl_needs_no_basis(self):
-        gross, net, comm = LiveExecutor._reconcile_exchange_close_pnl(
+        _acct = LiveExecutor._reconcile_exchange_close_pnl(
             11.4, 0.6, True, entry_notional=None, entry_fee_pct=0.06)
+        gross, net, comm = (
+            _acct.gross_pnl, _acct.net_pnl, _acct.commission)
         assert net == 11.4 and comm == 0.6 and gross == pytest.approx(12.0)
 
 

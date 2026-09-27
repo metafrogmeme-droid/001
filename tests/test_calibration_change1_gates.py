@@ -43,25 +43,25 @@ def _cal_enabled_patch():
 
 
 # ---------------------------------------------------------------------------
-# 1. confidence_floor.py — _raw_confidence and clears_confidence_floor
+# 1. confidence_floor.py — confidence_for_floor and clears_confidence_floor
 # ---------------------------------------------------------------------------
 
 class TestConfidenceFloor:
-    def test_raw_confidence_returns_blended_raw_when_calibration_on(self):
-        from bot.risk.confidence_floor import _raw_confidence
+    def testconfidence_for_floor_returns_blended_raw_when_calibration_on(self):
+        from bot.risk.confidence_floor import confidence_for_floor
         p = _cal_enabled_patch()
         try:
             idea = _make_idea(raw=0.67, calibrated=0.23)
-            assert _raw_confidence(idea) == 0.67
+            assert confidence_for_floor(idea) == 0.67
         finally:
             p.stop()
 
-    def test_raw_confidence_falls_back_when_blended_raw_absent(self):
-        from bot.risk.confidence_floor import _raw_confidence
+    def testconfidence_for_floor_falls_back_when_blended_raw_absent(self):
+        from bot.risk.confidence_floor import confidence_for_floor
         p = _cal_enabled_patch()
         try:
             idea = SimpleNamespace(confidence=0.23)  # no blended_confidence_raw
-            assert _raw_confidence(idea) == 0.23
+            assert confidence_for_floor(idea) == 0.23
         finally:
             p.stop()
 
@@ -90,11 +90,11 @@ class TestConfidenceFloor:
         confidence (0.23) does not. The blend is read through the calibrator's
         own reading, which answers None for a bool, so the idea is judged on
         what it has."""
-        from bot.risk.confidence_floor import _raw_confidence, clears_confidence_floor
+        from bot.risk.confidence_floor import clears_confidence_floor, confidence_for_floor
         p = _cal_enabled_patch()
         try:
             idea = _make_idea(raw=True, calibrated=0.23)
-            assert _raw_confidence(idea) == 0.23
+            assert confidence_for_floor(idea) == 0.23
             assert clears_confidence_floor(idea) is False
         finally:
             p.stop()
@@ -126,7 +126,7 @@ class TestConfidenceFloor:
 # ---------------------------------------------------------------------------
 
 class TestRiskEngineConfidenceGate:
-    def test_gate_passes_on_raw_confidence(self):
+    def test_gate_passes_onconfidence_for_floor(self):
         """risk_engine evaluate() CONFIDENCE check calls clears_confidence_floor
         which reads raw. Raw 0.67 >= 0.60 → passed list, not failed list.
 

@@ -32,6 +32,7 @@ from bot.utils.outbound import reply_safe
 from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import position_size_basis
+from bot.core.signal_confidence import displayed_confidence
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending)
 from bot.nlp.button_actions import action_label
@@ -3687,14 +3688,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                      else str(new_idea.direction))
                 st = getattr(new_idea, "strategy_type", "").upper()
                 st_str = f" [{st}]" if st else ""
-                # Change 1: display raw confidence. When calibration is on,
-                # idea.confidence is calibrated (~18%); showing that to users
-                # looks like a bug. blended_confidence_raw is None for manual
-                # tickets, which fall back to idea.confidence (correct).
-                _disp_conf = getattr(new_idea, "blended_confidence_raw", None)
-                if _disp_conf is None:
-                    _disp_conf = new_idea.confidence
-                cap = f"<b>{pair} {d}</b>{st_str} | Conf {_disp_conf * 100:.0f}%"
+                # The PNG two lines up and this caption go out as ONE message,
+                # and they read two different quantities: the image's cell
+                # took `idea.confidence` (calibrated, ~31%) while this line
+                # took the raw blend (~70%). Both ask `displayed_confidence`
+                # now, so the caption cannot contradict the picture it labels.
+                # A hand-typed ticket says "not measured" rather than the 100%
+                # `build_manual_idea` stamps on every one of them.
+                _conf_read = displayed_confidence(new_idea)
+                cap = f"<b>{pair} {d}</b>{st_str} | Conf {_conf_read.pct()}"
                 card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
         except Exception:
             pass

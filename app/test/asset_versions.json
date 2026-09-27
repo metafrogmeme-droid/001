@@ -60,8 +60,8 @@
     "v": 2
   },
   "js/dashboard.js": {
-    "v": 201,
-    "sha": "ae5099dbf5ba1048"
+    "v": 202,
+    "sha": "c4e502d045518090"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -128,8 +128,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 157,
-    "sha": "1a9563eba7d66845"
+    "v": 158,
+    "sha": "a6460bf8ae896ac7"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -281,6 +281,10 @@
   },
   "js/trade-confirm-model.js": {
     "sha": "7672320470838d37",
+    "v": 1
+  },
+  "js/entry-cards-model.js": {
+    "sha": "d1e7b4fdef7a0136",
     "v": 1
   }
 }

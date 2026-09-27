@@ -56,6 +56,7 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.signal_confidence import displayed_confidence
 from bot.core.sltp_reason import venue_reason
 from bot.core.time_exits import TimeExitPlan, position_time_exit_line, time_exit_line
 from bot.core.trade_costs import (
@@ -1341,13 +1342,16 @@ class TradingCommands:
         # Change 1: compare raw confidence against the display threshold.
         # When CONFIDENCE_CALIBRATION_ENABLED is on, idea.confidence is the
         # calibrated value (~0.18-0.56); _display_min lives on the raw scale.
-        def _raw_conf(i: object) -> float:
-            v = getattr(i, "blended_confidence_raw", None)
-            if v is None:
-                v = getattr(i, "confidence", None)
-            return float(v) if v is not None else 0.0
+        # The fourth hand-written copy of this question, and the one whose
+        # `float(v)` read a blend of `True` as 1.0. `displayed_confidence` is
+        # the reading the card, the caption and the alert gate all take, so a
+        # row shown here carries the number those surfaces will print. An idea
+        # nobody could read a confidence for does not clear a threshold.
+        def _clears_display(i: object) -> bool:
+            read = displayed_confidence(i)
+            return read.measured and read.value is not None and read.value >= _display_min
         all_pending = list(self.engine.pending_ideas)
-        pending = [i for i in all_pending if _raw_conf(i) >= _display_min]
+        pending = [i for i in all_pending if _clears_display(i)]
 
         # If nothing clears the display threshold but the BACKGROUND loop already
         # found lower-confidence setups (full analysis), show those instantly
@@ -1419,7 +1423,7 @@ class TradingCommands:
                     asyncio.shield(_scan),
                     timeout=CONFIG.interactive_scan_timeout_sec,
                 )
-                pending = [i for i in self.engine.pending_ideas if _raw_conf(i) >= _display_min]
+                pending = [i for i in self.engine.pending_ideas if _clears_display(i)]
                 if not pending:
                     sig_count = result.get("signals", 0)
                     auto_count = result.get("auto_confirmed", 0)
@@ -1433,7 +1437,7 @@ class TradingCommands:
                     await self._send(update, msg)
                     return
             except asyncio.TimeoutError:
-                pending = [i for i in self.engine.pending_ideas if _raw_conf(i) >= _display_min]
+                pending = [i for i in self.engine.pending_ideas if _clears_display(i)]
                 if not pending:
                     await self._send(update,
                         "⏳ <b>Scan is taking longer than usual.</b> Try "
@@ -1549,7 +1553,7 @@ class TradingCommands:
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
-                        f"R:R 1:{rr:.1f} | Conf <b>{_raw_conf(idea):.0%}</b>"
+                        f"R:R 1:{rr:.1f} | Conf <b>{displayed_confidence(idea).pct()}</b>"
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )

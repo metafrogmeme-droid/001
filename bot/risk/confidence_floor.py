@@ -56,7 +56,7 @@ def min_confidence_for(idea) -> float:
         return flat
 
 
-def _raw_confidence(idea) -> float | None:
+def confidence_for_floor(idea) -> float | None:
     """Raw (uncalibrated) confidence for gate purposes.
 
     When calibration is enabled, idea.confidence is the calibrated value and
@@ -95,11 +95,11 @@ def clears_confidence_floor(idea) -> bool:
 
     The floor (MIN_CONFIDENCE / SCALP_MIN) lives on the raw confidence scale.
     When calibration is on, idea.confidence is calibrated; comparing it against
-    a raw floor produces a units mismatch. _raw_confidence() returns the right
+    a raw floor produces a units mismatch. confidence_for_floor() returns the right
     reading: blended_confidence_raw when calibration is active, idea.confidence
     otherwise. See Change 1 notes in docs/CALIBRATION_ROLLOUT.md.
     """
-    conf = _raw_confidence(idea)
+    conf = confidence_for_floor(idea)
     if conf is None:
         return False
     try:
