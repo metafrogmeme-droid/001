@@ -431,7 +431,7 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
     try:
         from bot.core.signal_confidence import displayed_confidence
         reading = displayed_confidence(idea)
-        if reading.measured:
+        if reading.measured and reading.value is not None:
             confidence = reading.value
             score = reading.value
     except Exception:
