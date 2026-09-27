@@ -62,8 +62,8 @@ Token tooling (`token/`) and the staking program (`programs/rclaw_staking`) are 
 | `test` | ruff floors, `scripts/ruff_gate.py`, `scripts/mypy_gate.py`, strict mypy on the money modules, `scripts/honesty_gate.py`, bandit, `scripts/ci_test_gate.py`, `scripts/red_team.py`, `scripts/authority_red_team.py`, then `pip-audit -r requirements.lock`. Timeout 60 minutes. Python 3.11. |
 | `staking` | `cargo test` for `rclaw_staking`, clippy `-D warnings`, release build, Anza installer for Solana 1.18.26 (SHA256 pinned), `cargo-build-sbf`, `scripts/build_provenance_gate.py`, cargo-audit 0.22.2 through `scripts/cargo_audit_gate.py`, then `scripts/guard_lint.py`. |
 | `anchor-workspace` | `npm ci` at the repo root, `npm run typecheck`. This job does not run `anchor test`. |
-| `site` | npm audit ratchet, Vite build, published-output honesty tests, and a clean `git status` for `website/`. Node 22. |
-| `web-app` | `node --check` on every JS file under `app/` (floor 200 files), npm audit ratchet, `npm test`. Node 22. |
+| `site` | npm audit ratchet, Vite build, published-output honesty tests, and a clean `git status` for `website/`. Node 24.21.0. |
+| `web-app` | `node --check` on every JS file under `app/` (floor 200 files), npm audit ratchet, `npm test`. Node 24.21.0. |
 | `token-tooling` | script syntax, offline node tests, a local validator, an on-chain test that fails if it skips, `presale:plan`, npm audit ratchet. Excluded from local preflight because it installs a Solana validator. |
 | `rune-nft` | `contracts/rune` tests and its npm audit ratchet. |
 | `secrets` | gitleaks 8.28.0 over full history, plus the action on pull requests. |
@@ -86,9 +86,9 @@ When a ratchet count goes down, the baseline is re-recorded in the same commit. 
 | `bot/requirements.txt` and `requirements-ci.txt` (exact) | python-dotenv 1.2.2, pydantic 2.13.3, ccxt 4.5.56, python-telegram-bot 22.7, openai 2.38.0, anthropic 0.104.1, numpy 2.3.5, aiohttp 3.14.3, websockets 16.0 |
 | CI also exact | pandas 3.0.5, matplotlib 3.11.1, mplfinance 0.12.10b0, pytest 8.3.5, pytest-asyncio 0.24.0, hypothesis 6.155.7, ruff 0.11.13, mypy 1.15.0 |
 | CI floors | fastapi `>=0.115`, uvicorn `>=0.30`, cryptography `>=50`, redis `>=5`, PyJWT `>=2.7`, Pillow `>=10.3` |
-| `bot/requirements.txt` floors | cryptography `>=48.0.1`, Pillow `>=10.3.0`, redis `>=5.0.0` |
-| `pyproject.toml` optional cryptography | `>=43.0.1` |
-| Dockerfile pip floors | fastapi `>=0.110`, uvicorn[standard] `>=0.29` |
+| `bot/requirements.txt` floors | cryptography `>=50.0.0`, Pillow `>=10.3.0`, redis `>=5.0.0` |
+| `pyproject.toml` optional cryptography | `>=50.0.0` |
+| Dockerfile pip floors | fastapi `>=0.115`, uvicorn[standard] `>=0.30` |
 
 `requirements.lock` is the file `pip-audit` reads. Nothing installs it. The Dockerfile and the Makefile install `bot/requirements.txt`. CI installs `requirements-ci.txt`. The lock is a superset of what ships: the twelve bot packages plus fastapi, uvicorn, pandas, matplotlib, and mplfinance. Ten dev packages in `requirements-ci.txt` (pytest and friends, ruff, mypy, bandit, hypothesis, pip-audit, PyJWT) are installed in CI and are not in the lock. The lock header states that PyJWT has no import under `bot/`, `scripts/`, or `api_bridge.py`.
 
@@ -96,9 +96,9 @@ Exact lock pins that differ from the floors above:
 
 | Package | Lock | Floors elsewhere |
 |---|---|---|
-| cryptography | 50.0.0 | CI `>=50`, bot `>=48.0.1`, optional extra `>=43.0.1` |
-| fastapi | 0.141.1 | CI `>=0.115`, Dockerfile `>=0.110` |
-| uvicorn | 0.52.3 | CI `>=0.30`, Dockerfile `>=0.29` |
+| cryptography | 50.0.0 | CI `>=50`, bot `>=50.0.0`, optional extra `>=50.0.0` |
+| fastapi | 0.141.1 | CI `>=0.115`, Dockerfile `>=0.115` |
+| uvicorn | 0.52.3 | CI `>=0.30`, Dockerfile `>=0.30` |
 | Pillow | 12.3.0 | `>=10.3` |
 | redis | 8.1.0 | `>=5` |
 
@@ -110,7 +110,7 @@ A secondary schedule (HeroDevs, not the PEP) places 3.12 security-only through O
 
 ### Node
 
-**REPO-VERIFIED.** CI `node-version` is `"22"` for the anchor workspace, the marketing site, the web app, token tooling, and the Rune NFT job. `token/package.json` sets `engines.node` to `>=18`. `app/package.json` and `site/package.json` set no `engines` field.
+**REPO-VERIFIED.** CI `node-version` is `"24.21.0"` for the anchor workspace, the marketing site, the web app, token tooling, and the Rune NFT job. `token/package.json`, `app/package.json`, and `site/package.json` set `engines.node` to `>=24.21.0`.
 
 **REGISTRY-VERIFIED** from the [Node.js release index](https://nodejs.org/en/blog/release) and endoflife.date, read 2026-09-27:
 
@@ -121,7 +121,7 @@ A secondary schedule (HeroDevs, not the PEP) places 3.12 security-only through O
 | 24 | Active LTS | 30 Apr 2028 | 24.21.0 (8–9 Sep 2026); the release index called 24.21.0 Latest LTS |
 | 26 | Current | 30 Apr 2029 | 26.8.2 Latest Release; LTS start listed around 28 Oct 2026 |
 
-`token/` declaring `>=18` allows an install on a line whose security support has ended. `app/` and `site/` declare no floor, so an install can pick any Node the machine has. CI itself is Node 22.
+The release index was re-checked on 2026-09-27, the day of the bump. It named 24.21.0 as the Active LTS (released 8 Sep 2026). That is the version pinned in the workflow. Node 26 stays out until the index lists it as LTS.
 
 ### Website packages
 
@@ -210,11 +210,7 @@ Non-goals, for every later phase as well as this one:
 
 ### Phase 1 — make the floors describe one install
 
-**REPO-VERIFIED** tensions, in order:
-
-1. Cryptography is declared three ways (`>=43.0.1`, `>=48.0.1`, `>=50`) while the audit lock pins 50.0.0. Bring the bot file and the optional extra up to the CI floor (`>=50`) so a fresh `pip install -r bot/requirements.txt` cannot resolve below the lock. Do this as a floor alignment. Do not jump to a newer cryptography release unless `pip-audit` on that day reports 50.0.0.
-2. The Dockerfile asks for fastapi `>=0.110` and uvicorn `>=0.29`. CI asks for `>=0.115` and `>=0.30`. The lock records 0.141.1 and 0.52.3, which already satisfy the stricter floors. Raise the Dockerfile floors to the CI floors. Leave the lock's exact pins until `pip-audit` says one of them must move.
-3. `docker-compose.yml` invokes `python -m bot.main`. Change that command to `python3 -m bot.main --mode telegram` in the same spirit as `scripts/launch_all.sh.template`. Confirm the image still has `python3` on `PATH` (the Dockerfile base is `python:3.11-slim`, which does).
+Those three alignments are the floors in the current-pins table: bot and optional cryptography `>=50.0.0`, Dockerfile fastapi `>=0.115` and uvicorn[standard] `>=0.30`, and `docker-compose.yml` `python3 -m bot.main --mode telegram`. The lock pins (cryptography 50.0.0, fastapi 0.141.1, uvicorn 0.52.3) stay until `pip-audit` says one of them must move.
 
 Regenerate `requirements.lock` only if a floor alignment changes a resolved version. Use the command in the lock header. Re-run `pip-audit -r requirements.lock` (the `test` job). If ruff, mypy, or the honesty gate moves, re-record that baseline in the same commit.
 
@@ -226,10 +222,10 @@ Python 3.11 remains in security support until about October 2027 (**REGISTRY-VER
 
 Node:
 
-1. Keep CI on 22 while 22 still receives security releases (through 30 Apr 2027, **REGISTRY-VERIFIED**).
-2. Before that date, move CI `node-version` from 22 to 24 and re-run `web-app`, `site`, `anchor-workspace`, `token-tooling`, and `rune-nft`. 24.21.0 was the Active LTS named on 2026-09-27. Re-check the release index on the day of the bump and pin that version in the workflow, not the word "latest".
-3. Leave Node 26 (Current as of this plan) until the release index lists it as LTS. The date named for that start is about 28 Oct 2026. Re-check it. Do not combine the Node bump with the Express major.
-4. When token tooling is in scope, raise `token/` `engines` from `>=18` to the line CI runs. Adding an `engines` field to `app/` and `site/` that matches the CI line is a manifest alignment. It does not by itself change the container.
+1. Node 22 still receives security releases through 30 Apr 2027. The move to 24 is the line this phase chose before that date, so CI does not sit on Maintenance LTS by default.
+2. CI `node-version` is `"24.21.0"` for `web-app`, `site`, `anchor-workspace`, `token-tooling`, and `rune-nft`. The day-of-bump re-check is the paragraph under the Node table. The workflow pins that version, not the word "latest".
+3. Node 26 stays out until the release index lists it as LTS (about 28 Oct 2026). The Node bump is not combined with the Express major.
+4. `token/`, `app/`, and `site/` set `engines.node` to `>=24.21.0`, the line CI runs. That field is a manifest alignment. It does not by itself change the container.
 
 **ASSUMPTION:** the app and site test suites pass on Node 24. That is what the phase measures. It is not granted by the support table.
 
@@ -288,10 +284,10 @@ The placeholder program id is expected until a value-bearing deploy, and the sta
 ```text
 Phase 0   this plan                          (no pin moves)
 Phase 1   cryptography / FastAPI / uvicorn floors, compose python3
-Phase 2   Node 22 → 24 before 30 Apr 2027; Python 3.11 stays
+Phase 2   Node 24.21.0 in CI and package engines; Python 3.11 stays
 Phase 3   Express, 4.22 line first; 5.x as its own migration
 Phase 4   openai / anthropic SDKs after a fresh PyPI read
 Phase 5   staking, token, NFT — not in the trading-site year
 ```
 
-Phases 1 and 2 can be sequenced back to back. Phase 3 waits until the Node line it will run on is the one CI already uses. Phase 4 waits on its own PyPI read and does not share a commit with Phase 3. Phase 5 waits on a decision to hold value, which this plan does not make.
+Phases 1 and 2 can be sequenced back to back. Phase 3 waits on the Node 24.21.0 suites; CI already uses that line. Phase 4 waits on its own PyPI read and does not share a commit with Phase 3. Phase 5 waits on a decision to hold value, which this plan does not make.

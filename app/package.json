@@ -2,6 +2,9 @@
   "name": "runeclaw-app",
   "private": true,
   "license": "BUSL-1.1",
+  "engines": {
+    "node": ">=24.21.0"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js"
