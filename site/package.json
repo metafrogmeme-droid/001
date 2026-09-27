@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "license": "BUSL-1.1",
+  "engines": {
+    "node": ">=24.21.0"
+  },
   "description": "RUNECLAW public marketing site. Source lives here; `npm run build` emits static HTML into ../website, which api_bridge.py serves directly from the checkout.",
   "scripts": {
     "dev": "vite",
