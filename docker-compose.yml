@@ -17,7 +17,7 @@ services:
     image: runeclaw:latest
     container_name: runeclaw-bot
     restart: unless-stopped
-    command: python -m bot.main --mode telegram
+    command: python3 -m bot.main --mode telegram
     env_file: .env
     volumes:
       - ./logs:/app/logs
