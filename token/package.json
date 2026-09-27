@@ -34,7 +34,7 @@
     "presale:verify": "node presale/genesis_presale.mjs verify"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=24.21.0"
   },
   "dependencies": {
     "@metaplex-foundation/genesis": "0.40.0",
