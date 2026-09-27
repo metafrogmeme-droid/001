@@ -68,6 +68,10 @@ BASELINE = ROOT / "tests" / "ruff_baseline.json"
 
 _CODE = re.compile(r"^[^:]+:\d+:\d+:\s+([A-Z]+[0-9]+)\s")
 
+# Ruff 0.11.13 paints concise lines even with NO_COLOR set, and `ruff check`
+# rejects `--color`. Colour codes sit inside `path:line:col: CODE`, so a raw
+# `_CODE` match counted zero findings on a tree that had them.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def check_version(tool: str) -> None:
@@ -82,6 +86,22 @@ def check_version(tool: str) -> None:
     """
     toolchain.require_comparable(tool)
 
+
+def counts_from_output(text: str) -> Counter:
+    """Count rule codes in concise ruff output.
+
+    A colored ``path:line:col: CODE`` never matches ``_CODE``, so the gate
+    reads a real tree as zero findings and demands a baseline update for a
+    parser bug. Strip the colour first.
+    """
+    counts: Counter = Counter()
+    for line in text.splitlines():
+        m = _CODE.match(_ANSI.sub("", line))
+        if m:
+            counts[m.group(1)] += 1
+    return counts
+
+
 def current_counts() -> Counter:
     """Per-rule counts from the DECLARED config -- no --select override."""
     proc = subprocess.run(
@@ -92,12 +112,7 @@ def current_counts() -> Counter:
         print(f"ruff failed to run (exit {proc.returncode}):\n{proc.stderr}",
               file=sys.stderr)
         raise SystemExit(2)
-    counts: Counter = Counter()
-    for line in proc.stdout.splitlines():
-        m = _CODE.match(line)
-        if m:
-            counts[m.group(1)] += 1
-    return counts
+    return counts_from_output(proc.stdout)
 
 
 def _load_baseline() -> dict:
