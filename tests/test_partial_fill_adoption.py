@@ -41,6 +41,7 @@ def _pos(qty=1.0, entry=100.0, hours_old=0.1):
 
 def _executor(pos):
     ex = LiveExecutor.__new__(LiveExecutor)
+    ex.user_id = None  # the fallback's cap reading asks whose account this is
     ex._positions = {"T1": pos}
     ex._venue = SimpleNamespace(order_symbol=lambda s: s,
                                 futures_params=lambda: {},

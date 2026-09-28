@@ -104,7 +104,10 @@ class TestLive:
 class TestPaper:
     def _practice_confirm(self, engine, idea):
         engine._simulate_paper_fill = AsyncMock(return_value="✅ [PAPER] filled")
-        engine._user_store = NS(sim_opt_in=lambda _uid: True)
+        # A stand-in for the store answers what the confirm path asks of
+        # it: the practice opt-in, and -- under per-user live -- the margin
+        # cap, which a store that cannot answer now REFUSES the trade over.
+        engine._user_store = NS(sim_opt_in=lambda _uid: True, max_margin=lambda _uid: None)
         was = CONFIG.paper_sim_opt_in_enabled
         object.__setattr__(CONFIG, "paper_sim_opt_in_enabled", True)
         try:

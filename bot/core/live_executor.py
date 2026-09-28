@@ -1113,6 +1113,12 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     entry_src = pdata.get("entry_source")
     if entry_src:
         setattr(pos, "entry_source", str(entry_src))
+    idea_src = pdata.get("idea_source")
+    if idea_src:
+        setattr(pos, "idea_source", str(idea_src))
+    authorized = _num_or_none(pdata.get("authorized_notional_usd"))
+    if authorized is not None:
+        setattr(pos, "authorized_notional_usd", authorized)
     if pdata.get("close_interrupted") is True:
         setattr(pos, "close_interrupted", True)
     filled = _datetime_or_none(pdata.get("filled_at"))
@@ -7981,6 +7987,18 @@ class LiveExecutor:
             self._positions[idea.id] = position
             if fill_price_source is not None:
                 setattr(position, "entry_source", fill_price_source)
+            # THE IDEA'S PROVENANCE, on the position it opens. The idea is
+            # gone by the time a resting limit drifts, and the drift fallback
+            # reads two things off it: whether the ticket was hand-typed (a
+            # typed ticket is never chased to the market) and the notional
+            # the Authority Envelope authorized, which the fallback must not
+            # exceed. Both are persisted by `_save_positions`.
+            _idea_src = str(getattr(idea, "source", "") or "")
+            if _idea_src:
+                setattr(position, "idea_source", _idea_src)
+            _authorized = getattr(idea, "authorized_notional_usd", None)
+            if _authorized is not None:
+                setattr(position, "authorized_notional_usd", _authorized)
             self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
 
             # F-07 FIX: persist after opening
@@ -10752,6 +10770,7 @@ class LiveExecutor:
                 # Still open — check price drift and time expiry
                 age_sec = (datetime.now(UTC) - pos.opened_at).total_seconds()
                 cancel_reason = None
+                typed_not_chased: Optional[float] = None
 
                 # ── PRICE DRIFT CANCEL (from Getclaw) ──
                 # If price has moved >X% away from the limit, the setup is stale.
@@ -10769,7 +10788,23 @@ class LiveExecutor:
                             if pct_away > drift_pct:
                                 # Check if we should convert to market instead of cancelling
                                 should_market_fallback = False
-                                if CONFIG.limit_orders.drift_market_fallback:
+                                if getattr(pos, "idea_source", None) == "manual":
+                                    # A HAND-TYPED TICKET IS NEVER CHASED. Its
+                                    # levels are the person's -- the placement
+                                    # path keeps them as typed -- and the
+                                    # fallback would market up to 5% past the
+                                    # price they typed and move their stop and
+                                    # target with it. The drift cancels it and
+                                    # the sentence below says why.
+                                    typed_not_chased = pct_away
+                                    audit(trade_log,
+                                          f"Typed limit for {pos.symbol} drifted "
+                                          f"{pct_away:.1f}%: cancelled, NOT chased to the market",
+                                          action="limit_drift_cancel", result="TYPED_NOT_CHASED",
+                                          data={"trade_id": trade_id, "pct_away": pct_away,
+                                                "limit_price": pos.entry_price,
+                                                "market_price": cur_price})
+                                elif CONFIG.limit_orders.drift_market_fallback:
                                     should_market_fallback = await self._check_drift_market_fallback(
                                         exchange, pos, cur_price)
 
@@ -10898,6 +10933,11 @@ class LiveExecutor:
                         audit(trade_log, f"Limit order CANCELLED (price drift): {pos.symbol}",
                               action="limit_drift_cancel", result="CANCELLED",
                               data={"trade_id": trade_id, "age_sec": age_sec})
+                        if typed_not_chased is not None:
+                            return (f"LIMIT CANCELLED (price drift): {pos.direction} {pos.symbol} "
+                                    f"— the market moved {typed_not_chased:.1f}% away from the "
+                                    "price you typed. A typed ticket is never chased to the "
+                                    "market: nothing was placed.")
                         return f"LIMIT CANCELLED (price drift): {pos.direction} {pos.symbol} — market moved away"
                     else:
                         audit(trade_log, f"Limit order EXPIRED after {age_sec:.0f}s: {pos.symbol}",
@@ -11157,6 +11197,83 @@ class LiveExecutor:
                 f"{pos.direction} {pos.symbol}\n"
                 f"Fill: ${fill_price:,.4f} | Qty: {filled_qty:.6f}{protection}")
 
+    @staticmethod
+    def _fallback_refused_tail(pre_filled: float) -> str:
+        """What a refused fallback leaves on the venue, said rather than
+        implied: the limit is already cancelled, so a refusal opens nothing --
+        and a partial fill that landed before the cancel is live margin the
+        next sweep reads off the cancelled order and adopts."""
+        if pre_filled > 0:
+            return (f"The {pre_filled:.6f} that filled before the cancel is live on the "
+                    "venue and is adopted on the next sweep.")
+        return "No position was opened."
+
+    async def _drift_fallback_size_refusal(
+        self, pos: "LivePosition", qty: float, pre_filled: float, pre_avg: float,
+        cur_price: float,
+    ) -> Optional[tuple[str, str]]:
+        """The caps and the envelope, at the margin the market order really
+        places: ``(reason, sentence)``, or None.
+
+        The limit was sized, capped and authorized at ITS price. The fallback
+        markets the remainder at ``cur_price`` -- up to DRIFT_MARKET_MAX_CHASE_PCT
+        (5%) past the limit, in the trade's direction -- so for a long the
+        margin it places is larger than the one the preflight checked, and
+        nothing asked again: driven, a $20 approval on a $20 per-user cap
+        placed $20.98, and an order the envelope authorized at $100 of
+        notional carried $104.90. The idea is gone by the time this runs, so
+        the envelope's figure is read off the position (stamped at
+        construction).
+
+        The position's OWN resting margin is excluded from the book it is
+        checked against: a pending row counts toward committed margin (a
+        resting order holds cap room), and counting it here would refuse
+        every fallback on its own approval. A chase that LOWERS the margin (a
+        short drifting down) asks the caps nothing, as `execute` asks nothing
+        of a quantity the round-up did not raise; the envelope is asked
+        either way, because a notional is a notional. A leverage the record
+        does not hold (0, an adopted limit order) makes the margin
+        unmeasurable, and that refuses by name rather than reading as $0.
+        """
+        # A pending row's `cost_usd` is the margin it was sized at; an adopted
+        # limit order's is 0.0, the executor's own spelling of unread, and the
+        # unread-leverage refusal below is what answers that row.
+        planned = float(pos.cost_usd)
+        pre_notional = ((pre_avg or pos.entry_price) * pre_filled) if pre_filled > 0 else 0.0
+        would_notional = pre_notional + cur_price * qty
+        lev = _to_float(pos.leverage)
+        if lev is None or lev < 1:
+            # The leverage the fill is CHECKED against (`_intended_fill_leverage`):
+            # a reclaimed order's standard, which every placement starts from
+            # and every later step only lowers, so a margin measured at it is
+            # a floor on nothing and a ceiling on what the venue can lock. An
+            # adopted order has no approved leverage at all, and its margin
+            # cannot be measured against anything.
+            intended = self._intended_fill_leverage(pos)
+            lev = float(intended) if intended >= 1 else None
+        if lev is None:
+            return "leverage_unread", (
+                f"marketing the remaining {qty:.6f} at ${cur_price:,.4f} would place a margin "
+                "this record cannot measure: the leverage on record is unread and nothing "
+                "here approved one")
+        would_margin = margin_at_fill(would_notional, lev)
+        if would_margin > planned:
+            bounds = size_bounds_for(await self.available_margin())
+            others = [p for p in self.open_positions if p is not pos]
+            cap_msg, _ = self._hard_cap_refusal(would_margin, bounds, committed_margin(others))
+            if cap_msg is not None:
+                return "over_cap", (
+                    f"marketing the remaining {qty:.6f} at ${cur_price:,.4f} would place "
+                    f"${would_margin:.2f} of margin (approved ${planned:.2f} at the limit). "
+                    f"{cap_msg}")
+        authorized = price_on_record(getattr(pos, "authorized_notional_usd", None))
+        if authorized is not None and would_notional > authorized:
+            return "over_authorized", (
+                f"marketing the remaining {qty:.6f} at ${cur_price:,.4f} would carry "
+                f"${would_notional:.2f} of notional, over the ${authorized:.2f} your "
+                "Authority Envelope authorized for this order")
+        return None
+
     async def _execute_drift_market_fallback(
         self, exchange: "ccxt.Exchange", trade_id: str,
         pos: "LivePosition", cur_price: float,
@@ -11165,6 +11282,11 @@ class LiveExecutor:
 
         Updates the position entry price, recalculates cost, places SL/TP.
         Returns a status message or None if failed.
+
+        Between the cancel and the market order it refuses, by name, a chase
+        the caps or the envelope would not have approved at the market price
+        (`_drift_fallback_size_refusal`); the caller never reaches it for a
+        hand-typed ticket, which the drift cancels and never chases.
         """
         try:
             # 1. Cancel the existing limit order
@@ -11228,7 +11350,28 @@ class LiveExecutor:
                     "exposure was opened.", pos.symbol)
                 return (f"\u26d4 Limit order for {pos.symbol} cancelled on drift, but the "
                         "market fallback was REFUSED — the engine is halted or a "
-                        "circuit breaker is open. No position was opened.")
+                        f"circuit breaker is open. {self._fallback_refused_tail(pre_filled)}")
+
+            # THE CAPS AND THE ENVELOPE, at the margin THIS order places (see
+            # `_drift_fallback_size_refusal`). Asked here, after the halt and
+            # before the order, for the reason the halt is: the cancel above
+            # is a reducing action and must happen either way, and a refusal
+            # opens nothing -- the next sweep reads the cancelled order and
+            # adopts whatever filled before the cancel.
+            _fb_refusal = await self._drift_fallback_size_refusal(
+                pos, qty, pre_filled, pre_avg, cur_price)
+            if _fb_refusal is not None:
+                _fb_why, _fb_sentence = _fb_refusal
+                logger.warning("Market fallback REFUSED for %s: %s", pos.symbol, _fb_why)
+                audit(trade_log,
+                      f"Market fallback REFUSED for {pos.symbol}: {_fb_sentence}",
+                      action="market_fallback", result="REFUSED",
+                      data={"symbol": pos.symbol, "trade_id": trade_id, "reason": _fb_why,
+                            "remaining_qty": qty, "pre_filled": pre_filled,
+                            "market_price": cur_price})
+                return (f"\u26d4 Limit order for {pos.symbol} cancelled on drift, but the "
+                        f"market fallback was REFUSED — {_fb_sentence}. "
+                        f"{self._fallback_refused_tail(pre_filled)}")
 
             # THE VENUE'S MARKET, and its price bound where it needs one. This
             # was the one ORDER in the file on the recorded (spot-form) symbol:
@@ -14797,6 +14940,13 @@ class LiveExecutor:
                     # on every surface at once. None for a path that records
                     # no source (a limit fill), restored as absent.
                     "entry_source": getattr(pos, "entry_source", None),
+                    # THE IDEA'S PROVENANCE (see the construction in
+                    # `execute`). Unsaved, a restart turned a hand-typed
+                    # resting limit into one the drift fallback would chase
+                    # up to 5% past the typed price, and forgot the notional
+                    # the envelope authorized for it. Absent on an older row.
+                    "idea_source": getattr(pos, "idea_source", None),
+                    "authorized_notional_usd": getattr(pos, "authorized_notional_usd", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time
                     # exit back on the placement clock.

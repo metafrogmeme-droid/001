@@ -15785,6 +15785,123 @@ to the generic error; the cap sentence naming no class or claiming a save;
 pull acking a held write as applied or folding it into the generic error.
 (`tests/test_a_permission_write_that_did_not_land_says_so.py`.)
 
+**THE DRIFT MARKET FALLBACK PLACED THE LIMIT'S QUANTITY AT A PRICE UP TO 5%
+PAST IT, AND NOTHING ASKED THE CAPS OR THE ENVELOPE AGAIN.** A resting limit
+that drifts more than `LIMIT_DRIFT_CANCEL_PCT` in the trade's direction with
+momentum behind it is cancelled and its remainder is marketed at the current
+price, up to `DRIFT_MARKET_MAX_CHASE_PCT` (5%) past the limit. The limit was
+sized, capped and authorized at ITS price. Driven through the real
+`_execute_drift_market_fallback` on a per-user executor holding a $20
+approval (qty 1 at $100, 5x) under a $20 `PER_USER_MAX_FUNDS_USD` cap, the
+market at $104.90:
+
+    orders placed: [market buy 1.0]    placed margin $20.98 (cap $20.00)
+    stop/target 98/106 -> 102.80/111.19    entry 100 -> 104.9
+
+The same chase carried an order the Authority Envelope had authorized at
+$100 of notional to $104.90, because the envelope's figure is stamped on the
+IDEA and the idea is popped at the confirm: by the time a resting order
+drifts there is nothing to read it off. And a hand-typed ticket -- whose
+levels the placement path keeps as typed, the chapter above -- was chased up
+to 5% past the price the person typed, with their stop and target moved to
+match. That is the round-up chapter's defect (`execute` asks the hard caps
+again at the margin the venue minimum really places) on the second door that
+turns an approved figure into a larger one, and the door nobody had pointed
+the round-up's fix at.
+
+**THE PROVENANCE RIDES ON THE POSITION, AND SURVIVES A RESTART.** `execute`
+stamps `idea_source` and `authorized_notional_usd` on the position it
+constructs, directly after the `entry_source` it already stamps, and the
+row writer and loader carry both; an older row reads as absent and a saved
+figure that is not one is dropped, never read as an authorization of $0.
+Driven rather than pinned, and the reason is the round: the first draft was
+an AST pin on the two `setattr` calls, and `if False:` around either
+survived it -- a call that exists is not a call that runs, this file's own
+`if False:` sentence arriving in a pin I had just written. The drive runs the
+real `execute` against the placed-order suite's venue, subclassed to fill,
+and on its first run the venue's own v3 stop ladder aborted the position it
+had just opened (`Invalid ACCESS_KEY`), so the stop placement is stubbed
+the way every sibling drive stubs it.
+
+**ONE SEAM, ASKED BETWEEN THE HALT AND THE ORDER.**
+`_drift_fallback_size_refusal` answers `(reason, sentence)` or None. The
+caps are asked at the WHOLE position's margin -- a partial fill that landed
+before the cancel plus the remainder at the market price -- against
+`_hard_cap_refusal`, the one reading `execute` and the preflight already
+share, with the bounds read off this account's own available margin. The
+row's OWN resting margin is excluded from the book it is checked against: a
+pending row counts toward committed margin (a resting order holds cap room),
+and counting it here would refuse every fallback on its own approval,
+$20 resting plus a $20.98 chase against a $21 cap. A chase that LOWERS the
+margin (a short drifting down) asks the caps nothing, as `execute` asks
+nothing of a quantity the round-up did not raise; the envelope is asked
+either way, on the whole notional, because a notional is a notional. The
+limit is already cancelled when the seam runs, so a refusal opens nothing,
+and both refusals -- the seam's and the halt's beside it -- say what a
+partial fill left on the venue rather than "No position was opened" over
+0.4 that is live there.
+
+**A LEVERAGE THE RECORD DOES NOT HOLD IS NOT A MARGIN OF ZERO.** An adopted
+limit order records leverage 0, and `margin_at_fill` answers 0.0 for it --
+its own spelling of unread -- so `0.0 > 0.0` is False and the caps would
+never have been asked. The margin is measured at the leverage the fill is
+CHECKED against (`_intended_fill_leverage`): a reclaimed order's standard,
+which every placement starts from and every later step only lowers. An
+adopted order has no approved leverage at all, and its chase is refused by
+name, which moves one pin of the adoption chapter: that chapter drove the
+fallback for `[adopted-0]` to show the fill guard reads 0 for it, and the
+guard is no longer reached from that door. The partial-fill guard still reads
+0 for an adopted fill, because a fill that already landed is the venue's fact
+and not this bot's choice; a chase is this bot's choice.
+
+**A TYPED TICKET IS NEVER CHASED, and the test sits above the momentum
+read.** `_check_pending_limit` decides it first once drift is detected: a
+row whose `idea_source` is `manual` is cancelled with a `TYPED_NOT_CHASED`
+audit and the sentence says the market moved N% away from the price the
+person typed and that nothing was placed; the momentum check is never even
+asked. Driven both ways through the real pending check, with an engine idea
+reaching the fallback and a typed one inside the 2% band left resting.
+
+**THE CAPS FOUND WHAT THE OLDER DRIVES HAD APPROVED.** Six drift-fallback
+drives in four sibling suites went red on the seam, and none on the claim it
+makes. Three build their executor with `LiveExecutor.__new__` and had never
+carried `user_id`, which the per-user cap reads -- *a hand-written stand-in
+that must remember each attribute is one that will forget the next* -- and
+the fault surfaced as `msg is None`, because it raised inside the fallback's
+own `except`. The estimated-entry fixture sat at 10 ETH, $280 of margin: a
+size the flat $100 per-trade bound would never have approved, driving a
+claim about the entry's SOURCE. It is 1 ETH now. And my own persistence
+fixture rewrote every `100.0` in the saved file to `"abc"` to plant one junk
+figure, took the entry price with it, and failed the whole load: *a fixture
+that cannot produce the state it names measures nothing*. The honesty gate
+caught the seam's first draft reading `float(pos.cost_usd or 0.0)`, the
+or-zero shape on the approved margin, in the commit written to ask the caps
+about it.
+
+**AND THE NEIGHBOURING RUN FOUND THE PREVIOUS SLICE'S REGRESSION BEFORE THE
+FULL GATE DID.** `test_the_critique_counts_the_book_the_trade_opens_on`'s
+per-user-live case failed on the branch head and passed on main; bisected,
+it broke at the failed-load store slice. That slice made the per-user margin
+cap read FAIL-CLOSED -- a store that cannot answer refuses the trade -- and
+the critique harness's store is `NS(sim_opt_in=...)`, a stand-in that answers
+the practice opt-in and nothing else, so the cap read raised `AttributeError`
+and the confirm was refused before the critique ran (`seen == []`). The
+stand-in answers `max_margin` now, and so does its sibling in the
+seal-failure suite. The full preflight on that head was twenty-six minutes
+in and was stopped by PID, because a test gate that will fail on a known
+cause is forty minutes of nothing measured.
+
+**Twenty-eight mutations, each killed, none refused -- and the two that
+survived the first round were the pin above, on both stamps.** Three are
+worth naming for what they prove about the guards rather than the code: the
+row's own margin counted against it dies on the $21 cap alone, because every
+other cap fixture refuses or places either way; the reclaimed order left
+unmeasured (never falling back to its standard) dies on the reason word,
+`over_cap` against `leverage_unread`, with the same empty order list under
+both; and the typed test moved below the momentum read dies on the typed
+drive's await count, which no assertion about the cancel can see.
+(`tests/test_the_drift_fallback_places_what_was_approved.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16264,7 +16381,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 250 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 251 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -17076,9 +17193,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **461 of 1151** reach for source text through `source_scan`, `code_only`
+Driven, **462 of 1152** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 461 is a FLOOR and the honest shape is
+source scan that rule does not see, so 462 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
