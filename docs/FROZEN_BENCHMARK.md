@@ -256,7 +256,7 @@ short, which is $15.37 over 129 trades (−$0.12 a trade) with the profit factor
 marginally better. The claim on the audit line is true now, and what it cost on
 this window is on the record rather than in a memory.
 
-**Re-recorded on 2026-09-28 at `__SHA_A__`, the commit that makes the risk
+**Re-recorded on 2026-09-28 at `afec9d2a`, the commit that makes the risk
 budget a loss at the stop and fills the honest run at the live leverage
 (below).** The record fills at **5x** from here: 117 pooled trades, 58/59,
 net −$1,456.39, PF 0.61, 1 of 6 folds profitable, mean OOS −2.43%, worst
