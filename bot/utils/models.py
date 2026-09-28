@@ -133,6 +133,14 @@ class TradeIdea(BaseModel):
     # that never thinks about this field, which is what keeps it from being a
     # list every new producer has to remember to join.
     confidence_inherited_from: Optional[str] = None
+    # The notional the caller's Authority Envelope AUTHORIZED for this order
+    # (margin x the leverage it places at), stamped by the web-live
+    # authorization and read by nothing but the executor's venue-minimum
+    # round-up, which may raise an order up to 1.5x the approved quantity
+    # and used to do so past this figure: a $10 ticket at 5x, authorized and
+    # recorded as $50, placed $63 of BTC. None for every other producer,
+    # which is every order with no envelope over it.
+    authorized_notional_usd: Optional[float] = None
 
     @property
     def risk_reward_ratio(self) -> float:

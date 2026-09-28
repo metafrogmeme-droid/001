@@ -6186,12 +6186,26 @@ class LiveExecutor:
     def _exchange_minimum_gate(self, active_exchange: ccxt.Exchange, market: Any,
                                symbol: str, quantity: float, current_price: float,
                                leverage_mult: int, size_usd: float,
+                               authorized_notional_usd: Optional[float] = None,
                                ) -> tuple[Optional[str], float]:
         """Round up to the venue minimum when the overshoot is small; else refuse cleanly.
 
         Extracted from execute() verbatim. Returns ``(block, quantity)`` — the
         quantity comes back because this is where it is rounded, both to the
         minimum and to the venue's precision step.
+
+        ``authorized_notional_usd`` is what the caller's Authority Envelope
+        authorized for THIS order (the web-live path stamps it on the idea;
+        every other order carries None). A round-up is bounded by it the way
+        it is bounded by ``exchange_min_roundup_max_mult``: the venue's
+        minimum may raise the order past the approved quantity, and it used
+        to raise it past the figure the envelope had authorized and recorded
+        -- $63 of notional placed for a $50 authorization, on the shipped
+        default. Over the authorization the order is REFUSED, by name, and
+        nothing is placed; the confirm handler then takes the recorded spend
+        back off the day. Only the round-up is bounded here: without one the
+        placed notional is at most the approved size times the leverage,
+        which is the figure the envelope was asked about.
         """
         # ── Pre-flight exchange-minimum check (live incident: XPT) ──
         # A risk-sized position on a small account meeting a high-priced
@@ -6227,6 +6241,32 @@ class LiveExecutor:
                 _need_notional = max((_floor * current_price) if _floor > 0 else 0.0,
                                      _min_cost)
                 _need_margin = _need_notional / max(int(leverage_mult or 1), 1)
+                # `price_on_record`'s reading of a positive money figure: a zero,
+                # a negative, a NaN or junk bounds nothing, and is never $0.
+                from bot.core.position_telemetry import price_on_record
+                _authorized = price_on_record(authorized_notional_usd)
+                if _resolved is not None and _authorized is not None and _authorized > 0 \
+                        and _resolved * current_price > _authorized:
+                    _placed_notional = _resolved * current_price
+                    audit(trade_log,
+                          f"BLOCKED: {symbol} rounded up to the venue minimum would "
+                          f"place ${_placed_notional:.2f} of notional, over the "
+                          f"${_authorized:.2f} the Authority Envelope authorized",
+                          action="live_execute", result="ROUNDUP_OVER_AUTHORIZED",
+                          data={"asset": symbol, "size_usd": round(size_usd, 4),
+                                "leverage": leverage_mult, "price": current_price,
+                                "qty": quantity, "min_qty": _resolved,
+                                "placed_notional": round(_placed_notional, 4),
+                                "authorized_notional": round(_authorized, 4),
+                                "mult": round(_mult, 3)})
+                    return ((f"BLOCKED: {symbol} rounded up to {self._venue.display_name}'s "
+                             f"minimum would place ${_placed_notional:.2f} of notional, over "
+                             f"the ${_authorized:.2f} your Authority Envelope authorized for "
+                             f"this order (sized ${size_usd * leverage_mult:.2f} at "
+                             f"{leverage_mult}x; the venue requires >= ${_need_notional:.2f}, "
+                             f"about ${_need_margin:.2f} of margin at {leverage_mult}x). "
+                             f"Nothing was placed: raise the ticket's margin to at least "
+                             f"that, or nothing this small can be placed here."), quantity)
                 if _resolved is not None:
                     _old_qty = quantity
                     quantity = _resolved
@@ -7699,7 +7739,8 @@ class LiveExecutor:
             # ── Pre-flight exchange-minimum check ── (see _exchange_minimum_gate)
             _gate_msg, quantity = self._exchange_minimum_gate(
                 active_exchange, market, symbol, quantity, current_price,
-                leverage_mult, size_usd)
+                leverage_mult, size_usd,
+                authorized_notional_usd=getattr(idea, "authorized_notional_usd", None))
             if _gate_msg:
                 return _gate_msg
 
@@ -7748,7 +7789,8 @@ class LiveExecutor:
                 # checked, which already met the minimum.
                 _gate_msg, quantity = self._exchange_minimum_gate(
                     active_exchange, market, symbol, quantity, current_price,
-                    leverage_mult, size_usd)
+                    leverage_mult, size_usd,
+                    authorized_notional_usd=getattr(idea, "authorized_notional_usd", None))
                 if _gate_msg:
                     return _gate_msg
 

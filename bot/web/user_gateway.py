@@ -2206,6 +2206,19 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
                 False, list(result.get("reasons") or ["not authorized"]), False)
         recorded = False
         if notional:
+            # The venue's minimum can round the order UP past this figure at
+            # placement (up to 1.5x the approved quantity, on by default), so
+            # the executor is told what was authorized and refuses a round-up
+            # over it (`_exchange_minimum_gate`). A stamp that cannot be
+            # written is a denial: an order the executor cannot bound is not
+            # an order the envelope authorized.
+            try:
+                setattr(idea, "authorized_notional_usd", float(notional))
+            except Exception as exc:
+                system_log.warning("Web-live authorization could not stamp the order for %s: %s",
+                                   tg_id, type(exc).__name__)
+                return WebLiveAuthorization(
+                    False, ["the authorized notional could not be recorded on the order"], False)
             # True only for a row this call ADDED: a duplicate ref (an earlier
             # attempt's row) is the ledger's False, and stays that attempt's.
             recorded = bool(ledger.record(tg_id, notional, now, ref=trade_id))

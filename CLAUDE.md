@@ -15475,6 +15475,53 @@ backwards, an unreadable price read as a no, an unknown side read as a buy,
 a typed limit sent post-only, and every limit sent GTC.
 (`tests/test_a_typed_ticket_is_placed_at_the_levels_it_typed.py`.)
 
+**THE VENUE-MINIMUM ROUND-UP PLACED MORE THAN THE WEB-LIVE ENVELOPE HAD
+AUTHORIZED AND RECORDED.** The web-live authorization asks the user's
+enforce-mode Authority Envelope about THIS order's notional, margin times the
+leverage it places at, and records that figure against the day.
+`_exchange_minimum_gate` then raises a quantity under the venue's minimum, up
+to `EXCHANGE_MIN_ROUNDUP_MAX_MULT` of the approved quantity (1.5x, on by
+default), and nothing asked the envelope again: the hard caps are re-asked at
+the rounded margin, since the placed-order chapter, and those are the
+OPERATOR's caps. Driven through the real `execute` against a venue whose
+minimum is 0.001 BTC at $63,000:
+
+    $10 margin at 5x      authorized and recorded  $50.00
+    placed 0.001 BTC      $63.00 of notional       1.26x what was authorized
+
+A per-trade cap of $60 was breached and the day under-counted by $13, on the
+one order shape a small live account near a venue minimum produces, which is
+the account most likely to have set those caps. The authorization STAMPS the
+idea with what it authorized (`TradeIdea.authorized_notional_usd`, None for
+every order with no envelope over it), both calls of the gate hand it in, and
+a round-up over it is refused by name: what the venue needs, in notional and
+in margin at this leverage, and that nothing was placed. The confirm handler
+then reads the refusal as placed nothing and takes the recorded spend back,
+which is the release the chapter above built. A stamp that cannot be written
+is a DENIAL, because an order the executor cannot bound is not an order the
+envelope authorized.
+
+**Only the round-up is bounded, and the reason is arithmetic.** Without one
+the placed notional is the approved size times the leverage, and the approved
+size is at most the typed margin, so it is at most the figure the envelope was
+asked about; a stamp below the order's own notional is therefore not this
+gate's subject, and the multiplier bound still refuses first when it bites.
+The stamp is read through `price_on_record`, so a zero, a negative, a NaN or
+junk bounds nothing and is never a $0 authorization. The figure is compared
+exactly: a round-up landing exactly on the authorization places, because that
+is the order the envelope allowed.
+
+**Eleven mutations, each killed on the first round, none refused.** The bound
+gone, the comparison made inclusive, the bound read off the approved quantity
+rather than the rounded one, the refusal handing back the rounded quantity,
+the audit renamed, the stamp read as a number-or-zero, either call of the gate
+dropping the stamp, the gateway stamping nothing, a stamp that could not be
+written allowed anyway, and the stamp written before the envelope decided.
+The last is worth naming for what it proves about the guard: a stamp written
+on a denied order changes no verdict on the placed-order drives, because a
+denied order never reaches the executor, and dies only on the test that reads
+the idea back after a denial. (`tests/test_a_round_up_never_places_more_than_the_envelope_authorized.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15954,7 +16001,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 246 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 247 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16766,9 +16813,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **457 of 1148** reach for source text through `source_scan`, `code_only`
+Driven, **458 of 1148** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 457 is a FLOOR and the honest shape is
+source scan that rule does not see, so 458 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
