@@ -161,9 +161,15 @@ class TestTheWalk:
         res = so.resolve(_long(), bars, NOW)
         assert res.status == so.NO_EXIT
         assert res.resolved_ms == FIRST + so.HORIZON_S * 1000
-        # The same, with the bars ending early but the clock past the horizon.
+        # The same, with the bars ending early but the clock past the week.
+        # This pinned NO_EXIT once: a final word taken over a week whose end
+        # no candle had reached. It waits now, and after the grace it is
+        # unscored rather than a week nobody read (TestATailVerdictNeedsTheBars).
         res = so.resolve(_long(), bars[:3], FIRST + so.HORIZON_S * 1000 + 1)
-        assert res.status == so.NO_EXIT
+        assert res.status == so.OPEN and res.triggered_ms == FIRST
+        res = so.resolve(_long(), bars[:3],
+                         FIRST + (so.HORIZON_S + so.TAIL_GRACE_S) * 1000)
+        assert res.status == so.UNSCORED and res.r is None
 
     def test_a_level_reached_after_the_horizon_does_not_score(self):
         # The week ends first: a target touched two bars later is not this
@@ -430,6 +436,102 @@ def test_both_producers_publish_through_the_ledger():
                   and n.func.id in ("sync_signals_in_background", "sync_signals")]
         assert not pushes, f"{rel}:{fn} sends signals around the ledger"
 
+
+
+# ── a verdict at the end of a window needs the bars to reach that end ──────
+
+# Published 10:17 with a 4h entry window: it closes at 14:17, inside the bar
+# that opens at 14:00, which is still forming until 15:00 and is never read
+# while it forms (`_cached_ohlcv` drops it at the fetch).
+WINDOW = 4 * 3600
+EXPIRES = CREATED + WINDOW * 1000
+AT_1420 = FIRST + 3 * H + 20 * 60_000
+AT_1505 = FIRST + 4 * H + 5 * 60_000
+QUIET = [_bar(i, 102, 103, 101, 102) for i in range(3)]      # 11:00, 12:00, 13:00
+REACHED_LATE = _bar(3, 102, 102, 99.5, 100)                  # 14:00: reaches 100
+
+
+class TestATailVerdictNeedsTheBars:
+    def test_the_last_hour_of_the_window_is_not_read_as_expired(self):
+        # Driven before the fix: EXPIRED at 14:20, which is final, and OPEN at
+        # 15:05 once the 14:00 bar had closed.
+        early = so.resolve(_long(), QUIET, AT_1420, WINDOW)
+        assert early.status == so.NEW and not early.retry
+        assert "last hour" in early.why
+        late = so.resolve(_long(), QUIET + [REACHED_LATE], AT_1505, WINDOW)
+        assert late.status == so.OPEN and late.triggered_ms == FIRST + 3 * H
+
+    def test_a_window_the_bars_reach_is_expired(self):
+        spans = _bar(3, 102, 103, 101, 102)          # 14:00-15:00 spans 14:17
+        res = so.resolve(_long(), QUIET + [spans], AT_1505, WINDOW)
+        assert res.status == so.EXPIRED and res.resolved_ms == EXPIRES
+
+    def test_the_bar_ending_exactly_at_the_close_covers_it(self):
+        # A window closing on a bar boundary is covered by the bar ending there.
+        window = 3 * 3600 - 17 * 60          # 10:17 + 2h43m = 13:00
+        res = so.resolve(_long(), QUIET[:2], FIRST + 2 * H + 60_000, window)
+        assert res.status == so.EXPIRED
+        res = so.resolve(_long(), QUIET[:1], FIRST + 2 * H + 60_000, window)
+        assert res.status == so.NEW
+
+    def test_candles_that_never_reach_the_close_are_unscored_after_the_grace(self):
+        grace = so.TAIL_GRACE_S * 1000
+        assert so.resolve(_long(), QUIET, EXPIRES + grace - 1, WINDOW).status == so.NEW
+        res = so.resolve(_long(), QUIET, EXPIRES + grace, WINDOW)
+        assert res.status == so.UNSCORED and "never read" in res.why
+
+    def test_a_weekend_with_no_bar_is_waited_out_not_unscored(self):
+        # A market that closes for a weekend produces no bar for about sixty
+        # hours. A walk during that gap has not read the window's end, and
+        # giving up then would make final a call the reopening bar answers.
+        res = so.resolve(_long(), QUIET, EXPIRES + 60 * H, WINDOW)
+        assert res.status == so.NEW, "a weekend's silence was scored"
+
+    def test_a_market_that_reopens_after_a_gap_answers_with_its_first_bar(self):
+        # No bar while a market is closed; the one it reopens with opens after
+        # the window, which is the answer: the entry was not reached in it.
+        reopen = [FIRST + 60 * H, 102, 103, 101, 102, 1.0]
+        res = so.resolve(_long(), QUIET + [reopen], FIRST + 62 * H, WINDOW)
+        assert res.status == so.EXPIRED
+
+    def test_the_week_after_the_entry_needs_the_bars_to_reach_its_end(self):
+        # The entry bar opens at FIRST, so the week ends at FIRST + 168h, where
+        # the bar opening at FIRST + 167h ends.
+        week = so.HORIZON_S * 1000
+        held = [_bar(0, 102, 102, 99.5, 100)] + [
+            _bar(i, 101, 102, 99, 101) for i in range(1, 24 * 7 - 1)]
+        # `held` ends at FIRST + 167h: the week's last hour is not read.
+        res = so.resolve(_long(), held, FIRST + week + 20 * 60_000)
+        assert res.status == so.OPEN and "last hour" in res.why
+        last = _bar(24 * 7 - 1, 101, 102, 99, 101)
+        res = so.resolve(_long(), held + [last], FIRST + week + H + 60_000)
+        assert res.status == so.NO_EXIT and res.resolved_ms == FIRST + week
+        res = so.resolve(_long(), held, FIRST + week + so.TAIL_GRACE_S * 1000)
+        assert res.status == so.UNSCORED and res.triggered_ms == FIRST
+
+    def test_no_candle_at_all_waits_the_grace_before_it_is_unscored(self):
+        grace = so.TAIL_GRACE_S * 1000
+        res = so.resolve(_long(), [], EXPIRES + 1, WINDOW)
+        assert res.status == so.NEW and res.retry
+        assert so.resolve(_long(), [], EXPIRES + grace, WINDOW).status == so.UNSCORED
+
+
+def test_the_engine_does_not_finalize_a_window_its_bars_have_not_reached(ledger, monkeypatch):
+    """The walk the engine runs, at 14:20 and again at 15:05: the first pass
+    records nothing final and sends nothing, the second finds the fill."""
+    so.record_published([_long()])
+    sent = []
+    bars = {"now": QUIET}
+    eng, _ = _engine(lambda s: bars["now"], monkeypatch, sent)
+    monkeypatch.setattr("bot.core.engine.CONFIG", SimpleNamespace(
+        limit_orders=SimpleNamespace(expire_seconds=WINDOW)))
+    assert asyncio.run(eng._resolve_signal_outcomes(now_ms=AT_1420)) == 0
+    entry = json.loads(ledger.read_text())["signals"]["K1"]
+    assert entry["status"] == so.NEW and sent == []
+    eng._signal_outcome_pass_at = None
+    bars["now"] = QUIET + [REACHED_LATE]
+    assert asyncio.run(eng._resolve_signal_outcomes(now_ms=AT_1505)) == 1
+    assert [r["status"] for r in sent] == [so.OPEN]
 
 # ── the engine's walk ───────────────────────────────────────────────────────
 

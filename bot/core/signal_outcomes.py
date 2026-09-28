@@ -88,6 +88,16 @@ DEFAULT_ENTRY_WINDOW_S = 4 * 3600
 #: Candles asked for per signal: 200 hourly bars is eight days and a bit, which
 #: covers the entry window plus the horizon for a signal read on time.
 FETCH_LIMIT = 200
+#: How long past the end of a window (the entry window, or the week after the
+#: entry) the walk waits for the candles to reach it before it gives up. A walk
+#: reads CLOSED bars only -- `_cached_ohlcv` drops the forming one at the fetch
+#: and caches for up to ten minutes -- so at any moment the bars end up to about
+#: an hour before now. A verdict at the end of a window taken off the clock
+#: alone was taken over an hour nobody read: a call that reached its entry in
+#: the window's last hour was recorded EXPIRED, which is final. Three days,
+#: because a market closed for a weekend produces no bar until it reopens, and
+#: the bar it reopens with answers the question.
+TAIL_GRACE_S = 3 * 24 * 3600
 #: A resolved row is kept this long after it was synced, then pruned.
 KEEP_RESOLVED_S = 14 * 24 * 3600
 #: The ledger never holds more than this many rows (oldest resolved go first).
@@ -226,8 +236,8 @@ def resolve(row: dict, bars: Sequence[Sequence[Any]], now_ms: int,
         if ts >= created:
             walk.append(b)
     if not walk:
-        if now_ms >= expires:
-            # Nothing after publication came back at all, past the window.
+        if now_ms >= expires + TAIL_GRACE_S * 1000:
+            # Nothing after publication came back at all, long past the window.
             return Resolution(UNSCORED, "no candle after the signal was published came back")
         return Resolution(NEW, "no candle has closed since the signal was published", retry=True)
     first_ts = _f(walk[0][0])
@@ -292,15 +302,32 @@ def resolve(row: dict, bars: Sequence[Sequence[Any]], now_ms: int,
             return Resolution(STOP, "the stop was reached", r=-1.0,
                               resolved_ms=ts + BAR_MS, triggered_ms=trig_ts)
 
+    # A verdict at the END of a window needs the bars to reach that end. The
+    # clock passing it is not enough: the last hour of it may be the forming
+    # candle, which no walk reads (TAIL_GRACE_S).
+    covered = int(float(walk[-1][0])) + BAR_MS
     if trig_ts is None:
-        if now_ms >= expires:
+        if now_ms < expires:
+            return Resolution(NEW, "price has not reached the entry")
+        if covered >= expires:
             return Resolution(EXPIRED, "the window closed before price reached the entry",
                               resolved_ms=expires)
-        return Resolution(NEW, "price has not reached the entry")
-    if now_ms - trig_ts >= HORIZON_S * 1000:
+        if now_ms >= expires + TAIL_GRACE_S * 1000:
+            return Resolution(UNSCORED, "the candles stop before the entry window closed, "
+                              "so its end was never read")
+        return Resolution(NEW, "the entry window has closed and its last hour has not "
+                          "been read yet")
+    week_end = trig_ts + HORIZON_S * 1000
+    if now_ms < week_end:
+        return Resolution(OPEN, "the entry was reached; neither level yet", triggered_ms=trig_ts)
+    if covered >= week_end:
         return Resolution(NO_EXIT, "neither level was reached within a week of the entry",
-                          resolved_ms=trig_ts + HORIZON_S * 1000, triggered_ms=trig_ts)
-    return Resolution(OPEN, "the entry was reached; neither level yet", triggered_ms=trig_ts)
+                          resolved_ms=week_end, triggered_ms=trig_ts)
+    if now_ms >= week_end + TAIL_GRACE_S * 1000:
+        return Resolution(UNSCORED, "the candles stop before the week after the entry "
+                          "ended, so its end was never read", triggered_ms=trig_ts)
+    return Resolution(OPEN, "the week after the entry has ended and its last hour has not "
+                      "been read yet", triggered_ms=trig_ts)
 
 
 # ---------------------------------------------------------------- the ledger

@@ -17087,6 +17087,39 @@ and the image card carries its own Take-it. It reads the text card's own
 markup now.
 (`tests/test_a_re_offered_setup_is_one_call.py`, `tests/test_alert_audience.py`.)
 
+**A CALL THAT REACHED ITS ENTRY IN THE WINDOW'S LAST HOUR WAS RECORDED
+EXPIRED, AND EXPIRED IS FINAL.** The outcome walk reads closed hourly bars
+only: `_cached_ohlcv` drops the forming candle at the fetch and caches the
+series for up to ten minutes. So at any moment the bars end up to about an
+hour before now. `resolve` decided both words at the end of a window off the
+clock alone: EXPIRED once `now` passed the entry window, and NO_EXIT once it
+passed a week after the entry. Neither asked whether any bar had reached that
+point.
+
+Driven: a call published at 10:17 with the four-hour window closes at 14:17,
+inside the bar that opens at 14:00. That bar reaches the entry at 14:05. A walk
+at 14:20 recorded EXPIRED; a walk at 15:05 would have found OPEN. Because
+EXPIRED is terminal, the ledger never walks the call again, so a filled call
+was counted on the public stats as never filled. The verdict depended on when
+the walk happened to run. The #155 suite pinned the NO_EXIT half as the
+contract: its "bars ending early but the clock past the horizon" case asserted
+NO_EXIT over a week whose end no candle had reached.
+
+**A verdict at the end of a window needs the bars to reach that end.** The
+walk records how far its bars reach (the end of the last closed bar). EXPIRED
+needs them to reach the window's close and NO_EXIT the week's end. Until they
+do, the call stays NEW or OPEN and says its last hour has not been read yet.
+If they never reach it, the call is UNSCORED after `TAIL_GRACE_S`, which says
+the end was never read. A walk that found no candle at all waits the same
+grace. The grace is three days, because a market closed for a weekend
+produces no bar until it reopens. The bar it reopens with opens after the
+window, which answers the question correctly (EXPIRED).
+
+Twelve mutations, each killed. The one that survived the first round was the
+grace length: a one-hour grace changed no verdict until a test drove a
+weekend gap, which a short grace would have scored.
+(`tests/test_a_published_signal_is_resolved.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
