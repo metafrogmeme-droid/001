@@ -52,7 +52,7 @@ from bot.backtest.benchmark_record import (
 )
 from bot.config import CONFIG
 from bot.core.arb_tracker import MIN_VERDICT_ENTRIES, mean_interval
-from bot.core.close_lookup import UNRECORDED, is_ticker_priced
+from bot.core.close_lookup import FEE_CLOSE_LEG, FEE_ESTIMATED, UNRECORDED, fee_stated, is_ticker_priced
 from bot.learning.readiness import wilson_lower_bound
 from bot.utils.close_reason import is_execution_abort, is_filled_close
 from bot.utils.paths import state_path
@@ -130,6 +130,13 @@ def _notional(t: dict) -> float:
     cost = t.get("cost_usd") or 0.0
     lev = t.get("leverage") or 1
     return abs(float(cost) * float(lev or 1))
+
+
+#: The fewest venue-stated round trips a fee VERDICT is read off. A rate is a
+#: rate over one close, but "better than model" over three stated closes is
+#: the arb verdict's own floor argument one card over: identical entries have
+#: no spread, and a verdict off them is a certainty nobody measured.
+MIN_FEE_SAMPLE = 10
 
 
 def _fees(t: dict) -> float | None:
@@ -475,24 +482,40 @@ def parity_summary(trades: list[dict], modeled_commission_pct: float,
     parts = partition(trades)
     strategy, aborts = parts["strategy"], parts["aborts"]
     nets = _scored_nets(strategy)   # every strategy exit is scored
-    # Fees are measured over the closes that CARRY a fee record, and the
-    # notional they are measured against is those closes' notional -- a rate
-    # diluted by notional nobody was charged for is not the rate. The verdict
-    # is withheld unless every close was read.
+    # Two fee readings, kept apart. RECORDED fees are every commission the
+    # record carries, whatever it is made of, and they are the record's own
+    # arithmetic (net = gross - commission): the total and the drag on gross
+    # profit are read over them. The REALIZED rate is read over the closes
+    # whose round trip the VENUE STATED and nothing else: the commission on a
+    # ticker-priced close is the configured entry and exit rates, so a rate
+    # over those is the model compared with itself -- which is what the
+    # 2026-09-28 card printed as "realized 0.093% vs modeled 0.200% (better
+    # than model)" over a record 182 of 211 ticker-priced. The notional is the
+    # stated closes' own, because a rate diluted by notional nobody was
+    # charged for is not the rate; the verdict needs MIN_FEE_SAMPLE of them.
     fee_rows = [(t, f) for t, f in ((t, _fees(t)) for t in strategy) if f is not None]
     fees_read = len(fee_rows)
     fees = sum(f for _t, f in fee_rows)
-    notional = sum(_notional(t) for t, _f in fee_rows)
+    notional = sum(_notional(t) for t, _f in fee_rows)   # the recorded closes' own
+    stated_rows = [(t, f) for t, f in fee_rows if fee_stated(t)]
+    fees_stated = len(stated_rows)
+    stated_fees = sum(f for _t, f in stated_rows)
+    stated_notional = sum(_notional(t) for t, _f in stated_rows)
+    fees_close_leg = sum(1 for t, _f in fee_rows if t.get("fee_basis") == FEE_CLOSE_LEG)
+    fees_estimated = sum(1 for t, _f in fee_rows if t.get("fee_basis") == FEE_ESTIMATED)
+    fees_basis_unrecorded = fees_read - fees_stated - fees_close_leg - fees_estimated
     gross = sum(x for x in (_gross(t) for t in strategy) if x is not None)
     head = _row(nets, sum(1 for t in strategy if _ticker_priced(t)))
     n = head["trades"]
-    realized_fee_rate = ((fees / notional) if notional > 0 else 0.0) if fees_read else None
+    realized_fee_rate = (((stated_fees / stated_notional) if stated_notional > 0 else 0.0)
+                         if fees_stated else None)
     modeled_fee_rate = 2.0 * (modeled_commission_pct / 100.0)  # round trip
     # Fraction of gross profit eaten by fees (the churn-drag number); None
     # unless every close carried a fee record.
     gross_win = sum(x for x in nets if x > 0)
     fee_vs_model = ((realized_fee_rate / modeled_fee_rate)
-                    if (realized_fee_rate is not None and fees_read == n and modeled_fee_rate > 0)
+                    if (realized_fee_rate is not None and fees_stated >= MIN_FEE_SAMPLE
+                        and modeled_fee_rate > 0)
                     else None)
     reading = benchmark if benchmark is not None else benchmark_on_record()
     abort_nets = _scored_nets(aborts)
@@ -512,12 +535,21 @@ def parity_summary(trades: list[dict], modeled_commission_pct: float,
         "net_pnl": round(sum(nets), 2),
         "gross_pnl": round(gross, 2),
         "pf": head["pf"],                             # None with no losing trade
-        "fees_read": fees_read,
+        "fees_read": fees_read,                       # closes carrying ANY commission
+        # The closes whose round trip the VENUE stated -- the only ones the
+        # realized rate is read over -- and what the other commissions are
+        # made of: the close leg stated beside an estimated entry leg, two
+        # estimates, or a row written before the record said.
+        "fees_stated": fees_stated,
+        "fees_close_leg": fees_close_leg,
+        "fees_estimated": fees_estimated,
+        "fees_basis_unrecorded": fees_basis_unrecorded,
+        "min_fee_sample": MIN_FEE_SAMPLE,
         "total_fees": round(fees, 2),
         "notional": round(notional, 2),
-        "realized_fee_rate": realized_fee_rate,       # per round trip, of the fee-read notional; None when none read
+        "realized_fee_rate": realized_fee_rate,       # per round trip, over the venue-stated closes; None when none
         "modeled_fee_rate": modeled_fee_rate,
-        "fee_vs_model": fee_vs_model,                 # None unless every close carries a fee record
+        "fee_vs_model": fee_vs_model,                 # None under MIN_FEE_SAMPLE venue-stated closes
         "fee_drag_of_gross": ((fees / gross_win) if gross_win > 0 else 0.0) if fees_read == n else None,
         "inferred_fills": head["inferred"],
         "benchmark": reading._asdict(),
@@ -545,6 +577,56 @@ def _bucket_lines(title: str, stats: dict, inferred_word: str = "ticker-priced")
         lines.append(f"    {k:<22} {g['trades']:>3} tr  net {sign}${g['net']:>9,.2f}"
                      f"  win {g['win_rate']:.0%}  PF {_pf_str(g['pf'])}  {_sample(g)}{tail}")
     return lines
+
+
+def fee_composition(s: dict) -> str:
+    """What the RECORDED commissions are made of, said only where it bites:
+    nothing over a record the venue stated in full, and the counts otherwise,
+    because a total that is mostly the configured estimate printed as a fee
+    the venue charged is the claim this line exists to withdraw."""
+    parts = []
+    if s.get("fees_estimated"):
+        parts.append(f"{s['fees_estimated']} at the configured rates")
+    if s.get("fees_close_leg"):
+        parts.append(f"{s['fees_close_leg']} with the close leg stated and the entry leg estimated")
+    if s.get("fees_basis_unrecorded"):
+        parts.append(f"{s['fees_basis_unrecorded']} from before the record said")
+    return "; ".join(parts)
+
+
+def fee_line(s: dict) -> str:
+    """The card's fee sentence, four ways: a verdict over enough venue-stated
+    closes, a rate over too few to call, no stated close at all, and no fee
+    record at all. The recorded total rides on every one that has one, with
+    what it is made of beside it."""
+    fvm = s.get("fee_vs_model")
+    # Every count is on the summary this build writes; an absent one is a
+    # summary this function was not written for, never a count of zero.
+    fees_read = int(s["fees_read"])
+    stated = int(s["fees_stated"])
+    n = int(s["trades"])
+    modeled = f"{s['modeled_fee_rate'] * 100:.3f}%"
+    made_of = fee_composition(s)
+    recorded = (f"${s['total_fees']:,.2f} recorded over {fees_read} of {n} closes"
+                + (f" ({made_of})" if made_of else "")) if fees_read else ""
+    if fvm is not None:
+        verdict = ("~ matches model" if 0.8 <= fvm <= 1.25 else
+                   "WORSE than model" if fvm > 1.25 else "better than model")
+        drag = s.get("fee_drag_of_gross")
+        drag_s = (f" = {drag * 100:.0f}% of gross profit" if drag is not None else "")
+        return (f"Fees: realized {s['realized_fee_rate'] * 100:.3f}%/round-trip on the {stated} "
+                f"of {n} closes whose round trip the venue stated vs modeled {modeled} → "
+                f"{fvm:.2f}× ({verdict}); {recorded}{drag_s}")
+    if stated:
+        return (f"Fees: realized {s['realized_fee_rate'] * 100:.3f}%/round-trip on the {stated} "
+                f"of {n} closes whose round trip the venue stated (vs modeled {modeled}); "
+                f"verdict withheld — fewer than {s.get('min_fee_sample', MIN_FEE_SAMPLE)} stated; "
+                f"{recorded}")
+    if fees_read:
+        return (f"Fees: the venue stated a round trip on none of the {n} closes — fee parity "
+                f"cannot be measured (modeled {modeled}/round-trip); {recorded}")
+    return (f"Fees: no fee record on any close — fee parity cannot be measured "
+            f"(modeled {modeled}/round-trip)")
 
 
 def aborts_line(s: dict) -> str:
@@ -582,28 +664,7 @@ def format_report(s: dict) -> str:
         if v.get(key):
             lines.append(f"           {v[key]}")
     # Fee parity — the concrete fills/fees gap.
-    fvm = s.get("fee_vs_model")
-    fees_read = int(s.get("fees_read") or 0)
-    if fvm is not None:
-        verdict = ("~ matches model" if 0.8 <= fvm <= 1.25 else
-                   "WORSE than model" if fvm > 1.25 else "better than model")
-        lines.append(
-            f"  Fees: realized {s['realized_fee_rate']*100:.3f}%/round-trip vs modeled "
-            f"{s['modeled_fee_rate']*100:.3f}% → {fvm:.2f}× ({verdict}); "
-            f"${s['total_fees']:,.2f} total = {s['fee_drag_of_gross']*100:.0f}% of gross profit")
-    elif fees_read:
-        # Some closes carry no fee record: the rate is measured on the ones
-        # that do, and the verdict is withheld -- a ratio over part of the
-        # book is not the ratio.
-        lines.append(
-            f"  Fees: realized {s['realized_fee_rate']*100:.3f}%/round-trip on the "
-            f"{fees_read} of {s['trades']} closes that carry a fee record "
-            f"(vs modeled {s['modeled_fee_rate']*100:.3f}%); verdict withheld — "
-            f"fees recorded on {fees_read} of {s['trades']} closes")
-    else:
-        lines.append(
-            f"  Fees: no fee record on any close — fee parity cannot be measured "
-            f"(modeled {s['modeled_fee_rate']*100:.3f}%/round-trip)")
+    lines.append("  " + fee_line(s))
     # The ticker-priced share is said once, in the verdict block above, where
     # it qualifies the figures it sits under; a second sentence here said the
     # same thing in different words.

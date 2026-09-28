@@ -153,7 +153,7 @@ def _parity_section(engine) -> Optional[dict]:
     # already None when the fee record covers only some closes, so a partial
     # record cannot read as a measured drag.
     keep = ("trades", "excluded_non_fills", "unscored_pnl", "win_rate", "pf",
-            "fees_read", "realized_fee_rate", "modeled_fee_rate",
+            "fees_read", "fees_stated", "realized_fee_rate", "modeled_fee_rate",
             "fee_vs_model", "fee_drag_of_gross", "inferred_fills")
     out = {k: summary.get(k) for k in keep}
     # The verdict's WORDS and the benchmark's scale-free figures travel; the

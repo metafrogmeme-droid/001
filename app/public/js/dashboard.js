@@ -5104,8 +5104,16 @@
       if (p.excluded_non_fills) notes.push(`${p.excluded_non_fills} never-filled record(s) excluded`);
       if (p.unscored_pnl) notes.push(`${p.unscored_pnl} close(s) with no PnL record excluded`);
       // A dashed "Fees vs model" tile needs its reason beside it, or it reads
-      // as "not computed" rather than "withheld because N closes carry no fee".
-      if (p.fees_read != null && p.trades != null && Number(p.fees_read) < Number(p.trades)) {
+      // as "not computed" rather than "withheld". The ratio is read over the
+      // closes whose round trip the VENUE stated (`fees_stated`), never over
+      // a commission the bot estimated at its own configured rates -- that
+      // was the model compared with itself, printed as "better than model"
+      // -- so the reason is that count. An older bot sends no such count;
+      // its reason is the one it can give, the closes carrying no fee at all.
+      if (feeX == null && p.fees_stated != null && p.trades != null) {
+        notes.push(`round trip stated by the venue on ${p.fees_stated} of ${p.trades} closes — fee ratio withheld`);
+      } else if (feeX == null && p.fees_stated == null && p.fees_read != null && p.trades != null
+                 && Number(p.fees_read) < Number(p.trades)) {
         notes.push(`fee record on ${p.fees_read} of ${p.trades} closes — fee ratio withheld`);
       }
       return `<p class="muted small">Realized live execution vs the modeled backtest assumptions — drift here is the earliest sign the model no longer describes reality. ${esc(reportAge(rep))}</p>

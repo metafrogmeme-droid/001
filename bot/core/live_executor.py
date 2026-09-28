@@ -49,9 +49,9 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
-    StageOutcome, client_is_uta, is_ticker_priced, lookup_class, lookup_no_rows,
-    lookup_raised, lookup_sentence, lookup_skipped, lookup_unmatched,
-    nearest_entry_gap_pct, uta_history_row,
+    FEE_CLOSE_LEG, FEE_ESTIMATED, FEE_VENUE, StageOutcome, client_is_uta,
+    is_ticker_priced, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
+    lookup_skipped, lookup_unmatched, nearest_entry_gap_pct, uta_history_row,
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import (
@@ -500,6 +500,10 @@ def closed_trade_row(pos) -> dict:
         "origin": pos.origin,
         "fill_source": pos.fill_source,
         "close_lookup": pos.close_lookup,
+        # What the commission is made of (close_lookup.FEE_*), so a reader can
+        # tell a fee the venue stated from the configured estimate that stands
+        # in for one; None on a row a build before this reading wrote.
+        "fee_basis": getattr(pos, "fee_basis", None),
         # Where the ENTRY came from (see ENTRY_ESTIMATED); absent on a record
         # whose entry path recorded no source.
         "entry_source": getattr(pos, "entry_source", None),
@@ -566,6 +570,10 @@ class CloseAccounting(NamedTuple):
     commission: Optional[float]
     funding_usd: Optional[float]
     funding_in_net: Optional[bool]
+    #: What ``commission`` is made of (close_lookup.FEE_*): the venue's whole
+    #: round trip, its close leg beside an estimated entry leg, or two
+    #: estimates. None where there is no commission to have a basis.
+    fee_basis: Optional[str] = None
 
 
 def close_pnl_line(net_pnl, pnl_pct, leverage, commission, *, margin_usd):
@@ -1767,6 +1775,11 @@ class LivePosition:
     origin: str = "executed"
     fill_source: Optional[str] = None
     close_lookup: Optional[str] = None
+    #   fee_basis   — what `commission` is made of (close_lookup.FEE_*): the
+    #                 venue's round trip, its close leg beside an estimated
+    #                 entry leg, or two estimates. None on an unpriced close
+    #                 and on a row written before the reading.
+    fee_basis: Optional[str] = None
     # venue_recorded: the venue a CLOSED row carried when it was loaded, so a
     #                 save writes it back rather than restamping another
     #                 venue's history with this executor's. None for a row
@@ -10861,17 +10874,27 @@ class LiveExecutor:
         placement = place_funding(exchange_pnl, funding, funding_in_pnl)
         base = placement.base
 
+        # What the commission is MADE OF travels with it: a net the venue
+        # stated carries its own round trip, a gross carries the close leg the
+        # fill stated beside an entry leg estimated here, and a fee of 0 on
+        # either branch is a leg nobody stated rather than a stated zero --
+        # the fills stage writes 0.0 for a leg it could not price, and the
+        # history reader reads an unstated fee field as 0.
+        fee_basis: Optional[str]
         if pnl_is_net:
             net_pnl: Optional[float] = base
             commission: Optional[float] = exchange_close_fees
             gross_pnl = base + exchange_close_fees
+            fee_basis = FEE_VENUE if exchange_close_fees > 0 else None
         elif entry_notional is None:
             gross_pnl, net_pnl, commission = base, None, None
+            fee_basis = None
         else:
             gross_pnl = base
             estimated_entry_fee = entry_notional * entry_fee_pct / 100.0
             commission = exchange_close_fees + estimated_entry_fee
             net_pnl = gross_pnl - commission
+            fee_basis = FEE_CLOSE_LEG if exchange_close_fees > 0 else FEE_ESTIMATED
 
         # A stated funding of ZERO reaches this with `add_to_net` set to 0.0, so
         # it adds nothing and reads as in-net: there is no separate zero branch,
@@ -10883,7 +10906,7 @@ class LiveExecutor:
             in_net: Optional[bool] = True
         else:
             in_net = None
-        return CloseAccounting(gross_pnl, net_pnl, commission, funding, in_net)
+        return CloseAccounting(gross_pnl, net_pnl, commission, funding, in_net, fee_basis)
 
     @staticmethod
     def _local_close_commission(entry_notional: float, exit_notional: float,
@@ -10899,12 +10922,25 @@ class LiveExecutor:
         is what all three local branches used to do whatever the venue had
         said.
         """
-        stated = stated_fees if stated_fees is not None and stated_fees > 0 else None
+        stated, _basis = LiveExecutor._fee_reading(stated_fees, fees_cover)
         if stated is not None and fees_cover == "round_trip":
             return stated
         exit_fee = (stated if stated is not None
                     else exit_notional * exit_fee_pct / 100.0)
         return entry_notional * entry_fee_pct / 100.0 + exit_fee
+
+    @staticmethod
+    def _fee_reading(stated_fees: Optional[float],
+                     fees_cover: str) -> tuple[Optional[float], str]:
+        """``(stated, basis)``: the fee the venue stated (None for none, or
+        for the 0 a stage writes for a leg it could not price) and what the
+        commission built on it is made of (close_lookup.FEE_*). ONE predicate
+        for `_local_close_commission` and for the basis the record carries,
+        so the two cannot disagree about whether a fee was stated."""
+        stated = stated_fees if stated_fees is not None and stated_fees > 0 else None
+        if stated is None:
+            return None, FEE_ESTIMATED
+        return stated, (FEE_VENUE if fees_cover == "round_trip" else FEE_CLOSE_LEG)
 
     def _note_entry_estimated(self, pos: "LivePosition", ticker: float) -> None:
         """Say that a market fill was booked at the PRE-ORDER TICKER because
@@ -12040,6 +12076,7 @@ class LiveExecutor:
                     _acct.gross_pnl, _acct.net_pnl, _acct.commission)
                 pos.funding_usd = _acct.funding_usd
                 pos.funding_in_net = _acct.funding_in_net
+                pos.fee_basis = _acct.fee_basis
             elif entry_unread:
                 gross_pnl = net_pnl = commission = None
                 self._note_entry_unread_close(pos, "live_close", _fill_src)
@@ -12074,6 +12111,7 @@ class LiveExecutor:
                     pos.entry_price * pos.quantity, fill_price * pos.quantity,
                     entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
                     _stated_close_fee, _stated_fee_cover)
+                pos.fee_basis = self._fee_reading(_stated_close_fee, _stated_fee_cover)[1]
                 gross_pnl, commission = _gross, _comm
                 net_pnl = _gross - _comm
 
@@ -13376,6 +13414,7 @@ class LiveExecutor:
                 _acct.gross_pnl, _acct.net_pnl, _acct.commission)
             pos.funding_usd = _acct.funding_usd
             pos.funding_in_net = _acct.funding_in_net
+            pos.fee_basis = _acct.fee_basis
         elif _entry_px is None:
             gross_pnl = net_pnl = commission = None
             self._note_entry_unread_close(pos, "live_close_25227", fill_source)
@@ -13389,6 +13428,9 @@ class LiveExecutor:
                 entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
                 _num_or_none((close_data or {}).get("fees")),
                 str((close_data or {}).get("fees_cover", "close")))
+            pos.fee_basis = self._fee_reading(
+                _num_or_none((close_data or {}).get("fees")),
+                str((close_data or {}).get("fees_cover", "close")))[1]
             gross_pnl, commission, net_pnl = _gross, _comm, _gross - _comm
 
         pos.close_reason = reason
@@ -14400,6 +14442,11 @@ class LiveExecutor:
             origin=item.get("origin") or "executed",
             fill_source=item.get("fill_source"),
             close_lookup=item.get("close_lookup"),
+            # A word this build does not know is kept as written: a reader
+            # compares it to the one word it counts, and an unknown word is
+            # simply not that one. Anything but a string is no basis.
+            fee_basis=(item.get("fee_basis")
+                       if isinstance(item.get("fee_basis"), str) else None),
             strategy_type=item.get("strategy_type") or "swing",
             signal_type=item.get("signal_type") or "momentum_confluence",
         )
@@ -14750,6 +14797,7 @@ class LiveExecutor:
                                     _acct.gross_pnl, _acct.net_pnl, _acct.commission)
                                 pos.funding_usd = _acct.funding_usd
                                 pos.funding_in_net = _acct.funding_in_net
+                                pos.fee_basis = _acct.fee_basis
                                 pnl = gross_pnl
                                 logger.info("Using exchange-reported PnL for %s: %s",
                                             pos.symbol, money(net_pnl))
@@ -14774,6 +14822,9 @@ class LiveExecutor:
                                     exit_rate_pct(),
                                     _num_or_none((close_data or {}).get("fees")),
                                     str((close_data or {}).get("fees_cover", "close")))
+                                pos.fee_basis = self._fee_reading(
+                                    _num_or_none((close_data or {}).get("fees")),
+                                    str((close_data or {}).get("fees_cover", "close")))[1]
                                 gross_pnl, commission = pnl, _comm
                                 net_pnl = pnl - _comm
                             pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)

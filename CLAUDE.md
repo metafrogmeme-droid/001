@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 690 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 688 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -14812,6 +14812,106 @@ was written before the round ran, and the mutation dies on it.
 
 (`tests/test_the_history_stage_speaks_the_clients_api_family.py`.)
 
+**THE "REALIZED" FEE RATE WAS THE BOT'S OWN CONFIGURED ESTIMATE, COMPARED
+WITH THE MODEL AND CALLED BETTER THAN IT.** The same 2026-09-28 parity card
+read *"Fees: realized 0.093%/round-trip vs modeled 0.200% → 0.46× (better
+than model); $63.98 total = 25% of gross profit"*, four lines under *"182 of
+211 strategy exits are ticker-priced"*. A ticker-priced close carries no
+venue fee: its commission is `_local_close_commission` at the CONFIGURED
+rates, the entry leg at `entry_rate_pct` (the maker rate on a limit entry,
+the taker rate on a market one) and the close leg at `exit_rate_pct`. The
+"modeled" rate is `2 × COMMISSION_PCT`, a third configured figure. So the
+card compared two of the bot's own settings with each other on 182 of 211
+rows, and the verdict read "better than model" because the executor's fee
+table (0.02 + 0.06, or 0.06 + 0.06) is lower than the card's modeled
+constant (2 × 0.1 on the live box). `parity._fees` counted any numeric
+`commission` as a fee record, which was the right cure for the defect its
+own docstring records (a None read as a free trade); it left nothing on the
+row saying what the commission was MADE OF, so a record 86% estimate read as
+a complete measurement and the ratio printed with a verdict. Driven over a
+record shaped like the card's -- 182 closes at the executor's own rates (120
+limit entries at 0.08%, 62 market entries at 0.12%) and 29 venue-stated
+closes at 0.093% -- the old reading printed *realized 0.094%/round-trip …
+0.47× (better than model)* over all 211, and the new one prints its ratio
+over the 29 and says beside it that 182 of the recorded commissions are at
+the configured rates.
+
+**THE RECORD SAYS WHICH FEES THE VENUE STATED, IN THREE WORDS.** `fee_basis`
+on every closed row: `venue` (a position-history row stated both legs),
+`close_leg` (a fill or the close order stated its own leg; the entry leg is
+estimated beside it), `estimated` (both legs at the configured rates), and
+None on a row a build before this reading wrote, or on a close nobody
+priced. `_fee_reading` is the ONE predicate: the commission arithmetic and
+the basis the record carries both ask it, proved by planting a reading no
+honest input produces and watching the arithmetic follow it, because a
+byte-identical second copy agrees with every fixture. `CloseAccounting`
+carries it for the venue-priced branch (a venue net with no fee stated
+carries None, not `venue`: the net is the venue's and the commission is a
+0.0 the row did not state), and all six sites that book a close stamp it: the
+bot's own close, a close found already done and reconcile, each on its
+venue-priced and its locally-priced branch. The row writes it and the loader
+reads it back as a word or nothing; a word this build does not know is kept
+as written, because a reader compares it to the one word it counts.
+
+**PARITY READS THE RATE OVER THE VENUE'S ROWS AND NAMES THEM.** The realized
+rate is over `venue` rows only; the verdict needs `MIN_FEE_SAMPLE` (ten, the
+floor the card's other verdicts use) of them, and is withheld by name under
+it; the sentence says *on the N of M closes whose round trip the venue
+stated*; and the recorded total rides beside it with what it is made of (*3
+at the configured rates; 2 with the close leg stated and the entry leg
+estimated; 1 from before the record said*), printed only where it bites,
+because a record the venue stated in full has nothing to caveat. A record
+with commissions and no stated close says the venue stated a round trip on
+none of them, which is a different sentence from no fee record at all. The
+weekly digest's withheld clause names the stated sample, the dashboard's
+note beside a dashed tile does the same and keeps the older bot's sentence
+for a payload that sends no such count, and the web section carries the
+count (a count, on a public route).
+
+**THREE FIXTURES CARRIED NO BASIS, SO EVERY FEE IN THE CORPUS HAD BEEN A
+STATED ONE BY DEFAULT.** The `_t` builders in `test_parity_report.py`,
+`test_parity_unread_is_not_zero.py` and the card suite wrote a commission
+and nothing about where it came from, and eight pins went red on the new
+contract at once. Each builder says `fee_basis="venue"` now, because that is
+what those rows had always meant, and the verdict fixtures hold ten rows.
+Twelve venue-stated rows beside two estimated ones is the input that
+separates *the rate is over the stated rows* from *the rate is over every
+recorded commission*; twenty rows whose commission IS the configured rate is
+the one that shows the old reading answering 1.00× "matches model" with the
+model agreeing with itself.
+
+**The honesty ratchet caught the sentence written to say what a fee is made
+of.** `fee_line`'s first draft read its three counts as
+`int(s.get("fees_stated") or 0)`: an absent count as a count of zero, in the
+function whose subject is that an estimate is not a measurement. Every count
+is on the summary this build writes, so they are read as such, and the
+ratchet IMPROVED by two (690 → 688) and was re-recorded in the same commit.
+
+**Thirty-two mutations, each killed on the first round, none refused — and
+one fixture was added by PLANNING the round.** The bot's own close reads the
+close order's fills after the lookup, and a fill's fee REPLACES a round trip
+the history stage had stated for the local price (the more direct reading of
+the close leg). Dropping the cover reset beside that replacement would have
+recorded a close-leg fee as a venue-stated round trip, and no drive in the
+suite held both a priced history row and a fill with a fee; one does now, and
+the mutation dies on the basis and on the commission both.
+
+> **And the previous slice's preflight was killed by PID and kept running.**
+> The f9314dc5 run had to go (the accuracy suite would have refused it), so
+> the launcher wrapper and the test gate's children were killed by PID, as
+> this file says to. `scripts/preflight.py` itself was not among them: it
+> outlived its test gate, ran the node gates, and wrote *"✗ Lint + tests …
+> 1 gate(s) failed."* into the log the NEXT run had already truncated, at its
+> own file offset, so that file now ENDS with a dead run's verdict under a
+> live run's output. And the first attempt to find it, `pkill -f
+> "wt_pf.*ci_test_gate"`, matched the shell it was typed in and killed it
+> (exit 144) — `verify_bot_alive.sh`'s recorded trap, in the dev loop, for
+> the second time in this file. Kill the preflight process itself, by PID,
+> and judge a log by the summary its own run printed rather than by its last
+> line.
+(`tests/test_the_realized_fee_rate_is_the_venues.py`,
+`app/test/parity_fee_note_names_the_stated_sample.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16103,7 +16203,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1139** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1140** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

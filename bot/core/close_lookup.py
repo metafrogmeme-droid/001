@@ -137,6 +137,26 @@ def uta_history_row(row: Any) -> dict:
     return out
 
 
+#: What a closed row's ``commission`` is MADE OF (``fee_basis`` on the record).
+#: The parity card's "realized" fee rate used to count any numeric commission
+#: as a fee record, and on a record 182 of 211 ticker-priced the commission on
+#: those rows was the configured entry rate plus the configured exit rate --
+#: the model compared with itself, printed as "realized 0.093%/round-trip vs
+#: modeled 0.200% (better than model)". A rate is realized only where the
+#: venue stated the whole round trip.
+FEE_VENUE = "venue"          # the venue stated both legs (a position-history row)
+FEE_CLOSE_LEG = "close_leg"  # the venue stated the close leg; the entry leg is estimated
+FEE_ESTIMATED = "estimated"  # both legs at the configured rates
+FEE_BASES = (FEE_VENUE, FEE_CLOSE_LEG, FEE_ESTIMATED)
+
+
+def fee_stated(row: Any) -> bool:
+    """Whether a closed row's commission is the venue's own round trip. A row
+    from a build that recorded no basis answers False: not knowing is not a
+    statement, and a rate over such rows is not a realized one."""
+    return isinstance(row, dict) and row.get("fee_basis") == FEE_VENUE
+
+
 def lookup_skipped(stage: str, why: str) -> StageOutcome:
     """The stage was not asked, and ``why`` says so."""
     return StageOutcome(stage, "skipped", why)

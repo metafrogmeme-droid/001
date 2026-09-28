@@ -13,11 +13,15 @@ from bot.backtest import parity
 
 
 def _t(net, fees=0.12, entry=100.0, qty=1.0, sig="regime_trend",
-       setup="swing", reason="TP", fill="exchange_fill_history", gross=None):
+       setup="swing", reason="TP", fill="exchange_fill_history", gross=None,
+       fee_basis="venue"):
+    # `fee_basis="venue"`: these rows mean a round trip the VENUE stated. The
+    # realized fee rate is read over such rows only -- a commission the bot
+    # estimated at its own configured rates is the model, not a measurement.
     return {"entry_price": entry, "quantity": qty, "cost_usd": entry * qty / 10,
             "leverage": 10, "pnl_usd": net, "gross_pnl": net if gross is None else gross,
             "commission": fees, "signal_type": sig, "strategy_type": setup,
-            "close_reason": reason, "fill_source": fill}
+            "close_reason": reason, "fill_source": fill, "fee_basis": fee_basis}
 
 
 def test_missing_file_is_empty_report():
@@ -46,16 +50,16 @@ def test_realized_pf_and_net():
 
 
 def test_fee_parity_ratio():
-    # 2 trades, $100 notional each ($200 total), $0.24 fees total.
-    # realized round-trip rate = 0.24/200 = 0.0012 (0.12%). modeled = 2×0.06% = 0.12%.
-    s = parity.parity_summary([_t(1, fees=0.12), _t(1, fees=0.12)], 0.06)
+    # 10 trades (the verdict's floor), $100 notional each, $0.12 fees each.
+    # realized round-trip rate = 1.20/1000 = 0.0012 (0.12%). modeled = 2×0.06% = 0.12%.
+    s = parity.parity_summary([_t(1, fees=0.12) for _ in range(10)], 0.06)
     assert abs(s["realized_fee_rate"] - 0.0012) < 1e-9
     assert abs(s["modeled_fee_rate"] - 0.0012) < 1e-9
     assert abs(s["fee_vs_model"] - 1.0) < 1e-6  # live fees match the model
 
 
 def test_fee_worse_than_model_flagged():
-    s = parity.parity_summary([_t(1, fees=0.60)], 0.06)  # 5× the modeled fee
+    s = parity.parity_summary([_t(1, fees=0.60) for _ in range(10)], 0.06)  # 5× the modeled fee
     assert s["fee_vs_model"] > 1.25
     assert "WORSE than model" in parity.format_report(s)
 

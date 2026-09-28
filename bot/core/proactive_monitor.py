@@ -1117,9 +1117,12 @@ class ProactiveMonitor:
                 if (fee_x is not None and fee_x > 1.5) else ""
             # Two decimals: the full card prints 0.46×, and a digest that
             # rounded the same reading to "0.5×" was a second answer.
+            # The ratio is read over the closes whose round trip the VENUE
+            # stated; withheld, the clause says how many those were, which is
+            # the reason and not a count of closes carrying some commission.
             fee_clause = (f"(<code>{fee_x:.2f}×</code> the modeled rate)" if fee_x is not None
-                          else f"(fee record on {int(s.get('fees_read') or 0)} of "
-                               f"{s['trades']} closes — ratio withheld)")
+                          else f"(round trip stated by the venue on {s['fees_stated']} "
+                               f"of {s['trades']} closes — ratio withheld)")
             from bot.backtest.parity import _pf_str, aborts_line, cause_clause
             v = s.get("verdict") or {}
             # The digest carries what the full card carries: the aborts kept

@@ -26,10 +26,13 @@ from bot.backtest.parity import format_report, parity_summary
 
 
 def _t(net=1.0, fees=0.12, **kw):
+    # A fee here is one the VENUE stated (fee_basis "venue"): the realized
+    # rate is read over such rows and never over the bot's own estimate.
     t = {"symbol": "BTC/USDT:USDT", "entry_price": 100.0, "quantity": 1.0,
          "leverage": 10, "pnl_usd": net, "gross_pnl": None if net is None else net + (fees or 0.0),
          "commission": fees, "signal_type": "regime_trend", "strategy_type": "swing",
-         "close_reason": "TP HIT", "fill_source": "exchange"}
+         "close_reason": "TP HIT", "fill_source": "exchange",
+         "fee_basis": None if fees is None else "venue"}
     t.update(kw)
     return t
 
@@ -40,22 +43,36 @@ MODEL = 0.1   # per-side %, so 0.2% per round trip
 # ── fees ─────────────────────────────────────────────────────────────────────
 
 def test_every_close_with_a_fee_record_still_yields_a_verdict():
-    s = parity_summary([_t(fees=0.2), _t(fees=0.2)], MODEL)
-    assert s["fees_read"] == 2 and s["trades"] == 2
+    s = parity_summary([_t(fees=0.2) for _ in range(10)], MODEL)
+    assert s["fees_read"] == 10 and s["fees_stated"] == 10 and s["trades"] == 10
     assert isinstance(s["fee_vs_model"], float)
     out = format_report(s)
     assert "matches model" in out or "than model" in out
 
 
-def test_a_missing_fee_record_withholds_the_verdict_and_says_how_many():
+def test_a_missing_fee_record_is_outside_the_sample_and_the_sample_is_named():
+    """A close with no fee record is not in the rate (a rate is over the
+    closes the venue stated), and the sentence names the sample it IS over
+    rather than printing a figure that reads as the whole book's."""
+    trades = [_t(fees=0.2) for _ in range(10)] + [_t(fees=None), _t(fees=None)]
+    s = parity_summary(trades, MODEL)
+    assert s["fees_read"] == 10 and s["fees_stated"] == 10 and s["trades"] == 12
+    assert abs(s["realized_fee_rate"] - 0.002) < 1e-9
+    out = format_report(s)
+    assert "on the 10 of 12 closes whose round trip the venue stated" in out
+    assert "$2.00 recorded over 10 of 12 closes" in out
+
+
+def test_too_few_stated_closes_withhold_the_verdict_and_say_why():
     trades = [_t(fees=0.2), _t(fees=0.2), _t(fees=None), _t(fees=None)]
     s = parity_summary(trades, MODEL)
-    assert s["fees_read"] == 2
-    assert s["fee_vs_model"] is None, "a ratio over half the closes is not the ratio"
+    assert s["fees_stated"] == 2
+    assert s["fee_vs_model"] is None, "a verdict over two closes is not a verdict"
     out = format_report(s)
-    assert "fees recorded on 2 of 4 closes" in out
+    assert "verdict withheld — fewer than 10 stated" in out
+    assert "on the 2 of 4 closes whose round trip the venue stated" in out
     for verdict in ("better than model", "matches model", "WORSE than model"):
-        assert verdict not in out, f"verdict {verdict!r} printed from a partial read"
+        assert verdict not in out, f"verdict {verdict!r} printed under the floor"
 
 
 def test_the_fee_rate_is_measured_over_the_closes_that_carry_one():
@@ -79,8 +96,8 @@ def test_no_fee_records_at_all_cannot_be_measured():
 
 def test_a_genuine_zero_fee_is_a_fee_record():
     """A maker rebate or a fee-free promo is a real 0.0. `is None`, not falsiness."""
-    s = parity_summary([_t(fees=0.0), _t(fees=0.0)], MODEL)
-    assert s["fees_read"] == 2
+    s = parity_summary([_t(fees=0.0) for _ in range(10)], MODEL)
+    assert s["fees_read"] == 10 and s["fees_stated"] == 10
     assert s["realized_fee_rate"] == 0.0
     assert s["fee_vs_model"] == 0.0
     assert "better than model" in format_report(s)
@@ -153,5 +170,5 @@ def test_the_weekly_digest_survives_a_withheld_fee_ratio(monkeypatch, tmp_path):
     alerts = mon._check_parity_digest()
     assert len(alerts) == 1, "a withheld ratio must not swallow the digest"
     body = alerts[0].body
-    assert "fee record on 1 of 2 closes" in body and "withheld" in body
+    assert "round trip stated by the venue on 1 of 2 closes — ratio withheld" in body
     assert "the modeled rate" not in body

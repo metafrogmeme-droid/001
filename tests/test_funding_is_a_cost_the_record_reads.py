@@ -376,7 +376,7 @@ class TestTheGrossStopsAbsorbingIt:
         acct = self.R(1.0, 0.1, True, entry_notional=None, entry_fee_pct=0.06)
         assert isinstance(acct, CloseAccounting)
         assert acct._fields == ("gross_pnl", "net_pnl", "commission",
-                                "funding_usd", "funding_in_net")
+                                "funding_usd", "funding_in_net", "fee_basis")
 
 
 class TestTheStageReportsIt:

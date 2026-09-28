@@ -50,11 +50,13 @@ COMMISSION = 0.1   # per side -> 0.200% round trip modeled
 
 # ── fixtures ────────────────────────────────────────────────────────────
 def _t(net, sym="BTC/USDT:USDT", reason="SL HIT (inferred)", fill="ticker_fallback",
-       fees=0.3, sig="momentum_confluence", setup="swing"):
+       fees=0.3, sig="momentum_confluence", setup="swing", fee_basis="venue"):
+    # `fee_basis="venue"` by default: a fee here is one the VENUE stated, which
+    # is the only kind the realized rate is read over.
     return {"symbol": sym, "entry_price": 100.0, "quantity": 1.0, "cost_usd": 10.0,
             "leverage": 10, "pnl_usd": net, "gross_pnl": None if net is None else net + fees,
             "commission": fees, "signal_type": sig, "strategy_type": setup,
-            "close_reason": reason, "fill_source": fill}
+            "close_reason": reason, "fill_source": fill, "fee_basis": fee_basis}
 
 
 def _reading(**over) -> BenchmarkReading:
@@ -629,7 +631,7 @@ class TestTheDigest:
         from bot.config import CONFIG
         modeled_round_trip = 2.0 * CONFIG.risk.commission_pct / 100.0
         fee = 0.46 * modeled_round_trip * 100.0        # on a notional of 100 per row
-        rows = [_t(1.0, fees=fee, fill="exchange_fill") for _ in range(4)]
+        rows = [_t(1.0, fees=fee, fill="exchange_fill") for _ in range(10)]
         body = _digest_for(rows, monkeypatch, tmp_path, benchmark=_reading())
         assert "<code>0.46×</code>" in body
         assert "0.5×" not in body, "the digest used to round the card's 0.46x to 0.5x"
