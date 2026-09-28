@@ -21,7 +21,8 @@ Two ways `LiveExecutor.execute` placed something other than what it checked:
   scales the size by 0.7 and recomputes the quantity. That ran after the
   minimum gate, so $20 at 5x on ETH at 4000 (0.025, over the 0.02 minimum)
   went out as 0.017, under it, for the venue to refuse. The re-sized quantity
-  is asked the gate again.
+  was asked the gate again; the gate runs once now, after the tier and the
+  tick grid have decided the order's size and price.
 
 Driven through the real `execute` against a venue that records what it is
 sent, with real ccxt precision (`ccxt.bitget` with a fabricated market).
@@ -297,7 +298,11 @@ def test_the_generic_venue_path_sets_the_orders_leverage(tmp_path, monkeypatch):
     assert pushed and set(pushed) == {3}, pushed
 
 
-# ── a Tier C re-size is asked the minimum again ─────────────────────────
+# ── a Tier C re-size is gated at its final size, once ────────────────────
+# The minimum gate used to run before the entry tier and again when the tier
+# re-sized the order. It runs once now, after the tier and the tick grid have
+# decided the order's size and price, so a re-size is gated because nothing
+# is gated before it (the resting-limit sizing chapter in CLAUDE.md).
 
 def _drive_tier_c(venue, tmp_path, mult=0.7):
     ex = LiveExecutor(state_dir=tmp_path)
@@ -326,7 +331,7 @@ def test_a_tier_c_resize_under_the_minimum_is_rounded_to_it(tmp_path):
     # $20 at 5x = 0.025; Tier C x0.7 = 0.0175, under the 0.02 minimum.
     result, orders, audits, asked = _drive_tier_c(venue, tmp_path)
     assert result == "<sent>" and orders == [{"amount": 0.02, "leverage": 5}], orders
-    assert asked == 2
+    assert asked == 1
     assert [a["result"] for a in audits].count("ROUNDED_TO_MIN") == 1
 
 
@@ -358,7 +363,7 @@ def test_a_tier_c_resize_over_the_minimum_keeps_its_smaller_size(tmp_path):
     venue = _Venue(_market(amount_step=0.001, amount_min=0.001), price=4000.0)
     result, orders, _, asked = _drive_tier_c(venue, tmp_path)
     assert result == "<sent>" and orders == [{"amount": 0.017, "leverage": 5}], orders
-    assert asked == 2
+    assert asked == 1
 
 
 def test_an_order_the_entry_tier_did_not_resize_is_gated_once(tmp_path):

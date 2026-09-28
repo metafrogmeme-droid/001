@@ -45,7 +45,7 @@ from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
 )
-from bot.core.limit_entry import calculate_entry, limit_crosses_market
+from bot.core.limit_entry import calculate_entry, limit_crosses_market, order_fill_price
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
@@ -212,6 +212,23 @@ def min_amount_step(precision_amount: Any) -> float:
     if p > 1 and p.is_integer():
         return 10.0 ** -int(p)
     return 0.0
+
+
+def venue_minimums(market: Any) -> tuple[float, float, float]:
+    """``(floor, step, min_cost)`` a ccxt market states: the smallest amount it
+    takes (the larger of its minimum and its grid step), the step, and the
+    smallest notional. The minimum gate and the post-only retry read one set."""
+    _limits = market.get("limits", {}) or {}
+    _min_amt = (_limits.get("amount", {}) or {}).get("min")
+    _prec_amt = (market.get("precision", {}) or {}).get("amount")
+    # precision.amount is a STEP under ccxt TICK_SIZE mode (bitget:
+    # e.g. 0.001) but DECIMAL PLACES on older builds (e.g. 3).
+    # Interpret defensively: <=1 → already a step; integer >1 →
+    # decimal places → 10^-n. Never let a misread inflate the floor.
+    _step = min_amount_step(_prec_amt)
+    _floor = max(float(_min_amt or 0), _step)
+    _min_cost = float((_limits.get("cost", {}) or {}).get("min") or 0.0)
+    return _floor, _step, _min_cost
 
 
 def resolve_exchange_min_quantity(
@@ -6263,16 +6280,7 @@ class LiveExecutor:
         # exchange_min_roundup_max_mult of the approved quantity); otherwise
         # skip cleanly with an actionable message.
         if market:
-            _limits = market.get("limits", {}) or {}
-            _min_amt = (_limits.get("amount", {}) or {}).get("min")
-            _prec_amt = (market.get("precision", {}) or {}).get("amount")
-            # precision.amount is a STEP under ccxt TICK_SIZE mode (bitget:
-            # e.g. 0.001) but DECIMAL PLACES on older builds (e.g. 3).
-            # Interpret defensively: <=1 → already a step; integer >1 →
-            # decimal places → 10^-n. Never let a misread inflate the floor.
-            _step = min_amount_step(_prec_amt)
-            _floor = max(float(_min_amt or 0), _step)
-            _min_cost = float((_limits.get("cost", {}) or {}).get("min") or 0.0)
+            _floor, _step, _min_cost = venue_minimums(market)
             _too_small = (_floor > 0 and quantity < _floor)
             _too_cheap = _min_cost > 0 and (quantity * current_price) < _min_cost
             if _too_small or _too_cheap:
@@ -6625,13 +6633,44 @@ class LiveExecutor:
         limit_price = self._bitget_tick_safety_net(market, limit_price)
         return limit_price
 
+    def _retry_amount_within(self, active_exchange: ccxt.Exchange, market: Any, symbol: str,
+                             amount: float, checked_price: float, retry_price: float,
+                             ) -> Optional[float]:
+        """The amount a re-priced retry may send without more notional than was checked.
+
+        ``amount x checked_price`` is the notional the minimum gate, the hard
+        caps and the notional ceiling passed. A retry at or below that price
+        keeps the amount (its notional can only shrink). Above it, the amount
+        is cut to that notional on the venue's grid -- truncated, never
+        rounded up. None when the cut amount cannot be placed: the grid
+        refused it, or it is under the market's minimum amount or cost.
+        """
+        if retry_price <= checked_price:
+            return amount
+        try:
+            _rounded = active_exchange.amount_to_precision(
+                symbol, amount * checked_price / retry_price)
+        except Exception:
+            return None
+        if _rounded is None:
+            return None
+        # ccxt raises for an amount under the grid step rather than answering
+        # zero, so a cut to nothing is the `except` above.
+        _cut = float(_rounded)
+        if market:
+            _floor, _, _min_cost = venue_minimums(market)
+            if (_floor > 0 and _cut < _floor) or (_min_cost > 0 and _cut * retry_price < _min_cost):
+                return None
+        return _cut
+
     async def _submit_entry_order(self, exchange: ccxt.Exchange, active_exchange: ccxt.Exchange,
                                   symbol: str, side: str, quantity: float, coid: str,
                                   current_price: float, limit_price: Optional[float],
                                   use_limit: bool, size_usd: float, leverage_mult: int,
                                   is_futures: bool, market: Any, idea: TradeIdea,
                                   atr_value: float, asset_class: str,
-                                  ) -> tuple[Optional[str], Any, Optional[float], str]:
+                                  checked_price: Optional[float] = None,
+                                  ) -> tuple[Optional[str], Any, Optional[float], str, float]:
         """Build the order, consult the kill switch, submit, and survive a POST_ONLY rejection.
 
         Extracted from execute() verbatim (slice 2) — the first irreversible step
@@ -6640,12 +6679,17 @@ class LiveExecutor:
         the LAST-MILE halt check, the idempotent submission, and the POST_ONLY
         retry with its double-fill guard and its own halt check.
 
-        Returns ``(block, order, limit_price, asset_class)``. ``block`` is the
-        exact string execute() used to return, or None; ``order`` is the venue's
-        order (None on a block); ``limit_price`` comes back because the retry
-        re-prices it; ``asset_class`` comes back because the time-in-force step
-        re-classifies the PERP symbol and the deferred-stops audit downstream
-        reads that value — handing it back keeps that audit byte-identical.
+        Returns ``(block, order, limit_price, asset_class, quantity)``.
+        ``block`` is the exact string execute() used to return, or None;
+        ``order`` is the venue's order (None on a block); ``limit_price`` comes
+        back because the retry re-prices it; ``asset_class`` comes back because
+        the time-in-force step re-classifies the PERP symbol and the
+        deferred-stops audit downstream reads that value — handing it back
+        keeps that audit byte-identical. ``quantity`` comes back because the
+        retry may cut it: ``checked_price`` is the price execute() asked the
+        minimum, the caps and the notional ceiling at (the market when None),
+        and a retry re-priced ABOVE it is sent the amount that keeps the
+        notional those checks passed (see _retry_amount_within), never more.
 
         NO RAISE FOLLOWS AN ASSIGNMENT TO ``order`` in this body — each of the
         four assignments is the last thing on its path — so an exception out of
@@ -6789,7 +6833,8 @@ class LiveExecutor:
                     (f"BLOCKED: order ${size_usd:,.2f} exceeds the split threshold "
                     f"${_split_threshold:,.2f} and order-splitting is not yet "
                     f"implemented — refusing to send it as a single market order. "
-                    f"Lower the size or raise ORDER_SPLIT_THRESHOLD_USD.", None, limit_price, asset_class)
+                    f"Lower the size or raise ORDER_SPLIT_THRESHOLD_USD.", None, limit_price, asset_class,
+                    quantity)
                 )
 
             # ── LAST-MILE KILL SWITCH ──
@@ -6822,7 +6867,8 @@ class LiveExecutor:
                       data={"symbol": symbol, "side": side})
                 return ((f"⛔ BLOCKED: {symbol} entry refused — the engine was "
                         "halted or a circuit breaker opened while the order was "
-                        "being prepared. No exposure was opened.", None, limit_price, asset_class))
+                        "being prepared. No exposure was opened.", None, limit_price, asset_class,
+                         quantity))
 
             # Try to place the order — handle POST_ONLY rejection gracefully
             try:
@@ -6891,6 +6937,42 @@ class LiveExecutor:
                                 limit_price = round(current_price + wider_offset, 8)
                             _prec_price = active_exchange.price_to_precision(symbol, limit_price)
                             limit_price = float(_prec_price) if _prec_price is not None else limit_price
+                            # The re-price runs AFTER the minimum, the caps and
+                            # the notional ceiling were asked, at the price the
+                            # order was sized at. A sell re-priced higher would
+                            # fill for more notional than they passed, so it is
+                            # sent the amount that keeps that notional; one the
+                            # venue cannot take at that size is refused, and the
+                            # original was verified absent, so nothing is open.
+                            _checked_px = current_price if checked_price is None else checked_price
+                            _retry_amount = self._retry_amount_within(
+                                active_exchange, market, symbol, quantity,
+                                _checked_px, limit_price)
+                            if _retry_amount is None:
+                                audit(trade_log,
+                                      f"POST_ONLY retry REFUSED for {symbol}: re-priced to "
+                                      f"${limit_price:,.4f} above the ${_checked_px:,.4f} it was "
+                                      f"checked at, and the amount that keeps the checked notional "
+                                      f"is under the venue's minimum",
+                                      action="post_only_retry", result="UNDER_MINIMUM",
+                                      data={"symbol": symbol, "checked_price": _checked_px,
+                                            "retry_price": limit_price, "qty": quantity})
+                                return ((f"BLOCKED: {symbol} post-only retry re-priced the limit to "
+                                         f"${limit_price:,.4f}, above the ${_checked_px:,.4f} the order "
+                                         f"was checked at, and the amount that keeps the checked notional "
+                                         f"is under {self._venue.display_name}'s minimum. Nothing was "
+                                         f"placed.", None, limit_price, asset_class, quantity))
+                            if _retry_amount != quantity:
+                                audit(trade_log,
+                                      f"POST_ONLY retry for {symbol} at ${limit_price:,.4f} sends "
+                                      f"{_retry_amount:.8f}, not {quantity:.8f}: the notional stays "
+                                      f"the one checked at ${_checked_px:,.4f}",
+                                      action="post_only_retry", result="AMOUNT_BOUNDED",
+                                      data={"symbol": symbol, "checked_price": _checked_px,
+                                            "retry_price": limit_price, "qty": quantity,
+                                            "retry_qty": _retry_amount})
+                                quantity = _retry_amount
+                                create_kwargs["amount"] = quantity
                             # QC-1: the retry moves the entry up to 1 ATR —
                             # shift SL/TP with it, or the position records
                             # stops sized for the ORIGINAL entry (a buy
@@ -6937,7 +7019,8 @@ class LiveExecutor:
                                             "phase": "post_only_retry"})
                                 return ((f"⛔ BLOCKED: {symbol} entry refused — the "
                                         "engine halted while retrying a rejected "
-                                        "order. No exposure was opened.", None, limit_price, asset_class))
+                                        "order. No exposure was opened.", None, limit_price, asset_class,
+                                         quantity))
                             order = await self._create_order_idempotent(exchange, **create_kwargs)
                 else:
                     raise  # Not a POST_ONLY rejection — propagate
@@ -6949,7 +7032,7 @@ class LiveExecutor:
                 f"(side={side}, is_futures={is_futures}). "
                 f"Check CONFIG.exchange.trade_mode setting."
             )
-        return None, order, limit_price, asset_class
+        return None, order, limit_price, asset_class, quantity
 
     async def _post_fill_slippage_guard(self, idea: TradeIdea, fill_price: float,
                                         ) -> tuple[Optional[str], str]:
@@ -7781,9 +7864,48 @@ class LiveExecutor:
             markets = await active_exchange.load_markets()
             market = markets.get(symbol)
 
+            # Place order (market or limit)
+            use_limit = (order_type == "limit" and CONFIG.limit_orders.enabled)
+            # Limit orders use the idea's entry_price; for spot cost-based buys,
+            # limit is placed at entry_price and the exchange fills at that price or better.
+            limit_price = idea.entry_price if use_limit else None
+
+            # ── LIMIT ORDER PRICE VALIDATION ── (see _recalculate_limit_entry)
+            use_limit, limit_price, size_usd, quantity = await self._recalculate_limit_entry(
+                active_exchange, symbol, idea, side, market, use_limit, limit_price,
+                current_price, size_usd, quantity, leverage_mult, atr_value)
+
+            if use_limit and limit_price:
+                # Round limit price to the exchange tick grid (see _round_limit_price_to_tick)
+                limit_price = self._round_limit_price_to_tick(active_exchange, market, symbol, limit_price)
+
+            # ONE price this order is sized and checked at: the price it FILLS
+            # at (see order_fill_price). A limit that rests fills at its own
+            # price; the quantity above was sized at the market, so a SHORT
+            # resting 10% above it placed 10% more margin than was approved --
+            # past the hard caps and the Authority Envelope, all of which were
+            # asked at the market price -- and a LONG resting 10% below placed
+            # 10% less. The quantity is moved to the fill price here, and the
+            # minimum, the caps and the notional ceiling below are all asked
+            # there, once, after the entry tier and the tick grid have decided
+            # the order's price. A limit that crosses and a market order fill
+            # at the market, and are measured there as before.
+            _fill_px = order_fill_price(side, limit_price if use_limit else None, current_price)
+            if _fill_px != current_price:
+                _q_at_market = quantity
+                quantity = quantity * current_price / _fill_px
+                audit(trade_log,
+                      f"{symbol} limit rests at ${_fill_px:,.4f} (market ${current_price:,.4f}): "
+                      f"sized at the price it fills at, qty {_q_at_market:.8f} -> {quantity:.8f}",
+                      action="limit_sizing", result="AT_FILL_PRICE",
+                      data={"symbol": symbol, "fill_price": _fill_px,
+                            "market_price": current_price, "qty_at_market": _q_at_market,
+                            "qty": quantity, "size_usd": round(size_usd, 4),
+                            "leverage": leverage_mult})
+
             # ── Pre-flight exchange-minimum check ── (see _exchange_minimum_gate)
             _gate_msg, quantity = self._exchange_minimum_gate(
-                active_exchange, market, symbol, quantity, current_price,
+                active_exchange, market, symbol, quantity, _fill_px,
                 leverage_mult, size_usd,
                 authorized_notional_usd=getattr(idea, "authorized_notional_usd", None))
             if _gate_msg:
@@ -7792,7 +7914,7 @@ class LiveExecutor:
             # The round-up above can raise the margin past what the preflight
             # checked. Ask the hard caps again at the margin this quantity
             # really places, and refuse rather than place over a cap.
-            _placed_margin = quantity * current_price / max(int(leverage_mult or 1), 1)
+            _placed_margin = quantity * _fill_px / max(int(leverage_mult or 1), 1)
             if _placed_margin > size_usd:
                 _cap_msg, _ = self._hard_cap_refusal(
                     _placed_margin, _bounds, committed_margin(self.open_positions))
@@ -7811,43 +7933,15 @@ class LiveExecutor:
 
             # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
             _gate_msg = self._notional_boundary_gate(
-                symbol, quantity, current_price, size_usd, leverage_mult, market)
+                symbol, quantity, _fill_px, size_usd, leverage_mult, market)
             if _gate_msg:
                 return _gate_msg
 
-            # Place order (market or limit)
-            use_limit = (order_type == "limit" and CONFIG.limit_orders.enabled)
-            # Limit orders use the idea's entry_price; for spot cost-based buys,
-            # limit is placed at entry_price and the exchange fills at that price or better.
-            limit_price = idea.entry_price if use_limit else None
-
-            # ── LIMIT ORDER PRICE VALIDATION ── (see _recalculate_limit_entry)
-            _q_checked = quantity
-            use_limit, limit_price, size_usd, quantity = await self._recalculate_limit_entry(
-                active_exchange, symbol, idea, side, market, use_limit, limit_price,
-                current_price, size_usd, quantity, leverage_mult, atr_value)
-            if quantity != _q_checked:
-                # The entry tier re-sized the order after the minimum gate ran,
-                # and the smaller quantity went out unchecked: under the
-                # venue's minimum, or truncated to a coarser grid step. It is
-                # asked again. A round-up cannot pass the quantity the caps
-                # checked, which already met the minimum.
-                _gate_msg, quantity = self._exchange_minimum_gate(
-                    active_exchange, market, symbol, quantity, current_price,
-                    leverage_mult, size_usd,
-                    authorized_notional_usd=getattr(idea, "authorized_notional_usd", None))
-                if _gate_msg:
-                    return _gate_msg
-
-            if use_limit and limit_price:
-                # Round limit price to the exchange tick grid (see _round_limit_price_to_tick)
-                limit_price = self._round_limit_price_to_tick(active_exchange, market, symbol, limit_price)
-
             # ── Submission: venue params, last-mile kill switch, POST_ONLY retry ── (see _submit_entry_order)
-            _gate_msg, order, limit_price, asset_class = await self._submit_entry_order(
+            _gate_msg, order, limit_price, asset_class, quantity = await self._submit_entry_order(
                 exchange, active_exchange, symbol, side, quantity, coid, current_price,
                 limit_price, use_limit, size_usd, leverage_mult, is_futures, market, idea,
-                atr_value, asset_class)
+                atr_value, asset_class, checked_price=_fill_px)
             if _gate_msg:
                 return _gate_msg
 

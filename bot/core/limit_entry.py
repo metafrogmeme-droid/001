@@ -419,3 +419,24 @@ def limit_crosses_market(side: str, limit_price, current_price) -> Optional[bool
     if s in ("sell", "short"):
         return lp <= cp
     return None
+
+
+def order_fill_price(side: str, limit_price, current_price: float) -> float:
+    """The price an order's notional is measured at: the price it FILLS at.
+
+    A limit that RESTS on the book fills at its own price, so that is the price
+    it is sized and checked at. A limit that CROSSES fills at the market, the
+    way a market order does, and a market order (``limit_price`` None) fills at
+    the market. The executor sized every order at the market price and a
+    resting limit filled at its own, so a SHORT resting 10% above the market
+    placed 10% more margin than the ticket approved, past the caps and the
+    Authority Envelope, and a LONG resting 10% below placed 10% less.
+
+    A limit this reading cannot place (``limit_crosses_market`` answers None:
+    a price that is not a readable positive figure, or a side it does not
+    know) is measured at the market, which is what every order was measured at
+    before this reading existed.
+    """
+    if limit_crosses_market(side, limit_price, current_price) is False:
+        return float(limit_price)
+    return float(current_price)

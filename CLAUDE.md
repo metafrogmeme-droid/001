@@ -17120,6 +17120,58 @@ grace length: a one-hour grace changed no verdict until a test drove a
 weekend gap, which a short grace would have scored.
 (`tests/test_a_published_signal_is_resolved.py`.)
 
+**A RESTING LIMIT WAS SIZED AT THE MARKET PRICE AND FILLED AT ITS OWN.**
+`_size_or_block` computes `quantity = size_usd * leverage / current_price` for
+every order, and a limit that rests on the book fills at its own price. Driven
+through the real `execute`, $20 at 5x with ETH at 4000:
+
+    typed SHORT limit at 4400 -> 0.025 sent, $22.00 of margin at fill
+    typed LONG  limit at 3600 -> 0.025 sent, $18.00 of margin at fill
+
+The minimum round-up, the hard caps, the Authority Envelope's authorized
+notional and the F-3 ceiling were all asked at the market price, so none of
+them saw the SHORT's extra 10%. The drift cancel used to bound the gap to about
+2%. #145 took it away from hand-typed tickets, which now rest for 24h at
+whatever distance the person typed.
+
+**One reading of the price an order fills at.** `order_fill_price` in
+`bot/core/limit_entry.py` answers the limit's own price when the limit rests,
+and the market price when it crosses or the order is a market order. It
+answers the market price when `limit_crosses_market` cannot place the limit,
+which is what every order was measured at before. `execute` asks it once the
+entry tier and the tick grid have decided the order's price. It moves the
+quantity to that price and asks the minimum, the caps and the ceiling there,
+once. The minimum gate used to run before the entry tier and again when
+Tier C re-sized the order. It now runs once, after both, so a re-size is gated
+because nothing is gated before it. A resting order's pending record now
+carries the approved margin, where the SHORT above recorded $22.
+
+**The post-only retry re-prices after the checks.** A post-only refusal
+re-prices an engine limit to the market plus or minus one ATR. For a SELL that
+is above the price the order was checked at, and the same amount at the higher
+price is more notional than the checks passed. `_retry_amount_within` cuts the
+amount to the checked notional on the venue's grid, truncated and never rounded
+up. `_submit_entry_order` hands the amount it sent back to `execute`, so the
+pending record carries it. That changes its return to five values, and eight
+test sites unpacked four. A cut amount under the venue's minimum amount or cost
+is refused and nothing is placed: the original was verified absent before any
+retry. A buy re-priced lower keeps its amount and fills at less than was
+approved, because nothing is allowed to grow after the checks.
+`venue_minimums` is the one reading of a market's floor, step and minimum cost,
+shared by the minimum gate and the retry.
+
+**Four pins moved with the contract.** Two Tier C drives counted two gate
+calls and count one now. The envelope suite counted two stamped calls and
+counts one. The gate-order pin moves the minimum gate and the ceiling after the
+tick grid. The venue-symbol baseline's minimum-gate row went from 2 to 1, and
+it gained a row for the retry's grid read.
+
+Twenty-three mutations, each killed on the first round. One guard was deleted
+before the round: the retry's `_cut <= 0` check. Driven against the pinned
+ccxt, an amount under the grid step raises `InvalidOrder` rather than answering
+zero, so the `except` above it already covers that case.
+(`tests/test_a_resting_limit_is_sized_at_its_own_price.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17599,7 +17651,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 257 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 258 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18411,9 +18463,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1169** reach for source text through `source_scan`, `code_only`
+Driven, **469 of 1170** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 468 is a FLOOR and the honest shape is
+source scan that rule does not see, so 469 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

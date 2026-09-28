@@ -155,14 +155,15 @@ class TestTheGate:
         assert block and "exceeds 1.5x cap" in block
         assert [s["result"] for s in seen] == ["BELOW_EXCHANGE_MIN"]
 
-    def test_both_calls_in_execute_hand_the_stamp_in(self):
-        """A scan, stated as one: the tier-C re-ask is the second call and a
-        drive through it needs a confluence fixture this suite does not carry.
-        The claim is that BOTH calls carry the keyword."""
+    def test_the_one_call_in_execute_hands_the_stamp_in(self):
+        """A scan, stated as one. There were two calls, the second a tier-C
+        re-ask; the gate runs once now, after the entry tier and the tick grid
+        have decided the order's size and price, so one call carries the
+        keyword and a second call without it would be the gap."""
         src = code_only(inspect.getsource(LiveExecutor.execute))
         calls = src.count("self._exchange_minimum_gate(")
-        assert calls == 2
-        assert src.count('authorized_notional_usd=getattr(idea, "authorized_notional_usd", None)') == 2
+        assert calls == 1
+        assert src.count('authorized_notional_usd=getattr(idea, "authorized_notional_usd", None)') == 1
 
 
 # ── the stamp ────────────────────────────────────────────────────────────
