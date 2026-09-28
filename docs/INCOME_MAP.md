@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :2213-2219 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1866-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:662 (the per-strategy trailing switch, read for
+bot/core/live_executor.py:665 (the per-strategy trailing switch, read for
 every entry and every fill).
 
 **Scalping** — **shipped**
@@ -168,9 +168,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:5992 creates the entry order idempotently, :7528/:7996 attach
+live_executor.py:6068 creates the entry order idempotently, :7646/:8137 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2271, :2287, :2415); venues.py:340 selects the swap
+productType USDT-FUTURES (:2347, :2363, :2491); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1101); signal cards from /analyze, /scan and the pro scans
@@ -183,7 +183,7 @@ RUNTIME.auto_confirm_threshold with no human tap.
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2464-2465), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4880), which requires
+additionally needs _can_trade_live (telegram_handler.py:4888), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -847,7 +847,7 @@ bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
 registered at
-telegram_handler.py:1005, with LONG/SHORT/PASS inline buttons whose taps land
+telegram_handler.py:1013, with LONG/SHORT/PASS inline buttons whose taps land
 in _handle_duel_callback at start_commands.py:596; the web page at
 app/server.js:477 driving the four authed routes at
 app/routes/duel.js:43/57/73/98; and the session-free public board and referral
@@ -1278,7 +1278,7 @@ whoever already has access, not an income stream a person can run.
 
 *The verifier refused part of this row.* Status PARTIAL survives (the research surfaces are real and I drove each
 door), but the tiering claim is false on every ordinary deploy. tier_gate is
-wired — check_user() is called from telegram_handler.py:1439/4560 and
+wired — check_user() is called from telegram_handler.py:1447/4560 and
 user_gateway.py:378 — and its FIRST line is `if not gate_enabled(): return
 True, "ok"` (tier_gate.py:821). gate_enabled() (line 365-371) requires BOTH
 `TOKEN_TIER_GATE_ENABLED` AND a configured mint. The module's line-1 docstring
@@ -1402,7 +1402,7 @@ draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
 → renderContractStudio dashboard.js:7070, registered dashboard.js:10084; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1433 gated by _guard_user at :1452, route registered
-user_gateway.py:5080; five template buttons, flags, Copy and Download .sol at
+user_gateway.py:5085; five template buttons, flags, Copy and Download .sol at
 dashboard.js:625…
 
 **Trading/analytics tools** — partial
@@ -1613,8 +1613,8 @@ preferring the non-custodial option and stating the tradeoff
 failed fetch yields NO option, never a fabricated APY). Two doors reach it:
 GET /api/idleyield (app/routes/idleyield.js, authMiddleware — any signed-in
 web user, mounted app/server.js:387) via gateway POST /idleyield
-(bot/web/user_gateway.py:3402, which calls fetch_noncustodial_options at
-:3368), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
+(bot/web/user_gateway.py:3407, which calls fetch_noncustodial_options at
+:3373), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
 check (bot/skills/yield_commands.py:142). Separately, an existing stETH
 position is MIRRORED read-only from the mainnet contract (app/lib/defi.js:36
 LIDO_STETH, :103 readLido) through GET /api/defi and the c-defi panel. The
@@ -1680,7 +1680,7 @@ in the map.
 (app/public/js/dashboard.js:1290 jump-nav, :1349 panel, :1439 fetch) → GET
 /api/market/rwa (app/routes/market.js:169, auth:false, public); Telegram /rwa
 (@guard("rwa"), bot/skills/market_commands.py:69, registered
-bot/skills/telegram_handler.py:1009, reads the web via
+bot/skills/telegram_handler.py:1017, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
@@ -1730,7 +1730,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1294, registered telegram_handler.py:1226) and
+bot/skills/scan_commands.py:1294, registered telegram_handler.py:1234) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:8292
 (get_market_session) and scan_commands.py:376.
@@ -2366,7 +2366,7 @@ half of the measurement that says where the measurement stops.
   comments (`app/routes/web3_execute.js:52, :93, :124`), and a comment that
   misdescribes which half of a gate is off is a failure mode this repo has
   recorded before. All three re-checks exist and refuse:
-  `handle_web3_sign` (`bot/web/user_gateway.py:4772`), `handle_cross_plan`
+  `handle_web3_sign` (`bot/web/user_gateway.py:4777`), `handle_cross_plan`
   (`:1722`) and `handle_contract_deploy` (`:1607`) each `403` a non-admin —
   and the last of those is why the check had to be driven rather than
   grepped, because a search for `handle_web3_deploy`, the name the route
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4971`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4979`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.

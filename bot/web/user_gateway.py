@@ -2646,6 +2646,7 @@ def _live_position_row(pos) -> dict:
         unprotected = sl_order == "manual"
     sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
+    from bot.core.live_executor import entry_estimated_state
     from bot.core.position_telemetry import entered_at
     # When the POSITION opened, which for a limit entry is its fill.
     opened = entered_at(pos)
@@ -2654,6 +2655,10 @@ def _live_position_row(pos) -> dict:
         "pair": str(getattr(pos, "symbol", "")).split("/")[0],
         "direction": getattr(pos, "direction", ""),
         "entry_price": round(entry, 6),
+        # True when the entry is the pre-order ticker rather than a fill the
+        # venue stated (see live_executor.ENTRY_ESTIMATED); False for a
+        # stated fill, None for a record whose entry path recorded no source.
+        "entry_estimated": entry_estimated_state(pos),
         "stop_loss": round(sl, 6) if sl is not None else None,
         "take_profit": round(tp, 6) if tp is not None else None,
         "sl_dist_pct": sl_d,

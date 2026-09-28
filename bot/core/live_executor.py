@@ -499,6 +499,9 @@ def closed_trade_row(pos) -> dict:
         "origin": pos.origin,
         "fill_source": pos.fill_source,
         "close_lookup": pos.close_lookup,
+        # Where the ENTRY came from (see ENTRY_ESTIMATED); absent on a record
+        # whose entry path recorded no source.
+        "entry_source": getattr(pos, "entry_source", None),
         # Provenance for the parity/attribution buckets — the fields lived on
         # LivePosition since the strategy-type work but were never serialized,
         # so the live parity report's "By setup"/"By signal type" sections
@@ -714,6 +717,76 @@ ENTRY_UNREAD_NOTE = (
 #: exit stays counted as one.
 ENTRY_UNREAD = "+entry_unread"
 
+#: ``entry_source`` on a position opened at MARKET says where its recorded
+#: entry came from: ``order`` (the venue's order response stated an average
+#: or a price), ``fills`` (the fills it produced), ``fetched_order`` (the
+#: order read back), ``venue_row`` (the position row read after the fill),
+#: ``venue_sync`` (a later position sync stated it) -- or this one, which is
+#: not a venue figure at all: the ticker read BEFORE the order was sent,
+#: booked as the fill because nothing the venue answered stated a price.
+#: Driven, that is every market entry whose order response carries no
+#: average (Bitget's create endpoint answers ids only), whose fills and
+#: order read-back answer nothing (a latency blip), and whose position row
+#: states no ``entryPrice``: the card said "Fill: $4,000.00" for a ticker,
+#: the record carried no trace, and every reader took it as the fill. Only
+#: this value is a marker readers act on; the rest are provenance.
+ENTRY_ESTIMATED = "pre_order_ticker"
+
+#: Appended to a close's ``fill_source`` when its P&L was computed LOCALLY
+#: (the venue stated none) against an entry that is an estimate, so the
+#: record says the figure rests on a price nobody stated. Same shape as
+#: ``ENTRY_UNREAD``: the source word before it still says where the exit
+#: came from.
+ENTRY_ESTIMATED_SUFFIX = "+entry_estimated"
+
+
+def entry_is_estimated(pos: Any) -> bool:
+    """True when the position's recorded entry is the pre-order ticker."""
+    return str(getattr(pos, "entry_source", "") or "") == ENTRY_ESTIMATED
+
+
+def entry_estimated_state(pos: Any) -> Optional[bool]:
+    """Three-valued for a wire: True (the entry is the pre-order ticker),
+    False (a source the venue stated), None (the entry path recorded no
+    source -- an older record, or a limit fill). None is not False: a
+    dashboard chip may only say "fill" about an entry something stated."""
+    src = getattr(pos, "entry_source", None)
+    if not src:
+        return None
+    return str(src) == ENTRY_ESTIMATED
+
+
+def venue_avg_price(row: dict) -> Optional[float]:
+    """The average entry price a venue position row STATES, or None.
+
+    Reads the v3 spelling (``avgPrice``) and the classic ones
+    (``openPriceAvg``, ``entryPrice``); a blank, a non-number and a
+    non-positive figure are None -- a price of zero is a level nobody stated.
+    """
+    if not isinstance(row, dict):
+        return None
+    for key in ("avgPrice", "openPriceAvg", "entryPrice"):
+        raw = row.get(key)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0 and val == val and val not in (float("inf"), float("-inf")):
+            return val
+    return None
+
+
+def entry_close_suffix(pos: Any, *, entry_unread: bool, local_pnl: bool) -> str:
+    """The suffix a close record carries about its ENTRY: unread, estimated
+    (only when the P&L was computed locally off it), or nothing."""
+    if entry_unread:
+        return ENTRY_UNREAD
+    if local_pnl and entry_is_estimated(pos):
+        return ENTRY_ESTIMATED_SUFFIX
+    return ""
+
 
 def entry_on_record(pos: Any) -> Optional[float]:
     """The entry price a position's record holds, or None when it holds none.
@@ -926,6 +999,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
         setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
     if pdata.get("unprotected") is True:
         setattr(pos, "unprotected", True)
+    entry_src = pdata.get("entry_source")
+    if entry_src:
+        setattr(pos, "entry_source", str(entry_src))
     if pdata.get("close_interrupted") is True:
         setattr(pos, "close_interrupted", True)
     filled = _datetime_or_none(pdata.get("filled_at"))
@@ -6624,6 +6700,7 @@ class LiveExecutor:
                            _lev_mismatch: Optional[tuple[int, int]], _lev_close_failed: bool,
                            _slip_warn: str = "", _pos_state: Any = None,
                            size_usd: Optional[float] = None,
+                           entry_estimated: bool = False,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
@@ -6693,8 +6770,12 @@ class LiveExecutor:
         return (
             f"{dir_icon} <b>LIVE {side.upper()} {idea.asset}</b> ({mode_label}{lev_info}) [{st_label}]\n"
             f"{'─' * 16}\n"
-            f"- Fill: <code>${fill_price:,.4f}</code>\n"
-            f"- Qty: <code>{filled_qty:.6f}</code>\n"
+            + (f"- Fill: <code>~${fill_price:,.4f}</code> ESTIMATED from the "
+               f"pre-order ticker — the venue stated no fill price; the next "
+               f"position sync corrects it if the venue states one\n"
+               if entry_estimated else
+               f"- Fill: <code>${fill_price:,.4f}</code>\n")
+            + f"- Qty: <code>{filled_qty:.6f}</code>\n"
             f"- Cost: <code>${cost:.2f}</code>{sizing_line}\n"
             f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
             f"- Leverage: <code>{leverage}x</code>\n"
@@ -7028,6 +7109,9 @@ class LiveExecutor:
                 # recalculation). The exchange fills at limit_price, not
                 # the original signal price.
                 fill_price = limit_price if (use_limit and limit_price) else idea.entry_price
+                # A resting order has no fill to source; the fill path that
+                # later fills it records what it can.
+                fill_price_source = None
                 filled_qty = quantity  # expected quantity
                 raw_cost = fill_price * filled_qty
                 if is_futures and leverage_mult > 1:
@@ -7035,7 +7119,18 @@ class LiveExecutor:
                 else:
                     cost = raw_cost
             else:
-                fill_price = float(order.get("average", 0) or order.get("price", 0) or current_price)
+                # WHERE THE ENTRY CAME FROM travels with the figure. The
+                # fallback below is the ticker read BEFORE the order went
+                # out, and it used to become the recorded entry with no
+                # trace: the card printed it as the fill and every reader
+                # took it as one.
+                _ord_px = order.get("average") or order.get("price")
+                if _ord_px:
+                    fill_price = float(_ord_px)
+                    fill_price_source = "order"
+                else:
+                    fill_price = float(current_price)
+                    fill_price_source = ENTRY_ESTIMATED
                 filled_qty = float(order.get("filled") or 0)
 
                 # GETCLAW: Enhanced fill verification — try fetch_my_trades first
@@ -7056,6 +7151,7 @@ class LiveExecutor:
                             )
                             if filled_qty > 0 and total_cost > 0:
                                 fill_price = total_cost / filled_qty
+                                fill_price_source = "fills"
                             audit(trade_log,
                                   f"Fill verified via trades: {symbol} qty={filled_qty:.6f} @ ${fill_price:,.4f}",
                                   action="fill_verify", result="TRADES",
@@ -7070,6 +7166,7 @@ class LiveExecutor:
                             filled_qty = float(confirmed.get("filled", 0) or 0)
                             if confirmed.get("average"):
                                 fill_price = float(confirmed["average"])
+                                fill_price_source = "fetched_order"
                         except Exception as fetch_exc:
                             logger.warning("Could not confirm fill for order %s: %s", order_id, fetch_exc)
                             self._record_warning("order_fill_confirm")
@@ -7153,6 +7250,8 @@ class LiveExecutor:
                 status="pending_fill" if is_pending_limit else "open",
             )
             self._positions[idea.id] = position
+            if fill_price_source is not None:
+                setattr(position, "entry_source", fill_price_source)
             self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
 
             # F-07 FIX: persist after opening
@@ -7235,6 +7334,10 @@ class LiveExecutor:
                 if pos_verify["exchange_entry"] > 0:
                     position.entry_price = pos_verify["exchange_entry"]
                     fill_price = pos_verify["exchange_entry"]
+                    # The venue's row STATED it: whatever the order response
+                    # or the ticker said, this is the entry on record now.
+                    fill_price_source = "venue_row"
+                    setattr(position, "entry_source", fill_price_source)
                 if pos_verify["exchange_qty"] > 0:
                     position.quantity = pos_verify["exchange_qty"]
                     filled_qty = pos_verify["exchange_qty"]
@@ -7292,12 +7395,19 @@ class LiveExecutor:
                 cost = raw_cost
             position.cost_usd = cost
 
+            if fill_price_source == ENTRY_ESTIMATED:
+                self._note_entry_estimated(position, fill_price)
+
             # Persist verified position data
             self._save_positions()
 
-            # Record slippage (expected vs actual fill)
+            # Record slippage (expected vs actual fill). Not for an ESTIMATED
+            # fill: the "actual" would be the ticker read before the order,
+            # so the figure recorded would be the idea's distance from the
+            # ticker, which is not slippage.
             try:
-                if hasattr(self, '_slippage_tracker') and self._slippage_tracker:
+                if (hasattr(self, '_slippage_tracker') and self._slippage_tracker
+                        and fill_price_source != ENTRY_ESTIMATED):
                     self._slippage_tracker.record(
                         symbol=symbol,
                         expected_price=idea.entry_price,
@@ -7313,7 +7423,14 @@ class LiveExecutor:
             # A flatten that FAILED hands back a warning for the card instead
             # of an abort, so the run carries on into stop placement — the only
             # protection left on a position that is still open.
-            _gate_msg, _slip_warn = await self._post_fill_slippage_guard(idea, fill_price)
+            if fill_price_source == ENTRY_ESTIMATED:
+                # The guard measures the FILL against the expected price, and
+                # this fill is the pre-order ticker: there is nothing to
+                # measure, and a flatten on that comparison would act on a
+                # slippage nobody read. `_note_entry_estimated` said so.
+                _gate_msg, _slip_warn = None, ""
+            else:
+                _gate_msg, _slip_warn = await self._post_fill_slippage_guard(idea, fill_price)
             if _gate_msg:
                 return _gate_msg
 
@@ -7363,7 +7480,8 @@ class LiveExecutor:
                 idea, side, leverage, is_futures, fill_price, filled_qty, cost, order_id,
                 sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
                 exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
-                pos_verify.get("state"), size_usd=size_usd)
+                pos_verify.get("state"), size_usd=size_usd,
+                entry_estimated=(fill_price_source == ENTRY_ESTIMATED))
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
@@ -7967,6 +8085,29 @@ class LiveExecutor:
                         raw_notional = pos.entry_price * pos.quantity
                         pos.cost_usd = raw_notional / ex_lev
                         clear_unread(pos, "margin")
+                    changed = True
+
+            # AN ESTIMATED ENTRY IS CORRECTED BY THE VENUE'S OWN FIGURE, the
+            # way an unread leverage is: this row states the average entry
+            # (`avgPrice`), which the position row read at the fill did not.
+            # Only an ESTIMATE is overwritten -- a fill the venue stated is
+            # this position's own price, and the row's average can
+            # legitimately differ from it (a pyramid add moves it).
+            if entry_is_estimated(pos):
+                _avg = venue_avg_price(ex_data)
+                if _avg is not None:
+                    _old_entry = pos.entry_price
+                    pos.entry_price = _avg
+                    setattr(pos, "entry_source", "venue_sync")
+                    if pos.quantity > 0 and pos.leverage > 0:
+                        pos.cost_usd = (_avg * pos.quantity) / pos.leverage
+                    audit(trade_log,
+                          f"Entry sync: {pos.symbol} entry ${_old_entry:,.4f} "
+                          f"(estimated from the pre-order ticker) → "
+                          f"${_avg:,.4f} (the venue's stated average)",
+                          action="entry_sync", result="UPDATED",
+                          data={"trade_id": pos.trade_id, "old": _old_entry,
+                                "new": _avg})
                     changed = True
 
             # Quantity drift — REPORT-ONLY (see docstring: never auto-write).
@@ -10262,7 +10403,15 @@ class LiveExecutor:
                 self._venue.order_symbol(pos.symbol), "market", side, qty,
                 **_fb_kwargs)
 
-            fill_price = float(order.get("average", 0) or order.get("price", 0) or cur_price)
+            # Same reading as the market entry's: a fill the venue stated, or
+            # the ticker read before the order, MARKED as an estimate.
+            _fb_ord_px = order.get("average") or order.get("price")
+            if _fb_ord_px:
+                fill_price = float(_fb_ord_px)
+                _fb_source = "order"
+            else:
+                fill_price = float(cur_price)
+                _fb_source = ENTRY_ESTIMATED
             filled_qty = float(order.get("filled", 0) or qty)
             if pre_filled > 0:
                 # Blend the resting partial fill with the market fill so the
@@ -10276,6 +10425,7 @@ class LiveExecutor:
             # 3. Update position
             old_entry = pos.entry_price
             pos.entry_price = fill_price
+            setattr(pos, "entry_source", _fb_source)
             pos.quantity = filled_qty
             pos.status = "open"
             # Stamp the actual fill time so the 90s grace machinery applies to
@@ -10363,9 +10513,15 @@ class LiveExecutor:
             # meaningless to the operator and were rendering as huge integers.
             sl_info = f" | SL: ${pos.stop_loss:,.4f}" if pos.stop_loss else ""
             tp_info = f" | TP: ${pos.take_profit:,.4f}" if pos.take_profit else ""
+            if _fb_source == ENTRY_ESTIMATED:
+                self._note_entry_estimated(pos, fill_price)
+                self._save_positions()
+            _fb_fill = (f"~${fill_price:,.4f} (ESTIMATED from the pre-order ticker — "
+                        f"the venue stated no fill price)"
+                        if _fb_source == ENTRY_ESTIMATED else f"${fill_price:,.4f}")
             return (
                 f"LIMIT → MARKET FALLBACK: {pos.direction} {pos.symbol}\n"
-                f"Original limit: ${old_entry:,.4f} → Market fill: ${fill_price:,.4f}\n"
+                f"Original limit: ${old_entry:,.4f} → Market fill: {_fb_fill}\n"
                 f"Qty: {filled_qty:.6f}{sl_info}{tp_info}\n"
                 f"Reason: momentum breakout past limit price"
             )
@@ -10660,6 +10816,35 @@ class LiveExecutor:
         exit_fee = (stated if stated is not None
                     else exit_notional * exit_fee_pct / 100.0)
         return entry_notional * entry_fee_pct / 100.0 + exit_fee
+
+    def _note_entry_estimated(self, pos: "LivePosition", ticker: float) -> None:
+        """Say that a market fill was booked at the PRE-ORDER TICKER because
+        nothing the venue answered stated a fill price.
+
+        A WARNING, an ``ESTIMATED`` audit row and a warning-rate event, the
+        way an unread entry at close is said: an estimate that leaves no
+        trace is read as a fill by every surface. The row names what was
+        asked (the order response, its fills, the order read back, the
+        position row) so an operator reads a latency blip as one and a venue
+        that never states fills as that. The slippage record and guard are
+        skipped for it, and this row says so.
+        """
+        logger.warning(
+            "Entry of %s booked at the PRE-ORDER TICKER $%s: the order "
+            "response, its fills, the order read-back and the position row "
+            "stated no fill price. Marked as an estimate; the next position "
+            "sync corrects it if the venue states an average.",
+            pos.symbol, f"{ticker:,.4f}")
+        audit(trade_log,
+              f"Entry price ESTIMATED for {pos.symbol}: the venue stated no "
+              f"fill price (order response, fills, order read-back, position "
+              f"row), so the pre-order ticker ${ticker:,.4f} is recorded as "
+              f"the entry and MARKED — the slippage guard was not run on it",
+              action="fill_price_estimated", result="ESTIMATED",
+              level=logging.WARNING,
+              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                    "ticker": ticker})
+        self._record_warning("entry_price_estimated")
 
     def _note_entry_unread_close(self, pos: "LivePosition", action: str,
                                  exit_source: str) -> None:
@@ -11780,7 +11965,10 @@ class LiveExecutor:
             pos.closed_at = datetime.now(UTC)
             # Provenance, same field _record_exchange_close fills: a forensic
             # pass must be able to tell an unpriced record from a real fill.
-            pos.fill_source = ((_fill_src + (ENTRY_UNREAD if entry_unread else ""))
+            pos.fill_source = ((_fill_src + entry_close_suffix(
+                                    pos, entry_unread=entry_unread,
+                                    local_pnl=(exchange_pnl is None
+                                               and net_pnl is not None)))
                                if exit_price_known else "unread")
 
             # AUDIT-FIX: Append to closed trades BEFORE save_positions, because
@@ -13065,7 +13253,9 @@ class LiveExecutor:
         # Provenance: how this close was sourced — "ticker_fallback" flags a
         # record whose exit/PnL are inferred, not exchange-authoritative, so a
         # future forensic pass can tell a fabricated record from a real fill.
-        pos.fill_source = fill_source + (ENTRY_UNREAD if entry_unread else "")
+        pos.fill_source = fill_source + entry_close_suffix(
+            pos, entry_unread=entry_unread,
+            local_pnl=(exchange_reported_pnl is None and net_pnl is not None))
 
         self._append_closed_trade(pos)
         self._save_positions()
@@ -13676,6 +13866,11 @@ class LiveExecutor:
                     "partial_tp_state": pos.partial_tp_state,
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
+                    # WHERE THE ENTRY CAME FROM. Unsaved, a restart turned an
+                    # entry estimated from the pre-order ticker into a fill
+                    # on every surface at once. None for a path that records
+                    # no source (a limit fill), restored as absent.
+                    "entry_source": getattr(pos, "entry_source", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time
                     # exit back on the placement clock.
@@ -14372,7 +14567,10 @@ class LiveExecutor:
                             if entry_unread:
                                 self._note_entry_unread_close(
                                     pos, "reconcile_close", fill_source)
-                                fill_source = fill_source + ENTRY_UNREAD
+                            fill_source = fill_source + entry_close_suffix(
+                                pos, entry_unread=entry_unread,
+                                local_pnl=(exchange_reported_pnl is None
+                                           and pnl is not None))
 
                             pos.close_reason = reason
                             pos.status = "closed"

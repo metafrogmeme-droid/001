@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 693 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 691 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -14478,6 +14478,86 @@ passes and a mutation of the RULE changes no verdict there -- the argument
 `candle_hygiene_baseline` already makes for its own two-way rule.
 (`tests/test_the_audits_allow_list_is_in_the_units_the_flag_reads.py`.)
 
+**A MARKET FILL NOBODY STATED WAS BOOKED AT THE TICKER READ BEFORE THE ORDER,
+AND EVERY SURFACE CALLED IT THE FILL.** `execute()` reads the fill price off
+the order response (`average`, else `price`), else off the fills it produced,
+else off the order read back, else off the position row read after the fill
+-- and when none of those states one, `current_price`: the ticker read BEFORE
+the order went out. Driven through the real `execute` with a Bitget-shaped
+venue (its create endpoint answers ids only, so `average`, `price` and
+`filled` parse as None), fills empty, an order read-back with no average and
+a position row with `entryPrice: None`:
+
+    pre-order ticker 4000.0   recorded entry 4000.0   card: "Fill: $4,000.00"
+    markers: none             audits: fill_fallback ESTIMATED (the QUANTITY)
+
+The one audit line was about the quantity. The price reached the record as
+a fill, the card printed it as one, the slippage tracker recorded the idea's
+distance from the ticker as slippage and the slippage guard measured the
+same nothing, and every reader downstream -- the chat prompt's row, the
+`/positions` card, the time-exit R, the close's local P&L -- took the figure
+as the venue's. A latency blip on a live fill is enough to reach it, and the
+periodic position sync corrected leverage and margin on every pass and never
+the entry.
+
+**THE SOURCE TRAVELS WITH THE FIGURE, AND ONLY THE ESTIMATE IS A MARKER.**
+`entry_source` says where a market entry came from -- `order`, `fills`,
+`fetched_order`, `venue_row`, later `venue_sync` -- and `ENTRY_ESTIMATED`
+(`pre_order_ticker`) is the one value readers act on; the rest are
+provenance, so a stated fill is never overwritten by a later average that
+can legitimately differ from it (a pyramid add moves the venue's average).
+The estimate is SAID: `_note_entry_estimated` writes a WARNING, an
+`ESTIMATED` audit row naming the four reads that stated nothing, and a
+warning-rate event, the way an unread entry at close is said; the card
+prints `Fill: ~$4,000.0000 ESTIMATED from the pre-order ticker -- the venue
+stated no fill price`; the chat prompt's row tells the model to treat the
+entry, its R and its P&L as approximate; the web row carries a THREE-valued
+flag (an older record or a limit fill recorded no source, and None is not
+False). The slippage record and guard are skipped for it -- the "fill" is
+the ticker the idea was priced from, so the comparison would measure
+nothing and a flatten on it would act on a slippage nobody read. It is
+saved and restored (a marker that is not persisted is a marker for one
+process lifetime), and the drift fallback's market order takes the same
+reading. A close whose P&L was computed LOCALLY off an estimate carries
+`+entry_estimated` in its `fill_source`, the `ENTRY_UNREAD` shape: a
+venue-priced close carries nothing, because the venue knows the entry even
+when this record only estimated it.
+
+**THE SYNC CORRECTS IT FROM THE VENUE'S OWN FIGURE, and only an estimate.**
+The periodic position sync already reads the v3 row that carries `avgPrice`
+(the venue's average entry) beside the leverage it trues up; a position
+marked estimated takes that figure, recomputes its margin at the synced
+leverage, audits `entry_sync: UPDATED` with both prices, and reads as
+`venue_sync` from then on -- the way `clear_unread` hands an unread leverage
+back. A row stating no usable average (blank, `0`, junk, negative, NaN)
+corrects nothing, and `venue_avg_price` reads the three spellings the venues
+use. The trailing state's 1R was computed off the estimate and is left
+alone, stated rather than hidden: the error is bounded by the spread the
+entry gate admitted, and moving a ladder's risk unit after the fact is a
+decision about the ladder. The limit-fill paths are left as they were for a
+reason: a limit fills at its price or better, so recording the limit price
+is a bound the venue accepted rather than an estimate, and those paths
+record no source. The honesty ratchet counted the fix as an improvement
+(`get-default-zero` in the executor 37 -> 35) and was re-recorded.
+
+**Twenty-four mutations, each killed -- and the one the driver REFUSED on the
+first round was its own anchor.** "The source is not saved" spelled the open
+row's `entry_source` line followed by the dict's closing brace, and the row
+this build writes carries the fill time below it, so the anchor matched zero
+times; a driver that took that for a kill would have reported coverage of the
+persisted row it never touched. Re-aimed on the row's own next comment, it
+dies on the save-and-restore drive. The rest die where the drives say: the
+ticker booked as an order price, each of the three stated sources left
+carrying the ticker's word, the source never written onto the position, the
+estimate not said, the slippage tracker and the slippage guard measuring the
+ticker against the idea, the card printing the estimate as a fill or never
+told, the source not restored, the sync correcting every entry or none or
+leaving the estimate marked or keeping the old margin, a zero average read as
+a price, the close suffix written for a venue-priced close or a stated entry,
+the bot's own close dropping it, the drift fallback booking the ticker as an
+order price or printing it as a fill, the chat row saying nothing, and the web
+row's flag collapsed to two values.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15769,7 +15849,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **450 of 1135** reach for source text through `source_scan`, `code_only`
+Driven, **450 of 1136** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 450 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
