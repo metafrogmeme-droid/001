@@ -16394,8 +16394,21 @@ the generated safety-flags block in `.env.example` was one line stale
 (`bot/backtest/engine.py:172` to `:173`, the fill's own edit), regenerated.
 The one forgiven flaky test in that run,
 `test_it_beats_the_quadratic_form_by_orders_of_magnitude`, is a ratio of two
-timings taken once each under full-suite load; it takes the best of three
-on EACH side now, the reading a load spike cannot lower.
+timings taken once each under full-suite load.
+
+> **And the repair for that flake failed the next preflight alone.** Its
+> first draft took the best of three on EACH side, which ran the quadratic
+> stdlib pass three times over the 12,800-line executor: about 20s a pass,
+> past the suite's 60s timeout, so the gate refused 8af5fb9a on a test that
+> now failed in the run AND alone. Only one side can manufacture a failure:
+> a load spike inside the stdlib pass makes it slower, which WIDENS the
+> margin; a spike inside our pass is the one that can invert the ratio. So
+> the stdlib runs once, ours takes the best of five, and both time the same
+> strided sample of about forty nodes from the top of the file to the
+> bottom -- each stdlib call splits the whole file whichever node it is
+> asked about, so every node in the sample sees the quadratic case. 14s
+> alone, where the draft was over 60. A repair aimed at the scheduler that
+> had not measured the cost of its own measurement.
 
 > **And the citation remap keyed its maps by basename.** `engine.py` is
 > both `bot/core/engine.py` and `bot/backtest/engine.py`, and this round

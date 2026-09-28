@@ -194,33 +194,41 @@ class TestItIsActuallyFasterOnThePathologicalFile:
         # itself stayed two orders of magnitude ahead. The 50x bar is the
         # lookup, measured on the whole file so the quadratic case is what
         # the bar sees.
-        # Best of three on EACH side. Two timings taken once each under
-        # full-suite load are one measurement of the code and one of the
-        # scheduler: the 2026-09-28 preflight forgave this test as flaky
-        # when a load spike landed inside the stdlib pass and inverted the
-        # ratio on a file byte-identical to main. The minimum over three
-        # passes is the reading a spike cannot lower, on either side, and
-        # the claim (a two-orders-of-magnitude margin) is unchanged.
-        def _best_of(passes: int, fn) -> float:
-            best = float("inf")
-            for _ in range(passes):
-                t = time.perf_counter()
-                fn()
-                best = min(best, time.perf_counter() - t)
-            return best / len(funcs)
+        # A strided sample, the SAME nodes on both sides, spread from the top
+        # of the file to the bottom. The stdlib's cost per call is one split of
+        # the WHOLE file whichever node it is asked about, so every node in the
+        # sample sees the quadratic case; timing all of them cost ~20s a pass
+        # on the 12,800-line executor, alone.
+        #
+        # The stdlib side runs ONCE and ours takes the BEST OF FIVE, because
+        # only one of them can manufacture a failure. A load spike inside the
+        # stdlib pass makes the stdlib slower, which only widens the margin;
+        # a spike inside our pass is the one that can invert the ratio. The
+        # previous draft took the best of three on BOTH sides and so ran the
+        # quadratic pass three times -- about 60s alone, past this suite's
+        # 60s timeout, and it failed the full preflight alone as well as in
+        # the run. A repair aimed at the scheduler that had not measured the
+        # cost of its own measurement.
+        stride = max(1, len(funcs) // 40)
+        sample = funcs[::stride]
+
+        def _timed(fn) -> float:
+            t = time.perf_counter()
+            fn()
+            return (time.perf_counter() - t) / len(sample)
 
         def _stdlib_pass() -> None:
-            for n in funcs:
+            for n in sample:
                 ast.get_source_segment(src, n)
 
         seg = segment_reader(src)
 
         def _ours_pass() -> None:
-            for n in funcs:
+            for n in sample:
                 seg(n)
 
-        stdlib_per_node = _best_of(3, _stdlib_pass)
-        ours_per_node = _best_of(3, _ours_pass)
+        stdlib_per_node = _timed(_stdlib_pass)
+        ours_per_node = min(_timed(_ours_pass) for _ in range(5))
 
         assert ours_per_node * 50 < stdlib_per_node, (
             f"expected a large margin; stdlib {stdlib_per_node*1e6:.0f}us/node "
